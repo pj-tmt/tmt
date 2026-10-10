@@ -7,7 +7,7 @@ use tmt_remote::{
     journal::{DAY, RECOVERY},
     pairing::now_ms,
     state::Layout,
-    store::{DEFAULT_SCOPES, Store, uuid_v4},
+    store::{SUPPORTED_SCOPES, Store, uuid_v4},
     transport::{LoopbackTransport, Transport},
 };
 
@@ -243,7 +243,7 @@ fn persisted_calls_approvals_and_rollback_do_not_reset_budgets() {
 }
 #[test]
 fn held_adoption_refuses_at_outstanding_capacity() {
-    let owner = OwnerDoor::with_policy(DEFAULT_SCOPES.map(str::to_owned).into(), "hold");
+    let owner = OwnerDoor::with_policy(SUPPORTED_SCOPES.map(str::to_owned).into(), "hold");
     let session = owner.open();
     for sequence in 1..=16 {
         assert_eq!(

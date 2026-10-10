@@ -15,7 +15,7 @@ use tmt_remote::{
     pairing::now_ms,
     session::DoorSessions,
     state::{Layout, MachineKey, Serving},
-    store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+    store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
     transport::{LoopbackTransport, Transport},
     wire::{SignedMessage, strict_json},
 };
@@ -43,7 +43,12 @@ struct OwnerDoor {
 }
 impl OwnerDoor {
     fn new() -> Self {
-        Self::with_scopes(DEFAULT_SCOPES.iter().map(|scope| (*scope).into()).collect())
+        Self::with_scopes(
+            SUPPORTED_SCOPES
+                .iter()
+                .map(|scope| (*scope).into())
+                .collect(),
+        )
     }
     fn with_scopes(scopes: Vec<String>) -> Self {
         Self::with_policy(scopes, "direct")
@@ -512,7 +517,7 @@ fn unsupported_operations_and_route_mismatch_leave_client_sequence_unchanged() {
 
 #[test]
 fn removed_or_empty_scopes_refuse_without_spending_sequence() {
-    let narrowed = DEFAULT_SCOPES
+    let narrowed = SUPPORTED_SCOPES
         .iter()
         .filter(|scope| **scope != "agents.read")
         .map(|scope| (*scope).into())

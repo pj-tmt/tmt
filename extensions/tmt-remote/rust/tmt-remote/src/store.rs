@@ -246,14 +246,16 @@ fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     })
     .transpose()
 }
-/// Default scopes, sorted bytewise.
-pub const DEFAULT_SCOPES: [&str; 5] = [
+/// Supported scopes, sorted bytewise; existing grants keep this vocabulary.
+pub const SUPPORTED_SCOPES: [&str; 5] = [
     "agents.read",
     "check.read",
     "results.read",
     "status.read",
     "talk",
 ];
+/// Read-only scopes issued by a bare pairing, sorted bytewise.
+pub const DEFAULT_SCOPES: [&str; 4] = ["agents.read", "check.read", "results.read", "status.read"];
 /// A trusted device grant as the channel contract names its fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grant {
@@ -847,6 +849,42 @@ mod tests {
     use crate::state::Layout;
 
     #[test]
+    fn existing_full_grant_reopens_without_narrowing_or_receipt_change() {
+        let root = std::env::temp_dir().join(format!("tmt-talk-legacy-{}", uuid_v4().unwrap()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let machine = store.machine().unwrap();
+        let grant = Grant {
+            client_id: uuid_v4().unwrap(),
+            public_key: [7; 32],
+            kind: "cli".into(),
+            origin: "cli".into(),
+            name: "Existing device".into(),
+            agents: "all".into(),
+            scopes: SUPPORTED_SCOPES.map(str::to_owned).into(),
+            mode: "direct".into(),
+            issued_at_ms: 1,
+            expires_at_ms: None,
+            revision: 1,
+            disabled: false,
+        };
+        store.insert_grant(&grant).unwrap();
+        let receipt = crate::pairing::receipt(&grant, &machine.id, &[9; 32]).unwrap();
+        drop(store);
+        let store = Store::open(&serving).unwrap();
+        let reopened = store.grant(&grant.client_id).unwrap().unwrap();
+        assert_eq!(reopened, grant);
+        assert!(reopened.permits_scope("talk"));
+        assert_eq!(
+            crate::pairing::receipt(&reopened, &machine.id, &[9; 32]).unwrap(),
+            receipt
+        );
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn connection_enforces_foreign_keys_and_full_sync() {
         let root = std::env::temp_dir().join(format!("tmt-1039-store-{}", std::process::id()));
         let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
@@ -930,7 +968,7 @@ mod tests {
             origin: "cli".into(),
             name: "Laptop".into(),
             agents: "all".into(),
-            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
             mode: "direct".into(),
             issued_at_ms: 1,
             expires_at_ms: None,

@@ -70,7 +70,7 @@ preserve unsupported peer errors. No HTTP descriptor or second status acquisitio
 [owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
 best-effort observation and use-time authority limits.
 
-The private pairing offer carries `ownerPolicyVersion: 1`; an explicit owner policy requires it
+The private pairing offer carries `ownerPolicyVersion: 1`; every pairing flow requires it
 before exposing the offer or confirming, otherwise the CLI reports `REMOTE_SERVE_OUTDATED`.
 
 Stop sends one control request to set serve's SIGTERM shutdown flag, then waits for
@@ -139,9 +139,10 @@ fixture also kills/restarts its disposable serve after a signed management commi
 acknowledgment, then verifies a fresh live Session's original receipt and designation. These are
 process-interruption tests, not power-loss or complete product/release acceptance.
 
-Pairing accepts owner-side `--talk`; every pairing still includes sending in this preparatory
-release. `--agents <uuid,...>` and `--hold` require it and narrow the issued policy, not enrollment.
-The terminal confirmation prompt and bare JSON confirmation retain their existing defaults.
+New pairings are read only. After the word-match confirmation, the terminal asks separately whether
+to allow sending, defaulting to no. Owner-side `--talk` preselects sending and skips that second
+prompt; bare JSON confirmation remains read only. `--agents <uuid,...>` and `--hold` require `--talk`
+and narrow the issued policy, not enrollment. Existing grants are unchanged; no migration ships.
 `tmt remote devices talk <clientId> on|off` changes only sending, preserving every other grant
 field, and works through the current serve or under the stopped serve lease. It commits sanitized
 audit metadata with the scope change; designated settings browsers use the existing immutable

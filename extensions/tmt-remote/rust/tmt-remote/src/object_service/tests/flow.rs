@@ -10,7 +10,7 @@ use crate::{
     canonical::{self, Envelope},
     session::DoorSessions,
     state::MachineKey,
-    store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+    store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
 };
 use crate::{
     http::{Door, Handler},
@@ -652,7 +652,7 @@ impl Device {
                 origin: origin.into(),
                 name: "Laptop".into(),
                 agents: "all".into(),
-                scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+                scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
                 mode: "direct".into(),
                 issued_at_ms: 1,
                 expires_at_ms: None,

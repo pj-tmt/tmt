@@ -30,7 +30,7 @@ use tmt_remote::{
     routes::Routes,
     site::Site,
     state::Layout,
-    store::{DEFAULT_SCOPES, Grant, Store},
+    store::{Grant, SUPPORTED_SCOPES, Store},
 };
 
 const OWNER: &str = "tmt_door=owner";
@@ -151,7 +151,7 @@ fn grant() -> Grant {
         origin: "cli".into(),
         name: "Laptop é".into(),
         agents: "all".into(),
-        scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+        scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
         mode: "direct".into(),
         issued_at_ms: 1,
         expires_at_ms: None,

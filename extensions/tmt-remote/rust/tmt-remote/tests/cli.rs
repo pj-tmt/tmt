@@ -689,6 +689,14 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     assert_eq!(running["devices"][0]["clientId"], client_id);
     assert_eq!(running["devices"][0]["kind"], "cli");
     assert_eq!(
+        running["devices"][0]["scopes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|scope| scope == "talk"),
+        explicit_policy
+    );
+    assert_eq!(
         running["devices"][0]["mode"],
         if explicit_policy { "hold" } else { "direct" }
     );
@@ -1030,7 +1038,7 @@ fn device_callback_missing_event_and_panicked_worker_fail_without_abort() {
 fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
     use tmt_remote::{
         state::Layout,
-        store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+        store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
     };
     for _ in 0..2 {
         let mut pilot = Pilot::new();
@@ -1044,7 +1052,7 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
             origin: "cli".into(),
             name: "Laptop".into(),
             agents: "all".into(),
-            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
             mode: "direct".into(),
             issued_at_ms: 1,
             expires_at_ms: None,
@@ -2529,31 +2537,33 @@ fn control_exchange(
     output
 }
 #[test]
-fn explicit_pair_policy_refuses_an_old_owner_before_exposing_or_confirming_its_offer() {
+fn every_pair_flow_refuses_an_old_owner_before_exposing_or_confirming_its_offer() {
     let pilot = Pilot::new();
     tmt_remote::state::Layout::open(&pilot.root.join("state")).unwrap();
-    for extra in [vec!["--talk"], vec!["--talk", "--hold"]] {
+    for extra in [vec![], vec!["--talk"], vec!["--talk", "--hold"]] {
         let mut args = vec!["pair", "--json"];
         args.extend(extra);
         let output = control_exchange(
             &pilot,
             &args,
             serde_json::json!({"op":"pair"}),
-            Some("{\"event\":\"offer\",\"link\":\"private-old-owner-link\"}\n"),
+            Some(
+                "{\"event\":\"offer\",\"link\":\"private-old-owner-link\"}\n{\"event\":\"ended\",\"reason\":\"cancelled\"}\n",
+            ),
             Some(""),
         );
         assert!(!output.status.success());
         assert!(output.stderr.is_empty());
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains("private-old-owner-link"),
+            "old owner offer exposed before marker refusal: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
         let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(answer["error"]["code"], "REMOTE_SERVE_OUTDATED");
         assert_eq!(
             answer["error"]["message"],
             tmt_remote::control::outdated_serve().message
-        );
-        assert!(
-            !String::from_utf8(output.stdout)
-                .unwrap()
-                .contains("private-old-owner-link")
         );
     }
 }
@@ -3137,7 +3147,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
 fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_policy() {
     use tmt_remote::{
         state::Layout,
-        store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+        store::{Grant, SUPPORTED_SCOPES, Store, uuid_v4},
     };
     let mut pilot = Pilot::new();
     let root = pilot.root.join("state");
@@ -3153,7 +3163,7 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
         origin: "cli".into(),
         name: "Owner device".into(),
         agents: serde_json::json!([uuid_v4().unwrap()]).to_string(),
-        scopes: DEFAULT_SCOPES.map(str::to_owned).to_vec(),
+        scopes: SUPPORTED_SCOPES.map(str::to_owned).to_vec(),
         mode: "hold".into(),
         issued_at_ms: tmt_remote::pairing::now_ms().unwrap(),
         expires_at_ms: None,
