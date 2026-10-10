@@ -173,13 +173,21 @@ the CLI `tmt colab export`. It asserts the page, both conversation files and the
 writers' comments, the accepted Ask and the stored reply.
 
 `tabs.spec.ts` pins the Remote contract the Ask design depends on: several
-sessions of one device can coexist, while session eviction at the configured
-limit ends only the evicted tab's transports and reports the active limit.
+sessions of one device can coexist; at the configured limit a detached session is evicted
+and reports the active limit, while an attached page is never evicted: a new page is refused
+(#2566) and every open page stays live.
 
 `idle-tab.spec.ts` (#2170) leaves one live tab idle for 150 s, past the door's 120 s tunnel
 limit, and counts the page's `/sync` sockets: none may close or reopen, because the server pings
 every 30 s. It takes about 2.5 minutes, so run it only for changes to the sync keepalive, the
 tunnel limits or the live reconnect path.
+
+`connection-readmit.spec.ts` (#2557) opens an owner page, advances the page epoch by adding and
+removing a share link, and expects the same tab, with no reload, to return to Live, read the next
+`page write` and deliver a Chat message to an agent. An epoch advance or authority recheck
+(`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it (up to three reopens a minute,
+five open attempts each, at 0/1/3/8/15 s); only a refusal that ends access is terminal, and the
+rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-page-readmission-2557).
 
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained
@@ -198,7 +206,7 @@ no product hook. Each ticket bullet maps to the evidence below (conformance name
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chat, annotation and Files attach   | `attachments.spec.ts` (Chat, document Files); `storage-lifecycle.spec.ts` annotation case with PNG/JPEG/WebP previews                                                                                                                                                                                                                                                                                                                       |
 | Video and CSP                       | the same case: video is download-only, the CSP header is equal before and after, and no `blob:`/`unsafe-inline`, embed or video element appears; every object URL is revoked                                                                                                                                                                                                                                                                |
-| Owner, reader, read-only, revoked   | `storage-lifecycle.spec.ts` principals case: owner, second paired device, read-only link; `devices revoke` and link removal end access; the epoch change shows "Preview stopped"                                                                                                                                                                                                                                                            |
+| Owner, reader, read-only, revoked   | `storage-lifecycle.spec.ts` principals case: owner, second paired device, read-only link; `devices revoke` and link removal end access; the owner's open page re-admits on the epoch change                                                                                                                                                                                                                                                 |
 | Interruption, original-ID recovery  | `object-channel.spec.ts`; conformance `lost_acknowledgments_observe_the_original`, `restart_preserves_originals_and_progress`, `discard_closes_the_original`                                                                                                                                                                                                                                                                                |
 | Quota                               | conformance level only: `entries_are_reserved_before_bytes_at_every_level`, `bytes_saturate_exactly_at_every_level`, `many_tiny_and_empty_objects_are_charged_each`, `retained_identities_are_never_evicted`                                                                                                                                                                                                                                |
 | Deletion, epoch change              | `storage-lifecycle.spec.ts` cross-resource case (`COLAB_PAGE_DELETED` for export and read after `delete --yes`); native `archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delivery`; a rotated page re-seals its document attachments under the new epoch (`attachments.spec.ts` rekey case, #2360), message attachments keep theirs                                                                                  |

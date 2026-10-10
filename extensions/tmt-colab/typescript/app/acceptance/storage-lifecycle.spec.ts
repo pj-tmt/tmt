@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Download, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -232,20 +232,48 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await expect(await pageAction(second, 'Files')).toHaveCount(0);
 
     // Removing the link ends the reader.
-    colab(['share', 'link', 'remove', created.pageId, link.linkId as string, '--yes']);
+    // `devices revoke` rotates epochs in the background and the owner CLI refuses a stale head
+    // (COLAB_STALE_HEAD): repeat the removal until that settles.
+    await expect
+      .poll(
+        () => {
+          try {
+            colab(['share', 'link', 'remove', created.pageId, link.linkId as string, '--yes']);
+            return 'removed';
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.includes('COLAB_STALE_HEAD')) throw error;
+            return 'stale';
+          }
+        },
+        { timeout: 30_000, intervals: [250, 500, 1000] },
+      )
+      .toBe('removed');
     await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 60_000,
     });
     await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
-    // Removing the link advanced the epoch: the owner's live session stops (STALE_EPOCH) and,
-    // reopened, still reads the file sealed under the earlier epoch.
-    await expect(first.getByRole('heading', { name: 'Preview stopped' })).toBeVisible({
+    // Removing the link advanced the epoch: the owner's open page re-admits on its own (#2557)
+    // and, without a reload, still reads the file sealed under the earlier epoch.
+    await expect(first.locator('.status.live .status-label')).toHaveText('Live', {
       timeout: 60_000,
     });
-    await first.reload();
-    await openFiles(first);
+    await expect(first.getByRole('heading', { name: 'Preview stopped' })).toHaveCount(0);
+    // The Files panel opened earlier stays open across the re-admission.
+    await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
-    expect(await downloaded(first, rowsOf(first).first(), note.name)).toBe(sha(note.buffer));
+    // The click may land before the re-admitted binding's disclosure scope settles, and the
+    // opener ignores a click on a scope that moved; a person clicks again, so the case does too.
+    const row = rowsOf(first).first();
+    let saved: Download | null = null;
+    for (let attempt = 0; attempt < 6 && !saved; attempt++) {
+      const pending = first.waitForEvent('download', { timeout: 8_000 }).catch(() => null);
+      await row.getByRole('button', { name: text.attachmentDownload }).click();
+      saved = await pending;
+    }
+    expect(saved, 'the owner downloads the file again after the re-admission').not.toBeNull();
+    expect(saved!.suggestedFilename()).toBe(note.name);
+    expect(sha(fs.readFileSync((await saved!.path())!))).toBe(sha(note.buffer));
   });
 });
 

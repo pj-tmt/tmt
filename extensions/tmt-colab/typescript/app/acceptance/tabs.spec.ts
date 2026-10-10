@@ -1,6 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
-import { expect, test } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
+import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -61,53 +60,33 @@ test('Remote keeps concurrent sessions per device and reports the evicted limit'
   });
 });
 
-test('an evicted Colab tab shows the cap while the other tabs stay live', async () => {
+// Remote never evicts an attached session (#2566): at the device cap a new page is refused and
+// every open page stays live. The refused tab shows the paired-space failure until C1c names the
+// cap; closing an open tab frees a session for a reload.
+test('a device at its session cap refuses a new page and keeps the open pages live', async () => {
   await withWorld(async (world) => {
     run(world, world.binaries.remote, ['settings', 'sessions-per-device', '2']);
     const door = await startDoor(world);
     await world.startAgent('ask-recipient');
     const created = createPage(world, 'Several tabs', '<h1>Several tabs</h1>');
     const browser = await pairBrowser(world, 'one-device');
-    const tabs = [];
-    for (let index = 0; index < 3; index++) {
+    const heading = (tab: Page) =>
+      tab.frameLocator('iframe').getByRole('heading', { name: 'Several tabs' });
+    const tabs: Page[] = [];
+    for (let index = 0; index < 2; index++) {
       const tab = await openPage(door, browser, created);
-      await expect(
-        tab.frameLocator('iframe').getByRole('heading', { name: 'Several tabs' }),
-      ).toBeVisible();
+      await expect(heading(tab)).toBeVisible();
       tabs.push(tab);
     }
-    await expect(tabs[0].getByRole('alert')).toContainText('limit of 2 Remote sessions');
-    await expect(tabs[0].getByRole('alert')).toContainText(
-      'tmt remote settings sessions-per-device 3',
-    );
-    const captures = process.env.COLAB_1768_CAPTURE_DIR;
-    if (captures) {
-      mkdirSync(captures, { recursive: true });
-      for (const [tab, state] of [
-        [tabs[0], 'evicted'],
-        [tabs[2], 'live'],
-      ] as const)
-        for (const theme of ['light', 'dark']) {
-          await tab.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
-          for (const width of [1440, 390]) {
-            await tab.setViewportSize({ width, height: 900 });
-            await tab.screenshot({
-              path: `${captures}/${state}-${width}-${theme}.png`,
-              fullPage: true,
-            });
-          }
-        }
-    }
-    for (const tab of tabs.slice(1)) {
-      await expect(
-        tab.frameLocator('iframe').getByRole('heading', { name: 'Several tabs' }),
-      ).toBeVisible();
-    }
+    const refused = await openPage(door, browser, created);
+    await expect(refused.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+    await expect(heading(refused)).toHaveCount(0);
+    for (const tab of tabs) await expect(heading(tab)).toBeVisible();
+    await expect(tabs[0].getByRole('alert')).toHaveCount(0);
     await tabs[1].close();
-    await expect(
-      tabs[2].frameLocator('iframe').getByRole('heading', { name: 'Several tabs' }),
-    ).toBeVisible();
-    await expect(tabs[0].getByRole('alert')).toContainText('limit of 2 Remote sessions');
+    await refused.reload();
+    await expect(heading(refused)).toBeVisible({ timeout: 30_000 });
+    await expect(heading(tabs[0])).toBeVisible();
   });
 });
 
