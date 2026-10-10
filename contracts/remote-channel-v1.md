@@ -779,17 +779,22 @@ editable forms and device-name inputs do not reference hidden read-only guidance
 session-limit help remains associated in both roles. Unknown or capacity outcomes disable further mutation submission without discarding
 original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.
 
-The page keeps current access status separate from committed/refused/unknown outcome. Explicit
-original-outcome reading makes at most one fresh admission attempt, then only the original lookup.
-`reopenSession(previousSession)` binds to the existing paired identity/public trust pins and rejects
-re-pair/key replacement before any descriptor read or admission. The stored machine pin must be a
-32-byte Uint8Array equal in every byte to the verified prior Session pin; empty, shortened or
-overlong pins are terminal current-access refusals before network access. It reads the current door descriptor and, after an
-HTTP admission refusal, rechecks that descriptor without a second admission. Changed/unavailable/
-malformed descriptors and transport/unverified replies remain unconfirmed. A refused admission
-against the unchanged trusted descriptor shows current access loss; it never proves the original
-mutation committed or permanent grant loss. No captured key is persisted as a recovery capability.
-The existing no-argument reopen behavior and ordinary agent operations remain unchanged.
+The page keeps current access separate from committed/refused/unknown outcome. Explicit
+original-outcome reading and ended/grant-changed read refreshes use one
+[bounded live-grant re-admission series](#signed-envelopes), then only the original lookup or repeated
+read; no mutation is resent. Verified revoked/expired fresh-open proof shows current access loss;
+opaque 404, unverifiable replies and other bounded reasons remain unconfirmed. Capacity shows the
+existing capacity action. Verified access loss stops further refresh admission until reload/re-pair.
+Both reopen modes bind to the existing paired identity/public trust pins and reject re-pair/key
+replacement before network access. The stored machine pin must be a 32-byte Uint8Array equal in
+every byte to the prior verified Session pin. Invalid/replaced pins or identity are refused before
+network access: one-shot `reopenSession(previousSession)` throws `REMOTE_SESSION_ENDED`; the bounded
+series ends as `mismatch`. For the one-shot call and its callers, an HTTP admission refusal rechecks
+the descriptor without a second admission;
+changed/unavailable/malformed descriptors and transport/unverified replies remain unconfirmed.
+A one-shot refusal against the unchanged trusted descriptor shows current access loss; it proves
+neither the original mutation committed nor permanent grant loss. No captured key is persisted as
+a recovery capability. No-argument reopen behavior and ordinary agent operations stay unchanged.
 
 ### Browser entry
 

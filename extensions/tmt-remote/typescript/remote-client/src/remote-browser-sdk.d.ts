@@ -4,5 +4,6 @@ declare module 'remote-browser-sdk' {
   export const management: typeof import('./browser.js').management;
   export const reopenSession: typeof import('./browser.js').reopenSession;
   export const ClientError: typeof import('./browser.js').ClientError;
+  export const ReopenSessionError: typeof import('./browser.js').ReopenSessionError;
   export const RefusalError: typeof import('./browser.js').RefusalError;
 }

@@ -2207,28 +2207,16 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   );
   expect(revokeCalls).toBe(1);
   expect(opens).toBe(2);
-  // Observe completion even when the ended SDK rejects locally without an HTTP request.
-  await page.evaluate(() => {
-    const fixtureWindow = window as typeof window & { refreshFinished?: Promise<void> };
-    const control = document.querySelector<HTMLButtonElement>('#refresh')!;
-    fixtureWindow.refreshFinished = new Promise((resolve) => {
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => record.oldValue !== null) && !control.disabled) {
-          observer.disconnect();
-          resolve();
-        }
-      });
-      observer.observe(control, {
-        attributes: true,
-        attributeFilter: ['disabled'],
-        attributeOldValue: true,
-      });
-    });
-  });
+  // Verified loss is terminal: Refresh performs no read or new admission.
+  let requestsAfterLoss = 0;
+  const recordRequest = () => requestsAfterLoss++;
+  page.on('request', recordRequest);
   await page.click('#refresh');
-  await page.evaluate(async () => {
-    await (window as typeof window & { refreshFinished: Promise<void> }).refreshFinished;
-  });
+  await expect(page.locator('#refresh')).toBeEnabled();
+  await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#access')).toContainText('refused');
+  expect(requestsAfterLoss).toBe(0);
+  page.off('request', recordRequest);
   await expect(page.locator('#outcome'), JSON.stringify(statuses)).toHaveAttribute(
     'data-state',
     'unknown',
