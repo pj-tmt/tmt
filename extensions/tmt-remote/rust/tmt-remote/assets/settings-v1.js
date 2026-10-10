@@ -284,7 +284,7 @@ var ManagementPage = class {
 			this.busy = false;
 		}
 	}
-	/** One explicit fresh live-grant admission attempt, then only the original read.
+	/** One explicit bounded live-grant re-admission series, then only the original read.
 	* Access refusal never establishes the prior mutation's outcome.
 	*/
 	async recover() {

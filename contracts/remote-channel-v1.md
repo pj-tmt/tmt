@@ -787,8 +787,10 @@ opaque 404, unverifiable replies and other bounded reasons remain unconfirmed. C
 existing capacity action. Verified access loss stops further refresh admission until reload/re-pair.
 Both reopen modes bind to the existing paired identity/public trust pins and reject re-pair/key
 replacement before network access. The stored machine pin must be a 32-byte Uint8Array equal in
-every byte to the prior verified Session pin. For the one-shot `reopenSession(previousSession)` and
-its callers, an HTTP admission refusal rechecks the descriptor without a second admission;
+every byte to the prior verified Session pin. Invalid/replaced pins or identity are refused before
+network access: one-shot `reopenSession(previousSession)` throws `REMOTE_SESSION_ENDED`; the bounded
+series ends as `mismatch`. For the one-shot call and its callers, an HTTP admission refusal rechecks
+the descriptor without a second admission;
 changed/unavailable/malformed descriptors and transport/unverified replies remain unconfirmed.
 A one-shot refusal against the unchanged trusted descriptor shows current access loss; it proves
 neither the original mutation committed nor permanent grant loss. No captured key is persisted as
