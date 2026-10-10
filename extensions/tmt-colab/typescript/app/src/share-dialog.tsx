@@ -391,7 +391,7 @@ export function ShareDialog({
               />
               <p>
                 {view.page.history === 'shared'
-                  ? 'Anyone with this link can read the shared history, including deleted text, snapshots, comments and agent replies. Only the 64 most recent epochs are shared; older history is not shared.'
+                  ? `${view.links.length ? 'Anyone with this link' : 'If you create a link, its readers'} can read the shared history, including deleted text, snapshots, comments and agent replies. Only the 64 most recent epochs are shared; older history is not shared.`
                   : 'A new link reads everything in the current epoch since its last advance, with no earlier epochs. Named-member joins rotate to a current-view baseline.'}
               </p>
               <button
