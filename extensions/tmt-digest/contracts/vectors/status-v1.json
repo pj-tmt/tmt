@@ -1,0 +1,901 @@
+{
+  "contract": "../digest-v1.md",
+  "phase": 2,
+  "status": [
+    {
+      "name": "mixed-modes",
+      "given": {
+        "globalDefault": "auto",
+        "flushCount": 10
+      },
+      "response": {
+        "version": 1,
+        "observedAtMs": 1791630000000,
+        "members": [
+          {
+            "identityId": "10000000-0000-4000-8000-000000000001",
+            "name": "Inherited auto",
+            "mode": "auto",
+            "intervalMs": null,
+            "settingSource": "default",
+            "settingValue": "default",
+            "heldCount": 0,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": null,
+            "timeToSendMs": null,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Auto",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "default",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000001", "{value}"]
+                }
+              },
+              {
+                "text": "No held messages",
+                "colorClass": "dim",
+                "action": null
+              }
+            ]
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000002",
+            "name": "Explicit auto",
+            "mode": "auto",
+            "intervalMs": null,
+            "settingSource": "member",
+            "settingValue": "auto",
+            "heldCount": 3,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": null,
+            "timeToSendMs": null,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Auto",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "auto",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000002", "{value}"]
+                }
+              },
+              {
+                "text": "3 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "When idle",
+                "colorClass": "muted",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000003",
+            "name": "Custom interval",
+            "mode": "interval",
+            "intervalMs": 20000,
+            "settingSource": "member",
+            "settingValue": "20s",
+            "heldCount": 3,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": 1791630020000,
+            "timeToSendMs": 20000,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 20s",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Every 20s (custom)",
+                      "value": "20s"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "20s",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}"]
+                }
+              },
+              {
+                "text": "3 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "In 20s",
+                "colorClass": "muted",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000004",
+            "name": "Due interval",
+            "mode": "interval",
+            "intervalMs": 300000,
+            "settingSource": "member",
+            "settingValue": "5m",
+            "heldCount": 4,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": 1791629999000,
+            "timeToSendMs": 0,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 5m",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "5m",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000004", "{value}"]
+                }
+              },
+              {
+                "text": "4 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "Due now",
+                "colorClass": "waiting",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000005",
+            "name": "Off with held",
+            "mode": "off",
+            "intervalMs": null,
+            "settingSource": "member",
+            "settingValue": "off",
+            "heldCount": 2,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": null,
+            "timeToSendMs": null,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Off",
+                "colorClass": "dim",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "off",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000005", "{value}"]
+                }
+              },
+              {
+                "text": "2 held",
+                "colorClass": "muted",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000006",
+            "name": "Unavailable stats",
+            "mode": "interval",
+            "intervalMs": 300000,
+            "settingSource": "member",
+            "settingValue": "5m",
+            "heldCount": null,
+            "statsObservedAtMs": null,
+            "nextSendAtMs": null,
+            "timeToSendMs": null,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 5m",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "5m",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000006", "{value}"]
+                }
+              },
+              {
+                "text": "Unknown",
+                "colorClass": "dim",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000007",
+            "name": "Unknown setter",
+            "mode": "interval",
+            "intervalMs": 300000,
+            "settingSource": "member",
+            "settingValue": "5m",
+            "heldCount": 4,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": 1791630020000,
+            "timeToSendMs": 20000,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 5m",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "5m",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000007", "{value}"]
+                }
+              },
+              {
+                "text": "4 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "In 20s",
+                "colorClass": "muted",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000008",
+            "name": "Early flush",
+            "mode": "interval",
+            "intervalMs": 300000,
+            "settingSource": "member",
+            "settingValue": "5m",
+            "heldCount": 10,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": 1791630020000,
+            "timeToSendMs": 0,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 5m",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Auto)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "5m",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000008", "{value}"]
+                }
+              },
+              {
+                "text": "10 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "Due now",
+                "colorClass": "waiting",
+                "action": null
+              }
+            ],
+            "setAtMs": 1791629940000,
+            "setByIdentityId": "20000000-0000-4000-8000-000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "inherited-interval",
+      "given": {
+        "globalDefault": "5m",
+        "flushCount": 10
+      },
+      "response": {
+        "version": 1,
+        "observedAtMs": 1791630000000,
+        "members": [
+          {
+            "identityId": "10000000-0000-4000-8000-000000000009",
+            "name": "Inherited interval",
+            "mode": "interval",
+            "intervalMs": 300000,
+            "settingSource": "default",
+            "settingValue": "default",
+            "heldCount": 2,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": 1791630020000,
+            "timeToSendMs": 20000,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Every 5m",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Every 5m)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "default",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000009", "{value}"]
+                }
+              },
+              {
+                "text": "2 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "In 20s",
+                "colorClass": "muted",
+                "action": null
+              }
+            ]
+          },
+          {
+            "identityId": "10000000-0000-4000-8000-000000000010",
+            "name": "Explicit auto over interval default",
+            "mode": "auto",
+            "intervalMs": null,
+            "settingSource": "member",
+            "settingValue": "auto",
+            "setAtMs": 1791629940000,
+            "heldCount": 3,
+            "statsObservedAtMs": 1791629999000,
+            "nextSendAtMs": null,
+            "timeToSendMs": null,
+            "savings": null,
+            "labels": [
+              {
+                "text": "Auto",
+                "colorClass": "text",
+                "action": {
+                  "kind": "choose",
+                  "options": [
+                    {
+                      "label": "Default (Every 5m)",
+                      "value": "default"
+                    },
+                    {
+                      "label": "Auto",
+                      "value": "auto"
+                    },
+                    {
+                      "label": "Every 1m",
+                      "value": "1m"
+                    },
+                    {
+                      "label": "Every 5m",
+                      "value": "5m"
+                    },
+                    {
+                      "label": "Every 10m",
+                      "value": "10m"
+                    },
+                    {
+                      "label": "Every 30m",
+                      "value": "30m"
+                    },
+                    {
+                      "label": "Every 1h",
+                      "value": "1h"
+                    },
+                    {
+                      "label": "Off",
+                      "value": "off"
+                    }
+                  ],
+                  "current": "auto",
+                  "argv": ["digest", "10000000-0000-4000-8000-000000000010", "{value}"]
+                }
+              },
+              {
+                "text": "3 held",
+                "colorClass": "muted",
+                "action": null
+              },
+              {
+                "text": "When idle",
+                "colorClass": "muted",
+                "action": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-inventory",
+      "given": {
+        "globalDefault": "auto",
+        "flushCount": 10
+      },
+      "response": {
+        "version": 1,
+        "observedAtMs": 1791630000000,
+        "members": []
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "choose-custom",
+      "action": {
+        "kind": "choose",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}"],
+        "options": [
+          {
+            "label": "Every 20s (custom)",
+            "value": "20s"
+          }
+        ],
+        "current": "20s"
+      },
+      "selectedValue": "20s",
+      "expected": {
+        "result": "argv",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "20s"]
+      }
+    },
+    {
+      "name": "run-read-only",
+      "action": {
+        "kind": "run",
+        "argv": ["digest", "status", "--json"]
+      },
+      "expected": {
+        "result": "argv",
+        "argv": ["digest", "status", "--json"]
+      }
+    },
+    {
+      "name": "outside-namespace",
+      "action": {
+        "kind": "run",
+        "argv": ["ops", "sq", "show"]
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "namespace"
+      }
+    },
+    {
+      "name": "executable-in-argv",
+      "action": {
+        "kind": "run",
+        "argv": ["tmt", "digest", "status", "--json"]
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "namespace"
+      }
+    },
+    {
+      "name": "shell-string",
+      "action": {
+        "kind": "run",
+        "argv": "digest status --json"
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "argv-shape"
+      }
+    },
+    {
+      "name": "embedded-placeholder",
+      "action": {
+        "kind": "choose",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "mode={value}"],
+        "options": [
+          {
+            "label": "Every 20s (custom)",
+            "value": "20s"
+          }
+        ],
+        "current": "20s"
+      },
+      "selectedValue": "20s",
+      "expected": {
+        "result": "refuse",
+        "reason": "placeholder"
+      }
+    },
+    {
+      "name": "missing-placeholder",
+      "action": {
+        "kind": "choose",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "20s"],
+        "options": [
+          {
+            "label": "Every 20s (custom)",
+            "value": "20s"
+          }
+        ],
+        "current": "20s"
+      },
+      "selectedValue": "20s",
+      "expected": {
+        "result": "refuse",
+        "reason": "placeholder"
+      }
+    },
+    {
+      "name": "repeated-placeholder",
+      "action": {
+        "kind": "choose",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}", "{value}"],
+        "options": [
+          {
+            "label": "Every 20s (custom)",
+            "value": "20s"
+          }
+        ],
+        "current": "20s"
+      },
+      "selectedValue": "20s",
+      "expected": {
+        "result": "refuse",
+        "reason": "placeholder"
+      }
+    },
+    {
+      "name": "other-placeholder",
+      "action": {
+        "kind": "choose",
+        "argv": ["digest", "{member}", "{value}"],
+        "options": [
+          {
+            "label": "Every 20s (custom)",
+            "value": "20s"
+          }
+        ],
+        "current": "20s"
+      },
+      "selectedValue": "20s",
+      "expected": {
+        "result": "refuse",
+        "reason": "placeholder"
+      }
+    },
+    {
+      "name": "run-placeholder",
+      "action": {
+        "kind": "run",
+        "argv": ["digest", "10000000-0000-4000-8000-000000000003", "{value}"]
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "placeholder"
+      }
+    },
+    {
+      "name": "unknown-kind",
+      "action": {
+        "kind": "shell",
+        "argv": ["digest", "status"]
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "kind"
+      }
+    },
+    {
+      "name": "empty-argv",
+      "action": {
+        "kind": "run",
+        "argv": []
+      },
+      "expected": {
+        "result": "refuse",
+        "reason": "argv-shape"
+      }
+    }
+  ]
+}
