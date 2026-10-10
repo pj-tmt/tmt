@@ -438,6 +438,7 @@ svg.tmt-ui-mark {
   border-color: var(--tmt-ui-color-edge);
 }
 .tmt-ui-icon-action-tooltip {
+  pointer-events: none;
   position: fixed;
   inset: auto;
   box-sizing: border-box;

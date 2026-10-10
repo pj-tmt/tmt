@@ -137,8 +137,11 @@ for (const width of [1440, 390])
       await expect(row).toBeVisible();
       if (phase === 'after') {
         const geometry = await row.evaluate((row) => {
-          const name = row.querySelector('.attachment-name')!.getBoundingClientRect();
-          const actions = row.querySelector('.attachment-actions')!.getBoundingClientRect();
+          const name = row
+            .closest('.conversation-body')!
+            .querySelector('.comment-body')!
+            .getBoundingClientRect();
+          const actions = row.querySelector('.attachment-thumbnail')!.getBoundingClientRect();
           return {
             name: name.toJSON(),
             actions: actions.toJSON(),
@@ -146,7 +149,7 @@ for (const width of [1440, 390])
             scroll: row.scrollWidth,
           };
         });
-        expect(geometry.actions.top).toBeLessThan(geometry.name.bottom);
+        expect(Math.abs(geometry.actions.left - geometry.name.left)).toBeLessThanOrEqual(1);
         expect(geometry.scroll).toBeLessThanOrEqual(geometry.width);
       }
       await shot('7-thread-attachment');

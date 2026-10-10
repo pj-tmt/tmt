@@ -153,11 +153,17 @@ the first original. Objects left unreferenced by a failed or abandoned Send stay
 backend; Colab runs no garbage collection, so reclaiming them belongs to Remote (#2294). A message that has attachments cannot be
 edited; deleting it removes its references.
 
-Each attachment row opens bytes only on a trusted click, through the admitted read of
-that exact message revision. A permitted raster previews from a `data:` URL after the
-header is parsed again; every other file is an explicit `application/octet-stream`
-download through the parent's blob-download lifecycle, revoked after hand-off and on
-unmount. No inline video, active content, relaxed CSP or renderer capability exists.
+Visible message raster tiles read through the admitted path for that exact message
+revision, serially and without preloading hidden images. The header is parsed again with
+`previewType` before a bounded PNG/JPEG/WebP becomes a `data:` thumbnail. A tile retains
+its display URL within the same live binding, disclosure scope and reference lifetime,
+including scrolling away and back; replacement, deletion or unmount clears it. A trusted
+viewer activation may read another image of the same message. Thumbnail bounds, grid,
+overflow, file-card presentation, viewer controls and alignment are defined by
+[Message attachments](../../../design/gui-style.md#message-attachments).
+Non-images and Files remain click-only; downloads use `application/octet-stream` through
+the parent's blob-download lifecycle, revoked after hand-off and on unmount. No inline
+video, active content, relaxed CSP or renderer capability exists.
 
 ### Page files in the Files panel (#1855)
 
