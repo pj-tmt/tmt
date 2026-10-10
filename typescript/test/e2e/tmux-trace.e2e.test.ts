@@ -1,8 +1,48 @@
 import { describe, expect, it } from 'vite-plus/test';
+import path from 'node:path';
 import { withE2EFixture } from './harness.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
 describe('tmux invocation trace', { concurrent: false }, () => {
+  it('refuses foreign socket metadata writes while allowing the private socket', async () => {
+    await withE2EFixture(async (fixture) => {
+      const foreignSocket = path.join(fixture.root, 'foreign.sock');
+      for (const prefix of [
+        ['-S', foreignSocket],
+        [`-S${foreignSocket}`],
+        ['-L', 'foreign-server'],
+        ['-Lforeign-server'],
+      ]) {
+        expect(() =>
+          fixture.tmux([...prefix, 'set-option', '-p', '-t', fixture.pane, '@tmt.agent', 'foreign'])
+        ).toThrow('E2E fixture refuses a foreign tmux socket');
+        expect(fixture.paneMetadata()).toBe('');
+      }
+      fixture.tmux([
+        '-S',
+        fixture.socketPath,
+        'set-option',
+        '-p',
+        '-t',
+        fixture.pane,
+        '@tmt.agent',
+        'private',
+      ]);
+      expect(fixture.paneMetadata()).toBe('private');
+      fixture.tmux([
+        '-S',
+        fixture.socketPath,
+        'set-option',
+        '-p',
+        '-u',
+        '-t',
+        fixture.pane,
+        '@tmt.agent',
+      ]);
+      expect(fixture.paneMetadata()).toBe('');
+    });
+  });
+
   it.each(['ambient', 'explicit socket'])(
     'traces %s commands without changing multiline or option-like payloads',
     async (selection) => {

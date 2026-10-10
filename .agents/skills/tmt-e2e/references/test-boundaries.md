@@ -126,6 +126,8 @@ values. Helpers never create a second fixture lifetime. Synchronous tmux calls
 have a five-second SIGKILL bound. Install one trace per fixture, reuse `clear()`,
 and refuse a second installation before changing its delegate.
 
+Strip inherited `TMUX`/`TMUX_PANE` from child environments and verify the fixture's private socket before allowing binding writes; the tmux shim refuses foreign socket selectors.
+
 Unknown group inspection stays pending inside the one-second cleanup bound;
 surviving or uninspectable groups fail cleanup. Preserve fixture cleanup order
 and error precedence. Pane-launched foregrounds remain scenario-owned: request

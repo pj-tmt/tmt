@@ -109,6 +109,10 @@ export class E2EFixture {
     }
   }
 
+  private get expectedSocketPath(): string {
+    return path.join(this.socketRoot, `tmux-${process.getuid!()}`, this.socket);
+  }
+
   async start(options: E2EFixtureOptions = {}): Promise<void> {
     try {
       fs.mkdirSync(this.workspace, { recursive: true });
@@ -118,6 +122,44 @@ export class E2EFixture {
       writeExecutable(
         path.join(this.wrapperDir, 'tmux'),
         `#!/bin/sh
+unset TMUX TMUX_PANE
+export TMUX_TMPDIR=${shellQuote(this.socketRoot)}
+TMT_E2E_SOCKET=${shellQuote(this.socket)}
+# A later explicit selector overrides the prepended private -L. Refuse it
+# before either delegation path, including metadata publication and removal.
+socket_option=""
+for arg in "${'$'}@"; do
+  if [ -n "${'$'}socket_option" ]; then
+    case "${'$'}socket_option" in
+      -S) expected=${shellQuote(this.expectedSocketPath)} ;;
+      -L) expected=${shellQuote(this.socket)} ;;
+      -f) socket_option=""; continue ;;
+    esac
+    if [ "${'$'}arg" != "${'$'}expected" ]; then
+      echo "E2E fixture refuses a foreign tmux socket" >&2
+      exit 97
+    fi
+    socket_option=""
+    continue
+  fi
+  case "${'$'}arg" in
+    -S|-L|-f) socket_option="${'$'}arg" ;;
+    -S*)
+      [ "${'$'}{arg#-S}" = ${shellQuote(this.expectedSocketPath)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
+      ;;
+    -L*)
+      [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
+      ;;
+    -f*) ;;
+    -*[SL]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
+    -*) ;;
+    *) break ;;
+  esac
+done
+if [ -n "${'$'}socket_option" ]; then
+  echo "E2E fixture requires a tmux option value" >&2
+  exit 97
+fi
 if [ "${'$'}{TMT_E2E_FORBID_TMUX:-}" = "1" ]; then
   echo "unexpected tmux invocation" >> "${'$'}TMT_E2E_FORBIDDEN_TMUX_LOG"
   exit 97
@@ -540,6 +582,9 @@ exit ${'$'}status
     );
     if (!this.socketPath || !this.pane) {
       throw new Error('E2E fixture could not determine private server socket and pane ID.');
+    }
+    if (this.socketPath !== this.expectedSocketPath) {
+      throw new Error('E2E fixture selected a socket outside its private server.');
     }
     if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
       throw new Error('E2E fixture could not determine mock-agent pane process ID.');
