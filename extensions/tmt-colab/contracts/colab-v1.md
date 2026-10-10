@@ -1990,8 +1990,8 @@ recipient's failure neither retries nor suppresses its siblings. The verified Re
 grant and current machine/agent UUIDs retain routing admission. An offline saved
 agent on an online machine may receive through the core inbox; a disconnected
 session or unavailable/replaced directory fences mention Sends while keeping the
-same editor, draft and caret. Directory recovery uses only explicit Reconnect or
-Try again. A plain comment remains available under content-write admission while
+same editor, draft and caret. Directory recovery uses only the page's reconnect (automatic
+and explicit) or Try again. A plain comment remains available under content-write admission while
 directory discovery loads or fails.
 
 Each Ask freezes and signs the exact composed text with the real thread and message
