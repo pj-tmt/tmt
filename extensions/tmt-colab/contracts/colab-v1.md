@@ -1962,10 +1962,12 @@ rendered question text and its surrounding context. The UUID never appears as a
 synthetic quote. Existing verified annotation threads whose selectors resolve
 inside that block are associated cosmetically; the frame cannot supply comments,
 answer state or recipients. Concurrent first answers may create sibling threads.
-The earliest verified writer/thread identity is canonical: its latest nondeleted
-device answer wins by Lamport/writer/message order; only while it has no answer
-does the latest sibling answer display, and later answers always append to the
-canonical thread. Agent replies never mark Answered; sibling history stays visible.
+The canonical thread prefers associated threads holding a nondeleted verified
+device answer, ordered by writer/thread identity; only when none has an answer
+does it use that identity order across all associated threads. Its latest device
+answer wins by Lamport/writer/message order, and later answers append there. An
+empty later sibling cannot displace an answered thread. Agent replies never mark
+Answered; sibling history stays visible.
 Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
 one proposal/question measurement batch, preserving sibling positions and focus.

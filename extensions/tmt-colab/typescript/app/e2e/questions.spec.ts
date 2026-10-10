@@ -114,7 +114,7 @@ test('near-limit text admits while an over-limit answer and malformed markup ref
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 
-test('canonical answers win; sibling fallback and agent provenance preserve the current answer', async ({
+test('answered canonical threads resist empty siblings and agent provenance preserves the answer', async ({
   page,
 }) => {
   const card = await mount(page);
@@ -143,8 +143,8 @@ test('canonical answers win; sibling fallback and agent provenance preserve the 
     empty: true,
     index: 2,
   });
-  await expect(card.locator('.question-answer')).toContainText('Other reader answer');
-  await expect(card.locator('.question-state')).toContainText('Other reader answered');
+  await expect(card.locator('.question-answer')).toContainText('Keep it');
+  await expect(card.locator('.question-state')).toContainText('You answered');
   await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await card.getByLabel('Change it', { exact: true }).check();
   await send(page);
@@ -154,7 +154,10 @@ test('canonical answers win; sibling fallback and agent provenance preserve the 
   expect(
     threads.find((thread: { ref: { writer: string } }) => thread.ref.writer.endsWith('000002'))
       .comments,
-  ).toHaveLength(1);
+  ).toHaveLength(0);
+  expect(
+    threads.find((thread: { comments: unknown[] }) => thread.comments.length === 2),
+  ).toBeDefined();
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
 });
 

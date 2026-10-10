@@ -15,6 +15,6 @@ Use a unique canonical UUID. Kinds: single/multiple with choices and optional
 trusted controls; Send names the recipient resolved from its directory. Answers
 are ordinary annotation comments mentioning the asking agent; read with
 `tmt colab threads PAGE --json`. Changing an answer adds a comment; the latest
-verified device answer in the canonical thread wins (a sibling is shown only
-until that thread has an answer). Reply through the normal receipt in the same thread.
+verified device answer in the canonical thread wins. Colab prefers an answered
+thread, using writer/thread identity order for ties. Reply through the normal receipt in the same thread.
 HTML names grant no routing authority. Removing the question keeps its thread.

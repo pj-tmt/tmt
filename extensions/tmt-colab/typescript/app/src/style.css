@@ -1271,6 +1271,9 @@ footer {
   padding: 0;
   margin: 12px 0;
 }
+.question-card > .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
+}
 .question-card fieldset label {
   display: flex;
   align-items: start;

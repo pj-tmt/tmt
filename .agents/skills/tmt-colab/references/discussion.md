@@ -75,9 +75,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   trusted controls, visible recipient selection and explicit comment-first Send.
   Latest device provenance is projected by `readThreads`, never stored in a record;
   edits read admitted records rather than copying projection metadata. Agent replies
-  cannot supply Answered. The earliest verified writer/thread is canonical: its
-  latest answer wins, siblings supply a fallback only until it has an answer, and
-  later answers append there. `comment-send.ts` and
+  cannot supply Answered. The canonical thread prefers a verified device answer,
+  with writer/thread identity order breaking ties or choosing an unanswered thread;
+  its latest answer wins and later answers append there. `comment-send.ts` and
   `comment-send-failures.tsx` share annotation/answer preparation and explicit retry
   behavior. Grammar and bounds live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 - Recipient Ask again: `CommentExchange` supplies the original own comment and

@@ -1,4 +1,9 @@
-import { COMMENT_BYTES, compareCommentOrder, type CommentView } from './thread-records.js';
+import {
+  COMMENT_BYTES,
+  compareCommentOrder,
+  type CommentView,
+  type ThreadView,
+} from './thread-records.js';
 
 export const QUESTION_LIMIT = 50;
 export const QUESTION_TITLE_POINTS = 200;
@@ -114,4 +119,19 @@ export function currentAnswer(question: Question, comments: readonly CommentView
       ),
     )
     .at(-1);
+}
+
+/** An empty later sibling cannot displace a conversation that already holds a device answer. */
+export function canonicalQuestionThread<T extends Pick<ThreadView, 'ref' | 'comments'>>(
+  question: Question,
+  threads: readonly T[],
+) {
+  return [...threads].sort((a, b) => {
+    const answered =
+      Number(!!currentAnswer(question, b.comments)) - Number(!!currentAnswer(question, a.comments));
+    if (answered) return answered;
+    const left = `${a.ref.writer}:${a.ref.id}`,
+      right = `${b.ref.writer}:${b.ref.id}`;
+    return left < right ? -1 : left > right ? 1 : 0;
+  })[0];
 }

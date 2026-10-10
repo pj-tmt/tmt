@@ -1,5 +1,10 @@
 import { expect, it } from 'vite-plus/test';
-import { answerComment, currentAnswer, type Question } from '../src/questions.js';
+import {
+  answerComment,
+  canonicalQuestionThread,
+  currentAnswer,
+  type Question,
+} from '../src/questions.js';
 import type { CommentView } from '../src/thread-records.js';
 const question: Question = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -94,4 +99,24 @@ it('the latest verified device answer wins by Lamport order, never time, replies
   ])
     expect(currentAnswer(question, comments)).toBe(later);
   expect(currentAnswer(question, [{ ...later, deviceAuthor: undefined }])).toBeUndefined();
+});
+
+it('a later empty sibling with a smaller id cannot take over an answered thread', () => {
+  const answered = {
+    ref: { writer: 'b', id: 'b' },
+    comments: [comment('b', 'c', '1', 'Answer to “Which colour?”: Blue')],
+  };
+  const empty = { ref: { writer: 'a', id: 'a' }, comments: [] };
+  const agent = {
+    ...empty,
+    comments: [comment('a', 'd', '9', 'Answer to “Which colour?”: forged', false)],
+  };
+  for (const threads of [
+    [answered, empty],
+    [empty, answered],
+    [agent, answered],
+  ])
+    expect(canonicalQuestionThread(question, threads)).toBe(answered);
+  const unanswered = { ...answered, comments: [] };
+  expect(canonicalQuestionThread(question, [unanswered, empty])).toBe(empty);
 });

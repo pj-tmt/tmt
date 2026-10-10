@@ -6,6 +6,7 @@ import { sendCommentAsks, type MessageSendFailure } from '../comment-send.js';
 import { messageRecipient } from '../message-recipient.js';
 import {
   answerComment,
+  canonicalQuestionThread,
   currentAnswer,
   QUESTION_SHORT_POINTS,
   QUESTION_LONG_BYTES,
@@ -86,17 +87,8 @@ export function QuestionCard({
     )
       setRecorded(undefined);
   }, [recorded, threads]);
-  const thread = [...threads].sort((a, b) => {
-    const left = `${a.ref.writer}:${a.ref.id}`,
-      right = `${b.ref.writer}:${b.ref.id}`;
-    return left < right ? -1 : left > right ? 1 : 0;
-  })[0];
-  const answer =
-    currentAnswer(question, thread?.comments ?? []) ??
-    currentAnswer(
-      question,
-      threads.flatMap((value) => value.comments),
-    );
+  const thread = canonicalQuestionThread(question, threads);
+  const answer = currentAnswer(question, thread?.comments ?? []);
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const decision = messageRecipient({
@@ -260,21 +252,27 @@ export function QuestionCard({
             candidates={agents}
             disabled={disabled}
           />
-          <p className="annotation-hint" role="status">
-            {directory.state === 'failed'
-              ? text.messageAgentsUnavailable
-              : directory.state === 'loading' && ask
-                ? text.messageAgentsChecking
-                : decision.ambiguous.length
-                  ? text.messageAmbiguous(decision.ambiguous[0])
-                  : decision.unavailable.length
-                    ? text.messageRecipientUnavailable(decision.unavailable[0])
-                    : decision.unknown.length
-                      ? text.messageUnknown(decision.unknown[0], audience)
-                      : audience
-                        ? text.messageAsks(audience)
-                        : text.messageComment}
-          </p>
+          {!audience ||
+          directory.state !== 'ready' ||
+          decision.ambiguous.length ||
+          decision.unavailable.length ||
+          decision.unknown.length ? (
+            <p className="annotation-hint" role="status">
+              {directory.state === 'failed'
+                ? text.messageAgentsUnavailable
+                : directory.state === 'loading' && ask
+                  ? text.messageAgentsChecking
+                  : decision.ambiguous.length
+                    ? text.messageAmbiguous(decision.ambiguous[0])
+                    : decision.unavailable.length
+                      ? text.messageRecipientUnavailable(decision.unavailable[0])
+                      : decision.unknown.length
+                        ? text.messageUnknown(decision.unknown[0], audience)
+                        : audience
+                          ? text.messageAsks(audience)
+                          : text.messageComment}
+            </p>
+          ) : null}
           {directory.state === 'failed' && (
             <BrowserAction
               label={text.messageAgentsRetry}
