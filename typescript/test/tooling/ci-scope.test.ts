@@ -758,6 +758,8 @@ describe('component map', () => {
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       'typescript/test/tooling/guide-budget.test.ts':
         'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
+      'typescript/test/tooling/pr-agent-check.test.ts':
+        'reads the preset table of native-release.md; Code quality runs it on every change',
       '.github/components.json': 'the map names the prose in its own rules',
       '.github/repository-layout.json':
         'top-level names only; the layout guard never reads listed prose',
