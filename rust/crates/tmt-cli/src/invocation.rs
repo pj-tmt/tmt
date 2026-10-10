@@ -430,6 +430,8 @@ pub use tmt_command_output::OutputMode;
 
 #[derive(Debug, PartialEq)]
 pub struct Parsed {
+    /// The launch-baked legacy root spelling; never changes the invocation.
+    pub legacy_hook: bool,
     pub invocation: Invocation,
     pub mode: OutputMode,
 }

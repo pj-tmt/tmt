@@ -475,6 +475,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
     fn encode_digest_turn(&self, digest: &str) -> Option<String> {
         digest::encode(digest)
     }
+    fn encode_hook_notice(&self, message: &str, decision: Option<&str>) -> Option<String> {
+        crate::runtime::hook_notices::system_message(message, decision)
+    }
     fn digest_process(
         &self,
         current: &BindingSessionState,

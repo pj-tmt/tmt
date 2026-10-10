@@ -224,3 +224,45 @@ fn stable_digest_callback_discovers_launch_without_coordinates() {
         .is_err()
     );
 }
+
+#[test]
+fn pinned_launch_baked_hook_argv_keeps_legacy_and_current_typed_invocations() {
+    // Literal historical launch definitions: do not generate this table from
+    // the current grammar or hook composer, or a rename could erase the guard.
+    const LAUNCH_ARGV: &[(&str, &str, &str)] = &[
+        ("__focus-hook", "claude", "--launch"),
+        ("__focus-hook", "codex", "--discover-launch"),
+        ("__digest-hook", "claude", "--launch"),
+        ("__digest-hook", "codex", "--discover-launch"),
+    ];
+    for &(command, provider, option) in LAUNCH_ARGV {
+        let mut argv = vec![command, provider, option];
+        if option == "--launch" {
+            argv.push("{\"identity_id\":\"pinned-scope\"}");
+        }
+        let parsed = parsed(&argv);
+        assert_eq!(
+            parsed.invocation,
+            Invocation::DigestHook {
+                provider: provider.into(),
+                launch: (option == "--launch").then(|| "{\"identity_id\":\"pinned-scope\"}".into()),
+                worker: false,
+                work_budget_ms: None,
+            }
+        );
+        assert_eq!(parsed.legacy_hook, command == "__focus-hook");
+        assert!(!crate::skill_reminder::eligible_for_drift(&parsed));
+        argv.extend(["--worker", "--work-budget-ms", "999"]);
+        assert!(matches!(
+            super::parsed(&argv).invocation,
+            Invocation::DigestHook {
+                worker: true,
+                work_budget_ms: Some(999),
+                ..
+            }
+        ));
+    }
+    // A launch-scope value that happens to spell the legacy name is not a
+    // second command. The parser alone records the root spelling.
+    assert!(!parsed(&["__digest-hook", "claude", "--launch", "__focus-hook"]).legacy_hook);
+}

@@ -419,9 +419,14 @@ fn digest_steps(args: &[String], session: impl Fn() -> Option<String>) {
             } else if let Some(groups) = definitions.get(event).and_then(Value::as_array) {
                 for group in groups {
                     for handler in group["hooks"].as_array().unwrap() {
-                        let command = handler["command"].as_str().unwrap();
+                        let original = handler["command"].as_str().unwrap();
+                        let command = if env::var("MOCK_LEGACY_HOOKS").as_deref() == Ok("1") {
+                            original.replace(" __digest-hook ", " __focus-hook ")
+                        } else {
+                            original.to_owned()
+                        };
                         let mut child = Command::new("/bin/sh")
-                            .args(["-c", command])
+                            .args(["-c", &command])
                             .stdin(Stdio::piped())
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())

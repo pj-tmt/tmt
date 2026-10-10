@@ -318,6 +318,7 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
                 launch.as_deref(),
                 worker,
                 work_budget_ms,
+                parsed.legacy_hook,
             );
         }
         Invocation::ProviderHook {

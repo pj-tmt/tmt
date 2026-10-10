@@ -79,6 +79,7 @@ describe('native Digest held delivery and checklist seam', () => {
         });
       }
       expect(existsSync(sandbox.database)).toBe(false);
+      expect(existsSync(path.join(path.dirname(sandbox.database), 'hook-notices'))).toBe(false);
       expect(existsSync(path.join(sandbox.home, '.claude'))).toBe(false);
     });
   });
@@ -110,6 +111,7 @@ describe('native Digest held delivery and checklist seam', () => {
         });
       }
       expect(existsSync(sandbox.database)).toBe(false);
+      expect(existsSync(path.join(path.dirname(sandbox.database), 'hook-notices'))).toBe(false);
       expect(existsSync(path.join(sandbox.home, '.codex'))).toBe(false);
     });
   });

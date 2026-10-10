@@ -607,7 +607,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         );
         if (usesChannel && failure) {
           expect(
-            await waitForFileContent(resumed.status, { description: 'strict exact-resume refusal' })
+            await waitForFileContent(resumed.status, {
+              description: 'strict exact-resume refusal',
+            })
           ).toBe('1');
           expect(events(resumed, 'started')).toEqual([]);
           expect(events(resumed, 'thread-start')).toEqual([]);
@@ -804,8 +806,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
   }, 60000);
 
   for (const channel of [false, true])
-    for (const setup of [false, true]) {
-      it(`Digest Codex channel=${channel} setup=${setup} fresh/resume hands one Stop checklist without double observations`, async () => {
+    for (const { setup, legacy } of [
+      { setup: false, legacy: false },
+      { setup: true, legacy: false },
+      { setup: false, legacy: true },
+    ]) {
+      it(`Digest Codex channel=${channel} setup=${setup} legacy=${legacy} fresh/resume hands one Stop checklist without double observations`, async () => {
         await withE2EFixture(async (f) => {
           const name = 'FocusedCodex';
           const created = await f.runJsonCli<{ identity: { id: string } }>([
@@ -825,6 +831,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               channel,
               {
                 MOCK_DIGEST_HOOKS: '1',
+                MOCK_LEGACY_HOOKS: legacy ? '1' : '0',
                 MOCK_TRUST_HOOKS: '1',
                 MOCK_DIGEST_SETUP: setup ? '1' : '0',
                 MOCK_AUTOREPLY: '0',
@@ -915,6 +922,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             await step('subagent', { hookEvent: 'SubagentStop' });
             expect(batch()).toHaveLength(before);
             expect(events(s, 'digest-continuation')).toEqual([]);
+            const notices = () =>
+              events(s, 'digest-handler')
+                .filter((entry) => entry.stdout)
+                .map((entry) => JSON.parse(String(entry.stdout)))
+                .filter((value) => value.systemMessage);
+            expect(notices()).toEqual([]);
             // An ordinary Stop observer is still allowed to record idle. Start
             // the next turn before testing bypasses, keeping verified-idle delivery separate.
             await step('working-again', { hookEvent: 'UserPromptSubmit' });
@@ -940,6 +953,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             await step('boundary');
             const continuations = events(s, 'digest-continuation');
             expect(continuations).toHaveLength(1);
+            expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
+            if (legacy && !resume)
+              expect(notices()[0]).toMatchObject({
+                decision: 'block',
+                systemMessage:
+                  'tmt: This session was started by an older tmt. Restart it to use the current hooks.',
+              });
             const reason = continuations[0].reason as string;
             expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
             expect(reason.indexOf(requests[0])).toBeLessThan(reason.indexOf(requests[1]));
@@ -967,6 +987,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             ) as { driver_state: string };
             if (!setup) expect(JSON.parse(saved.driver_state).consumption).toBeUndefined();
             await step('empty');
+            expect(notices()).toHaveLength(legacy && !resume ? 1 : 0);
             expect(events(s, 'digest-continuation')).toHaveLength(1);
             expect(
               api('digest.policy.clear', {

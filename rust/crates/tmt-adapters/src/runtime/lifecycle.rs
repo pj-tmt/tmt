@@ -164,6 +164,11 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// Provider-owned user-visible advisory output, merged into one decision.
+    fn encode_hook_notice(&self, _message: &str, _decision: Option<&str>) -> Option<String> {
+        None
+    }
+
     /// Map a native hook caller to the exact launch incarnation. Shared callers
     /// need a driver-owned enrollment proof; the default admits only independent
     /// callers and never grants a shared server the foreground's authority.

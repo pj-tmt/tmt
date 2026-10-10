@@ -393,6 +393,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
     fn encode_digest_turn(&self, digest: &str) -> Option<String> {
         digest::encode(digest)
     }
+    fn encode_hook_notice(&self, message: &str, decision: Option<&str>) -> Option<String> {
+        crate::runtime::hook_notices::system_message(message, decision)
+    }
     fn reads_state(&self, version: u16) -> bool {
         crate::runtime::driver_state::reads(version)
     }
