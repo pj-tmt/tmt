@@ -308,7 +308,7 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
     }
     // REST headers match the original request path, not the rewrite destination.
     // The short entries therefore need the shell's exact headers on their own patterns.
-    for regex in SHORT_ROUTES {
+    for regex in std::iter::once("^/$").chain(SHORT_ROUTES) {
         headers.push(json!({"regex":regex,"headers":shell_headers}));
     }
     let rewrites: Vec<_> = SHORT_ROUTES

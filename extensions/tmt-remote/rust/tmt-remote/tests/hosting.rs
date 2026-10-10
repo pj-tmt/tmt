@@ -336,10 +336,32 @@ fn shell_csp_and_fixed_headers_match_short_routes_and_the_independent_config_gol
         serde_json::from_str(include_str!("fixtures/hosting/serving-config.json")).unwrap();
     assert_eq!(composed.config(), &golden);
     let headers = composed.config()["headers"].as_array().unwrap();
-    assert_eq!(headers.len(), 3);
+    assert_eq!(headers.len(), 4);
     for route in &headers[1..] {
         assert_eq!(route["headers"], headers[0]["headers"]);
     }
+    // Pin the exact matching expression for each public request path, independently
+    // of the composition owner; root is a directory index, not a rewrite.
+    for (path, pattern) in [
+        ("/", "^/$"),
+        ("/colab", "^/colab/?$"),
+        ("/colab/", "^/colab/?$"),
+        ("/p/abcd", "^/(p|read)/[A-Za-z0-9_-]{4,64}$"),
+        ("/read/abcd", "^/(p|read)/[A-Za-z0-9_-]{4,64}$"),
+    ] {
+        let rule = headers
+            .iter()
+            .find(|rule| rule["regex"] == pattern)
+            .unwrap_or_else(|| panic!("missing shell header rule for {path}"));
+        assert_eq!(rule["headers"], headers[0]["headers"], "{path}");
+    }
+    assert!(
+        composed.config()["rewrites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|rule| rule["regex"] != "^/$" && rule["glob"] != "/")
+    );
     assert_eq!(headers[0]["headers"]["Content-Security-Policy"], policy);
     assert_eq!(headers[0]["headers"]["Referrer-Policy"], "no-referrer");
     let absent = hosting::compose(&[csp_bundle(None)]).unwrap().unwrap();

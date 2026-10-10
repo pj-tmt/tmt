@@ -11,6 +11,16 @@
       }
     },
     {
+      "regex": "^/$",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
       "regex": "^/colab/?$",
       "headers": {
         "Cache-Control": "no-cache",

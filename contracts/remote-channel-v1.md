@@ -1721,8 +1721,9 @@ pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referre
 and emits its declared CSP verbatim as `Content-Security-Policy`. Remote appends `; charset=utf-8`
 to HTML, CSS, JavaScript, JSON and plain-text headers (both JavaScript MIME types), not SVG/binary;
 declarations keep bare types and the config digest covers these headers. Only `/colab`, `/colab/`,
-`/p/<id>` and `/read/<id>` rewrite to that shell; IDs use the public short-route grammar. Their
-header rules copy the shell's exact set because Firebase matches headers against the original
+`/p/<id>` and `/read/<id>` rewrite to that shell; IDs use the public short-route grammar. Header
+rules for these routes and `/` (directory index, no rewrite) copy the shell's exact set because
+Firebase matches headers against the original
 request path, as documented by the [REST schema](https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions)
 and [Hosting header guide](https://firebase.google.com/docs/hosting/full-config#headers), not
 verified live-project acceptance. Reserved Firebase paths are never rewritten. Public bytes and
