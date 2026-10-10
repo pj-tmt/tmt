@@ -1,72 +1,80 @@
 ---
 name: tmt-pm
-description: Run the project-management pass and the leaders sync for this repository. Find blocked, stale, unstaffed, oversized and waiting-on-maintainer work, move it with the owning lead, and keep status flowing to the PM instead of the core lead.
+description: Run the project-management pass for this repository. Find blocked, stale, unstaffed, oversized and waiting-on-maintainer work, move it with the owning lead, and keep status flowing to the PM instead of the core lead.
 ---
 
 # TMT project management
 
-Use this skill when you act as the project manager (`tmt-core-pm`) or audit
-delivery flow. [Project tracking](../../../DEVELOPMENT.md#project-tracking)
-owns the Project fields, Status meanings and the tracker rules. This skill
-owns the procedure only.
+Use this skill as project manager (`tmt-core-pm`) or when auditing delivery flow.
+[Project tracking](../../../DEVELOPMENT.md#project-tracking) owns Project fields,
+Status meanings, epic approval/start rules and cadence; this skill owns procedure.
 
 ## Ticket levels
 
-- **Tracker (`Epic: <name>`)**: a product item the maintainer set. A squad
-  lead may propose a new tracker to tmt-lead, but it is opened only after the
-  maintainer approves it. The PM never creates a tracker.
-- **Child issue**: one outcome with acceptance criteria and normally one
-  reviewable PR (about 1,500 changed lines or fewer). Leads and the PM may
-  open children as direct native sub-issues of an existing tracker.
-- **Split** a child when its progress is invisible: several PRs, several
-  squads, or a long open period without movement. Propose each split to the
-  owning lead first; open the children after the lead agrees.
+- **Tracker (`Epic: <name>`)**: a maintainer-approved product item. Follow the
+  owning guide's approval and explicit-go rules; the PM never creates an epic.
+- **Child issue**: one outcome, acceptance criteria and normally one reviewable
+  PR (about 1,500 changed lines or fewer). Leads/PM may open direct native
+  sub-issues below approved trackers.
+- **Split** work whose progress is invisible across PRs, squads or a long open
+  period without movement. Propose it to the owning lead; open children after agreement.
 
-## Pass and leaders sync
+## Scheduled check and status update
 
-1. **Read state in one batch.** Make one GraphQL query for Project items
-   (Status, Squad, Owner, Agents, native parent, updatedAt) and one for open PRs
-   (head, checks, mergeable, updatedAt) and the merge queue. Read `tmt ls`
-   for active members. Do not query items one by one.
-2. **Detect.**
-   - _Blocked without an owner_: the work waits on something that has no
-     issue, no owner, or no recent movement.
-   - _Stale_: In Progress or blocked for more than 6 hours with no PR
-     activity or comment. A PR with a pinned head that waits on CI or the
-     merge queue, or one held for a named dependency that is moving, is not
-     stale.
-   - _Unstaffed_: a squad with In Progress or blocked work and no active
-     member.
-   - _Board drift_: a squad's `tmt ops sq ls --squad <name>` members differ
-     from the active members working for that squad.
-   - _Waiting on the maintainer_: a decision marked pending in an issue or
-     PR comment.
-   - _Oversized_: a tracker or child whose progress the board cannot show.
-3. **Act through the owning lead.** Name the item, what is missing, and the
-   next action you propose: assign the blocker an owner, file the missing
-   child, rebase, split, or request staff. Follow up on the next pass. Leads
-   staff their own squads within the recorded limits and ask the maintainer
-   above them; "no expansion without the maintainer's approval" never means
-   staying silent.
-4. **Run the leaders sync** on the cadence recorded in the team issue (#606).
-   Leads send their status (done, next, blockers or cross-squad needs) to the
-   PM, not to tmt-lead. Post one combined digest to all leads, at most 12
-   lines under these headings: Blocked (item, blocker, owner, age, action),
-   Stale, Unstaffed, Waiting on Ben (item, one-line question, age), Splits.
-   Send tmt-lead only items that need its decision (core paths, core
-   contracts, seams between squads), and broadcast team-wide alerts (API
-   budget, disk, CI) to the leads yourself.
-5. **Keep the pinned "Pending owner decisions" issue current.** It holds one
-   checklist line per open decision, with its link and the date it was
-   asked. Remove the line when the answer is recorded.
+1. **Read state in one batch.** Query Project items (Status, Squad, Owner, Agents,
+   Priority, Released in, native parent, updatedAt), open PRs (head, checks,
+   mergeStateStatus, updatedAt), merge queue and relevant timeline evidence.
+   Read `tmt ls` for active members; never query every item individually.
+2. **Detect real problems.**
+   - _Blocked without an owner_: no issue, responsible lead or recent movement
+     for the dependency. Responsibility is recorded through Squad, not Owner.
+   - _Stale_: In Progress or blocked for over six hours without PR activity or
+     comment. A pinned head awaiting CI/queue or a named moving dependency is not stale.
+   - _Unstaffed_: active work without an active member.
+   - _Board drift_: `tmt ops sq ls --squad <name>` differs from active squad members.
+   - _Waiting on the maintainer_: a pending issue/PR decision.
+   - _Oversized_: tracker or child progress the board cannot show.
+   - _Unarmed_: green for 30 minutes. Inspect mergeStateStatus, queue and timeline
+     first: DIRTY conflicts drop auto-merge, and stacked PRs may be deliberately unarmed.
+   - _Urgent_: tell the owning lead immediately; list every open urgent item in
+     each status update until closed. Tell the maintainer if one has no movement
+     for two passes.
+   - _Red_: an armed PR has a failing required check.
+   - _Idle_: a Codex seat is idle or review-blocked for 30 minutes with a startable
+     Todo; ask its lead for the next ticket. Fixed seats keep two or three queued.
+   - _Stagnant_: the same ticket and epic counts across two consecutive hourly
+     checks while a seat is working.
+3. **Act through the owning lead.** Send one line naming the item, missing fact
+   and proposed action; request no status reply. Nudge only for a real problem,
+   then follow up on the next scheduled pass. Leads staff within recorded limits
+   and ask the maintainer beyond them; approval limits never mean staying silent.
+4. **Record usage.** Read hourly provider limits sampled on the maintainer's machine
+   (Claude statusline weekly allowance and Codex session rate-limit counters),
+   held in a local database outside the repository. Record account/per-seat
+   counters, never message content or usage data in repository artifacts.
+   The weekly pace is 100 points per 168 hours (about 0.6 points/hour).
+   Alert the maintainer in chat if projected exhaustion precedes reset, when the
+   pace buffer becomes negative, and again at minus seven points with options.
+   Alert once near 5% OpenAI allowance so the maintainer can decide on the Codex reset.
+   Never change seats or models.
+5. **Update Project and report.** On the owning guide's status-update schedule,
+   summarize progress, merged/released work, seats, usage, epic progress and
+   decisions under `Owner action pending`. Post the daily usage report on #1518
+   at the guide's daily tick. Leads send event-driven updates to the PM; send
+   tmt-lead only decisions about core paths/contracts or cross-squad seams.
+   Broadcast team-wide API, disk and CI alerts to leads.
+
+6. **Maintain [Pending owner decisions (#1053)](https://github.com/pj-tmt/tmt/issues/1053).**
+   Keep one checklist line per decision waiting on the maintainer, with its link
+   and date asked; remove it after the answer is recorded in the linked issue/PR.
+   Fetch the live body before every edit. The status update's `Owner action pending`
+   summarizes this durable list; it does not replace it.
 
 ## Limits
 
-- **Code and merging:** the PM never merges, enqueues, pins, approves PRs or
-  pushes code.
-- **Members and settings:** the PM never starts or retires members and never
-  changes provider or TMT settings.
-- **Project fields:** when editing a single-select field, pass existing option
-  IDs, and never redefine a field's options.
-- **Replies:** only a received reply block carries a receipt. For a "reply
-  from" notice, read it with `tmt result` and answer with `tmt talk`.
+- **Code and merging:** never merge, enqueue, pin, approve PRs or push code.
+- **Members and settings:** never start/retire members or change provider/TMT settings.
+- **Project fields:** use existing single-select option IDs; never redefine options.
+  Follow the owning guide's Priority authority and leave Owner empty.
+- **Replies:** only a received reply block carries a receipt. Read a "reply from"
+  notice with `tmt result` and answer with `tmt talk`.
