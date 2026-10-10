@@ -129,16 +129,33 @@ fn unsafe_file_types_and_publication_failure_preserve_existing_state() {
 }
 
 #[test]
-fn a_publication_lock_is_nonblocking_and_never_authorizes_a_second_clock() {
+fn a_publication_lock_reports_contention_without_changing_the_lease() {
     let f = Fixture::new();
     let clock = f.clock();
-    let _lease = clock.acquire(100, 123, None).unwrap().unwrap();
-    let _lock = clock.lock(false).unwrap().unwrap();
+    let mut lease = clock.acquire(100, 123, None).unwrap().unwrap();
+    let path = clock.directory.join("clock.json");
+    let before = fs::read(&path).unwrap();
+    let lock = clock.lock(false).unwrap().unwrap();
     assert_eq!(clock.status(100), ClockStatus::Unknown);
-    assert_eq!(
-        clock.acquire(100, 456, None).err().unwrap().code,
-        "SQUAD_CRON_CLOCK_BUSY"
-    );
+    let errors = [
+        clock.acquire(100, 456, None).err().unwrap(),
+        lease.renew(1000).err().unwrap(),
+        lease.release().err().unwrap(),
+    ];
+    for error in errors {
+        assert_eq!(error.code, "SQUAD_CRON_CLOCK_BUSY");
+        assert_eq!(
+            error.message,
+            format!(
+                "Clock is busy: could not acquire the lock at {} (nonblocking flock).",
+                clock.directory.join("clock.lock").display()
+            )
+        );
+    }
+    assert_eq!(fs::read(&path).unwrap(), before);
+    drop(lock);
+    assert!(clock.acquire(100, 456, None).unwrap().is_none());
+    assert_eq!(fs::read(&path).unwrap(), before);
 }
 
 #[test]

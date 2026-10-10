@@ -114,7 +114,15 @@ impl Clock {
         }
         Flock::lock(file, FlockArg::LockExclusiveNonblock)
             .map(Some)
-            .map_err(|(_, error)| Error::new("SQUAD_CRON_CLOCK_BUSY", error.to_string()))
+            .map_err(|_| {
+                Error::new(
+                    "SQUAD_CRON_CLOCK_BUSY",
+                    format!(
+                        "Clock is busy: could not acquire the lock at {} (nonblocking flock).",
+                        self.directory.join("clock.lock").display()
+                    ),
+                )
+            })
     }
 
     fn read(&self) -> Result<Option<Holder>, Error> {
