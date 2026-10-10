@@ -911,7 +911,7 @@ fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_no
         page,
         publication::Outcome,
     };
-    use tmt_extension_objects::{Budgets, Bus, Caps, Offer, Uuid4, initiate};
+    use tmt_extension_objects::{Budgets, Bus, Caps, Offer, Uuid4, negotiate};
     let (probe, passes) = std::sync::mpsc::channel();
     let server = Running::start_with_rekey_probe(Tunnels::PRODUCT, None, None, Some(probe));
     let layout = Layout::existing(&server.root).unwrap().unwrap();
@@ -932,15 +932,16 @@ fn device_revoke_wakes_the_running_rekey_worker_but_rename_and_own_updates_do_no
     ));
 
     // Keep a real object channel established throughout: its first generation starts one pass.
-    let link = initiate(
-        server.connect(),
-        &Offer {
-            host: "127.0.0.1:51234".into(),
-            mount: "/r/fixture/x/colab/".into(),
-            generation: Uuid4::parse("40000000-0000-4000-8000-000000000001").unwrap(),
-        },
-        Instant::now() + Duration::from_secs(3),
-    )
+    let link = negotiate(Instant::now() + Duration::from_secs(3), || {
+        Ok((
+            server.connect(),
+            Offer {
+                host: "127.0.0.1:51234".into(),
+                mount: "/r/fixture/x/colab/".into(),
+                generation: Uuid4::parse("40000000-0000-4000-8000-000000000001").unwrap(),
+            },
+        ))
+    })
     .unwrap();
     let _objects = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
     passes
