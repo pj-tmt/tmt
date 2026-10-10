@@ -324,6 +324,7 @@ pub(super) fn run_bound(
         &launch.command,
         binding,
         owner.as_ref(),
+        paths,
     ) {
         Ok(command) => command,
         Err(error) => {
@@ -811,6 +812,7 @@ fn prepare_launch_hooks(
     command: &tmt_adapters::runtime::RuntimeCommand,
     binding: &Binding,
     owner: Option<&ProcessIncarnation>,
+    paths: &ConfigPaths,
 ) -> std::io::Result<Option<tmt_adapters::runtime::RuntimeCommand>> {
     let Some(owner) = owner else {
         return Ok(None);
@@ -828,5 +830,6 @@ fn prepare_launch_hooks(
         launch: &launch,
         tmt: &tmt,
         environment: &environment,
+        paths,
     })
 }

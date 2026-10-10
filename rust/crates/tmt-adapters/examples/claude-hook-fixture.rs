@@ -117,7 +117,7 @@ fn main() {
 }
 
 // Legacy scripted scenarios retain their three positional paths. Both provider
-// launch-hook options are settings, not an extra scenario/report path. The
+// launch-hook options and Claude's picker are not extra scenario/report paths. The
 // model-free channel peers execute the generated hooks instead.
 fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
     if args.len() < 2 {
@@ -138,6 +138,14 @@ fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
         return;
     }
     args.truncate(args.len() - 2);
+    if args.len() >= 2 && args[args.len() - 2] == "--plugin-dir" {
+        let plugin = std::path::Path::new(args.last().unwrap());
+        assert!(plugin.is_absolute(), "picker directory must be absolute");
+        assert!(plugin.join(".claude-plugin/plugin.json").is_file());
+        assert!(plugin.join("hooks/hooks.json").is_file());
+        assert!(plugin.join("hooks/register.mjs").is_file());
+        args.truncate(args.len() - 2);
+    }
 }
 
 /// Keep the MCP server a direct child of the admitted native provider. The
@@ -272,6 +280,24 @@ mod tests {
             scripted_launch_options(&mut args);
             assert_eq!(args, original);
         }
+    }
+
+    #[test]
+    fn scripted_paths_and_listen_survive_the_claude_picker_and_settings() {
+        let original: Vec<std::ffi::OsString> = ["/cli", "/scenario", "/report", "--listen"]
+            .map(Into::into)
+            .to_vec();
+        let plugin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/claude-plugin/tmt-picker");
+        let mut args = original.clone();
+        args.extend([
+            "--plugin-dir".into(),
+            plugin.into_os_string(),
+            "--settings".into(),
+            r#"{"hooks":{"Stop":[]}}"#.into(),
+        ]);
+        scripted_launch_options(&mut args);
+        assert_eq!(args, original);
     }
 
     #[test]

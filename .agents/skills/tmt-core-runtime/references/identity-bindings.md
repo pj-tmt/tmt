@@ -268,6 +268,28 @@ or edited/duplicated sources, and disabled/managed-only policy use the same orig
 command fallback. Other invocation config remains intact; explicit invocation hook
 entries are retained in the composed session table.
 
+### Claude prompt picker
+
+The Claude driver owns the embedded plugin source under
+`rust/crates/tmt-adapters/assets/claude-plugin/tmt-picker/`; provider assets live
+beside `src`, outside the TypeScript package workspace. Native publication stages
+0700 directories and 0600 files, then atomically renames a complete plugin into
+`<dataRoot>/provider-plugins/claude/<tmt-version>`. Concurrent launches reuse the
+same complete version; older versions are ignored without scanning or deleting them.
+Fresh and resumed Claude launches add this directory with `--plugin-dir` alongside
+session-only settings, preserving user plugin arguments and settings files.
+
+Claude Code's own function-hook interpreter runs `hooks/register.mjs`; there is
+no Node interpreter or MCP server. The plugin primes `tmt ls --json` in the
+background at session start, serves in-memory fuzzy suggestions for `tmt/` and
+`tmt:`, and starts at most one background refresh per 15 seconds. Rows retain
+host-qualified names, show `runningDriver` and activity, rank active identities
+first, and offer at most eight matches. Listing failure silently retains the cache
+and backoff; a missing `tmt` executable therefore produces no startup error.
+Failed asset publication silently omits the picker while keeping composed hooks.
+Plain Claude launches receive no plugin registration.
+No persistent provider configuration enables the plugin.
+
 Names and argv written into provider launches, host options or installed shell
 scripts remain accepted through at least the next stable release after a rename;
 Core reviews renames and removal of the corresponding pinned legacy argv entries.

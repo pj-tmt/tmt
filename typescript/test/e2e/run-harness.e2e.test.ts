@@ -135,7 +135,13 @@ function userArgsWithLaunchHooks(argv: string[]): string[] {
     entry.hooks.filter((hook) => hook.command.includes(' __digest-hook claude --launch '))
   );
   expect(digest).toHaveLength(1);
-  return argv.slice(0, -2);
+  expect(argv.at(-4)).toBe('--plugin-dir');
+  const plugin = argv.at(-3)!;
+  expect(path.isAbsolute(plugin)).toBe(true);
+  expect(existsSync(path.join(plugin, '.claude-plugin/plugin.json'))).toBe(true);
+  expect(existsSync(path.join(plugin, 'hooks/hooks.json'))).toBe(true);
+  expect(existsSync(path.join(plugin, 'hooks/register.mjs'))).toBe(true);
+  return argv.slice(0, -4);
 }
 
 describe('foreground identity launch', { concurrent: false }, () => {
