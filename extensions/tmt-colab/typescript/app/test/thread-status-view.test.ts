@@ -88,3 +88,49 @@ it('counts only open live non-Chat threads and keeps status independent of atten
     new ThreadStatusSeen(fixture.scope, fixture.thread.senderDevice, unavailable).unseen(resolved),
   ).toBe(true);
 });
+
+it('combines undecided proposals and annotations once, independent of decision delivery and resolution', () => {
+  const annotation = { ...thread(), resolved: false, status: undefined };
+  const proposal = {
+    ...annotation,
+    proposal: {
+      proposalId: annotation.threadId,
+      title: 'Review',
+      body: 'Review this',
+      proposer: {
+        machineId: annotation.senderDevice,
+        agentId: annotation.senderDevice,
+        label: 'Agent',
+      },
+    },
+  };
+  const approved = {
+    ...proposal,
+    decision: fixture.decisionCases
+      .flatMap((value: { actions: unknown[] }) => value.actions)
+      .find((value: { decision: string }) => value.decision === 'approved'),
+  };
+  const declined = {
+    ...approved,
+    decision: { ...approved.decision, decision: 'declined' as const },
+  };
+  const resolved = { ...proposal, resolved: true };
+  const chat = {
+    ...annotation,
+    anchor: null,
+    ref: { ...annotation.ref, id: annotation.ref.writer },
+  };
+  expect(
+    openThreadCount([
+      annotation,
+      proposal,
+      approved,
+      declined,
+      resolved,
+      chat,
+      { ...proposal, deleted: true },
+    ]),
+  ).toBe(2);
+  expect(openThreadCount([{ ...resolved, resolved: false }])).toBe(1);
+  expect(openThreadCount([{ ...approved, resolved: false }])).toBe(0);
+});

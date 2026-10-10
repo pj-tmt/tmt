@@ -965,6 +965,8 @@ function Page() {
     closeAnnotation: () => closeRef.current(false),
     draft: (key) => drafts.current.get(key),
     keepDraft,
+    activeThread,
+    setActiveThread,
   });
   useEffect(() => {
     const controller = new AbortController();
@@ -1389,6 +1391,7 @@ function Page() {
           </p>
         )}
         <ThreadPanel
+          reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
           hideHeader
           renderProposal={proposalLayer.renderProposal}

@@ -1221,3 +1221,62 @@ body:has(.page-header-actions) {
 .proposal-resolve .tmt-ui-action:not(:hover):not(:focus-visible) {
   color: var(--c-muted);
 }
+
+.comments-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.proposal-card[data-resolved] header {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.proposal-card[data-resolved] strong,
+.proposal-card[data-resolved] .proposal-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proposal-card[data-resolved] .proposal-state {
+  white-space: nowrap;
+  color: var(--c-muted);
+}
+.proposal-card[data-resolved] header .tmt-ui-action:not(.proposal-title) {
+  color: var(--c-muted);
+  flex: none;
+}
+
+.proposal-card[data-resolved] .proposal-title {
+  justify-content: start;
+  display: block;
+  padding-inline: 0;
+  font-weight: 600;
+  text-align: left;
+}
+
+.annotation-row-controls {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+.annotation-row-controls .annotation-row {
+  flex: 1;
+  min-width: 0;
+}
+.annotation-row[data-resolved] strong {
+  display: block;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  color: var(--c-muted);
+}
+.proposal-row-reopen {
+  flex: none;
+  margin-bottom: 14px;
+}
+.proposal-row-reopen .tmt-ui-action {
+  color: var(--c-muted);
+}

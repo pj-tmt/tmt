@@ -473,7 +473,7 @@ export async function mount(
     },
     agentResolves() {
       setResolved(
-        current.threads!.find((value) => value.anchor)!,
+        current.threads!.find((value) => value.anchor || value.proposal)!,
         true,
         'agent',
       );
@@ -995,6 +995,63 @@ export function proposalAsk(state: PageAsk['state'] | 'replied') {
           : {}),
       },
     ],
+  };
+  emit();
+}
+
+/** Deterministic mixed admitted projection; no native publication proof. */
+export function mixedProposals() {
+  proposal('inline');
+  const base = current.threads![0];
+  const clone = (number: number, title: string): ThreadView => ({
+    ...structuredClone(base),
+    threadId: id(number),
+    ref: { writer: base.ref.writer, id: id(number) },
+    proposal: { ...base.proposal!, proposalId: id(number), title },
+  });
+  const approved = clone(82, 'Keep the supporting notes');
+  approved.decision = {
+    version: 1,
+    kind: 'proposal-decision',
+    spaceId: base.spaceId,
+    pageId: base.pageId,
+    epoch: base.epoch,
+    senderDevice: base.senderDevice,
+    deviceName: base.deviceName,
+    revision: '1',
+    at: base.at,
+    deleted: false,
+    actionId: id(101),
+    thread: approved.ref,
+    previous: null,
+    decision: 'approved',
+  };
+  const resolved = clone(83, 'Confirm the page audience');
+  resolved.resolved = true;
+  const annotation: ThreadView = {
+    ...structuredClone(base),
+    threadId: id(91),
+    ref: { writer: base.ref.writer, id: id(91) },
+    proposal: undefined,
+    deviceName: base.proposal!.proposer.label,
+    anchor: { exact: 'Review the supporting notes.', prefix: '', suffix: '' },
+  };
+  const chat = {
+    ...structuredClone(annotation),
+    anchor: null,
+    threadId: base.ref.writer,
+    ref: { writer: base.ref.writer, id: base.ref.writer },
+  };
+  current = {
+    ...current,
+    title: 'Project review',
+    source:
+      '<style>body {margin:24px;font:16px/1.5 sans-serif}</style><h1>Project review</h1><p>Review the supporting notes.</p>' +
+      [base, approved, resolved]
+        .map((t) => `<tmt-proposal data-id="${t.threadId}"></tmt-proposal>`)
+        .join('') +
+      '<p id="after-proposal">The page continues here.</p>',
+    threads: [base, annotation, approved, resolved, chat],
   };
   emit();
 }

@@ -246,3 +246,105 @@ test('follow-up preparation failure stays on the card after composer closes', as
   await expect(card.locator('.annotation-delivery-failure')).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
 });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`mixed Comments and proposals filter ${width} ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'mixedProposals');
+    await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+    if (theme === 'dark')
+      await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+    const header = page
+      .locator('.page-header-actions')
+      .getByRole('button', { name: /^Discussion \(/ });
+    await expect(header).toHaveAccessibleName('Discussion (2)');
+    if (captureDir) {
+      mkdirSync(captureDir, { recursive: true });
+      await page.screenshot({ path: `${captureDir}/header-count-${width}-${theme}.png` });
+    }
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+    const panel = page.locator('.page-drawer[data-panel="comments"][open]');
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
+    await expect(panel).toContainText('Review the supporting notes.');
+    for (const row of await panel.getByTestId('annotation-row').all())
+      await expect(row).toContainText('Deterministic agent ·');
+    await expect(
+      panel.getByTestId('thread-row-status').filter({ hasText: 'Proposal · Approved' }),
+    ).toHaveCount(1);
+    const folded = panel.locator('.annotation-list-item[data-resolved]');
+    await expect(folded).toContainText('Confirm the page audience');
+    await expect(folded.locator('.proposal-author, .proposal-body, .proposal-actions')).toHaveCount(
+      0,
+    );
+    if (captureDir)
+      await page.screenshot({ path: `${captureDir}/mixed-comments-${width}-${theme}.png` });
+    const filter = panel.getByRole('button', { name: 'Proposals only', exact: true });
+    await filter.evaluate((node) => (node as HTMLButtonElement).click());
+    await expect(filter).toHaveAttribute('aria-pressed', 'false');
+    await filter.click();
+    await expect(filter).toHaveAttribute('aria-pressed', 'true');
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
+    await expect(panel).not.toContainText('Review the supporting notes.');
+    await expect(header).toHaveAccessibleName('Discussion (2)');
+    if (captureDir)
+      await page.screenshot({ path: `${captureDir}/proposals-filter-${width}-${theme}.png` });
+    const foldedTitle = folded.getByTestId('annotation-row');
+    await foldedTitle.click();
+    await expect(foldedTitle).toHaveAttribute('aria-expanded', 'true');
+    await expect(folded.locator('.proposal-body')).toBeVisible();
+    await expect(header).toHaveAccessibleName('Discussion (2)');
+    await foldedTitle.click();
+    await expect(foldedTitle).toHaveAttribute('aria-expanded', 'false');
+    await expect(folded.locator('.proposal-body')).toHaveCount(0);
+    await folded.getByRole('button', { name: 'Reopen', exact: true }).click();
+    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(panel.getByTestId('annotation-row')).toHaveCount(3);
+    const row = panel
+      .getByTestId('annotation-row')
+      .filter({ hasText: 'Keep the supporting notes' });
+    await row.click();
+    const approved = panel
+      .locator('.proposal-card')
+      .filter({ hasText: 'Keep the supporting notes' });
+    await expect(approved.locator('.proposal-state')).toHaveText('Approved');
+    await approved.getByRole('button', { name: 'Resolve', exact: true }).click();
+    await expect(header).toHaveAccessibleName('Discussion (3)');
+    await expect(approved).toHaveCount(0);
+    await row
+      .locator('..')
+      .locator('..')
+      .getByRole('button', { name: 'Reopen', exact: true })
+      .click();
+    await expect(approved.locator('.proposal-state')).toHaveText('Approved');
+    await expect(header).toHaveAccessibleName('Discussion (3)');
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+  });
+
+test('folded proposal keeps agent resolution unseen until its history is opened', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'proposal', 'detached');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await run(page, 'agentResolves');
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  const panel = page.locator('.page-drawer[data-panel="comments"][open]');
+  const folded = panel.locator('.annotation-list-item[data-resolved]');
+  await expect(folded.getByTestId('thread-row-status')).toHaveText(
+    'Proposal · Resolved by Atlas · New',
+  );
+  expect(await run(page, 'seenProof')).toBe(0);
+  await panel.getByRole('button', { name: 'Proposals only', exact: true }).click();
+  expect(await run(page, 'seenProof')).toBe(0);
+  await folded.getByTestId('annotation-row').click();
+  await expect(folded.getByTestId('thread-row-status')).toHaveText('Proposal · Resolved by Atlas');
+  await expect(folded.locator('.proposal-body')).toBeVisible();
+  expect(await run(page, 'seenProof')).toBe(1);
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
