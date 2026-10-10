@@ -336,3 +336,44 @@ test('an epoch or admission change disposes and rereads the visible thumbnail', 
     .toBe(2);
   await expect(png.locator('img')).toBeVisible();
 });
+
+test('stacked downloads stay clickable through a tooltip and dismiss it on activation', async ({
+  page,
+}) => {
+  await mount(page);
+  const { panel, input } = await openChat(page);
+  await input.fill('Two downloads');
+  await attach(page, [note('first.txt'), note('second.txt')]);
+  await send(page).click();
+  const rows = panel.getByTestId('message-attachment');
+  const first = rows
+    .filter({ hasText: 'first.txt' })
+    .getByRole('button', { name: text.attachmentDownload });
+  const second = rows
+    .filter({ hasText: 'second.txt' })
+    .getByRole('button', { name: text.attachmentDownload });
+  await first.hover();
+  const tooltip = page.locator('.tmt-ui-icon-action-tooltip:popover-open');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveCSS('pointer-events', 'none');
+  expect(
+    await second.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    }),
+  ).toBe(true);
+  for (const [button, name] of [
+    [first, 'first.txt'],
+    [second, 'second.txt'],
+  ] as const) {
+    const download = page.waitForEvent('download');
+    await button.click();
+    expect((await download).suggestedFilename()).toBe(name);
+    await expect(tooltip).toHaveCount(0);
+  }
+  await first.hover();
+  await expect(tooltip).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await expect(panel).toBeHidden();
+});

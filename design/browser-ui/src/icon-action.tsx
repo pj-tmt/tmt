@@ -84,11 +84,7 @@ export function BrowserIconAction({
           setHovered(true);
           setDismissed(false);
         }}
-        onPointerLeave={(event) => {
-          if (event.relatedTarget instanceof Node && tooltip.current?.contains(event.relatedTarget))
-            return;
-          setHovered(false);
-        }}
+        onPointerLeave={() => setHovered(false)}
       >
         <button
           ref={button}
@@ -106,13 +102,18 @@ export function BrowserIconAction({
           onFocus={(event) => {
             if (event.currentTarget.matches(':focus-visible')) {
               setFocused(true);
-              setDismissed(escapeFocus.has(event.currentTarget.ownerDocument));
+              if (escapeFocus.has(event.currentTarget.ownerDocument)) setDismissed(true);
             }
           }}
           onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
           onClick={(event) => {
-            if (!disabled && !busy) onActivate(event);
+            if (!disabled && !busy) {
+              const node = tooltip.current;
+              if (node?.matches(':popover-open')) node.hidePopover();
+              setDismissed(true);
+              onActivate(event);
+            }
           }}
         >
           <span className={c.iconActionIcon} aria-hidden="true">
@@ -124,21 +125,7 @@ export function BrowserIconAction({
             </span>
           )}
         </button>
-        <span
-          ref={tooltip}
-          className={c.iconActionTooltip}
-          popover="manual"
-          aria-hidden="true"
-          onPointerEnter={() => setHovered(true)}
-          onPointerLeave={(event) => {
-            if (
-              event.relatedTarget instanceof Node &&
-              button.current?.contains(event.relatedTarget)
-            )
-              return;
-            setHovered(false);
-          }}
-        >
+        <span ref={tooltip} className={c.iconActionTooltip} popover="manual" aria-hidden="true">
           <span className={c.iconActionTooltipLabel}>{label}</span>
         </span>
       </span>

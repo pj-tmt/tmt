@@ -232,6 +232,12 @@ async function run() {
   check(tooltip.matches(':popover-open'), 'Pointer entry did not show the tooltip');
   check(tooltip.getAttribute('aria-hidden') === 'true', 'Tooltip duplicates the accessible name');
   check(!button.hasAttribute('aria-describedby'), 'Label was announced twice');
+  check(getComputedStyle(tooltip).pointerEvents === 'none', 'Tooltip intercepts pointer actions');
+  await act(() => button.click());
+  check(!tooltip.matches(':popover-open'), 'Activation left the tooltip over the next action');
+  await act(() => button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
+  await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+  check(tooltip.matches(':popover-open'), 'Fresh pointer entry did not restore activation help');
   await act(() =>
     button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
