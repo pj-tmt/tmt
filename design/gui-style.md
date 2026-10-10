@@ -299,6 +299,18 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
   keys, preserving the mounted turn and focus; no driver history is persisted.
 - Literal markup in a body always renders as text. Basis: own.
 
+### Message attachments
+
+Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
+more images use a three-column square grid: up to six show in full; larger groups
+show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
+image six. Non-images use compact filename/type/size cards with Download.
+
+A modal viewer shows one image with Previous/Next (no wrapping), Download and
+Close; arrows navigate, Escape closes, and closing restores the opening tile's
+focus. Thumbnails, grids and cards share the message text's left edge without
+an extra inset, in both Chat and anchored threads. Basis: own.
+
 ### Status mark
 
 The mark-plus-word unit used by every component above. Sizes match the
