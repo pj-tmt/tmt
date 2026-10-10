@@ -51,13 +51,6 @@ impl DerefMut for OwnedChild {
     }
 }
 
-fn signal_group(group: Pid, signal: Signal) -> Result<(), Errno> {
-    match killpg(group, signal) {
-        Ok(()) | Err(Errno::ESRCH) => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
 impl OwnedChild {
     /// The negative control removes group cleanup but keeps a handle for independent rescue.
     pub fn without_guard(mut self) -> Child {
@@ -109,27 +102,53 @@ impl OwnedChild {
         output
     }
 
+    /// Darwin may deny a zombie-only group. Like tmt-invoke::process::confirm,
+    /// denial clears only after independently observing the recorded leader's absence.
+    fn group_absent(&mut self, observed: Result<(), Errno>) -> Result<bool, String> {
+        match observed {
+            Ok(()) => Ok(false),
+            Err(error @ (Errno::ESRCH | Errno::EPERM)) => {
+                let reaped = match &mut self.child {
+                    Some(child) => child
+                        .try_wait()
+                        .map_err(|error| error.to_string())?
+                        .is_some(),
+                    None => false,
+                };
+                if error == Errno::ESRCH
+                    || reaped
+                    || kill(self.group.unwrap(), None) == Err(Errno::ESRCH)
+                {
+                    Ok(true)
+                } else {
+                    Err(error.to_string())
+                }
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
     fn finish_group(&mut self) -> Result<(), String> {
         let Some(group) = self.group else {
             return Ok(());
         };
-        signal_group(group, Signal::SIGTERM).map_err(|error| error.to_string())?;
+        if self.group_absent(killpg(group, Signal::SIGTERM))? {
+            self.group = None;
+            return Ok(());
+        }
         for signal in [Signal::SIGTERM, Signal::SIGKILL] {
-            if signal == Signal::SIGKILL {
-                signal_group(group, signal).map_err(|error| error.to_string())?;
+            if signal == Signal::SIGKILL && self.group_absent(killpg(group, signal))? {
+                self.group = None;
+                return Ok(());
             }
             let deadline = Instant::now() + WAIT;
             loop {
                 if let Some(child) = &mut self.child {
                     child.try_wait().map_err(|error| error.to_string())?;
                 }
-                match killpg(group, None) {
-                    Err(Errno::ESRCH) => {
-                        self.group = None;
-                        return Ok(());
-                    }
-                    Ok(()) => {}
-                    Err(error) => return Err(error.to_string()),
+                if self.group_absent(killpg(group, None))? {
+                    self.group = None;
+                    return Ok(());
                 }
                 if Instant::now() >= deadline {
                     break;
@@ -348,6 +367,25 @@ pub fn clean_root(root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn denied_group_requires_a_reaped_or_absent_leader() {
+        let mut live = Command::new("/bin/sleep").arg("300").spawn_owned().unwrap();
+        assert!(live.group_absent(Err(Errno::EPERM)).is_err());
+        assert_eq!(live.try_wait().unwrap(), None);
+        assert!(!live.group_absent(Ok(())).unwrap());
+        assert!(live.group_absent(Err(Errno::EIO)).is_err());
+        let pid = Pid::from_raw(live.id() as i32);
+        live.kill().unwrap();
+        live.child.as_mut().unwrap().wait().unwrap();
+        // Keep the group recorded to exercise a denied signal or inspection after reap.
+        assert!(live.group_absent(Err(Errno::EPERM)).unwrap());
+        assert_eq!(kill(pid, None), Err(Errno::ESRCH));
+        // wait_with_output takes the Child handle; absence must still be observed.
+        live.child = None;
+        assert!(live.group_absent(Err(Errno::EPERM)).unwrap());
+        assert!(live.group_absent(Err(Errno::ESRCH)).unwrap());
+    }
 
     #[test]
     fn root_matching_requires_a_complete_path_component() {
