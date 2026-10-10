@@ -41,7 +41,7 @@ pub fn command() -> Command {
                 .value_name("DURATION|auto|off|default")
                 .required(true)
                 .requires("member")
-                .help("Duration such as 30s, 5m or 1h (positive exact milliseconds, up to 9,007,199,254,740,991ms), or auto, off or default")
+                .help("Duration such as 30s, 5m or 1h, or auto, off or default")
                 .value_parser(|text: &str| {
                     crate::settings::MemberSetting::parse(text)
                         .map(|_| text.to_owned())
