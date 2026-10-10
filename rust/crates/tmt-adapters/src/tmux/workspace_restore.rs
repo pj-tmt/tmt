@@ -124,7 +124,6 @@ impl<R: CommandRunner> Tmux<R> {
         let checks = [
             format!("#{{==:#{{pane_id}},{}}}", pane.native),
             format!("#{{==:#{{pane_pid}},{}}}", shell.pid()),
-            "#{==:#{pane_current_command},sh}".into(),
             format!(
                 "#{{==:#{{pane_start_command}},{}}}",
                 BOOTSTRAP_COMMAND.join(" ")

@@ -905,6 +905,7 @@ server.listen(${JSON.stringify(gates[index])}, () => {
       const livePids: number[] = [];
       let resumeStarted = false;
       let revivedPanes: string[] = [];
+      let shellCommand = '';
       try {
         const result = await fixture.runJsonCli<FullRestore>(
           ['workspace', 'restore', '--socket', fixture.socketPath],
@@ -917,6 +918,15 @@ server.listen(${JSON.stringify(gates[index])}, () => {
           (index) =>
             result.json!.panes.find((pane) => pane.recorded === saved.panes[index].id)!.native
         );
+        // tmux can report the shell executable name (bash/dash) for /bin/sh.
+        // Observe the untouched default-shell pane instead of inferring from its path.
+        const shellPane = result.json!.panes.find(
+          (pane) => pane.recorded === saved.panes[7].id
+        )!.native;
+        shellCommand = fixture
+          .tmux(['display-message', '-p', '-t', shellPane, '#{pane_current_command}'])
+          .trim();
+        expect(shellCommand).not.toBe('');
         expect(result.json!.revival.map((pane) => [pane.name, pane.status])).toEqual([
           ['Exact Agent', 'started'],
           ['Stale Agent', 'needs_you'],
@@ -959,7 +969,7 @@ server.listen(${JSON.stringify(gates[index])}, () => {
           )!.native;
           expect(
             fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}']).trim()
-          ).toMatch(/^(bash|sh)$/);
+          ).toBe(shellCommand);
         }
         // Launch events may refresh the latest snapshot. Restore the exact
         // frozen input to prove rerun's existing-session skip independently.
@@ -1021,37 +1031,42 @@ server.listen(${JSON.stringify(gates[index])}, () => {
           } finally {
             oracle.close();
           }
-          // Provider and board exit must preserve their exact restored panes.
-          const shell = fixture.tmux(['show-options', '-gv', 'default-shell']).trim();
-          for (const pane of revivedPanes) {
-            const expected = `0\t${path.basename(shell)}`;
-            await fixture.waitFor(
-              () =>
-                fixture
-                  .tmux([
-                    'display-message',
-                    '-p',
-                    '-t',
-                    pane,
-                    '#{pane_dead}\t#{pane_current_command}',
-                  ])
-                  .trim() === expected,
-              5000,
-              'restored pane returns to the user shell'
-            );
-            expect(
-              fixture
+        }
+      }
+      // Provider and board exit must preserve their exact restored panes.
+      const shell = fixture.tmux(['show-options', '-gv', 'default-shell']).trim();
+      for (const pane of revivedPanes) {
+        const expected = `0|${shellCommand}`;
+        let observed = '';
+        try {
+          await fixture.waitFor(
+            () => {
+              observed = fixture
                 .tmux([
                   'display-message',
                   '-p',
                   '-t',
                   pane,
-                  '#{pane_dead}\t#{pane_current_command}',
+                  '#{pane_dead}|#{pane_current_command}|#{pane_pid}|#{pane_start_command}',
                 ])
-                .trim()
-            ).toBe(expected);
-          }
+                .trim();
+              return observed.split('|').slice(0, 2).join('|') === expected;
+            },
+            5000,
+            'restored pane returns to the user shell'
+          );
+        } catch (cause) {
+          throw new Error(
+            `Shell return: ${JSON.stringify({
+              pane,
+              defaultShell: shell,
+              controlCommand: shellCommand,
+              observed,
+            })}`,
+            { cause }
+          );
         }
+        expect(observed.split('|').slice(0, 2).join('|')).toBe(expected);
       }
     });
   });
