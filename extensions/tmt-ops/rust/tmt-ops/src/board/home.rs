@@ -23,16 +23,9 @@ pub struct Counts {
     pub idle: usize,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AgeSource {
-    Request,
-    Observed,
-}
-
 /// The painter can advance age without acquiring data or inventing a timestamp.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Age {
-    pub source: AgeSource,
     pub since_ms: u64,
 }
 
@@ -193,18 +186,15 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
     let members = all["sections"][0]["rows"]
         .as_array()
         .expect("projected members");
-    tab.sections = vec![
-        section("needs-you", Some("pending or waiting_on_you")),
-        section("blocked", Some("state = blocked")),
-    ];
+    tab.sections = vec![section("blocked", Some("state = blocked"))];
     let selected = tab_view::user_document(&tab, order, acquired);
     // The shared pipeline retains unmatched rows; they belong in squad lines,
-    // not in a third attention section.
+    // not in a second attention section.
     let sections = selected["sections"]
         .as_array()
         .into_iter()
         .flatten()
-        .take(2)
+        .take(1)
         .map(|section| {
             let key = section["title"].as_str().expect("named home section");
             let rows = section["rows"]
@@ -213,33 +203,16 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
                 .flatten()
                 .map(|member| {
                     let squad = member["squad"].as_str().expect("projected squad");
-                    let since = if key == "needs-you" {
-                        member["waitingOnYou"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|request| request["preparedAtMs"].as_u64())
-                            .filter(|since| *since <= now)
-                            .min()
-                    } else {
-                        member["staleness"]["unchangedSinceMs"]
-                            .as_u64()
-                            .filter(|since| *since <= now)
-                    };
+                    let since = member["staleness"]["unchangedSinceMs"]
+                        .as_u64()
+                        .filter(|since| *since <= now);
                     MemberRow {
                         squad: squad.into(),
                         member: member.clone(),
                         lead: acquired.documents[squad]["squad"]["lead"]["name"]
                             .as_str()
                             .map(str::to_owned),
-                        age: since.map(|since_ms| Age {
-                            source: if key == "needs-you" {
-                                AgeSource::Request
-                            } else {
-                                AgeSource::Observed
-                            },
-                            since_ms,
-                        }),
+                        age: since.map(|since_ms| Age { since_ms }),
                     }
                 })
                 .collect();
@@ -310,8 +283,7 @@ pub(super) use paint::{age_label, hints_of, limits_of, render, summary_of, usage
 /// derivations.
 #[derive(Default)]
 pub(super) struct Scenes {
-    /// By section: `needs-you`, `blocked`, and `quiet` for the empty needs-you rule.
-    attention: std::collections::BTreeMap<&'static str, scene::Kept<attention::Block>>,
+    attention: scene::Kept<attention::Block>,
     audience: scene::Kept<rows::Block>,
     cron: scene::Kept<rows::Block>,
     squads: scene::Kept<tiles::TilePaint>,
@@ -326,10 +298,7 @@ impl Scenes {
     /// How many scenes were solved and painted since the view began.
     #[cfg(test)]
     pub(super) fn builds(&self) -> usize {
-        self.attention
-            .values()
-            .map(|slot| slot.builds)
-            .sum::<usize>()
+        self.attention.builds
             + self.audience.builds
             + self.cron.builds
             + self.squads.builds

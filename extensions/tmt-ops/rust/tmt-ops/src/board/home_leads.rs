@@ -112,7 +112,6 @@ pub struct Read {
     pub(super) leads: Vec<Lead>,
     pub(super) replies: Vec<Value>,
     pub(super) failure: Option<String>,
-    pub(super) incomplete: bool,
     /// Measured subprocess cost, including the shared originator results page.
     pub(super) calls: usize,
     pub(super) elapsed_ms: u128,
@@ -127,7 +126,6 @@ impl Read {
             leads,
             replies: Vec::new(),
             failure: None,
-            incomplete: false,
             calls: 0,
             elapsed_ms: 0,
         }
@@ -141,7 +139,6 @@ pub(super) struct State {
     /// Bounded result metadata from the same originator read, for HOME members.
     pub replies: Vec<Value>,
     pub failure: Option<String>,
-    pub incomplete: bool,
 }
 
 fn roster(home: &super::home::Home) -> Vec<Lead> {
@@ -183,7 +180,6 @@ impl Fetch {
             leads: self.leads,
             replies: Vec::new(),
             failure: None,
-            incomplete: false,
             calls: 0,
             elapsed_ms: 0,
         };
@@ -194,10 +190,7 @@ impl Fetch {
         let results = match list(json!({"originatorId":sender.id,"view":"results","limit":LIMIT}))
             .and_then(page)
         {
-            Ok((items, incomplete)) => {
-                read.incomplete |= incomplete;
-                items
-            }
+            Ok(items) => items,
             Err(error) => {
                 read.failure = Some(error.to_string());
                 Vec::new()
@@ -211,10 +204,7 @@ impl Fetch {
                 list(json!({"recipientId":lead.id(),"limit":LIMIT})).and_then(page)
             });
             let items = match history {
-                Ok((items, incomplete)) => {
-                    read.incomplete |= *incomplete;
-                    items.as_slice()
-                }
+                Ok(items) => items.as_slice(),
                 Err(error) => {
                     lead.failure = Some(error.to_string());
                     &[]
@@ -251,7 +241,6 @@ impl State {
         } else {
             self.replies.clear();
             self.failure = None;
-            self.incomplete = false;
         }
         self.sender = sender.map(str::to_owned);
         sort(&mut leads);
@@ -292,7 +281,6 @@ impl State {
         sort(&mut read.leads);
         self.leads = read.leads;
         self.failure = read.failure;
-        self.incomplete = read.incomplete;
     }
 }
 
@@ -315,14 +303,14 @@ fn collect_replies(replies: &mut Vec<Value>, items: &[Value], sender: &str) {
     }
 }
 
-fn page(value: Value) -> Result<(Vec<Value>, bool), SquadError> {
+fn page(value: Value) -> Result<Vec<Value>, SquadError> {
     let items = value["items"].as_array().ok_or_else(|| {
         SquadError::new(
             "SQUAD_CORE_UNAVAILABLE",
             "requests.list returned no items array.",
         )
     })?;
-    Ok((items.clone(), !value["nextBefore"].is_null()))
+    Ok(items.clone())
 }
 
 fn sort(leads: &mut [Lead]) {

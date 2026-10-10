@@ -1294,8 +1294,8 @@ impl App {
         self.clamp();
     }
 
-    /// HOME opens on its first row from the top: a needs-you row, else a
-    /// blocked row, else the first lead, else the first squad. The cron line
+    /// HOME opens on its first row from the top: a blocked row, else the first
+    /// lead, else the first squad. The cron line
     /// is never the opening row. Squad tabs have no home entries and keep the
     /// lead they start on.
     fn place_home_start(&mut self) {
@@ -1305,7 +1305,7 @@ impl App {
                 .iter()
                 .position(|entry| entry.target.section == section)
         };
-        let index = ["needs-you", "blocked", super::home::LEADS, "squads"]
+        let index = ["blocked", super::home::LEADS, "squads"]
             .into_iter()
             .find_map(first);
         self.home_start =

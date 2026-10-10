@@ -95,10 +95,7 @@ fn home(value: &home::Home) -> Value {
             "key": section.key,
             "rows": section.rows.iter().map(|line| json!({
                 "name": line.member["name"].as_str(), "squad": line.squad,
-                "age": line.age.as_ref().map(|age| json!({
-                    "source": match age.source { home::AgeSource::Request => "request", home::AgeSource::Observed => "observed" },
-                    "sinceMs": age.since_ms,
-                })),
+                "age": line.age.as_ref().map(|age| json!({"sinceMs": age.since_ms})),
             })).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
     })
@@ -115,17 +112,13 @@ fn valid_home(value: &Value) -> bool {
         })
         && valid_array(&value["sections"], |section| {
             object(section, &["key", "rows"])
-                && matches!(section["key"].as_str(), Some("needs-you" | "blocked"))
+                && section["key"].as_str() == Some("blocked")
                 && valid_array(&section["rows"], |line| {
                     object(line, &["name", "squad", "age"])
                         && string(&line["name"])
                         && string(&line["squad"])
                         && (line["age"].is_null()
-                            || (object(&line["age"], &["source", "sinceMs"])
-                                && matches!(
-                                    line["age"]["source"].as_str(),
-                                    Some("request" | "observed")
-                                )
+                            || (object(&line["age"], &["sinceMs"])
                                 && line["age"]["sinceMs"].as_u64().is_some()))
                 })
         })

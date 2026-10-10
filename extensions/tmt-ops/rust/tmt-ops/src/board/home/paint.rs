@@ -1,7 +1,7 @@
 //! One home painter; ordinary pane geometry and scalar rows keep their owners.
 
 use super::{
-    Age, AgeSource,
+    Age,
     tiles::{self, TileItem},
 };
 use crate::{
@@ -104,11 +104,10 @@ pub(crate) fn hints_of(
 pub(crate) use super::bar::{hints, summary, usage};
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {
-    let age_text = tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms));
-    match age.source {
-        AgeSource::Request => age_text,
-        AgeSource::Observed => format!("observed {age_text}"),
-    }
+    format!(
+        "observed {}",
+        tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms))
+    )
 }
 
 pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -121,7 +120,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let entries = app.home_entries();
     let look = app.look();
     let width = usize::from(area.width);
-    let mut lines = vec![Line::default()];
+    // Every section brings its own gap above its rule.
+    let mut lines = Vec::new();
     let lead_failures = app
         .home_leads
         .leads
@@ -136,7 +136,6 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         || view.me.is_none()
         || view.theme_notice.is_some()
         || lead_failures > 0
-        || app.home_leads.incomplete
     {
         let mut notices = view.theme_notice.iter().cloned().collect::<Vec<_>>();
         if !home.failures.is_empty() {
@@ -150,12 +149,10 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 "lead exchanges partial: {lead_failures} failed reads"
             ));
         }
-        if app.home_leads.incomplete {
-            notices.push("older lead exchanges not shown".into());
-        }
         if view.me.is_none() {
             notices.push(crate::status::UNKNOWN_YOU.into());
         }
+        lines.push(Line::default());
         lines.push(Line::styled(
             fit(&notices.join(" · "), width),
             look.role(Role::Waiting),
@@ -172,52 +169,18 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut counter_regions = Vec::new();
     let receipt_now = std::time::Instant::now();
     let mut section = "";
-    if !entries
-        .iter()
-        .any(|entry| entry.target.section == "needs-you")
-    {
-        let quiet = if view.me.is_none() {
-            "user not set"
-        } else if app.search.is_empty() {
-            "nothing waits on you"
-        } else {
-            "no matching members"
-        };
-        lines.extend(
-            super::attention::paint(
-                app,
-                look,
-                area,
-                now,
-                &super::attention::Section {
-                    first: 0,
-                    entries: &[],
-                    title: format!("◆ needs you · 0 · {quiet}"),
-                    role: Role::Dim,
-                    blank: false,
-                },
-                scenes.attention.entry("quiet").or_default(),
-            )
-            .lines,
-        );
-    }
     let mut handled = 0;
     for (index, entry) in entries.iter().enumerate() {
         if index < handled {
             continue;
         }
-        if matches!(entry.target.section.as_str(), "needs-you" | "blocked") {
+        if entry.target.section == "blocked" {
             section = &entry.target.section;
             let count = entries[index..]
                 .iter()
                 .take_while(|next| next.target.section == section)
                 .count();
             handled = index + count;
-            let (label, role) = if section == "needs-you" {
-                ("◆ needs you", Role::Waiting)
-            } else {
-                ("✗ blocked", Role::Blocked)
-            };
             let block = super::attention::paint(
                 app,
                 look,
@@ -226,18 +189,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 &super::attention::Section {
                     first: index,
                     entries: &entries[index..handled],
-                    title: format!("{label} · {count}"),
-                    role,
-                    blank: true,
                 },
-                scenes
-                    .attention
-                    .entry(if section == "needs-you" {
-                        "needs-you"
-                    } else {
-                        "blocked"
-                    })
-                    .or_default(),
+                &mut scenes.attention,
             );
             let base = lines.len();
             lines.extend(block.lines);
@@ -440,6 +393,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         }
     }
     if home.squads.is_empty() {
+        lines.push(Line::default());
         lines.push(Line::styled(
             rule("squads · 0", width),
             look.role(Role::Dim),

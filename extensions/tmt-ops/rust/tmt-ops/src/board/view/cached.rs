@@ -111,15 +111,11 @@ pub(super) fn lines(view: &Value, width: usize) -> Vec<Vec<Piece>> {
             if rows.is_empty() {
                 continue;
             }
-            let (title, mark, role) = match section["key"].as_str() {
-                Some("needs-you") => ("Needs you", "◆", Role::Waiting),
-                _ => ("Blocked", "✗", Role::Blocked),
-            };
             lines.push(Vec::new());
-            lines.push(vec![(format!(" {title}"), Role::Muted)]);
+            lines.push(vec![(" Blocked".into(), Role::Muted)]);
             for row in rows {
                 lines.push(vec![
-                    (format!(" {mark} "), role),
+                    (" ✗ ".into(), Role::Blocked),
                     (text(&row["name"]), Role::Text),
                     (format!(" · {}", text(&row["squad"])), Role::Muted),
                 ]);

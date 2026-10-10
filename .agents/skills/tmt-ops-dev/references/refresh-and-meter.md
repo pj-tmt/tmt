@@ -99,8 +99,8 @@ missing parents or change the migration cutover decision.
 Version 1 explicitly projects tab order/pinning, squad-key/room-UUID inventory,
 waiting/blocked tab counts, section titles/order and basic member/lead headings
 (name, squad, state, task, and a boolean decision mark). HOME
-instead retains summary/squad/member counts and needs-you/blocked rows with names,
-squad labels and optional age source/time. It omits grid/configuration, arbitrary
+instead retains summary/squad/member counts and blocked rows with names,
+squad labels and optional observed age. It omits grid/configuration, arbitrary
 fields/providers, presence/role, model/usage history, focus, action bindings/targets, identity
 UUIDs, panes/ttys, requests/receipts/bodies/previews, annotations, notes, checklists
 and deferred exchanges/cron. Fresh acquisition supplies omitted details.

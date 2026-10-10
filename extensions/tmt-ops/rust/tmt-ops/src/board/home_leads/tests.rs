@@ -295,7 +295,6 @@ fn one_global_results_page_and_one_recipient_page_per_distinct_lead_are_bounded(
     assert_eq!(inputs[0]["originatorId"], "me");
     assert_eq!(inputs[1]["recipientId"], "a");
     assert_eq!(inputs[2]["recipientId"], "b");
-    assert!(read.incomplete);
     assert_eq!(
         read.leads
             .iter()
@@ -397,7 +396,6 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         leads: vec![lead("a", "squad")],
         replies: vec![],
         failure: None,
-        incomplete: false,
         calls: 0,
         elapsed_ms: 0,
     });
