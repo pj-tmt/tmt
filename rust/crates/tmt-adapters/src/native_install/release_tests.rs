@@ -13,19 +13,21 @@ const TARGET: &str = "aarch64-apple-darwin";
 const MANIFEST_NAME: &str = "dist-manifest.json";
 /// Test-owned network recorder shared by normal release acquisition fixtures.
 #[derive(Clone, Default)]
-pub(in crate::native_install) struct PublishedNetwork(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+pub(in crate::native_install) struct PublishedNetwork(
+    std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+);
 impl PublishedNetwork {
     pub(in crate::native_install) fn record(&self, url: &str) {
         let uri: ureq::http::Uri = url.parse().expect("fixture request must be a URL");
         let host = uri.host().expect("fixture request must have a host");
-        self.0.borrow_mut().push(host.to_owned());
+        self.0.lock().unwrap().push(host.to_owned());
         assert_ne!(
             host, "api.github.com",
             "normal published command requested API: {url}"
         );
     }
     pub(in crate::native_install) fn hosts(&self) -> Vec<String> {
-        self.0.borrow().clone()
+        self.0.lock().unwrap().clone()
     }
 }
 
