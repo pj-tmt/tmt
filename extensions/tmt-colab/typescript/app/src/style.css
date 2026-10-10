@@ -380,7 +380,8 @@ footer {
   gap: 6px;
 }
 .annotation-compose .tmt-ui-action[data-variant='primary']:not(:disabled),
-.proposal-approve .tmt-ui-action:not(:disabled) {
+.proposal-approve .tmt-ui-action:not(:disabled),
+.proposal-inline .question-card > .tmt-ui-action[data-variant='primary']:not(:disabled) {
   color: var(--c-paper);
   background: var(--c-text);
   border-color: var(--c-text);
@@ -1094,16 +1095,6 @@ footer {
 /* In-page controls use the leaf light palette, independent of chrome and author CSS. */
 .proposal-inline {
   color-scheme: light;
-  --c-text: var(--tmt-ui-color-text);
-  --c-muted: var(--tmt-ui-color-secondary);
-  --c-accent: var(--tmt-ui-color-link);
-  --c-accent-soft: var(--tmt-ui-surface-selection);
-  --c-working: var(--tmt-ui-color-working);
-  --c-waiting: var(--tmt-ui-color-waiting);
-  --c-blocked: var(--tmt-ui-color-blocked);
-  --c-paper: var(--tmt-ui-surface-paper);
-  --c-sheet: var(--tmt-ui-surface-sheet);
-  --c-rule: var(--tmt-ui-surface-rule);
   position: absolute;
   left: 0;
   right: 0;
@@ -1115,11 +1106,6 @@ footer {
   border: 1px solid var(--tmt-ui-color-edge);
   border-radius: 0;
   box-shadow: none;
-}
-.proposal-inline .question-card > .tmt-ui-action[data-variant='primary']:not(:disabled) {
-  background: var(--c-text);
-  color: var(--c-paper);
-  border-color: var(--c-text);
 }
 .proposal-inline :focus-visible {
   outline-color: var(--tmt-ui-color-focus);
