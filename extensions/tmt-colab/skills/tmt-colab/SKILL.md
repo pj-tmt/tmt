@@ -318,8 +318,8 @@ read the thread and existing delivery state before taking another action.
 
 Use only when authorized: `proposal add PAGE --title TITLE --body BODY --id UUID --json`,
 `proposal ls PAGE --json` or `proposal resolve PAGE ID --json` with `tmt colab`.
-Retain one UUID before Add. Title/body/label limits are 200 characters/4 KiB UTF-8/64
-characters; a page holds 200 proposals. Run from a tmt agent session; if Remote is
+Retain a UUID for new Add; recovery/resolve accept unique prefixes from ls.
+Title/body/label limits: 200 characters/4 KiB UTF-8/64; page limit: 200 proposals. Run from a tmt agent session; if Remote is
 not running, start `tmt colab serve`. Add saves the proposal, then adds its place at
 the end of the page. If interrupted, check `proposal ls` and page source, then rerun
 with the same ID, title and body to finish only the missing step. `placed:false`

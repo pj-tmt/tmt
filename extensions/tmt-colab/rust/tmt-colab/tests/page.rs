@@ -4117,7 +4117,7 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
             "add",
             PAGE,
             "--id",
-            &proposal.proposal_id,
+            "90000000",
             "--title",
             &proposal.title,
             "--body",
@@ -4160,7 +4160,7 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
     for expected in [true, false] {
         let output = f
             .command()
-            .args(["proposal", "resolve", PAGE, &proposal.proposal_id, "--json"])
+            .args(["proposal", "resolve", PAGE, "90000000", "--json"])
             .output()
             .unwrap();
         assert!(
@@ -4212,6 +4212,76 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
         duplicate,
         "duplicate recovery never guesses a placement"
     );
+    let human = f
+        .command()
+        .args([
+            "proposal",
+            "add",
+            PAGE,
+            "--id",
+            "90000000",
+            "--title",
+            &proposal.title,
+            "--body",
+            &proposal.body,
+        ])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(shown.contains(&format!(
+        "tmt colab proposal add {PAGE} --id {}",
+        proposal.proposal_id
+    )));
+    let mut other = proposal.clone();
+    other.proposal_id = "90000000-1000-4000-8000-000000000002".into();
+    let frozen =
+        discussion::prepare_proposal(&f.store, &f.key, PAGE, &other, &mut f.decoder(), NOW)
+            .unwrap()
+            .unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    let before = f.read().revision;
+    for prefix in ["90000000", "deadbeef"] {
+        let resolve = f
+            .command()
+            .args(["proposal", "resolve", PAGE, prefix, "--json"])
+            .output()
+            .unwrap();
+        let add = f
+            .command()
+            .args([
+                "proposal",
+                "add",
+                PAGE,
+                "--id",
+                prefix,
+                "--title",
+                &proposal.title,
+                "--body",
+                &proposal.body,
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        for output in [resolve, add] {
+            assert!(!output.status.success());
+            let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+            let message = value["error"]["message"].as_str().unwrap();
+            assert!(
+                message.contains(if prefix == "90000000" {
+                    "matches more than one"
+                } else {
+                    "No proposal matches"
+                }),
+                "{message}"
+            );
+        }
+        assert_eq!(
+            f.read().revision,
+            before,
+            "ambiguous/missing prefix never publishes"
+        );
+    }
 }
 
 #[test]

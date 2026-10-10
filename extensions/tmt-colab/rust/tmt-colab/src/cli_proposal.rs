@@ -36,9 +36,32 @@ pub fn command() -> Command {
         .mut_arg("json",|arg|arg.global(true)).subcommand_required(true)
         .subcommand(command_spec!("add","Add a proposal at the end of a page","tmt colab proposal add 10000000-0000-4000-8000-000000000001 --title 'Review this' --body 'Please review the page.'","Saves the proposal, then adds its place at the end of the page. If the command stops partway, it prints the proposal ID: run `tmt colab proposal ls PAGE` to check, then rerun add with `--id <ID>` to finish only the missing step.")
             .arg(crate::cli_grammar::page()).arg(Arg::new("title").long("title").required(true)).arg(Arg::new("body").long("body").required(true))
-            .arg(Arg::new("id").long("id").help("Finish an interrupted add with this proposal ID").value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
+            .arg(Arg::new("id").long("id").help("Finish an interrupted add with its proposal ID or unique prefix").value_parser(proposal_prefix)))
         .subcommand(command_spec!("ls","List a page's proposals","tmt colab proposal ls 10000000-0000-4000-8000-000000000001 --json","Shows each proposal's decision and whether it is resolved. Reads only; changes nothing.").alias("list").arg(crate::cli_grammar::page()))
-        .subcommand(command_spec!("resolve","Mark a proposal resolved","tmt colab proposal resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001","Does not notify agents. Resolving one that is already resolved is not an error. Unknown or deleted proposals are refused.").arg(crate::cli_grammar::page()).arg(Arg::new("id").required(true).index(2).value_parser(|v:&str|tmt_colab_model::values::generated_id(v).map(|_|v.to_owned()).map_err(|e|e.to_string()))))
+        .subcommand(command_spec!("resolve","Mark a proposal resolved","tmt colab proposal resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001","Does not notify agents. Resolving one that is already resolved is not an error. Unknown or deleted proposals are refused.").arg(crate::cli_grammar::page()).arg(Arg::new("id").required(true).index(2).help("Proposal ID or unique lowercase UUID prefix (at least 8 characters; see proposal ls)").value_parser(proposal_prefix)))
+}
+fn proposal_prefix(value: &str) -> std::result::Result<String, &'static str> {
+    if tmt_colab::short_links::valid_prefix(value)
+        && (value.len() < 36 || tmt_colab_model::values::generated_id(value).is_ok())
+    {
+        Ok(value.to_owned())
+    } else {
+        Err("Use a full proposal UUID or a lowercase UUID prefix of at least 8 characters")
+    }
+}
+fn resolve_proposal(view: &discussion::View, prefix: &str) -> Result<String> {
+    let ids: Vec<_> = view
+        .conversations
+        .threads
+        .iter()
+        .filter_map(|row| row.proposal.as_ref().map(|p| p.proposal_id.clone()))
+        .collect();
+    let matches = tmt_colab::short_links::matches(prefix, &ids);
+    match matches.as_slice() {
+        [id] => Ok((*id).into()),
+        [] => Err(format!("No proposal matches {prefix}. Run `tmt colab proposal ls PAGE` to check its ID.").into()),
+        _ => Err(format!("Proposal ID {prefix} matches more than one proposal. Use a longer ID from `tmt colab proposal ls PAGE`.").into()),
+    }
 }
 #[derive(Debug)]
 pub struct RecoveryFault {
@@ -205,11 +228,14 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let mut rows = vec![("page", id.clone())];
     let value = match mode {
         "add" => {
-            let proposal_id = args
-                .get_one::<String>("id")
-                .cloned()
-                .map(Ok)
-                .unwrap_or_else(page::fresh_id)?;
+            let proposal_id = match args.get_one::<String>("id") {
+                Some(prefix) if prefix.len() < 36 => {
+                    let (view, _) = read(&layout, &key, &id, &mut decoder)?;
+                    resolve_proposal(&view, prefix)?
+                }
+                Some(id) => id.clone(),
+                None => page::fresh_id()?,
+            };
             let correlation =
                 json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"placed":false});
             let placed =
@@ -227,7 +253,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             rows.push(("proposal", proposal_id.clone()));
             rows.push(("placed", if placed { "yes" } else { "no" }.into()));
             if !placed {
-                rows.push(("next",format!("Run `tmt colab proposal ls {id}` to check, then finish with `proposal add --id {proposal_id}`.")));
+                rows.push(("next",format!("Run `tmt colab proposal ls {id}` to check, then finish with `tmt colab proposal add {id} --id {proposal_id}` using the same title and body.")));
             }
             json!({"spaceId":key.space_id,"pageId":id,"proposalId":proposal_id,"placed":placed})
         }
@@ -271,8 +297,8 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             json!({"spaceId":key.space_id,"pageId":id,"epoch":view.conversations.epoch,"revision":view.revision,"proposals":proposals})
         }
         "resolve" => {
-            let proposal_id = args.get_one::<String>("id").unwrap();
             let (view, _) = read(&layout, &key, &id, &mut decoder)?;
+            let proposal_id = resolve_proposal(&view, args.get_one::<String>("id").unwrap())?;
             let matches: Vec<_> = view
                 .conversations
                 .threads
@@ -280,7 +306,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                 .filter(|t| {
                     t.proposal
                         .as_ref()
-                        .is_some_and(|p| p.proposal_id == *proposal_id)
+                        .is_some_and(|p| p.proposal_id == proposal_id)
                 })
                 .collect();
             if matches.len() != 1 || matches[0].deleted {

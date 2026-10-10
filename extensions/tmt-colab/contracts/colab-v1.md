@@ -971,7 +971,10 @@ a placeholder without a record supplies no proposal. Trusted card rendering and
 decision dispatch are later #1773 slices; this slice adds data, queries and CLI only.
 
 `proposal ls PAGE` reads authenticated proposal threads, their retained decision and
-independent resolved state. `proposal resolve PAGE ID` uses the existing owner-device
+independent resolved state. Human rows print the shortest unique UUID prefix (at least
+8 characters). `resolve` and `add --id` accept those prefixes from the current
+page's authenticated proposals, refusing missing or ambiguous matches before any
+write. Only a full canonical UUID can start a new proposal with `add --id`. `proposal resolve PAGE ID` uses the existing owner-device
 resolution action, sends no notifications and is a no-op when already resolved.
 Resolve refuses missing, ambiguous or deleted proposals. The generic thread Reopen
 operation retains the proposal and decision. Proposal dispatch does not run from
