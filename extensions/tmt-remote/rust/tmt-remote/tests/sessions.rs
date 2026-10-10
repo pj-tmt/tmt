@@ -584,6 +584,172 @@ fn session_open_refusals_are_generic_and_replays_refuse() {
 }
 
 #[test]
+fn fresh_open_proves_only_its_authenticated_retained_grant_and_consumes_nonce() {
+    for (disabled, expired, expected) in [
+        (true, false, "REMOTE_DEVICE_REVOKED"),
+        (false, true, "REMOTE_GRANT_EXPIRED"),
+        (true, true, "REMOTE_DEVICE_REVOKED"),
+    ] {
+        let h = Harness::new(FAST);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        oracle
+            .execute(
+                "UPDATE grants SET disabled=?2,expires_at_ms=?3 WHERE client_id=?1",
+                rusqlite::params![client, disabled, expired.then_some(1i64)],
+            )
+            .unwrap();
+        let count = |table: &str| {
+            oracle
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        let before = [count("sessions"), count("entries"), count("operations")];
+        let request = Opening::new(&h, &client, &device.key).wire();
+        // A signature for this client made with a different key discloses nothing.
+        let impostor = SigningKey::from_bytes(&[99; 32]);
+        let wrong = Opening::new(&h, &client, &impostor).wire();
+        assert_eq!(open_session(&h, &wrong).status, 404);
+        assert_eq!(count("budgets"), 0, "wrong key cannot charge a client");
+        let reply = open_session(&h, &request);
+        assert_eq!(reply.status, 200, "authenticated {expected}");
+        assert!(reply.cookie().is_none());
+        verify_reply(&h, &reply);
+        let wire: Value = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(wire["sessionId"], "new");
+        assert_eq!(wire["sequence"], "1");
+        assert_eq!(wire["correlationId"], request["id"]);
+        assert_eq!(payload(&reply)["error"]["code"], expected);
+        assert_eq!(payload(&reply)["error"].as_object().unwrap().len(), 2);
+        assert_eq!(
+            [count("sessions"), count("entries"), count("operations")],
+            before
+        );
+        assert_eq!(
+            oracle
+                .query_row(
+                    "SELECT used FROM budgets WHERE subject=?1 AND kind='call'",
+                    [&client],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            open_session(&h, &request).status,
+            404,
+            "terminal nonce is consumed"
+        );
+        assert!(h.core_calls().is_empty());
+    }
+}
+
+#[test]
+fn fresh_open_authority_proof_keeps_invalid_deleted_and_ordinary_requests_opaque() {
+    for defect in [
+        "policy",
+        "key",
+        "deleted",
+        "nonce",
+        "window",
+        "timestamp",
+        "origin",
+        "ordinary",
+    ] {
+        let h = Harness::new(FAST);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        oracle
+            .execute("UPDATE grants SET disabled=1 WHERE client_id=?1", [&client])
+            .unwrap();
+        let mut opening = Opening::new(&h, &client, &device.key);
+        if defect == "timestamp" {
+            opening.timestamp_ms -= 61_000;
+        }
+        let mut wire = opening.wire();
+        match defect {
+            "policy" => {
+                oracle
+                    .execute(
+                        "UPDATE grants SET agents='invalid' WHERE client_id=?1",
+                        [&client],
+                    )
+                    .unwrap();
+            }
+            "key" => {
+                oracle
+                    .execute(
+                        "UPDATE grants SET public_key=zeroblob(32) WHERE client_id=?1",
+                        [&client],
+                    )
+                    .unwrap();
+            }
+            "deleted" => {
+                oracle
+                    .execute("DELETE FROM grants WHERE client_id=?1", [&client])
+                    .unwrap();
+            }
+            "nonce" => wire["payload"] = json!("e30"),
+            "window" => wire["windowId"] = json!(uuid_v4().unwrap()),
+            "ordinary" => wire["kind"] = json!("request"),
+            _ => {}
+        }
+        let origin = if defect == "origin" {
+            None
+        } else {
+            Some(h.origin.as_str())
+        };
+        let reply = post(&h, "/append", &wire.to_string(), origin, None);
+        assert_eq!((reply.status, reply.body.as_str()), (404, "{}"), "{defect}");
+        assert!(reply.cookie().is_none());
+        assert_eq!(
+            oracle
+                .query_row("SELECT count(*) FROM budgets", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
+fn fresh_open_terminal_proof_respects_call_budget_and_repair_has_a_new_identity() {
+    let h = Harness::new(FAST);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    control(&h, json!({"op":"revoke","clientId":client}));
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    oracle
+        .execute(
+            "INSERT INTO budgets VALUES (?1,'call',?2,120)",
+            rusqlite::params![client, i64::try_from(now_ms()).unwrap()],
+        )
+        .unwrap();
+    let request = Opening::new(&h, &client, &device.key).wire();
+    assert_eq!(
+        open_session(&h, &request).status,
+        404,
+        "exhausted calls stay opaque"
+    );
+    oracle
+        .execute("UPDATE budgets SET used=119 WHERE subject=?1", [&client])
+        .unwrap();
+    let proof = open_session(&h, &request);
+    assert_eq!(payload(&proof)["error"]["code"], "REMOTE_DEVICE_REVOKED");
+    assert_eq!(open_session(&h, &request).status, 404);
+    let repaired = paired(&h, &device);
+    assert_ne!(repaired, client);
+    let opened = open_session(&h, &Opening::new(&h, &repaired, &device.key).wire());
+    assert_eq!(opened.status, 200);
+    assert!(opened.cookie().is_some());
+    assert!(payload(&opened).get("error").is_none());
+}
+
+#[test]
 fn a_session_cookie_alone_cannot_operate_or_pair() {
     let h = Harness::new(FAST);
     let device = Device::browser(&h, 7);
@@ -657,9 +823,12 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     closes(&mut second_tunnel);
     assert_eq!(mounted(&h, &colab, Some(&second_cookie)), None);
     assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
-    // The revoked key cannot open a session again; revoking twice is stable.
+    // The revoked key gets a signed proof, never a Session; revoking twice is stable.
     let reopen = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
-    assert_eq!(reopen.status, 404);
+    assert_eq!(reopen.status, 200);
+    assert_eq!(payload(&reopen)["error"]["code"], "REMOTE_DEVICE_REVOKED");
+    assert!(reopen.cookie().is_none());
+    verify_reply(&h, &reopen);
     let again = control(&h, json!({"op":"revoke","clientId":client_id}));
     assert_eq!(again["device"]["revision"], 2);
     let missing = control(&h, json!({"op":"revoke","clientId":uuid_v4().unwrap()}));

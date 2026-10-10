@@ -56,18 +56,25 @@ async function fixture() {
     }
     admissions++;
     if (mode === 'transport') throw new Error('Transport unavailable.');
-    if (mode === 'capacity' || mode === 'unverified-capacity') {
+    if (
+      ['capacity', 'unverified-capacity', 'revoked', 'expired', 'unverified-expired'].includes(mode)
+    ) {
       door.mutate = (reply) => {
         reply.sessionId = 'new';
         reply.sequence = '1';
       };
-      door.tamper.signature = mode === 'unverified-capacity';
+      door.tamper.signature = mode.startsWith('unverified-');
       return door.response(JSON.parse(init!.body as string), {
         error: {
-          code: 'REMOTE_SESSION_LIMIT',
-          message: 'Capacity reached.',
-          limit: 8,
-          settingsUrl: `${new URL(door.descriptor.address).origin}/settings`,
+          code: mode.includes('expired')
+            ? 'REMOTE_GRANT_EXPIRED'
+            : mode === 'revoked'
+              ? 'REMOTE_DEVICE_REVOKED'
+              : 'REMOTE_SESSION_LIMIT',
+          message: 'Admission refused.',
+          ...(mode.includes('capacity')
+            ? { limit: 8, settingsUrl: `${new URL(door.descriptor.address).origin}/settings` }
+            : {}),
         },
       });
     }
@@ -427,7 +434,7 @@ test('the previous served bundle keeps unknown signed end codes unconfirmed with
   const previous = await import(
     /* @vite-ignore */ `data:text/javascript;base64,${bytes.toString('base64')}`
   );
-  for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED']) {
+  for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED', 'REMOTE_GRANT_EXPIRED']) {
     const f = await fixture();
     try {
       f.mode('success');
@@ -453,3 +460,53 @@ test('the previous served bundle keeps unknown signed end codes unconfirmed with
     }
   }
 });
+
+for (const reason of ['revoked', 'expired', 'unverified-expired']) {
+  test(`fresh admission ${reason} requires proof and never retries or resends an uncertain original`, async () => {
+    const f = await fixture();
+    try {
+      const { operations } = await import('../src/operations.js');
+      const id = crypto.randomUUID();
+      f.door.afterAdoption = async (body) => {
+        if (body.operation === 'dispatch.create') throw new Error('lost reply');
+      };
+      await assert.rejects(
+        operations(f.previous).send({
+          operationId: id,
+          agentId: (f.door.agents[0] as { id: string }).id,
+          message: 'one original',
+        }),
+        (error) => error instanceof ClientError && error.operationId === id,
+      );
+      f.mode(reason);
+      await assert.rejects(reopenSession(f.previous, { retry: 'bounded' }), (error) => {
+        assert.ok(error instanceof ReopenSessionError);
+        assert.equal(error.reason, reason === 'unverified-expired' ? 'transient' : reason);
+        assert.equal(
+          error.detail,
+          reason === 'unverified-expired' ? 'unverifiable-response' : 'admission-refused',
+        );
+        if (reason === 'unverified-expired') assert.equal(error.cause, undefined);
+        else {
+          assert.ok(error.cause instanceof RefusalError);
+          assert.equal(
+            error.cause.code,
+            reason === 'revoked' ? 'REMOTE_DEVICE_REVOKED' : 'REMOTE_GRANT_EXPIRED',
+          );
+        }
+        return true;
+      });
+      assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
+      assert.equal(
+        f.door.calls.filter((call) => call.envelope.operation === 'dispatch.create').length,
+        1,
+      );
+      assert.equal(
+        f.door.calls.filter((call) => call.envelope.operation === 'operation.show').length,
+        0,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}

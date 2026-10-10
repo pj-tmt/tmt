@@ -114,6 +114,7 @@ pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
         && value.operation == "session.open"
         && value.session_id == "new"
     {
+        // Capacity and authenticated retained-grant proof share the rejected-open frame.
         require(sequence == 1)?;
     } else {
         uuid(value.session_id)?;

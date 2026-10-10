@@ -347,8 +347,13 @@ A lost reply is recovered by observing the original ID after admission, not a ne
 non-terminal. `capacity` is also non-terminal but is not retried inside the series; its
 `cause` is the verified `RefusalError(REMOTE_SESSION_LIMIT)` with `limit` and optional
 `settingsUrl`, so the connection owner can show the existing capacity action. `mismatch` fails
-closed on changed identity or pins; `unpaired` means the stored pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
-answers: until that seam ships, an opaque 404 returns `unconfirmed`, never either terminal reason.
+closed on changed identity or pins; `unpaired` means the stored pairing is absent, not unreadable.
+Verified fresh-open `REMOTE_DEVICE_REVOKED` / `REMOTE_GRANT_EXPIRED` answers return terminal
+`revoked` / `expired`, detail `admission-refused`, with the verified `RefusalError` as `cause`.
+Neither is retried inside the series; the connection owner offers re-pair while retaining drafts
+and original operation IDs. An opaque 404, deleted identity or unverifiable proof remains
+`unconfirmed`, never either terminal reason. Older bundles leave the unknown expiry code
+unconfirmed. Ordinary operations cannot use this fresh-open authority-proof seam.
 The error's `detail` is fixed/sanitized; an aborted owner is `transient`/`cancelled`.
 Same machine, browser origin and stored key pins are required; no fallback or new pairing occurs.
 Re-admission of the existing paired key needs no new gesture and never widens its grant.

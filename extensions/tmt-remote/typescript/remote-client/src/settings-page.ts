@@ -485,9 +485,12 @@ try {
       : undefined;
   const ended =
     error instanceof RefusalError &&
-    ['REMOTE_DEVICE_REVOKED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(
-      error.code,
-    );
+    [
+      'REMOTE_DEVICE_REVOKED',
+      'REMOTE_GRANT_EXPIRED',
+      'REMOTE_SESSION_ENDED',
+      'REMOTE_SESSION_EVICTED',
+    ].includes(error.code);
   commandNotice(
     element('access'),
     capacity ??

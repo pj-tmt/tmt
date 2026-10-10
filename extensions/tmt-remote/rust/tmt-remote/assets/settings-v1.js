@@ -304,7 +304,12 @@ var ManagementPage = class {
 	}
 };
 function accessRefused(error) {
-	return error instanceof RefusalError && ["REMOTE_SESSION_ENDED", "REMOTE_SESSION_EVICTED"].includes(error.code);
+	return error instanceof RefusalError && [
+		"REMOTE_SESSION_ENDED",
+		"REMOTE_SESSION_EVICTED",
+		"REMOTE_DEVICE_REVOKED",
+		"REMOTE_GRANT_EXPIRED"
+	].includes(error.code);
 }
 //#endregion
 //#region src/settings-page.ts
@@ -696,6 +701,7 @@ try {
 	const capacity = error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT" ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).` : void 0;
 	const ended = error instanceof RefusalError && [
 		"REMOTE_DEVICE_REVOKED",
+		"REMOTE_GRANT_EXPIRED",
 		"REMOTE_SESSION_ENDED",
 		"REMOTE_SESSION_EVICTED"
 	].includes(error.code);

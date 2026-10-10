@@ -55,7 +55,10 @@ Rules that are easy to get wrong:
   `core_tests.rs`.
 - **Pre-auth stays generic.** Refusals before a verified signature are one 404
   with no inventory. A verified fresh open may receive the contract's signed
-  rejected-open envelope without allocating a Session or sequence row. The `tmt_door` cookie
+  rejected-open envelope without allocating a Session or sequence row. Fresh-open stored-key
+  proof checks retained valid authority before classifying disabled/expired, rechecks identity
+  under live -> Store locks, reserves the nonce and charges Call. Ordinary admission still
+  requires a live grant; unknown/deleted/corrupt keys remain opaque. The `tmt_door` cookie
   only identifies a device context on mounted paths; `/r/` refuses cookies. `session` retains
   live tokens plus one latest-token alias per device, rebinding that pointer to the deterministic
   current-revision survivor described in the

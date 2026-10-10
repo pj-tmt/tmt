@@ -142,19 +142,25 @@ test('unknown freezes original intent, blocks fresh mutations and recovers by or
   assert.equal(f.page.outcome!.state, 'committed');
   assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
 });
-test('fresh admission refusal reports access loss without changing unknown to committed', async () => {
-  const f = fixture();
-  await f.page.refresh();
-  await f.page.submit(input());
-  f.failOpen(new RefusalError('REMOTE_SESSION_ENDED'));
-  await f.page.recover();
-  await f.page.recover();
-  assert.equal(f.page.access, 'lost');
-  assert.equal(f.page.outcome!.state, 'unknown');
-  assert.equal(f.page.writable, false);
-  assert.equal(f.page.canRecover, false);
-  assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 1 });
-});
+for (const code of [
+  'REMOTE_SESSION_ENDED',
+  'REMOTE_DEVICE_REVOKED',
+  'REMOTE_GRANT_EXPIRED',
+] as const) {
+  test(`fresh admission ${code} reports access loss without settling the unknown original`, async () => {
+    const f = fixture();
+    await f.page.refresh();
+    await f.page.submit(input());
+    f.failOpen(new RefusalError(code));
+    await f.page.recover();
+    await f.page.recover();
+    assert.equal(f.page.access, 'lost');
+    assert.equal(f.page.outcome!.state, 'unknown');
+    assert.equal(f.page.writable, false);
+    assert.equal(f.page.canRecover, false);
+    assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 1 });
+  });
+}
 test('transport or stale/malformed descriptor remains unconfirmed access and unknown outcome', async () => {
   for (const error of [
     new Error('Transport failed.'),

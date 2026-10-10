@@ -149,6 +149,10 @@ and narrow the issued policy, not enrollment. Existing grants are unchanged; no 
 field, and works through the current serve or under the stopped serve lease. It commits sanitized
 audit metadata with the scope change; designated settings browsers use the existing immutable
 management receipt/effect owner. Changed revisions end previous Sessions; revoked grants stay revoked.
+A fresh signed open under the retained valid device key can prove revoked or expired authority;
+unknown, deleted/corrupt keys and opaque replies remain unconfirmed. The SDK's bounded reopen
+ends only on verified proof and offers re-pair, never resending an uncertain original effect.
+Restart requires a new current-window open; it does not revive sessions or grant authority.
 
 ## Firestore deployment
 

@@ -128,6 +128,7 @@ export async function envelopeSigningBytes(value: Envelope): Promise<Uint8Array>
     value.operation === 'session.open' &&
     value.sessionId === 'new'
   ) {
+    // Capacity and authenticated retained-grant proof share the rejected-open frame.
     requireValue(value.sequence === '1', 'rejected session.open');
   } else {
     uuid(value.sessionId);

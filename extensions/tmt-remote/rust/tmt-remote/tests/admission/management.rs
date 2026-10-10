@@ -157,7 +157,7 @@ fn self_rename_keeps_same_session_and_reads_original_receipt() {
     assert!(core.calls().is_empty());
 }
 #[test]
-fn self_revoke_commits_but_cannot_reopen_or_use_old_session_to_read_receipt() {
+fn self_revoke_commits_and_proves_revocation_without_reopening_or_reading_receipt() {
     let owner = OwnerDoor::browser();
     let core = core_fixture::Core::new();
     let app = app(&owner, &core);
@@ -198,12 +198,20 @@ fn self_revoke_commits_but_cannot_reopen_or_use_old_session_to_read_receipt() {
             .to_string()
             .as_bytes(),
     );
-    assert!(
-        owner
-            .sessions
-            .open(owner.request_origin(), &serde_json::to_vec(&open).unwrap())
-            .is_none()
+    let proof = owner
+        .sessions
+        .open(owner.request_origin(), &serde_json::to_vec(&open).unwrap())
+        .unwrap();
+    assert!(proof.cookie.is_none());
+    let response: Value = serde_json::from_slice(&proof.response).unwrap();
+    assert_eq!(response["sessionId"], "new");
+    assert_eq!(response["sequence"], "1");
+    assert_eq!(
+        owner.verify_reply(&response, &open)["error"]["code"],
+        "REMOTE_DEVICE_REVOKED"
     );
+    // A proof creates no live Session and still cannot disclose the old receipt.
+    assert!(owner.admit(&old).is_err());
     assert!(
         owner
             .store
