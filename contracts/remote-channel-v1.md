@@ -368,8 +368,8 @@ web-page DOM or log.
 
 The command always prints the link. Browser opening defaults to on and uses Remote's own
 `settings.json` `open` boolean (`tmt remote settings open on|off`). `--open` overrides the setting
-and terminal, CI and SSH/display checks. Only `--no-open`, `--json` and a missing platform opener
-suppress an explicit open. Without `--open`, no stdout TTY, CI, SSH without a display and Linux
+and terminal, CI, agent and SSH/display checks. Only `--no-open`, `--json` and a missing platform opener
+suppress an explicit open. Without `--open`, no stdout TTY, CI, a nonempty `TMT_AGENT` (agent-run command), SSH without a display and Linux
 without a display (except WSL) suppress opening. Opener failures warn without ending pairing.
 Owner confirmation still requires an interactive terminal or `--json`.
 

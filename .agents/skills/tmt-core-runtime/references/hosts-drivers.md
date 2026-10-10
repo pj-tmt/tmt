@@ -131,6 +131,13 @@ channels and the driver protocol. The owner map is in
   Only these owners spell a driver's name; the architecture guard rejects exact
   driver-name production literals elsewhere.
 
+## Agent launch environment
+
+Shared run/resume launch sets `TMT_AGENT=1` in the child environment, inherited by
+its tool shells. The shared browser opener treats a nonempty `TMT_AGENT` like CI:
+print the link without automatic opening. Explicit `--open` still overrides that
+check; `--no-open` and `--json` keep their precedence.
+
 ## Provider channels
 
 - Global `experimental.channel` defaults false. Shared run/resume composition refuses
