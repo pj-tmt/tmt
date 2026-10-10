@@ -5,6 +5,8 @@ use serde::Serialize;
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LayoutRestore {
+    #[serde(skip)]
+    pub server: Option<(tmt_core::endpoint::ProcessIncarnation, u64)>,
     pub sessions: Vec<RestoredSession>,
     pub windows: Vec<RestoredWindow>,
     pub panes: Vec<RestoredPane>,
@@ -35,6 +37,8 @@ pub struct RestoredWindow {
 
 #[derive(Debug, Serialize)]
 pub struct RestoredPane {
+    #[serde(skip)]
+    pub shell: Option<tmt_core::endpoint::ProcessIncarnation>,
     pub recorded: String,
     pub native: String,
 }

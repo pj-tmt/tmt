@@ -19,6 +19,91 @@ fn nested_command_quotes_literal_bytes_without_expanding_saved_data() {
     assert_eq!(argv_literal("literal\\;"), "literal\\\\;");
 }
 
+#[test]
+fn revival_startup_preserves_literal_hash_arguments_and_expands_only_cwd() {
+    let argv = vec![
+        "/tmt".into(),
+        "workspace-board".into(),
+        "ui".into(),
+        "literal '$()#{pid};\n".into(),
+    ];
+    let args = respawn_args("%4", "/tmp/#{pid}", "/bin/sh", &argv);
+    assert_eq!(
+        &args[..6],
+        ["respawn-pane", "-k", "-t", "%4", "-c", "/tmp/##{pid}"]
+    );
+    assert_eq!(&args[6..8], ["/bin/sh", "-c"]);
+    assert_eq!(
+        args[8],
+        "'/tmt' 'workspace-board' 'ui' 'literal '\\''$()#{pid};\n'; exec '/bin/sh'"
+    );
+    // The nested lexer encoding keeps these bytes out of format evaluation.
+    let encoded = command(&args);
+    assert!(!encoded.contains("#{pid}"));
+    assert!(!encoded.contains("$()"));
+}
+
+#[test]
+fn revival_shell_command_preserves_posix_arguments_and_executes_return_command() {
+    let literal = "'\"$()#{pid};\n\\literal";
+    let argv = vec!["printf".into(), "%s".into(), literal.into()];
+    let args = respawn_args("%4", "/tmp", "/bin/echo", &argv);
+    let output = std::process::Command::new("/bin/sh")
+        .args(["-c", &args[8]])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, format!("{literal}\n").as_bytes());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        posix_quote("/path/to/user's shell"),
+        "'/path/to/user'\\''s shell'"
+    );
+}
+
+#[test]
+fn revival_never_starts_an_unowned_or_replaced_pane_process() {
+    let saved = snapshot();
+    let layout = LayoutRestore {
+        server: Some((ProcessIncarnation::new(10, "owned-start").unwrap(), 22)),
+        ..Default::default()
+    };
+    let tmux = Tmux::new(Runner::default());
+    let mut pane = RestoredPane {
+        recorded: "%1".into(),
+        native: "%4".into(),
+        shell: None,
+    };
+    let argv = vec!["/tmt".into(), "resume".into(), "identity".into()];
+    let deadline = Instant::now() + Duration::from_secs(1);
+    assert!(
+        tmux.workspace_start_pane(&saved, &layout, &pane, &argv, deadline)
+            .is_err()
+    );
+    pane.shell = Some(ProcessIncarnation::new(20, "older-shell").unwrap());
+    assert!(
+        tmux.workspace_start_pane(&saved, &layout, &pane, &argv, deadline)
+            .is_err()
+    );
+    assert!(tmux.runner.scripted.calls.borrow().is_empty());
+}
+
+#[test]
+fn only_selected_created_panes_keep_revival_shell_ownership() {
+    let tmux = Tmux::new(Runner::default());
+    let targets = vec!["%1".into()];
+    let mut owner = restore(&tmux);
+    owner.revival_panes = &targets;
+    let created = owner.created(&created_output(2, 3, 4, 0)).unwrap();
+    owner.remember_pane("%1", &created);
+    owner.remember_pane("%2", &created);
+    assert_eq!(
+        owner.outcome.panes[0].shell.as_ref(),
+        Some(&created.process)
+    );
+    assert!(owner.outcome.panes[1].shell.is_none());
+}
+
 use crate::{
     process::{CommandError, CommandOutput, CommandRequest},
     scripted_runner::{ScriptedRunner, failure},
@@ -60,6 +145,7 @@ fn restore(tmux: &Tmux<Runner>) -> Restore<'_, Runner> {
         windows: HashMap::new(),
         panes: HashMap::new(),
         outcome: LayoutRestore::default(),
+        revival_panes: &[],
     }
 }
 fn created_output(session: u64, window: u64, pane: u64, index: u64) -> String {
@@ -115,7 +201,7 @@ fn invalid_saved_layout_refuses_before_any_host_operation() {
     let mut saved = snapshot();
     saved.windows[0].layout = "bad".into();
     assert!(
-        tmux.workspace_restore_layout(&saved, Instant::now() + Duration::from_secs(1))
+        tmux.workspace_restore_layout(&saved, Instant::now() + Duration::from_secs(1), &[])
             .is_err()
     );
     assert!(tmux.runner.scripted.calls.borrow().is_empty());
@@ -316,7 +402,10 @@ fn stale_socket_requires_kernel_refusal_and_leaves_live_and_closed_inodes_untouc
             false,
         ),
     ));
-    assert!(tmux.workspace_restore_layout(&saved, deadline).is_err());
+    assert!(
+        tmux.workspace_restore_layout(&saved, deadline, &[])
+            .is_err()
+    );
     assert_eq!(tmux.runner.scripted.calls.borrow().len(), 1);
     assert_eq!(std::fs::metadata(&path.0).unwrap().ino(), before);
     drop(listener);

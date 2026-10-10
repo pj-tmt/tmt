@@ -278,6 +278,10 @@ pub(crate) use hints::HintSpec;
 
 fn hint_samples() -> Vec<(&'static str, &'static [HintSpec])> {
     vec![
+        (
+            "workspace_restore_command.rs",
+            crate::workspace_restore_command::PRINTED_HINTS,
+        ),
         ("answer_command.rs", crate::answer_command::PRINTED_HINTS),
         ("appearance.rs", crate::appearance::PRINTED_HINTS),
         ("binding_command.rs", crate::binding_command::PRINTED_HINTS),

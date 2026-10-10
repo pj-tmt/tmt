@@ -149,3 +149,32 @@ A server-side guard also requires the same server/pane/PID, an unattached sessio
 one unshared bootstrap pane, another linked window and no TMT runtime markers.
 Failed linking or uncertain verification retains and reports the bootstrap.
 No pre-existing pane, window or session is removed or overwritten.
+
+## Full restore
+
+`tmt workspace restore [--socket PATH] [--json]` runs the same layout phase,
+then starts eligible panes through this executable's ordinary `tmt resume -- <name>`
+or generic external dispatch with the recorded literal TMT argv. Core adds no
+provider launch path or board grammar. A partial layout starts nothing; existing
+sessions are skipped whole. Shared panes and repeated identities start at most once.
+
+Restore checks the snapshot name still names its original unretired UUID before
+starting resume. Renamed, replaced, missing, stale and sessionless identities need
+the user; no fresh conversation or automatic retry is substituted. Resume retains
+its own binding, live-agent, session, preset and channel admission rules. Current
+durable coordinates take precedence over snapshot conversation annotations.
+
+Only panes selected for revival initially run an invocation-owned `/bin/sh -i`.
+The adapter replaces that shell through direct tmux startup after
+checking it still owns the pane and foreground; ordinary and pre-existing panes
+remain untouched. No paste or send-keys participates. The existing native server
+fence and literal tmux quoting apply. Launches use the restore-selected Core data
+directory. The user's tmux `default-shell` runs the strictly POSIX-quoted command
+and returns to that shell when the agent or board exits, preserving the pane.
+Startup errors retain resources and never authorize replay.
+
+Human output has one short line per pane; JSON adds `revival` rows with recorded
+and native pane IDs, name, status and message. Started means process startup was
+requested, not that the provider confirmed its conversation. Missing or stale
+sessions are reported without launching; a startup failure yields partial/exit 1.
+`--layout-only` preserves its output and storage-free behavior.

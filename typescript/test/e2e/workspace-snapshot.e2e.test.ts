@@ -717,6 +717,361 @@ type LayoutRestore = {
   failures: string[];
 };
 
+type FullRestore = LayoutRestore & {
+  revival: Array<{
+    recorded: string;
+    native: string | null;
+    name: string;
+    status: string;
+    message: string;
+  }>;
+};
+
+describe('full workspace restore', () => {
+  it('refuses startup after its created shell is replaced and preserves that live process', async () => {
+    await withRestoreFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Startup Guard Anchor', '-s'])).code).toBe(0);
+      const saved = readSnapshot(fixture);
+      saved.sessions.forEach((session) => {
+        session.name = `guard-${session.name}`;
+      });
+      saved.panes.forEach((pane) => {
+        pane.identity = null;
+        pane.command = null;
+      });
+      saved.panes[0].command = {
+        argv: ['tmt', 'workspace-refused', 'ui'],
+        owner: saved.server.process,
+      };
+      const launched = path.join(fixture.root, 'unexpected-launch');
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'tmt-workspace-refused'),
+        `#!/bin/sh\nprintf started > ${quote(launched)}\n`
+      );
+      const wrapper = path.join(fixture.wrapperDir, 'tmux');
+      const inner = path.join(fixture.wrapperDir, 'tmux-startup-inner');
+      const replacement = path.join(fixture.root, 'replacement.json');
+      fs.renameSync(wrapper, inner);
+      writeExecutable(
+        wrapper,
+        `#!${process.execPath}
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const decoded = args.map(arg => arg.replace(/\\\\([0-3][0-7]{2})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))));
+if (decoded.some(arg => arg.startsWith('"respawn-pane"')) && !fs.existsSync(${JSON.stringify(replacement)})) {
+  const pane = args[args.indexOf('-t') + 1];
+  const swapped = spawnSync(${JSON.stringify(inner)}, ['-u', '-S', ${JSON.stringify(fixture.socketPath)}, 'respawn-pane', '-k', '-t', pane, '/bin/sleep', '30'], { encoding: 'utf8', timeout: 5000 });
+  if (swapped.status !== 0) process.exit(97);
+  const observed = spawnSync(${JSON.stringify(inner)}, ['-u', '-S', ${JSON.stringify(fixture.socketPath)}, 'display-message', '-p', '-t', pane, '#{pane_pid}'], { encoding: 'utf8', timeout: 5000 });
+  fs.writeFileSync(${JSON.stringify(replacement)}, JSON.stringify({ pane, pid: Number(observed.stdout.trim()) }));
+}
+const result = spawnSync(${JSON.stringify(inner)}, args, { encoding: 'utf8', timeout: 5000 });
+process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr || ''); process.exit(result.status ?? 98);
+`
+      );
+      recoveryInput(fixture, saved);
+      let replacementProcess: { pane: string; pid: number } | undefined;
+      try {
+        const result = await fixture.runJsonCli<FullRestore>(
+          ['workspace', 'restore', '--socket', fixture.socketPath],
+          { outsideTmux: true }
+        );
+        expect(result.code, result.stderr + result.stdout).toBe(1);
+        expect(result.json!.status).toBe('partial');
+        expect(result.json!.revival[0].status).toBe('needs_you');
+        replacementProcess = JSON.parse(fs.readFileSync(replacement, 'utf8'));
+        expect(fixture.mockProcessIsRunning(replacementProcess!.pid)).toBe(true);
+        expect(
+          fixture
+            .tmux(['display-message', '-p', '-t', replacementProcess!.pane, '#{pane_pid}'])
+            .trim()
+        ).toBe(String(replacementProcess!.pid));
+        expect(fs.existsSync(launched)).toBe(false);
+      } finally {
+        if (!replacementProcess && fs.existsSync(replacement))
+          replacementProcess = JSON.parse(fs.readFileSync(replacement, 'utf8'));
+        if (replacementProcess) {
+          fixture.tmux(['kill-pane', '-t', replacementProcess.pane]);
+          const pid = replacementProcess.pid;
+          await fixture.waitFor(
+            () => !fixture.mockProcessIsRunning(pid),
+            2000,
+            'owned replacement process cleaned up'
+          );
+        }
+      }
+    });
+  });
+
+  it('starts exact resume and literal board argv, leaves missing/stale/changed identities as shells and skips existing sessions on rerun', async () => {
+    await withRestoreFixture(async (fixture) => {
+      const labels = [
+        'Exact Agent',
+        'Stale Agent',
+        'Missing Agent',
+        'Replaced Agent',
+        'Renamed Agent',
+        'No Session',
+        'board',
+        'shell',
+      ];
+      for (let index = 1; index < labels.length; index++)
+        fixture.createShellPane(`revival-${index}`);
+      expect((await fixture.runJsonCli(['name', 'Recovery Anchor', '-s'])).code).toBe(0);
+      const saved = readSnapshot(fixture);
+      const annotation = saved.panes.find((pane) => pane.identity)?.identity;
+      expect(annotation).not.toBeNull();
+      const records = new Map<string, string>();
+      for (const name of labels.slice(0, 6)) {
+        const created = await fixture.runJsonCli<{ identity: { id: string } }>([
+          'identity',
+          'create',
+          name,
+        ]);
+        expect(created.code, created.stderr).toBe(0);
+        records.set(name, created.json!.identity.id);
+      }
+      const session = '33333333-3333-4333-8333-333333333333';
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      try {
+        for (const name of labels.slice(0, 5)) {
+          db.prepare(`INSERT INTO identity_session_preferences
+            (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id, stale_at_ms)
+            VALUES (?, 'claude', 'claude', 'default', ?, ?)`).run(
+            records.get(name),
+            session,
+            name === 'Stale Agent' ? 1 : null
+          );
+        }
+      } finally {
+        db.close();
+      }
+      // Frozen recovery input deliberately retains the original UUID and name.
+      expect((await fixture.runCli(['rm', 'Missing Agent', '--force'])).code).toBe(0);
+      expect((await fixture.runCli(['rm', 'Replaced Agent', '--force'])).code).toBe(0);
+      expect((await fixture.runCli(['identity', 'create', 'Replaced Agent'])).code).toBe(0);
+      expect((await fixture.runCli(['mv', 'Renamed Agent', 'New Agent Name'])).code).toBe(0);
+      saved.sessions.forEach((session) => {
+        session.name = `restored-${session.name}`;
+      });
+      saved.panes.forEach((pane, index) => {
+        pane.identity =
+          index < 6
+            ? { ...annotation!, id: records.get(labels[index])!, name: labels[index] }
+            : null;
+        pane.command =
+          index === 6
+            ? {
+                argv: [
+                  'tmt',
+                  'workspace-board',
+                  'ui',
+                  '--tabs=agents,requests',
+                  "literal '$()#{pid};\n",
+                ],
+                owner: saved.server.process,
+              }
+            : null;
+      });
+      const reports = [
+        path.join(fixture.root, 'resume-argv.json'),
+        path.join(fixture.root, 'board-argv.json'),
+      ];
+      const gates = [path.join(fixture.root, 'resume.sock'), path.join(fixture.root, 'board.sock')];
+      const done = reports.map((report) => `${report}.done`);
+      for (const [index, executable] of ['claude', 'tmt-workspace-board'].entries()) {
+        writeExecutable(
+          path.join(fixture.wrapperDir, executable),
+          `#!${process.execPath}
+const fs = require('node:fs');
+const net = require('node:net');
+const server = net.createServer(peer => {
+  let text = '';
+  peer.on('data', bytes => { text += bytes; });
+  peer.once('end', () => {
+    if (text !== 'release') process.exit(97);
+    peer.end('released');
+    server.close(() => { fs.writeFileSync(${JSON.stringify(done[index])}, 'done'); process.exit(0); });
+  });
+});
+server.listen(${JSON.stringify(gates[index])}, () => {
+  fs.writeFileSync(${JSON.stringify(reports[index])}, JSON.stringify({ pid: process.pid, argv: process.argv.slice(2) }));
+});
+`
+        );
+      }
+      recoveryInput(fixture, saved);
+      const livePids: number[] = [];
+      let resumeStarted = false;
+      let revivedPanes: string[] = [];
+      let shellCommand = '';
+      try {
+        const result = await fixture.runJsonCli<FullRestore>(
+          ['workspace', 'restore', '--socket', fixture.socketPath],
+          { outsideTmux: true }
+        );
+        expect(result.code, result.stderr + result.stdout).toBe(0);
+        expect(result.json!.layoutOnly).toBe(false);
+        resumeStarted = result.json!.revival[0].status === 'started';
+        revivedPanes = [0, 6].map(
+          (index) =>
+            result.json!.panes.find((pane) => pane.recorded === saved.panes[index].id)!.native
+        );
+        // tmux can report the shell executable name (bash/dash) for /bin/sh.
+        // Observe the untouched default-shell pane instead of inferring from its path.
+        const shellPane = result.json!.panes.find(
+          (pane) => pane.recorded === saved.panes[7].id
+        )!.native;
+        shellCommand = fixture
+          .tmux(['display-message', '-p', '-t', shellPane, '#{pane_current_command}'])
+          .trim();
+        expect(shellCommand).not.toBe('');
+        expect(result.json!.revival.map((pane) => [pane.name, pane.status])).toEqual([
+          ['Exact Agent', 'started'],
+          ['Stale Agent', 'needs_you'],
+          ['Missing Agent', 'needs_you'],
+          ['Replaced Agent', 'needs_you'],
+          ['Renamed Agent', 'needs_you'],
+          ['No Session', 'needs_you'],
+          ['workspace-board', 'relaunched'],
+          [saved.panes[7].id, 'skipped'],
+        ]);
+        for (const report of reports)
+          await fixture.waitFor(
+            () => fs.existsSync(report),
+            5000,
+            'restored command causal output'
+          );
+        const agent = JSON.parse(fs.readFileSync(reports[0], 'utf8')) as {
+          pid: number;
+          argv: string[];
+        };
+        const board = JSON.parse(fs.readFileSync(reports[1], 'utf8')) as {
+          pid: number;
+          argv: string[];
+        };
+        livePids.push(agent.pid, board.pid);
+        expect(agent.argv[agent.argv.indexOf('--resume') + 1]).toBe(session);
+        expect(board.argv).toEqual(saved.panes[6].command!.argv.slice(2));
+        // Direct startup is causal; it also traverses the generic marker owner.
+        const boardPane = result.json!.panes.find(
+          (pane) => pane.recorded === saved.panes[6].id
+        )!.native;
+        expect(
+          fixture
+            .tmux(['show-option', '-p', '-qv', '-t', boardPane, '@tmt.workspace-command'])
+            .trim()
+        ).not.toBe('');
+        for (const index of [1, 2, 3, 4, 5, 7]) {
+          const pane = result.json!.panes.find(
+            (pane) => pane.recorded === saved.panes[index].id
+          )!.native;
+          expect(
+            fixture.tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}']).trim()
+          ).toBe(shellCommand);
+        }
+        // Launch events may refresh the latest snapshot. Restore the exact
+        // frozen input to prove rerun's existing-session skip independently.
+        recoveryInput(fixture, saved);
+        const repeat = await fixture.runJsonCli<FullRestore>(
+          ['workspace', 'restore', '--socket', fixture.socketPath],
+          { outsideTmux: true }
+        );
+        expect(repeat.code, repeat.stderr).toBe(0);
+        expect(repeat.json!.panes).toEqual([]);
+        expect(
+          repeat.json!.revival.every((pane) => pane.message === 'skipped (existing session)')
+        ).toBe(true);
+        expect(JSON.parse(fs.readFileSync(reports[0], 'utf8')).pid).toBe(agent.pid);
+        expect(JSON.parse(fs.readFileSync(reports[1], 'utf8')).pid).toBe(board.pid);
+      } finally {
+        // Shut down only the fixture-owned IPC children, then require both the
+        // child and its foreground tmt owner to settle before fixture deletion.
+        for (const report of reports) {
+          if (fs.existsSync(report)) livePids.push(JSON.parse(fs.readFileSync(report, 'utf8')).pid);
+        }
+        for (const [index, gate] of gates.entries()) {
+          if (!fs.existsSync(gate)) continue;
+          await new Promise<void>((resolve, reject) => {
+            const peer = net.createConnection(gate);
+            peer.setTimeout(5000, () => peer.destroy(new Error('release timed out')));
+            let response = '';
+            peer.once('connect', () => peer.end('release'));
+            peer.on('data', (bytes) => {
+              response += bytes;
+            });
+            peer.once('error', reject);
+            peer.once('close', () =>
+              response === 'released' ? resolve() : reject(new Error('release not acknowledged'))
+            );
+          });
+          await fixture.waitFor(() => fs.existsSync(done[index]), 5000, 'restored command exited');
+        }
+        await fixture.waitFor(
+          () => livePids.every((pid) => !fixture.mockProcessIsRunning(pid)),
+          5000,
+          'restored provider/board process absence'
+        );
+        if (resumeStarted) {
+          const oracle = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+            readonly: true,
+          });
+          try {
+            await fixture.waitFor(
+              () => {
+                const row = oracle
+                  .prepare('SELECT runtime_state FROM bindings WHERE identity_id = ?')
+                  .get(records.get('Exact Agent')) as { runtime_state: string } | undefined;
+                return row?.runtime_state === 'ended';
+              },
+              5000,
+              'foreground resume completion stored'
+            );
+          } finally {
+            oracle.close();
+          }
+        }
+      }
+      // Provider and board exit must preserve their exact restored panes.
+      const shell = fixture.tmux(['show-options', '-gv', 'default-shell']).trim();
+      for (const pane of revivedPanes) {
+        const expected = `0|${shellCommand}`;
+        let observed = '';
+        try {
+          await fixture.waitFor(
+            () => {
+              observed = fixture
+                .tmux([
+                  'display-message',
+                  '-p',
+                  '-t',
+                  pane,
+                  '#{pane_dead}|#{pane_current_command}|#{pane_pid}|#{pane_start_command}',
+                ])
+                .trim();
+              return observed.split('|').slice(0, 2).join('|') === expected;
+            },
+            5000,
+            'restored pane returns to the user shell'
+          );
+        } catch (cause) {
+          throw new Error(
+            `Shell return: ${JSON.stringify({
+              pane,
+              defaultShell: shell,
+              controlCommand: shellCommand,
+              observed,
+            })}`,
+            { cause }
+          );
+        }
+        expect(observed.split('|').slice(0, 2).join('|')).toBe(expected);
+      }
+    });
+  });
+});
+
 function recoveryInput(fixture: E2EFixture, snapshot: Snapshot) {
   fs.writeFileSync(snapshotPath(fixture), JSON.stringify(snapshot));
 }

@@ -33,7 +33,7 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
 }
 
 #[test]
-fn workspace_restore_requires_explicit_layout_only_and_has_no_revival_flags() {
+fn workspace_restore_defaults_to_revival_and_has_no_provider_flags() {
     assert_eq!(
         parsed(&[
             "workspace",
@@ -44,15 +44,25 @@ fn workspace_restore_requires_explicit_layout_only_and_has_no_revival_flags() {
         ])
         .invocation,
         Invocation::WorkspaceRestore {
-            socket: Some("/tmp/exact".into())
+            socket: Some("/tmp/exact".into()),
+            layout_only: true
         }
     );
     assert_eq!(
         parsed(&["workspace", "restore", "--layout-only"]).invocation,
-        Invocation::WorkspaceRestore { socket: None }
+        Invocation::WorkspaceRestore {
+            socket: None,
+            layout_only: true
+        }
+    );
+    assert_eq!(
+        parsed(&["workspace", "restore"]).invocation,
+        Invocation::WorkspaceRestore {
+            socket: None,
+            layout_only: false
+        }
     );
     for args in [
-        vec!["workspace", "restore"],
         vec!["workspace", "show", "--layout-only"],
         vec!["workspace", "restore", "--layout-only", "--retry"],
         vec!["workspace", "restore", "--layout-only", "--force"],

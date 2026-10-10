@@ -37,6 +37,7 @@ pub enum Invocation {
     Init,
     WorkspaceRestore {
         socket: Option<String>,
+        layout_only: bool,
     },
     WorkspaceShow {
         socket: Option<String>,

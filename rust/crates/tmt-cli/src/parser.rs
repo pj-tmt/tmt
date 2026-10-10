@@ -197,6 +197,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["api"] => Invocation::Api,
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
+            layout_only: flag(m, "layout-only"),
         },
         ["workspace", "show"] => Invocation::WorkspaceShow {
             socket: text(m, "socket"),

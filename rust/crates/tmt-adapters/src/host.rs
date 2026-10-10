@@ -534,12 +534,33 @@ impl<R: CommandRunner> Host<R> {
         &self,
         snapshot: &tmt_core::workspace::WorkspaceSnapshot,
         deadline: Instant,
+        revival_panes: &[String],
     ) -> Result<Option<crate::workspace::restore::LayoutRestore>, HostError> {
         match self.primary {
-            HostKind::Tmux => Ok(Some(
-                self.tmux.workspace_restore_layout(snapshot, deadline)?,
-            )),
+            HostKind::Tmux => Ok(Some(self.tmux.workspace_restore_layout(
+                snapshot,
+                deadline,
+                revival_panes,
+            )?)),
             HostKind::External(_) => Ok(None),
+        }
+    }
+
+    pub fn workspace_start_pane(
+        &self,
+        snapshot: &tmt_core::workspace::WorkspaceSnapshot,
+        layout: &crate::workspace::restore::LayoutRestore,
+        pane: &crate::workspace::restore::RestoredPane,
+        argv: &[String],
+        deadline: Instant,
+    ) -> Result<bool, HostError> {
+        match self.primary {
+            HostKind::Tmux => {
+                self.tmux
+                    .workspace_start_pane(snapshot, layout, pane, argv, deadline)?;
+                Ok(true)
+            }
+            HostKind::External(_) => Ok(false),
         }
     }
 
