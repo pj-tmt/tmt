@@ -695,6 +695,7 @@ fn pair(
     let mut paired = Err(RemoteError::new("REMOTE_PAIRING_ENDED", "Pairing ended."));
     let (selected, choice) = std::sync::mpsc::channel();
     let mut paired_device = String::new();
+    let mut paired_name = String::new();
     loop {
         let mut line = String::new();
         if events.read_line(&mut line)? == 0 {
@@ -744,6 +745,7 @@ fn pair(
                 }
             }
             Some("candidate") => {
+                paired_name = event["name"].as_str().unwrap_or("").to_owned();
                 if !json_output {
                     let words: Vec<&str> = event["words"]
                         .as_array()
@@ -810,19 +812,30 @@ fn pair(
     }
     if paired.is_ok() && !json_output {
         let terminal = output.terminal();
-        let message = if choice.try_recv().unwrap_or(policy.talk) {
-            "Paired the device".to_owned()
-        } else {
-            format!(
-                "Paired {paired_device} as read only. To allow sending later: tmt remote devices talk {paired_device} on"
-            )
-        };
+        let message = pairing_result(
+            &paired_name,
+            &paired_device,
+            choice.try_recv().unwrap_or(policy.talk),
+            policy.hold,
+        );
         tmt_cli_style::message::success(&mut output, terminal, &message)?;
     }
     paired
 }
 const PAIR_TRUST_PROMPT: &str = "Trust this device if the words match? [y/N] ";
 const PAIR_TALK_PROMPT: &str = "Also allow this device to send to agents? [y/N] ";
+fn pairing_result(name: &str, client_id: &str, talk: bool, hold: bool) -> String {
+    if talk {
+        format!(
+            "Paired {name}. It can send to agents{}.",
+            if hold { " · held" } else { "" }
+        )
+    } else {
+        format!(
+            "Paired {name} as read only. To allow sending later: tmt remote devices talk {client_id} on"
+        )
+    }
+}
 fn pairing_grant_row(policy: &tmt_remote::pairing::PairingPolicy) -> String {
     if !policy.talk {
         return "Read only · no expiry".into();
@@ -1234,6 +1247,29 @@ mod tests {
             }),
             "Read and send · 1 agent · held · no expiry"
         );
+        for (talk, hold, expected) in [
+            (
+                false,
+                false,
+                "Paired Fixture device as read only. To allow sending later: tmt remote devices talk 11111111-1111-4111-8111-111111111111 on",
+            ),
+            (true, false, "Paired Fixture device. It can send to agents."),
+            (
+                true,
+                true,
+                "Paired Fixture device. It can send to agents · held.",
+            ),
+        ] {
+            assert_eq!(
+                super::pairing_result(
+                    "Fixture device",
+                    "11111111-1111-4111-8111-111111111111",
+                    talk,
+                    hold
+                ),
+                expected
+            );
+        }
     }
 
     #[test]
