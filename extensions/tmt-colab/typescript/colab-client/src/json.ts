@@ -8,16 +8,20 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
     while ([' ', '\t', '\n', '\r'].includes(source[offset] ?? 'x')) offset++;
   };
   const string = (): string => {
-    // JSON forbids unescaped U+0000..U+001F; this range is required by its grammar.
-    // eslint-disable-next-line no-control-regex
-    const match = /^"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/.exec(
-      source.slice(offset),
-    );
-    requireValue(match !== null);
-    offset += match[0].length;
-    const value: string = JSON.parse(match[0]);
-    text(value);
-    return value;
+    const start = offset;
+    requireValue(source[offset++] === '"');
+    // Scan the token without a repeated regex: legal large strings can exhaust
+    // browser regex stacks. JSON.parse still owns escape and control grammar.
+    while (offset < source.length) {
+      const next = source[offset++];
+      if (next === '\\') offset++;
+      else if (next === '"') {
+        const value: string = JSON.parse(source.slice(start, offset));
+        text(value);
+        return value;
+      }
+    }
+    requireValue(false);
   };
   const value = (depth: number): unknown => {
     requireValue(depth <= 128);
@@ -51,15 +55,13 @@ export function strictJson(raw: Uint8Array, max: number, integerNumbers = false)
         requireValue(next === ',');
       }
     }
-    const token = /^(?:null|true|false|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/.exec(
-      source.slice(offset),
-    );
-    requireValue(token !== null);
-    offset += token[0].length;
-    const parsed: unknown = JSON.parse(token[0]);
+    const start = offset;
+    while (offset < source.length && !' \t\n\r,]}'.includes(source[offset])) offset++;
+    const token = source.slice(start, offset);
+    const parsed: unknown = JSON.parse(token);
     requireValue(typeof parsed !== 'number' || Number.isFinite(parsed));
     if (integerNumbers && typeof parsed === 'number')
-      requireValue(/^(0|[1-9][0-9]*)$/.test(token[0]) && Number.isSafeInteger(parsed));
+      requireValue(Number.isSafeInteger(parsed) && parsed >= 0 && token === String(parsed));
     return parsed;
   };
   const out = value(0);

@@ -178,6 +178,85 @@ try {
           // Synchronous markers add no awaited binding or change to crypto await ordering.
           const progress = (state, id) =>
             console.debug('colab-conformance:' + JSON.stringify([state, id]));
+          progress('started', 'json-cursor');
+          const jsonCap = 16 * 1024 * 1024;
+          for (const sample of [
+            'a'.repeat(jsonCap - 2),
+            'data:image/png;base64,' + 'A'.repeat(1024 * 1024) + '\\"\n🌍',
+            '<main><img src="data:image/png;base64,' + 'A'.repeat(1024 * 1024) + '"></main>',
+          ]) {
+            const raw = c.text(JSON.stringify(sample));
+            assert(c.strictJson(raw, jsonCap) === sample, 'large JSON string changed');
+          }
+          assert(
+            c.strictJson(c.text('['.repeat(128) + '0' + ']'.repeat(128)), jsonCap),
+            'at-limit JSON depth refused',
+          );
+          for (const raw of [
+            '['.repeat(129) + '0' + ']'.repeat(129),
+            '"unterminated',
+            '"trailing\\',
+            '"\\x00"',
+            '"\\u00zz"',
+            '"control\n"',
+            '"\\ud800"',
+            '{"a":1,"\\u0061":2}',
+            '1e' + '9'.repeat(1024 * 1024),
+          ]) {
+            let refused = false;
+            try {
+              c.strictJson(c.text(raw), jsonCap);
+            } catch (error) {
+              assert(
+                error instanceof Error && !(error instanceof RangeError),
+                'unbounded JSON refusal',
+              );
+              refused = true;
+            }
+            assert(refused, 'invalid JSON accepted');
+          }
+          // Syntax admission only: these synthetic zero ciphertext/signature bytes
+          // are not a cryptographic proof and are never opened or persisted.
+          const checkpoint = c.decodeHeader(hex(fixture.header));
+          const largeCiphertext = new Uint8Array(c.MAX_PLAINTEXT + 16);
+          const largeEnvelopeRaw = c.text(
+            JSON.stringify({
+              header: c.encodeBinary(
+                c.header(
+                  {
+                    ...checkpoint.context,
+                    kind: 'checkpoint',
+                    streamSeq: '1',
+                  },
+                  checkpoint.objectId,
+                ),
+              ),
+              nonce: c.encodeBinary(new Uint8Array(12)),
+              ciphertext: c.encodeBinary(largeCiphertext),
+              signature: c.encodeBinary(new Uint8Array(64)),
+            }),
+          );
+          const largeEnvelope = c.Envelope.fromJson(largeEnvelopeRaw);
+          assert(
+            c.equal(largeEnvelope.ciphertext(), largeCiphertext),
+            'large envelope bytes changed',
+          );
+          assert(
+            c.equal(largeEnvelope.toJson(), largeEnvelopeRaw),
+            'large envelope serialization changed',
+          );
+          let invalidBinaryRefused = false;
+          try {
+            c.binary('A'.repeat(c.MAX_PLAINTEXT) + '!', c.MAX_PLAINTEXT);
+          } catch (error) {
+            assert(
+              error instanceof Error && !(error instanceof RangeError),
+              'unbounded binary refusal',
+            );
+            invalidBinaryRefused = true;
+          }
+          assert(invalidBinaryRefused, 'large invalid base64 accepted');
+          progress('completed', 'json-cursor');
           progress('started', 'capabilities');
           await c.probeCapabilities();
           progress('completed', 'capabilities');
@@ -627,6 +706,7 @@ try {
           return {
             rows,
             checks: true,
+            jsonCursorChecks: true,
             attachmentCases,
             outgoing: [...frozenSeals, a, b].map((e) => ({
               envelope: c.decodeText(e.toJson()),
@@ -670,6 +750,8 @@ const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
 await writeFile(destination, JSON.stringify({ metadata, engines, results }, null, 2) + '\n');
 validateReport(results, corpus, engines);
+if (results.some((r) => r.jsonCursorChecks !== true))
+  throw new Error('Incomplete JSON cursor regression checks');
 const expectedAttachmentCases = attachments.cases.filter(
   (c) => c.operation !== 'document' && c.operation !== 'comment',
 ).length;
