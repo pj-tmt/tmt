@@ -321,19 +321,20 @@ and prefix, the highest CLI alpha goes through the public
 `releases/latest/download/install.sh`; an older independent cut uses its versioned
 installer: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
-`skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --json` reads the live
-metadata and reports the installation current (a newer alpha that appeared since passes with a
-note). An extension alpha is installed by the newest published CLI's `tmt extension install
-<extension>` into a separate prefix. The requested product at the tag's version, or a strictly higher
-well-formed alpha published meanwhile, passes; a higher alpha gets an explicit installed-version note.
-`tmt extension list` must match the selected installed version exactly, the Colab app proof uses it,
-and no CLI link may appear. In the higher-alpha case the old tag was not publicly installed: its own
-archive remains covered by the strict pre-publication archive/upgrade gates and post-publication
-checksum/digest/attestation checks. Other product/version and installation failures stay red.
+`skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --to <version> --json`
+verifies the exact published version. Adding its pin may report changed; an existing pin may report
+unchanged. An extension alpha first uses the newest published CLI's `tmt extension install
+<extension> --channel alpha` into a separate prefix, without asserting that channel version.
+Then `tmt extension upgrade <extension> --yes --json --channel alpha --to <version> --prefix P`
+must report the exact product and published version; a newer alpha stays red. The extension list
+and Colab app proof use that exact version, and no CLI link may appear. Exact upgrade selection
+avoids pointer freshness, but initial installation still requires a product pointer: a product
+without one (Digest) needs the Core `extension install --to` follow-up. Other product/version
+and installation failures stay red.
 A Herdr driver alpha downloads its exact tag’s
 `dist-manifest.json` and matching standalone archive through public versioned URLs,
-checks the bounded manifest, digest and inventory, then uses the current public CLI’s
-supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
+checks the bounded manifest, digest and inventory, verifies the bootstrapped CLI with
+`upgrade --channel alpha --to <cliVersion> --json`, then uses its supported `driver install <extracted-path> --yes --json` and `driver ls` surfaces
 to verify capabilities and durable approval. Named released-driver acquisition belongs to #1084.
 The tag is checked out only so its skills can be read; none of its code runs.
 The shared `.github/actions/public-install-smoke` action supplies the workflow's
