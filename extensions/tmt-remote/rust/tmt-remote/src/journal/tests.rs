@@ -173,7 +173,7 @@ fn wait_wakes_on_session_end_or_shutdown_even_before_wait_starts() {
         worker.join().unwrap();
         let result = result.expect("authority event did not wake wait");
         if stop {
-            assert_eq!(result.unwrap_err().code, "REMOTE_CLOSED");
+            assert_eq!(result.unwrap_err().code, "REMOTE_SERVE_STOPPED");
         } else {
             result.unwrap();
         }
