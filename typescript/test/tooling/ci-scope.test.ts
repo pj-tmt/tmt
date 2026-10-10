@@ -2820,6 +2820,22 @@ it('schedules architecture CI for the map, every declaring crate file and releas
   expect(job).toContain('cargo test --locked --workspace');
 });
 
+it('pins and verifies Node before native-workspace-tests executes Rust tests', () => {
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/ci.yml', import.meta.url),
+    'utf8'
+  );
+  const job = workflow.split('\n  native-workspace-tests:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  expect(job).toContain(`uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2`);
+  expect(job).toContain(`node --version
+          test "$(node --version)" = v22.23.2`);
+  expect(job.indexOf('actions/setup-node@v4')).toBeLessThan(job.indexOf('node --version'));
+  expect(job.indexOf('node --version')).toBeLessThan(job.indexOf('cargo test'));
+  expect(job).not.toContain('uses: ./.github/actions/setup-tooling');
+});
+
 it('keeps native E2E archive consumers restore-only and the sole writer main-only', () => {
   const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const shard = ci.slice(ci.indexOf('  docker-e2e-shard-1:'), ci.indexOf('  docker-e2e-shard-2:'));
