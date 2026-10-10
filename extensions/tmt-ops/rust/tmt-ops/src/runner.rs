@@ -9,7 +9,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tmt_invoke::{Cleanup, FailureKind, LaunchOptions, ProcessGroup, Request};
+use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, ProcessGroup, Request};
 
 thread_local! {
     static NO_COMMANDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -86,6 +86,26 @@ pub fn run_cancellable(
     max_output_bytes: usize,
     cancellation: Option<&Cancellation>,
 ) -> Result<Finished, RunError> {
+    run_cancellable_with_environment(
+        program,
+        args,
+        input,
+        timeout,
+        max_output_bytes,
+        cancellation,
+        EnvironmentPolicy::Inherit,
+    )
+}
+
+pub(crate) fn run_cancellable_with_environment(
+    program: &Path,
+    args: &[OsString],
+    input: &[u8],
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancellation: Option<&Cancellation>,
+    environment: EnvironmentPolicy<'_>,
+) -> Result<Finished, RunError> {
     assert_commands_allowed("run");
     check_cancelled(cancellation)?;
     let output = tmt_invoke::invoke(
@@ -95,7 +115,10 @@ pub fn run_cancellable(
             input,
             deadline: Instant::now() + timeout,
             max_stream_bytes: max_output_bytes,
-            launch: Default::default(),
+            launch: LaunchOptions {
+                environment,
+                ..Default::default()
+            },
         },
         cancellation.map(|token| token.0.as_ref()),
     )
@@ -115,6 +138,7 @@ pub fn run_inherited(
     input: &[u8],
     deadline: Instant,
     max_output_bytes: usize,
+    environment: EnvironmentPolicy<'_>,
 ) -> Result<Finished, RunError> {
     use nix::{
         sys::signal::{Signal, killpg},
@@ -133,6 +157,7 @@ pub fn run_inherited(
             deadline,
             max_stream_bytes: max_output_bytes,
             launch: LaunchOptions {
+                environment,
                 process_group: ProcessGroup::InheritCaller,
                 ..Default::default()
             },

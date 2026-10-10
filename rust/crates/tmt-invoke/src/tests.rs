@@ -389,7 +389,7 @@ fn child_environment_policy_does_not_mutate_the_caller() {
 #[test]
 #[ignore = "isolated environment fixture launched by the parent test"]
 fn environment_policy_child() {
-    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let snapshot = || {
         let mut vars: Vec<_> = std::env::vars_os().collect();
         vars.sort();
@@ -422,6 +422,27 @@ fn environment_policy_child() {
             .any(|w| w == b"INVOKE_SECRET=excluded-test-secret")
     );
     assert!(capture(EnvironmentPolicy::ClearAllowlist(&[])).is_empty());
+    assert_eq!(capture(EnvironmentPolicy::InheritWith(&[])), inherited);
+    let overlay = [
+        ("INVOKE_KEEP".into(), "child replacement".into()),
+        ("INVOKE_NEW".into(), "child only".into()),
+        ("INVOKE_BYTES".into(), OsString::from_vec(vec![b'y', 0xfe])),
+    ];
+    let overlaid = capture(EnvironmentPolicy::InheritWith(&overlay));
+    let mut lines: Vec<_> = overlaid
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .collect();
+    lines.sort();
+    assert_eq!(
+        lines,
+        [
+            b"INVOKE_BYTES=y\xfe".as_slice(),
+            b"INVOKE_KEEP=child replacement".as_slice(),
+            b"INVOKE_NEW=child only".as_slice(),
+            b"INVOKE_SECRET=excluded-test-secret".as_slice(),
+        ]
+    );
     let names = [
         "INVOKE_KEEP".into(),
         "INVOKE_BYTES".into(),

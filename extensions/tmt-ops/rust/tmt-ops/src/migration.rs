@@ -88,7 +88,7 @@ pub(crate) fn paths(core: &Core, shown: Option<&Value>) -> Result<Paths, SquadEr
             let shown = match shown {
                 Some(shown) => shown,
                 None => {
-                    owned = core.json(&["config", "show"])?;
+                    owned = core.config_show()?;
                     &owned
                 }
             };

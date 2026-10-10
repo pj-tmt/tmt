@@ -84,7 +84,7 @@ fn normal_supplied_and_path_core_still_return_configuration() {
     let selected = fixture.0.join("tmt");
     crate::test_support::write_ready_executable(
         &selected,
-        "#!/bin/sh\nif [ \"$*\" != 'config show --json' ]; then exit 2; fi\nprintf '%s' '{\"config\":\"fixture\"}'\n",
+        "#!/bin/sh\nif [ \"$*\" != 'config show --json' ]; then exit 2; fi\nprintf '{\"config\":\"fixture\",\"lookup\":\"%s\"}' \"${TMT_OPS_CONFIG_LOOKUP-unset}\"\n",
     );
     for (supplied, search) in [
         (Some(selected.clone()), None),
@@ -94,7 +94,15 @@ fn normal_supplied_and_path_core_still_return_configuration() {
         assert_eq!(core.executable(), selected);
         assert_eq!(
             core.json(&["config", "show"]).unwrap(),
-            json!({"config": "fixture"})
+            json!({"config": "fixture", "lookup": "unset"})
+        );
+        assert_eq!(
+            core.config_show().unwrap(),
+            json!({"config": "fixture", "lookup": "1"})
+        );
+        assert_eq!(
+            core.json(&["config", "show"]).unwrap(),
+            json!({"config": "fixture", "lookup": "unset"})
         );
     }
 }

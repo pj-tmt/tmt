@@ -106,7 +106,8 @@ fn inherited_child() {
                 &[],
                 b"",
                 Instant::now() + Duration::from_secs(1),
-                64
+                64,
+                EnvironmentPolicy::Inherit,
             )
             .unwrap_err(),
             RunError::Spawn
@@ -121,13 +122,22 @@ fn inherited_child() {
                 &[],
                 b"",
                 Instant::now() + Duration::from_secs(1),
-                64
+                64,
+                EnvironmentPolicy::Inherit,
             )
             .unwrap_err(),
             RunError::Spawn
         );
         assert_eq!(
-            run_inherited(Path::new("/bin/sh"), &[], b"", Instant::now(), 64).unwrap_err(),
+            run_inherited(
+                Path::new("/bin/sh"),
+                &[],
+                b"",
+                Instant::now(),
+                64,
+                EnvironmentPolicy::Inherit
+            )
+            .unwrap_err(),
             RunError::Timeout
         );
         return;
@@ -151,6 +161,7 @@ fn inherited_child() {
         b"input",
         Instant::now() + Duration::from_millis(300),
         if mode == "success" { 64 } else { 8 },
+        EnvironmentPolicy::Inherit,
     );
     if mode == "success" {
         let output = result.unwrap();

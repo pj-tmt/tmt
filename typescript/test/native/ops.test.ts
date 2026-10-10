@@ -152,6 +152,40 @@ const squadVersion = workspaceVersion('tmt-ops');
 describe('squad extension', () => {
   const crewFields = ['member', 'state', 'task', 'pr_link', 'model', 'tok_1', 'tok_2', 'tok_3'];
 
+  it('refuses an indirect Ops configuration launcher after one wrapper invocation', async () => {
+    await withSandbox(async (sandbox) => {
+      const direct = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
+      sandbox.env.TMT_EXECUTABLE = sandbox.cli.executable;
+      const normal = await runCli(direct, ['squad', 'config', 'show', '--json']);
+      expect(normal.status, normal.stdout + normal.stderr).toBe(0);
+      expect(parseWholeStdout(normal).path).toBe(path.join(sandbox.globalDir, 'ops.toml'));
+
+      const wrapper = path.join(sandbox.root, 'indirect-core');
+      const calls = path.join(sandbox.root, 'wrapper-calls');
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      writeExecutable(
+        wrapper,
+        `#!/bin/sh\nprintf '%s\\n' "$TMT_OPS_CONFIG_LOOKUP:$*" >> ${quote(calls)}\nexec ${quote(squadExecutable)} squad "$@"\n`,
+        0o755
+      );
+      sandbox.env.TMT_EXECUTABLE = wrapper;
+      const result = await runCli(direct, ['squad', 'config', 'show', '--json']);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toBe('');
+      expect(parseWholeStdout(result).error).toEqual({
+        code: 'SQUAD_CORE_UNAVAILABLE',
+        message: 'Core configuration lookup reentered Ops; select the Core tmt executable.',
+      });
+      expect(readFileSync(calls, 'utf8')).toBe('1:config show --json\n');
+      expect(sandbox.env.TMT_OPS_CONFIG_LOOKUP).toBeUndefined();
+
+      sandbox.env.TMT_EXECUTABLE = sandbox.cli.executable;
+      const again = await runCli(direct, ['squad', 'config', 'show', '--json']);
+      expect(again.status, again.stdout + again.stderr).toBe(0);
+      expect(readFileSync(calls, 'utf8')).toBe('1:config show --json\n');
+    });
+  });
+
   it('checks layout files offline without core, configuration or board startup', async () => {
     await withSandbox(async (sandbox) => {
       mkdirSync(sandbox.globalDir, { recursive: true });

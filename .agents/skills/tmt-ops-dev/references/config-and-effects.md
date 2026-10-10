@@ -12,7 +12,11 @@ board-only home/meter/`usage.*` data.
   user's file; agents never write it.
 - Core executable discovery refuses `TMT_EXECUTABLE` or the first `tmt` on PATH when
   it names the running Squad executable, including symbolic and hard links. This
-  prevents recursive configuration loading; select the Core `tmt` executable instead.
+  rejects direct recursive configuration loading; select the Core `tmt` executable instead.
+  Bootstrap config discovery sets `TMT_OPS_CONFIG_LOOKUP=1` only on its Core
+  `config show --json` child. An inherited marker refuses another bootstrap spawn
+  with `SQUAD_CORE_UNAVAILABLE`, bounding indirect launchers too. Ordinary Core/API
+  calls and hook dispatch retain their existing policy; the parent environment is unchanged.
 - `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
