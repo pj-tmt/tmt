@@ -4,11 +4,11 @@
 // read the release object and its attestation; this one installs from it, as a user does:
 //   CLI        the public `releases/latest/download/install.sh` embeds the tag's version, installs
 //              the tag, the installed `tmt` is the one PATH selects, the managed skills are the
-//              tag's, and `tmt upgrade --channel alpha --json` reads the live metadata and says
-//              the installation is current (or that a newer alpha has appeared since).
+//              tag's, and `tmt upgrade --channel alpha --to <version> --json` verifies exact
+//              selection without depending on the verified-only channel pointer.
 //   extension  the newest published CLI, installed the same way, runs `tmt extension install
-//              <extension>` against the published release; `tmt extension list` reports the
-//              selected version (the tag's or a higher alpha) and no CLI link appears.
+//              <extension> --to <version>` against the exact published release; the list reports
+//              that version and no CLI link appears.
 // A failure is a result, never a rollback. Only data of the release is read from `--source`, a
 // checkout of the tag; none of its code runs here.
 //   node verify-public-install.mjs --product P --tag TAG --source DIR [--target T] [--result-file F]
@@ -310,7 +310,9 @@ export async function smokeRelease({
     )
       return finish();
     await check('tmt upgrade', async () => {
-      const stdout = tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true });
+      const stdout = tmt(['upgrade', '--channel', 'alpha', '--to', version, '--json'], {
+        acquire: true,
+      });
       const report = JSON.parse(stdout);
       inspect(binary);
       if (resolved(report.executable) !== resolved(binary)) {
@@ -318,10 +320,8 @@ export async function smokeRelease({
       }
       if (report.pathWarning) throw new Error(`PATH warning: ${report.pathWarning}`);
       if (report.skills?.conflicts?.length) throw new Error('skill conflicts were reported');
-      if (report.version === version && report.changed === false) return `${version} is current`;
-      if (compareVersions(report.version, version) > 0 && isAlphaVersion(report.version)) {
-        return `note: a newer alpha, ${report.version}, was published meanwhile and is installed`;
-      }
+      if (report.version === version && typeof report.changed === 'boolean')
+        return report.changed ? `${version} exact selection verified` : `${version} is current`;
       throw new Error(`it reports ${report.version} (changed: ${report.changed}), not ${version}`);
     });
     return finish();
@@ -331,13 +331,13 @@ export async function smokeRelease({
     if (
       !(await check('current public CLI', async () => {
         const report = JSON.parse(
-          tmt(['upgrade', '--channel', 'alpha', '--json'], { acquire: true })
+          tmt(['upgrade', '--channel', 'alpha', '--to', cliVersion, '--json'], { acquire: true })
         );
         inspect(binary);
         if (
           resolved(report.executable) !== resolved(binary) ||
           report.pathWarning ||
-          compareVersions(report.version, cliVersion) < 0 ||
+          report.version !== cliVersion ||
           !isAlphaVersion(report.version) ||
           report.skills?.conflicts?.length
         )
@@ -388,7 +388,6 @@ export async function smokeRelease({
   }
 
   const extensionPrefix = path.join(root, 'extension prefix');
-  let extensionVersion = version;
   const extensionInstalled = await check(`${product} install`, async () => {
     const report = JSON.parse(
       tmt(
@@ -400,6 +399,8 @@ export async function smokeRelease({
           '--json',
           '--channel',
           'alpha',
+          '--to',
+          version,
           '--prefix',
           extensionPrefix,
         ],
@@ -408,16 +409,10 @@ export async function smokeRelease({
     );
     if (report.extension !== product)
       throw new Error(`it installed ${report.extension}, not ${product}`);
-    if (
-      report.version !== version &&
-      !(isAlphaVersion(report.version) && compareVersions(report.version, version) > 0)
-    )
+    if (report.version !== version)
       throw new Error(`it installed ${report.version}, not ${version}`);
     inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
-    extensionVersion = report.version;
-    return extensionVersion === version
-      ? extensionVersion
-      : `note: a newer alpha, ${extensionVersion}, was published meanwhile and is installed`;
+    return version;
   });
   if (!extensionInstalled) return finish();
   const listed = await check(`${product} list`, async () => {
@@ -425,8 +420,8 @@ export async function smokeRelease({
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
     );
     const listed = extensions.find(({ name }) => name === product);
-    if (listed?.version !== extensionVersion)
-      throw new Error(`the list reports ${listed?.version}, not ${extensionVersion}`);
+    if (listed?.version !== version)
+      throw new Error(`the list reports ${listed?.version}, not ${version}`);
     if (existsSync(path.join(extensionPrefix, 'bin', 'tmt'))) {
       throw new Error('an extension install must not create the CLI link');
     }
@@ -438,7 +433,7 @@ export async function smokeRelease({
       await verifyColab({
         executable,
         tmtExecutable: binary,
-        version: extensionVersion,
+        version,
         notices: readFileSync(
           path.join(path.dirname(executable), 'THIRD-PARTY-NOTICES.txt'),
           'utf8'
