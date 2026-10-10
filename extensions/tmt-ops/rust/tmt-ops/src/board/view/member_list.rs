@@ -6,7 +6,7 @@ use super::{
     stable::Stable,
 };
 use crate::{
-    board::{app::App, view::fit},
+    board::{app::App, row_chips, view::fit},
     look::Look,
 };
 use ratatui::{
@@ -30,7 +30,7 @@ const FILE: &str = "squad.home.leads.xml";
 /// `999d ago`). The age is right-aligned, so a placeholder `–` ends where a value does.
 const AGE_CELLS: usize = 8;
 
-/// A box narrower than this shows no model or age: the name, state and digest keep the room.
+/// A box narrower than this shows no model or age: the name, state and chips keep the room.
 pub(in crate::board) const NARROW: usize = 40;
 
 /// The right-aligned age cell and its trailing space, `cells` wide before the space;
@@ -76,7 +76,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="state" bind="lead.state" token-bind="lead.state_role" class="shrink-0"/>
 <tmt-text id="squad" bind="lead.squad" token="muted" class="shrink-0" hide-below="md"/>
 <tmt-text id="fill" class="grow h-1"/>
-<tmt-repeat each="lead.digest" as="digest"><tmt-text id="digest-gap" class="shrink-0"> </tmt-text><tmt-text id="digest-word" bind="digest.word" token="text" class="shrink-0"/><tmt-text id="digest-suffix" bind="digest.suffix" token="muted" class="shrink-0"/><tmt-text id="digest-after-gap" class="shrink-0"> </tmt-text></tmt-repeat>
+<tmt-repeat each="lead.chips" as="chip"><tmt-text id-bind="chip.id" bind="chip.text" token-bind="chip.role" class="shrink-0"/></tmt-repeat>
 <tmt-text id="model" bind="lead.model" token-bind="lead.model_role" class="shrink-0"/>
 <tmt-text id="age" bind="lead.age" token-bind="lead.age_role" class="shrink-0"/>
 <tmt-text id="right" bind="$.right" class="shrink-0"/>
@@ -137,10 +137,11 @@ fn schema() -> Schema {
                 ("age", Schema::Scalar),
                 ("age_role", Schema::Scalar),
                 (
-                    "digest",
+                    "chips",
                     list(object(vec![
-                        ("word", Schema::Scalar),
-                        ("suffix", Schema::Scalar),
+                        ("id", Schema::StableId),
+                        ("text", Schema::Scalar),
+                        ("role", Schema::Scalar),
                     ])),
                 ),
                 ("after", list(line())),
@@ -285,8 +286,8 @@ pub(in crate::board) fn build(key: &Key) -> Block {
         .collect::<Vec<_>>();
     let mut data = key.data.clone();
     for row in data["leads"].as_array_mut().into_iter().flatten() {
-        if row.get("digest").is_none() {
-            row["digest"] = json!([]);
+        if row.get("chips").is_none() {
+            row["chips"] = json!([]);
         }
     }
     // A section whose head carries its own rule is already bounded above.
@@ -311,7 +312,16 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                   scope,
                   role,
               }| {
-            let part = node.and_then(<[String]>::last).map(String::as_str);
+            let part = node
+                .and_then(<[String]>::last)
+                .map(String::as_str)
+                .map(|part| {
+                    if part.starts_with("chip-") {
+                        "chip"
+                    } else {
+                        part
+                    }
+                });
             let line = node.and_then(|node| node.get(1)).map(String::as_str);
             let lead = scope.and_then(<[String]>::first).map(String::as_str);
             // Preserve the collapsed entity styling; expanded detail stays outside it.
@@ -333,13 +343,9 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                     look.role(role).add_modifier(Modifier::BOLD),
                     true,
                 )),
-                (
-                    Some(
-                        "squad" | "state" | "tag" | "model" | "age" | "digest-word"
-                        | "digest-suffix" | "digest-gap" | "digest-after-gap",
-                    ),
-                    _,
-                ) => boxed(look.row_span(selected, look.role(role), false)),
+                (Some("squad" | "state" | "tag" | "model" | "age" | "chip"), _) => {
+                    boxed(look.row_span(selected, look.role(role), false))
+                }
                 (Some("fill"), _) if selected => look.selection(),
                 (Some("fill"), _) => look.role(Role::Text),
                 (Some("text"), Some("sent")) => look.role(Role::Working),
@@ -494,10 +500,8 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             }
         };
         let reading = &readings[index];
-        let digest = crate::digest::pieces(row, now, available / 2);
-        let digest_width = digest.as_array().unwrap().first().map_or(0, |piece| {
-            piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 2
-        });
+        let chips = row_chips::padded(row_chips::pieces(&app.labels, row, now, available / 2));
+        let chips_width = row_chips::pieces_width(&chips);
         let tag = if origin == RowOrigin::Lead {
             "  lead"
         } else {
@@ -508,13 +512,13 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         } else {
             ""
         };
-        // The name takes at most half the row, so a digest always has room beside it.
+        // The name takes at most half the row, so the chips always have room beside it.
         let name_width = available
             .saturating_sub(tag.len() + 3)
             .min(26)
             .min(available / 2);
         let name = fit(&escape(row["name"].as_str().unwrap_or("–")), name_width);
-        let state_width = available.saturating_sub(digest_width + name_width + tag.len() + 2);
+        let state_width = available.saturating_sub(chips_width + name_width + tag.len() + 2);
         let mut after = vec![
             json!({"id":"task","text":format!("   {}",fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()),width.saturating_sub(3)).trim_end()),"role":"text"}),
         ];
@@ -542,10 +546,10 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         if reading.model_visible {
             visible.push("model");
         }
-        if crate::digest::fitted(row, now, available / 2).2 {
-            visible.push("digest");
+        if row_chips::fitted(&app.labels, row, now, available / 2).1 {
+            visible.push("chips");
         }
-        rows.push(json!({"digest": digest, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
+        rows.push(json!({"chips": chips, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
             "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(&state), state_width).trim_end()) },
             "state_role": if waits { "waiting" } else if observed { Role::Dim.name() } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
