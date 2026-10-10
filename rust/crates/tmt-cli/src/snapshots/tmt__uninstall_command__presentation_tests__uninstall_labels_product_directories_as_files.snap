@@ -1,8 +1,9 @@
 ---
 source: crates/tmt-cli/src/uninstall_command.rs
+assertion_line: 509
 expression: "String::from_utf8(output).unwrap()"
 ---
-REMOVE 11
+REMOVE 13
   command  /prefix/bin/tmt-office
   files    /prefix/lib/tmt-office
   command  /prefix/bin/tmt-ops
@@ -11,6 +12,8 @@ REMOVE 11
   files    /prefix/lib/tmt-remote
   command  /prefix/bin/tmt-colab
   files    /prefix/lib/tmt-colab
+  command  /prefix/bin/tmt-digest
+  files    /prefix/lib/tmt-digest
   command  /prefix/bin/tmt
   command  /prefix/bin/tmux-team
   files    /prefix/lib/tmux-team

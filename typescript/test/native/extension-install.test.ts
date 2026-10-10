@@ -424,6 +424,7 @@ describe('tmt extension install surface', () => {
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
       expect(listed.extensions.map((extension) => extension.name).sort()).toEqual([
         'colab',
+        'digest',
         'ops',
         'remote',
       ]);
@@ -608,6 +609,15 @@ describe('tmt extension install surface', () => {
             channel: null,
             pinned: null,
             commands: ['tmt-colab'],
+            shadowedBy: [],
+          },
+          {
+            name: 'digest',
+            installed: false,
+            version: null,
+            channel: null,
+            pinned: null,
+            commands: ['tmt-digest'],
             shadowedBy: [],
           },
         ],

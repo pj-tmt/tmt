@@ -167,3 +167,18 @@ fn catalog_refuses_duplicate_unknown_missing_and_null_fields() {
         assert!(parse(&serde_json::to_vec(&value).unwrap()).is_err());
     }
 }
+
+#[test]
+fn digest_catalog_requires_one_consistent_generation_for_all_targets() {
+    // Adapt the frozen CLI wire fixture without changing its bytes or trusting a new producer.
+    let text = std::str::from_utf8(FIXTURE)
+        .unwrap()
+        .replace("cli", "digest");
+    let mut catalog: Value = serde_json::from_str(&text).unwrap();
+    assert!(parse(&serde_json::to_vec(&catalog).unwrap()).is_ok());
+    let mut missing = catalog.clone();
+    missing["candidates"].as_array_mut().unwrap().pop();
+    assert!(parse(&serde_json::to_vec(&missing).unwrap()).is_err());
+    catalog["candidates"][1]["version"] = Value::from("0.1.0-alpha.2");
+    assert!(parse(&serde_json::to_vec(&catalog).unwrap()).is_err());
+}

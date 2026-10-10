@@ -49,7 +49,12 @@ use tmt_cli_style::{
 const CONSENT: &str = "EXTENSION_CONSENT_REQUIRED";
 
 // Historical products stay recognizable for receipt recovery and removal.
-const INSTALLABLE_EXTENSIONS: &[Product] = &[Product::Ops, Product::Remote, Product::Colab];
+const INSTALLABLE_EXTENSIONS: &[Product] = &[
+    Product::Ops,
+    Product::Remote,
+    Product::Colab,
+    Product::Digest,
+];
 
 pub(crate) fn require_installable(product: Product) -> Result<(), Failure> {
     if INSTALLABLE_EXTENSIONS.contains(&product) {
@@ -531,6 +536,7 @@ mod tests {
         assert_eq!(extension("ops").unwrap(), Product::Ops);
         assert_eq!(extension("remote").unwrap(), Product::Remote);
         assert_eq!(extension("colab").unwrap(), Product::Colab);
+        assert_eq!(extension("digest").unwrap(), Product::Digest);
         assert_eq!(extension("office").unwrap(), Product::Office);
         for name in [
             "cli",
@@ -546,10 +552,10 @@ mod tests {
             assert!(
                 error
                     .message
-                    .ends_with("Official extensions: ops, remote, colab.")
+                    .ends_with("Official extensions: ops, remote, colab, digest.")
             );
         }
-        assert_eq!(names(), "ops, remote, colab");
+        assert_eq!(names(), "ops, remote, colab, digest");
     }
 
     #[test]
@@ -606,7 +612,7 @@ mod tests {
             .iter()
             .map(|row| row["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["ops", "remote", "colab"]);
+        assert_eq!(names, ["ops", "remote", "colab", "digest"]);
         let remote = &rows[1];
         assert_eq!(remote["status"], "unmanaged");
         assert_eq!(remote["installed"], false);
@@ -615,7 +621,7 @@ mod tests {
         assert!(hint.contains(&*binary.to_string_lossy()));
         assert!(hint.contains("tmt extension install remote --yes"));
         assert!(!hint.contains("extension ls"), "the repair is not circular");
-        for other in [&rows[0], &rows[2]] {
+        for other in [&rows[0], &rows[2], &rows[3]] {
             assert_eq!(other["installed"], false);
             assert!(other.get("status").is_none());
         }

@@ -1,5 +1,5 @@
 //! Fixed artifact identities for the CLI and its official extensions (Office,
-//! Ops, Remote and Colab). The table is reviewed code; archive data never adds a product.
+//! Ops, Remote, Colab and Digest). The table is reviewed code; archive data never adds a product.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
@@ -8,6 +8,7 @@ pub enum Product {
     Ops,
     Remote,
     Colab,
+    Digest,
 }
 
 /// Optional observation after a replaced release is active. The adapter owns
@@ -68,6 +69,7 @@ impl Product {
             Self::Ops => "tmt-ops-v",
             Self::Remote => "tmt-remote-v",
             Self::Colab => "tmt-colab-v",
+            Self::Digest => "tmt-digest-v",
         }
     }
 
@@ -81,16 +83,19 @@ impl Product {
         let pre_release = !version.pre.is_empty();
         match self {
             Self::Cli => pre_release || !flagged,
-            Self::Office | Self::Ops | Self::Remote | Self::Colab => flagged == pre_release,
+            Self::Office | Self::Ops | Self::Remote | Self::Colab | Self::Digest => {
+                flagged == pre_release
+            }
         }
     }
 
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Cli,
         Self::Office,
         Self::Ops,
         Self::Remote,
         Self::Colab,
+        Self::Digest,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -100,6 +105,7 @@ impl Product {
             Self::Ops => "ops",
             Self::Remote => "remote",
             Self::Colab => "colab",
+            Self::Digest => "digest",
         }
     }
 
@@ -116,6 +122,7 @@ impl Product {
             Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
+            Self::Digest => "tmt-digest",
         }
     }
 
@@ -126,6 +133,7 @@ impl Product {
             Self::Ops => "tmt-ops",
             Self::Remote => "tmt-remote",
             Self::Colab => "tmt-colab",
+            Self::Digest => "tmt-digest",
         }
     }
 
@@ -136,6 +144,7 @@ impl Product {
             Self::Ops => "lib/tmt-ops",
             Self::Remote => "lib/tmt-remote",
             Self::Colab => "lib/tmt-colab",
+            Self::Digest => "lib/tmt-digest",
         }
     }
 
@@ -146,6 +155,7 @@ impl Product {
             Self::Ops => &["tmt-ops"],
             Self::Remote => &["tmt-remote"],
             Self::Colab => &["tmt-colab"],
+            Self::Digest => &["tmt-digest"],
         }
     }
 
@@ -157,7 +167,7 @@ impl Product {
     /// publication. Native installation refuses such a product without one.
     pub const fn requires_release_verifier(self) -> bool {
         match self {
-            Self::Cli | Self::Ops | Self::Remote | Self::Colab => false,
+            Self::Cli | Self::Ops | Self::Remote | Self::Colab | Self::Digest => false,
             Self::Office => true,
         }
     }
@@ -169,7 +179,7 @@ impl Product {
     pub const fn companions(self) -> &'static [&'static str] {
         match self {
             Self::Cli => &["tmt-driver-herdr"],
-            Self::Office | Self::Ops | Self::Remote | Self::Colab => &[],
+            Self::Office | Self::Ops | Self::Remote | Self::Colab | Self::Digest => &[],
         }
     }
 
@@ -180,7 +190,7 @@ impl Product {
     pub const fn optional_files(self) -> &'static [&'static str] {
         match self {
             Self::Cli | Self::Office => &[],
-            Self::Ops | Self::Remote | Self::Colab => &["TMT-USES.json"],
+            Self::Ops | Self::Remote | Self::Colab | Self::Digest => &["TMT-USES.json"],
         }
     }
 

@@ -253,7 +253,7 @@ fn extension_fixture(product: super::Product, version: &str, payload: &[u8]) -> 
 #[test]
 fn extension_receipt_round_trip_repeat_upgrade_and_removal_leave_cli_and_state_unchanged() {
     use super::{Product, inspect_product, uninstall_extension};
-    for product in [Product::Remote, Product::Colab] {
+    for product in [Product::Remote, Product::Colab, Product::Digest] {
         let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
         let prefix = cli.directory.path.join("prefix");
         let cli_report = install_fixture(&cli, &prefix, Product::Cli).unwrap();
@@ -317,7 +317,7 @@ fn extension_receipt_round_trip_repeat_upgrade_and_removal_leave_cli_and_state_u
 #[test]
 fn extensions_reject_wrong_packages_tampering_and_foreign_command_links() {
     use super::{Product, inspect_product, uninstall_extension};
-    for product in [Product::Remote, Product::Colab] {
+    for product in [Product::Remote, Product::Colab, Product::Digest] {
         let extension = extension_fixture(product, "1.2.3", b"extension bytes");
         let prefix = extension.directory.path.join("prefix");
         for other in Product::ALL.into_iter().filter(|other| *other != product) {
@@ -338,7 +338,7 @@ fn extensions_reject_wrong_packages_tampering_and_foreign_command_links() {
 #[test]
 fn interrupted_extension_activation_retains_the_previous_receipt_and_cleans_staging() {
     use super::Product;
-    for product in [Product::Remote, Product::Colab] {
+    for product in [Product::Remote, Product::Colab, Product::Digest] {
         let extension = extension_fixture(product, "1.2.3", b"extension old");
         let prefix = extension.directory.path.join("prefix");
         let report = install_fixture(&extension, &prefix, product).unwrap();

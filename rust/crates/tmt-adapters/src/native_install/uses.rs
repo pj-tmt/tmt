@@ -353,6 +353,14 @@ mod tests {
     }
 
     #[test]
+    fn digest_uses_can_name_other_extensions_but_never_itself() {
+        assert!(parse(Product::Digest, GOOD.as_bytes()).is_ok());
+        let text = GOOD.replace("remote", "digest");
+        assert_eq!(parsed(&text).unwrap()[0].extension, Product::Digest);
+        assert!(parse(Product::Digest, text.as_bytes()).is_err());
+    }
+
+    #[test]
     fn labels_reject_direction_controls_and_preserve_script_and_emoji_formatting() {
         for control in [
             '\u{061c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',

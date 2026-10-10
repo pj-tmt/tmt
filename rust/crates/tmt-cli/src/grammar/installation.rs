@@ -60,7 +60,7 @@ pub(in crate::grammar) fn extension() -> Command {
     .subcommand(
         extension_target(general(spec!(
             "install",
-            "Install an official extension (ops, remote, colab)",
+            "Install an official extension (ops, remote, colab, digest)",
             [
                 "Install Ops" => "tmt extension install ops --yes",
                 "Install Remote" => "tmt extension install remote --yes",

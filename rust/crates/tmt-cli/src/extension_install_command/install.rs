@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn missing_published_extension_release_is_availability_not_installation_damage() {
-        for product in [Product::Remote, Product::Colab] {
+        for product in [Product::Remote, Product::Colab, Product::Digest] {
             let error = installation_failure(io::Error::new(
                 io::ErrorKind::NotFound,
                 native_install::ReleaseUnavailable {

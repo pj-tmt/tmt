@@ -317,7 +317,8 @@ fn ops_is_a_fixed_extension_product_and_former_names_are_not_selectable() {
             Product::Office,
             Product::Ops,
             Product::Remote,
-            Product::Colab
+            Product::Colab,
+            Product::Digest
         ]
     );
     for former in ["squad", "sq", "tmt-squad", "tmt-sq"] {
@@ -434,10 +435,36 @@ fn the_cli_accepts_either_prerelease_flag_on_an_alpha_and_extensions_match_exact
         Product::Ops,
         Product::Remote,
         Product::Colab,
+        Product::Digest,
     ] {
         assert!(extension.accepts_prerelease_flag(&alpha, true));
         assert!(!extension.accepts_prerelease_flag(&alpha, false));
         assert!(extension.accepts_prerelease_flag(&stable, false));
         assert!(!extension.accepts_prerelease_flag(&stable, true));
     }
+}
+
+#[test]
+fn digest_has_an_independent_namespace_and_ordinary_extension_inventory() {
+    use super::Product;
+    let digest = Product::parse("digest").unwrap();
+    assert_eq!(digest.tag_prefix(), "tmt-digest-v");
+    assert_eq!(digest.package(), "tmt-digest");
+    assert_eq!(digest.namespace(), "lib/tmt-digest");
+    assert_eq!(digest.links(), &["tmt-digest"]);
+    assert_eq!(digest.link_target(), "../lib/tmt-digest/current/tmt-digest");
+    assert_eq!(
+        digest.files(),
+        [
+            "tmt-digest",
+            "LICENSE",
+            "NATIVE-INSTALL.md",
+            "THIRD-PARTY-NOTICES.txt"
+        ]
+    );
+    assert_eq!(digest.optional_files(), &["TMT-USES.json"]);
+    assert!(digest.companions().is_empty());
+    assert!(digest.former().is_none());
+    assert!(digest.post_upgrade_check().is_none());
+    assert!(!digest.requires_release_verifier());
 }
