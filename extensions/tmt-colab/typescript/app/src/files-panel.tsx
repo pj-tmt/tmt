@@ -29,11 +29,12 @@ export function FilesList({
   remove?(attachmentId: string): Promise<void>;
   disabled?: boolean;
 }) {
-  const opener = useAttachmentOpener(binding),
+  const opener = useAttachmentOpener(binding, DOCUMENT, descriptors),
     { busy, failed, shown } = opener;
   const [removing, setRemoving] = useState<string>();
   const [removeFailed, setRemoveFailed] = useState<Set<string>>(new Set());
-  if (!descriptors.length) return null;
+  if (!descriptors.length)
+    return opener.unlistedFailure ? <p role="alert">{text.attachmentReason.changed}</p> : null;
   const drop = async (id: string) => {
     if (!remove || removing) return;
     setRemoving(id);
@@ -52,6 +53,7 @@ export function FilesList({
   };
   return (
     <BrowserList label={text.filesListLabel} className="files-list">
+      {opener.unlistedFailure && <li role="alert">{text.attachmentReason.changed}</li>}
       {descriptors.map((d) => {
         const raster = isRaster(d),
           image = shown[d.attachmentId],
@@ -61,6 +63,7 @@ export function FilesList({
           <Fragment key={d.attachmentId}>
             <BrowserListRow
               data-testid="file-row"
+              data-attachment-id={d.attachmentId}
               data-previewed={image ? '' : undefined}
               title={<span className="attachment-name">{d.filename}</span>}
               metadata={text.attachmentSize(Number(d.plaintextBytes))}
@@ -95,7 +98,7 @@ export function FilesList({
                         busy={opening}
                         disabled={!idle || !binding}
                         onActivate={(event) => {
-                          if (event.isTrusted) void opener.preview(DOCUMENT, d);
+                          if (event.isTrusted) void opener.preview(d);
                         }}
                       />
                     ))}
@@ -106,7 +109,7 @@ export function FilesList({
                     busy={!raster && opening}
                     disabled={!idle || !binding}
                     onActivate={(event) => {
-                      if (event.isTrusted) void opener.download(DOCUMENT, d);
+                      if (event.isTrusted) void opener.download(d);
                     }}
                   />
                   {remove && (
@@ -185,16 +188,15 @@ export function FilesPanel({
   const attachable = !disabled && !adding;
   return (
     <div className="files-panel" data-testid="files-panel">
-      {descriptors.length ? (
-        <FilesList
-          descriptors={descriptors}
-          binding={files.attachments}
-          remove={(id) => files.remove([id])}
-          disabled={disabled || adding}
-          epoch={files.epoch}
-        />
-      ) : (
-        !staged.chips.length && <p className="files-empty">{text.filesEmpty}</p>
+      <FilesList
+        descriptors={descriptors}
+        binding={files.attachments}
+        remove={(id) => files.remove([id])}
+        disabled={disabled || adding}
+        epoch={files.epoch}
+      />
+      {!descriptors.length && !staged.chips.length && (
+        <p className="files-empty">{text.filesEmpty}</p>
       )}
       <AttachmentChips draft={draft} disabled={!attachable} page />
       <div className="annotation-status-row">

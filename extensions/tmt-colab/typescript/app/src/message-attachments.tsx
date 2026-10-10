@@ -106,16 +106,17 @@ export function MessageAttachments({
     revision: comment.revision,
   } as const;
   const referenceKey = JSON.stringify([reference, descriptors]);
-  const opener = useAttachmentOpener(binding, referenceKey);
+  const opener = useAttachmentOpener(binding, reference, descriptors);
   const images = descriptors.filter(isRaster);
   const files = descriptors.filter((d) => !isRaster(d));
   const [viewer, setViewer] = useState<{ index: number; trigger: HTMLElement; lifetime: object }>();
   const active = viewer?.lifetime === opener.lifetime ? viewer : undefined;
   const show = (index: number, trigger: HTMLElement) => {
-    void opener.preview(reference, images[index]);
+    void opener.preview(images[index]);
     setViewer({ index, trigger, lifetime: opener.lifetime });
   };
-  if (!descriptors.length) return null;
+  if (!descriptors.length)
+    return opener.unlistedFailure ? <p role="alert">{text.attachmentReason.changed}</p> : null;
   const error = (id: string) => {
     const failure = opener.failed.get(id);
     return failure ? text.attachmentReason[failure] : undefined;
@@ -127,6 +128,7 @@ export function MessageAttachments({
       aria-label={text.messageAttachmentsLabel}
       data-testid="message-attachments"
     >
+      {opener.unlistedFailure && <p role="alert">{text.attachmentReason.changed}</p>}
       {!!images.length && (
         <ul className={images.length === 1 ? 'attachment-images single' : 'attachment-images'}>
           {displayed.map((d, index) => (
@@ -137,7 +139,7 @@ export function MessageAttachments({
               url={opener.shown[d.attachmentId]}
               error={error(d.attachmentId)}
               load={(visible) => {
-                void opener.thumbnail(reference, d, visible);
+                void opener.thumbnail(d, visible);
               }}
               open={(trigger) => show(index, trigger)}
             />
@@ -189,7 +191,7 @@ export function MessageAttachments({
                   icon={<Download />}
                   disabled={!binding || !!opener.busy}
                   onActivate={(event) => {
-                    if (event.isTrusted) void opener.download(reference, d);
+                    if (event.isTrusted) void opener.download(d);
                   }}
                 />
                 {error(d.attachmentId) && (
@@ -212,7 +214,7 @@ export function MessageAttachments({
           select={(index) => show(index, active.trigger)}
           close={() => setViewer(undefined)}
           download={() => {
-            void opener.download(reference, images[active.index]);
+            void opener.download(images[active.index]);
           }}
         />
       )}

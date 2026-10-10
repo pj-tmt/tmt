@@ -162,7 +162,10 @@ viewer activation may read another image of the same message. Thumbnail bounds, 
 overflow, file-card presentation, viewer controls and alignment are defined by
 [Message attachments](../../../design/gui-style.md#message-attachments).
 Non-images and Files remain click-only; downloads use `application/octet-stream` through
-the parent's blob-download lifecycle, revoked after hand-off and on unmount. No inline
+the parent's blob-download lifecycle, revoked after hand-off and on unmount. A trusted
+click selects the current binding and exact reference for the still-listed attachment ID
+when its serial read starts. A missing binding or reference, or a replacement during the
+read, shows a retry message; it never replays a stale read or retries automatically. No inline
 video, active content, relaxed CSP or renderer capability exists.
 
 ### Page files in the Files panel (#1855)

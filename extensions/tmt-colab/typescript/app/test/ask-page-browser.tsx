@@ -649,6 +649,11 @@ export function advanceDisclosure() {
   scope = `${scope}+`;
   emit();
 }
+/** An admitted document update removed every file while a read was pending. */
+export function removePageFiles() {
+  current = { ...current, attachments: [] };
+  emit();
+}
 /** The page's epoch advanced: files sealed under the old one wait to be re-sealed. */
 export function rotateEpoch() {
   pageEpoch = String(Number(pageEpoch) + 1);

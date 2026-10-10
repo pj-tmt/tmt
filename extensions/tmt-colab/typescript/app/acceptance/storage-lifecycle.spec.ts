@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, type Download, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -188,6 +188,11 @@ test('principals: owner, a second paired device and a read-only link read; a rev
 
     await expect(panel.getByText(text.filesAdding)).toHaveCount(0, { timeout: 30_000 });
     await captureResponsive(first, 'files');
+    // The capture restored desktop width; wait for the media-query subscriber before
+    // pageAction chooses between the compact More menu and Source and export.
+    await expect(
+      first.getByRole('button', { name: text.sourceAndExport, exact: true }),
+    ).toBeVisible();
     await (await pageAction(first, 'Export page')).click();
     await expect(
       first
@@ -217,12 +222,16 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     expect(await downloaded(reader.page, rowsOf(reader.page).first(), note.name)).toBe(
       sha(note.buffer),
     );
+    const row = rowsOf(first).first();
+    const originalAttachmentId = await row.getAttribute('data-attachment-id');
+    expect(originalAttachmentId).toMatch(/^[a-f0-9-]{36}$/);
 
     // A revoked paired device reads nothing after it reloads.
     run(world, world.binaries.remote, [
       'devices',
       'revoke',
       clientId(world, 'life-principal-peer'),
+      '--json',
     ]);
     await second.reload();
     await expect(second.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible({
@@ -255,7 +264,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     });
     await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
     // Removing the link advanced the epoch: the owner's open page re-admits on its own (#2557)
-    // and, without a reload, still reads the file sealed under the earlier epoch.
+    // and, without a reload, reads the file again once its new-epoch reference is published.
     await expect(first.locator('.status.live .status-label')).toHaveText('Live', {
       timeout: 60_000,
     });
@@ -263,18 +272,20 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     // The Files panel opened earlier stays open across the re-admission.
     await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
-    // The click may land before the re-admitted binding's disclosure scope settles, and the
-    // opener ignores a click on a scope that moved; a person clicks again, so the case does too.
-    const row = rowsOf(first).first();
-    let saved: Download | null = null;
-    for (let attempt = 0; attempt < 6 && !saved; attempt++) {
-      const pending = first.waitForEvent('download', { timeout: 8_000 }).catch(() => null);
-      await row.getByRole('button', { name: text.attachmentDownload }).click();
-      saved = await pending;
-    }
-    expect(saved, 'the owner downloads the file again after the re-admission').not.toBeNull();
-    expect(saved!.suggestedFilename()).toBe(note.name);
-    expect(sha(fs.readFileSync((await saved!.path())!))).toBe(sha(note.buffer));
+    // Live means the page re-admitted, not that the background reference swap finished.
+    // Observe the new reference through the browser row, not private storage records.
+    // Clicking during the swap correctly refuses a replaced read rather than replaying it.
+    await expect(row).not.toHaveAttribute('data-attachment-id', originalAttachmentId!, {
+      timeout: 60_000,
+    });
+    await expect(row).toHaveAttribute('data-attachment-id', /^[a-f0-9-]{36}$/);
+    await expect(row).not.toContainText(text.filesResealing, { timeout: 60_000 });
+    // One click must use this current admitted reference without a user retry.
+    const pending = first.waitForEvent('download');
+    await row.getByRole('button', { name: text.attachmentDownload }).click();
+    const saved = await pending;
+    expect(saved.suggestedFilename()).toBe(note.name);
+    expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(note.buffer));
   });
 });
 

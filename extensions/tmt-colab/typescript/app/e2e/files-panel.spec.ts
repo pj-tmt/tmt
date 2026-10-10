@@ -169,7 +169,9 @@ test('an epoch or admission change disposes shown previews and failures, and a l
   expect((await actions(page)).filter((a) => a.startsWith('attach:open')).length).toBe(opens + 1);
 });
 
-test('a read that finishes after the disclosure changed shows nothing', async ({ page }) => {
+test('a read that finishes after the disclosure changed drops bytes and shows retry', async ({
+  page,
+}) => {
   await mount(page);
   const panel = await openFiles(page);
   await attach(panel, page, [{ name: 'slow.png', mimeType: 'image/png', buffer: PNG }]);
@@ -183,7 +185,28 @@ test('a read that finishes after the disclosure changed shows nothing', async ({
   await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
   await expect(row.getByRole('button', { name: text.attachmentPreview })).toBeEnabled();
   await expect(page.getByTestId('file-preview')).toHaveCount(0);
-  await expect(row.getByRole('alert')).toHaveCount(0);
+  await expect(row.getByRole('alert')).toHaveText(text.attachmentReason.changed);
+});
+
+test('removing the last page file during a read preserves visible retry feedback', async ({
+  page,
+}) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [{ name: 'slow.png', mimeType: 'image/png', buffer: PNG }]);
+  await add(panel).click();
+  await panel.getByTestId('file-row').getByRole('button', { name: text.attachmentPreview }).click();
+  await expect
+    .poll(async () => (await actions(page)).includes('attach:open:slow.png:document'))
+    .toBe(true);
+  await page.evaluate(async (path) => (await import(path)).removePageFiles(), fixture);
+  await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
+  await expect(panel.getByTestId('file-row')).toHaveCount(0);
+  await expect(panel.getByRole('alert')).toHaveText(text.attachmentReason.changed);
+  await expect(panel.getByTestId('file-preview')).toHaveCount(0);
+  expect((await actions(page)).filter((a) => a.startsWith('attach:open'))).toEqual([
+    'attach:open:slow.png:document',
+  ]);
 });
 
 test('a file that cannot open says why: access ended, no longer on the page, changed, or unavailable', async ({
