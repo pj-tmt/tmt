@@ -42,7 +42,7 @@ import {
   upgradeSupportFloor,
 } from './native-release-policy.mjs';
 import { componentMap } from './ci-scope.mjs';
-import { ghApi } from './release-draft-assets.mjs';
+import { ghApi, retryReleaseRead } from './release-draft-assets.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 
 /** The scripts a release's own commit must carry for the proof to run at that commit. */
@@ -702,43 +702,32 @@ export function releaseCommit({ release, commitOfTag }) {
 }
 
 /** Downloads one immutable release asset by id; only acquisition failures get bounded retries. */
-export function ghAssetDownloader({
-  repository,
-  env = process.env,
-  spawn = spawnSync,
-  sleep = (milliseconds) =>
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
-}) {
+export function ghAssetDownloader({ repository, env = process.env, spawn = spawnSync, sleep }) {
   return (asset, file) => {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const result = spawn(
-        'gh',
-        [
-          'api',
-          '-H',
-          'Accept: application/octet-stream',
-          `repos/${repository}/releases/assets/${asset.id}`,
-        ],
-        { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
-      );
-      const failure =
-        result.error ??
-        (result.status !== 0
-          ? new Error(`gh could not download ${asset.name} (${result.status}): ${result.stderr}`)
-          : null);
-      if (failure) {
-        if (attempt === 3) throw failure;
-        const delay = 1000 * 2 ** (attempt - 1);
-        process.stderr.write(
-          `Asset download attempt ${attempt}/3 failed: ${failure.message}\nRetrying in ${delay} ms.\n`
+    const bytes = retryReleaseRead(
+      () => {
+        const result = spawn(
+          'gh',
+          [
+            'api',
+            '-H',
+            'Accept: application/octet-stream',
+            `repos/${repository}/releases/assets/${asset.id}`,
+          ],
+          { env, encoding: 'buffer', timeout: 300_000, maxBuffer: ASSET_LIMIT }
         );
-        sleep(delay);
-        continue;
-      }
-      // File writes and the caller's byte verification are never retried.
-      writeFileSync(file, result.stdout);
-      return;
-    }
+        if (result.error) throw result.error;
+        if (result.status !== 0) {
+          throw new Error(
+            `gh could not download ${asset.name} (${result.status}): ${result.stderr}`
+          );
+        }
+        return result.stdout;
+      },
+      { label: 'Asset download', sleep }
+    );
+    // File writes and the caller's byte verification are never retried.
+    writeFileSync(file, bytes);
   };
 }
 

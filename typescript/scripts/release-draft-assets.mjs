@@ -246,11 +246,34 @@ export function readHold({ api, tag, download }) {
   return marker ? JSON.parse(download(marker)) : null;
 }
 
+/** Retries only an acquisition read; validation and writes stay with the caller. */
+export function retryReleaseRead(
+  read,
+  {
+    label,
+    sleep = (milliseconds) =>
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+  }
+) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return read();
+    } catch (failure) {
+      if (attempt === 3) throw failure;
+      const delay = 1000 * 2 ** (attempt - 1);
+      process.stderr.write(
+        `${label} attempt ${attempt}/3 failed: ${failure.message}\nRetrying in ${delay} ms.\n`
+      );
+      sleep(delay);
+    }
+  }
+}
+
 /**
  * `gh api` for one repository. gh may write notices to stderr on success, which
  * `runPackedCommand` would reject, so this runs it under its own bound and reads the status.
  */
-export function ghApi({ repository, env = process.env, spawn = spawnSync }) {
+export function ghApi({ repository, env = process.env, spawn = spawnSync, sleep }) {
   const gh = (args, timeout = 60_000, maxBuffer = 64 * 1024 * 1024) => {
     const result = spawn('gh', args, {
       env,
@@ -269,7 +292,10 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync }) {
   return {
     listReleases: () =>
       releasesFrom(
-        JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repository}/releases`]))
+        retryReleaseRead(
+          () => JSON.parse(gh(['api', '--paginate', '--slurp', `repos/${repository}/releases`])),
+          { label: 'Release listing', sleep }
+        )
       ),
     upload: (release, name, file) =>
       gh(
