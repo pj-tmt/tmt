@@ -68,7 +68,7 @@ pub(crate) fn pane_rectangles(
     folds: &std::collections::BTreeSet<crate::config::Pane>,
     area: ratatui::layout::Rect,
 ) -> Vec<(crate::config::Pane, ratatui::layout::Rect)> {
-    composition::layout(&mut None, board, folds, board.panes[0], area)
+    composition::layout(&mut None, board, folds, board.panes[0], area, false)
         .unwrap()
         .into_iter()
         .map(|(id, rect)| {
@@ -1019,7 +1019,7 @@ pub fn run(
             screen
                 .draw(|frame| {
                     // The vertical board bands, including its body, occupy the full width.
-                    app.set_body_width(frame.area().width);
+                    view::prepare(app, frame.area());
                     view::render(frame, app);
                 })
                 .and_then(|_| {

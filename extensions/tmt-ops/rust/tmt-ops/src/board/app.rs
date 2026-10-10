@@ -105,6 +105,8 @@ pub struct View {
     /// Retained home composition; only the aggregate board view owns it.
     pub home: Option<super::home::Home>,
     pub(super) derived: RefCell<super::derived::Derived>,
+    /// Geometry is read by input/focus while row painters borrow their own cache.
+    pub(super) composition: RefCell<Option<super::composition::Cache>>,
     pub rows: crate::rows::Rows,
     pub board: Board,
     /// The full-reload interval; `None` reloads only on ctrl-r and actions.
@@ -2094,7 +2096,14 @@ impl App {
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        self.folds_at(self.body_width)
+        let mut folds = self.folds_at(self.body_width);
+        if let Some(board) = self.effective_board()
+            && let Some(view) = &self.view
+            && let Some(cache) = &*view.composition.borrow()
+        {
+            folds.extend(cache.derived_folds(board, &folds, self.body_width));
+        }
+        folds
     }
 
     pub fn set_body_width(&mut self, width: u16) {
@@ -4412,6 +4421,7 @@ pub(crate) mod tests {
             exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
+            composition: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
@@ -5800,6 +5810,88 @@ pub(crate) mod tests {
         );
         view.bindings = crate::action::preset(true, &view.board.panes);
         snapshot
+    }
+
+    #[test]
+    fn short_pane_folds_share_paint_hits_and_existing_focus_reconciliation() {
+        use ratatui::{Terminal, backend::TestBackend};
+        let mut app = App::new(Some("product".into()));
+        let mut snapshot = folding_snapshot("product");
+        snapshot.view.as_mut().unwrap().document["sections"] = json!([{
+            "title": null, "rows": [{"id": "alpha-id", "name": "alpha", "presence": "offline",
+                "state": "working", "fields": {"task": "resize evidence"}}]
+        }]);
+        snapshot.view.as_mut().unwrap().board = Board::simple(
+            BoardMode::Split,
+            crate::config::Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            &[50, 50],
+        );
+        app.apply(snapshot);
+        app.focus = 1;
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "no geometry before first paint"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(80, 7)).unwrap();
+        terminal
+            .draw(|frame| {
+                super::super::view::prepare(&mut app, frame.area());
+                super::super::view::render(frame, &app);
+            })
+            .unwrap();
+        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        assert!(
+            app.folds_at(80).is_empty(),
+            "geometry never writes an override"
+        );
+        let title = app
+            .title_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.pane == Pane::Detail)
+            .unwrap()
+            .area;
+        assert_eq!(title.height, 1);
+        assert_ne!(
+            app.scrolls.pane_at(title.x + 1, title.y),
+            Some(Pane::Detail)
+        );
+        assert!(!app.scrolls.visible(Pane::Detail));
+        app.focus_at(title.x + 1, title.y);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        terminal.backend_mut().resize(80, 11);
+        terminal
+            .draw(|frame| {
+                super::super::view::prepare(&mut app, frame.area());
+                super::super::view::render(frame, &app);
+            })
+            .unwrap();
+        assert!(
+            app.scrolls.visible(Pane::Detail),
+            "growth restores the body and its scroll region"
+        );
+        assert!(
+            app.collapsed_panes().is_empty(),
+            "growth restores expanded geometry"
+        );
+        press(&mut app, KeyCode::Char('d'));
+        assert_eq!(app.folds_at(80), BTreeSet::from([Pane::Detail]));
+        for height in [7, 11] {
+            terminal.backend_mut().resize(80, height);
+            terminal
+                .draw(|frame| {
+                    super::super::view::prepare(&mut app, frame.area());
+                    super::super::view::render(frame, &app);
+                })
+                .unwrap();
+            assert!(!app.scrolls.visible(Pane::Detail));
+            assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
+            assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        }
     }
 
     #[test]

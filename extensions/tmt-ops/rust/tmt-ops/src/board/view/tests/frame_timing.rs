@@ -271,11 +271,12 @@ fn rows_pane(app: &App) -> Option<Rect> {
     let board = app.effective_board()?;
     let body = Rect::new(0, 3, WIDTH, HEIGHT - 4);
     let slots = crate::board::composition::layout(
-        &mut view.derived.borrow_mut().composition,
+        &mut view.composition.borrow_mut(),
         board,
-        &app.collapsed_panes(),
+        &app.folds_at(WIDTH),
         app.focused(),
         body,
+        false,
     )
     .ok()?;
     let (_, area) = slots
@@ -378,11 +379,12 @@ fn measure(scene: &'static str, app: App) -> Report {
         .and_then(|view| {
             let board = app.effective_board()?;
             let slots = crate::board::composition::layout(
-                &mut view.derived.borrow_mut().composition,
+                &mut view.composition.borrow_mut(),
                 board,
-                &app.collapsed_panes(),
+                &app.folds_at(WIDTH),
                 app.focused(),
                 Rect::new(0, 3, WIDTH, HEIGHT - 4),
+                false,
             )
             .ok()?;
             let outline = Outline {

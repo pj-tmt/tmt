@@ -39,19 +39,47 @@ pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
-    let jobs = app
-        .view
-        .as_ref()
-        .filter(|view| view.home.is_none())
-        .and_then(|_| crate::board::cronboard::half_wanted(app, area))
-        // A failed split leaves the whole body to the members.
-        .and_then(|lower| crate::board::composition::halves(area, lower).ok());
+    let jobs = body_halves(app, area);
     match jobs {
         Some((members, jobs)) => {
             render_members(frame, app, members, true);
             crate::board::cronboard::render_half(frame, app, jobs);
         }
         None => render_members(frame, app, area, false),
+    }
+}
+
+fn body_halves(app: &App, area: Rect) -> Option<(Rect, Rect)> {
+    app.view
+        .as_ref()
+        .filter(|view| view.home.is_none())
+        .and_then(|_| crate::board::cronboard::half_wanted(app, area))
+        // A failed split leaves the whole body to the members.
+        .and_then(|lower| crate::board::composition::halves(area, lower).ok())
+}
+
+/// Solve the same members rectangle before reconciling input focus.
+pub(super) fn prepare(app: &App, area: Rect) {
+    let Some(view) = app.view.as_ref().filter(|view| view.home.is_none()) else {
+        return;
+    };
+    let Some(board) = app.effective_board() else {
+        return;
+    };
+    let (area, rule_below) =
+        body_halves(app, area).map_or((area, false), |(members, _)| (members, true));
+    let mut composition = view.composition.borrow_mut();
+    if crate::board::composition::layout(
+        &mut composition,
+        board,
+        &app.folds_at(area.width),
+        app.focused(),
+        area,
+        rule_below,
+    )
+    .is_err()
+    {
+        *composition = None;
     }
 }
 
@@ -68,6 +96,39 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
         return;
     }
     let board = app.effective_board().expect("loaded view has a board");
+    let (placement, chrome) = {
+        let mut composition = view.composition.borrow_mut();
+        let placement = crate::board::composition::layout(
+            &mut composition,
+            board,
+            &app.folds_at(area.width),
+            app.focused(),
+            area,
+            rule_below,
+        );
+        let chrome = composition
+            .as_ref()
+            .map(|cache| cache.chrome.clone())
+            .unwrap_or_default();
+        (placement, chrome)
+    };
+    let slots = match placement {
+        Ok(slots) => slots,
+        Err(error) => {
+            for (offset, line) in error.lines().take(usize::from(area.height)).enumerate() {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect {
+                        y: area.y + offset as u16,
+                        height: 1,
+                        ..area
+                    },
+                    Line::styled(line, look.role(Role::Dim)),
+                );
+            }
+            return;
+        }
+    };
     let focused = receiving_pane(app);
     let pane_block = |pane: Pane| {
         let focus = if Some(pane) == focused { "Focus: " } else { "" };
@@ -101,30 +162,6 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
             },
         }
     };
-    let placement = crate::board::composition::layout(
-        &mut view.derived.borrow_mut().composition,
-        board,
-        &app.collapsed_panes(),
-        app.focused(),
-        area,
-    );
-    let slots = match placement {
-        Ok(slots) => slots,
-        Err(error) => {
-            for (offset, line) in error.lines().take(usize::from(area.height)).enumerate() {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect {
-                        y: area.y + offset as u16,
-                        height: 1,
-                        ..area
-                    },
-                    Line::styled(line, look.role(Role::Dim)),
-                );
-            }
-            return;
-        }
-    };
     match board.mode {
         BoardMode::Split if board.panes.len() == 1 && app.collapsed_panes().is_empty() => {
             let shared = Shared {
@@ -133,7 +170,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
             };
             render_pane(frame, app, board.panes[0], slots[0].1, shared)
         }
-        BoardMode::Split => render_split(frame, app, &slots, &pane_block, rule_below),
+        BoardMode::Split => render_split(frame, app, &chrome, &pane_block),
         BoardMode::Tabs => {
             let focused = app.focused();
             let bar = slots[0].1;
@@ -173,36 +210,17 @@ fn reach_rule(area: Rect) -> Rect {
 fn render_split(
     frame: &mut Frame,
     app: &App,
-    slots: &[(Vec<String>, Rect)],
+    chrome: &[crate::board::composition::Chrome],
     pane_block: &dyn Fn(Pane) -> Outline<'static>,
-    rule_below: bool,
 ) {
     let collapsed = app.collapsed_panes();
-    let members = app.effective_board().is_some_and(|board| board.members);
-    let pane_of = |id: &Vec<String>| {
-        Pane::parse(id.last().expect("named pane")).expect("validated pane slot")
-    };
-    // A pane drawn as a titled frame: the strip of a collapsed pane and the rich
-    // member list paint their own edges.
-    let framed = |pane: Pane| !collapsed.contains(&pane) && !(pane == Pane::Rows && members);
-    let under = |id: &Vec<String>| {
-        let pane = pane_of(id);
-        if collapsed.contains(&pane) {
-            Under::Strip
-        } else if framed(pane) {
-            Under::Rule
-        } else {
-            Under::Plain
-        }
-    };
-    let bottom = slots.iter().map(|(_, area)| area.bottom()).max();
-    // Top to bottom, so a pane's heading rule is painted over the frame edge above it.
-    let mut order = (0..slots.len()).collect::<Vec<_>>();
-    order.sort_by_key(|&index| (slots[index].1.y, slots[index].1.x));
+    // Top to bottom, so a pane's heading is painted over the edge above it.
+    let mut order = (0..chrome.len()).collect::<Vec<_>>();
+    order.sort_by_key(|&index| (chrome[index].area.y, chrome[index].area.x));
     for index in order {
-        let (id, area) = &slots[index];
-        let pane = pane_of(id);
-        let area = *area;
+        let geometry = chrome[index];
+        let pane = geometry.pane;
+        let area = geometry.area;
         if area.is_empty() {
             continue;
         }
@@ -231,122 +249,19 @@ fn render_split(
                 Line::styled(text, look.role(Role::Muted)),
             );
         } else {
-            // The rule under the pane is the next heading's, or the jobs rule.
-            let rests_on_rule = (rule_below && Some(area.bottom()) == bottom)
-                || heading_covers_bottom(slots, area, under);
-            if !framed(pane) {
-                let shared = Shared {
-                    above: framed_above(slots, area, |id| under(id) == Under::Rule),
-                    below: rests_on_rule,
-                };
-                render_pane(frame, app, pane, area, shared);
-                continue;
-            }
-            let outline = pane_block(pane);
-            // A frame with no row between its heading and its bottom edge would
-            // stack two rules: it keeps the heading alone.
-            let painted = if rests_on_rule {
-                reach_rule(area)
-            } else if area.height <= 2 {
-                Rect { height: 1, ..area }
+            if let Some(painted) = geometry.painted {
+                pane_block(pane).paint_flat(painted, frame.buffer_mut());
+                if !geometry.inner.is_empty() {
+                    render_pane(frame, app, pane, geometry.inner, Shared::default());
+                }
             } else {
-                area
-            };
-            let inner = outline.inner(painted);
-            outline.paint_flat(painted, frame.buffer_mut());
-            if !inner.is_empty() {
-                render_pane(frame, app, pane, inner, Shared::default());
+                render_pane(frame, app, pane, geometry.inner, geometry.shared);
             }
         }
     }
 }
 
-/// What starts on the row under a pane.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Under {
-    /// A titled frame: its heading rule is the boundary.
-    Rule,
-    /// A collapsed pane's strip, which shares the row with a neighbour's rule.
-    Strip,
-    /// The member list, which draws its own edges and may scroll its top away.
-    Plain,
-}
-
-/// Whether `parts`, the column ranges of panes on one row, run across `area`
-/// with at most the one-column gap the layout leaves between siblings.
-fn spans(mut parts: Vec<(u16, u16)>, area: Rect) -> bool {
-    parts.sort_unstable();
-    let mut reached = None;
-    for (left, right) in parts {
-        match reached {
-            None if left > area.x => return false,
-            Some(reached) if left > reached + 1 => return false,
-            _ => {}
-        }
-        reached = Some(reached.map_or(right, |reached: u16| reached.max(right)));
-    }
-    reached.is_some_and(|reached| reached >= area.right())
-}
-
-/// Whether the panes starting on the row under `area` together span its width
-/// and at least one paints a heading rule there, so that rule replaces its
-/// bottom edge.
-fn heading_covers_bottom(
-    slots: &[(Vec<String>, Rect)],
-    area: Rect,
-    under: impl Fn(&Vec<String>) -> Under,
-) -> bool {
-    let mut parts = Vec::new();
-    let mut ruled = false;
-    for (id, below) in slots {
-        if below.is_empty() || below.y != area.bottom() {
-            continue;
-        }
-        let (left, right) = (below.x.max(area.x), below.right().min(area.right()));
-        if right <= left {
-            continue;
-        }
-        match under(id) {
-            Under::Rule => ruled = true,
-            Under::Strip => {}
-            Under::Plain => return false,
-        }
-        parts.push((left, right));
-    }
-    ruled && spans(parts, area)
-}
-
-/// Whether the panes ending on the row above `area` together span its width and
-/// each is a titled frame, which draws a bottom edge there.
-fn framed_above(
-    slots: &[(Vec<String>, Rect)],
-    area: Rect,
-    frame_edge: impl Fn(&Vec<String>) -> bool,
-) -> bool {
-    let mut parts = Vec::new();
-    for (id, above) in slots {
-        if above.is_empty() || above.bottom() != area.y {
-            continue;
-        }
-        let (left, right) = (above.x.max(area.x), above.right().min(area.right()));
-        if right <= left {
-            continue;
-        }
-        if !frame_edge(id) {
-            return false;
-        }
-        parts.push((left, right));
-    }
-    spans(parts, area)
-}
-
-/// The rules a neighbour already draws beside a pane that paints its own box,
-/// so the pane leaves out the matching edge and the boundary has one rule.
-#[derive(Clone, Copy, Default)]
-pub(in crate::board) struct Shared {
-    pub above: bool,
-    pub below: bool,
-}
+pub(in crate::board) use crate::board::composition::Shared;
 
 fn render_pane(frame: &mut Frame, app: &App, pane: Pane, area: Rect, shared: Shared) {
     match pane {

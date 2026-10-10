@@ -19,7 +19,7 @@ pub(in crate::board) mod waiting;
 use super::app::App;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
 };
 use tmt_cli_style::grid::Align;
 use tmt_tui::components::strip;
@@ -65,6 +65,34 @@ pub fn render(frame: &mut Frame, app: &App) {
     );
 }
 
+/// Resolve transient folds before the existing manual-fold focus reconciliation.
+pub(super) fn prepare(app: &mut App, area: Rect) {
+    if app.cached_display().is_none() {
+        let body = bands(app, area, false, false)[4];
+        panes::prepare(app, body);
+    }
+    app.set_body_width(area.width);
+}
+
+fn bands(app: &App, area: Rect, has_usage: bool, has_limits: bool) -> [Rect; 6] {
+    let home_history_pending = !app.loading()
+        && app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.home.is_some() && view.history_pending);
+    Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(u16::from(
+            header::meter_enabled(app) || has_usage || home_history_pending,
+        )),
+        Constraint::Length(u16::from(has_limits)),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(area)
+}
+
 /// Frame geometry consumes an already formatted header, independent of acquisition.
 pub(in crate::board) fn render_frame(
     frame: &mut Frame,
@@ -94,17 +122,12 @@ pub(in crate::board) fn render_frame(
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let [tabs, summary, meter_status, limits, body, footer] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(u16::from(
-            header::meter_enabled(app) || home_usage.is_some() || home_history_pending,
-        )),
-        Constraint::Length(u16::from(home_limits.is_some())),
-        Constraint::Min(1),
-        Constraint::Length(1),
-    ])
-    .areas(frame.area());
+    let [tabs, summary, meter_status, limits, body, footer] = bands(
+        app,
+        frame.area(),
+        home_usage.is_some(),
+        home_limits.is_some(),
+    );
     strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     let summary_text = app
         .view

@@ -190,7 +190,12 @@ remain bound and discoverable in help/menus, without default footer hints.
   propagate title footprints; expanded siblings share the remainder through one
   TUI flex computation. Nested percentages retain fractional parents until
   cumulative edge rounding. Tabs mode reserves a shrinkable bar and a one-line body
-  minimum. The view cache keys viewport, effective Board, folds and tab focus.
+  minimum. The composition cache keys viewport, Board, manual/config folds, tab
+  focus and the jobs boundary rule. It derives transient folds from actual inner
+  rows (including shared rules), then reallocates the released space. Growth
+  recomputes from inputs, never the derived fold set. Paint and input share this
+  result; it never writes `App.folds`. Composition and row caches have separate
+  borrows: solve/release composition before painting rows, which may read folds.
 - `App` resolves configured folds from the full-width body measurement supplied by
   the draw owner. Per-tab session overrides win over defaults at either width,
   survive unchanged refreshes/switches, reset on changed Board and drop with removed
