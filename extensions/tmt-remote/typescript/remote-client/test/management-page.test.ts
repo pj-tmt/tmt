@@ -230,8 +230,8 @@ for (const state of ['unknown', 'committed'] as const) {
         assert.equal(
           f.page.notice,
           state === 'unknown'
-            ? 'Outcome unknown. Read the original operation; do not submit it again.'
-            : 'Saved. Session limits apply at the next session open.',
+            ? 'This change could not be confirmed. Check its original result before making another change.'
+            : 'Session limit saved. Applies to new sessions. This session ended. Use the local CLI to continue.',
         );
         assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 0, reopens: 0 });
       });
@@ -261,7 +261,7 @@ test('capacity refusal names local CLI and acknowledged self-change remains comm
     reason: 'REMOTE_MANAGEMENT_CAPACITY',
   });
   await f.page.submit(intent);
-  assert.match(f.page.notice, /operation limit.*tmt remote settings/);
+  assert.match(f.page.notice, /Browser change limit reached/);
   assert.equal(f.page.writable, false);
   const acknowledged = fixture();
   await acknowledged.page.refresh();
@@ -370,4 +370,130 @@ test('deferred Firestore observation never keeps management busy and refresh inv
   assert.equal(f.page.firestore, undefined, 'old read cannot overwrite a new refresh');
   await f.page.observeFirestore();
   assert.equal(f.page.firestoreAccess, 'confirmed');
+});
+
+for (const [intent, expected] of [
+  [
+    { kind: 'setting', input: { operationId: 'original', setting: 'open', value: false } },
+    'Browser opening saved.',
+  ],
+  [
+    {
+      kind: 'setting',
+      input: { operationId: 'original', setting: 'sessions-per-device', value: '9' },
+    },
+    'Session limit saved. Applies to new sessions.',
+  ],
+  [
+    { kind: 'rename', input: { operationId: 'original', clientId: 'device', name: 'Renamed' } },
+    'Device renamed.',
+  ],
+  [
+    { kind: 'talk', input: { operationId: 'original', clientId: 'device', enabled: true } },
+    'Sending enabled for this device.',
+  ],
+  [
+    { kind: 'talk', input: { operationId: 'original', clientId: 'device', enabled: false } },
+    'Sending disabled for this device.',
+  ],
+  [{ kind: 'revoke', input: { operationId: 'original', clientId: 'device' } }, 'Device revoked.'],
+] satisfies [PageIntent, string][]) {
+  test(`acknowledged outcome copy: ${expected}`, async () => {
+    for (const sessionEnded of [false, true]) {
+      const f = fixture();
+      await f.page.refresh();
+      f.setResult({
+        operationId: intent.input.operationId,
+        state: 'committed',
+        result: { settings: f.page.settings!.settings },
+        sessionEnded,
+      });
+      await f.page.submit(intent);
+      assert.equal(
+        f.page.notice,
+        expected + (sessionEnded ? ' This session ended. Use the local CLI to continue.' : ''),
+      );
+      assert.equal(f.page.access, sessionEnded ? 'unconfirmed' : 'live');
+    }
+  });
+}
+
+for (const [reason, expected] of [
+  ['REMOTE_MANAGEMENT_READ_ONLY', 'This browser is read-only. Use the local CLI to make changes.'],
+  [
+    'REMOTE_MANAGEMENT_CAPACITY',
+    'Browser change limit reached. Use the local CLI; do not retry or reset storage.',
+  ],
+  ['REMOTE_DEVICE_REVOKED', 'Change refused. Check the current values or use the local CLI.'],
+] as const) {
+  test(`known refusal copy stays distinct: ${reason}`, async () => {
+    const f = fixture();
+    await f.page.refresh();
+    const intent = input();
+    f.setResult({ operationId: intent.input.operationId, state: 'refused', reason });
+    await f.page.submit(intent);
+    assert.equal(f.page.notice, expected);
+  });
+}
+for (const [kind, enabled, expected] of [
+  ['rename', false, 'Saving…'],
+  ['talk', true, 'Enabling sending…'],
+  ['talk', false, 'Disabling sending…'],
+  ['revoke', false, 'Revoking device…'],
+] as const) {
+  test(`pending ${kind}/${enabled} copy comes from the frozen original`, async () => {
+    const f = fixture();
+    await f.page.refresh();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const set = f.remote.set.bind(f.remote);
+    f.remote.set = async (change) => {
+      await held;
+      return set(change);
+    };
+    const intent: PageIntent =
+      kind === 'rename'
+        ? { kind, input: { operationId: 'original', clientId: 'device', name: 'New name' } }
+        : kind === 'talk'
+          ? { kind, input: { operationId: 'original', clientId: 'device', enabled } }
+          : { kind, input: { operationId: 'original', clientId: 'device' } };
+    const submission = f.page.submit(intent);
+    assert.equal(f.page.busy, true);
+    assert.equal(f.page.notice, expected);
+    release();
+    await submission;
+    assert.equal(
+      f.page.notice,
+      'This change could not be confirmed. Check its original result before making another change.',
+    );
+  });
+}
+test('refused recovery keeps the unknown original and its write lock', async () => {
+  for (const refusal of ['open', 'read'] as const) {
+    const f = fixture();
+    await f.page.refresh();
+    await f.page.submit(input());
+    const original = f.page.intent;
+    const outcome = f.page.outcome;
+    if (refusal === 'open') f.failOpen(new RefusalError('REMOTE_SESSION_ENDED'));
+    else f.failRead(new RefusalError('REMOTE_MANAGEMENT_UNAVAILABLE'));
+    await f.page.recover();
+    await f.page.recover();
+    assert.equal(f.page.intent, original);
+    assert.equal(f.page.outcome, outcome);
+    assert.equal(f.page.outcome!.state, 'unknown');
+    assert.equal(f.page.writable, false);
+    assert.equal(f.page.canRecover, false);
+    assert.equal(
+      f.page.notice,
+      'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.',
+    );
+    assert.deepEqual(f.counts(), {
+      effectCalls: 1,
+      readCalls: refusal === 'read' ? 1 : 0,
+      reopens: 1,
+    });
+  }
 });

@@ -587,6 +587,20 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
             .contains("Recorded setup, not a live Firebase check.")
     );
     assert!(page.body.contains("id=\"firestore-content\""));
+    for origin in ["shared", "open", "sessions-per-device"] {
+        assert!(page.body.contains(&format!("data-feedback=\"{origin}\"")));
+    }
+    assert_eq!(
+        page.body
+            .matches(
+                "data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>"
+            )
+            .count(),
+        3
+    );
+    assert!(page.body.contains("No changes to save."));
+    assert!(page.body.contains("Check original result"));
+
     assert!(page.body.contains(
         "<p>“This device” identifies a pairing. It does not grant settings authority.</p>"
     ));

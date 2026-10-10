@@ -11,7 +11,6 @@ const opening = element<HTMLSelectElement>('opening');
 const mode = element<HTMLSelectElement>('limit-mode');
 const custom = element<HTMLInputElement>('limit-custom');
 const devices = element<HTMLDivElement>('devices');
-const recover = element<HTMLButtonElement>('recover');
 const refresh = element<HTMLButtonElement>('refresh');
 const more = element<HTMLButtonElement>('more');
 const first = element<HTMLButtonElement>('first');
@@ -29,6 +28,102 @@ function commandNotice(target: HTMLElement, text: string): void {
       code.textContent = part;
       target.append(code);
     } else target.append(document.createTextNode(part));
+  }
+}
+
+function openingChanged(): boolean {
+  return !!page.settings && (opening.value === 'on') !== page.settings.settings.open;
+}
+function limitChanged(): boolean {
+  if (!page.settings || mode.value === 'default') return false;
+  const admitted = page.settings.settings;
+  const value = mode.value === 'off' ? null : custom.value;
+  return (
+    admitted.sessionsPerDeviceSource !== 'settings.json' || value !== admitted.sessionsPerDevice
+  );
+}
+function saveState(form: string, hint: string, changed: boolean, valid: boolean): void {
+  const button =
+    element<HTMLFormElement>(form).querySelector<HTMLButtonElement>('button[type=submit]')!;
+  button.disabled = !page.writable || !changed || !valid;
+  element(hint).hidden = !page.writable || changed;
+  const described = button.getAttribute('aria-describedby');
+  if (!element(hint).hidden)
+    button.setAttribute('aria-describedby', [described, hint].filter(Boolean).join(' '));
+}
+function recoverOriginal(): void {
+  void run(async () => {
+    await page.recover();
+    if (page.access === 'live') await refreshView();
+  });
+}
+/** Mount an empty live region before a device can originate a change. Never move it. */
+function deviceFeedback(clientId: string): HTMLElement {
+  const feedback = document.createElement('div');
+  feedback.className = 'change-feedback';
+  feedback.dataset.feedback = clientId;
+  const status = document.createElement('p');
+  status.dataset.outcomeSlot = '';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
+  const original = document.createElement('p');
+  original.dataset.original = '';
+  original.hidden = true;
+  const recover = document.createElement('button');
+  recover.type = 'button';
+  recover.className = 'tmt-ui-action';
+  recover.dataset.recover = '';
+  recover.hidden = true;
+  const label = document.createElement('span');
+  label.className = 'tmt-ui-action-label';
+  label.textContent = 'Check original result';
+  recover.append(label);
+  recover.addEventListener('click', recoverOriginal);
+  feedback.append(status, original, recover);
+  return feedback;
+}
+function renderOutcome(): void {
+  const origin =
+    page.intent?.kind === 'setting' ? page.intent.input.setting : page.intent?.input.clientId;
+  const target =
+    origin &&
+    [...document.querySelectorAll<HTMLElement>('[data-feedback]')].find(
+      (slot) => slot.dataset.feedback === origin,
+    );
+  const active = target || document.querySelector<HTMLElement>('[data-feedback="shared"]')!;
+  // Clear the former projection before publishing into another pre-existing slot.
+  for (const slot of document.querySelectorAll<HTMLElement>('[data-feedback]')) {
+    if (slot !== active) {
+      const status = slot.querySelector<HTMLElement>('[data-outcome-slot]')!;
+      if (status.textContent) commandNotice(status, '');
+    }
+  }
+  // IDs select the single active projection for existing observers; the role/status
+  // elements themselves were mounted empty and stay attached to their original forms.
+  for (const slot of document.querySelectorAll<HTMLElement>('[data-feedback]')) {
+    const status = slot.querySelector<HTMLElement>('[data-outcome-slot]')!;
+    const original = slot.querySelector<HTMLElement>('[data-original]')!;
+    const recover = slot.querySelector<HTMLButtonElement>('[data-recover]')!;
+    const selected = slot === active;
+    status.id = selected ? 'outcome' : '';
+    original.id = selected ? 'original' : '';
+    recover.id = selected ? 'recover' : '';
+    // Avoid clearing/rewriting the populated slot on unrelated renders: no repeat announcement.
+    const text = selected ? page.notice : '';
+    if (status.textContent !== text) commandNotice(status, text);
+    status.dataset.state = selected ? (page.outcome?.state ?? 'pending') : '';
+    slot.dataset.tone = page.busy
+      ? 'waiting'
+      : page.outcome?.state === 'committed'
+        ? 'working'
+        : 'blocked';
+    original.textContent =
+      selected && page.intent ? `Original operation ${page.intent.input.operationId}` : '';
+    original.hidden = !original.textContent;
+    recover.hidden = !selected || !page.canRecover;
+    recover.disabled = page.busy;
+    recover.setAttribute('aria-busy', String(page.busy));
   }
 }
 
@@ -50,13 +145,6 @@ function render(): void {
       : page.access === 'checking'
         ? 'waiting'
         : 'blocked';
-  element('outcome-notice').dataset.tone = page.busy
-    ? 'waiting'
-    : page.outcome?.state === 'committed'
-      ? 'working'
-      : page.outcome?.state === 'unknown' || page.outcome?.state === 'refused'
-        ? 'blocked'
-        : 'review';
   const reason = page.busy
     ? 'A request is in progress. Wait for its outcome.'
     : !editable
@@ -106,19 +194,18 @@ function render(): void {
     field.disabled = !editable || (field === custom && mode.value !== 'custom');
   for (const button of document.querySelectorAll<HTMLButtonElement>('form button'))
     button.disabled = !page.writable;
+  saveState('opening-form', 'opening-unchanged', openingChanged(), opening.checkValidity());
+  saveState(
+    'limit-form',
+    'limit-unchanged',
+    limitChanged(),
+    mode.value !== 'custom' || custom.checkValidity(),
+  );
   refresh.disabled = page.busy;
-  recover.hidden = !page.canRecover;
   more.hidden = !page.devices?.nextCursor;
   more.disabled = page.busy;
   first.hidden = page.onFirstPage;
   first.disabled = page.busy;
-  commandNotice(
-    element('outcome'),
-    `${page.outcome?.state && page.outcome.state !== 'unknown' ? `${page.outcome.state}: ` : ''}${page.notice || 'No change submitted.'}`,
-  );
-  element('original').textContent = page.intent
-    ? `Original operation ${page.intent.input.operationId}`
-    : '';
   if (page.devices) {
     const current = new Set(page.devices.devices.map((device) => device.clientId));
     for (const [id, row] of rows)
@@ -216,7 +303,7 @@ function render(): void {
         const disabledReason = document.createElement('p');
         disabledReason.id = `device-reason-${device.clientId}`;
         disabledReason.className = 'tmt-ui-field-description';
-        row.append(summary, form, disabledReason);
+        row.append(summary, form, deviceFeedback(device.clientId), disabledReason);
         rows.set(device.clientId, row);
         devices.append(row);
       }
@@ -231,7 +318,7 @@ function render(): void {
       const disabledReason = element(`device-reason-${device.clientId}`);
       disabledReason.textContent = device.revoked ? 'This device is revoked.' : reason;
       disabledReason.hidden = !disabledReason.textContent;
-      for (const button of row.querySelectorAll<HTMLButtonElement>('button')) {
+      for (const button of row.querySelectorAll<HTMLButtonElement>('form button')) {
         button.disabled = !page.writable || device.revoked;
         if (disabledReason.textContent) button.setAttribute('aria-describedby', disabledReason.id);
         else button.removeAttribute('aria-describedby');
@@ -239,6 +326,7 @@ function render(): void {
       }
     }
   }
+  renderOutcome();
 }
 async function run(action: () => Promise<void>): Promise<void> {
   const pending = action();
@@ -269,7 +357,10 @@ async function change(intent: PageIntent): Promise<void> {
 element<HTMLFormElement>('opening-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (!page.writable) return;
-  if ((opening.value === 'on') === page.settings?.settings.open) return;
+  if (!openingChanged()) {
+    render();
+    return;
+  }
   void change({
     kind: 'setting',
     input: { operationId: crypto.randomUUID(), setting: 'open', value: opening.value === 'on' },
@@ -278,20 +369,22 @@ element<HTMLFormElement>('opening-form').addEventListener('submit', (event) => {
 element<HTMLFormElement>('limit-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (!page.writable) return;
-  // An untouched unset/default projection is preserved, not silently saved as explicit 8.
-  if (mode.value === 'default') return;
-  const value = mode.value === 'off' ? null : custom.value;
-  if (
-    value === page.settings?.settings.sessionsPerDevice &&
-    page.settings.settings.sessionsPerDeviceSource === 'settings.json'
-  )
+  // Keep the no-op/provenance guard before generating an ID or contacting the door.
+  if (!limitChanged()) {
+    render();
     return;
+  }
+  if (mode.value === 'custom' && !custom.checkValidity()) return;
+  const value = mode.value === 'off' ? null : custom.value;
   void change({
     kind: 'setting',
     input: { operationId: crypto.randomUUID(), setting: 'sessions-per-device', value },
   });
 });
-mode.addEventListener('change', render);
+for (const field of [opening, mode, custom]) {
+  field.addEventListener('input', render);
+  field.addEventListener('change', render);
+}
 refresh.addEventListener('click', () => void run(() => refreshView()));
 // Navigation never discards an unsent name. Keep only this bounded page's forms,
 // rather than accumulating drafts or cursor history across the whole inventory.
@@ -310,14 +403,9 @@ function navigate(cursor: string | null): void {
 }
 more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener('click', () => navigate(null));
-recover.addEventListener(
-  'click',
-  () =>
-    void run(async () => {
-      await page.recover();
-      if (page.access === 'live') await refreshView();
-    }),
-);
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-recover]'))
+  button.addEventListener('click', recoverOriginal);
+
 try {
   let session = await reopenSession();
   page = new ManagementPage(management(session), async () => {
