@@ -71,8 +71,8 @@ the prefix. Local processes can read it directly from `POST /sdk/mount` or an ac
 `GET /sdk/pair-offer`, so it narrows only listeners that never query the door, not a local attacker
 that does. Cross-origin web pages cannot read these Origin-gated responses or a redirect's
 `Location`; the prefix is still not a credential. That cookie grants extension page and relay access only, until
-stop, revocation or idle expiry, never an operation or pairing action; state-changing operations
-still need a fresh device signature.
+stop, revocation or expiry of the last eligible session, never an operation or pairing action;
+state-changing operations still need a fresh device signature.
 
 ## Bytes, IDs and the fixed M1 suite
 
@@ -232,7 +232,13 @@ cookie scoped to `Path=/r/<prefix>/x/`, the mount space (Secure on HTTPS), store
 SHA-256 and binds it to the device, grant revision and remote run. Browsers cannot set
 authorization headers on WebSocket construction, so credential tokens never move into query
 strings. Tabs share one browser cookie (the most recently issued token); Remote retains every
-live token for the device. The cookie scopes the device context, while signed messages and
+live session's own token and at most one latest-token alias per device. When its carrier ends,
+the latest token follows a surviving same-device session with a live grant, exact current
+revision and unexpired lifetime: attached first, then most recently active, then session ID.
+If no session qualifies, Remote deletes every device mapping. Issuing the next cookie retires
+the previous alias;
+a request carrying that superseded alias during the brief in-flight window may fail.
+The cookie scopes the device context, while signed messages and
 transports belong to individual sessions. The cookie is a carrier for the same authenticated
 device context, not a second credential model: every request and upgrade rechecks grant,
 revocation and expiry, and a state-changing operation still needs a fresh device signature over
@@ -263,13 +269,14 @@ session rows only when an old run or expired end notice needs removal.
 
 The SDK's `transportUrl(session, mountedWebSocketUrl)` adds exactly `?tmt-session=<sessionId>`
 to a mounted WebSocket URL. This value is a non-secret identifier, never a credential: Remote
-requires a live cookie, checks that the identified live session belongs to that cookie's device,
-and otherwise returns the generic 404 before forwarding. Only upgrade requests may carry it;
+requires a live cookie, checks that the identified live session belongs to that cookie's device
+and current revision, and otherwise returns the generic 404 before forwarding. Only upgrade requests may carry it;
 ordinary page URLs cannot carry it and it must never enter browser navigation/history. Remote
 strips it before forwarding to the extension, never logs it and never places it in Location or
 Referer. The SDK requires the door-matching WebSocket scheme (http → ws, https → wss) on the
 current door's mount space, without other query parameters or fragments. Existing tunnels
-without the parameter attach to the cookie's session.
+without the parameter attach to the cookie's deterministic live carrier. An explicit identifier
+remains pinned to that exact session and never follows a replacement.
 
 Opening another session leaves existing sessions and tunnels live. The last upgraded transport
 closing (including tab close or a dropped transport while backgrounded/asleep) starts the

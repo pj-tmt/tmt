@@ -59,6 +59,8 @@ struct Live {
     by_session: HashMap<String, Session>,
     /// Cookie token SHA-256 to session ID; cookies authenticate device context.
     by_token: HashMap<[u8; 32], String>,
+    /// One latest-issued browser cookie per device; it can outlive its issuer Session.
+    latest_token: HashMap<String, [u8; 32]>,
     /// `(clientId, clientNonce)` to the time it may be forgotten.
     nonces: HashMap<(String, String), u64>,
 }
@@ -69,6 +71,41 @@ struct Session {
     token: Option<[u8; 32]>,
     grant_revision: u64,
     state: Arc<SessionState>,
+}
+impl Live {
+    fn issue_cookie(&mut self, client: &str, id: &str, hash: [u8; 32]) {
+        if let Some(previous) = self.latest_token.insert(client.to_owned(), hash) {
+            // Retain live Sessions' own tokens, but a superseded alias is dead weight.
+            let own = self
+                .by_token
+                .get(&previous)
+                .and_then(|id| self.by_session.get(id))
+                .is_some_and(|session| session.token == Some(previous));
+            if !own {
+                self.by_token.remove(&previous);
+            }
+        }
+        self.by_token.insert(hash, id.to_owned());
+    }
+    fn remove_cookie(&mut self, removed: &Session, survivor: Option<&str>) {
+        let latest = self.latest_token.get(&removed.client_id).copied();
+        let carried_latest =
+            latest.is_some_and(|hash| self.by_token.get(&hash).is_some_and(|id| id == &removed.id));
+        // Include aliases: Session.token alone does not own all mappings to this carrier.
+        self.by_token.retain(|_, id| id != &removed.id);
+        if let Some(id) = survivor {
+            if carried_latest {
+                self.by_token.insert(latest.unwrap(), id.to_owned());
+            }
+        } else {
+            self.by_token.retain(|_, id| {
+                self.by_session
+                    .get(id)
+                    .is_some_and(|session| session.client_id != removed.client_id)
+            });
+            self.latest_token.remove(&removed.client_id);
+        }
+    }
 }
 /// A machine-signed `session.open` response, and the `Set-Cookie` value for a
 /// browser device on this door.
@@ -184,7 +221,7 @@ impl DoorSessions {
                 .ok()?;
             let hash = token.map(|t| <[u8; 32]>::from(Sha256::digest(t)));
             if let Some(hash) = hash {
-                live.by_token.insert(hash, session_id.clone());
+                live.issue_cookie(&control.grant.client_id, &session_id, hash);
             }
             live.by_session.insert(
                 session_id.clone(),
@@ -578,6 +615,7 @@ impl DoorSessions {
                 let _ = self.remove(&mut live, &id, "REMOTE_CLOSED", None);
             }
             live.by_token.clear();
+            live.latest_token.clear();
             self.ready.notify_all();
         }
     }
@@ -722,9 +760,39 @@ impl DoorSessions {
         }
         if let Some(session) = live.by_session.remove(id) {
             session.state.end();
-            if let Some(hash) = session.token {
-                live.by_token.remove(&hash);
-            }
+            // A failed authority read deletes the carrier rather than keeping an unchecked alias.
+            let grant = self
+                .store
+                .lock()
+                .ok()
+                .and_then(|store| store.grant(&session.client_id).ok().flatten());
+            let valid = !live.stopped
+                && reason != "REMOTE_CLOSED"
+                && now_ms().ok().is_some_and(|now| {
+                    grant.is_some_and(|grant| {
+                        grant.live_at(now) && grant.revision == session.grant_revision
+                    })
+                });
+            let survivor = valid
+                .then(|| {
+                    live.by_session
+                        .values()
+                        .filter(|candidate| {
+                            candidate.client_id == session.client_id
+                                && candidate.grant_revision == session.grant_revision
+                                && !self.expired(candidate)
+                        })
+                        .min_by_key(|candidate| {
+                            (
+                                !candidate.state.has_transport(),
+                                candidate.state.idle(),
+                                &candidate.id,
+                            )
+                        })
+                        .map(|candidate| candidate.id.clone())
+                })
+                .flatten();
+            live.remove_cookie(&session, survivor.as_deref());
             live.generation = live.generation.wrapping_add(1);
             self.ready.notify_all();
         }
@@ -830,7 +898,9 @@ impl Sessions for DoorSessions {
             let cookie_session = live.by_session.get(&cookie_id)?;
             let id = requested.unwrap_or(&cookie_id);
             let session = live.by_session.get(id)?;
-            if session.client_id != cookie_session.client_id {
+            if session.client_id != cookie_session.client_id
+                || session.grant_revision != cookie_session.grant_revision
+            {
                 return None;
             }
             if self.expired(session) || self.expired(cookie_session) {
@@ -891,4 +961,66 @@ fn random<const N: usize>() -> Result<[u8; N], ()> {
     let mut bytes = [0; N];
     getrandom::fill(&mut bytes).map_err(|_| ())?;
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod cookie_tests {
+    use super::*;
+
+    fn session(id: &str, client: &str, token: u8) -> Session {
+        Session {
+            id: id.into(),
+            client_id: client.into(),
+            busy: Arc::new(AtomicBool::new(false)),
+            token: Some([token; 32]),
+            grant_revision: 1,
+            state: Arc::new(SessionState::default()),
+        }
+    }
+    fn insert(live: &mut Live, session: Session) {
+        live.issue_cookie(&session.client_id, &session.id, session.token.unwrap());
+        live.by_session.insert(session.id.clone(), session);
+    }
+    #[test]
+    fn hundred_cookie_issue_remove_cycles_keep_only_one_latest_alias() {
+        let mut live = Live::default();
+        insert(&mut live, session("survivor", "device", 0));
+        insert(&mut live, session("other", "other-device", 255));
+        let mut previous = None;
+        for token in 1..=100 {
+            insert(&mut live, session("temporary", "device", token));
+            if let Some(old) = previous {
+                assert!(!live.by_token.contains_key(&old));
+            }
+            let removed = live.by_session.remove("temporary").unwrap();
+            live.remove_cookie(&removed, Some("survivor"));
+            let hash = [token; 32];
+            assert_eq!(live.by_token.get(&hash).unwrap(), "survivor");
+            assert!(live.by_token.len() <= live.by_session.len() + 1);
+            assert_eq!(live.by_token.len(), 3);
+            previous = Some(hash);
+        }
+        let removed = live.by_session.remove("survivor").unwrap();
+        live.remove_cookie(&removed, None);
+        assert_eq!(live.by_token.len(), 1);
+        assert_eq!(live.latest_token.len(), 1);
+        assert_eq!(live.by_token.get(&[255; 32]).unwrap(), "other");
+    }
+    #[test]
+    fn removal_cleans_all_nonlatest_aliases_and_carries_the_latest_pointer_again() {
+        let mut live = Live::default();
+        insert(&mut live, session("older", "device", 1));
+        insert(&mut live, session("carrier", "device", 2));
+        insert(&mut live, session("issuer", "device", 3));
+        let issuer = live.by_session.remove("issuer").unwrap();
+        live.remove_cookie(&issuer, Some("carrier"));
+        // Extra stale aliases must not survive cleanup even if an earlier owner left them.
+        live.by_token.insert([4; 32], "carrier".into());
+        let carrier = live.by_session.remove("carrier").unwrap();
+        live.remove_cookie(&carrier, Some("older"));
+        assert_eq!(live.by_token.get(&[3; 32]).unwrap(), "older");
+        assert!(!live.by_token.contains_key(&[2; 32]));
+        assert!(!live.by_token.contains_key(&[4; 32]));
+        assert_eq!(live.by_token.len(), 2);
+    }
 }

@@ -56,8 +56,12 @@ Rules that are easy to get wrong:
 - **Pre-auth stays generic.** Refusals before a verified signature are one 404
   with no inventory. A verified fresh open may receive the contract's signed
   rejected-open envelope without allocating a Session or sequence row. The `tmt_door` cookie
-  only identifies a device context on mounted paths; `/r/` refuses cookies. A transport-only
-  `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
+  only identifies a device context on mounted paths; `/r/` refuses cookies. `session` retains
+  live tokens plus one latest-token alias per device, rebinding that pointer to the deterministic
+  current-revision survivor described in the
+  [contract](../../../../../contracts/remote-channel-v1.md#signed-envelopes).
+  A new cookie retires the superseded alias; authority loss or no survivor deletes device mappings.
+  A transport-only `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The static Remote-owned short-entry table forwards public Colab entries without
   resolving sessions or adding device context; SDK mount lookup uses the same table.

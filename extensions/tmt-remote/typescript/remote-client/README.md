@@ -185,13 +185,15 @@ CSP compliance, token colors, square hard shadows and no horizontal overflow.
 Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
 `reopenSession()` adds its own session with independent client/server sequences and one
 serialized request lane. The cookie authenticates device context; it does not select a
-tab's signed request lane. Sessions default to a limit of 8. The owner may set `tmt remote
-settings sessions-per-device <n>|off`; changes apply at the next open. Unset means 8;
-`off` means unlimited. With a limit, opening evicts only the device's most idle session
-without a live transport. Attached sessions are never evicted for capacity; a fresh open
-that cannot make room throws a verified `RefusalError` with code `REMOTE_SESSION_LIMIT`,
-its positive `limit` and same-origin `settingsUrl`. Close another page or change the limit;
-this is a capacity/action boundary, not transient connection health.
+tab's signed request lane. While a same-device, current-revision session survives, the latest
+cookie follows its deterministic live carrier; a new cookie retires a superseded alias.
+Revocation, grant expiry/revision change, stop and restart still invalidate it. Sessions default
+to a limit of 8. The owner may set `tmt remote settings sessions-per-device <n>|off`;
+changes apply at the next open. Unset means 8; `off` means unlimited. With a limit, opening
+evicts only the device's most idle session without a live transport. Attached sessions are never
+evicted for capacity; a fresh open that cannot make room throws a verified `RefusalError` with
+code `REMOTE_SESSION_LIMIT`, its positive `limit` and same-origin `settingsUrl`. Close another
+page or change the limit; this is a capacity/action boundary, not transient connection health.
 Eviction closes its transports with `REMOTE_SESSION_EVICTED`. `RefusalError.limit`
 exposes the active cap; send/operation refused states also carry `limit`. Colab can
 explain that more than that number of tabs were open and show `tmt remote settings

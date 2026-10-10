@@ -884,11 +884,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   });
   expect(await list(app)).toHaveLength(1);
   execFileSync(BINARY, ['settings', 'sessions-per-device', '8', '--json'], { env });
-  // Refresh the detached victim's shared cookie before reload; its lifetime gap is #2576.
-  await app.evaluate(async () => {
-    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
-    await sdk.reopenSession();
-  });
+  // Reload uses the shared cookie's surviving carrier, without a session reopen workaround.
   await app.reload();
   expect(JSON.parse((await app.locator('#context').textContent())!)).toMatchObject({
     deviceId: device.deviceId,
