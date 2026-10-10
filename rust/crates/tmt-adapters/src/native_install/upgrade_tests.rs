@@ -547,3 +547,40 @@ fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
         1
     );
 }
+
+#[test]
+fn stale_index_pointer_refuses_a_downgrade_without_changing_active_files() {
+    let (_directory, layout, _) = published_layout();
+    let original = fs::read_link(layout.root.join("current")).unwrap();
+    let executable = layout.root.join(&original).join("tmt");
+    let receipt = layout.root.join(&original).join("receipt.json");
+    let before = (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap());
+    let (release, manifest, archive, _) =
+        release::valid_fixture("1.2.2", "aarch64-apple-darwin", 40);
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        release::indexed_download(release, manifest, archive),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("does not permit a version downgrade")
+    );
+    assert!(error.activated.is_none());
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        original
+    );
+    assert_eq!(
+        (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap()),
+        before
+    );
+    assert_no_downloads(&layout.root);
+}
