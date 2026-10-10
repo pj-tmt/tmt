@@ -341,7 +341,21 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect.arrayContaining(['resume', original, '-m', 'fixture-model'])
         );
         const trace = installTmuxTrace(f);
-        expect((await talk(f, 'Restart', 'resumed paste')).code).toBe(0);
+        const sent = await talk(f, 'Restart', 'resumed paste');
+        expect(
+          sent.code,
+          JSON.stringify({
+            result: sent,
+            enrollment: JSON.parse(recordBytes.toString()),
+            binding: sql(f, (db) =>
+              db
+                .prepare(
+                  `SELECT b.* FROM bindings b JOIN identities i ON b.identity_id=i.id WHERE i.name='Restart'`
+                )
+                .get()
+            ),
+          })
+        ).toBe(0);
         await f.waitFor(
           () => events(plain, 'paste').some((event) => event.line?.includes('resumed paste')),
           5000,
