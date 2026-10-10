@@ -55,6 +55,7 @@ async function captureState(
   state: string,
   lookAt: string,
   widths = [1440, 390, 320],
+  themes: readonly ('light' | 'dark')[] = ['light', 'dark'],
 ): Promise<void> {
   const theme = await page.evaluate(() =>
     matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
@@ -110,7 +111,7 @@ async function captureState(
     matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   );
   try {
-    for (const theme of ['light', 'dark'] as const) {
+    for (const theme of themes) {
       await page.emulateMedia({ colorScheme: theme });
       for (const width of widths) {
         await page.setViewportSize({ width, height: 900 });
@@ -1503,8 +1504,78 @@ test('the native entry checks once and presents all seven evidenced states witho
   ).toBe('0 0');
 });
 
-test('settings draft preserves authority, exact values, drafts and unknown self-change outcomes', async () => {
+test('bare pairing is read only and settings explicitly enables audited sending', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Settings browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string; scopes: string[] }[] };
+  const device = inventory.devices[0]!;
+  expect(device.scopes).toEqual(['agents.read', 'check.read', 'results.read', 'status.read']);
+  execFileSync(BINARY, ['devices', 'designate', device.clientId, '--json'], { env });
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#access')).toContainText('confirmed');
+  await expect(page.getByRole('button', { name: 'Enable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending off ·');
+  await captureState(
+    page,
+    'bare-pair-sending-off',
+    'Bare read-only pairing; explicit sending action',
+    [1440, 320],
+    ['light'],
+  );
+  await captureState(
+    page,
+    'bare-pair-sending-off',
+    'Bare read-only pairing at narrow dark width',
+    [390],
+    ['dark'],
+  );
+  const confirmation = page.waitForEvent('dialog');
+  const enable = page.getByRole('button', { name: 'Enable sending', exact: true }).click();
+  const dialog = await confirmation;
+  expect(dialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
+  await dialog.accept();
+  await enable;
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await page.click('#recover');
+  await expect(page.getByRole('button', { name: 'Disable sending', exact: true })).toBeEnabled();
+  await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending on ·');
+  await captureState(
+    page,
+    'bare-pair-sending-on',
+    'Explicit sending enabled after original-only recovery',
+    [1440],
+    ['light'],
+  );
+  await captureState(
+    page,
+    'bare-pair-sending-on',
+    'Explicit sending enabled at narrow dark width',
+    [390],
+    ['dark'],
+  );
+  const enabled = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { scopes: string[] }[] };
+  expect(enabled.devices[0]!.scopes).toContain('talk');
+  await context.close();
+});
+
+test('settings draft preserves authority, exact values, drafts and unknown self-change outcomes', async () => {
+  pair = spawn(BINARY, ['pair', '--json', '--talk'], { env });
   const events = lines(pair);
   const offer = await events.next();
   const context = await browser.newContext();

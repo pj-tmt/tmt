@@ -2,7 +2,7 @@
 use crate::{
     canonical,
     error::RemoteError,
-    store::{DEFAULT_SCOPES, Grant},
+    store::{Grant, SUPPORTED_SCOPES},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +62,7 @@ impl Grant {
         if self
             .scopes
             .iter()
-            .any(|scope| !DEFAULT_SCOPES.contains(&scope.as_str()))
+            .any(|scope| !SUPPORTED_SCOPES.contains(&scope.as_str()))
             || self.scopes.windows(2).any(|pair| pair[0] >= pair[1])
             || self.revision == 0
             || self.revision > 9_007_199_254_740_991

@@ -398,10 +398,12 @@ key)): take the first 44 bits as four successive unsigned 11-bit indexes into th
 BIP-39 2048-word list, in list order. Use the
 [BIP-39 English list](https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt); pin its
 revision, bytes/digest and examples in the fixture slice. This is comparison text, not a recovery
-mnemonic. The terminal shows kind, full origin, proposed name and the words, and asks for one
-confirmation. Defaults are all current and future agents, the default scopes, `direct` mode and no
-expiry. The same prompt offers, without requiring them, a final name, a time limit, `hold` mode and
-an agent allowlist. The owner may narrow authority, never enlarge it beyond this profile.
+mnemonic. The terminal shows kind, full origin, proposed name and the words, then asks the owner
+to confirm the word match. New pairings are read only with no expiry. Without `--talk`, a separate
+sending choice follows a confirmed match and defaults to no; `--talk` shows the sending grant before
+word confirmation and skips that second prompt. Bare JSON confirmation is read only. Owner-side
+`--agents` and `--hold` require `--talk` and narrow its agent allowlist and sending mode. A final-name
+or expiry editor is not implemented. Enrollment cannot request sending authority.
 
 Enrollment JSON names are `profile`, `machineId`, `windowId`, `offerId`, `serverChallenge`,
 `clientNonce`, `kind`, `origin`, `name`, `publicKey`, `mac` and `signature`; binary keys/proofs use
@@ -440,9 +442,10 @@ or revoked, except an explicit local-owner or designated-browser talk toggle may
 only `talk`, preserving the agent allowlist, mode, expiry and every other scope; designation alone
 widens nothing.
 
-Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. The owner
-may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
-a new scope needs a revision of this contract.
+Supported scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. New
+pairings default to the four read scopes; sending requires explicit owner confirmation or `--talk`.
+Existing grants remain unchanged, with no migration or automatic narrowing. Future core capabilities
+do not silently become remotely callable; a new scope needs a revision of this contract.
 
 `tmt remote serve` with human output starts a detached owner-device door; the modes, handoff and
 stop semantics are the shared lifecycle in

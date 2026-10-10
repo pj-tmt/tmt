@@ -671,7 +671,7 @@ mod tests {
     use super::*;
     use crate::{
         state::Layout,
-        store::{DEFAULT_SCOPES, uuid_v4},
+        store::{SUPPORTED_SCOPES, uuid_v4},
         wire::SignedMessage,
     };
     #[test]
@@ -698,7 +698,7 @@ mod tests {
             origin: "cli".into(),
             name: "Expiry control".into(),
             agents: json!([recipient]).to_string(),
-            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
             mode: "direct".into(),
             issued_at_ms: 999,
             expires_at_ms: Some(1000),

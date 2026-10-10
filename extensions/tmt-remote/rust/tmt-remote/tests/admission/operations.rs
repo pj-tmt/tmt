@@ -147,7 +147,7 @@ fn direct_exact_retry_keeps_one_core_acceptance_and_frozen_provenance() {
 #[test]
 fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_approved() {
     let owner = OwnerDoor::with_policy(
-        tmt_remote::store::DEFAULT_SCOPES
+        tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
             .collect(),
@@ -207,7 +207,7 @@ fn held_operation_waits_for_exact_local_confirmation_and_cannot_be_remotely_appr
 fn cancel_refuse_and_shutdown_never_dispatch_a_hold() {
     for action in ["cancel", "refuse", "duplicate-confirm", "stop"] {
         let owner = OwnerDoor::with_policy(
-            tmt_remote::store::DEFAULT_SCOPES
+            tmt_remote::store::SUPPORTED_SCOPES
                 .iter()
                 .map(|s| (*s).into())
                 .collect(),
@@ -331,7 +331,7 @@ fn lost_acceptance_and_definitive_absence_recover_only_the_same_operation() {
 fn allowlist_and_strict_intent_refuse_before_any_core_call() {
     let permitted = uuid_v4().unwrap();
     let owner = OwnerDoor::with_limits(
-        tmt_remote::store::DEFAULT_SCOPES
+        tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
             .collect(),
@@ -416,7 +416,7 @@ fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
     let permitted = uuid_v4().unwrap();
     let other = uuid_v4().unwrap();
     let mut owner = OwnerDoor::with_limits(
-        tmt_remote::store::DEFAULT_SCOPES
+        tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
             .collect(),
@@ -696,7 +696,7 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
 #[test]
 fn session_eviction_preserves_grant_owned_holds_and_uncertainty() {
     let owner = OwnerDoor::with_policy(
-        tmt_remote::store::DEFAULT_SCOPES
+        tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
             .collect(),
@@ -827,7 +827,7 @@ fn another_live_tab_recovers_uncertainty_into_the_same_device_stream_without_res
 #[test]
 fn held_bound_remains_per_device_across_session_eviction() {
     let owner = OwnerDoor::with_policy(
-        tmt_remote::store::DEFAULT_SCOPES
+        tmt_remote::store::SUPPORTED_SCOPES
             .iter()
             .map(|s| (*s).into())
             .collect(),
@@ -904,7 +904,7 @@ fn held_bound_remains_per_device_across_session_eviction() {
 fn authority_loss_cancels_held_work_even_after_its_session_ended() {
     for change in ["revoke", "expiry", "revision"] {
         let mut owner = OwnerDoor::with_policy(
-            tmt_remote::store::DEFAULT_SCOPES
+            tmt_remote::store::SUPPORTED_SCOPES
                 .iter()
                 .map(|s| (*s).into())
                 .collect(),

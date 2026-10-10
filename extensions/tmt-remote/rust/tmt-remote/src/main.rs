@@ -70,7 +70,7 @@ const PAIR: CommandSpec = CommandSpec {
         note: "Open the pairing link in your browser, then confirm the device here",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nThe grant reaches all agents, sends directly and does not expire; revoke it to end it.\n--talk explicitly grants sending (today every pairing already includes it). --agents <uuid,...> and --hold require --talk and narrow its sending policy.\n--json streams one event per line and reads confirm or refuse from stdin.",
+    details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nNew pairings are read only and do not expire; revoke them to end access.\n--talk allows this device to send to agents. --agents <uuid,...> and --hold require --talk and narrow its sending policy.\n--json streams one event per line and reads confirm or refuse from stdin.",
 };
 const SETTINGS: CommandSpec = CommandSpec {
     name: "settings",
@@ -262,7 +262,7 @@ fn grammar() -> Command {
                     Arg::new("talk")
                         .long("talk")
                         .action(ArgAction::SetTrue)
-                        .help("Grant sending (today every pairing already includes it)"),
+                        .help("Allow this device to send to agents"),
                 )
                 .arg(
                     Arg::new("agents")
@@ -693,6 +693,8 @@ fn pair(
     let answering = AtomicBool::new(false);
     let mut output = tmt_cli_style::stream::stdout(json_output);
     let mut paired = Err(RemoteError::new("REMOTE_PAIRING_ENDED", "Pairing ended."));
+    let (selected, choice) = std::sync::mpsc::channel();
+    let mut paired_device = String::new();
     loop {
         let mut line = String::new();
         if events.read_line(&mut line)? == 0 {
@@ -707,8 +709,8 @@ fn pair(
             ));
         }
         // An old owner ignores policy fields. Refuse before exposing its offer
-        // or answering it, so explicit narrowing cannot become a broad grant.
-        if event["event"] == "offer" && policy.talk && event["ownerPolicyVersion"] != 1 {
+        // or answering it, so a read-only default cannot become a broad grant.
+        if event["event"] == "offer" && event["ownerPolicyVersion"] != 1 {
             return Err(control::outdated_serve());
         }
         if json_output {
@@ -759,21 +761,7 @@ fn pair(
                             ("origin", event["origin"].as_str().unwrap_or("").into()),
                             ("name", event["name"].as_str().unwrap_or("").into()),
                             ("words", words.join(" ")),
-                            (
-                                "grant",
-                                format!(
-                                    "{}, {}, no expiry",
-                                    policy.agents.as_ref().map_or_else(
-                                        || "all agents".into(),
-                                        |ids| format!("agents {}", ids.join(", "))
-                                    ),
-                                    if policy.hold {
-                                        "held sends"
-                                    } else {
-                                        "direct sends"
-                                    }
-                                ),
-                            ),
+                            ("grant", pairing_grant_row(&policy)),
                         ],
                     )?;
                     output.flush()?;
@@ -783,19 +771,22 @@ fn pair(
                 if !answering.swap(true, Ordering::AcqRel) {
                     let mut control = stream.try_clone()?;
                     let policy = policy.clone();
+                    let selected = selected.clone();
                     std::thread::spawn(move || {
-                        if !json_output {
-                            let mut prompt = tmt_cli_style::stream::stderr();
-                            let _ = write!(prompt, "Trust this device if the words match? [y/N] ");
-                            let _ = prompt.flush();
-                        }
-                        let mut answer = String::new();
-                        let confirmed = std::io::stdin().read_line(&mut answer).is_ok()
-                            && matches!(answer.trim(), "y" | "yes" | "confirm");
-                        let line = if confirmed {
-                            json!({"op":"confirm","policy":policy})
-                        } else {
-                            json!({"op":"refuse"})
+                        let selected_policy = pairing_answer(
+                            &mut std::io::stdin().lock(),
+                            &mut tmt_cli_style::stream::stderr(),
+                            json_output,
+                            policy,
+                        );
+                        let line = match selected_policy {
+                            Ok(Some(policy)) => {
+                                // Publish the choice before confirm: the owner's paired event
+                                // cannot arrive before this write, so reporting never waits on stdin.
+                                let _ = selected.send(policy.talk);
+                                json!({"op":"confirm","policy":policy})
+                            }
+                            _ => json!({"op":"refuse"}),
                         };
                         let _ = writeln!(control, "{line}");
                     });
@@ -804,6 +795,7 @@ fn pair(
             Some("ended") => {
                 let reason = event["reason"].as_str().unwrap_or("ended");
                 paired = if reason == "paired" {
+                    paired_device = event["clientId"].as_str().unwrap_or("").to_owned();
                     Ok(())
                 } else {
                     Err(RemoteError::new(
@@ -818,9 +810,58 @@ fn pair(
     }
     if paired.is_ok() && !json_output {
         let terminal = output.terminal();
-        tmt_cli_style::message::success(&mut output, terminal, "Paired the device")?;
+        let message = if choice.try_recv().unwrap_or(policy.talk) {
+            "Paired the device".to_owned()
+        } else {
+            format!(
+                "Paired {paired_device} as read only. To allow sending later: tmt remote devices talk {paired_device} on"
+            )
+        };
+        tmt_cli_style::message::success(&mut output, terminal, &message)?;
     }
     paired
+}
+const PAIR_TRUST_PROMPT: &str = "Trust this device if the words match? [y/N] ";
+const PAIR_TALK_PROMPT: &str = "Also allow this device to send to agents? [y/N] ";
+fn pairing_grant_row(policy: &tmt_remote::pairing::PairingPolicy) -> String {
+    if !policy.talk {
+        return "Read only · no expiry".into();
+    }
+    format!(
+        "Read and send · {} · {} · no expiry",
+        policy.agents.as_ref().map_or_else(
+            || "all agents".into(),
+            |ids| format!("{} agents", ids.len())
+        ),
+        if policy.hold { "held" } else { "direct" },
+    )
+}
+/// Trust and sending are separate owner choices. JSON consumes only the trust
+/// answer; its sending policy comes exclusively from the owner's explicit flag.
+fn pairing_answer(
+    input: &mut impl BufRead,
+    prompt: &mut impl Write,
+    json_output: bool,
+    mut policy: tmt_remote::pairing::PairingPolicy,
+) -> std::io::Result<Option<tmt_remote::pairing::PairingPolicy>> {
+    if !json_output {
+        write!(prompt, "{PAIR_TRUST_PROMPT}")?;
+        prompt.flush()?;
+    }
+    let mut answer = String::new();
+    if input.read_line(&mut answer)? == 0 || !matches!(answer.trim(), "y" | "yes" | "confirm") {
+        return Ok(None);
+    }
+    if !json_output && !policy.talk {
+        write!(prompt, "{PAIR_TALK_PROMPT}")?;
+        prompt.flush()?;
+        answer.clear();
+        if input.read_line(&mut answer)? == 0 {
+            return Ok(None);
+        }
+        policy.talk = matches!(answer.trim(), "y" | "yes");
+    }
+    Ok(Some(policy))
 }
 /// The `open` row of the pairing detail block, present only when a browser was handed the link.
 fn open_row(outcome: &open::Outcome) -> Option<(&'static str, String)> {
@@ -1135,6 +1176,61 @@ mod tests {
             cli_style_allowlist::HIDDEN,
         );
         assert!(report.is_empty(), "{}", report.join("\n"));
+    }
+
+    #[test]
+    fn trust_confirmation_and_sending_choice_are_separate_and_default_to_read_only() {
+        use tmt_remote::pairing::PairingPolicy;
+        for (input, json, opt_in, expected, second) in [
+            ("y\nn\n", false, false, Some(false), true),
+            ("y\n\n", false, false, Some(false), true),
+            ("y\ny\n", false, false, Some(true), true),
+            ("y\n", false, true, Some(true), false),
+            ("confirm\n", true, false, Some(false), false),
+            ("confirm\n", true, true, Some(true), false),
+            ("n\n", false, false, None, false),
+            ("y\n", false, false, None, true),
+        ] {
+            let mut prompts = Vec::new();
+            let answer = super::pairing_answer(
+                &mut input.as_bytes(),
+                &mut prompts,
+                json,
+                PairingPolicy {
+                    talk: opt_in,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(answer.map(|policy| policy.talk), expected);
+            let expected_prompt = if json {
+                "".into()
+            } else if second {
+                format!("{}{}", super::PAIR_TRUST_PROMPT, super::PAIR_TALK_PROMPT)
+            } else {
+                super::PAIR_TRUST_PROMPT.to_owned()
+            };
+            assert_eq!(String::from_utf8(prompts).unwrap(), expected_prompt);
+        }
+        assert_eq!(
+            super::pairing_grant_row(&PairingPolicy::default()),
+            "Read only · no expiry"
+        );
+        assert_eq!(
+            super::pairing_grant_row(&PairingPolicy {
+                talk: true,
+                ..Default::default()
+            }),
+            "Read and send · all agents · direct · no expiry"
+        );
+        assert_eq!(
+            super::pairing_grant_row(&PairingPolicy {
+                talk: true,
+                hold: true,
+                agents: Some(vec!["11111111-1111-4111-8111-111111111111".into()])
+            }),
+            "Read and send · 1 agents · held · no expiry"
+        );
     }
 
     #[test]

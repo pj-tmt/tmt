@@ -223,6 +223,9 @@ transport; other tabs remain live. Recover previously unknown send outcomes by o
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
 
+New pairings are read only unless the local owner explicitly allows sending at confirmation or
+runs `tmt remote pair --talk`. Existing grants keep their scopes; enrollment cannot opt in.
+
 A signed missing-sending refusal keeps `REMOTE_SCOPE_DENIED` and exposes
 `RefusalError.scope === "talk"` (also on refused send/operation states), with the optional
 same-origin `settingsUrl`; recipient allowlist refusals do not claim talk is missing.

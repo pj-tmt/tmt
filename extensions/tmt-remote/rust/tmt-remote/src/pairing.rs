@@ -6,7 +6,7 @@ use crate::{
     canonical::{self, Enrollment},
     crypto,
     error::RemoteError,
-    store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+    store::{DEFAULT_SCOPES, Grant, SUPPORTED_SCOPES, Store, uuid_v4},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -17,7 +17,7 @@ use std::{
 };
 
 /// Policy supplied only by the local owner's confirmation, never enrollment.
-/// In this preparatory release every default pairing still includes sending.
+/// Sending is an explicit opt-in; the default policy is read-only.
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct PairingPolicy {
@@ -488,7 +488,14 @@ impl Pairing {
                 || "all".into(),
                 |ids| serde_json::to_string(ids).expect("UUID list"),
             ),
-            scopes: DEFAULT_SCOPES.map(str::to_owned).to_vec(),
+            scopes: if policy.talk {
+                SUPPORTED_SCOPES.as_slice()
+            } else {
+                DEFAULT_SCOPES.as_slice()
+            }
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect(),
             mode: if policy.hold { "hold" } else { "direct" }.into(),
             issued_at_ms: now_ms()?,
             expires_at_ms: None,

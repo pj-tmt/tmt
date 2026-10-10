@@ -88,13 +88,7 @@ fn confirmed_pairing_issues_one_grant_and_a_verifiable_receipt() {
     assert_eq!(grant["disabled"], false);
     assert_eq!(
         grant["scopes"],
-        json!([
-            "agents.read",
-            "check.read",
-            "results.read",
-            "status.read",
-            "talk"
-        ])
+        json!(["agents.read", "check.read", "results.read", "status.read"])
     );
     assert_eq!(
         parsed["machinePublicKey"],

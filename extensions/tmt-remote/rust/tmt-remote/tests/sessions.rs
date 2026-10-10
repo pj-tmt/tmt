@@ -42,6 +42,9 @@ const UPGRADE: &str = "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocke
 
 /// Pair a browser device through the owner's confirmation; returns its client ID.
 fn paired(h: &Harness, device: &Device) -> String {
+    paired_with_talk(h, device, false)
+}
+fn paired_with_talk(h: &Harness, device: &Device, talk: bool) -> String {
     let Offered {
         mut owner,
         code,
@@ -49,9 +52,18 @@ fn paired(h: &Harness, device: &Device) -> String {
         ..
     } = open(h);
     let body = device.body(&descriptor, &code, &device.key);
-    let submitted = submit(h, body, Some(device.origin.clone()));
+    let submitted = submit(
+        h,
+        body,
+        (device.kind != "cli").then(|| device.origin.clone()),
+    );
     assert_eq!(owner.next()["event"], "candidate");
-    owner.answer("confirm");
+    writeln!(
+        owner.stream,
+        "{}",
+        json!({"op":"confirm","policy":{"talk":talk}})
+    )
+    .unwrap();
     let ended = owner.next();
     assert_eq!(ended["reason"], "paired");
     assert_eq!(submitted.join().unwrap().0, 200);
@@ -74,6 +86,7 @@ struct Opening<'a> {
     key: &'a SigningKey,
     nonce: [u8; 16],
     timestamp_ms: u64,
+    origin: &'a str,
 }
 impl<'a> Opening<'a> {
     fn new(h: &'a Harness, client_id: &'a str, key: &'a SigningKey) -> Self {
@@ -85,6 +98,7 @@ impl<'a> Opening<'a> {
             key,
             nonce,
             timestamp_ms: now_ms(),
+            origin: &h.origin,
         }
     }
     fn wire(&self) -> Value {
@@ -100,7 +114,7 @@ impl<'a> Opening<'a> {
             session_id: "new",
             sequence: "0",
             timestamp_ms: self.timestamp_ms,
-            origin: &self.h.origin,
+            origin: self.origin,
             operation: "session.open",
             payload: payload.as_bytes(),
         })
@@ -117,7 +131,7 @@ impl<'a> Opening<'a> {
             "sessionId": "new",
             "sequence": "0",
             "timestampMs": self.timestamp_ms,
-            "origin": self.h.origin,
+            "origin": self.origin,
             "operation": "session.open",
             "payload": canonical::base64url(payload.as_bytes()),
             "signature": canonical::base64url(&self.key.sign(&signed).to_bytes()),
@@ -172,7 +186,13 @@ fn post(h: &Harness, route: &str, body: &str, origin: Option<&str>, cookie: Opti
     )
 }
 fn open_session(h: &Harness, wire: &Value) -> Reply {
-    post(h, "/append", &wire.to_string(), Some(&h.origin), None)
+    post(
+        h,
+        "/append",
+        &wire.to_string(),
+        (wire["origin"] != "cli").then_some(h.origin.as_str()),
+        None,
+    )
 }
 /// The `tmt_door=<token>` pair a browser sends back.
 fn pair_of(set_cookie: &str) -> String {
@@ -1130,7 +1150,7 @@ fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_
         );
         let _colab = Colab::serve(&h);
         let device = Device::browser(&h, 7);
-        let client = paired(&h, &device);
+        let client = paired_with_talk(&h, &device, true);
         let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
         oracle
             .execute(
@@ -1369,39 +1389,71 @@ fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_
 
 #[test]
 fn missing_talk_scope_is_a_signed_real_door_refusal_before_send_ownership() {
-    let h = Harness::new(FAST);
-    let device = Device::browser(&h, 7);
+    missing_talk_scope("browser");
+}
+#[test]
+fn bare_cli_pairing_reads_but_has_a_signed_missing_talk_refusal_before_send_ownership() {
+    missing_talk_scope("cli");
+}
+fn missing_talk_scope(kind: &'static str) {
+    let h = Harness::with_evidence(FAST, Arc::new(tmt_remote::readiness::NotConfigured));
+    let mut device = Device::browser(&h, 7);
+    if kind == "cli" {
+        device.kind = "cli";
+        device.origin = "cli".into();
+    }
     let client = paired(&h, &device);
-    let narrowed = h.devices.talk(&client, false).unwrap();
-    assert!(!narrowed.permits_scope("talk"));
-    let opened = payload(&open_session(
-        &h,
-        &Opening::new(&h, &client, &device.key).wire(),
-    ));
+    assert!(
+        !h.store
+            .lock()
+            .unwrap()
+            .grant(&client)
+            .unwrap()
+            .unwrap()
+            .permits_scope("talk")
+    );
+    let calls_before = h.core_calls();
+    let mut opening = Opening::new(&h, &client, &device.key);
+    opening.origin = &device.origin;
+    let opened = payload(&open_session(&h, &opening.wire()));
     let session = opened["sessionId"].as_str().unwrap();
-    let mut wire = Opening::new(&h, &client, &device.key).wire();
+    let mut wire = opening.wire();
     wire["kind"] = json!("request");
     wire["sessionId"] = json!(session);
-    wire["sequence"] = json!("1");
-    wire["operation"] = json!("dispatch.create");
-    wire["payload"] = json!(canonical::base64url(b"{}"));
-    let signed = canonical::envelope(&Envelope {
-        kind: "request",
-        id: wire["id"].as_str().unwrap(),
-        correlation_id: None,
-        machine_id: &h.machine_id,
-        window_id: &h.window_id,
-        client_id: &client,
-        session_id: session,
-        sequence: "1",
-        timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
-        origin: &h.origin,
-        operation: "dispatch.create",
-        payload: b"{}",
-    })
-    .unwrap();
-    wire["signature"] = json!(canonical::base64url(&device.key.sign(&signed).to_bytes()));
-    let reply = open_session(&h, &wire);
+    let mut reply = None;
+    for (operation, sequence) in [("capabilities", "1"), ("dispatch.create", "2")] {
+        wire["sequence"] = json!(sequence);
+        wire["operation"] = json!(operation);
+        wire["payload"] = json!(canonical::base64url(b"{}"));
+        let signed = canonical::envelope(&Envelope {
+            kind: "request",
+            id: wire["id"].as_str().unwrap(),
+            correlation_id: None,
+            machine_id: &h.machine_id,
+            window_id: &h.window_id,
+            client_id: &client,
+            session_id: session,
+            sequence,
+            timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+            origin: &device.origin,
+            operation,
+            payload: b"{}",
+        })
+        .unwrap();
+        wire["signature"] = json!(canonical::base64url(&device.key.sign(&signed).to_bytes()));
+        let received = open_session(&h, &wire);
+        if operation == "capabilities" {
+            assert!(
+                payload(&received).get("error").is_none(),
+                "read refused: {}",
+                received.body
+            );
+            wire["id"] = json!(uuid_v4().unwrap());
+        } else {
+            reply = Some(received);
+        }
+    }
+    let reply = reply.unwrap();
     let error = payload(&reply);
     assert_eq!(error["error"]["code"], "REMOTE_SCOPE_DENIED");
     assert_eq!(error["error"]["scope"], "talk");
@@ -1439,4 +1491,9 @@ fn missing_talk_scope_is_a_signed_real_door_refusal_before_send_ownership() {
         .query_row("SELECT COUNT(*) FROM operations", [], |row| row.get(0))
         .unwrap();
     assert_eq!(rows, 0, "missing sending scope never adopts a send");
+    assert_eq!(
+        h.core_calls(),
+        calls_before,
+        "read and refused send trigger no core call"
+    );
 }

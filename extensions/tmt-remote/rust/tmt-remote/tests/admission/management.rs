@@ -292,7 +292,10 @@ fn two_valid_paired_browsers_share_origin_but_not_management_designation() {
     second.client_id = uuid_v4().unwrap();
     owner.key = super::SigningKey::from_bytes(&[48; 32]);
     second.public_key = owner.key.verifying_key().to_bytes();
-    second.scopes = super::DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect();
+    second.scopes = super::SUPPORTED_SCOPES
+        .iter()
+        .map(|s| (*s).into())
+        .collect();
     second.mode = "direct".into();
     owner.store.lock().unwrap().insert_grant(&second).unwrap();
     owner.grant = second.clone();

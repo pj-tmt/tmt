@@ -1,7 +1,7 @@
 //! Independent SQLite failure/capacity preparation; protocol admission is covered separately.
 use super::*;
 use crate::state::{Layout, Serving};
-use crate::store::DEFAULT_SCOPES;
+use crate::store::SUPPORTED_SCOPES;
 use std::path::PathBuf;
 struct Root(PathBuf);
 impl Drop for Root {
@@ -30,7 +30,7 @@ impl Fixture {
             origin: "cli".into(),
             name: "Test device".into(),
             agents: "all".into(),
-            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+            scopes: SUPPORTED_SCOPES.iter().map(|s| (*s).into()).collect(),
             mode: "direct".into(),
             issued_at_ms: now,
             expires_at_ms: None,
