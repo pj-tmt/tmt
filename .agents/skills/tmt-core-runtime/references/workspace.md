@@ -165,11 +165,13 @@ its own binding, live-agent, session, preset and channel admission rules. Curren
 durable coordinates take precedence over snapshot conversation annotations.
 
 Only panes selected for revival initially run an invocation-owned `/bin/sh -i`.
-The adapter replaces that shell through direct multi-argument tmux startup after
+The adapter replaces that shell through direct tmux startup after
 checking it still owns the pane and foreground; ordinary and pre-existing panes
 remain untouched. No paste or send-keys participates. The existing native server
 fence and literal tmux quoting apply. Launches use the restore-selected Core data
-directory. Startup errors retain resources and never authorize replay.
+directory. The user's tmux `default-shell` runs the strictly POSIX-quoted command
+and returns to that shell when the agent or board exits, preserving the pane.
+Startup errors retain resources and never authorize replay.
 
 Human output has one short line per pane; JSON adds `revival` rows with recorded
 and native pane IDs, name, status and message. Started means process startup was

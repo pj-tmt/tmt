@@ -63,7 +63,7 @@ struct Restore<'a, R> {
 
 impl<R: CommandRunner> Tmux<R> {
     /// Replace only the idle shell created for this invocation's revival phase.
-    /// Literal multi-argument tmux startup bypasses the shell and never types input.
+    /// Explicit user-shell startup quotes every argument and never types input.
     pub fn workspace_start_pane(
         &self,
         snapshot: &tmt_core::workspace::WorkspaceSnapshot,
@@ -110,6 +110,17 @@ impl<R: CommandRunner> Tmux<R> {
         if !crate::process::terminal::foreground(output.trim_end_matches('\n'), shell.pid()) {
             return Err(invalid());
         }
+        let user_shell = restore.run(vec![
+            "display-message".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.native.clone(),
+            "#{default-shell}".into(),
+        ])?;
+        let user_shell = user_shell.trim_end_matches('\n');
+        if !user_shell.starts_with('/') || user_shell.contains('\0') {
+            return Err(invalid());
+        }
         let checks = [
             format!("#{{==:#{{pane_id}},{}}}", pane.native),
             format!("#{{==:#{{pane_pid}},{}}}", shell.pid()),
@@ -122,7 +133,7 @@ impl<R: CommandRunner> Tmux<R> {
         restore.guard(
             Some(&pane.native),
             &checks,
-            respawn_args(&pane.native, cwd, argv),
+            respawn_args(&pane.native, cwd, user_shell, argv),
         )?;
         Ok(())
     }
@@ -792,17 +803,27 @@ fn native_id(value: &str, prefix: u8) -> bool {
     value.as_bytes().first() == Some(&prefix) && number(&value[1..]).is_ok()
 }
 /// tmux expands cwd formats but passes multi-argument startup argv literally.
-fn respawn_args(pane: &str, cwd: &str, argv: &[String]) -> Vec<String> {
-    let mut args = vec![
+fn respawn_args(pane: &str, cwd: &str, shell: &str, argv: &[String]) -> Vec<String> {
+    let command = argv
+        .iter()
+        .map(|arg| posix_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    vec![
         "respawn-pane".into(),
         "-k".into(),
         "-t".into(),
         pane.into(),
         "-c".into(),
         format_literal(cwd),
-    ];
-    args.extend_from_slice(argv);
-    args
+        shell.into(),
+        "-c".into(),
+        format!("{command}; exec {}", posix_quote(shell)),
+    ]
+}
+
+fn posix_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn format_literal(value: &str) -> String {

@@ -27,16 +27,38 @@ fn revival_startup_preserves_literal_hash_arguments_and_expands_only_cwd() {
         "ui".into(),
         "literal '$()#{pid};\n".into(),
     ];
-    let args = respawn_args("%4", "/tmp/#{pid}", &argv);
+    let args = respawn_args("%4", "/tmp/#{pid}", "/bin/sh", &argv);
     assert_eq!(
         &args[..6],
         ["respawn-pane", "-k", "-t", "%4", "-c", "/tmp/##{pid}"]
     );
-    assert_eq!(&args[6..], argv);
+    assert_eq!(&args[6..8], ["/bin/sh", "-c"]);
+    assert_eq!(
+        args[8],
+        "'/tmt' 'workspace-board' 'ui' 'literal '\\''$()#{pid};\n'; exec '/bin/sh'"
+    );
     // The nested lexer encoding keeps these bytes out of format evaluation.
     let encoded = command(&args);
     assert!(!encoded.contains("#{pid}"));
     assert!(!encoded.contains("$()"));
+}
+
+#[test]
+fn revival_shell_command_preserves_posix_arguments_and_executes_return_command() {
+    let literal = "'\"$()#{pid};\n\\literal";
+    let argv = vec!["printf".into(), "%s".into(), literal.into()];
+    let args = respawn_args("%4", "/tmp", "/bin/echo", &argv);
+    let output = std::process::Command::new("/bin/sh")
+        .args(["-c", &args[8]])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, format!("{literal}\n").as_bytes());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        posix_quote("/path/to/user's shell"),
+        "'/path/to/user'\\''s shell'"
+    );
 }
 
 #[test]

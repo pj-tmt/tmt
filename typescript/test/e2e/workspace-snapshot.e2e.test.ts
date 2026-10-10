@@ -904,6 +904,7 @@ server.listen(${JSON.stringify(gates[index])}, () => {
       recoveryInput(fixture, saved);
       const livePids: number[] = [];
       let resumeStarted = false;
+      let revivedPanes: string[] = [];
       try {
         const result = await fixture.runJsonCli<FullRestore>(
           ['workspace', 'restore', '--socket', fixture.socketPath],
@@ -912,6 +913,10 @@ server.listen(${JSON.stringify(gates[index])}, () => {
         expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.layoutOnly).toBe(false);
         resumeStarted = result.json!.revival[0].status === 'started';
+        revivedPanes = [0, 6].map(
+          (index) =>
+            result.json!.panes.find((pane) => pane.recorded === saved.panes[index].id)!.native
+        );
         expect(result.json!.revival.map((pane) => [pane.name, pane.status])).toEqual([
           ['Exact Agent', 'started'],
           ['Stale Agent', 'needs_you'],
@@ -1015,6 +1020,36 @@ server.listen(${JSON.stringify(gates[index])}, () => {
             );
           } finally {
             oracle.close();
+          }
+          // Provider and board exit must preserve their exact restored panes.
+          const shell = fixture.tmux(['show-options', '-gv', 'default-shell']).trim();
+          for (const pane of revivedPanes) {
+            const expected = `0\t${path.basename(shell)}`;
+            await fixture.waitFor(
+              () =>
+                fixture
+                  .tmux([
+                    'display-message',
+                    '-p',
+                    '-t',
+                    pane,
+                    '#{pane_dead}\t#{pane_current_command}',
+                  ])
+                  .trim() === expected,
+              5000,
+              'restored pane returns to the user shell'
+            );
+            expect(
+              fixture
+                .tmux([
+                  'display-message',
+                  '-p',
+                  '-t',
+                  pane,
+                  '#{pane_dead}\t#{pane_current_command}',
+                ])
+                .trim()
+            ).toBe(expected);
           }
         }
       }
