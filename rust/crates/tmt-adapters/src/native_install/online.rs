@@ -27,7 +27,7 @@ pub fn install_release(
 ) -> io::Result<InstallReport> {
     let deadline = Instant::now() + Duration::from_secs(60);
     let client = if matches!(channel, Channel::Pr(_)) {
-        crate::release_http::Https::authenticated(deadline, &crate::process::UnixCommandRunner)?
+        crate::release_http::Https::authenticated()?
     } else {
         crate::release_http::Https::new()
     };

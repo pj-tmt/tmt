@@ -93,10 +93,7 @@ pub(crate) struct Https {
 }
 
 impl Https {
-    pub(crate) fn authenticated(
-        _deadline: Instant,
-        _runner: &impl crate::process::CommandRunner,
-    ) -> io::Result<Self> {
+    pub(crate) fn authenticated() -> io::Result<Self> {
         let mut client = Self::new();
         client.token = Some(environment_token()?.ok_or_else(|| io::Error::other(MissingAuth))?);
         Ok(client)

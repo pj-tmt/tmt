@@ -126,7 +126,7 @@ pub fn upgrade_product_with_schema_consent(
     )
     .map_err(io::Error::other)?;
     let deadline = Instant::now() + Duration::from_secs(60);
-    let client = client_for_selection(&selection, deadline)?;
+    let client = client_for_selection(&selection)?;
     upgrade_product_with_options(
         product,
         request,
@@ -192,7 +192,7 @@ pub fn upgrade_product_selected(
     )
     .map_err(io::Error::other)?;
     let deadline = Instant::now() + Duration::from_secs(60);
-    let client = client_for_selection(&selection, deadline)?;
+    let client = client_for_selection(&selection)?;
     upgrade_product_with_options(
         product,
         request,
@@ -221,10 +221,7 @@ pub fn upgrade_product_selected(
     )
 }
 
-fn client_for_selection(
-    selection: &UpgradeSelection,
-    deadline: Instant,
-) -> io::Result<crate::release_http::Https> {
+fn client_for_selection(selection: &UpgradeSelection) -> io::Result<crate::release_http::Https> {
     if matches!(
         selection,
         UpgradeSelection::Fetch {
@@ -232,7 +229,7 @@ fn client_for_selection(
             ..
         }
     ) {
-        crate::release_http::Https::authenticated(deadline, &crate::process::UnixCommandRunner)
+        crate::release_http::Https::authenticated()
     } else {
         Ok(crate::release_http::Https::new())
     }

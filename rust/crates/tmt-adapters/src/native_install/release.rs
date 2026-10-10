@@ -24,25 +24,6 @@ const TARGETS: [&str; 4] = [
     "x86_64-unknown-linux-musl",
 ];
 
-/// Compatibility for callers reporting a confirmed absence of published releases.
-/// An unavailable index pointer is an acquisition failure, never this observation.
-#[derive(Debug)]
-pub struct ReleaseUnavailable {
-    pub product: super::Product,
-    pub channel: Channel,
-}
-impl std::fmt::Display for ReleaseUnavailable {
-    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            output,
-            "No published {} release yet in the {} channel.",
-            self.product.as_str(),
-            self.channel.as_str()
-        )
-    }
-}
-impl std::error::Error for ReleaseUnavailable {}
-
 pub(super) struct DownloadedRelease {
     pub version: Version,
     pub manifest: Vec<u8>,
