@@ -14,7 +14,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   nonblank single-line description, checked recursively. Core help never enters runtime
   dispatch or skill-drift inspection.
 - The help scan shares option-value boundaries with error-mode recovery so `-h` bypasses
-  required operands without reading payload data as flags. `OutputMode` holds only JSON;
+  required operands without reading payload data as flags. Help with `--json` reaches
+  `finish_parse` and returns `JSON_UNSUPPORTED` before operand validation. `OutputMode` holds only JSON;
   unsupported `--verbose`/`--debug` fail with `USAGE_ERROR` before effects.
 - Core names and aliases are reserved before external PATH dispatch; the recursive listing
   guard in `tmt-cli-style::audit` covers core, Office and Squad.

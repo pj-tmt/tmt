@@ -116,7 +116,7 @@ fn inspect(definition: &Command, argv: &[OsString]) -> (OutputMode, Option<Vec<S
             .try_fold(definition, |command, name| command.find_subcommand(name));
         valid &= selected.is_some_and(|command| {
             options.iter().all(|id| {
-                *id == "help"
+                matches!(*id, "help" | "json")
                     || if path.is_empty() {
                         crate::grammar::root_allowed(id)
                             && definition
