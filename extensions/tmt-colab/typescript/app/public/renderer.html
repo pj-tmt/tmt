@@ -102,8 +102,9 @@
           let layer, markers;
           const anchorRanges = new Map();
           const sheet = document.createElement('style');
-          sheet.textContent =
+          const highlightStyle =
             '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}';
+          sheet.textContent = highlightStyle;
           document.head.append(sheet);
           function collect() {
             const deadline = performance.now() + 20;
@@ -154,6 +155,7 @@
             hint,
             hintTimer;
           function clearTarget() {
+            sheet.textContent = highlightStyle;
             hover?.remove();
             hover = undefined;
             hint?.remove();
@@ -202,6 +204,7 @@
               gesture.moved = true;
             if (editingTarget(event.target)) return;
             const hit = highlightAt(event.clientX, event.clientY);
+            if (hit) sheet.textContent = highlightStyle + '*{cursor:pointer!important}';
             const target = selecting ? targetAt(event.target) : null;
             if (!hit && !target) return;
             const box = hit ? hit.range.getBoundingClientRect() : target.getBoundingClientRect();

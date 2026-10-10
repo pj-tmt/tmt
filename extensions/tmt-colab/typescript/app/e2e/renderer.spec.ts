@@ -1131,6 +1131,7 @@ test('highlight clicks choose the shortest known quote while drag selection and 
     .toBeGreaterThan(2400);
   await quote.hover();
   await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+  await expect(quote).toHaveCSS('cursor', 'pointer');
   const scroll = await page.evaluate(() => scrollY);
   const click = (await quote.boundingBox())!;
   await page.mouse.click(click.x + click.width / 2, click.y + click.height / 2);
