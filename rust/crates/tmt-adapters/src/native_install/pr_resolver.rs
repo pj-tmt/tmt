@@ -8,7 +8,6 @@ use super::{
     release::{self, DownloadedRelease},
 };
 use crate::release_http::Response;
-use base64::Engine;
 use serde_json::Value;
 use std::{collections::BTreeSet, io, time::Instant};
 use tmt_core::native_install::{Channel, PrNumber};
@@ -16,10 +15,8 @@ use tmt_core::native_install::{Channel, PrNumber};
 const ROOT: &str = "https://api.github.com/repos/pj-tmt/tmt";
 const METADATA_LIMIT: usize = 2 * 1024 * 1024;
 
-/// Populated only by a review of actual publisher code and its frozen inputs.
-/// Fixture identities are intentionally absent. Eligibility is also owned by
-/// the reviewed producer contract, never inferred from a surviving artifact.
-pub(super) const APPROVED: &[wire::ApprovedProducer] = &[];
+// Official pr-rc.yml identity; protected main owns reviewed producer changes.
+const PRODUCER_WORKFLOW_ID: u64 = 380_603_134;
 
 #[derive(Debug)]
 pub(super) struct Unavailable(pub &'static str);
@@ -30,9 +27,9 @@ impl std::fmt::Display for Unavailable {
 }
 impl std::error::Error for Unavailable {}
 
-pub(super) struct Policy<'a> {
+pub(super) struct Policy {
     pub repository_id: u64,
-    pub producers: &'a [wire::ApprovedProducer],
+    pub workflow_id: u64,
 }
 
 struct Api<F> {
@@ -112,7 +109,7 @@ fn digest(metadata: &Value) -> io::Result<&str> {
         .filter(|hash| tmt_core::content_digest::is_sha256(hash))
         .ok_or_else(|| invalid("Actions artifact has no authenticated SHA-256 digest."))
 }
-fn pull(value: &Value, pr: PrNumber, policy: &Policy<'_>) -> io::Result<String> {
+fn pull(value: &Value, pr: PrNumber, policy: &Policy) -> io::Result<String> {
     if value["number"] != pr.get()
         || value["state"] != "open"
         || value["base"]["repo"]["id"] != policy.repository_id
@@ -260,11 +257,15 @@ fn inventory(value: &Value, name: &str, repository_id: u64) -> io::Result<Vec<Va
     result.sort_by_key(|entry| std::cmp::Reverse(entry["workflow_run"]["id"].as_u64()));
     Ok(result)
 }
-fn run_producer(
-    value: &Value,
+struct RunIdentity {
+    workflow_id: u64,
+    workflow_path: String,
+    head_sha: String,
     run_id: u64,
-    policy: &Policy<'_>,
-) -> io::Result<Option<wire::Producer>> {
+    run_attempt: u32,
+}
+
+fn run_producer(value: &Value, run_id: u64, policy: &Policy) -> io::Result<Option<RunIdentity>> {
     if value["id"] != run_id
         || value["repository"]["id"] != policy.repository_id
         || value["head_repository"]["id"] != policy.repository_id
@@ -278,13 +279,9 @@ fn run_producer(
     if !wire::git_sha(tooling) || attempt > 100 {
         return Err(invalid("Malformed producer run identity."));
     }
-    let Some(approved) = policy.producers.iter().find(|entry| {
-        entry.workflow_id == workflow_id
-            && entry.tooling_sha == tooling
-            && path == ".github/workflows/pr-rc.yml"
-    }) else {
+    if workflow_id != policy.workflow_id || path != wire::PRODUCER_WORKFLOW_PATH {
         return Ok(None);
-    };
+    }
     if value["event"] != "workflow_dispatch"
         || value["head_branch"] != "main"
         || value["status"] != "completed"
@@ -294,11 +291,10 @@ fn run_producer(
             "Newest trusted PR producer is not complete and successful.",
         ));
     }
-    Ok(Some(wire::Producer {
+    Ok(Some(RunIdentity {
         workflow_id,
         workflow_path: path.into(),
-        workflow_sha256: approved.workflow_sha256.into(),
-        tooling_sha: tooling.into(),
+        head_sha: tooling.into(),
         run_id,
         run_attempt: attempt as u32,
     }))
@@ -306,7 +302,7 @@ fn run_producer(
 fn artifact_metadata(
     value: &Value,
     name: &str,
-    producer: &wire::Producer,
+    producer: &RunIdentity,
     repository_id: u64,
     maximum: usize,
 ) -> io::Result<()> {
@@ -319,7 +315,7 @@ fn artifact_metadata(
         || value["workflow_run"]["repository_id"] != repository_id
         || value["workflow_run"]["head_repository_id"] != repository_id
         || value["workflow_run"]["head_branch"] != "main"
-        || value["workflow_run"]["head_sha"] != producer.tooling_sha
+        || value["workflow_run"]["head_sha"] != producer.head_sha
     {
         return Err(invalid(
             "Selected PR artifact membership or availability does not match.",
@@ -348,7 +344,7 @@ pub(super) fn download_current(
         request,
         Policy {
             repository_id: 1_118_285_740,
-            producers: APPROVED,
+            workflow_id: PRODUCER_WORKFLOW_ID,
         },
         get,
         || super::local_application_schema(product),
@@ -366,7 +362,7 @@ pub(super) fn download_current(
 
 pub(super) fn download(
     request: Request<'_>,
-    policy: Policy<'_>,
+    policy: Policy,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
     mut local: impl FnMut() -> io::Result<Vec<wire::DatabaseSchema>>,
     mut now: impl FnMut() -> io::Result<u64>,
@@ -379,11 +375,6 @@ pub(super) fn download(
         opt_in,
         deadline,
     } = request;
-    if policy.producers.is_empty() || policy.producers.len() > 16 {
-        return Err(io::Error::other(Unavailable(
-            "PR candidate publisher authority is unknown; no producer tuple is approved.",
-        )));
-    }
     let mut api = Api {
         get,
         deadline,
@@ -424,22 +415,10 @@ pub(super) fn download(
     }
     let (listed, initial_run, producer) = selected
         .ok_or_else(|| invalid("No approved PR candidate is available for the current head."))?;
-    let (workflow, _) = api.metadata(&format!(
-        "contents/{}?ref={}",
-        producer.workflow_path, producer.tooling_sha
-    ))?;
-    if workflow["type"] != "file" || workflow["encoding"] != "base64" {
+    let (identity, _) = api.metadata(&format!("actions/workflows/{}", producer.workflow_id))?;
+    if identity["id"] != producer.workflow_id || identity["path"] != wire::PRODUCER_WORKFLOW_PATH {
         return Err(invalid(
-            "Approved publisher workflow bytes are unavailable.",
-        ));
-    }
-    let content = text(&workflow["content"])?.replace(['\n', '\r'], "");
-    let blob = base64::engine::general_purpose::STANDARD
-        .decode(content)
-        .map_err(|_| invalid("Invalid approved workflow blob."))?;
-    if artifact::digest(&blob) != producer.workflow_sha256 {
-        return Err(invalid(
-            "Publisher workflow does not match its externally approved tuple.",
+            "PR producer workflow identity does not match pr-rc.yml.",
         ));
     }
     let catalog_id = id(&listed["id"])?;
@@ -457,8 +436,13 @@ pub(super) fn download(
     )?;
     let catalog_zip = api.zip(&catalog_metadata, wire::CATALOG_ZIP_LIMIT)?;
     let raw_catalog = pr_zip::catalog(&catalog_zip)?;
-    let catalog = wire::Catalog::parse(&raw_catalog, pr, &head, now()?, policy.producers)?;
-    if catalog.producer != producer || catalog.eligibility != initial_epoch {
+    let catalog = wire::Catalog::parse(&raw_catalog, pr, &head, now()?, policy.workflow_id)?;
+    if catalog.producer.workflow_id != producer.workflow_id
+        || catalog.producer.workflow_path != producer.workflow_path
+        || catalog.producer.run_id != producer.run_id
+        || catalog.producer.run_attempt != producer.run_attempt
+        || catalog.eligibility != initial_epoch
+    {
         return Err(invalid(
             "Catalog producer or eligibility epoch does not match current API evidence.",
         ));
@@ -563,7 +547,7 @@ pub(super) fn download(
         repository_id: policy.repository_id,
         pr: pr.get(),
         head_sha: head,
-        producer,
+        producer: catalog.producer.clone(),
         eligibility: initial_epoch,
         catalog_artifact_id: catalog_id,
         catalog_zip_sha256: artifact::digest(&catalog_zip),

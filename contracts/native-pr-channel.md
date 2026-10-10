@@ -40,13 +40,14 @@ a receipt, log or diagnostic. Fixed official API routes select the exact named
 requests, 2 MiB cumulative metadata, eight producer generations, and the existing
 60-second acquisition deadline. Incomplete or ambiguous discovery refuses.
 
-Producer trust is an installer-compiled, externally reviewed tuple of workflow
-ID/path, workflow SHA-256 and tooling commit. The API run must use that tuple on
-main, workflow_dispatch, completed/success, and the current attempt. Its tooling
-commit is distinct from the candidate PR head. The exact workflow blob is checked
-against that approval. Candidate JSON, successful unrelated CI and latest main
-cannot grant trust. The newest trusted generation alone is considered; invalid,
-expired, pending or missing current-head data never falls back to an older one.
+Producer trust is protected main: the fixed official repository and the reader's
+named `pr-rc.yml` workflow ID must identify a main workflow_dispatch run, completed
+successfully at its current attempt. Authenticated workflow metadata binds the ID
+to that path. Tooling SHA and workflow digest are captured diagnostics, not approval
+pins or a rotation list. Existing catalog, payload, schema, current PR head and epoch
+checks still bind the acquired bytes to that run. The newest trusted generation alone
+is considered; invalid, expired, pending or missing current-head data never falls
+back to an older one. Candidate JSON and unrelated successful CI cannot grant trust.
 
 Catalog JSON rejects duplicate/unknown keys, nulls and wrong scalar types, with
 a 1 MiB raw limit and depth 12. A catalog ZIP contains one root regular file,
@@ -141,9 +142,8 @@ installation proofs.
 
 ## Bootstrap dependencies
 
-The production producer approval set is empty until an actual immutable publisher
-implementation and its inputs receive shared review. Synthetic fixture IDs never
-become live approvals. A published schema-bearing alpha and reviewed product-owner
-exports are independent prerequisites; absent evidence refuses. The channel
-implementation does not build candidates, publish an alpha, mutate immutable
-releases, install globally or restart live agents to manufacture those inputs.
+The reviewed main producer supplies CLI candidates. A published schema-bearing
+alpha and verified preparation exports remain prerequisites; absent evidence refuses.
+The channel reader never builds candidates, dispatches a producer, publishes an alpha,
+mutates releases, installs globally or restarts live agents to manufacture inputs.
+Affected-extension channels are outside the CLI-only acceptance boundary.
