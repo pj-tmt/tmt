@@ -3170,7 +3170,7 @@ impl App {
                     return self.say("Cancelled; nothing changed.");
                 }
                 if digest {
-                    return self.say("Cancelled; digest not changed.");
+                    return self.say("Digest not changed.");
                 }
                 return self.say("Nothing sent.");
             }
