@@ -327,9 +327,7 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       // Positive control: each reference reads its own bytes from its own page.
       for (const file of [note, chat]) {
         const result = colab(read(mine.pageId, reference(file.name)));
-        expect(sha(fs.readFileSync(path.join(result.directory, 'attachment.bin')))).toBe(
-          sha(file.buffer),
-        );
+        expect(sha(fs.readFileSync(result.path))).toBe(sha(file.buffer));
       }
       const kept = dirs();
       // Another page (a document reference is stale there, a message is not found), a forged

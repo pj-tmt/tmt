@@ -3188,7 +3188,9 @@ fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_stor
     );
     let selector =
         tmt_colab_model::attachment::AttachmentSelector::from_json(selector.as_bytes()).unwrap();
-    let error = attachments::ipc::read(&layout, PAGE, &selector).unwrap_err();
+    let error = attachments::ipc::read(&layout, PAGE, &selector)
+        .err()
+        .expect("remote callers are refused");
     assert_eq!(
         error
             .downcast_ref::<tmt_colab::page::ipc::WriteError>()

@@ -12,6 +12,7 @@ use std::{
 use tmt_cli_style::{CommandSpec, Example, OutputModes};
 use tmt_colab::{
     Result,
+    attachments::ipc::Verified,
     export::{self, Bundle},
     keyring::{Keyring, Layout},
     page::Fault,
@@ -21,7 +22,25 @@ use tmt_colab_model::{attachment::AttachmentSelector, crypto};
 
 const DISCLOSURE: &str =
     "This writes an unencrypted copy of the file. Anyone with these files can read it.";
-const FILE: &str = "attachment.bin";
+
+/// The extension a verified media type earns the written file, so an agent can open it as what it
+/// is. Only this allow-list is ever consulted: the author's file name and anything else about the
+/// attachment never reaches the path, and an unlisted type is `bin`.
+fn extension(media_type: &str) -> &'static str {
+    match media_type {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "application/pdf" => "pdf",
+        "text/plain" => "txt",
+        "text/markdown" => "md",
+        "application/json" => "json",
+        "text/csv" => "csv",
+        "video/mp4" => "mp4",
+        _ => "bin",
+    }
+}
 
 pub fn command() -> Command {
     tmt_cli_style::command(&CommandSpec {
@@ -41,10 +60,10 @@ pub fn command() -> Command {
             summary: "Write one verified attachment into a private directory",
             examples: &[Example {
                 command: "tmt colab attachment read 10000000-0000-4000-8000-000000000001 20000000 --output . --json",
-                note: "Create a UUID-named directory holding attachment.bin and manifest.json",
+                note: "Create a UUID-named directory holding attachment.<ext> and manifest.json",
             }],
             outputs: OutputModes::HumanAndJson,
-            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nName the attachment by the ID a request or `tmt colab threads` lists (the first 8 or more hex characters are enough when they match one file), or with --reference. An ID that matches nothing live, or more than one file, reads as unavailable or invalid; use the full ID from `threads --json` to disambiguate. The reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: current directory) with attachment.bin and manifest.json, created the way export does. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
+            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nName the attachment by the ID a request or `tmt colab threads` lists (the first 8 or more hex characters are enough when they match one file), or with --reference. An ID that matches nothing live, or more than one file, reads as unavailable or invalid; use the full ID from `threads --json` to disambiguate. The reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: the system temporary directory, never the current directory) with attachment.<ext> and manifest.json, created the way export does. The extension comes from the attachment's verified media type (png, jpg, gif, webp, pdf, txt, md, json, csv, mp4; anything else bin); the author's file name is never used. --json prints the written file as `path`; read that file, and delete its directory when you are done. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
         })
         .arg(crate::cli_grammar::page())
         .arg(
@@ -158,7 +177,9 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &[("disclosure", DISCLOSURE.into())],
         )?;
     }
-    let bytes = tmt_colab::attachments::ipc::read(&layout, &page, &reference)?;
+    let Verified { bytes, media_type } =
+        tmt_colab::attachments::ipc::read(&layout, &page, &reference)?;
+    let file_name = format!("attachment.{}", extension(&media_type));
     let sha256: String = crypto::digest(&bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -168,22 +189,26 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         "version": 1,
         "pageId": page,
         "reference": reference,
-        "file": {"name": FILE, "sizeBytes": bytes.len(), "sha256": sha256},
+        "file": {"name": file_name, "mediaType": media_type, "sizeBytes": bytes.len(), "sha256": sha256},
     }))?;
     let size = bytes.len();
     let bundle = Bundle::from_files(
         DISCLOSURE,
-        vec![(FILE.into(), bytes), ("manifest.json".into(), manifest)],
+        vec![
+            (file_name.clone(), bytes),
+            ("manifest.json".into(), manifest),
+        ],
     )?;
     let parent = args
         .get_one::<PathBuf>("output")
         .cloned()
-        .unwrap_or(std::env::current_dir()?);
+        .unwrap_or_else(std::env::temp_dir);
     let published = bundle.publish(&parent)?;
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         let mut value = serde_json::to_value(&published)?;
         value["pageId"] = json!(page);
+        value["path"] = json!(published.directory.join(&file_name));
         value["reference"] = serde_json::to_value(&reference)?;
         writeln!(output, "{value}")?;
     } else {
@@ -195,6 +220,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &[
                 ("page", page),
                 ("directory", published.directory.display().to_string()),
+                ("file", file_name),
                 ("bytes", size.to_string()),
                 ("sha256", sha256),
             ],
@@ -458,4 +484,27 @@ fn explain(
         _ => return error,
     };
     crate::cli_management::fail(code(&fault), message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extension;
+
+    #[test]
+    fn a_verified_media_type_names_the_extension_and_anything_else_is_bin() {
+        for (kind, ext) in [
+            ("image/png", "png"),
+            ("image/jpeg", "jpg"),
+            ("application/pdf", "pdf"),
+            ("text/plain", "txt"),
+            ("application/octet-stream", "bin"),
+            ("image/svg+xml", "bin"),
+            ("text/html", "bin"),
+            ("application/x-sh", "bin"),
+            ("image/png; name=x.exe", "bin"),
+            ("", "bin"),
+        ] {
+            assert_eq!(extension(kind), ext, "{kind}");
+        }
+    }
 }

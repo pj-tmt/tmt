@@ -174,9 +174,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
         '--output',
         out,
       ]);
-      expect(sha(fs.readFileSync(path.join(read.directory as string, 'attachment.bin')))).toBe(
-        sha(notes),
-      );
+      expect(sha(fs.readFileSync(read.path as string))).toBe(sha(notes));
 
       // A picture takes its type from the extension and previews like a browser upload.
       colab(['attachment', 'attach', created.pageId, path.join(input, 'dot.png')]);
@@ -232,9 +230,7 @@ test('native attach lists a file for every device, reads back byte-equal, and re
         '--output',
         out,
       ]);
-      expect(sha(fs.readFileSync(path.join(large.directory as string, 'attachment.bin')))).toBe(
-        sha(bytes(8 * 1024 * 1024, 3)),
-      );
+      expect(sha(fs.readFileSync(large.path as string))).toBe(sha(bytes(8 * 1024 * 1024, 3)));
       expect(onlyAnswers()).toBe(true);
 
       // Refusals stage nothing and add no attachment.
@@ -563,14 +559,13 @@ test('export and attachment read return the same bytes as the browser, and say w
           out,
         ]);
       const result = read('notes.txt');
-      expect(sha(fs.readFileSync(path.join(result.directory as string, 'attachment.bin')))).toBe(
-        sha(notes.buffer),
-      );
+      // The extension comes from the verified media type, never from the author's file name.
+      expect(path.extname(result.path as string)).toBe('.txt');
+      expect(sha(fs.readFileSync(result.path as string))).toBe(sha(notes.buffer));
       expect(JSON.stringify(result)).not.toContain(notes.buffer.toString('latin1').slice(0, 64));
-      expect(fs.readdirSync(result.directory as string).sort()).toEqual([
-        'attachment.bin',
-        'manifest.json',
-      ]);
+      expect(fs.readdirSync(result.directory as string).sort()).toEqual(
+        [path.basename(result.path as string), 'manifest.json'].sort(),
+      );
 
       // The page's source moves: the old document reference is stale, a message's is not.
       run(
@@ -581,9 +576,8 @@ test('export and attachment read return the same bytes as the browser, and say w
       );
       expect(() => read('notes.txt')).toThrow(/COLAB_STALE_BASE/);
       const chatAgain = read('chat.bin');
-      expect(sha(fs.readFileSync(path.join(chatAgain.directory as string, 'attachment.bin')))).toBe(
-        sha(chat.buffer),
-      );
+      expect(path.extname(chatAgain.path as string)).toBe('.bin');
+      expect(sha(fs.readFileSync(chatAgain.path as string))).toBe(sha(chat.buffer));
       expect(() =>
         run(world, world.binaries.colab, [
           'attachment',
@@ -800,8 +794,11 @@ test('revoking a device rekeys a native document attachment with one complete sw
         input,
         '--json',
       ];
-      const read = JSON.parse(run(world, world.binaries.colab, readArgs)) as { directory: string };
-      expect(fs.readFileSync(path.join(read.directory, 'attachment.bin'))).toEqual(notes);
+      const read = JSON.parse(run(world, world.binaries.colab, readArgs)) as {
+        directory: string;
+        path: string;
+      };
+      expect(fs.readFileSync(read.path)).toEqual(notes);
       fs.writeFileSync(reference, JSON.stringify(added.attachment.reference));
       expect(() => run(world, world.binaries.colab, readArgs)).toThrow(/COLAB_STALE_BASE/);
       const reopened = exportPage();

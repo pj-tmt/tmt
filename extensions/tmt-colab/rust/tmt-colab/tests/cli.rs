@@ -1519,6 +1519,157 @@ fn attachment_read_refuses_without_a_serve_or_a_valid_reference_and_creates_noth
         "a refused read left output behind"
     );
 }
+/// A stand-in serve that answers one attachment read with `body` typed `content_type`.
+fn serve_one_read(pilot: &Pilot, content_type: &str, body: &[u8]) -> JoinHandle<()> {
+    use tmt_colab::{keyring::Layout, socket::SOCKET};
+    let layout = Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let socket = layout.directory.join(SOCKET);
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let reply = [
+        format!(
+            "HTTP/1.1 200 Response\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes(),
+        body.to_vec(),
+    ]
+    .concat();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        loop {
+            let mut buffer = [0; 4096];
+            let n = stream.read(&mut buffer).unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buffer[..n]);
+            let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&request[..end]);
+            let length = headers
+                .lines()
+                .find_map(|line| line.strip_prefix("Content-Length: "))
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            if request.len() == end + 4 + length {
+                break;
+            }
+        }
+        assert!(request.starts_with(b"POST /.tmt/colab/local/attachment-read HTTP/1.1"));
+        stream.write_all(&reply).unwrap();
+        let _ = fs::remove_file(&socket);
+    })
+}
+#[test]
+fn attachment_read_writes_a_typed_file_to_a_private_temp_directory_never_the_current_directory() {
+    use std::os::unix::fs::MetadataExt;
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let reference = pilot.root.join("reference.json");
+    fs::write(
+        &reference,
+        format!(
+            r#"{{"kind":"document-current","attachmentId":"00000000-0000-4000-8000-000000000021","descriptorHash":"{}","contentRevision":"v1:{}"}}"#,
+            "b".repeat(64),
+            "a".repeat(64)
+        ),
+    )
+    .unwrap();
+    // The agent's working directory is a git checkout; a read must leave it exactly as it was.
+    let checkout = pilot.root.join("checkout");
+    fs::create_dir(&checkout).unwrap();
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&checkout)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    git(&["init", "-q"]);
+    let read = |extra: &[&str]| {
+        let mut args = vec![
+            "attachment",
+            "read",
+            PAGE,
+            "--reference",
+            reference.to_str().unwrap(),
+            "--json",
+        ];
+        args.extend_from_slice(extra);
+        let output = pilot
+            .command()
+            .args(args)
+            .current_dir(&checkout)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let bytes = b"\x89PNG verified bytes";
+    // The extension comes from the verified media type alone; unlisted or malformed is `bin`.
+    for (media_type, extension) in [
+        ("image/png", "png"),
+        ("image/jpeg", "jpg"),
+        ("application/pdf", "pdf"),
+        ("application/octet-stream", "bin"),
+        ("text/html", "bin"),
+        ("image/png; name=../escape.sh", "bin"),
+    ] {
+        let server = serve_one_read(&pilot, media_type, bytes);
+        let result = read(&[]);
+        server.join().unwrap();
+        let directory = PathBuf::from(result["directory"].as_str().unwrap());
+        let file = directory.join(format!("attachment.{extension}"));
+        assert_eq!(result["path"], json!(file), "{media_type}");
+        assert_eq!(fs::read(&file).unwrap(), bytes, "{media_type}");
+        // A fresh private directory directly under the system temporary directory (TMPDIR here).
+        assert_eq!(
+            directory.canonicalize().unwrap().parent().unwrap(),
+            pilot.root.canonicalize().unwrap(),
+            "{media_type}"
+        );
+        assert_eq!(fs::metadata(&directory).unwrap().mode() & 0o777, 0o700);
+        assert_eq!(fs::metadata(&file).unwrap().mode() & 0o777, 0o600);
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(
+            manifest["file"]["name"],
+            json!(format!("attachment.{extension}"))
+        );
+        // The checkout stays clean and empty of anything the read made.
+        assert_eq!(git(&["status", "--porcelain", "--untracked-files=all"]), "");
+        assert_eq!(
+            fs::read_dir(&checkout)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>(),
+            vec![std::ffi::OsString::from(".git")],
+            "{media_type}"
+        );
+    }
+    // An explicit --output still names the parent, even from inside the checkout.
+    let elsewhere = pilot.root.join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    let server = serve_one_read(&pilot, "image/png", bytes);
+    let result = read(&["--output", elsewhere.to_str().unwrap()]);
+    server.join().unwrap();
+    let directory = PathBuf::from(result["directory"].as_str().unwrap());
+    assert_eq!(
+        directory.canonicalize().unwrap().parent().unwrap(),
+        elsewhere.canonicalize().unwrap()
+    );
+    assert_eq!(fs::read(directory.join("attachment.png")).unwrap(), bytes);
+    assert_eq!(git(&["status", "--porcelain", "--untracked-files=all"]), "");
+}
 #[test]
 fn attachment_attach_help_keeps_requirements_resume_and_changed_page_on_separate_lines() {
     let pilot = Pilot::new(None);

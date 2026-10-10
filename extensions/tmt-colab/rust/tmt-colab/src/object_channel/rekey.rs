@@ -57,8 +57,10 @@ struct Established<'a> {
 }
 impl Lane for Established<'_> {
     fn plaintext(&self, selector: &AttachmentSelector) -> Result<Vec<u8>> {
-        self.owner
-            .read_root_local(self.page, selector, self.source.clone(), self.deadline)
+        Ok(self
+            .owner
+            .read_root_local(self.page, selector, self.source.clone(), self.deadline)?
+            .0)
     }
     fn attach(&self, slot: StagingSlot, expected: Option<[u8; 32]>) -> Result<Attached> {
         self.owner.attach_root_local(

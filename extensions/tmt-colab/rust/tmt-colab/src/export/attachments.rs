@@ -23,7 +23,7 @@ pub trait Source {
 pub struct Serve<'a>(pub &'a Layout);
 impl Source for Serve<'_> {
     fn read(&self, page: &str, selector: &AttachmentSelector) -> Result<Vec<u8>> {
-        crate::attachments::ipc::read(self.0, page, selector)
+        Ok(crate::attachments::ipc::read(self.0, page, selector)?.bytes)
     }
 }
 

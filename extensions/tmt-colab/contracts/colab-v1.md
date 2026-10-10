@@ -3428,10 +3428,16 @@ Archived and deleted pages stay denied as above.
 ### Attachment read command (#1867, #2464)
 
 `tmt colab attachment read <page> (<attachment> | --reference <file>) [--output <directory>] [--json]` writes one
-attachment into a new private UUID-named subdirectory of `--output` (default: the current
-directory), created the way export creates its directory: `attachment.bin` then
+attachment into a new private UUID-named subdirectory of `--output` (default: the system
+temporary directory, never the current directory, so an agent's checkout stays untouched),
+created the way export creates its directory: `attachment.<ext>` then
 `manifest.json` last, regular 0600 files in a 0700 directory, no symlinks, no replacement,
-only its own staging cleaned. `--reference` is the exact `reference` of an export manifest row
+only its own staging cleaned. The extension comes from the media type of the verified
+descriptor, which the serve names as the `Content-Type` of its reply, through an allow-list
+(`image/png` png, `image/jpeg` jpg, `image/gif` gif, `image/webp` webp, `application/pdf` pdf,
+`text/plain` txt, `text/markdown` md, `application/json` json, `text/csv` csv, `video/mp4` mp4);
+any other or malformed type, or a serve that names none, is `bin`. The author's file name never
+reaches the path. `--reference` is the exact `reference` of an export manifest row
 (at most 2 KiB). `<attachment>` is an attachment ID or a prefix of at least 8 hex characters (an
 Ask lists the first 8; `tmt colab threads --json` the full ID). The CLI resolves it in the verified
 local view to the exact reference, among the files of live comments in the verified discussion
@@ -3444,8 +3450,8 @@ unavailable and a deleted message no longer resolves; the manifest records the r
 read stays valid against what binds its reference: a message attachment against the membership head,
 epoch and author alone, so an unrelated record (a reply, a status or another writer's update) landing
 while it reads never refuses it, and a document attachment against the page revision it was listed at. The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
-reference, file:{name,sizeBytes,sha256}}`; the result lists the directory, files, size and
-digest and never the bytes. Authority is the owner-only socket of this data root, not a
+reference, file:{name,mediaType,sizeBytes,sha256}}`; the result lists the directory, files, `path`
+(the written file), size and digest and never the bytes. Authority is the owner-only socket of this data root, not a
 caller-named agent or device: the serve checks the reference against the current page, access
 and epoch, reads the bytes through its established object channel and verifies them before
 answering. With no serve, or no established channel, it refuses as unavailable.

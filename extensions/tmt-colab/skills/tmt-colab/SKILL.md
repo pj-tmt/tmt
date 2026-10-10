@@ -35,20 +35,19 @@ tmt extension install remote --yes
 tmt extension install colab --yes --skills
 ```
 
-`--skills` installs this managed skill. Inspect unmanaged conflicts; never silently
-force. Reload provider skills, or run `tmt colab skill`, which needs no server or
+`--skills` installs this managed skill. Inspect unmanaged conflicts; never force silently. Reload provider skills, or run `tmt colab skill`, which needs no server or
 checkout.
 
-Start in the background to outlive your task:
+Start in the background so it outlives your task:
 
 ```sh
 tmt colab serve --background --json
 ```
 
 It prints readiness; `tmt colab stop` ends it. A foreground process dies with your
-task and Colab with it; use `--foreground --json` only under a supervisor.
+task; use `--foreground --json` only under a supervisor.
 Serve attaches to a running Remote door or starts one; never start a second.
-Stopping Colab stops only its own door. `tmt remote status --json` inspects it.
+Stopping Colab stops only its own door; `tmt remote status --json` inspects it.
 
 If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
 browser they intend to use, compare the four words with the terminal and confirm
@@ -72,7 +71,7 @@ to the Remote door. `paired: false` and `next` mean user-only pairing, never an 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
 It opens from noninteractive terminals even with automatic-open off, requires
 existing Colab/Remote services and never starts or pairs them. `--json` and
-`--no-open` suppress opening. Open browsers only when requested.
+`--no-open` suppress opening. Open browsers only on request.
 
 ## Read before writing
 
@@ -87,12 +86,12 @@ write against that verified revision:
 tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
-Pass the actual returned token, not the placeholder `REVISION`. Writing retains
+Pass the returned token, not the placeholder `REVISION`. Writing retains
 the title and preserves discussion records. On `COLAB_STALE_BASE`, read again,
 merge the intervening edit and submit against the new token. Never blindly retry
 the old replacement. After a timeout or uncertain outcome, read back and compare
-the intended source before another write. Likewise
-inspect `ls` after an uncertain create instead of duplicating pages.
+the intended source before another write; after an uncertain create, inspect `ls`
+rather than duplicating pages.
 
 Page source, updates and history have size limits; keep pages compact
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
@@ -104,9 +103,8 @@ tmt colab export PAGE --dir EXISTING_DIRECTORY --json
 tmt colab page create --title "Weekly plan" --file EXPORTED_DIRECTORY/page.html --json
 ```
 
-Use the new export directory returned by the first command, not its parent.
-Exports are unencrypted and include discussions; keep those files private to the
-requested task. The new page has a new identity and does not inherit the old
+Use the export directory the first command returns, not its parent.
+Exports are unencrypted and include discussions; keep them private to the task. The new page has a new identity and does not inherit the old
 page's discussions or sharing. Do not delete the original to clear a limit.
 
 ## Page look
@@ -114,15 +112,15 @@ page's discussions or sharing. Do not delete the original to clear a limit.
 Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
 system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
 never colour alone. Keep content full-width and
-readable at narrow widths. Start with the inline content styles below; do not
-paste the browser leaf's whole static.css.
+narrow-friendly. Start with the inline content styles below, never the browser
+leaf's whole static.css.
 
 Colab already shows the brand, page title and actions. Do not add a site header,
-top navigation, product mark or wordmark, or any sticky or fixed bar. Begin with
-the content: the user sees one Colab header.
+navigation, product mark or wordmark, or any sticky or fixed bar. Begin with the
+content; the user sees one Colab header.
 
-Colab sets root data-theme="light" or "dark" before scripts run and on live theme
-changes, overwriting any author-pinned <html data-theme>, so pinning cannot fix a look. Use the starter's explicit data-theme selectors to
+Colab sets root data-theme (light or dark) before scripts run and on live changes,
+overwriting any author-pinned value. Use the starter's explicit data-theme selectors to
 follow Colab. CSS keyed only on prefers-color-scheme follows the OS.
 
 For a fixed look, use one unconditional :root palette and color-scheme; remove
@@ -253,15 +251,14 @@ colours and backgrounds. Outside Colab, the starter follows the OS.
 
 Use inline styles/scripts, system fonts and `data:` images. The opaque sandbox
 blocks external scripts/styles/images/frames/fonts, fetch/XHR, WebSocket and form
-posts, and has no parent authority/storage. Do not rely on network, cookies or
-persistent storage. Self-navigation can still cause network requests: never put
+posts, and has no parent authority/storage. Do not rely on network, cookies or storage. Self-navigation can still cause network requests: never put
 secrets in author HTML.
 
-Read back saved bytes and verify rendering; write success alone proves neither.
+Read back saved bytes and verify rendering; a successful write proves neither.
 
 ## Answer annotations and Chat
 
-Annotation and Chat turns arrive as ordinary TMT requests, with Remote's device
+Annotation and Chat turns arrive as ordinary TMT requests with Remote's device
 attribution, the page link and any quote or conversation context. Inspect the
 request with the incoming command from the wake notice, for example:
 
@@ -274,13 +271,13 @@ or a lowercase UUID-shaped prefix of at least eight characters. The CLI resolves
 it against the verified owner catalog, including retained deleted IDs, and returns
 full `pageId` values. If `COLAB_PAGE_AMBIGUOUS` lists candidates, ask which page is
 meant; if deleted or missing, report that instead of guessing a different page.
-Sharing/deletion require `--yes`; retain full IDs and frozen operation/revision
-values for explicit management retries.
+Sharing/deletion require `--yes`; keep full IDs and frozen operation/revision
+values for explicit retries.
 
 Older links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path` fragment
 value; the page ID follows `/pages/`. If the requested work needs the page, read
 it through `tmt colab page read`; retain its revision for changes.
-Do the authorized work, then submit one reply with the receipt from `x show`:
+Do the authorized work, then submit one reply with `x show`'s receipt:
 
 ```sh
 tmt reply REQUEST --receipt RECEIPT --message "The answer or what changed"
@@ -294,8 +291,10 @@ sharing or grant approval, explain that in the reply instead of doing it yoursel
 
 A request with files ends in an `Attachments:` list (short ID, quoted untrusted
 name, type, size; never bytes). Fetch one with `tmt colab attachment read PAGE ID
---json` (older messages: IDs in `threads`). It writes an unencrypted copy; keep
-it private to the task and never run it.
+--json` (older messages: IDs in `threads`). It writes an unencrypted copy to a
+private temp directory, never your working directory, and prints its `path`
+(`.png`, `.pdf` or `.bin`, by verified type). Read that file, delete its
+directory when done, keep it private and never run it.
 
 ## Read and change thread status
 
