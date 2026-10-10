@@ -113,6 +113,30 @@ fn help_respects_data_boundaries_and_machine_mode() {
 }
 
 #[test]
+fn help_with_json_rejects_machine_output_before_required_operands() {
+    for command in ["run", "resume", "talk"] {
+        let explicit = parse(&arguments(&["help", command, "--json"])).unwrap_err();
+        assert_eq!(explicit.code, "JSON_UNSUPPORTED");
+        for flag in ["-h", "--help"] {
+            assert_eq!(
+                parse(&arguments(&[command, flag])).unwrap().invocation,
+                Invocation::Help(vec![command.into()])
+            );
+            for argv in [
+                vec![command, flag, "--json"],
+                vec![command, "--json", flag],
+                vec!["--json", command, flag],
+            ] {
+                let error = parse(&arguments(&argv)).unwrap_err();
+                assert_eq!(error.code, explicit.code, "{argv:?}: {error:?}");
+                assert_eq!(error.message, explicit.message, "{argv:?}");
+                assert!(error.mode.json, "{argv:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn bare_office_groups_report_usage_instead_of_panicking() {
     for group in ["block", "profile", "prop", "avatar", "board", "extension"] {
         let error = parse(&arguments(&["office", group])).unwrap_err();
@@ -128,6 +152,8 @@ fn help_does_not_accept_unrelated_or_unknown_options() {
         vec!["office", "--help", "--detach"],
         vec!["talk", "--help", "--unknown"],
         vec!["talk", "--help", "--wait"],
+        vec!["run", "--help", "--json", "--unknown"],
+        vec!["run", "--help", "--json=false"],
         vec!["--help", "--json=false"],
     ] {
         assert_eq!(parse(&arguments(&argv)).unwrap_err().code, "USAGE_ERROR");
