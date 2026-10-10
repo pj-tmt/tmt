@@ -840,6 +840,165 @@ fn explicit_transport_session_survives_shared_cookie_changes_and_reattaches_afte
 }
 
 #[test]
+fn latest_detached_cookie_keeps_reload_context_while_an_older_session_is_attached() {
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let observed = Arc::clone(&now);
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(move || *observed.lock().unwrap()),
+    );
+    assert_eq!(
+        tmt_remote::settings::read_or_default(&h.root).sessions_per_device(),
+        Some(8)
+    );
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let (_, old_cookie, attached) = cap_session(&h, &client, &device.key);
+    let mut transport = tunnel_for(&h, &old_cookie, None);
+    let (_, latest_cookie, detached) = cap_session(&h, &client, &device.key);
+    assert_eq!(
+        mounted(&h, &colab, Some(&latest_cookie)).unwrap()["deviceId"],
+        client
+    );
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    h.sessions.maintain().unwrap();
+    assert!(detached.ended());
+    assert!(!attached.ended());
+    assert!(attached.has_transport());
+    cap_echo(&mut transport);
+    let context = mounted(&h, &colab, Some(&latest_cookie));
+    eprintln!(
+        "R6 unchanged-cap reproduction: default=8, attached_live={}, latest_detached_ended={}, reload_context={context:?}",
+        !attached.ended(),
+        detached.ended()
+    );
+    assert_eq!(
+        context.unwrap()["deviceId"],
+        client,
+        "latest shared cookie must survive the detached issuer"
+    );
+}
+
+#[test]
+fn latest_cookie_rebinds_from_issuer_b_to_carrier_a_then_older_survivor_c() {
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let observed = Arc::clone(&now);
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(move || *observed.lock().unwrap()),
+    );
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let (c_id, c_cookie, c) = cap_session(&h, &client, &device.key);
+    let mut c_transport = tunnel_for(&h, &c_cookie, None);
+    *now.lock().unwrap() += Duration::from_secs(1);
+    let (a_id, a_cookie, a) = cap_session(&h, &client, &device.key);
+    let a_transport = tunnel_for(&h, &a_cookie, None);
+    let (b_id, latest, b) = cap_session(&h, &client, &device.key);
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    h.sessions.maintain().unwrap();
+    assert!(b.ended());
+    assert!(Arc::ptr_eq(
+        &h.sessions.context(Some(&latest)).unwrap().session,
+        &a
+    ));
+    assert!(h.sessions.context_for(Some(&latest), Some(&b_id)).is_none());
+    assert!(Arc::ptr_eq(
+        &h.sessions
+            .context_for(Some(&latest), Some(&c_id))
+            .unwrap()
+            .session,
+        &c
+    ));
+    drop(a_transport);
+    detached(&a);
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    h.sessions.maintain().unwrap();
+    assert!(a.ended());
+    assert!(!c.ended());
+    assert!(Arc::ptr_eq(
+        &h.sessions.context(Some(&latest)).unwrap().session,
+        &c
+    ));
+    assert!(h.sessions.context_for(Some(&latest), Some(&a_id)).is_none());
+    assert_eq!(
+        mounted(&h, &colab, Some(&latest)).unwrap()["deviceId"],
+        client
+    );
+    let mut legacy = tunnel_for(&h, &latest, None);
+    cap_echo(&mut legacy);
+    cap_echo(&mut c_transport);
+    let other = Device::browser(&h, 8);
+    let other_client = paired(&h, &other);
+    let (other_id, _, _) = cap_session(&h, &other_client, &other.key);
+    assert!(
+        h.sessions
+            .context_for(Some(&latest), Some(&other_id))
+            .is_none()
+    );
+    let (_, new_cookie, _) = cap_session(&h, &client, &device.key);
+    assert!(
+        h.sessions.context(Some(&latest)).is_none(),
+        "new cookie retires the superseded alias"
+    );
+    assert_eq!(
+        mounted(&h, &colab, Some(&new_cookie)).unwrap()["deviceId"],
+        client
+    );
+    cap_echo(&mut c_transport);
+}
+
+#[test]
+fn rebound_cookie_does_not_survive_revoke_revision_expiry_or_stop() {
+    for action in ["revoke", "revision", "expiry", "stop"] {
+        let now = Arc::new(Mutex::new(Instant::now()));
+        let observed = Arc::clone(&now);
+        let h = Harness::with_clock(
+            FAST,
+            tmt_remote::limits::SESSION_IDLE,
+            Arc::new(move || *observed.lock().unwrap()),
+        );
+        let colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let (_, old, attached) = cap_session(&h, &client, &device.key);
+        let _transport = tunnel_for(&h, &old, None);
+        let (_, latest, _) = cap_session(&h, &client, &device.key);
+        *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+        h.sessions.maintain().unwrap();
+        assert!(h.sessions.context(Some(&latest)).is_some());
+        match action {
+            "revoke" => {
+                control(&h, json!({"op":"revoke","clientId":client}));
+            }
+            "revision" => {
+                control(
+                    &h,
+                    json!({"op":"rename","clientId":client,"name":"Changed"}),
+                );
+            }
+            "expiry" => {
+                rusqlite::Connection::open(h.root.join("remote/remote.db"))
+                    .unwrap()
+                    .execute(
+                        "UPDATE grants SET expires_at_ms=1 WHERE client_id=?1",
+                        [&client],
+                    )
+                    .unwrap();
+            }
+            "stop" => h.sessions.shutdown(),
+            _ => unreachable!(),
+        }
+        assert_eq!(mounted(&h, &colab, Some(&latest)), None, "{action}");
+        assert!(attached.ended(), "{action}");
+    }
+}
+
+#[test]
 fn last_transport_close_admits_reload_and_same_session_reattach_then_expires_without_activity() {
     let now = Arc::new(Mutex::new(Instant::now()));
     let observed = Arc::clone(&now);
