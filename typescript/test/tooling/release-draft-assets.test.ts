@@ -17,7 +17,10 @@ import {
   readHold,
   type DraftRelease,
   type ReleaseApi,
+  type RecordUploadApi,
 } from '../../scripts/release-draft-assets.mjs';
+
+import { writeRecordFixture } from '../support/release-record-fixture.js';
 
 const script = fileURLToPath(new URL('../../scripts/release-draft-assets.mjs', import.meta.url));
 const targets = [
@@ -49,6 +52,8 @@ function bundle(product: string, tag: string) {
     path.join(directory, 'dist-manifest.json'),
     JSON.stringify({ announcement_tag: tag, artifacts })
   );
+  writeRecordFixture(directory, product, tag);
+  rmSync(path.join(directory, 'tmt-release-record.json'));
   if (product === 'cli') {
     writeFileSync(path.join(directory, 'tmt-installer.sh'), '#!/bin/sh\n');
     writeFileSync(path.join(directory, 'install.sh'), '#!/bin/sh\n');
@@ -86,7 +91,7 @@ interface StoredAsset {
 }
 
 interface Fake {
-  api: ReleaseApi;
+  api: RecordUploadApi;
   releases: DraftRelease[];
   calls: string[];
 }
@@ -100,7 +105,14 @@ function fakeApi(
   let nextId = 100;
   let withheld = options.withheldDigests ?? 0;
   const mutable = releases as (Omit<DraftRelease, 'assets'> & { assets: StoredAsset[] })[];
-  const api: ReleaseApi = {
+  const contents = new Map<number, string>();
+  const api: RecordUploadApi = {
+    downloadAsset: (id) => {
+      calls.push(`download ${id}`);
+      const bytes = contents.get(id);
+      if (bytes === undefined) throw new Error('missing stored bytes');
+      return bytes;
+    },
     listReleases: () => {
       const listed = JSON.parse(JSON.stringify(mutable)) as typeof mutable;
       if (withheld > 0) {
@@ -115,6 +127,7 @@ function fakeApi(
       const bytes = readFileSync(file, 'utf8');
       const digest = options.corrupt === name ? digestOf(`${bytes} corrupted`) : digestOf(bytes);
       target?.assets.push({ id: (nextId += 1), name, digest });
+      contents.set(nextId, bytes);
     },
     deleteAsset: (id) => {
       calls.push(`delete ${id}`);
@@ -164,7 +177,10 @@ describe('bundleFiles', () => {
     expect(() =>
       bundleFiles(
         'office',
-        manifest('tmt-office-v0.1.0-alpha.4', 'ops'),
+        {
+          ...manifest('tmt-ops-v0.1.0-alpha.4', 'ops'),
+          announcement_tag: 'tmt-office-v0.1.0-alpha.4',
+        },
         'tmt-office-v0.1.0-alpha.4'
       )
     ).toThrow('Unexpected archive');
@@ -224,10 +240,15 @@ describe('attachBundle', () => {
       'dist-manifest.json',
       'tmt-installer.sh',
       'install.sh',
+      'tmt-release-record.json',
       'release-publication.json',
     ];
     expect(uploaded).toEqual(expected);
-    expect(fake.calls).toEqual(expected.map((name) => `upload ${name}`));
+    expect(fake.calls.filter((call) => call.startsWith('upload'))).toEqual(
+      expected.map((name) => `upload ${name}`)
+    );
+    expect(fake.calls.at(-2)).toMatch(/^download /);
+    expect(fake.calls.at(-1)).toBe('upload release-publication.json');
     expect(fake.releases[0].assets?.map(({ name }) => name)).toEqual(expected);
   });
 
@@ -239,7 +260,7 @@ describe('attachBundle', () => {
       'tmt-office-v0.1.0-alpha.4',
       'office'
     );
-    expect(uploaded).toHaveLength(6);
+    expect(uploaded).toHaveLength(7);
     expect(uploaded.at(-1)).toBe('release-publication.json');
     expect(uploaded).not.toContain('install.sh');
   });
@@ -260,6 +281,47 @@ describe('attachBundle', () => {
     const fake = fakeApi([draft('v5.0.0-alpha.9')], { corrupt: 'install.sh' });
     expect(() => attach(fake, bundle('cli', 'v5.0.0-alpha.9'))).toThrow('install.sh was stored as');
     expect(fake.calls).not.toContain('upload release-publication.json');
+  });
+
+  it('never uploads the marker when record digest or byte readback fails', () => {
+    const corrupt = fakeApi([draft('v5.0.0-alpha.9')], { corrupt: 'tmt-release-record.json' });
+    expect(() => attach(corrupt, bundle('cli', 'v5.0.0-alpha.9'))).toThrow(
+      'Stored tmt-release-record.json digest mismatch'
+    );
+    expect(corrupt.calls).not.toContain('upload release-publication.json');
+    const badBytes = fakeApi([draft('v5.0.0-alpha.9')]);
+    badBytes.api.downloadAsset = () => '{}';
+    expect(() => attach(badBytes, bundle('cli', 'v5.0.0-alpha.9'))).toThrow(
+      'Stored tmt-release-record.json bytes mismatch'
+    );
+    expect(badBytes.calls).not.toContain('upload release-publication.json');
+    const rejected = fakeApi([draft('v5.0.0-alpha.9')]);
+    const error = new Error('readback unavailable');
+    rejected.api.downloadAsset = () => {
+      throw error;
+    };
+    expect(() => attach(rejected, bundle('cli', 'v5.0.0-alpha.9'))).toThrow(error);
+    expect(rejected.calls).not.toContain('upload release-publication.json');
+  });
+
+  it('refuses invalid release provenance before upload and retains upload errors before the marker', () => {
+    const invalid = fakeApi([draft('v5.0.0-alpha.9', [], { id: 0 })]);
+    expect(() => attach(invalid, bundle('cli', 'v5.0.0-alpha.9'))).toThrow(
+      'positive safe release ID'
+    );
+    expect(invalid.calls).toEqual([]);
+    const invalidSource = fakeApi([draft('v5.0.0-alpha.9', [], { target_commitish: 'main' })]);
+    expect(() => attach(invalidSource, bundle('cli', 'v5.0.0-alpha.9'))).toThrow('source SHA');
+    expect(invalidSource.calls).toEqual([]);
+    const failure = fakeApi([draft('v5.0.0-alpha.9')]);
+    const upload = failure.api.upload;
+    const error = new Error('record upload refused');
+    failure.api.upload = (release, name, file) => {
+      if (name === 'tmt-release-record.json') throw error;
+      return upload(release, name, file);
+    };
+    expect(() => attach(failure, bundle('cli', 'v5.0.0-alpha.9'))).toThrow(error);
+    expect(failure.calls).not.toContain('upload release-publication.json');
   });
 
   it('waits for digests GitHub has not computed yet, and gives up with the missing names', () => {
@@ -466,6 +528,31 @@ describe('ghApi', () => {
       '/tmp/file',
     ]);
     expect(seen[1]).toEqual(['api', '--method', 'DELETE', 'repos/wkh237/tmt/releases/assets/9']);
+  });
+
+  it('reads record bytes by exact asset ID with a bounded octet-stream request', () => {
+    const seen: { args: readonly string[]; options: object }[] = [];
+    const api = ghApi({
+      repository: 'pj-tmt/tmt',
+      spawn: (_command, args, options) => {
+        seen.push({ args, options });
+        return { status: 0, stdout: '{"record":true}\n', stderr: '' };
+      },
+    });
+    expect(api.downloadAsset(42)).toBe('{"record":true}\n');
+    expect(seen).toEqual([
+      {
+        args: [
+          'api',
+          '-H',
+          'Accept: application/octet-stream',
+          'repos/pj-tmt/tmt/releases/assets/42',
+        ],
+        options: expect.objectContaining({ timeout: 60_000, maxBuffer: 256 * 1024 }),
+      },
+    ]);
+    expect(() => api.downloadAsset(0)).toThrow('asset ID');
+    expect(seen).toHaveLength(1);
   });
 
   it('reports the status and stderr of a failed call', () => {

@@ -28,6 +28,13 @@ import {
 } from './native-release-policy.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET, releasesFrom } from './plan-release-builds.mjs';
 
+import {
+  createReleaseRecord,
+  releaseRecordBytes,
+  RELEASE_RECORD,
+  RECORD_LIMIT,
+} from './release-index.mjs';
+
 const MANIFEST = 'dist-manifest.json';
 const DIGEST_ATTEMPTS = 5;
 
@@ -121,6 +128,13 @@ export function attachBundle({ api, product, tag, directory, sleep = () => {} })
     if (!existsSync(path.join(directory, name))) throw new Error(`The bundle has no ${name}.`);
   }
 
+  const preparedRecord = createReleaseRecord({
+    product,
+    tag,
+    releaseId: release.id,
+    sourceSha: release.target_commitish,
+    directory,
+  });
   const upload = (name) => {
     for (const stale of assetsOf(release).filter((asset) => asset.name === name)) {
       api.deleteAsset(stale.id);
@@ -129,25 +143,46 @@ export function attachBundle({ api, product, tag, directory, sleep = () => {} })
   };
   for (const name of names) upload(name);
 
-  let uploaded;
-  for (let attempt = 1; attempt <= DIGEST_ATTEMPTS; attempt += 1) {
-    const current = findDraft(api.listReleases(), tag);
-    uploaded = names.map((name) => assetsOf(current).find((asset) => asset.name === name));
-    if (uploaded.every((asset) => asset?.digest)) break;
-    if (attempt === DIGEST_ATTEMPTS) {
-      const missing = names.filter((_, index) => !uploaded[index]?.digest);
-      throw new Error(`GitHub reports no digest for ${missing.join(', ')}.`);
+  const storedAssets = (selectedNames) => {
+    for (let attempt = 1; attempt <= DIGEST_ATTEMPTS; attempt += 1) {
+      const current = findDraft(api.listReleases(), tag);
+      if (current.id !== release.id || current.target_commitish !== release.target_commitish)
+        throw new Error(`Draft ${tag} identity changed during upload.`);
+      const selected = selectedNames.map((name) => {
+        const matches = assetsOf(current).filter((asset) => asset.name === name);
+        if (matches.length > 1) throw new Error(`Draft ${tag} has duplicate ${name}.`);
+        return matches[0];
+      });
+      if (selected.every((asset) => asset?.digest)) return selected;
+      if (attempt === DIGEST_ATTEMPTS) {
+        const missing = selectedNames.filter((_, index) => !selected[index]?.digest);
+        throw new Error(`GitHub reports no digest for ${missing.join(', ')}.`);
+      }
+      sleep(2000);
     }
-    sleep(2000);
-  }
+  };
+  const uploaded = storedAssets(names);
   names.forEach((name, index) => {
     const local = sha256(path.join(directory, name));
     if (uploaded[index].digest !== local) {
       throw new Error(`${name} was stored as ${uploaded[index].digest}, expected ${local}.`);
     }
   });
+  for (const asset of [preparedRecord.manifest, ...Object.values(preparedRecord.archives)]) {
+    if (uploaded.find(({ name }) => name === asset.name)?.digest !== `sha256:${asset.sha256}`)
+      throw new Error(`Stored ${asset.name} differs from the prepared record.`);
+  }
+  const record = releaseRecordBytes(preparedRecord);
+  writeFileSync(path.join(directory, RELEASE_RECORD), record);
+  upload(RELEASE_RECORD);
+  const stored = storedAssets([RELEASE_RECORD]);
+  if (stored[0].digest !== `sha256:${createHash('sha256').update(record).digest('hex')}`)
+    throw new Error(`Stored ${RELEASE_RECORD} digest mismatch.`);
+  const downloaded = api.downloadAsset(stored[0].id);
+  if (Buffer.byteLength(downloaded) > RECORD_LIMIT || !Buffer.from(downloaded).equals(record))
+    throw new Error(`Stored ${RELEASE_RECORD} bytes mismatch.`);
   upload(BUNDLE_ASSET);
-  return { uploaded: [...names, BUNDLE_ASSET] };
+  return { uploaded: [...names, RELEASE_RECORD, BUNDLE_ASSET] };
 }
 
 /** Parks the draft: uploads which run failed and on what, unless the draft is already complete. */
@@ -216,12 +251,12 @@ export function readHold({ api, tag, download }) {
  * `runPackedCommand` would reject, so this runs it under its own bound and reads the status.
  */
 export function ghApi({ repository, env = process.env, spawn = spawnSync }) {
-  const gh = (args, timeout = 60_000) => {
+  const gh = (args, timeout = 60_000, maxBuffer = 64 * 1024 * 1024) => {
     const result = spawn('gh', args, {
       env,
       encoding: 'utf8',
       timeout,
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer,
     });
     if (result.error) throw result.error;
     if (result.status !== 0) {
@@ -250,6 +285,20 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync }) {
         ],
         300_000
       ),
+    downloadAsset: (id) => {
+      if (!Number.isSafeInteger(id) || id <= 0)
+        throw new Error('Record readback requires an asset ID.');
+      return gh(
+        [
+          'api',
+          '-H',
+          'Accept: application/octet-stream',
+          `repos/${repository}/releases/assets/${id}`,
+        ],
+        60_000,
+        RECORD_LIMIT
+      );
+    },
     deleteAsset: (id) =>
       gh(['api', '--method', 'DELETE', `repos/${repository}/releases/assets/${id}`]),
   };

@@ -16,6 +16,11 @@ its independent inventory/checksum/notices and failure/cleanup checks.
 
 ## Native pipeline
 
+[Release-index v1](../../../../contracts/release-index-v1.md) owns record identity and
+bounds. Draft assembly reads back the record before the completeness marker;
+publication verifies it against release identity and downloaded bytes. Index writing
+and API-free client consumption remain pending.
+
 The packaging stages (build, assemble, final verification on the four matching hosts) live in the
 read-only reusable `.github/workflows/native-release-prepare.yml`, called with an exact source SHA
 by `native-release-bundle.yml` for a draft and by the rehearsal before merge, so a release is never

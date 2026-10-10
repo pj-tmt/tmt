@@ -9,9 +9,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
 
+import { writeRecordFixture, RECORD_TARGETS } from '../support/release-record-fixture.js';
+
 const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
-const ASSETS = ['release-publication.json', 'dist-manifest.json', 'tmt-cli-x.tar.gz'];
+const ASSETS = [
+  'release-publication.json',
+  'dist-manifest.json',
+  ...RECORD_TARGETS.map((target) => `tmt-cli-${target}.tar.gz`),
+  'tmt-release-record.json',
+];
 
 let root: string;
 beforeAll(() => {
@@ -52,7 +59,7 @@ if (command === 'api') {
 } else if (command === 'release' && sub === 'download') {
   if (state.downloadFails) fail('HTTP 502');
   const directory = args[args.indexOf('--dir') + 1];
-  for (const name of state.assetNames) fs.writeFileSync(path.join(directory, name), name);
+  for (const name of state.assetNames) fs.writeFileSync(path.join(directory, name), state.assetBytes[name] ?? name);
 } else if (command === 'release' && sub === 'verify') {
   if (state.attestationFails) fail('attestation not found');
 } else if (command === 'release' && sub === 'verify-asset') {
@@ -97,12 +104,20 @@ function scenario(options: Scenario = {}) {
   writeExecutable(ghFile, FAKE_GH, 0o755);
   const calls = path.join(directory, 'calls');
   writeFileSync(calls, '');
+  const fixture = writeRecordFixture(path.join(directory, 'record-fixture'));
+  const assetBytes = Object.fromEntries(
+    ASSETS.map((name) => [
+      name,
+      name === 'release-publication.json' ? name : fixture.bytes(name).toString(),
+    ])
+  );
   const stateFile = path.join(directory, 'state.json');
   writeFileSync(
     stateFile,
     JSON.stringify({
       calls,
       assetNames: ASSETS,
+      assetBytes,
       drafts: [],
       published: release(),
       latest: release(),
@@ -294,7 +309,7 @@ describe('release-publish.mjs verify', () => {
     expect(result.summary).not.toContain('FAILED');
     expect(result.summary).toContain('- passed `attestation`: gh release verify passed');
     expect(result.summary).toContain(
-      '- passed `assets`: gh release verify-asset passed for 3 assets'
+      '- passed `assets`: gh release verify-asset passed for 7 assets'
     );
     expect(fake.calls().some(([, endpoint]) => endpoint.includes('/issues'))).toBe(false);
   });
@@ -317,15 +332,15 @@ describe('release-publish.mjs verify', () => {
   });
 
   it('keeps a missing asset lookup a hard failure at the configured attempt bound', () => {
-    const fake = scenario({ missingAssets: ['tmt-cli-x.tar.gz'] });
+    const fake = scenario({ missingAssets: ['tmt-cli-aarch64-apple-darwin.tar.gz'] });
     const result = fake.run(verify(fake.directory));
     expect(result.status).toBe(1);
     expect(result.summary).toContain(
-      `- FAILED \`assets\`: gh release verify-asset failed for tmt-cli-x.tar.gz: no attestations found for tag ${TAG} (sha1:${SHA})`
+      `- FAILED \`assets\`: gh release verify-asset failed for tmt-cli-aarch64-apple-darwin.tar.gz: no attestations found for tag ${TAG} (sha1:${SHA})`
     );
     expect(result.stderr).not.toContain('Retrying in');
     expect(result.stderr).toContain('Opened issue #77.');
-    expect(fake.calls().filter(([, sub]) => sub === 'verify-asset')).toHaveLength(3);
+    expect(fake.calls().filter(([, sub]) => sub === 'verify-asset')).toHaveLength(ASSETS.length);
   });
 
   it('checks every published asset with gh release verify-asset', () => {

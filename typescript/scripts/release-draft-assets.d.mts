@@ -17,6 +17,10 @@ export interface ReleaseApi {
   deleteAsset(id: number): unknown;
 }
 
+export interface RecordUploadApi extends ReleaseApi {
+  downloadAsset(id: number): string;
+}
+
 export function bundleFiles(
   product: string,
   manifest: { announcement_tag?: string; artifacts?: Record<string, { kind: string }> },
@@ -28,7 +32,7 @@ export function checkDraft(input: { api: ReleaseApi; tag: string; retry?: boolea
   reason: string;
 };
 export function attachBundle(input: {
-  api: ReleaseApi;
+  api: RecordUploadApi;
   product: string;
   tag: string;
   directory: string;
@@ -62,4 +66,4 @@ export function ghApi(input: {
     args: readonly string[],
     options: object
   ) => { error?: Error; status: number | null; stdout: string; stderr: string };
-}): ReleaseApi;
+}): RecordUploadApi;

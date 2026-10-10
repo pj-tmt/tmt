@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import {
   checkPublishedRelease,
   convergeCliLatest,
@@ -19,6 +19,19 @@ import {
   type PublishedRelease,
 } from '../../scripts/release-publish.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
+
+import { writeRecordFixture, RECORD_TARGETS } from '../support/release-record-fixture.js';
+const PUBLISHED_ASSETS = [
+  'release-publication.json',
+  'dist-manifest.json',
+  ...RECORD_TARGETS.map((target) => `tmt-cli-${target}.tar.gz`),
+  'tmt-release-record.json',
+];
+let verifyDirectory: string;
+beforeAll(() => {
+  verifyDirectory = mkdtempSync(path.join(tmpdir(), 'publication-record-'));
+});
+afterAll(() => rmSync(verifyDirectory, { recursive: true, force: true }));
 
 const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
@@ -233,12 +246,13 @@ describe('publishDraft', () => {
 });
 
 const published = (overrides: Partial<PublishedRelease> = {}): PublishedRelease => ({
+  id: 1,
   draft: false,
   immutable: true,
   prerelease: false,
   tag_name: TAG,
   target_commitish: SHA,
-  assets: assets('release-publication.json', 'dist-manifest.json', 'tmt-cli-x.tar.gz'),
+  assets: assets(...PUBLISHED_ASSETS),
   ...overrides,
 });
 
@@ -364,6 +378,8 @@ describe('verifyPublication', () => {
       tagCommit: () => SHA,
       download: (tag, directory) => {
         calls.push(`download ${tag} ${directory}`);
+        writeRecordFixture(directory);
+        writeFileSync(path.join(directory, 'release-publication.json'), '{}');
         return ok;
       },
       verifyRelease: (tag) => {
@@ -383,7 +399,7 @@ describe('verifyPublication', () => {
       api,
       product: 'cli',
       tag: TAG,
-      directory: '/work/published',
+      directory: verifyDirectory,
       attempts,
       sleep: (milliseconds) => sleeps.push(milliseconds),
     });
@@ -400,17 +416,39 @@ describe('verifyPublication', () => {
       'bundle',
       'attestation',
       'assets',
+      'record',
     ]);
     expect(failures(results)).toEqual({});
     expect(sleeps).toEqual([]);
     expect(calls).toEqual([
       `get ${TAG}`,
       `verify ${TAG}`,
-      `download ${TAG} /work/published`,
-      ...['release-publication.json', 'dist-manifest.json', 'tmt-cli-x.tar.gz'].map(
-        (name) => `verify-asset ${TAG} ${path.join('/work/published', name)}`
-      ),
+      `download ${TAG} ${verifyDirectory}`,
+      ...PUBLISHED_ASSETS.map((name) => `verify-asset ${TAG} ${path.join(verifyDirectory, name)}`),
     ]);
+  });
+
+  it('refuses a missing record distinctly from mismatched release identity or bytes', () => {
+    const missing = fakeApi({
+      getRelease: () =>
+        published({ assets: assets('release-publication.json', 'dist-manifest.json') }),
+    });
+    expect(failures(verify(missing.api)).record).toBe(
+      'release has no tmt-release-record.json; pre-record tags are expected to fail here'
+    );
+    const wrongId = fakeApi({ getRelease: () => published({ id: 2 }) });
+    expect(failures(verify(wrongId.api)).record).toContain('releaseId mismatch');
+    const mismatched = fakeApi({
+      download: (_tag, directory) => {
+        const { record } = writeRecordFixture(directory);
+        writeFileSync(
+          path.join(directory, 'tmt-release-record.json'),
+          JSON.stringify({ ...record, manifest: { ...record.manifest, sha256: 'b'.repeat(64) } })
+        );
+        return ok;
+      },
+    });
+    expect(failures(verify(mismatched.api)).record).toContain('asset sha256 mismatch');
   });
 
   it('waits and tries again while GitHub has not finished immutability or the attestation', () => {
@@ -472,7 +510,7 @@ describe('verifyPublication', () => {
     const { api, calls } = fakeApi({
       verifyAsset: (_tag, file) => {
         calls.push(`verify-asset ${TAG} ${file}`);
-        return path.basename(file) === 'tmt-cli-x.tar.gz' && ++reads < 3
+        return path.basename(file) === 'tmt-cli-aarch64-apple-darwin.tar.gz' && ++reads < 3
           ? { ok: false, output: missing }
           : ok;
       },
@@ -487,7 +525,7 @@ describe('verifyPublication', () => {
         api,
         product: 'cli',
         tag: TAG,
-        directory: '/work/published',
+        directory: verifyDirectory,
         attempts: 3,
         sleep: (ms) => {
           waits.push(ms);
@@ -496,23 +534,29 @@ describe('verifyPublication', () => {
         clock: () => time,
       });
       expect(failures(results)).toEqual({});
-      expect(results.at(-1)).toEqual({
+      expect(results.find(({ check }) => check === 'assets')).toEqual({
         check: 'assets',
         ok: true,
-        reason: 'gh release verify-asset passed for 3 assets',
+        reason: 'gh release verify-asset passed for 7 assets',
       });
       expect(reads).toBe(3);
       expect(waits).toEqual([15_000, 15_000]);
       expect(lines).toEqual(
         [1, 2].map(
           (attempt) =>
-            `Asset tmt-cli-x.tar.gz attestation attempt ${attempt}/3 failed: ${missing}\nRetrying in 15000 ms.\n`
+            `Asset tmt-cli-aarch64-apple-darwin.tar.gz attestation attempt ${attempt}/3 failed: ${missing}\nRetrying in 15000 ms.\n`
         )
       );
       expect(calls.filter((call) => call.startsWith('verify-asset'))).toEqual([
-        `verify-asset ${TAG} /work/published/release-publication.json`,
-        `verify-asset ${TAG} /work/published/dist-manifest.json`,
-        ...Array.from({ length: 3 }, () => `verify-asset ${TAG} /work/published/tmt-cli-x.tar.gz`),
+        `verify-asset ${TAG} ${verifyDirectory}/release-publication.json`,
+        `verify-asset ${TAG} ${verifyDirectory}/dist-manifest.json`,
+        ...Array.from(
+          { length: 3 },
+          () => `verify-asset ${TAG} ${verifyDirectory}/tmt-cli-aarch64-apple-darwin.tar.gz`
+        ),
+        ...PUBLISHED_ASSETS.slice(3).map(
+          (name) => `verify-asset ${TAG} ${path.join(verifyDirectory, name)}`
+        ),
       ]);
     } finally {
       writer.mockRestore();
@@ -545,7 +589,7 @@ describe('verifyPublication', () => {
         api,
         product: 'cli',
         tag: TAG,
-        directory: '/work/published',
+        directory: verifyDirectory,
         sleep: (ms) => {
           waits.push(ms);
           time += ms;
@@ -561,7 +605,7 @@ describe('verifyPublication', () => {
       });
       expect(last).toEqual(original);
       expect(calls.filter((call) => call.startsWith('verify-asset')).at(-1)).toBe(
-        `verify-asset ${TAG} /work/published/tmt-cli-x.tar.gz`
+        `verify-asset ${TAG} ${verifyDirectory}/tmt-release-record.json`
       );
     } finally {
       writer.mockRestore();
@@ -595,7 +639,7 @@ describe('verifyPublication', () => {
         api,
         product: 'cli',
         tag: TAG,
-        directory: '/work/published',
+        directory: verifyDirectory,
         sleep: (ms) => {
           waits.push(ms);
           time += ms;
@@ -638,7 +682,7 @@ describe('verifyPublication', () => {
         api,
         product: 'cli',
         tag: TAG,
-        directory: '/work/published',
+        directory: verifyDirectory,
         sleep: (ms) => {
           time += ms;
           waits.push(ms);
@@ -678,17 +722,17 @@ describe('verifyPublication', () => {
         api,
         product: 'cli',
         tag: TAG,
-        directory: '/work/published',
+        directory: verifyDirectory,
         sleep,
         clock: () => 0,
       });
       expect(releaseRead).toHaveBeenCalledTimes(1);
-      expect(assetRead).toHaveBeenCalledTimes(3);
+      expect(assetRead).toHaveBeenCalledTimes(7);
       expect(sleep).not.toHaveBeenCalled();
       expect(writer).not.toHaveBeenCalled();
       expect(failures(results).attestation).toBe(`gh release verify failed: ${output}`);
       expect(failures(results).assets).toBe(
-        `gh release verify-asset failed for ${['release-publication.json', 'dist-manifest.json', 'tmt-cli-x.tar.gz'].map((name) => `${name}: ${output}`).join('; ')}`
+        `gh release verify-asset failed for ${PUBLISHED_ASSETS.map((name) => `${name}: ${output}`).join('; ')}`
       );
     } finally {
       writer.mockRestore();
@@ -704,7 +748,7 @@ describe('verifyPublication', () => {
     const sleep = vi.fn();
     let caught: unknown;
     try {
-      verifyPublication({ api, product: 'cli', tag: TAG, directory: '/work/published', sleep });
+      verifyPublication({ api, product: 'cli', tag: TAG, directory: verifyDirectory, sleep });
     } catch (failure) {
       caught = failure;
     }
@@ -722,7 +766,7 @@ describe('verifyPublication', () => {
     });
     const results = verify(api, [], 1);
     expect(failures(results).assets).toContain('dist-manifest.json: does not contain subject');
-    expect(failures(results).assets).not.toContain('tmt-cli-x.tar.gz');
+    expect(failures(results).assets).not.toContain('tmt-cli-aarch64-apple-darwin.tar.gz');
     expect(calls.filter((call) => call.startsWith('get'))).toHaveLength(1);
   });
 
