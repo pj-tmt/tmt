@@ -3,7 +3,7 @@ use crate::{
     config::Config,
     core::{Core, SquadError},
     cron_service::{self as service, CronActor, JobKey},
-    runner::Cancellation,
+    runner::{self, Cancellation},
     specs,
     squad::Squad,
 };
@@ -299,6 +299,110 @@ impl Drop for ClockWorker {
     }
 }
 
+/// Only invocation cadence belongs to Ops. Digest owns deadlines and overlap admission.
+struct DigestTicks {
+    minute: Option<i64>,
+    executable: std::path::PathBuf,
+    cancellation: Cancellation,
+    children: Vec<std::thread::JoinHandle<Option<&'static str>>>,
+    skipped: u64,
+    last_reason: Option<&'static str>,
+    foreground: bool,
+}
+
+impl DigestTicks {
+    fn new(core: &Core, foreground: bool) -> Self {
+        Self {
+            minute: None,
+            executable: core.executable().to_owned(),
+            cancellation: Cancellation::default(),
+            children: Vec::new(),
+            skipped: 0,
+            last_reason: None,
+            foreground,
+        }
+    }
+
+    fn skip(&mut self, reason: &'static str) {
+        self.skipped = self.skipped.saturating_add(1);
+        self.last_reason = Some(reason);
+        if self.foreground {
+            use std::io::Write;
+            let mut stderr = tmt_cli_style::stream::stderr();
+            let _ = writeln!(stderr, "digest tick skipped: {reason}");
+        }
+    }
+
+    fn reap(&mut self) {
+        let mut index = 0;
+        while index < self.children.len() {
+            if self.children[index].is_finished() {
+                let result = self.children.swap_remove(index).join();
+                match result {
+                    Ok(Some(reason)) => self.skip(reason),
+                    Err(_) => self.skip("worker failed"),
+                    Ok(None) => {}
+                }
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    fn advance(&mut self, time: i64) {
+        self.reap();
+        let minute = time.div_euclid(60_000);
+        if self.minute.is_some_and(|previous| minute <= previous) {
+            return;
+        }
+        // Record the attempt before spawning: failure is never a same-minute retry.
+        // A missed minute or clock rollback never produces catch-up invocations.
+        self.minute = Some(minute);
+        let executable = self.executable.clone();
+        let cancellation = self.cancellation.clone();
+        let child = std::thread::Builder::new()
+            .name("ops-digest-tick".into())
+            .spawn(move || {
+                // A tick may wait through the minute and finish serialized deliveries.
+                // Ordinary Core command budgets remain unchanged.
+                match runner::run_cancellable(
+                    &executable,
+                    &["digest".into(), "tick".into()],
+                    b"",
+                    Duration::from_secs(90),
+                    64 * 1024,
+                    Some(&cancellation),
+                ) {
+                    Ok(output) if output.success => None,
+                    Ok(_) => Some("nonzero exit"),
+                    Err(runner::RunError::Cancelled) => None,
+                    Err(runner::RunError::Spawn) => Some("unavailable"),
+                    Err(runner::RunError::Timeout) => Some("timeout"),
+                    Err(runner::RunError::OutputLimit) => Some("output limit"),
+                    Err(runner::RunError::Io) => Some("process I/O failure"),
+                }
+            });
+        match child {
+            Ok(child) => self.children.push(child),
+            Err(_) => self.skip("worker unavailable"),
+        }
+    }
+}
+
+impl Drop for DigestTicks {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+        while let Some(child) = self.children.pop() {
+            // runner cancels and reaps the owned process group before lease release.
+            match child.join() {
+                Ok(Some(reason)) => self.skip(reason),
+                Err(_) => self.skip("worker failed"),
+                Ok(None) => {}
+            }
+        }
+    }
+}
+
 fn serve(
     core: &Core,
     config: &Config,
@@ -332,6 +436,7 @@ fn serve(
     };
     let root = service::root(core)?;
     let clock = Clock::new(&root)?;
+    let mut digest = DigestTicks::new(core, foreground);
     let mut lease: Option<Lease> = None;
     let mut tick = Tick::new(now());
     let mut last = json!({"action":"tick","accepted":0,"warnings":[],"complete":true});
@@ -365,6 +470,7 @@ fn serve(
                 tick = Tick::new(time);
             }
             if let Some(owned) = lease.as_mut() {
+                digest.advance(time);
                 last = match pass(core, config, &root, owned, Some(&mut tick), cancellation) {
                     Ok(value) => value,
                     Err(error)
@@ -388,6 +494,7 @@ fn serve(
         last["action"] = json!("run");
         Ok(last)
     })();
+    drop(digest);
     let released = lease.map_or(Ok(()), Lease::release);
     if cancellation.cancelled() {
         released?;

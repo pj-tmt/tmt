@@ -416,13 +416,13 @@ external dispatch as `tmt ops`; `ui`, `hotkeys`, `skill` and `playbook` are Ops 
 while member and state commands live under `tmt ops squad` (alias `sq`).
 Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guard verification: [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
 
-- **Seam.** Ops reaches core only through public `tmt --json` commands and
-  `tmt api` (`TMT_EXECUTABLE`, else `tmt` on PATH), each call bounded by
-  `tmt-invoke`. It never links a core crate or writes core state, tmux or provider
-  directories itself. The architecture guard enforces no TMT crate depending on Ops
-  and no Ops core dependency, for Cargo and source references. Its TMT dependencies
-  are `tmt-tui`, `tmt-cli-style` and `tmt-invoke`, plus `tmt-test-support` as a
-  dev-dependency. A new `tmt api` method changes the seam and goes to tmt-lead.
+- **Seam.** Ops uses public `tmt --json`/`tmt api` and starts `tmt digest tick`
+  via `TMT_EXECUTABLE` (else PATH `tmt`), bounded by `tmt-invoke`. Digest owns
+  locking, deadlines and delivery ([clock](.agents/skills/tmt-ops-dev/references/data-and-state.md#cron)). No direct core state, tmux or provider writes.
+  The guard rejects Cargo/source edges from TMT crates to Ops or Ops to core.
+  Its TMT dependencies are `tmt-tui`, `tmt-cli-style` and `tmt-invoke`,
+  plus dev-only `tmt-test-support`.
+  New `tmt api` methods need tmt-lead review.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Ops membership store. Ops owns
   `<dataRoot>/ops` (`storage.root`), including private, bounded display snapshots in `cache/board` ([cache contract](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#display-snapshot-cache)), and disposable `$XDG_CACHE_HOME/tmt-ops` caches.
