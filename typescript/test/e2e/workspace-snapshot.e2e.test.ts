@@ -162,6 +162,99 @@ describe('event-driven workspace recovery snapshots', () => {
     });
   });
 
+  it('captures Unicode topology under C and preserves recovery state on multiline refusal', async () => {
+    await withE2EFixture(async (fixture) => {
+      const session = '日本語 café';
+      const window = '窓 λ';
+      const cwd = path.join(fixture.workspace, '雪 café');
+      fs.mkdirSync(cwd);
+      const pane = fixture
+        .tmux([
+          '-u',
+          'new-session',
+          '-d',
+          '-P',
+          '-F',
+          '#{pane_id}',
+          '-s',
+          session,
+          '-n',
+          window,
+          '-c',
+          cwd,
+          'sleep',
+          '300',
+        ])
+        .trim();
+      const bound = await fixture.runJsonCli<{ id: string }>(['name', 'C Locale Seat 雪', '-s'], {
+        locale: 'C',
+      });
+      expect(bound.code, bound.stderr).toBe(0);
+      const snapshot = readSnapshot(fixture);
+      expect(snapshot.panes.find((value) => value.id === fixture.pane)?.identity).toMatchObject({
+        id: bound.json!.id,
+        name: 'C Locale Seat 雪',
+      });
+      const savedSession = snapshot.sessions.find((value) => value.name === session)!;
+      expect(savedSession).toBeDefined();
+      expect(
+        snapshot.windows.find((value) => value.id === savedSession.windows[0].window)?.name
+      ).toBe(window);
+      expect(snapshot.panes.find((value) => value.id === pane)?.cwd).toBe(cwd);
+      const bytes = fs.readFileSync(snapshotPath(fixture));
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      const durable = () => ({
+        identities: database.prepare('SELECT * FROM identities ORDER BY id').all(),
+        bindings: database.prepare('SELECT * FROM bindings ORDER BY id').all(),
+        preferences: database
+          .prepare('SELECT * FROM identity_session_preferences ORDER BY identity_id')
+          .all(),
+      });
+      try {
+        const before = durable();
+        const preview = await fixture.runJsonCli<{
+          sessions: Array<{ session: string; action: string }>;
+        }>(['workspace', 'show', '--socket', fixture.socketPath], {
+          outsideTmux: true,
+          locale: 'C',
+        });
+        expect(preview.code, preview.stderr).toBe(0);
+        expect(preview.json!.sessions).toEqual(
+          snapshot.sessions.map((value) => ({ session: value.id, action: 'skip_existing' }))
+        );
+        expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
+        expect(durable()).toEqual(before);
+        const multiline = path.join(fixture.workspace, 'unsupported\npath');
+        fs.mkdirSync(multiline);
+        fixture.tmux(['new-window', '-d', '-t', savedSession.id, '-c', multiline, 'sleep', '300']);
+        // An admitted idempotent binding event attempts capture. Literal multiline
+        // topology is unsupported; it must preserve the previous recovery document.
+        const repeated = await fixture.runJsonCli(['name', 'C Locale Seat 雪', '-s'], {
+          locale: 'C',
+        });
+        expect(repeated.code, repeated.stderr).toBe(0);
+        expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
+        const after = durable();
+        expect(after.identities).toEqual(before.identities);
+        expect(after.preferences).toEqual(before.preferences);
+        // The successful binding event owns a verification timestamp touch;
+        // unsupported capture must not change binding identity/runtime fields.
+        const withoutVerificationTime = (rows: unknown[]) =>
+          rows.map((row) => {
+            const { last_verified_at: _verified, ...fields } = row as Record<string, unknown>;
+            return fields;
+          });
+        expect(withoutVerificationTime(after.bindings)).toEqual(
+          withoutVerificationTime(before.bindings)
+        );
+      } finally {
+        database.close();
+      }
+    });
+  });
+
   it('captures linked layouts and exact identities, then reflects committed unbind', async () => {
     await withE2EFixture(async (fixture) => {
       fixture.tmux(['new-session', '-d', '-s', 'linked']);

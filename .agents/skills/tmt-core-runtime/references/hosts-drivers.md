@@ -19,7 +19,11 @@ channels and the driver protocol. The owner map is in
   `RECONCILIATION_FAILED` (exit 1), not `PANE_NOT_FOUND`; a completed lookup with no valid
   pane ID is "no target". Socket denial is `TMUX_PERMISSION_DENIED`, confirmed from the
   socket path's metadata and effective-user write access, never from localized stderr. The
-  adapter preserves every child locale variable.
+  adapter preserves every child locale variable. The single `Tmux::run` owner adds
+  one global `-u` client flag, including bootstrap, evidence, transport and option
+  migration calls, so a C-locale client preserves literal UTF-8 output. This changes
+  neither server options nor shell selection; command-local option unsets remain
+  separate from the client flag.
 - `tmt_core::driver::pane_input_text` turns ASCII `!` into fullwidth `！` for all text typed
   into a pane on every host; hosts and drivers add nothing. `check` is bounded diagnostics,
   never a response channel. `response_input` polls against the deadline before each read and

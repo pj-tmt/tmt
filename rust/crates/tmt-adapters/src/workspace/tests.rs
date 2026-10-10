@@ -134,6 +134,7 @@ fn eligible_dispatch_only_reads_selected_tty_and_owner_then_writes_marker() {
     assert_eq!(
         calls[0].args,
         [
+            "-u",
             "-S",
             "/tmp/dispatch.sock",
             "display-message",
@@ -148,8 +149,9 @@ fn eligible_dispatch_only_reads_selected_tty_and_owner_then_writes_marker() {
         "one starts read, only for the caller"
     );
     assert_eq!(
-        &calls[2].args[..7],
+        &calls[2].args[..8],
         [
+            "-u",
             "-S",
             "/tmp/dispatch.sock",
             "set-option",

@@ -91,7 +91,11 @@ Malformed, unsupported, oversized or symlinked snapshots are refused unchanged.
 The version 1 plan contains the existing `snapshot` topology plus `sessions` and
 `panes` actions. A bounded read of current session names marks matching names
 `skip_existing`, absent names `create`, and uncertain observation `unknown`. A
-missing socket has no sessions. Every effectful restore must recheck live state;
+missing socket has no sessions. The tmux reader flags control-bearing names before
+newline framing and refuses malformed or unsupported output as uncertain; it never
+splits one name into multiple sessions. Literal Unicode names remain unchanged under
+a C locale through the shared UTF-8 client flag. Refusal preserves snapshot and
+durable state. Every effectful restore must recheck live state;
 this preview grants no authority to overwrite or launch.
 Human output shows snapshot age with the CLI's relative-time formatter; JSON
 retains the exact `capturedAtMs`. A stale conversation is labeled as stale without

@@ -235,14 +235,14 @@ mod tests {
             let calls = tmux.runner.calls.borrow();
             assert_eq!(calls.len(), if marked { 2 } else { 1 });
             assert!(calls.iter().all(|call| {
-                call.args[..2] == ["-S", "/tmp/tmt-driver.sock"]
+                call.args[..3] == ["-u", "-S", "/tmp/tmt-driver.sock"]
                     && !call.args.iter().any(|arg| {
                         ["capture-pane", "set-buffer", "paste-buffer", "send-keys"]
                             .contains(&arg.as_str())
                     })
             }));
             if marked {
-                assert_eq!(calls[1].args[2], "list-clients");
+                assert_eq!(calls[1].args[3], "list-clients");
             }
         }
         let mut unbound = entry();
@@ -328,9 +328,9 @@ mod tests {
         ));
         let calls = tmux.runner.calls.borrow();
         assert_eq!(calls.len(), 4);
-        assert_eq!(calls[1].args[2], "set-buffer");
+        assert_eq!(calls[1].args[3], "set-buffer");
         assert_eq!(calls[1].args.last().unwrap(), "hello！\n");
-        assert_eq!(calls[2].args[2], "paste-buffer");
+        assert_eq!(calls[2].args[3], "paste-buffer");
         assert_eq!(calls[3].args.last().unwrap(), "Enter");
     }
 
@@ -377,7 +377,7 @@ mod tests {
         let calls = tmux.runner.calls.borrow();
         assert_eq!(calls.len(), 4);
         assert_eq!(calls[1].args.last().unwrap(), "exact message\n");
-        assert_eq!(calls[2].args[2], "paste-buffer");
+        assert_eq!(calls[2].args[3], "paste-buffer");
         assert_eq!(calls[3].args.last().unwrap(), "Enter");
     }
 
@@ -725,7 +725,7 @@ mod tests {
         ));
         let calls = tmux.runner.calls.borrow();
         assert_eq!(calls.len(), 4);
-        assert_eq!(calls[3].args[2], "delete-buffer");
+        assert_eq!(calls[3].args[3], "delete-buffer");
         assert!(
             calls
                 .iter()
@@ -777,7 +777,7 @@ mod tests {
             "evidence, target, invoker session, clients, switch"
         );
         assert_eq!(
-            calls[4].args[2..6],
+            calls[4].args[3..7],
             ["switch-client", "-c", "client-1", "-t"]
         );
         assert!(calls.iter().all(|call| {

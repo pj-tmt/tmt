@@ -252,7 +252,10 @@ impl<R: CommandRunner> Tmux<R> {
                 CommandError::new(CommandFailure::Timeout),
             ));
         }
-        let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+        // Client output must preserve literal UTF-8 bytes even outside tmux under C.
+        let args: Vec<OsString> = std::iter::once(OsString::from("-u"))
+            .chain(args.into_iter().map(OsString::from))
+            .collect();
         let output = self
             .runner
             .execute(CommandRequest {

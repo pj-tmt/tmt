@@ -95,6 +95,7 @@ mod tests {
         assert_eq!(
             calls[0].args,
             [
+                "-u",
                 "-S",
                 "/tmp/reply-notice-owned.sock",
                 "list-clients",

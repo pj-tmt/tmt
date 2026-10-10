@@ -140,7 +140,13 @@ fi
 if [ "${'$'}tmux_command" = "set-option" ]; then
   unset_metadata=0
   pane_metadata=0
+  command_seen=0
   for arg in "${'$'}@"; do
+    # A global -u selects client UTF-8; only set-option's -u clears metadata.
+    if [ "${'$'}command_seen" = "0" ]; then
+      if [ "${'$'}arg" = "set-option" ]; then command_seen=1; fi
+      continue
+    fi
     if [ "${'$'}arg" = "-u" ]; then unset_metadata=1; fi
     if [ "${'$'}arg" = "-p" ]; then pane_metadata=1; fi
     if [ "${'$'}arg" = "@tmt.agent" ]; then metadata_write=1; fi

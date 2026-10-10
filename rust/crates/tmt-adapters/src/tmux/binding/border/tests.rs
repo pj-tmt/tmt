@@ -43,18 +43,16 @@ fn inherited_format_is_preserved_and_ownership_follows_successful_pane_only_writ
     .unwrap();
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 5);
-    assert!(
-        calls
-            .iter()
-            .all(|call| call.deadline == deadline && call.args[..2] == ["-S", "/tmp/private.sock"])
-    );
+    assert!(calls.iter().all(
+        |call| call.deadline == deadline && call.args[..3] == ["-u", "-S", "/tmp/private.sock"]
+    ));
     let composed = format!("{BADGE}  #[align=left]#{{pane_index}} , tail  ");
     assert_eq!(
-        calls[2].args[2..],
+        calls[2].args[3..],
         ["set-option", "-p", "-o", "-t", "%9", FORMAT, &composed]
     );
     assert_eq!(
-        calls[3].args[2..],
+        calls[3].args[3..],
         ["set-option", "-p", "-t", "%9", OWNER, &composed]
     );
     assert!(
@@ -75,7 +73,7 @@ fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
                 .calls
                 .borrow()
                 .iter()
-                .all(|call| call.args[2] == "show-options")
+                .all(|call| call.args[3] == "show-options")
         );
     }
     let tmux = Tmux::new(ScriptedRunner::new([
@@ -91,7 +89,7 @@ fn user_local_empty_or_nonempty_and_existing_badge_formats_are_not_written() {
             .calls
             .borrow()
             .iter()
-            .all(|call| call.args[2] == "show-options")
+            .all(|call| call.args[3] == "show-options")
     );
 }
 
@@ -110,10 +108,10 @@ fn cleanup_is_server_fenced_and_refuses_missing_or_foreign_ownership() {
     tmux.update_badge_border(&binding(), false, false, OperationOptions::default())
         .unwrap();
     let calls = tmux.runner.calls.borrow();
-    assert_eq!(calls[1].args[2..6], ["if-shell", "-F", "-t", "%9"]);
-    assert!(calls[1].args[6].contains("#{==:#{pane-border-format},#{@tmt.border}}"));
+    assert_eq!(calls[1].args[3..7], ["if-shell", "-F", "-t", "%9"]);
+    assert!(calls[1].args[7].contains("#{==:#{pane-border-format},#{@tmt.border}}"));
     assert_eq!(
-        calls[1].args[7],
+        calls[1].args[8],
         "set-option -p -u -t %9 pane-border-format ; set-option -p -u -t %9 @tmt.border"
     );
 }
@@ -175,8 +173,8 @@ fn automatic_refresh_publishes_the_format_without_querying_hint_status() {
         .unwrap();
     let calls = tmux.runner.calls.borrow();
     assert_eq!(calls.len(), 4);
-    assert_eq!(calls[2].args[2], "set-option");
-    assert_eq!(calls[3].args[6], OWNER);
+    assert_eq!(calls[2].args[3], "set-option");
+    assert_eq!(calls[3].args[7], OWNER);
     assert!(
         !calls
             .iter()

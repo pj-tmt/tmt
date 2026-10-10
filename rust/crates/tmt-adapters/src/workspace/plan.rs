@@ -155,7 +155,10 @@ mod tests {
         // An existing filesystem entry requires the actual bounded tmux observation.
         std::fs::write(&snapshot.server.socket, b"fixture").unwrap();
         let runner = ScriptedRunner::default();
-        runner.push_output(b"workspace\nother\n".to_vec(), Vec::new());
+        runner.push_output(
+            b"0__TMT_FIELD_4f1c__workspace\n0__TMT_FIELD_4f1c__other\n".to_vec(),
+            Vec::new(),
+        );
         let input = read(
             &paths,
             &snapshot.server.socket,
@@ -181,5 +184,42 @@ mod tests {
             "unknown"
         );
         assert!(!paths.database.exists());
+    }
+
+    #[test]
+    fn unsupported_session_names_leave_snapshot_and_durable_bytes_unchanged() {
+        let directory = TestDirectory::new();
+        let paths = super::super::tests::paths(&directory.path);
+        let mut snapshot = super::super::tests::sample();
+        snapshot.server.socket = directory.path.join("socket").display().to_string();
+        super::super::publish_event(&paths, &snapshot.server.socket, || Ok(snapshot.clone()))
+            .unwrap();
+        std::fs::write(&snapshot.server.socket, b"fixture").unwrap();
+        let mut storage = Storage::open(&paths.database).unwrap();
+        create_or_resolve(&mut storage, "preserved", Lifetime::Saved).unwrap();
+        storage.close().unwrap();
+        let database = std::fs::read(&paths.database).unwrap();
+        let saved = paths
+            .workspace_directory(&snapshot.server.socket)
+            .join("latest.json");
+        let bytes = std::fs::read(&saved).unwrap();
+        let runner = ScriptedRunner::default();
+        runner.push_output(
+            b"1__TMT_FIELD_4f1c__bad\n0__TMT_FIELD_4f1c__workspace\n".to_vec(),
+            Vec::new(),
+        );
+        let input = read(
+            &paths,
+            &snapshot.server.socket,
+            &host(runner),
+            Instant::now() + super::super::CAPTURE_BUDGET,
+        )
+        .unwrap();
+        assert_eq!(
+            document(&input).unwrap()["sessions"][0]["action"],
+            "unknown"
+        );
+        assert_eq!(std::fs::read(&paths.database).unwrap(), database);
+        assert_eq!(std::fs::read(&saved).unwrap(), bytes);
     }
 }

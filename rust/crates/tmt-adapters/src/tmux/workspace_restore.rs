@@ -90,7 +90,7 @@ impl<R: CommandRunner> Tmux<R> {
                 .run(vec![
                     "list-sessions".into(),
                     "-F".into(),
-                    "#{session_name}".into(),
+                    super::workspace::session_name_format(),
                 ])
                 .and_then(|output| super::workspace::session_names(&output))
             {
@@ -187,8 +187,7 @@ impl<R: CommandRunner> Tmux<R> {
 
 impl<R: CommandRunner> Restore<'_, R> {
     fn run(&self, args: Vec<String>) -> Result<String, TmuxError> {
-        // Explicit UTF-8 preserves literal cwd/name bytes even outside tmux in a C locale.
-        let mut selected = vec!["-u".into(), "-S".into(), self.socket.into()];
+        let mut selected = vec!["-S".into(), self.socket.into()];
         selected.extend(args);
         self.tmux.run(
             "tmux",
