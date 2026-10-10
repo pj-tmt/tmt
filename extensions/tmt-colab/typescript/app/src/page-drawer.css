@@ -1,25 +1,19 @@
 .page-drawer {
   position: fixed;
-  inset: calc(var(--page-bar-size) + 16px + env(safe-area-inset-top, 0px)) 16px 16px auto;
+  inset: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px)) 0 0 auto;
   z-index: 20;
-  width: min(440px, calc(100vw - 32px));
-  height: calc(100dvh - var(--page-bar-size) - env(safe-area-inset-top, 0px) - 32px);
+  width: min(440px, 100vw);
+  height: calc(100dvh - var(--page-bar-size) - env(safe-area-inset-top, 0px));
   max-width: none;
   max-height: none;
   margin: 0;
   padding: 0;
   color: var(--c-text);
   background: var(--c-paper);
-  border: 1px solid var(--c-text);
+  border: 0;
+  border-left: 1px solid var(--c-text);
   box-shadow: none;
   overflow: hidden;
-}
-/* Clip the exposed drawer gutter without resizing the opaque author frame.
-   Its margin markers stay behind the drawer until the page edge is uncovered. */
-@media (min-width: 641px) {
-  body:has(.page-drawer[open]) .frame-host {
-    clip-path: inset(0 16px 0 0);
-  }
 }
 .page-drawer[open] {
   display: flex;

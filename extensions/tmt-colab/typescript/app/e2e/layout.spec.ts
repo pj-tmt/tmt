@@ -264,6 +264,13 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Comments')).click();
       const drawer = page.locator('.page-drawer[data-panel=comments][open]');
       await expect(drawer).toBeVisible();
+      if (width > 640) {
+        const edge = (await drawer.boundingBox())!;
+        expect(edge.x + edge.width).toBe(width);
+        expect(edge.y + edge.height).toBe(900);
+        expect(edge.y).toBe(56);
+        await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
+      }
       const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
       if (capture) {
         mkdirSync(capture, { recursive: true });
@@ -276,8 +283,7 @@ for (const width of [1440, 390])
       const exposed = { x: box.x + box.width - 2, y: box.y + box.height / 2 };
       const frameAt = () =>
         page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', exposed);
-      // The mark's last pixels are in the desktop drawer's outer gutter.
-      // On mobile the native modal covers the full page instead.
+      // The desktop drawer covers the page edge; the mobile modal covers the page.
       await expect.poll(frameAt).toBe(false);
       await drawer.getByRole('button', { name: 'Close Comments', exact: true }).click();
       await expect(drawer).not.toBeVisible();

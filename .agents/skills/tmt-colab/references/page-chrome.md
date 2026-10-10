@@ -133,10 +133,10 @@ subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
-the right on an opaque square surface; mobile uses a full-screen native modal sheet. Neither
-changes renderer width or content layout. While a desktop drawer is open, its exposed
-right gutter clips the author frame so annotation margin marks cannot peek past
-the drawer. Closing restores the edge without resizing or remounting the frame.
+the right on an opaque square surface, flush to the viewport's right and bottom
+edges directly below the header with only a left border; mobile uses a full-screen native modal sheet. Neither
+changes renderer width or content layout. The desktop drawer covers the annotation
+margin marks at the page edge without clipping or resizing the author frame.
 Panel bodies scroll independently except
 Chat: its bounded flex body keeps the shared header and non-shrinking composer
 visible, with only message history scrolling in the remaining height.
