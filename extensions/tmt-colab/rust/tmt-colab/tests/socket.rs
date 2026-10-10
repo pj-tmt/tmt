@@ -2139,20 +2139,44 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This Colab space is private"));
-    let brand_start = r#"<span class="tmt-ui-brand"><svg class="tmt-ui-mark" viewBox="0 0 200 200" aria-hidden="true" fill="currentColor">"#;
-    let mark = guidance
-        .split_once(brand_start)
+    // The browser leaf owns the mark. This test-only source read detects copy drift.
+    let shared_header = include_str!("../../../../../design/browser-ui/src/header.tsx");
+    let shared_mark = shared_header
+        .split_once("function HeaderMark() {")
         .unwrap()
         .1
         .split_once("</svg>")
         .unwrap()
         .0;
-    let path =
-        r#"<path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/>"#;
-    let blades = [0, 60, 120, 180, 240, 300]
-        .map(|angle| format!(r#"<g transform="rotate({angle} 100 100)">{path}</g>"#))
-        .join("");
-    assert_eq!(mark, blades);
+    let attribute = |source: &str, name: &str| {
+        source
+            .split_once(&format!("{name}=\""))
+            .unwrap()
+            .1
+            .split_once('"')
+            .unwrap()
+            .0
+            .to_owned()
+    };
+    let mark = guidance
+        .split_once(r#"<span class="tmt-ui-brand">"#)
+        .unwrap()
+        .1
+        .split_once("</svg>")
+        .unwrap()
+        .0;
+    assert_eq!(
+        attribute(mark, "viewBox"),
+        attribute(shared_mark, "viewBox")
+    );
+    assert_eq!(attribute(mark, "fill"), attribute(shared_mark, "fill"));
+    assert_eq!(
+        attribute(mark, "fill-rule"),
+        attribute(shared_mark, "fillRule")
+    );
+    assert_eq!(attribute(mark, "d"), attribute(shared_mark, "d"));
+    assert_eq!(mark.matches("<path ").count(), 1);
+    assert!(!mark.contains("<g"));
     assert!(guidance.contains(r#"</svg><span class="tmt-ui-wordmark">Colab</span></span>"#));
     assert!(!guidance.contains(r#"<span class="tmt-ui-mark""#));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
