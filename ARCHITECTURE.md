@@ -347,7 +347,7 @@ fullwidth `！` in any text typed into a pane. Details are in the
 
 Each agent driver has one pure `DriverDescriptor` and one adapter module;
 `drivers::Registry` composes detection, setup, launch and caller recognition.
-Detection never starts an agent. Module rules and name ownership:
+Detection never starts an agent. Claude owns embedded, versioned prompt-picker assets and child-only plugin launch arguments; no persistent provider settings change. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels

@@ -139,6 +139,18 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
                 .splice(boundary..boundary, ["--settings".into(), settings.into()]);
         }
     }
+    // Picker availability never changes the provider's hook composition or exit.
+    if let Ok(plugin) = super::plugin::materialize(plan.paths) {
+        let boundary = command
+            .args
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(command.args.len());
+        command.args.splice(
+            boundary..boundary,
+            ["--plugin-dir".into(), plugin.into_os_string()],
+        );
+    }
     Ok(command)
 }
 

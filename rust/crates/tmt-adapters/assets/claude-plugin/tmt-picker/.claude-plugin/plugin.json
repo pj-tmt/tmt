@@ -1,0 +1,5 @@
+{
+  "name": "tmt-picker",
+  "version": "0.1.0",
+  "description": "Type tmt/ in the prompt to fuzzy-pick a tmt identity"
+}
