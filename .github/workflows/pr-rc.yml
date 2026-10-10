@@ -1,0 +1,152 @@
+name: PR release candidate
+run-name: 'pr-rc #${{ inputs.pr }} ${{ inputs.head12 }}'
+
+# Main tooling prepares an opt-in same-repository PR; no release or repository writes.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Same-repository PR with the rc-build label
+        required: true
+        type: string
+      head:
+        description: Exact 40-hex PR head to prepare
+        required: true
+        type: string
+      head12:
+        description: First twelve characters of head (checked before preparation)
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: pr-rc-${{ inputs.pr }}
+  cancel-in-progress: true
+
+env:
+  REQUESTED_PR: ${{ inputs.pr }}
+  REQUESTED_HEAD: ${{ inputs.head }}
+  REQUESTED_HEAD12: ${{ inputs.head12 }}
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      head: ${{ steps.guard.outputs.head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require current same-repository main opt-in
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node typescript/scripts/pr-rc-coordinator.mjs guard
+
+  prepare:
+    needs: guard
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/native-release-prepare.yml
+    with:
+      product: cli
+      sha: ${{ needs.guard.outputs.head }}
+
+  payload:
+    needs: [guard, prepare]
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-apple-darwin
+          - aarch64-unknown-linux-musl
+          - x86_64-apple-darwin
+          - x86_64-unknown-linux-musl
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-release-cli-bundle-main
+          path: ${{ runner.temp }}/bundle
+      - name: Stage only final verified payload members
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_DIRECTORY: ${{ runner.temp }}/bundle
+          TARGET: ${{ matrix.target }}
+        run: node typescript/scripts/pr-rc-coordinator.mjs stage
+      - name: Upload one bounded root payload
+        id: payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.name }}
+          path: ${{ runner.temp }}/pr-rc-payloads/${{ matrix.target }}/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Read back the returned payload ID and member bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_DIRECTORY: ${{ runner.temp }}/bundle
+          TARGET: ${{ matrix.target }}
+          RETURNED_ARTIFACT_ID: ${{ steps.payload.outputs.artifact-id }}
+        run: node typescript/scripts/pr-rc-coordinator.mjs payload
+
+  catalog:
+    needs: [guard, prepare, payload]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-release-cli-bundle-main
+          path: ${{ runner.temp }}/bundle
+      - name: Recheck all payloads and fresh eligibility before catalog exposure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_DIRECTORY: ${{ runner.temp }}/bundle
+        run: node typescript/scripts/pr-rc-coordinator.mjs catalog
+      - name: Publish the sole catalog member last
+        id: catalog
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmt-pr-rc-catalog-v2-pr${{ inputs.pr }}
+          path: ${{ runner.temp }}/catalog.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Read back catalog bytes and final eligibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_DIRECTORY: ${{ runner.temp }}/bundle
+          RETURNED_ARTIFACT_ID: ${{ steps.catalog.outputs.artifact-id }}
+        run: node typescript/scripts/pr-rc-coordinator.mjs finish
+
+  cleanup:
+    needs: [guard, prepare, payload, catalog]
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.guard.result == 'success' }}
+    permissions:
+      actions: write
+    uses: ./.github/workflows/pr-rc-cleanup.yml
+    with:
+      pr: ${{ inputs.pr }}
+      keep-run: ${{ needs.catalog.result == 'success' && format('{0}', github.run_id) || '' }}

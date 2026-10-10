@@ -470,7 +470,7 @@ Release tooling uses cargo-dist manifests and product-owned archives, sharing na
 runtime/linkage proof across archive, installer, upgrade and public smoke checks.
 Raw executables prove neither archives nor public installation. Candidate handoff:
 [native-install-handoff-v1](contracts/native-install-handoff-v1.md). [Records](contracts/release-index-v1.md) bind verified release bytes to identity.
-Archive, installer, verifier, publication, compiled CLI schema and the PR release-candidate checkpoint/coordinator sources belong to
+Archive, installer, verifier, publication, compiled CLI schema and the PR release-candidate producer/cleanup sources belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts

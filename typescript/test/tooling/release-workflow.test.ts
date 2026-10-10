@@ -800,12 +800,19 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(job(prepare, 'verify')).toContain('needs: assemble');
   });
 
-  it('qualifies every artifact by the draft tag, so drafts of one run do not collide', () => {
+  it('qualifies release artifacts by the draft tag and emits tagless CLI reports only', () => {
     const names = [
       ...(prepare + bundle).matchAll(/^ {10}(?:name|pattern): (native-[^\n]+)$/gm),
     ].map(([, name]) => name);
     expect(names.length).toBeGreaterThanOrEqual(5);
-    for (const name of names) expect(name, name).toMatch(/\$\{\{ inputs\.tag( \|\| 'main')? \}\}/);
+    for (const name of names) {
+      if (name === 'native-pr-rc-verify-cli-${{ matrix.target }}-main') {
+        const reports = job(prepare, 'verify').slice(
+          job(prepare, 'verify').indexOf('      - name: Capture the final CLI preparation report')
+        );
+        expect(reports.match(/if: inputs.product == 'cli' && inputs.tag == ''/g)).toHaveLength(2);
+      } else expect(name, name).toMatch(/\$\{\{ inputs\.tag( \|\| 'main')? \}\}/);
+    }
   });
 
   it('asserts that the draft tag is the version its commit declares', () => {
@@ -2018,5 +2025,54 @@ describe('owner-authorized release index bootstrap', () => {
     for (const overrides of invalidInputs) {
       expect(checkTuple(inventory, overrides)).toEqual({ status: 1, output: '' });
     }
+  });
+});
+
+describe('protected-main opt-in PR release candidates', () => {
+  const producer = read('.github/workflows/pr-rc.yml');
+  const cleanup = read('.github/workflows/pr-rc-cleanup.yml');
+  it('dispatches CLI preparation on the exact guarded PR head with no second preparation mode', () => {
+    expect(producer).toContain("run-name: 'pr-rc #${{ inputs.pr }} ${{ inputs.head12 }}'");
+    expect(producer).toMatch(/^on:\n {2}workflow_dispatch:/m);
+    expect(producer).not.toMatch(
+      /pull_request:|pull_request_target|secrets: inherit|contents: write/
+    );
+    expect(producer).toContain('cancel-in-progress: true');
+    const call = producer.slice(producer.indexOf('  prepare:'), producer.indexOf('  payload:'));
+    expect(call).toContain('needs: guard');
+    expect(call).toContain('uses: ./.github/workflows/native-release-prepare.yml');
+    expect(call).toContain('sha: ${{ needs.guard.outputs.head }}');
+    expect(call).toContain('product: cli');
+    expect(producer.match(/uses: actions\/checkout@v4/g)).toHaveLength(3);
+    expect(producer).not.toMatch(/ref: \$\{\{ inputs.head/);
+    expect(producer).toContain('permissions:\n      actions: write');
+    expect(producer).toContain('uses: ./.github/workflows/pr-rc-cleanup.yml');
+    expect(cleanup).not.toMatch(/uses:.*checkout|contents: write/);
+  });
+  it('captures final matching-host reports after unchanged final gates and exposes a read-back catalog last', () => {
+    const verification = prepare.slice(
+      prepare.indexOf('  verify:'),
+      prepare.indexOf('  upgrade-fetch:')
+    );
+    expect(verification.indexOf('Capture the final CLI preparation report')).toBeGreaterThan(
+      verification.indexOf('Recheck version-only source after this stage')
+    );
+    expect(verification).toContain('node typescript/scripts/pr-rc-coordinator.mjs report');
+    expect(verification).toContain('native-pr-rc-verify-cli-${{ matrix.target }}-main');
+    expect(verification.match(/if: inputs.product == 'cli' && inputs.tag == ''/g)).toHaveLength(2);
+    expect(producer).toContain('retention-days: 3');
+    expect(producer).toContain('compression-level: 0');
+    expect(producer).toContain('RETURNED_ARTIFACT_ID: ${{ steps.payload.outputs.artifact-id }}');
+    expect(producer).toContain('RETURNED_ARTIFACT_ID: ${{ steps.catalog.outputs.artifact-id }}');
+    expect(producer).toContain('pr-rc-coordinator.mjs payload');
+    expect(producer).toContain('pr-rc-coordinator.mjs finish');
+    const catalog = producer.slice(producer.indexOf('  catalog:'), producer.indexOf('  cleanup:'));
+    expect(catalog).toContain('needs: [guard, prepare, payload]');
+    expect(catalog.indexOf('pr-rc-coordinator.mjs catalog')).toBeLessThan(
+      catalog.indexOf('id: catalog')
+    );
+    expect(catalog.indexOf('id: catalog')).toBeLessThan(
+      catalog.indexOf('pr-rc-coordinator.mjs finish')
+    );
   });
 });
