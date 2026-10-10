@@ -19,6 +19,8 @@ use tmt_core::{
 pub enum Operation {
     Write(DigestPolicyWrite),
     Show(Vec<String>),
+    Stats(Vec<String>),
+    Due(String),
     Read {
         identity: String,
         checklist: Option<String>,
@@ -51,6 +53,11 @@ struct Write {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Show {
     identities: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Due {
+    identity_id: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -116,7 +123,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 until_ms: until,
             })
         }
-        "digest.policy.show" => {
+        "digest.policy.show" | "digest.stats.show" => {
             let v: Show = serde_json::from_slice(input).map_err(|_| invalid())?;
             if v.identities.is_empty() || v.identities.len() > 256 {
                 return Err(invalid());
@@ -124,7 +131,16 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
             for id in &v.identities {
                 uuid(id)?;
             }
-            Operation::Show(v.identities)
+            if operation == "digest.stats.show" {
+                Operation::Stats(v.identities)
+            } else {
+                Operation::Show(v.identities)
+            }
+        }
+        "digest.checklist.dueNow" => {
+            let v: Due = serde_json::from_slice(input).map_err(|_| invalid())?;
+            uuid(&v.identity_id)?;
+            Operation::Due(v.identity_id)
         }
         "digest.checklist.read" => {
             let v: Read = serde_json::from_slice(input).map_err(|_| invalid())?;
@@ -190,6 +206,18 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
                 .digest_policies(&ids)
                 .map_err(error)?;
             json!({"policies":views.iter().zip(ids).map(|(v,id)|{let mut v=view(v);v["identityId"]=json!(id);v}).collect::<Vec<_>>()})
+        }
+        Operation::Due(identity) => {
+            let due = RequestService::new(storage, wall_time_ms)
+                .make_digest_due(&identity)
+                .map_err(error)?;
+            json!({"identityId":identity,"heldCount":due.held_count,"throughSequence":due.through_sequence})
+        }
+        Operation::Stats(ids) => {
+            let stats = RequestService::new(storage, wall_time_ms)
+                .digest_stats(&ids)
+                .map_err(error)?;
+            json!({"stats":stats.iter().map(|s| json!({"identityId":s.identity_id,"heldCount":s.held_count,"oldestHeldAgeMs":s.oldest_held_age_ms,"deliveredDigests":s.delivered_digests,"dueCount":s.due_count,"nextEligibleAtMs":s.next_eligible_at_ms,"observedAtMs":s.observed_at_ms})).collect::<Vec<_>>()})
         }
         Operation::Read {
             identity,

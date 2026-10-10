@@ -105,6 +105,77 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
+    /// Add idle eligibility for this call's retained, unsealed range only.
+    pub fn make_digest_due(
+        &mut self,
+        identity: &str,
+    ) -> Result<digest::DigestDue, RequestError<R::Error>> {
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            digest_identity(records, identity)?;
+            let (held_count, through_sequence) =
+                records.digest_inventory(identity, None, 0, now)?;
+            if held_count > 0 {
+                records.mark_digest_due(identity, through_sequence)?;
+            }
+            Ok(digest::DigestDue {
+                held_count,
+                through_sequence,
+            })
+        })
+    }
+
+    pub fn digest_stats(
+        &mut self,
+        ids: &[String],
+    ) -> Result<Vec<digest::DigestStats>, RequestError<R::Error>> {
+        if ids.is_empty() || ids.len() > 256 {
+            return Err(digest_error(DigestRejection::Invalid));
+        }
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            ids.iter()
+                .map(|identity| {
+                    digest_identity(records, identity)?;
+                    let policy = records.digest_policy(identity)?;
+                    let view = policy_view(records, identity, policy, now)?;
+                    let counters = records.digest_counters(identity)?;
+                    let pending = records.digest_inventory(identity, None, 0, now)?.0;
+                    let active = view.policy.as_ref().is_some_and(|p| p.active(now));
+                    let due_count = if view.active_checklist.is_some() {
+                        0
+                    } else if active {
+                        records
+                            .digest_due_inventory(identity, counters.due_through_sequence, now)?
+                            .0
+                    } else {
+                        pending
+                    };
+                    let next_eligible_at_ms = if view.active_checklist.is_some() || pending == 0 {
+                        None
+                    } else if due_count > 0 {
+                        Some(now)
+                    } else {
+                        view.policy.as_ref().map(|p| p.until_ms)
+                    };
+                    Ok(digest::DigestStats {
+                        identity_id: identity.clone(),
+                        held_count: view.held_count,
+                        oldest_held_age_ms: records
+                            .digest_oldest_held(identity, now)?
+                            .map(|at| now.saturating_sub(at)),
+                        delivered_digests: counters.delivered_digests,
+                        due_count,
+                        next_eligible_at_ms,
+                        observed_at_ms: now,
+                    })
+                })
+                .collect()
+        })
+    }
+
     pub fn digest_checklist_items(
         &mut self,
         identity: &str,
@@ -160,14 +231,16 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if records.active_digest_checklist(identity)?.is_some() {
                 return Ok(None);
             }
-            if opportunity == DigestOpportunity::Idle
+            let (count, through_sequence) = if opportunity == DigestOpportunity::Idle
                 && records
                     .digest_policy(identity)?
                     .is_some_and(|p| p.active(now))
             {
-                return Ok(None);
-            }
-            let (count, through_sequence) = records.digest_inventory(identity, None, 0, now)?;
+                let through = records.digest_counters(identity)?.due_through_sequence;
+                records.digest_due_inventory(identity, through, now)?
+            } else {
+                records.digest_inventory(identity, None, 0, now)?
+            };
             if count == 0 {
                 return Ok(None);
             }
@@ -207,6 +280,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
             if batch.state != DigestState::Claimed {
                 return Err(digest_error(DigestRejection::StateInvalid));
+            }
+            if state == DigestState::Delivered
+                && records.digest_counters(identity)?.delivered_digests >= MAX_JS_SAFE_INTEGER
+            {
+                return Err(RequestError::RevisionExhausted);
             }
             records.settle_digest_checklist(&batch, state)?;
             Ok(true)

@@ -1069,3 +1069,284 @@ fn digest_reads_do_not_housekeep_acknowledge_or_renew_retained_data() {
     );
     f.storage.close().unwrap();
 }
+
+#[test]
+fn due_now_seals_only_the_tick_range_at_idle_and_keeps_policy_active() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "tick-first");
+    held(&mut f, &target, &sender, "tick-second");
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::Idle
+            )
+            .unwrap()
+            .is_none()
+    );
+    let due = service(&mut f).make_digest_due(&target).unwrap();
+    assert_eq!(due.held_count, 2);
+    assert_eq!(service(&mut f).make_digest_due(&target).unwrap(), due);
+    f.set_now(NOW_MS + 100);
+    held(&mut f, &target, &sender, "tick-later");
+    let stats = service(&mut f)
+        .digest_stats(std::slice::from_ref(&target))
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        (stats.held_count, stats.due_count, stats.oldest_held_age_ms),
+        (3, 2, Some(100))
+    );
+    assert_eq!(stats.next_eligible_at_ms, Some(NOW_MS + 100));
+    let batch = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::Idle,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(batch.through_sequence, due.through_sequence);
+    let (items, count) = service(&mut f)
+        .digest_checklist_items(&target, Some(&batch.id), 0, 128)
+        .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(
+        items
+            .iter()
+            .map(|i| i.request_id.as_str())
+            .collect::<Vec<_>>(),
+        ["tick-first", "tick-second"]
+    );
+    assert!(
+        service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &batch.id,
+                &batch.attempt_token,
+                DigestState::Delivered
+            )
+            .unwrap()
+    );
+    assert!(
+        !service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &batch.id,
+                &batch.attempt_token,
+                DigestState::Delivered
+            )
+            .unwrap()
+    );
+    let stats = service(&mut f)
+        .digest_stats(std::slice::from_ref(&target))
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        (stats.held_count, stats.due_count, stats.delivered_digests),
+        (1, 0, 1)
+    );
+    assert_eq!(stats.next_eligible_at_ms, Some(NOW_MS + 1000));
+    assert!(
+        service(&mut f)
+            .digest_policies(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .policy
+            .as_ref()
+            .unwrap()
+            .active(NOW_MS + 100)
+    );
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::Idle
+            )
+            .unwrap()
+            .is_none()
+    );
+    // A verified turn boundary retains its existing additional eligibility.
+    assert!(
+        service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::TurnBoundary
+            )
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn due_watermark_and_delivery_counter_survive_restart_and_retention_cleanup() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "restart-due");
+    service(&mut f).make_digest_due(&target).unwrap();
+    f.storage.close().unwrap();
+    f.storage = crate::storage::Storage::open(&f.database).unwrap();
+    let batch = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::Idle,
+        )
+        .unwrap()
+        .unwrap();
+    service(&mut f)
+        .settle_digest_checklist(
+            &target,
+            &batch.id,
+            &batch.attempt_token,
+            DigestState::Delivered,
+        )
+        .unwrap();
+    f.set_now(NOW_MS + 7 * super::support::DAY_MS);
+    service(&mut f).cleanup().unwrap();
+    f.storage.close().unwrap();
+    f.storage = crate::storage::Storage::open(&f.database).unwrap();
+    let stats = service(&mut f)
+        .digest_stats(std::slice::from_ref(&target))
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        (
+            stats.held_count,
+            stats.delivered_digests,
+            stats.oldest_held_age_ms,
+            stats.next_eligible_at_ms
+        ),
+        (0, 1, None, None)
+    );
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM focus_checklists WHERE id=?",
+            [&batch.id],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn arrival_context_uses_the_recorded_driver_usage_once_and_preserves_unknown() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "unknown-context");
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    let usage = crate::runtime::driver_state::Usage::new(182340, Some(200000), NOW_MS - 1).unwrap();
+    let state = crate::runtime::driver_state::after_start(Some("claude-sonnet"), Some(usage), None)
+        .unwrap();
+    db.execute("INSERT INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state) VALUES(?1,'claude','default','arrival-session',?2,?3)", rusqlite::params![target,state.version(),state.document()]).unwrap();
+    held(&mut f, &target, &sender, "known-context");
+    db.execute("UPDATE identity_session_preferences SET driver_state=NULL,driver_state_version=NULL WHERE identity_id=?",[&target]).unwrap();
+    // A repeated held admission must preserve the first arrival observation.
+    assert!(!service(&mut f).claim_wake("known-context").unwrap().claimed);
+    let (items, _) = service(&mut f)
+        .digest_checklist_items(&target, None, 0, 128)
+        .unwrap();
+    assert_eq!(
+        (
+            items[0].context_tokens_at_arrival,
+            items[0].context_observed_at_ms
+        ),
+        (None, None)
+    );
+    assert_eq!(
+        (
+            items[1].context_tokens_at_arrival,
+            items[1].context_observed_at_ms
+        ),
+        (Some(182340), Some(NOW_MS - 1))
+    );
+    f.storage.close().unwrap();
+    f.storage = crate::storage::Storage::open(&f.database).unwrap();
+    let (items, _) = service(&mut f)
+        .digest_checklist_items(&target, None, 0, 128)
+        .unwrap();
+    assert_eq!(items[1].context_tokens_at_arrival, Some(182340));
+}
+
+#[test]
+fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() {
+    let (mut f, target, _, sender) = start();
+    held(&mut f, &target, &sender, "counter-failure");
+    let batch = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_digest_counter BEFORE INSERT ON digest_counters BEGIN SELECT RAISE(ABORT,'injected counter refusal'); END;").unwrap();
+    assert!(
+        service(&mut f)
+            .settle_digest_checklist(
+                &target,
+                &batch.id,
+                &batch.attempt_token,
+                DigestState::Delivered
+            )
+            .is_err()
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT state FROM focus_checklists WHERE id=?",
+            [&batch.id],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap(),
+        "claimed"
+    );
+    assert_eq!(
+        service(&mut f)
+            .digest_stats(std::slice::from_ref(&target))
+            .unwrap()[0]
+            .delivered_digests,
+        0
+    );
+    db.execute_batch("DROP TRIGGER fail_digest_counter")
+        .unwrap();
+    service(&mut f)
+        .settle_digest_checklist(
+            &target,
+            &batch.id,
+            &batch.attempt_token,
+            DigestState::Delivered,
+        )
+        .unwrap();
+    for state in [DigestState::Unsent, DigestState::Uncertain] {
+        held(&mut f, &target, &sender, state.as_str());
+        service(&mut f).make_digest_due(&target).unwrap();
+        let next = service(&mut f)
+            .claim_digest_checklist(
+                &target,
+                new_operation_id(),
+                new_operation_id(),
+                DigestOpportunity::Idle,
+            )
+            .unwrap()
+            .unwrap();
+        service(&mut f)
+            .settle_digest_checklist(&target, &next.id, &next.attempt_token, state)
+            .unwrap();
+        assert_eq!(
+            service(&mut f)
+                .digest_stats(std::slice::from_ref(&target))
+                .unwrap()[0]
+                .delivered_digests,
+            1
+        );
+    }
+}

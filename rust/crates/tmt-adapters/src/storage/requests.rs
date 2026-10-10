@@ -210,6 +210,26 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<(u64, u64), Self::Error> {
         digest::inventory(self.0, id, batch, after, now)
     }
+    fn digest_counters(
+        &self,
+        id: &str,
+    ) -> Result<tmt_core::request::digest::DigestCounters, Self::Error> {
+        digest::counters(self.0, id)
+    }
+    fn mark_digest_due(&mut self, id: &str, through: u64) -> Result<(), Self::Error> {
+        digest::mark_due(self.0, id, through)
+    }
+    fn digest_due_inventory(
+        &self,
+        id: &str,
+        through: u64,
+        now: u64,
+    ) -> Result<(u64, u64), Self::Error> {
+        digest::due_inventory(self.0, id, through, now)
+    }
+    fn digest_oldest_held(&self, id: &str, now: u64) -> Result<Option<u64>, Self::Error> {
+        digest::oldest_held(self.0, id, now)
+    }
     fn digest_items(
         &self,
         id: &str,
