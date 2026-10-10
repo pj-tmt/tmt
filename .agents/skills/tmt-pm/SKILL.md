@@ -36,6 +36,9 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    - _Oversized_: tracker or child progress the board cannot show.
    - _Unarmed_: green for 30 minutes. Inspect mergeStateStatus, queue and timeline
      first: DIRTY conflicts drop auto-merge, and stacked PRs may be deliberately unarmed.
+   - _Urgent_: tell the owning lead immediately; list every open urgent item in
+     each status update until closed. Tell the maintainer if one has no movement
+     for two passes.
    - _Red_: an armed PR has a failing required check.
    - _Idle_: a Codex seat is idle or review-blocked for 30 minutes with a startable
      Todo; ask its lead for the next ticket. Fixed seats keep two or three queued.
@@ -52,7 +55,7 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    The weekly pace is 100 points per 168 hours (about 0.6 points/hour).
    Alert the maintainer in chat if projected exhaustion precedes reset, when the
    pace buffer becomes negative, and again at minus seven points with options.
-   Alert once near 5% OpenAI allowance so he can decide on the Codex reset.
+   Alert once near 5% OpenAI allowance so the maintainer can decide on the Codex reset.
    Never change seats or models.
 5. **Update Project and report.** On the owning guide's status-update schedule,
    summarize progress, merged/released work, seats, usage, epic progress and
@@ -60,6 +63,12 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    at the guide's daily tick. Leads send event-driven updates to the PM; send
    tmt-lead only decisions about core paths/contracts or cross-squad seams.
    Broadcast team-wide API, disk and CI alerts to leads.
+
+6. **Maintain [Pending owner decisions (#1053)](https://github.com/pj-tmt/tmt/issues/1053).**
+   Keep one checklist line per decision waiting on the maintainer, with its link
+   and date asked; remove it after the answer is recorded in the linked issue/PR.
+   Fetch the live body before every edit. The status update's `Owner action pending`
+   summarizes this durable list; it does not replace it.
 
 ## Limits
 

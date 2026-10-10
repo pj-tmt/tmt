@@ -10,7 +10,7 @@ const BUDGETS = {
   'ARCHITECTURE.md': 645,
 } as const;
 const BYTE_BUDGETS = {
-  'DEVELOPMENT.md': 19_174,
+  'DEVELOPMENT.md': 19_187,
   'ARCHITECTURE.md': 48_200,
 } as const;
 

@@ -309,7 +309,7 @@ Tracker rules:
   Automation skips trackers; their lead sets Status, keeps gates under `Blocked`,
   and never reopens a delivered milestone for optional future children.
 - New epics require the maintainer's approval; leads propose them through tmt-lead.
-  No agent creates one on its own. Epic work requires his explicit go; until
+  No agent creates one on its own. Epic work requires the maintainer's explicit go; until
   then its issues stay `Todo`. Leads/PM freely open children below approved epics:
   one outcome, acceptance criteria and normally one PR; split work hiding progress.
 - PM checks at :05 hourly (usage, idle seats, green unarmed PRs) and updates Project
