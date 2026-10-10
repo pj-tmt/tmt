@@ -697,7 +697,7 @@ try {
 	});
 	await run(() => refreshView());
 } catch (error) {
-	const capacity = error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT" ? `All ${error.limit} pages for this device are in use. Close another page, or run tmt remote settings sessions-per-device <n>|off.` : void 0;
+	const capacity = error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT" ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).` : void 0;
 	commandNotice(element("access"), capacity ?? (error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI."));
 	element("access-announcement").textContent = capacity ?? (error instanceof RefusalError ? "Access ended" : "Access unconfirmed");
 	refresh.disabled = true;

@@ -481,7 +481,7 @@ try {
 } catch (error) {
   const capacity =
     error instanceof RefusalError && error.code === 'REMOTE_SESSION_LIMIT'
-      ? `All ${error.limit} pages for this device are in use. Close another page, or run tmt remote settings sessions-per-device <n>|off.`
+      ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).`
       : undefined;
   commandNotice(
     element('access'),

@@ -50,7 +50,7 @@ for (const code of [
       await import('../src/settings-page.js');
       if (code === 'REMOTE_SESSION_LIMIT') {
         const copy =
-          'All 8 pages for this device are in use. Close another page, or run tmt remote settings sessions-per-device <n>|off.';
+          'This device already has 8 open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).';
         assert.equal(nodes.get('access')!.textContent, copy);
         assert.equal(nodes.get('access-announcement')!.textContent, copy);
         assert.equal(nodes.get('controls-reason')!.textContent, copy);
