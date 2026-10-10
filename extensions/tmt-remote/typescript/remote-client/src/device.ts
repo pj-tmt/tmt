@@ -1,3 +1,4 @@
+import { RefusalError, remoteError } from './operations.js';
 import { registerChannel, verifyEd25519, verifyResponse } from './session-channel.js';
 import {
   base64url,
@@ -352,9 +353,21 @@ export async function openSession(
     after: 0n,
   });
   requireValue(reply.sequence === 1n, 'session response sequence');
-  const session = JSON.parse(strictUtf8.decode(reply.payload)) as Session;
+  const decoded: unknown = JSON.parse(strictUtf8.decode(reply.payload));
   requireValue(
-    session.sessionId === reply.sessionId &&
+    typeof decoded === 'object' && decoded !== null && !Array.isArray(decoded),
+    'session decoded',
+  );
+  if (Object.hasOwn(decoded, 'error')) {
+    requireValue(reply.sessionId === 'new', 'rejected-open session');
+    const refusal = remoteError(decoded as Record<string, unknown>, paired.address);
+    requireValue(refusal instanceof RefusalError, 'rejected-open refusal');
+    throw refusal;
+  }
+  const session = decoded as Session;
+  requireValue(
+    UUID.test(session.sessionId) &&
+      session.sessionId === reply.sessionId &&
       Number.isSafeInteger(session.serverTimeMs) &&
       session.serverTimeMs >= 0 &&
       Number.isSafeInteger(session.grantRevision) &&

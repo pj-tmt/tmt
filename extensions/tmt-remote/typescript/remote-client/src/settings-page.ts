@@ -479,15 +479,21 @@ try {
   });
   await run(() => refreshView());
 } catch (error) {
+  const capacity =
+    error instanceof RefusalError && error.code === 'REMOTE_SESSION_LIMIT'
+      ? `This device already has ${error.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).`
+      : undefined;
   commandNotice(
     element('access'),
-    error instanceof RefusalError
-      ? 'Current browser access refused. Use the local CLI.'
-      : 'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.',
+    capacity ??
+      (error instanceof RefusalError
+        ? 'Current browser access refused. Use the local CLI.'
+        : 'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.'),
   );
   element('access-announcement').textContent =
-    error instanceof RefusalError ? 'Access ended' : 'Access unconfirmed';
+    capacity ?? (error instanceof RefusalError ? 'Access ended' : 'Access unconfirmed');
   refresh.disabled = true;
   element('access-notice').dataset.tone = 'blocked';
-  element('controls-reason').textContent = 'Current access is unavailable. Use the local CLI.';
+  element('controls-reason').textContent =
+    capacity ?? 'Current access is unavailable. Use the local CLI.';
 }

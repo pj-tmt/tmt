@@ -52,6 +52,7 @@ export type RemoteRefusalCode =
   | 'REMOTE_CLOSED'
   | 'REMOTE_SESSION_ENDED'
   | 'REMOTE_SESSION_EVICTED'
+  | 'REMOTE_SESSION_LIMIT'
   | 'REMOTE_INPUT_TOO_LARGE'
   | 'REMOTE_STATE_UNAVAILABLE'
   | 'REMOTE_CORE_UNAVAILABLE'
@@ -192,7 +193,7 @@ function agents(value: unknown): RemoteAgent[] {
     };
   });
 }
-function remoteError(
+export function remoteError(
   value: Record<string, unknown>,
   address: string,
 ): RefusalError | SequenceMismatch | undefined {
@@ -209,7 +210,9 @@ function remoteError(
   valid(
     limit === undefined || (typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0),
   );
-  valid(error.code !== 'REMOTE_SESSION_EVICTED' || limit !== undefined);
+  valid(
+    !['REMOTE_SESSION_EVICTED', 'REMOTE_SESSION_LIMIT'].includes(error.code) || limit !== undefined,
+  );
   let settingsUrl: string | undefined;
   if (error.settingsUrl !== undefined && error.settingsUrl !== null) {
     valid(
@@ -236,6 +239,7 @@ function remoteError(
   valid(
     PRE_EFFECT.has(error.code) ||
       [
+        'REMOTE_SESSION_LIMIT',
         'REMOTE_INPUT_TOO_LARGE',
         'REMOTE_STATE_UNAVAILABLE',
         'REMOTE_CORE_UNAVAILABLE',

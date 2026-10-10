@@ -1,5 +1,7 @@
+import type { RefusalError } from './operations.js';
 /** Bounded admission only. The caller owns connection state and original effect IDs. */
 export type ReopenSessionReason =
+  | 'capacity'
   | 'unreachable'
   | 'unconfirmed'
   | 'transient'
@@ -8,6 +10,7 @@ export type ReopenSessionReason =
   | 'revoked'
   | 'expired';
 export type ReopenSessionDetail =
+  | 'admission-refused'
   | 'budget-exhausted'
   | 'cancelled'
   | 'pairing-unavailable'
@@ -20,12 +23,15 @@ export interface ReopenSessionOptions {
   signal?: AbortSignal;
 }
 export class ReopenSessionError extends Error {
+  override readonly cause?: RefusalError;
   constructor(
     readonly reason: ReopenSessionReason,
     readonly detail: ReopenSessionDetail,
+    cause?: RefusalError,
   ) {
     super(`Remote session admission: ${reason} (${detail}).`);
     this.name = 'ReopenSessionError';
+    this.cause = cause;
   }
 }
 const DEADLINE = 20_000;
@@ -105,7 +111,7 @@ export async function boundedAdmission<T>(
       if (!(error instanceof ReopenSessionError))
         throw new ReopenSessionError('transient', 'admission-unconfirmed');
       if (
-        ['mismatch', 'unpaired', 'revoked', 'expired'].includes(error.reason) ||
+        ['capacity', 'mismatch', 'unpaired', 'revoked', 'expired'].includes(error.reason) ||
         ['cancelled', 'unverifiable-response'].includes(error.detail)
       )
         throw error;

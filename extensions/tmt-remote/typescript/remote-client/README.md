@@ -187,8 +187,11 @@ Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
 serialized request lane. The cookie authenticates device context; it does not select a
 tab's signed request lane. Sessions default to a limit of 8. The owner may set `tmt remote
 settings sessions-per-device <n>|off`; changes apply at the next open. Unset means 8;
-`off` means unlimited. With a limit, opening evicts the device's most idle session
-without a live transport first, falling back to the most idle attached session.
+`off` means unlimited. With a limit, opening evicts only the device's most idle session
+without a live transport. Attached sessions are never evicted for capacity; a fresh open
+that cannot make room throws a verified `RefusalError` with code `REMOTE_SESSION_LIMIT`,
+its positive `limit` and same-origin `settingsUrl`. Close another page or change the limit;
+this is a capacity/action boundary, not transient connection health.
 Eviction closes its transports with `REMOTE_SESSION_EVICTED`. `RefusalError.limit`
 exposes the active cap; send/operation refused states also carry `limit`. Colab can
 explain that more than that number of tabs were open and show `tmt remote settings
@@ -334,8 +337,10 @@ Session, and retains drafts, threads and original operation IDs. The SDK never r
 A lost reply is recovered by observing the original ID after admission, not a new effect.
 
 `ReopenSessionError.reason` is typed: `unreachable`, `unconfirmed` and `transient` remain
-non-terminal; `mismatch` fails closed on changed identity or pins; `unpaired` means the stored
-pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
+non-terminal. `capacity` is also non-terminal but is not retried inside the series; its
+`cause` is the verified `RefusalError(REMOTE_SESSION_LIMIT)` with `limit` and optional
+`settingsUrl`, so the connection owner can show the existing capacity action. `mismatch` fails
+closed on changed identity or pins; `unpaired` means the stored pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
 answers: until that seam ships, an opaque 404 returns `unconfirmed`, never either terminal reason.
 The error's `detail` is fixed/sanitized; an aborted owner is `transient`/`cancelled`.
 Same machine, browser origin and stored key pins are required; no fallback or new pairing occurs.

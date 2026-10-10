@@ -112,8 +112,8 @@ impl DoorSessions {
         self.clock = clock;
         self
     }
-    /// Admit one `session.open` control from `/append`. Every refusal is
-    /// `None`, so the route answers with the generic pre-auth 404.
+    /// Admit one `session.open` control from `/append`. Unauthenticated failures
+    /// are opaque; a verified fresh control can receive a signed rejected-open reply.
     pub fn open(&self, request_origin: Option<&str>, body: &[u8]) -> Option<Opened> {
         let now = now_ms().ok()?;
         let control = self.control(request_origin, body, now)?;
@@ -122,18 +122,9 @@ impl DoorSessions {
             .ok()?
             .charge_call(&control.grant.client_id, now)
             .ok()?;
-        let token = (control.grant.kind == "browser")
-            .then(random::<32>)
-            .transpose()
-            .ok()?;
-        let session_id = uuid_v4().ok()?;
-        let payload = json!({"sessionId":session_id,"serverTimeMs":now,"grantRevision":control.grant.revision,"expiresAtMs":control.grant.expires_at_ms});
-        let response = self
-            .signed_response(control.message.envelope(), &session_id, 1, &payload, now)
-            .ok()?;
         let root = self.store.lock().ok()?.data_root.clone();
         let limit = crate::settings::read_or_default(&root).sessions_per_device();
-        {
+        let (token, response) = {
             self.maintain().ok()?;
             let mut live = self.live.lock().ok()?;
             if live.stopped {
@@ -145,6 +136,7 @@ impl DoorSessions {
             if live.nonces.contains_key(&key) || live.nonces.len() >= NONCES {
                 return None;
             }
+            live.nonces.insert(key, now + validity);
             // A configured limit is enforced at open, including a lowered limit.
             while limit.is_some_and(|limit| {
                 live.by_session
@@ -156,18 +148,40 @@ impl DoorSessions {
                 let oldest = live
                     .by_session
                     .values()
-                    .filter(|s| s.client_id == control.grant.client_id)
-                    .max_by_key(|s| (!s.state.has_transport(), s.state.idle()))
-                    .map(|s| s.id.clone())?;
+                    .filter(|s| s.client_id == control.grant.client_id && !s.state.has_transport())
+                    .max_by_key(|s| s.state.idle());
+                let Some(oldest) = oldest else {
+                    return self.rejected_open(
+                        &control.message,
+                        &json!({"error":{"code":"REMOTE_SESSION_LIMIT",
+                            "message":"Device session limit reached; close another page or change the session limit.",
+                            "limit":limit,"settingsUrl":format!("{}/settings", self.door_origin)}}),
+                        now,
+                    ).ok();
+                };
+                // Attach uses this same transport lock. Either it wins and survives,
+                // or the detached end wins and that late attach is refused.
+                if !oldest.state.end_if_detached() {
+                    continue;
+                }
+                let oldest = oldest.id.clone();
                 self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED", limit)
                     .ok()?;
             }
+            let token = (control.grant.kind == "browser")
+                .then(random::<32>)
+                .transpose()
+                .ok()?;
+            let session_id = uuid_v4().ok()?;
+            let payload = json!({"sessionId":session_id,"serverTimeMs":now,"grantRevision":control.grant.revision,"expiresAtMs":control.grant.expires_at_ms});
+            let response = self
+                .signed_response(control.message.envelope(), &session_id, 1, &payload, now)
+                .ok()?;
             self.store
                 .lock()
                 .ok()?
                 .start_session(&control.grant, &session_id, &self.window_id, now)
                 .ok()?;
-            live.nonces.insert(key, now + validity);
             let hash = token.map(|t| <[u8; 32]>::from(Sha256::digest(t)));
             if let Some(hash) = hash {
                 live.by_token.insert(hash, session_id.clone());
@@ -183,7 +197,8 @@ impl DoorSessions {
                     state: Arc::new(SessionState::with_clock(Arc::clone(&self.clock))),
                 },
             );
-        }
+            (token, response)
+        };
         self.changed();
         Some(Opened {
             response,
@@ -194,6 +209,20 @@ impl DoorSessions {
                     self.cookie_path
                 )
             }),
+        })
+    }
+
+    /// Rejected fresh opens use no durable Session or response-sequence counter.
+    /// Call only after verifying the nonce-bearing control under its stored device key.
+    pub(crate) fn rejected_open(
+        &self,
+        request: &SignedMessage,
+        payload: &Value,
+        now: u64,
+    ) -> Result<Opened, RemoteError> {
+        Ok(Opened {
+            response: self.signed_response(request.envelope(), "new", 1, payload, now)?,
+            cookie: None,
         })
     }
 

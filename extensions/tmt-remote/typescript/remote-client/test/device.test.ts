@@ -11,6 +11,7 @@ import {
   type ExtCert,
 } from '../src/canonical-bytes.js';
 import { DeviceKey, certify, openSession, parseLink, resolveLink } from '../src/device.js';
+import { RefusalError } from '../src/operations.js';
 
 test('pairing retries a pending candidate and accepts only a proven receipt', async () => {
   const door = new Door();
@@ -163,4 +164,65 @@ test('offer lookup sends no code and refuses unavailable or invalid offers', asy
   await assert.rejects(
     resolveLink(door.link(), (async () => new Response('{"extra":1}')) as typeof fetch),
   );
+});
+
+test('a rejected fresh open verifies its new-session envelope before exposing the signed limit', async () => {
+  const door = new Door();
+  const { key, result } = await paired(door);
+  const error = {
+    code: 'REMOTE_SESSION_LIMIT',
+    message: 'Limit.',
+    limit: 8,
+    settingsUrl: '/settings',
+  };
+  door.mutate = (reply) => {
+    reply.sessionId = 'new';
+    reply.sequence = '1';
+  };
+  const refusal: typeof fetch = async (_url, init) =>
+    door.response(JSON.parse(init!.body as string), { error });
+  await assert.rejects(
+    openSession(result, key, door.descriptor.windowId, refusal),
+    (caught) =>
+      caught instanceof RefusalError &&
+      caught.code === 'REMOTE_SESSION_LIMIT' &&
+      caught.limit === 8 &&
+      caught.settingsUrl === `${ORIGIN}/settings`,
+  );
+  for (const edit of [
+    () => {
+      door.tamper.signature = true;
+    },
+    () => {
+      door.mutate = (reply) => {
+        reply.sessionId = crypto.randomUUID();
+        reply.sequence = '1';
+      };
+    },
+    () => {
+      door.mutate = (reply) => {
+        reply.sessionId = 'new';
+        reply.sequence = '2';
+      };
+    },
+    () => {
+      error.settingsUrl = 'https://elsewhere.example/settings';
+    },
+    () => {
+      error.limit = 0;
+    },
+  ]) {
+    door.tamper = {};
+    door.mutate = (reply) => {
+      reply.sessionId = 'new';
+      reply.sequence = '1';
+    };
+    error.settingsUrl = '/settings';
+    error.limit = 8;
+    edit();
+    await assert.rejects(
+      openSession(result, key, door.descriptor.windowId, refusal),
+      (caught) => !(caught instanceof RefusalError),
+    );
+  }
 });

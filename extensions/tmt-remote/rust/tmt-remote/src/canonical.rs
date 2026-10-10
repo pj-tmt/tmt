@@ -110,6 +110,11 @@ pub fn envelope(value: &Envelope<'_>) -> Result<Vec<u8>> {
     }
     if value.kind == "control" && value.operation == "session.open" {
         require(value.session_id == "new" && sequence == 0)?;
+    } else if value.kind == "response"
+        && value.operation == "session.open"
+        && value.session_id == "new"
+    {
+        require(sequence == 1)?;
     } else {
         uuid(value.session_id)?;
         require(sequence > 0)?;

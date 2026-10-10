@@ -243,8 +243,18 @@ Revocation, grant expiry/revision change and stop end all device sessions and to
 a live transport, including one that previously attached. Last-transport close starts fresh
 grace; traffic and authenticated requests count as activity. Reattaching within the grace
 resumes the same session. Detached sessions still count against the per-device cap until expiry.
-At the cap, an open evicts the device's most idle session without a live transport first,
-falling back to the most idle attached session.
+At the cap, an open evicts only the device's most idle session without a live transport;
+an attached session is never a capacity victim. If no detached session can make room, the
+fresh signed open receives `REMOTE_SESSION_LIMIT` with the active positive `limit` and
+same-origin `settingsUrl`. Close another page or change the owner-configured session limit;
+capacity is not transient connection health and does not widen itself. The default remains 8.
+A rejected fresh open uses the existing machine-signed correlated response envelope with
+`sessionId:"new"` and response sequence `1`, and allocates no Session, cookie or durable
+sequence row. The fresh nonce is remembered within the existing bounded replay window;
+unauthenticated or replayed controls still receive the opaque 404. The SDK verifies the
+signature, correlation and rejected-open envelope before exposing `RefusalError` and its
+signed limit/settings action. This response model is also the owner for later verified
+fresh-open authority refusals; ordinary sessionless operations remain opaque.
 Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
 themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
@@ -281,9 +291,11 @@ attempt bounded to four seconds, with 250/500/1000 ms delays plus bounded jitter
 connection owner controls cancellation, retrying another series and reattaching; the SDK owns no
 second connection state machine. Same machine, origin, device identity and key pins are required;
 no key, pairing or uncertain effect is recreated. Typed exhaustion is `unreachable`, `unconfirmed`
-or `transient`; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`, and unreadable
-storage is not absence. Until verified fresh-open authority refusals ship, revoked/expired grants
-can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
+or `transient`. A verified session-limit refusal returns non-terminal `capacity`, is not
+retried inside the series, and carries the verified `RefusalError` as `cause` with its limit
+and optional settings action; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`,
+and unreadable storage is not absence. Until verified fresh-open authority refusals ship,
+revoked/expired grants can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
 never infers `revoked` or `expired`. Those two reasons are reserved for verified authority evidence.
 An uncertain effect retains its original ID and is observed after admission, never resent.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
@@ -994,7 +1006,8 @@ IndexedDB. Explicit identical re-sends rebuild the same payload bytes.
 Verified pre-effect refusals on send/operation return
 `{state:"refused",operationId,reason}`, with the signed code `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`, `REMOTE_CLOSED`,
-`REMOTE_SESSION_ENDED` or `REMOTE_SESSION_EVICTED`.
+`REMOTE_SESSION_ENDED` or `REMOTE_SESSION_EVICTED`; a rejected fresh open exposes
+`REMOTE_SESSION_LIMIT` with its signed limit/settings action.
 The generic pre-admission HTTP 404 maps to `REMOTE_SESSION_ENDED`; this is a session-ended
 signal, not a signed response. The exported `RemoteRefusalCode` union contains those codes
 plus `REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.

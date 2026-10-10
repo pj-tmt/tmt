@@ -220,6 +220,8 @@ async function reopenOnce(previous?: Session, signal?: AbortSignal): Promise<Ses
     active(signal);
     if (signal) {
       if (error instanceof ReopenSessionError) throw error;
+      if (error instanceof RefusalError && error.code === 'REMOTE_SESSION_LIMIT')
+        throw new ReopenSessionError('capacity', 'admission-refused', error);
       throw new ReopenSessionError('transient', 'unverifiable-response');
     }
     if (!refused || !previous) throw error;

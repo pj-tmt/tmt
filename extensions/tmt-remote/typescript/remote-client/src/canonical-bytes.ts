@@ -123,6 +123,12 @@ export async function envelopeSigningBytes(value: Envelope): Promise<Uint8Array>
     );
   if (value.kind === 'control' && value.operation === 'session.open') {
     requireValue(value.sessionId === 'new' && value.sequence === '0', 'session.open');
+  } else if (
+    value.kind === 'response' &&
+    value.operation === 'session.open' &&
+    value.sessionId === 'new'
+  ) {
+    requireValue(value.sequence === '1', 'rejected session.open');
   } else {
     uuid(value.sessionId);
     requireValue(value.sequence !== '0', 'normal sequence');
