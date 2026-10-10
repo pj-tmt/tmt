@@ -136,7 +136,7 @@ fn existing_project_run_uses_the_real_process_boundary_and_real_record_owner() {
         "ready",
     );
     let mut adapter = DeployFirestore::at(node(), package.clone(), &stop).unwrap();
-    let auth = deploy_run::authorize(&plan, plan.digest(), None).unwrap();
+    let auth = deploy_run::authorize(&plan, plan.digest()).unwrap();
     let mut writer = DeployRecordStore::open(&layout).unwrap();
     let record = deploy_run::run(
         &plan,

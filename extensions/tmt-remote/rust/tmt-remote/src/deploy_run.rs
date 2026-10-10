@@ -50,8 +50,6 @@ pub enum DeployRefusal {
     AuthorizationStale,
     AccountChanged,
     AccountUnreadable,
-    /// The plan replaces Rules Remote does not own and the digest was not typed.
-    ReplaceRulesRequired,
 }
 impl DeployRefusal {
     pub fn code(self) -> &'static str {
@@ -63,7 +61,6 @@ impl DeployRefusal {
             Self::AuthorizationStale => "REMOTE_DEPLOY_AUTHORIZATION_STALE",
             Self::AccountChanged => "REMOTE_DEPLOY_ACCOUNT_CHANGED",
             Self::AccountUnreadable => "REMOTE_DEPLOY_ACCOUNT_UNREADABLE",
-            Self::ReplaceRulesRequired => "REMOTE_DEPLOY_REPLACE_RULES_REQUIRED",
         }
     }
 }
@@ -227,7 +224,7 @@ pub fn classify_live_rules(live: Option<&[u8]>, deployment_id: &str, publish: &[
     }
 }
 
-fn project_ok(value: &str) -> bool {
+pub(crate) fn project_ok(value: &str) -> bool {
     // Firebase project ids: 6-30 of lowercase letters, digits, hyphens; starts with a letter.
     (6..=30).contains(&value.len())
         && value.as_bytes()[0].is_ascii_lowercase()
@@ -236,7 +233,7 @@ fn project_ok(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
-fn location_ok(value: &str) -> bool {
+pub(crate) fn location_ok(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 32
         && value
@@ -351,26 +348,15 @@ fn step(id: &str, kind: StepKind) -> DeployStep {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Authorization {
     plan_digest: String,
-    replace_rules: Option<String>,
 }
 /// Authorize a plan from the digest (or a prefix of at least 12 hex characters) the
-/// owner typed, plus the digest of the foreign Rules when the plan replaces them.
-pub fn authorize(
-    plan: &DeployPlan,
-    typed_digest: &str,
-    replace_rules: Option<&str>,
-) -> Result<Authorization, DeployRefusal> {
+/// owner typed. The plan digest also covers any foreign Rules replacement fingerprint.
+pub fn authorize(plan: &DeployPlan, typed_digest: &str) -> Result<Authorization, DeployRefusal> {
     if typed_digest.len() < MIN_DIGEST_PREFIX || !plan.digest.starts_with(typed_digest) {
         return Err(DeployRefusal::AuthorizationStale);
     }
-    if let LiveRules::Foreign(digest) = &plan.live
-        && replace_rules != Some(digest.as_str())
-    {
-        return Err(DeployRefusal::ReplaceRulesRequired);
-    }
     Ok(Authorization {
         plan_digest: plan.digest.clone(),
-        replace_rules: replace_rules.map(str::to_owned),
     })
 }
 
@@ -586,7 +572,7 @@ pub fn run(
     save(sink, &record)?;
     // Finished steps are observed again too, so drift since the last run is noticed.
     for (index, step) in plan.steps.iter().enumerate() {
-        if !advance(plan, authorization, step, index, &mut record, port, sink)? {
+        if !advance(plan, step, index, &mut record, port, sink)? {
             return finish(record, sink, now_ms, plan);
         }
     }
@@ -651,7 +637,6 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
 /// Observe, then apply when needed. Returns whether the run may go on to the next step.
 fn advance(
     plan: &DeployPlan,
-    authorization: &Authorization,
     step: &DeployStep,
     index: usize,
     record: &mut DeployRecord,
@@ -707,7 +692,7 @@ fn advance(
             return Ok(true);
         }
         DeployObserved::Rules(LiveRules::Foreign(digest))
-            if authorization.replace_rules.as_deref() != Some(digest.as_str()) =>
+            if plan.view.rules.replaced_digest.as_deref() != Some(digest.as_str()) =>
         {
             set(
                 record,

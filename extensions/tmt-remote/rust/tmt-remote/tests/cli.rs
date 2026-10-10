@@ -2890,7 +2890,12 @@ fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     let with = String::from_utf8(run(&pilot, &["status", "--layers"]).stdout).unwrap();
     assert!(with.starts_with(&human), "{with}");
     assert!(with.contains("Firestore is not configured"), "{with}");
-    assert!(!with.contains("deploy"), "{with}");
+    assert!(
+        with.contains("One Remote home deploys to one Firebase project and region."),
+        "{with}"
+    );
+    assert!(!with.contains("tmt remote deploy"), "{with}");
+    assert!(!human.contains("One Remote home"), "{human}");
     // The three optional projections are exclusive.
     for args in [
         ["status", "--layers", "--machine", "--json"],

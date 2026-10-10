@@ -1735,6 +1735,22 @@ Never overwrite or delete unrelated account resources; deletion/data loss requir
 authorization in that concrete plan. Preserve an existing deployment on failed upgrade or report
 its actual partial availability; never claim provider rollback restored data.
 
+A Remote home binds its deployment identity to one `{project, region}` when the first explicit
+plan identity is atomically persisted, before any effect. A different target refuses with
+`REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory; no state is reset.
+Every v1 record is unbound, even if its binding names a project: reads neither infer a partial
+target nor convert it. The next explicit plan binds that identity to its named target.
+
+A Firebase project has one deployer; tenants use identical composed Rules and share the project's
+quota. Colab separately grants access to its tenancy spaces (`spaceId`), not deployment ownership.
+Another home sees the deployer's Rules as foreign. Its authorized destructive plan can replace
+those Rules, including a newer release: a tenant must not deploy just to obtain access. Remote
+cannot enforce exclusivity across homes, so the single-writer-project limitation still applies.
+Remote links, registry selection and Hosting are separate delivery surfaces; deployment here does
+not publish them (planned in [registry selection](https://github.com/pj-tmt/tmt/issues/2461),
+[remote links](https://github.com/pj-tmt/tmt/issues/2458) and
+[Hosting](https://github.com/pj-tmt/tmt/issues/2486)).
+
 **Firestore sharing layer (layer 1).** This layer deploys without the admission/token service. Its
 plan adds the owner's database `(default)` (edition `standard`, one location), the sign-in providers
 the layer needs, the declared indexes and the composed Rules to the extension plan, and the owner
@@ -1745,13 +1761,14 @@ read-back step passes only when Rules and indexes match what was applied. Each s
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
 observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is
-ever deleted. Replacing Rules that Remote does not own is the one hard gate: the authorization must
-also name the digest of the replaced release, and a release that changed after the plan is refused.
+ever deleted. A destructive replacement of foreign live Rules names their exact fingerprint in the
+plan; authorizing that plan digest consents to replacement. A changed foreign fingerprint invalidates
+that authorization and is refused before switching the release.
 The deployed Rules begin with a Remote marker line naming the deployment and the digest of the
 composed body, so ownership of a live release is read from its bytes; a Remote release edited after
-it was published is no longer Remote's and needs the replaced digest like any foreign release. A console step only the owner
-can do (for example creating a sign-in provider that needs an OAuth client) ends the run as partial
-with a fixed instruction code, and the retry continues after the owner acts. The binding is written
+it was published is foreign and needs a newly authorized plan naming its fingerprint. A console
+step only the owner can do (for example creating a sign-in provider that needs an OAuth client)
+ends the run as partial with a fixed instruction code, and the retry continues after the owner acts. The binding is written
 in the same save that completes the last step. From the moment the Rules call may have been made
 until the run completes no binding is usable; a failure before that call leaves the earlier binding
 valid; running a finished plan again is a fresh check that keeps the binding until a Rules call is made.
@@ -1759,7 +1776,7 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
 
 - Refusals before any effect: `REMOTE_DEPLOY_PROJECT_INVALID`, `_LOCATION_INVALID`,
   `_DEPLOYMENT_INVALID`, `_SIGN_IN_MISSING`, `_AUTHORIZATION_STALE`, `_ACCOUNT_CHANGED`,
-  `_ACCOUNT_UNREADABLE`, `_REPLACE_RULES_REQUIRED`.
+  `_ACCOUNT_UNREADABLE`, `_PROJECT_CONFLICT`.
 - Step faults: `REMOTE_DEPLOY_PERMISSION_DENIED`, `_API_DISABLED`, `_QUOTA_EXCEEDED`,
   `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.

@@ -397,7 +397,7 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
     use tmt_remote::{deploy_cli, deploy_discovery, deploy_firestore, deploy_tools};
     let (_, matches) = matches.subcommand().expect("required backend");
     // Grammar/authorization shape is checked before tool discovery or provider setup.
-    let args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."))?;
+    let args = deploy_cli::arguments(matches).map_err(|_| RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest."))?;
     let stop = Arc::new(AtomicBool::new(false));
     let _signals = [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM]
         .into_iter()
@@ -434,7 +434,7 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         deploy_cli::DeployCliError::Provider(error) => RemoteError::new(match error { tmt_remote::deploy_run::DeployProviderError::Rejected(fault) => fault.code(), tmt_remote::deploy_run::DeployProviderError::Unknown => "REMOTE_DEPLOY_UNAVAILABLE" }, "Firebase refused to list the project's current setup. Nothing changed in your Firebase project."),
         deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Refused(reason), _) => RemoteError::new(reason.code(), "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest."),
         deploy_cli::DeployCliError::Command(tmt_remote::deploy_command::DeployCommandError::Run(_), path) => RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &deploy_cli::uncertain_message(&path)),
-        deploy_cli::DeployCliError::Usage => RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest. --replace-rules also needs --authorize and the full digest of the existing Rules."),
+        deploy_cli::DeployCliError::Usage => RemoteError::new("USAGE_ERROR", "Use --project, --region and --sign-in; --authorize needs the first 12 or more lowercase hex characters of the plan digest."),
     })?;
     let mut output = tmt_cli_style::stream::stdout(args.json);
     if args.json {
@@ -550,6 +550,10 @@ fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteE
                 }
             }
             if projection == StatusProjection::Layers {
+                writeln!(
+                    output,
+                    "One Remote home deploys to one Firebase project and region."
+                )?;
                 for line in readiness::human_lines(&answer["firestoreLayers"], &readiness::LAYERS) {
                     if line.enabled {
                         tmt_cli_style::message::success(&mut output, terminal, &line.what)?;

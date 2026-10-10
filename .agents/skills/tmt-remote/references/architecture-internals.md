@@ -198,7 +198,13 @@ long deployment cannot block status. Malformed, oversized or unsafe state is ref
 reset. Save failure stops effects; a directory-sync failure after rename does not mean the
 visible publication rolled back. Staging cleanup only removes admitted deployment staging
 names under the writer lock. Existing status/stop, settings, store and machine-key owners
-keep the deployment identity and binding.
+keep the deployment identity and binding. Version 2 also persists the immutable project/region
+with the first explicit plan identity; the writer checks it before provider creation, login or
+inventory. Every v1 record is unbound regardless of its old binding: reads never convert or infer
+a target, and the next explicit plan binds it. A conflicting target leaves record and staging
+untouched. Foreign Rules replacement consent is the whole frozen plan digest, including its live
+fingerprint; the run refuses a changed foreign fingerprint before the Rules effect. The contract
+owns the one-deployer/tenant boundary and single-writer-project limitation.
 
 The Firestore settings projection takes its record snapshot outside live/Store locks and
 revalidates the current browser grant before disclosure. Only the explicit opt-in read adds

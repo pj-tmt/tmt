@@ -2,7 +2,7 @@
 //! never take it and see one complete record through atomic rename. No remote.db opener.
 use crate::{
     canonical,
-    deploy_run::{DeployRecord, DeploySink, DeploySinkError, RunState, StepState},
+    deploy_run::{self, DeployRecord, DeploySink, DeploySinkError, RunState, StepState},
     error::RemoteError,
     limits,
     readiness::{self, FirestoreEvidence, FirestoreEvidenceSource},
@@ -25,6 +25,21 @@ const PREFIX: &str = ".deploy-";
 struct DeployDocument {
     version: u8,
     record: DeployRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<DeployTarget>,
+}
+
+/// The immutable owner-home target, separate from the last usable binding.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeployTarget {
+    project: String,
+    region: String,
+}
+impl DeployTarget {
+    fn valid(&self) -> bool {
+        deploy_run::project_ok(&self.project) && deploy_run::location_ok(&self.region)
+    }
 }
 fn unavailable() -> RemoteError {
     RemoteError::new(
@@ -91,6 +106,9 @@ fn valid(record: &DeployRecord) -> bool {
 /// A read-only snapshot, including while another process holds the writer lock.
 /// Missing is not damaged; malformed, oversized and unsafe state never becomes a draft.
 pub fn read(layout: &Layout) -> Result<Option<DeployRecord>, RemoteError> {
+    Ok(read_document(layout)?.map(|document| document.record))
+}
+fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError> {
     let Some(file) = layout.read_file(FILE)? else {
         return Ok(None);
     };
@@ -105,13 +123,19 @@ pub fn read(layout: &Layout) -> Result<Option<DeployRecord>, RemoteError> {
     let document: DeployDocument = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
     // Nested engine records accept ordinary serde defaults; require their full exact
     // schema here so unknown fields or missing optional fields are not silently lost.
-    if document.version != 1
+    if !matches!(
+        (document.version, &document.target),
+        (1, None) | (2, Some(_))
+    ) || document
+        .target
+        .as_ref()
+        .is_some_and(|target| !target.valid())
         || !valid(&document.record)
         || serde_json::to_value(&document).map_err(|_| invalid())? != value
     {
         return Err(invalid());
     }
-    Ok(Some(document.record))
+    Ok(Some(document))
 }
 
 /// One bounded, lock-free snapshot per status request. No provider calls or repair;
@@ -141,9 +165,24 @@ impl FirestoreEvidenceSource for DeployRecordEvidence {
 pub struct DeployRecordStore<'a> {
     layout: &'a Layout,
     _lock: File,
+    target: Option<DeployTarget>,
 }
 impl<'a> DeployRecordStore<'a> {
     pub fn open(layout: &'a Layout) -> Result<Self, RemoteError> {
+        Self::open_checked(layout, None)
+    }
+    /// Check a retained target under the writer lock, before cleanup or provider setup.
+    pub fn open_for_target(
+        layout: &'a Layout,
+        project: &str,
+        region: &str,
+    ) -> Result<Self, RemoteError> {
+        Self::open_checked(layout, Some((project, region)))
+    }
+    fn open_checked(
+        layout: &'a Layout,
+        requested: Option<(&str, &str)>,
+    ) -> Result<Self, RemoteError> {
         let lock = layout.file("deploy.lock")?;
         lock.try_lock().map_err(|error| match error {
             std::fs::TryLockError::WouldBlock => RemoteError::new(
@@ -152,12 +191,18 @@ impl<'a> DeployRecordStore<'a> {
             ),
             std::fs::TryLockError::Error(_) => unavailable(),
         })?;
+        // Every v1 record is unbound, even when its old binding names a project.
+        // Never infer a target or convert a record on a read.
+        let target = read_document(layout)?.and_then(|document| document.target);
         let owner = Self {
             layout,
             _lock: lock,
+            target,
         };
-        // Refuse damaged published state before cleaning this owner's staging files.
-        read(layout)?;
+        if let Some((project, region)) = requested {
+            owner.check_target(project, region)?;
+        }
+        // Refuse damaged or conflicting published state before cleaning staging files.
         for entry in fs::read_dir(&layout.directory).map_err(|_| unavailable())? {
             let entry = entry.map_err(|_| unavailable())?;
             if entry
@@ -178,6 +223,34 @@ impl<'a> DeployRecordStore<'a> {
         }
         Ok(owner)
     }
+    /// No provider call is needed to reject a different project or region.
+    pub fn check_target(&self, project: &str, region: &str) -> Result<(), RemoteError> {
+        if self
+            .target
+            .as_ref()
+            .is_some_and(|target| target.project != project || target.region != region)
+        {
+            return Err(RemoteError::new(
+                "REMOTE_DEPLOY_PROJECT_CONFLICT",
+                "This Remote home is bound to another Firebase project or region; its deployment was not reset.",
+            ));
+        }
+        Ok(())
+    }
+    /// Select only a validated explicit plan's target; the next atomic save binds it
+    /// together with the plan identity, before any provider effect.
+    pub fn bind_target(&mut self, project: &str, region: &str) -> Result<(), RemoteError> {
+        self.check_target(project, region)?;
+        let target = DeployTarget {
+            project: project.into(),
+            region: region.into(),
+        };
+        if !target.valid() {
+            return Err(invalid());
+        }
+        self.target = Some(target);
+        Ok(())
+    }
     pub fn load_or_draft(&self) -> Result<DeployRecord, RemoteError> {
         read(self.layout)?.map_or_else(|| uuid_v4().map(|id| DeployRecord::new(&id)), Ok)
     }
@@ -186,8 +259,9 @@ impl<'a> DeployRecordStore<'a> {
             return Err(invalid());
         }
         let bytes = serde_json::to_vec(&DeployDocument {
-            version: 1,
+            version: if self.target.is_some() { 2 } else { 1 },
             record: record.clone(),
+            target: self.target.clone(),
         })
         .map_err(|_| invalid())?;
         if bytes.len() > limits::DEPLOY_RECORD_BYTES {
