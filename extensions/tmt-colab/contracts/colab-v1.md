@@ -2483,10 +2483,9 @@ pairing is unknown), shown before `open` because the link needs a paired browser
 door, `open` shows the relative path and the reason (the install line, or `browser access
 unavailable: see warning`), never a command that `serve` replaces.
 
-The bare pairing next step above is for page access. Sending an Ask or Chat to an agent
-needs sending enabled for the device: `tmt remote pair --talk`, or the owner enabling it for
-that device in Remote settings. Until Remote changes its default, ordinary pairing still
-includes sending. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
+Bare `tmt remote pair` grants page access without sending. Sending an Ask or Chat to an
+agent requires `tmt remote pair --talk`, or the owner enabling sending for that device in
+Remote settings. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
 scope:"talk"` becomes the retained own-stream reason `TALK_NOT_ENABLED` and the specific
 read-but-cannot-send notice, which also names `tmt remote devices talk <device> on` with the
 row's own device ID; an absent scope or a recipient restriction keeps the generic
