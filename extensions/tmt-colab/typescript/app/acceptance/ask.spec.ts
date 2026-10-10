@@ -87,7 +87,7 @@ async function scenario(
 ) {
   const door = await startDoor(world, await freePort());
   const recipient = await world.startAgent('ask-recipient', options);
-  const asker = await pairBrowser(world, 'asker-browser');
+  const asker = await pairBrowser(world, 'asker-browser', { talk: true });
   if (options.holdDirectory) await holdableDirectory(asker.context);
   const viewer = await pairBrowser(world, 'viewer-browser');
   // The page is created first; each paired device registers when it opens it.

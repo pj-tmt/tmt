@@ -41,8 +41,8 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('export-agent');
-    const a = await pairBrowser(world, 'export-author');
-    const b = await pairBrowser(world, 'export-replier');
+    const a = await pairBrowser(world, 'export-author', { talk: true });
+    const b = await pairBrowser(world, 'export-replier', { talk: true });
     const html =
       '<h1>Export review</h1><p id="quote">A `tick` &amp; <em>🌍 exact quote</em> to discuss.</p>';
     const created = createPage(world, 'Export review', html);

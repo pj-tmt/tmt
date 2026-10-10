@@ -12,6 +12,8 @@ import {
   ReadRefusedError,
   provablyUnsent,
   REMOTE_REFUSAL_CODES,
+  TALK_NOT_ENABLED,
+  refusalReason,
 } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
@@ -339,6 +341,45 @@ it('preserves verified scope refusal and never dispatches again during recovery'
   expect((await controller.recover(frozen.view.operationId)).state).toBe('refused');
   expect(remote.sends).toHaveLength(1);
   expect(remote.reads).toEqual([]);
+});
+
+it('retains only the typed missing-talk refusal across reload and all-stream reads without resend', async () => {
+  const { controller, remote, store, own, key } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    return {
+      state: 'refused',
+      operationId: input.operationId,
+      reason: 'REMOTE_SCOPE_DENIED',
+      scope: 'talk',
+    };
+  };
+  const refused = await controller.send(frozen);
+  expect(refused).toMatchObject({ state: 'refused', reason: TALK_NOT_ENABLED, requestId: null });
+  expect(provablyUnsent(refused)).toBe(true);
+  const reloaded = new AskController({ store, remote, key, selection });
+  expect((await reloaded.recover(frozen.view.operationId)).reason).toBe(TALK_NOT_ENABLED);
+  const views = await readAskViews(own, { space: selection().space, page: id(1) }, (writer) =>
+    writer === id(4) ? hex(vector.publicKey) : undefined,
+  );
+  expect(views[0].reason).toBe(TALK_NOT_ENABLED);
+  expect(remote.sends).toHaveLength(1);
+  expect(remote.reads).toEqual([]);
+});
+
+it('never infers missing talk from an untyped or differently scoped refusal', () => {
+  expect(refusalReason('REMOTE_SCOPE_DENIED')).toBe('REMOTE_SCOPE_DENIED');
+  expect(refusalReason('REMOTE_SCOPE_DENIED', 'talk')).toBe(TALK_NOT_ENABLED);
+  expect(() => refusalReason('REMOTE_CLOSED', 'talk')).toThrow();
+  expect(() => refusalReason('REMOTE_SCOPE_DENIED', 'agents' as 'talk')).toThrow();
+  expect(provablyUnsent({ state: 'uncertain', reason: TALK_NOT_ENABLED, requestId: null })).toBe(
+    false,
+  );
+  expect(
+    provablyUnsent({ state: 'refused', reason: TALK_NOT_ENABLED, requestId: `req_${id(8)}` }),
+  ).toBe(false);
 });
 
 it('publishes uncertainty before requesting Session replacement and never reuses its preview', async () => {

@@ -177,7 +177,7 @@ export const text = {
   reconnecting: 'Reconnecting…',
   reconnectToSend: 'Reconnect to send.',
   reconnectCommand,
-  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair with ${reconnectCommand}.`,
+  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair for page access with ${reconnectCommand}.`,
   sessionEvicted: (limit: number) =>
     `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
@@ -223,6 +223,8 @@ export const text = {
   askOperationFailed: 'This send failed.',
   askFinalUnavailable: 'The agent result is unavailable.',
   askScopeDenied: 'Your Remote permission does not allow this ask.',
+  askTalkNotEnabled: (device: string) =>
+    `This browser can read pages but cannot send to agents. Ask the owner to enable sending for this device in Remote settings, or on the machine that runs Remote: tmt remote devices talk ${device} on`,
   askInputInvalid: 'Remote rejected this message. Write a new message.',
   askRateLimited: 'Remote is busy. Try again later.',
   askIntentConflict: 'This operation already has a different message. Write a new message.',

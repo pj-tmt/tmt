@@ -173,8 +173,8 @@ impl Pairing {
     pub fn step(&self) -> Option<&'static str> {
         match self {
             Self::Paired(_) => None,
-            Self::Unpaired => Some("pair this browser once: tmt remote pair"),
-            Self::Unknown => Some("if this browser is new: tmt remote pair"),
+            Self::Unpaired => Some("pair for page access: tmt remote pair"),
+            Self::Unknown => Some("if this browser is new, pair for page access: tmt remote pair"),
         }
     }
     /// `{"devices":[{"revoked":false,...},...]}`: revoked devices no longer count.

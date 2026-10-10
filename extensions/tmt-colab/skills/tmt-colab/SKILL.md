@@ -53,6 +53,7 @@ Stopping Colab stops only its own door. `tmt remote status --json` inspects it.
 If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
 browser they intend to use, compare the four words with the terminal and confirm
 there themselves. Wait for their confirmation; never answer that prompt for them.
+To send, pair with `--talk` or use the Remote settings toggle.
 
 Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file:
 

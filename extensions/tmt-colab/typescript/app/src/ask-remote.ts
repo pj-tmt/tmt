@@ -22,6 +22,7 @@ export type SendState =
       reason?: string;
       limit?: number;
       settingsUrl?: string;
+      scope?: 'talk';
     };
 export const REMOTE_REFUSAL_CODES = [
   'REMOTE_SCOPE_DENIED',
@@ -36,6 +37,8 @@ export const REMOTE_REFUSAL_CODES = [
   'REMOTE_CORE_UNAVAILABLE',
 ] as const;
 export type RemoteRefusalCode = (typeof REMOTE_REFUSAL_CODES)[number];
+/** Colab's retained reason for the SDK's verified missing-talk refusal, not a Remote code. */
+export const TALK_NOT_ENABLED = 'TALK_NOT_ENABLED';
 /** Only a verified terminal Send refusal proves that this attempt had no effect.
  * Read refusals never change the ledger and therefore cannot satisfy this rule. */
 export function provablyUnsent(value: {
@@ -48,7 +51,8 @@ export function provablyUnsent(value: {
     value.state === 'refused' &&
     value.requestId === null &&
     value.reply == null &&
-    REMOTE_REFUSAL_CODES.some((code) => code === value.reason)
+    (value.reason === TALK_NOT_ENABLED ||
+      REMOTE_REFUSAL_CODES.some((code) => code === value.reason))
   );
 }
 export type SessionEndCode = 'REMOTE_SESSION_ENDED' | 'REMOTE_SEQUENCE_UNAVAILABLE';
@@ -87,14 +91,19 @@ type SdkError = abstract new (...args: never[]) => Error & {
   limit?: number;
   settingsUrl?: string;
 };
-export function refusalReason(reason: string | undefined): RemoteRefusalCode | 'REMOTE_REFUSED' {
+export function refusalReason(
+  reason: string | undefined,
+  scope?: 'talk',
+): RemoteRefusalCode | 'REMOTE_REFUSED' | typeof TALK_NOT_ENABLED {
+  requireValue(scope === undefined || (reason === 'REMOTE_SCOPE_DENIED' && scope === 'talk'));
+  if (scope === 'talk') return TALK_NOT_ENABLED;
   return reason !== undefined && (REMOTE_REFUSAL_CODES as readonly string[]).includes(reason)
     ? (reason as RemoteRefusalCode)
     : 'REMOTE_REFUSED';
 }
 /** Verified read refusals are transient observations, never new ledger states. */
 export class ReadRefusedError extends Error {
-  constructor(readonly code: RemoteRefusalCode | 'REMOTE_REFUSED') {
+  constructor(readonly code: ReturnType<typeof refusalReason>) {
     super(code);
   }
 }
@@ -142,6 +151,13 @@ function state(value: SendState, id: string): SendState {
   requireValue(
     value.operationId === id &&
       ['accepted', 'held', 'uncertain', 'refused', 'cancelled'].includes(value.state),
+  );
+  requireValue(
+    !('scope' in value) ||
+      value.scope === undefined ||
+      (value.state === 'refused' &&
+        value.reason === 'REMOTE_SCOPE_DENIED' &&
+        value.scope === 'talk'),
   );
   if (value.state === 'accepted') requestId(value.requestId);
   return structuredClone(value);

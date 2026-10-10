@@ -11,7 +11,6 @@ import {
   type RemoteClient,
   type RemoteAgent,
   type RemoteContext,
-  type RemoteRefusalCode,
   type SessionEndCode,
   type ResultState,
   type SendState,
@@ -28,7 +27,7 @@ export type DirectoryReadFailure = {
   kind: 'unavailable';
   phase: DirectoryReadPhase;
   failure: 'ended' | 'evicted' | 'refused' | 'unavailable';
-  code?: RemoteRefusalCode | 'REMOTE_REFUSED' | SessionEndCode;
+  code?: ReadRefusedError['code'] | SessionEndCode;
 };
 export type AskDirectoryObservation =
   | { kind: 'ready'; checkedAt: number; snapshot: AskDestinations }
@@ -218,7 +217,7 @@ export class AskController {
           result.state,
           result.state === 'accepted' ? result.requestId : null,
           result.state === 'refused'
-            ? refusalReason(result.reason)
+            ? refusalReason(result.reason, result.scope)
             : result.state === 'cancelled'
               ? 'REMOTE_CANCELLED'
               : result.state === 'uncertain'

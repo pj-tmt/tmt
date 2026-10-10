@@ -870,7 +870,7 @@ fn serve(
         None => (
             "Private space",
             "Pair this browser first",
-            "<p>This Colab space is private. Pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link.</p>".into(),
+            "<p>This Colab space is private. For page access, pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link. To send to agents, pair with tmt remote pair --talk or ask the owner to enable sending for this device in Remote settings.</p>".into(),
         ),
     };
     let recovery = request.owner.is_none()

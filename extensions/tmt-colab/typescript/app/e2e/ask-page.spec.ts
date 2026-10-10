@@ -122,6 +122,10 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
 test('verified refusal reasons use actionable copy without exposing a resend', async ({ page }) => {
   await mount(page);
   for (const [reason, copy] of [
+    [
+      'TALK_NOT_ENABLED',
+      'cannot send to agents. Ask the owner to enable sending for this device in Remote settings, or on the machine that runs Remote: tmt remote devices talk',
+    ],
     ['REMOTE_SCOPE_DENIED', 'Your Remote permission does not allow this ask.'],
     ['REMOTE_INPUT_INVALID', 'Remote rejected this message. Write a new message.'],
     ['REMOTE_RATE_LIMITED', 'Remote is busy. Try again later.'],

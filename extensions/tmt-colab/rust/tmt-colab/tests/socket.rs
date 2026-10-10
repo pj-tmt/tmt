@@ -478,7 +478,9 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
-    assert!(private.contains("This Colab space is private. Pair this browser with"));
+    assert!(
+        private.contains("This Colab space is private. For page access, pair this browser with")
+    );
     assert!(private.contains("<code class=\"tmt-ui-command-text\">tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));

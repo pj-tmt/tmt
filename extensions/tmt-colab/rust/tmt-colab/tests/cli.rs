@@ -3196,7 +3196,7 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
         "attached · http://127.0.0.1:53253",
         "no",
         "create tmt colab page create --title <title>",
-        "pair this browser once: tmt remote pair",
+        "pair for page access: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
     }
@@ -3789,7 +3789,7 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
         "{text}"
     );
     assert!(
-        text.contains("pair this browser") || text.contains("if this browser is new"),
+        text.contains("pair for page access: tmt remote pair"),
         "{text}"
     );
 }
@@ -4107,7 +4107,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         let text = human(Some(DOOR), &args);
         assert!(text.contains(&full), "{args:?}: {text}");
         assert!(
-            text.contains("pair this browser once: tmt remote pair"),
+            text.contains("pair for page access: tmt remote pair"),
             "{text}"
         );
         // Without a door: the path and the reason, never a manual `tmt remote serve`.
@@ -4142,7 +4142,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     );
     assert!(
         listing.contains(
-            "\n\n  pair this browser once: tmt remote pair\n  Expiry never deletes your local copy."
+            "\n\n  pair for page access: tmt remote pair\n  Expiry never deletes your local copy."
         ),
         "{listing}"
     );
