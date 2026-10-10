@@ -155,9 +155,10 @@ Expanded uses the same selection treatment as pressed. While expanded, the toolt
 stays hidden and installs no Escape listener; the host owns menu dismissal.
 
 The tooltip is a manual native popover, below the button and bounded by the visual
-viewport. Hover and keyboard `:focus-visible` show it immediately. The display-only
+viewport. Pointer movement over the action and keyboard `:focus-visible` show it
+immediately; layout-only pointer entry does not. The display-only
 tooltip never receives pointer events. Activation dismisses it synchronously; a
-fresh pointer entry restores hover help. Pointer/focus departure closes it;
+fresh pointer movement after leaving restores hover help. Pointer/focus departure closes it;
 Escape dismisses it without consuming the host's key event, so a containing menu or dialog closes in the same activation.
 Focus restored by that Escape does not open a replacement tooltip; a one-frame
 guard ends early on the next non-Escape key. No transition or polling is used. Placement observers and

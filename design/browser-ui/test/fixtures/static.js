@@ -107,7 +107,8 @@ function action(label, variant, state, disabled = false) {
       tooltip.hidePopover();
     }
   }
-  wrapper.addEventListener('pointerenter', () => {
+  wrapper.addEventListener('pointermove', () => {
+    if (hovered) return;
     hovered = true;
     dismissed = false;
     sync();
