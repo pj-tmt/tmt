@@ -312,6 +312,7 @@ export async function openSession(
   key: DeviceKey,
   windowId: string,
   send: typeof fetch = fetch,
+  options?: { signal: AbortSignal; transport: typeof fetch },
 ): Promise<Session> {
   const id = crypto.randomUUID();
   const payload = utf8.encode(JSON.stringify({ clientNonce: hex(random(16)) }));
@@ -362,7 +363,8 @@ export async function openSession(
         (Number.isSafeInteger(session.expiresAtMs) && session.expiresAtMs >= 0)),
     'session payload',
   );
-  registerChannel(session, paired, key, windowId, send);
+  options?.signal.throwIfAborted();
+  registerChannel(session, paired, key, windowId, options?.transport ?? send);
   return session;
 }
 

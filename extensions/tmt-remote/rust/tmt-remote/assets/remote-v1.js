@@ -10,6 +10,103 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
+//#region src/session-reopen.ts
+var ReopenSessionError = class extends Error {
+	reason;
+	detail;
+	constructor(reason, detail) {
+		super(`Remote session admission: ${reason} (${detail}).`);
+		this.reason = reason;
+		this.detail = detail;
+		this.name = "ReopenSessionError";
+	}
+};
+var DEADLINE = 2e4;
+var ATTEMPT = 4e3;
+var DELAYS = [
+	250,
+	500,
+	1e3
+];
+var runtime = {
+	now: () => performance.now(),
+	later: (callback, ms) => setTimeout(callback, ms),
+	clear: (timer) => clearTimeout(timer),
+	jitter: () => crypto.getRandomValues(/* @__PURE__ */ new Uint32Array(1))[0] / 4294967296
+};
+function active(signal) {
+	if (signal?.aborted) throw new ReopenSessionError("transient", "cancelled");
+}
+/** Bounds even a provider that ignores AbortSignal; abandoned work cannot publish a Session. */
+function bounded(action, ms, owner, clock) {
+	return new Promise((resolve, reject) => {
+		const child = new AbortController();
+		const end = clock.now() + ms;
+		let settled = false;
+		let timer;
+		const finish = (value, error) => {
+			if (settled) return;
+			settled = true;
+			if (timer !== void 0) clock.clear(timer);
+			owner?.removeEventListener("abort", cancel);
+			child.abort();
+			if (error !== void 0) reject(error);
+			else if (clock.now() >= end) reject(new ReopenSessionError("unreachable", "budget-exhausted"));
+			else resolve(value);
+		};
+		const cancel = () => finish(void 0, new ReopenSessionError("transient", "cancelled"));
+		if (owner?.aborted) return cancel();
+		owner?.addEventListener("abort", cancel, { once: true });
+		timer = clock.later(() => finish(void 0, new ReopenSessionError("unreachable", "budget-exhausted")), ms);
+		Promise.resolve().then(() => action(child.signal)).then((value) => finish(value), (error) => finish(void 0, error));
+	});
+}
+async function boundedAdmission(attempt, signal, clock = runtime) {
+	const end = clock.now() + DEADLINE;
+	let last = new ReopenSessionError("unreachable", "budget-exhausted");
+	let ambiguous = false;
+	for (let index = 0; index < 4; index++) {
+		active(signal);
+		const remaining = end - clock.now();
+		if (remaining <= 0) break;
+		try {
+			const value = await bounded(attempt, Math.min(ATTEMPT, remaining), signal, clock);
+			active(signal);
+			return value;
+		} catch (error) {
+			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
+			if ([
+				"mismatch",
+				"unpaired",
+				"revoked",
+				"expired"
+			].includes(error.reason) || ["cancelled", "unverifiable-response"].includes(error.detail)) throw error;
+			last = error;
+			ambiguous ||= error.reason === "unconfirmed";
+		}
+		const delay = DELAYS[index];
+		if (delay === void 0) break;
+		const wait = Math.min(Math.floor(delay + delay * .25 * clock.jitter()), end - clock.now());
+		if (wait <= 0) break;
+		try {
+			await bounded((waiting) => new Promise((resolve) => {
+				const timer = clock.later(() => {
+					waiting.removeEventListener("abort", cancel);
+					resolve();
+				}, wait);
+				const cancel = () => clock.clear(timer);
+				waiting.addEventListener("abort", cancel, { once: true });
+			}), end - clock.now(), signal, clock);
+		} catch (error) {
+			active(signal);
+			if (!(error instanceof ReopenSessionError) || error.detail === "cancelled") throw error;
+			break;
+		}
+	}
+	active(signal);
+	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
+}
+//#endregion
 //#region src/canonical-bytes.ts
 var encoder = new TextEncoder();
 var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -1492,7 +1589,7 @@ function accept(receipt, descriptor, options, publicKey) {
 * Open the device's session for the current remote run. `windowId` names that
 * run; a browser on the door receives its session cookie with the response.
 */
-async function openSession(paired, key, windowId, send = fetch) {
+async function openSession(paired, key, windowId, send = fetch, options) {
 	const id = crypto.randomUUID();
 	const payload = utf8.encode(JSON.stringify({ clientNonce: hex(random(16)) }));
 	const control = {
@@ -1536,7 +1633,8 @@ async function openSession(paired, key, windowId, send = fetch) {
 	requireValue(reply.sequence === 1n, "session response sequence");
 	const session = JSON.parse(strictUtf8.decode(reply.payload));
 	requireValue(session.sessionId === reply.sessionId && Number.isSafeInteger(session.serverTimeMs) && session.serverTimeMs >= 0 && Number.isSafeInteger(session.grantRevision) && session.grantRevision > 0 && (session.expiresAtMs === null || Number.isSafeInteger(session.expiresAtMs) && session.expiresAtMs >= 0), "session payload");
-	registerChannel(session, paired, key, windowId, send);
+	options?.signal.throwIfAborted();
+	registerChannel(session, paired, key, windowId, options?.transport ?? send);
 	return session;
 }
 /** Certify an extension key with the device key. Callers fix `extension` from the door's mount. */
@@ -1585,8 +1683,8 @@ async function save(record) {
 	const objects = await store("readwrite");
 	await request(() => objects.put(record, RECORD));
 }
-async function door() {
-	const response = await fetch("/sdk/mount", {
+async function door(send = fetch) {
+	const response = await send("/sdk/mount", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ path: location.pathname })
@@ -1594,41 +1692,125 @@ async function door() {
 	if (response.status !== 200) throw new Error("The door did not answer.");
 	return await response.json();
 }
-async function paired() {
-	const record = await load();
+async function paired(signal) {
+	let record;
+	try {
+		record = await load();
+	} catch (error) {
+		if (signal) throw new ReopenSessionError("transient", "pairing-unavailable");
+		throw error;
+	}
+	active(signal);
+	if (signal && record === void 0) throw new ReopenSessionError("unpaired", "pairing-unavailable");
 	if (!record) throw new Error("This browser is not paired.");
 	return {
 		record,
 		key: await DeviceKey.fromHandle(record.handle, record.publicKey)
 	};
 }
-/** Reopen this browser's door session for the running remote; no owner step. */
-async function reopenSession(previous) {
-	const { record, key } = await paired();
+var admissions = /* @__PURE__ */ new WeakMap();
+/**
+* Reopen this browser's door session for the running remote; no owner step.
+* The first caller's signal governs a coalesced bounded series; joined callers' signals are ignored.
+* A signal without bounded retry selects one typed attempt, bounded by the caller's cancellation.
+*/
+function reopenSession(previous, options) {
+	if (options?.retry !== "bounded") return reopenOnce(previous, options?.signal);
+	if (previous && !channelFor(previous)) return Promise.reject(/* @__PURE__ */ new TypeError("Use a verified previous Session."));
+	const joined = previous && admissions.get(previous);
+	if (joined) return joined;
+	const pending = boundedAdmission((signal) => reopenOnce(previous, signal), options.signal);
+	if (previous) {
+		admissions.set(previous, pending);
+		pending.finally(() => {
+			if (admissions.get(previous) === pending) admissions.delete(previous);
+		}).catch(() => {});
+	}
+	return pending;
+}
+async function reopenOnce(previous, signal) {
+	active(signal);
+	const send = async (input, init) => {
+		active(signal);
+		let response;
+		try {
+			response = await fetch(input, {
+				...init,
+				signal
+			});
+		} catch (error) {
+			active(signal);
+			if (signal) throw new ReopenSessionError("unreachable", "admission-unconfirmed");
+			throw error;
+		}
+		active(signal);
+		if (signal && response.status !== 200) throw new ReopenSessionError("unconfirmed", "admission-unconfirmed");
+		return response;
+	};
+	let stored;
+	try {
+		stored = await paired(signal);
+	} catch (error) {
+		active(signal);
+		if (signal) {
+			if (error instanceof ReopenSessionError) throw error;
+			throw new ReopenSessionError("transient", "pairing-unavailable");
+		}
+		throw error;
+	}
+	active(signal);
+	const { record, key } = stored;
+	if (signal && (record.paired.origin !== location.origin || record.paired.kind !== "browser")) throw new ReopenSessionError("mismatch", "identity-mismatch");
 	if (previous) {
 		const old = channelFor(previous);
 		if (!old) throw new TypeError("Use a verified previous Session.");
-		if (record.paired.clientId !== old.paired.clientId || record.paired.machineId !== old.paired.machineId || record.paired.origin !== old.paired.origin || !(record.paired.machinePublicKey instanceof Uint8Array) || record.paired.machinePublicKey.length !== 32 || old.paired.machinePublicKey.length !== 32 || record.paired.machinePublicKey.some((byte, index) => byte !== old.paired.machinePublicKey[index]) || record.publicKey.some((byte, index) => byte !== old.key.publicKey()[index])) throw new RefusalError("REMOTE_SESSION_ENDED");
+		if (!sameIdentity(record, old.paired, old.key.publicKey())) {
+			if (signal) throw new ReopenSessionError("mismatch", "identity-mismatch");
+			throw new RefusalError("REMOTE_SESSION_ENDED");
+		}
 	}
-	const current = await door();
-	validateDoor(current, record);
+	const current = await door(send);
+	try {
+		validateDoor(current, record);
+	} catch (error) {
+		if (signal) throw new ReopenSessionError(current.machineId !== record.paired.machineId ? "mismatch" : "transient", current.machineId !== record.paired.machineId ? "identity-mismatch" : "unverifiable-response");
+		throw error;
+	}
 	let refused = false;
 	try {
-		return await openSession({
+		const replacement = await openSession({
 			...record.paired,
 			address: current.address
 		}, key, current.windowId, async (url, init) => {
-			const response = await fetch(url, init);
+			const response = await send(url, init);
 			refused = response.status === 404;
 			return response;
-		});
+		}, signal ? {
+			signal,
+			transport: fetch
+		} : void 0);
+		if (signal) {
+			const latest = await paired(signal);
+			active(signal);
+			if (!sameIdentity(latest.record, record.paired, key.publicKey())) throw new ReopenSessionError("mismatch", "identity-mismatch");
+		}
+		return replacement;
 	} catch (error) {
+		active(signal);
+		if (signal) {
+			if (error instanceof ReopenSessionError) throw error;
+			throw new ReopenSessionError("transient", "unverifiable-response");
+		}
 		if (!refused || !previous) throw error;
 		const latest = await door();
 		validateDoor(latest, record);
 		if (latest.address !== current.address || latest.windowId !== current.windowId) throw new Error("The door descriptor changed during admission.");
 		throw new RefusalError("REMOTE_SESSION_ENDED");
 	}
+}
+function sameIdentity(record, pinned, publicKey) {
+	const pin = record.paired.machinePublicKey;
+	return record.paired.clientId === pinned.clientId && record.paired.machineId === pinned.machineId && record.paired.origin === pinned.origin && pin instanceof Uint8Array && pin.length === 32 && pinned.machinePublicKey.length === 32 && pin.every((byte, index) => byte === pinned.machinePublicKey[index]) && record.publicKey.length === publicKey.length && record.publicKey.every((byte, index) => byte === publicKey[index]);
 }
 function validateDoor(current, record) {
 	if (current.machineId !== record.paired.machineId) throw new Error("Paired with another machine.");
@@ -1967,4 +2149,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, budget_exports as budget, certifyKey, landingPage, management, operations, pairingPage, reopenSession, transportUrl };
+export { ClientError, RefusalError, ReopenSessionError, budget_exports as budget, certifyKey, landingPage, management, operations, pairingPage, reopenSession, transportUrl };

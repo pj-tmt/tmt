@@ -1,3 +1,15 @@
+import {
+  active,
+  boundedAdmission,
+  ReopenSessionError,
+  type ReopenSessionOptions,
+} from './session-reopen.js';
+export { ReopenSessionError } from './session-reopen.js';
+export type {
+  ReopenSessionOptions,
+  ReopenSessionReason,
+  ReopenSessionDetail,
+} from './session-reopen.js';
 import { channelFor } from './session-channel.js';
 import { RefusalError, parseCapabilities, verifiedSessionRequest } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
@@ -81,8 +93,8 @@ interface Door {
   extension: string | null;
   mount: string | null;
 }
-async function door(): Promise<Door> {
-  const response = await fetch('/sdk/mount', {
+async function door(send: typeof fetch = fetch): Promise<Door> {
+  const response = await send('/sdk/mount', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: location.pathname }),
@@ -90,48 +102,126 @@ async function door(): Promise<Door> {
   if (response.status !== 200) throw new Error('The door did not answer.');
   return (await response.json()) as Door;
 }
-async function paired(): Promise<{ record: Stored; key: DeviceKey }> {
-  const record = await load();
+async function paired(signal?: AbortSignal): Promise<{ record: Stored; key: DeviceKey }> {
+  let record: Stored | undefined;
+  try {
+    record = await load();
+  } catch (error) {
+    if (signal) throw new ReopenSessionError('transient', 'pairing-unavailable');
+    throw error;
+  }
+  active(signal);
+  if (signal && record === undefined)
+    throw new ReopenSessionError('unpaired', 'pairing-unavailable');
   if (!record) throw new Error('This browser is not paired.');
   return { record, key: await DeviceKey.fromHandle(record.handle, record.publicKey) };
 }
 
-/** Reopen this browser's door session for the running remote; no owner step. */
-export async function reopenSession(previous?: Session): Promise<Session> {
-  const { record, key } = await paired();
+const admissions = new WeakMap<Session, Promise<Session>>();
+/**
+ * Reopen this browser's door session for the running remote; no owner step.
+ * The first caller's signal governs a coalesced bounded series; joined callers' signals are ignored.
+ * A signal without bounded retry selects one typed attempt, bounded by the caller's cancellation.
+ */
+export function reopenSession(
+  previous?: Session,
+  options?: ReopenSessionOptions,
+): Promise<Session> {
+  if (options?.retry !== 'bounded') return reopenOnce(previous, options?.signal);
+  if (previous && !channelFor(previous))
+    return Promise.reject(new TypeError('Use a verified previous Session.'));
+  const joined = previous && admissions.get(previous);
+  if (joined) return joined;
+  const pending = boundedAdmission((signal) => reopenOnce(previous, signal), options.signal);
+  if (previous) {
+    admissions.set(previous, pending);
+    void pending
+      .finally(() => {
+        if (admissions.get(previous) === pending) admissions.delete(previous);
+      })
+      .catch(() => {});
+  }
+  return pending;
+}
+async function reopenOnce(previous?: Session, signal?: AbortSignal): Promise<Session> {
+  active(signal);
+  const send: typeof fetch = async (input, init) => {
+    active(signal);
+    let response: Response;
+    try {
+      response = await fetch(input, { ...init, signal });
+    } catch (error) {
+      active(signal);
+      if (signal) throw new ReopenSessionError('unreachable', 'admission-unconfirmed');
+      throw error;
+    }
+    active(signal);
+    if (signal && response.status !== 200)
+      throw new ReopenSessionError('unconfirmed', 'admission-unconfirmed');
+    return response;
+  };
+  let stored: { record: Stored; key: DeviceKey };
+  try {
+    stored = await paired(signal);
+  } catch (error) {
+    active(signal);
+    if (signal) {
+      if (error instanceof ReopenSessionError) throw error;
+      throw new ReopenSessionError('transient', 'pairing-unavailable');
+    }
+    throw error;
+  }
+  active(signal);
+  const { record, key } = stored;
+  if (signal && (record.paired.origin !== location.origin || record.paired.kind !== 'browser'))
+    throw new ReopenSessionError('mismatch', 'identity-mismatch');
   if (previous) {
     const old = channelFor(previous);
     if (!old) throw new TypeError('Use a verified previous Session.');
-    if (
-      record.paired.clientId !== old.paired.clientId ||
-      record.paired.machineId !== old.paired.machineId ||
-      record.paired.origin !== old.paired.origin ||
-      !(record.paired.machinePublicKey instanceof Uint8Array) ||
-      record.paired.machinePublicKey.length !== 32 ||
-      old.paired.machinePublicKey.length !== 32 ||
-      record.paired.machinePublicKey.some(
-        (byte, index) => byte !== old.paired.machinePublicKey[index],
-      ) ||
-      record.publicKey.some((byte, index) => byte !== old.key.publicKey()[index])
-    ) {
+    if (!sameIdentity(record, old.paired, old.key.publicKey())) {
+      if (signal) throw new ReopenSessionError('mismatch', 'identity-mismatch');
       throw new RefusalError('REMOTE_SESSION_ENDED');
     }
   }
-  const current = await door();
-  validateDoor(current, record);
+  const current = await door(send);
+  try {
+    validateDoor(current, record);
+  } catch (error) {
+    if (signal)
+      throw new ReopenSessionError(
+        current.machineId !== record.paired.machineId ? 'mismatch' : 'transient',
+        current.machineId !== record.paired.machineId
+          ? 'identity-mismatch'
+          : 'unverifiable-response',
+      );
+    throw error;
+  }
   let refused = false;
   try {
-    return await openSession(
+    const replacement = await openSession(
       { ...record.paired, address: current.address },
       key,
       current.windowId,
       async (url, init) => {
-        const response = await fetch(url, init);
+        const response = await send(url, init);
         refused = response.status === 404;
         return response;
       },
+      signal ? { signal, transport: fetch } : undefined,
     );
+    if (signal) {
+      const latest = await paired(signal);
+      active(signal);
+      if (!sameIdentity(latest.record, record.paired, key.publicKey()))
+        throw new ReopenSessionError('mismatch', 'identity-mismatch');
+    }
+    return replacement;
   } catch (error) {
+    active(signal);
+    if (signal) {
+      if (error instanceof ReopenSessionError) throw error;
+      throw new ReopenSessionError('transient', 'unverifiable-response');
+    }
     if (!refused || !previous) throw error;
     // A restart or stale descriptor is uncertainty, not current access refusal.
     // This is another descriptor read, never another admission or mutation.
@@ -142,6 +232,20 @@ export async function reopenSession(previous?: Session): Promise<Session> {
     }
     throw new RefusalError('REMOTE_SESSION_ENDED');
   }
+}
+function sameIdentity(record: Stored, pinned: Paired, publicKey: Uint8Array): boolean {
+  const pin = record.paired.machinePublicKey;
+  return (
+    record.paired.clientId === pinned.clientId &&
+    record.paired.machineId === pinned.machineId &&
+    record.paired.origin === pinned.origin &&
+    pin instanceof Uint8Array &&
+    pin.length === 32 &&
+    pinned.machinePublicKey.length === 32 &&
+    pin.every((byte, index) => byte === pinned.machinePublicKey[index]) &&
+    record.publicKey.length === publicKey.length &&
+    record.publicKey.every((byte, index) => byte === publicKey[index])
+  );
 }
 function validateDoor(current: Door, record: Stored): void {
   if (current.machineId !== record.paired.machineId)

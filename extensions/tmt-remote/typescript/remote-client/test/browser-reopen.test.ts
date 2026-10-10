@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vite-plus/test';
-import { reopenSession } from '../src/browser.js';
+import { reopenSession, ReopenSessionError } from '../src/browser.js';
 import { openSession, DeviceKey } from '../src/device.js';
-import { RefusalError } from '../src/operations.js';
+import { RefusalError, ClientError } from '../src/operations.js';
 import { Door, paired } from './door.js';
 function request(result: unknown) {
   const pending: { result: unknown; onsuccess?: () => void } = { result };
@@ -54,7 +54,7 @@ async function fixture() {
     }
     admissions++;
     if (mode === 'transport') throw new Error('Transport unavailable.');
-    if (mode === 'success' || mode === 'unverified') {
+    if (mode === 'success' || mode === 'unverified' || (mode === 'recovered' && admissions > 1)) {
       door.tamper.signature = mode === 'unverified';
       return door.fetch(url, init);
     }
@@ -63,6 +63,7 @@ async function fixture() {
   return {
     previous,
     record,
+    door,
     counts: () => ({ mounts, admissions }),
     mode: (value: string) => {
       mode = value;
@@ -179,3 +180,173 @@ for (const length of [31, 0, 33]) {
     }
   });
 }
+
+// Continuity regression: an opaque end of the old run is not a revoked pairing.
+test('bounded reopen recovers a refused old run without any operation resend', async () => {
+  const f = await fixture();
+  try {
+    f.mode('recovered');
+    const fresh = await reopenSession(f.previous, { retry: 'bounded' });
+    assert.notEqual(fresh.sessionId, f.previous.sessionId);
+    assert.equal(f.counts().admissions, 2);
+    assert.equal(f.door.calls.length, 0);
+    const { operations } = await import('../src/operations.js');
+    await operations(fresh).listAgents();
+    assert.equal(f.door.calls.length, 1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+for (const change of ['client', 'key', 'machine']) {
+  test(`bounded recovery classifies ${change} replacement as mismatch without network or retry`, async () => {
+    const f = await fixture();
+    try {
+      if (change === 'client')
+        f.record.paired = { ...f.record.paired, clientId: crypto.randomUUID() };
+      if (change === 'machine')
+        f.record.paired = { ...f.record.paired, machinePublicKey: new Uint8Array(32) };
+      if (change === 'key') {
+        const key = await DeviceKey.generate();
+        f.record.handle = key.handle();
+        f.record.publicKey = key.publicKey();
+      }
+      await assert.rejects(
+        reopenSession(f.previous, { retry: 'bounded' }),
+        (error) => error instanceof ReopenSessionError && error.reason === 'mismatch',
+      );
+      assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}
+test('bounded callers join one admission and do not send an original operation', async () => {
+  const f = await fixture();
+  try {
+    f.mode('success');
+    const first = reopenSession(f.previous, { retry: 'bounded' });
+    const joined = reopenSession(f.previous, { retry: 'bounded' });
+    assert.equal(first, joined);
+    assert.equal(await first, await joined);
+    assert.equal(f.counts().admissions, 1);
+    assert.equal(f.door.calls.length, 0);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+test('absent pairing is unpaired; unreadable pairing is transient and never admitted', async () => {
+  for (const unavailable of [false, true]) {
+    const f = await fixture();
+    try {
+      vi.stubGlobal('indexedDB', {
+        open: () => {
+          if (unavailable) throw new Error('storage unavailable');
+          return request({
+            transaction: () => ({ objectStore: () => ({ get: () => request(undefined) }) }),
+          });
+        },
+      });
+      await assert.rejects(
+        reopenSession(f.previous, { retry: 'bounded', signal: AbortSignal.timeout(50) }),
+        (error) =>
+          error instanceof ReopenSessionError &&
+          error.reason === (unavailable ? 'transient' : 'unpaired'),
+      );
+      assert.equal(f.counts().admissions, 0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});
+test('cancelled owner performs no admission', async () => {
+  const f = await fixture();
+  try {
+    const owner = new AbortController();
+    owner.abort();
+    await assert.rejects(
+      reopenSession(f.previous, { retry: 'bounded', signal: owner.signal }),
+      (error) => error instanceof ReopenSessionError && error.detail === 'cancelled',
+    );
+    assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('lost send acknowledgment keeps the original ID across bounded admission and only observes it', async () => {
+  const f = await fixture();
+  try {
+    const { operations } = await import('../src/operations.js');
+    const id = crypto.randomUUID();
+    f.door.afterAdoption = async (body) => {
+      if (body.operation === 'dispatch.create') throw new Error('lost reply');
+    };
+    await assert.rejects(
+      operations(f.previous).send({
+        operationId: id,
+        agentId: (f.door.agents[0] as { id: string }).id,
+        message: 'one frozen send',
+      }),
+      (error) => error instanceof ClientError && error.operationId === id,
+    );
+    f.mode('recovered');
+    const fresh = await reopenSession(f.previous, { retry: 'bounded' });
+    const recovered = await operations(fresh).operation(id);
+    assert.equal(recovered.state, 'accepted');
+    assert.equal(recovered.operationId, id);
+    assert.equal(
+      f.door.calls.filter((call) => call.envelope.operation === 'dispatch.create').length,
+      1,
+    );
+    assert.equal(
+      f.door.calls.filter((call) => call.envelope.operation === 'operation.show').length,
+      1,
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('a late real signed admission cannot resolve a bounded call after owner abort', async () => {
+  const f = await fixture();
+  try {
+    const original = fetch;
+    let release!: (response: Response) => void;
+    let arrived!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let response!: Response;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url === '/sdk/mount') return original(url, init);
+      response = await f.door.fetch(url, init!);
+      const held = new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+      arrived();
+      return held;
+    });
+    const owner = new AbortController();
+    let published = false;
+    const pending = reopenSession(f.previous, { retry: 'bounded', signal: owner.signal });
+    const checked = assert.rejects(
+      pending,
+      (error) => error instanceof ReopenSessionError && error.detail === 'cancelled',
+    );
+    void pending.then(
+      () => {
+        published = true;
+      },
+      () => {},
+    );
+    await reached;
+    owner.abort();
+    release(response);
+    await checked;
+    assert.equal(published, false);
+    assert.equal(f.counts().mounts, 1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
