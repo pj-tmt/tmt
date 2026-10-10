@@ -274,6 +274,43 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
         .unwrap()
         .expect("built app for public owner proof");
     let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
+    use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO epoch_secrets VALUES (?,?,?)",
+            rusqlite::params![PAGE, format!("{:020}", 1), [8u8; 32].as_slice()],
+        )
+        .unwrap();
+    let private_title = "Private page title must not reach public entry";
+    let doc = Doc::with_client_id(77);
+    doc.get_or_insert_text("html")
+        .insert(&mut doc.transact_mut(), 0, "<p>Private title proof</p>");
+    doc.get_or_insert_map("meta")
+        .insert(&mut doc.transact_mut(), "title", private_title);
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    let (append, _, _) = server.append_payload(DEVICE, 1, [0; 32], &update);
+    send(&mut peer, append);
+    assert_eq!(receive(&mut peer)["type"], "receipt");
+    assert_eq!(receive(&mut peer)["type"], "broadcast");
+    let layout = Layout::open(&server.root).unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        tmt_colab::page::read(&store, &key, PAGE, &mut decoder)
+            .unwrap()
+            .title,
+        private_title
+    );
+    store.close().unwrap();
     let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
     let get = |prefix: &str| server.request(&Running::get(&format!("/p/{prefix}"), mount));
     let known = get("00000000");
@@ -326,7 +363,7 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
             DEVICE,
             OTHER,
             "Laptop",
-            "title",
+            private_title,
             "author",
             "pageId",
             "spaceId",

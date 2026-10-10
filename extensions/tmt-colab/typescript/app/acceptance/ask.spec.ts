@@ -482,7 +482,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'accepted',
       );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
-      run(world, world.binaries.remote, ['devices', 'revoke', clientId(world, askerName)]);
+      run(world, world.binaries.remote, [
+        'devices',
+        'revoke',
+        clientId(world, askerName),
+        '--json',
+      ]);
       const before = dispatches(world).length;
       await s.askerPage.reload();
       await expect(s.askerPage.getByTestId('ask-send')).toHaveCount(0);
