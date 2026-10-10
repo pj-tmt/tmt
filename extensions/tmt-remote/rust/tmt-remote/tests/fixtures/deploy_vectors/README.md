@@ -7,7 +7,7 @@ provenance; this is not a production declaration or a substitute for Colab's vec
 From `rust/`, regenerate into staging with:
 
 ```sh
-CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- ../extensions/tmt-remote/rust/tmt-remote/tests/fixtures/deploy_vectors/remote-envelope.json /private/tmp/remote-vector-staging
+CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- ../extensions/tmt-remote/rust/tmt-remote/tests/fixtures/deploy_vectors/remote-envelope.json /absolute/staging
 ```
 
 Review the three outputs, then copy them here with the `remote-envelope.` prefix. The plan

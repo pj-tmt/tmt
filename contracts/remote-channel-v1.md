@@ -1548,9 +1548,15 @@ owned state through a fresh signed session, without resending work.
 **Layer-1 composition (`sharing` profile).** Remote builds `firestore.rules` from text it owns (`rules_version`, one
 `match /x/<extension>` wrapper per extension of the plan, a default deny) and each extension's admission fragment, which
 it tokenizes and rebuilds, never splices. A fragment holds only nested `match` and `allow <methods>: if <condition>`
-statements over an allow-list of request and document fields, operators and methods. `function`, `let`, `path()`, bare
-`get`/`exists`/`getAfter`/`existsAfter` and absolute path literals are refused: Rules can reach outside the wrapper through
-interpolated or concatenated path strings, and a user function can shadow a built-in. Reads of the extension's own
+statements over an allow-list of request and document fields, operators and methods. Field/index
+postfix access includes `request.auth.token.firebase.sign_in_provider`; `+` supports string-ID
+composition without type checking. Nested match wildcards can compare document fields and enclosing
+wildcards. `request.resource.id`, `request.query` and unbound or reserved wildcards are refused;
+`matches` requires a literal pattern. Composition does not prove runtime membership or
+declared-collection coverage: extensions verify those semantics in their emulator. `function`, `let`,
+`path()`, bare `get`/`exists`/`getAfter`/`existsAfter` and absolute path literals are refused: Rules can
+reach outside the wrapper through interpolated or concatenated path strings, and a user function can
+shadow a built-in. Reads of the extension's own
 documents use the macros `ext.get`, `ext.exists`, `ext.getAfter` and `ext.existsAfter`, which expand to a fixed
 `x/<extension>` prefix. A condition must refer to `request.auth` or document data: `if true`, constants and time-only
 conditions are refused. A recursive wildcard is allowed only inside the wrapper. Indexes come from the plan as
@@ -1695,13 +1701,6 @@ which also covers each declaration's own digest, the target backend and whether 
 `profile` is `sharing`: extension resources and admission fragments without an operation root. A later layer-2 profile
 is an additive variant and never changes the bytes or digest of a sharing plan. An enabled extension with no
 declaration for the target is listed as unavailable there and does not fail the rest of the plan.
-
-The shipped Firestore fragment parser permits field/index postfix access on allow-listed roots,
-including `request.auth.token.firebase.sign_in_provider`, and `+` expressions for string-ID
-composition; it does not type-check those expressions. Nested match wildcards can compare document
-fields and enclosing wildcards. `request.resource.id`, `request.query` and unbound or reserved
-wildcards are refused; `matches` requires a literal pattern. Composition does not prove runtime
-membership or declared-collection coverage: extensions verify those semantics in their emulator.
 
 The developer-only `compose_firestore` Cargo example validates the exact declaration reply and
 composes Rules, indexes and a plan through the same pure owners as deployment. Its `plan.json`
