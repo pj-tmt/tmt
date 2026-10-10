@@ -332,3 +332,131 @@ fn available_binary_reports_missing_tool_and_missing_login_without_creating_a_pl
         assert!(!root.0.join("firebase-tools/calls.jsonl").exists());
     }
 }
+
+#[test]
+fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readback() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use serde_json::{Value, json};
+    use sha2::{Digest, Sha256};
+    let root = Root::new();
+    available(&root);
+    let package = installed(&root, "process");
+    let mut reply: Value =
+        serde_json::from_slice(&fs::read(root.0.join("reply.json")).unwrap()).unwrap();
+    let mut declaration: Value =
+        serde_json::from_str(reply["declaration"].as_str().unwrap()).unwrap();
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let manifest=tmt_remote::hosting::HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+    declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
+    let bytes = serde_json::to_string(&declaration).unwrap();
+    reply["declarationDigest"] = json!(hash(bytes.as_bytes()));
+    reply["declaration"] = json!(bytes);
+    fs::write(
+        root.0.join("reply.json"),
+        serde_json::to_vec(&reply).unwrap(),
+    )
+    .unwrap();
+    fs::write(root.0.join("bundle.json"),serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap()).unwrap();
+    executable_fixture::write_executable(&root.0.join("tmt"),&format!("case \"$*\" in
+'colab deploy-declaration --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;
+'colab hosting-bundle --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;
+api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"dataRoot\":\"{}\"}}';; *) exit 5;; esac;;
+*) exit 6;; esac",root.0.join("reply.json").display(),root.0.join("bundle.json").display(),root.0.display())).unwrap();
+    let mut state: Value =
+        serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
+    state["hosting"] = json!({"apps":[],"site":null,"version":null,"files":[],"live":null});
+    fs::write(
+        package.join("state.json"),
+        serde_json::to_vec(&state).unwrap(),
+    )
+    .unwrap();
+    let preview = json_output(&invoke(&root, &["--json"]));
+    let digest = preview["planDigest"].as_str().unwrap();
+    let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
+    assert!(
+        calls
+            .lines()
+            .all(|line| serde_json::from_str::<Value>(line).unwrap()["method"] == "GET")
+    );
+    let complete = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
+    assert_eq!(complete["planDigest"], preview["planDigest"]);
+    assert_eq!(complete["record"]["run"]["state"], "complete");
+    let publication = &complete["record"]["run"]["hosting"]["publication"];
+    assert_eq!(publication["entryUrl"], "https://demo-remote-1.web.app");
+    assert_eq!(publication["siteAppId"], publication["appId"]);
+    assert_eq!(
+        publication["publicConfig"],
+        json!({"apiKey":"public-api-key","authDomain":"demo-remote-1.firebaseapp.com","projectId":"demo-remote-1","appId":"1:123:web:mine"})
+    );
+    let saved = tmt_remote::deploy_record::read(&root.layout())
+        .unwrap()
+        .unwrap();
+    assert!(saved.usable_binding().is_some());
+    assert!(saved.verified_publication().is_some());
+    let document: Value =
+        serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
+    assert_eq!(document["version"], 3);
+    let calls: Vec<Value> = fs::read_to_string(package.join("calls.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|c| c["method"] == "POST" && c["url"].as_str().unwrap().ends_with("/webApps"))
+            .count(),
+        1
+    );
+    let rules = calls
+        .iter()
+        .position(|c| c["method"] == "POST" && c["url"].as_str().unwrap().ends_with("/releases"))
+        .unwrap();
+    let stage = calls
+        .iter()
+        .position(|c| {
+            c["method"] == "PATCH" && c["url"].as_str().unwrap().ends_with("?updateMask=status")
+        })
+        .unwrap();
+    let live = calls
+        .iter()
+        .position(|c| {
+            c["method"] == "POST"
+                && c["url"]
+                    .as_str()
+                    .unwrap()
+                    .contains("/releases?versionName=")
+        })
+        .unwrap();
+    assert!(stage < rules && rules < live);
+    // Checkpoint data is validated on read, never converted or silently repaired.
+    for corrupt in [
+        "extra-envelope-key",
+        "foreign-public-config",
+        "foreign-site-association",
+    ] {
+        let mut damaged = document.clone();
+        if corrupt == "extra-envelope-key" {
+            damaged["record"]["run"]["hosting"]["envelope"]["extra"] = json!(true);
+        } else if corrupt == "foreign-site-association" {
+            damaged["record"]["run"]["hosting"]["publication"]["siteAppId"] = json!("another-app");
+        } else {
+            damaged["record"]["run"]["hosting"]["publication"]["publicConfig"]["projectId"] =
+                json!("another-project");
+        }
+        let bytes = serde_json::to_vec(&damaged).unwrap();
+        fs::write(root.remote().join("deploy.json"), &bytes).unwrap();
+        assert_eq!(
+            tmt_remote::deploy_record::read(&root.layout())
+                .unwrap_err()
+                .code,
+            "REMOTE_STATE_UNSAFE"
+        );
+        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), bytes);
+    }
+}

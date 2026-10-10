@@ -3094,6 +3094,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
         authorized_at_ms: 1,
         state: RunState::Complete,
         rules_attempted: true,
+        hosting: None,
         steps: ["database", "sign-in:anonymous", "rules", "verify"]
             .into_iter()
             .map(|id| StepRecord {

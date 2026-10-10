@@ -4,11 +4,9 @@
 //! clock; nothing here talks to a provider, reads a file or holds a credential, so no
 //! credential choice can leak into it.
 //!
-//! A deploy is a fixed, ordered list of steps (database, sign-in providers, indexes,
-//! Rules, verify). The owner authorizes the digest of the whole envelope; any change
-//! needs a new authorization. The Rules release is the one step that switches what the
-//! project serves, so it runs after every additive step. A usable binding exists only
-//! when every step finished and the final read-back passed.
+//! The owner authorizes one fixed envelope: additive prerequisites and optional Hosting
+//! stage precede Rules, Hosting release follows Rules, and joint verification is last.
+//! A usable binding exists only when every step finished and the final read-back passed.
 use crate::{
     canonical,
     deploy_plan::{Plan, sha256_hex},
@@ -101,6 +99,7 @@ pub enum StepKind {
         field: String,
         direction: &'static str,
     },
+    Hosting(HostingStep),
     Rules,
     /// Reads back every other step; the last gate before a binding.
     Verify,
@@ -113,17 +112,17 @@ pub struct DeployStep {
 }
 
 /// Everything the owner reads before authorizing.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployView {
     pub version: u8,
-    pub backend: &'static str,
-    pub profile: &'static str,
+    pub backend: String,
+    pub profile: String,
     pub account: String,
     pub project: String,
     pub deployment_id: String,
     pub database: DatabaseView,
-    pub sign_in: Vec<&'static str>,
+    pub sign_in: Vec<String>,
     pub rules: RulesView,
     pub index_configs: usize,
     pub steps: Vec<String>,
@@ -133,19 +132,19 @@ pub struct DeployView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hosting: Option<crate::hosting::HostingDeploymentView>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseView {
-    pub name: &'static str,
-    pub edition: &'static str,
+    pub name: String,
+    pub edition: String,
     pub location: String,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RulesView {
     /// Digest of the composed body (without the marker line).
     pub digest: String,
-    pub replaces: &'static str,
+    pub replaces: String,
     pub replaced_digest: Option<String>,
 }
 
@@ -321,20 +320,23 @@ pub fn prepare_with_hosting(
     };
     let mut view = DeployView {
         version: 1,
-        backend: "firestore",
-        profile: "sharing",
+        backend: "firestore".into(),
+        profile: "sharing".into(),
         account: input.account.to_owned(),
         project: input.project.to_owned(),
         deployment_id: input.deployment_id.to_owned(),
         database: DatabaseView {
-            name: DATABASE,
-            edition: EDITION,
+            name: DATABASE.into(),
+            edition: EDITION.into(),
             location: input.location.to_owned(),
         },
-        sign_in: providers.iter().map(|provider| provider.name()).collect(),
+        sign_in: providers
+            .iter()
+            .map(|provider| provider.name().to_owned())
+            .collect(),
         rules: RulesView {
             digest: rules_digest(input.rules_body),
-            replaces,
+            replaces: replaces.into(),
             replaced_digest,
         },
         index_configs,
@@ -349,19 +351,8 @@ pub fn prepare_with_hosting(
         {
             return Err(DeployRefusal::HostingUnavailable);
         }
-        if hosting.create_site {
-            view.steps.insert(0, "hosting-site:create".into());
-        }
-        if hosting.create_web_app {
-            view.steps.insert(0, "web-app:create".into());
-        }
-        let rules = view
-            .steps
-            .iter()
-            .position(|id| id == "rules")
-            .expect("Rules step");
-        view.steps.insert(rules, "hosting:stage".into());
-        view.steps.insert(rules + 2, "hosting:release".into());
+        steps = hosting_steps(steps, hosting)?;
+        view.steps = steps.iter().map(|step| step.id.clone()).collect();
         if let Some(fingerprint) = &hosting.replaced_fingerprint {
             view.destructive
                 .push(format!("replaces-hosting:{fingerprint}"));
@@ -482,6 +473,7 @@ pub enum DeployObserved {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeployApplied {
     Done,
+    Building,
     OwnerAction(DeployOwnerAction),
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -493,6 +485,15 @@ pub enum DeployProviderError {
 
 /// The provider seam. Adapters implement it; fixtures fake it.
 pub trait DeployPort {
+    fn supports_hosting(&self) -> bool {
+        false
+    }
+    /// Restore only the retained original; the adapter never owns persistence.
+    fn restore_hosting(&mut self, _checkpoint: &HostingCheckpoint, _steps: &[StepRecord]) {}
+    fn hosting_checkpoint(&self) -> Option<HostingCheckpoint> {
+        None
+    }
+
     /// The account the credential resolves to. Read-only.
     fn account(&mut self) -> Result<String, DeployProviderError>;
     fn observe(
@@ -553,6 +554,8 @@ pub struct Run {
     /// Set before the Rules call is made: from then on the project may serve new Rules.
     pub rules_attempted: bool,
     pub steps: Vec<StepRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosting: Option<HostingCheckpoint>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -581,10 +584,22 @@ impl DeployRecord {
     /// The binding routes may use. Once a run may have switched the Rules and has not
     /// completed, the project is partial and no binding is usable.
     pub fn usable_binding(&self) -> Option<&DeployBinding> {
-        match &self.run {
-            Some(run) if run.rules_attempted && run.state != RunState::Complete => None,
-            _ => self.binding.as_ref(),
+        if self.run.as_ref().is_some_and(|run| {
+            run.publication_may_have_changed() && run.state != RunState::Complete
+        }) {
+            None
+        } else {
+            self.binding.as_ref()
         }
+    }
+    /// A consumer may publish a link only from the atomically completed joint result.
+    pub fn verified_publication(&self) -> Option<&VerifiedHostingPublication> {
+        let run = self.run.as_ref()?;
+        if run.state != RunState::Complete || self.usable_binding()?.plan_digest != run.plan_digest
+        {
+            return None;
+        }
+        run.hosting.as_ref()?.publication.as_ref()
     }
 }
 
@@ -607,9 +622,8 @@ pub fn run(
     sink: &mut dyn DeploySink,
     now_ms: u64,
 ) -> Result<DeployRecord, DeployError> {
-    // This slice freezes Hosting plans only. Never apply Rules alone for that plan.
-    // The provider lifecycle and joint verification are a separate, reviewed owner change.
-    if plan.view.hosting.is_some() {
+    // A declared Hosting plan cannot fall through to a Rules-only adapter.
+    if plan.view.hosting.is_some() && !port.supports_hosting() {
         return Err(DeployError::Refused(DeployRefusal::HostingUnavailable));
     }
     if authorization.plan_digest != plan.digest || record.deployment_id != plan.deployment_id() {
@@ -622,6 +636,9 @@ pub fn run(
     }
     begin(&mut record, plan, now_ms);
     save(sink, &record)?;
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
+        port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
+    }
     // Finished steps are observed again too, so drift since the last run is noticed.
     for (index, step) in plan.steps.iter().enumerate() {
         if !advance(plan, step, index, &mut record, port, sink)? {
@@ -665,7 +682,7 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
     if record
         .run
         .as_ref()
-        .is_some_and(|run| run.rules_attempted && run.state != RunState::Complete)
+        .is_some_and(|run| run.publication_may_have_changed() && run.state != RunState::Complete)
     {
         record.binding = None;
     }
@@ -675,6 +692,14 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
         authorized_at_ms: now_ms,
         state: RunState::Applying,
         rules_attempted: false,
+        hosting: plan.view.hosting.as_ref().map(|hosting| HostingCheckpoint {
+            envelope: serde_json::to_value(&plan.view).expect("view serializes"),
+            app_id: hosting.web_app.clone(),
+            operation: None,
+            version: None,
+            version_created_ms: None,
+            publication: None,
+        }),
         steps: plan
             .steps
             .iter()
@@ -695,7 +720,12 @@ fn advance(
     port: &mut dyn DeployPort,
     sink: &mut dyn DeploySink,
 ) -> Result<bool, DeployError> {
-    let observed = match port.observe(plan, step) {
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
+        port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
+    }
+    let observation = port.observe(plan, step);
+    capture_checkpoint(record, port);
+    let observed = match observation {
         Ok(observed) => observed,
         Err(error) => {
             set(record, sink, index, from_error(error))?;
@@ -733,7 +763,7 @@ fn advance(
         }
         DeployObserved::Building => {
             set(record, sink, index, StepState::Building)?;
-            return Ok(true);
+            return Ok(!matches!(step.kind, StepKind::Hosting(_)));
         }
         DeployObserved::OwnerAction(action) => {
             set(record, sink, index, StepState::OwnerAction(action))?;
@@ -756,15 +786,32 @@ fn advance(
         }
         DeployObserved::Absent | DeployObserved::Rules(_) => {}
     }
+    if matches!(
+        step.kind,
+        StepKind::Hosting(HostingStep::WebAppCreate | HostingStep::VersionCreate)
+    ) && record.run.as_ref().expect("begun").steps[index].state == StepState::Unknown
+    {
+        // Absence after an ambiguous mutation is not proof it did not happen.
+        return Ok(false);
+    }
     // Recorded before the call, so a crash or a lost answer leaves `unknown`, never a gap.
     if step.kind == StepKind::Rules {
         run_of(record).rules_attempted = true;
     }
     set(record, sink, index, StepState::Unknown)?;
-    match port.apply(plan, step) {
+    if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
+        port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
+    }
+    let application = port.apply(plan, step);
+    capture_checkpoint(record, port);
+    match application {
         Ok(DeployApplied::Done) => {
             set(record, sink, index, StepState::Done)?;
             Ok(true)
+        }
+        Ok(DeployApplied::Building) => {
+            set(record, sink, index, StepState::Building)?;
+            Ok(false)
         }
         Ok(DeployApplied::OwnerAction(action)) => {
             set(record, sink, index, StepState::OwnerAction(action))?;
@@ -791,13 +838,25 @@ fn finish(
     now_ms: u64,
     plan: &DeployPlan,
 ) -> Result<DeployRecord, DeployError> {
-    let complete = run_of(&mut record).steps.iter().all(|s| s.state.finished());
+    let complete = run_of(&mut record).steps.iter().all(|s| s.state.finished())
+        && (plan.view.hosting.is_none()
+            || run_of(&mut record)
+                .hosting
+                .as_ref()
+                .is_some_and(|h| h.publication.as_ref().is_some_and(|p| p.matches(plan))));
     run_of(&mut record).state = if complete {
         RunState::Complete
     } else {
         RunState::Partial
     };
     if complete {
+        if let Some(publication) = run_of(&mut record)
+            .hosting
+            .as_mut()
+            .and_then(|h| h.publication.as_mut())
+        {
+            publication.verified_at_ms = now_ms;
+        }
         record.binding = Some(DeployBinding {
             plan_digest: plan.digest.clone(),
             project: plan.view.project.clone(),
@@ -806,4 +865,278 @@ fn finish(
     }
     save(sink, &record)?;
     Ok(record)
+}
+
+/// Concrete stage effects all remain in the existing ordered deploy engine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostingStep {
+    WebAppCreate,
+    SiteCreate,
+    SiteConfigure,
+    VersionCreate,
+    Populate,
+    Upload { path: String, hash: String },
+    Finalize,
+    Release,
+}
+fn hosting_steps(
+    mut steps: Vec<DeployStep>,
+    hosting: &crate::hosting::HostingDeploymentView,
+) -> Result<Vec<DeployStep>, DeployRefusal> {
+    let mut prefix = Vec::new();
+    if hosting.create_web_app {
+        prefix.push(step(
+            "web-app:create",
+            StepKind::Hosting(HostingStep::WebAppCreate),
+        ));
+    }
+    if hosting.create_site {
+        prefix.push(step(
+            "hosting-site:create",
+            StepKind::Hosting(HostingStep::SiteCreate),
+        ));
+    }
+    if hosting.configure_site {
+        prefix.push(step(
+            "hosting-site:configure",
+            StepKind::Hosting(HostingStep::SiteConfigure),
+        ));
+    }
+    prefix.append(&mut steps);
+    let rules = prefix
+        .iter()
+        .position(|s| s.kind == StepKind::Rules)
+        .expect("Rules");
+    let mut stage = vec![
+        step(
+            "hosting:stage:create",
+            StepKind::Hosting(HostingStep::VersionCreate),
+        ),
+        step(
+            "hosting:stage:populate",
+            StepKind::Hosting(HostingStep::Populate),
+        ),
+    ];
+    let files = hosting.content["files"]
+        .as_array()
+        .ok_or(DeployRefusal::HostingUnavailable)?;
+    let mut hashes = std::collections::BTreeSet::new();
+    for file in files {
+        let hash = file["gzipDigest"]
+            .as_str()
+            .ok_or(DeployRefusal::HostingUnavailable)?;
+        let path = file["path"]
+            .as_str()
+            .ok_or(DeployRefusal::HostingUnavailable)?;
+        if hashes.insert(hash) {
+            stage.push(step(
+                &format!("hosting:stage:upload:{hash}"),
+                StepKind::Hosting(HostingStep::Upload {
+                    path: path.into(),
+                    hash: hash.into(),
+                }),
+            ));
+        }
+    }
+    stage.push(step(
+        "hosting:stage:finalize",
+        StepKind::Hosting(HostingStep::Finalize),
+    ));
+    prefix.splice(rules..rules, stage);
+    let rules = prefix
+        .iter()
+        .position(|s| s.kind == StepKind::Rules)
+        .expect("Rules");
+    prefix.insert(
+        rules + 1,
+        step("hosting:release", StepKind::Hosting(HostingStep::Release)),
+    );
+    Ok(prefix)
+}
+/// Only the frozen authorization and provider-generated recovery facts extend the record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostingCheckpoint {
+    pub envelope: serde_json::Value,
+    pub app_id: Option<String>,
+    pub operation: Option<String>,
+    pub version: Option<String>,
+    pub version_created_ms: Option<u64>,
+    pub publication: Option<VerifiedHostingPublication>,
+}
+/// Constructed by final joint read-back, never by staging or a Rules-only outcome.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VerifiedHostingPublication {
+    project: String,
+    region: String,
+    deployment_id: String,
+    plan_digest: String,
+    app_id: String,
+    site_app_id: String,
+    public_config: serde_json::Value,
+    entry_url: String,
+    version: String,
+    release: String,
+    #[serde(default)]
+    verified_at_ms: u64,
+    rules_digest: String,
+    content_digest: String,
+}
+impl VerifiedHostingPublication {
+    pub fn public_config(&self) -> &serde_json::Value {
+        &self.public_config
+    }
+    pub fn entry_url(&self) -> &str {
+        &self.entry_url
+    }
+    pub(crate) fn from_verified(
+        plan: &DeployPlan,
+        checkpoint: &HostingCheckpoint,
+        value: &serde_json::Value,
+    ) -> Option<Self> {
+        let project = &plan.view.project;
+        let app_id = checkpoint.app_id.as_ref()?;
+        let version = checkpoint.version.as_ref()?;
+        let config = &value["publicConfig"];
+        if value["siteAppId"] != *app_id
+            || config.as_object()?.len() != 4
+            || config["projectId"] != *project
+            || config["appId"] != *app_id
+            || !config["apiKey"].as_str().is_some_and(|s| {
+                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
+            })
+            || config["authDomain"] != format!("{project}.firebaseapp.com")
+        {
+            return None;
+        }
+        let release = value["release"].as_str()?;
+        if !release.starts_with(&format!("sites/{project}/releases/")) || release.len() > 256 {
+            return None;
+        }
+        Some(Self {
+            project: project.clone(),
+            region: plan.view.database.location.clone(),
+            deployment_id: plan.deployment_id().into(),
+            plan_digest: plan.digest().into(),
+            app_id: app_id.clone(),
+            site_app_id: app_id.clone(),
+            public_config: config.clone(),
+            entry_url: format!("https://{project}.web.app"),
+            version: version.clone(),
+            release: release.into(),
+            verified_at_ms: 0,
+            rules_digest: plan.view.rules.digest.clone(),
+            content_digest: plan.view.hosting.as_ref()?.content["digest"]
+                .as_str()?
+                .into(),
+        })
+    }
+    pub(crate) fn valid_for(
+        &self,
+        view: &DeployView,
+        checkpoint: &HostingCheckpoint,
+        digest: &str,
+    ) -> bool {
+        self.project == view.project
+            && self.region == view.database.location
+            && self.deployment_id == view.deployment_id
+            && self.plan_digest == digest
+            && self.site_app_id == self.app_id
+            && Some(&self.app_id) == checkpoint.app_id.as_ref()
+            && Some(&self.version) == checkpoint.version.as_ref()
+            && self.entry_url == format!("https://{}.web.app", view.project)
+            && self
+                .version
+                .starts_with(&format!("sites/{}/versions/", view.project))
+            && self
+                .release
+                .starts_with(&format!("sites/{}/releases/", view.project))
+            && self.rules_digest == view.rules.digest
+            && view
+                .hosting
+                .as_ref()
+                .is_some_and(|h| h.content["digest"] == self.content_digest)
+            && self.public_config.as_object().is_some_and(|c| c.len() == 4)
+            && self.public_config["appId"] == self.app_id
+            && self.public_config["projectId"] == self.project
+            && self.public_config["authDomain"] == format!("{}.firebaseapp.com", self.project)
+            && self.public_config["apiKey"].as_str().is_some_and(|s| {
+                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
+            })
+    }
+    fn matches(&self, plan: &DeployPlan) -> bool {
+        self.project == plan.view.project
+            && self.plan_digest == plan.digest
+            && self.deployment_id == plan.deployment_id()
+    }
+}
+fn capture_checkpoint(record: &mut DeployRecord, port: &dyn DeployPort) {
+    if let Some(checkpoint) = port.hosting_checkpoint() {
+        run_of(record).hosting = Some(checkpoint);
+    }
+}
+/// Resume the original authorization even after its own effects change the live inventory.
+/// Current explicit inputs must still describe exactly that original intent.
+pub fn retain_hosting_plan(
+    mut candidate: DeployPlan,
+    record: &DeployRecord,
+) -> Result<DeployPlan, DeployRefusal> {
+    if candidate
+        .view
+        .hosting
+        .as_ref()
+        .is_some_and(|h| h.abandoned_version.is_some())
+    {
+        return Ok(candidate);
+    }
+    let Some(run) = record
+        .run
+        .as_ref()
+        .filter(|r| r.state != RunState::Complete)
+    else {
+        return Ok(candidate);
+    };
+    let Some(checkpoint) = &run.hosting else {
+        return Ok(candidate);
+    };
+    let view: DeployView = serde_json::from_value(checkpoint.envelope.clone())
+        .map_err(|_| DeployRefusal::AuthorizationStale)?;
+    if sha256_hex(&serde_json::to_vec(&view).map_err(|_| DeployRefusal::AuthorizationStale)?)
+        != run.plan_digest
+        || view.account != candidate.view.account
+        || view.project != candidate.view.project
+        || view.database != candidate.view.database
+        || view.deployment_id != candidate.view.deployment_id
+        || view.extension_plan_digest != candidate.view.extension_plan_digest
+        || view.sign_in != candidate.view.sign_in
+        || view.rules.digest != candidate.view.rules.digest
+        || view.hosting.as_ref().map(|h| &h.content)
+            != candidate.view.hosting.as_ref().map(|h| &h.content)
+    {
+        return Err(DeployRefusal::AuthorizationStale);
+    }
+    candidate
+        .steps
+        .retain(|s| !matches!(s.kind, StepKind::Hosting(_)));
+    candidate.steps = hosting_steps(
+        candidate.steps,
+        view.hosting
+            .as_ref()
+            .ok_or(DeployRefusal::HostingUnavailable)?,
+    )?;
+    candidate.bytes = serde_json::to_vec(&view).expect("view serializes");
+    candidate.digest = run.plan_digest.clone();
+    candidate.view = view;
+    Ok(candidate)
+}
+
+impl Run {
+    pub(crate) fn publication_may_have_changed(&self) -> bool {
+        self.rules_attempted
+            || self
+                .steps
+                .iter()
+                .any(|s| s.id == "hosting:release" && s.state != StepState::Pending)
+    }
 }

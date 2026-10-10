@@ -163,6 +163,19 @@ authorized takeover plan from any home. Login, pairing and installation never au
 deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
 blind repeat of an effect.
 
+For an extension declaring Hosting, deployment stages and finalizes its frozen bundle before
+switching Rules and releasing Hosting, with an explicit appId-only association step for an
+unassociated site. App creation observes provisioning within its apply budget; if still pending,
+rerun the same command. Recovery reads the saved original and never duplicates an uncertain
+web-app or Version create. An unconfirmed create reports: 'Firebase did not confirm the original
+creation; tmt will not repeat it. Rerun the same command to check its result. If it is still
+unconfirmed, check the Firebase project, delete <deploy.json path>, then run without --authorize
+to read a fresh plan. Existing Firebase resources stay; authorizing a new plan may create a second
+one.' Partial/unknown may include
+applied changes and never claims rollback or a usable joint publication. Complete records the
+verified public app config and same-project web.app entry; it does not yet print a remote link
+or prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.
+
 Declarations come from fixed public commands of enabled installed extensions. Colab's command
 is not shipped yet, so its output is unavailable with no provider/record effect; fixture
 bytes are never a production fallback. Installed end-to-end proof waits for that command and

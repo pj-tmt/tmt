@@ -469,6 +469,7 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
         authorized_at_ms: 1,
         state: RunState::Partial,
         rules_attempted: false,
+        hosting: None,
         steps: [
             "database",
             "sign-in:anonymous",
@@ -573,6 +574,24 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
     let before_rules = tmt_remote::readiness::from_record(&record).unwrap();
     assert_eq!(before_rules.project, Observed::Enabled);
     assert_eq!(before_rules.rules, Observed::Enabled);
+    let mut hosting_partial = record.clone();
+    hosting_partial
+        .run
+        .as_mut()
+        .unwrap()
+        .steps
+        .push(tmt_remote::deploy_run::StepRecord {
+            id: "hosting:release".into(),
+            state: StepState::Unknown,
+        });
+    assert!(!hosting_partial.run.as_ref().unwrap().rules_attempted);
+    assert!(hosting_partial.usable_binding().is_none());
+    assert_eq!(
+        tmt_remote::readiness::from_record(&hosting_partial)
+            .unwrap()
+            .rules,
+        Observed::Off(R::Partial)
+    );
     record.run.as_mut().unwrap().rules_attempted = true;
     let partial = tmt_remote::readiness::from_record(&record).unwrap();
     assert_eq!(record.usable_binding(), None);

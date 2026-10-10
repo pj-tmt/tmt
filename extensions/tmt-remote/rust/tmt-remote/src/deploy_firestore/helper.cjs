@@ -6,6 +6,9 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+const APP_OBSERVE_MS = 15000;
+const APP_POLL_MS = 250;
+const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
 const FAULTS = new Set([
   'unsupported-tool',
   'login-required',
@@ -57,6 +60,24 @@ function validate(request) {
   const fields = {
     compatibility: [],
     account: [],
+    'hosting-inventory': ['project'],
+    ...Object.fromEntries(
+      ['observe-hosting', 'apply-hosting', 'verify-hosting'].map((op) => [
+        op,
+        [
+          'project',
+          'deployment',
+          'planDigest',
+          'hosting',
+          'checkpoint',
+          'steps',
+          'action',
+          'hash',
+          'bytesBase64',
+          'source',
+        ],
+      ])
+    ),
     'live-rules': ['project'],
     'index-budget': ['project', 'fields'],
     'observe-database': ['project', 'location'],
@@ -93,7 +114,37 @@ function validate(request) {
       new Set(i.fields).size !== i.fields.length)
   )
     fail('provider-rejected');
-  if (i.source !== undefined) {
+  if (request.operation.endsWith('-hosting')) {
+    if (
+      !/^[0-9a-f]{64}$/.test(i.planDigest) ||
+      !/^[0-9a-f-]{36}$/.test(i.deployment) ||
+      !i.hosting ||
+      !i.checkpoint ||
+      !Array.isArray(i.steps) ||
+      ![
+        'web-app',
+        'site',
+        'configure',
+        'create',
+        'populate',
+        'upload',
+        'finalize',
+        'release',
+        'verify',
+      ].includes(i.action) ||
+      (i.hash !== null && !/^[0-9a-f]{64}$/.test(i.hash)) ||
+      (i.bytesBase64 !== null &&
+        (typeof i.bytesBase64 !== 'string' || i.bytesBase64.length > UPLOAD_BYTES))
+    )
+      fail('provider-rejected');
+    if (
+      !Array.isArray(i.hosting.content?.files) ||
+      i.hosting.content.files.length > 256 ||
+      Buffer.byteLength(JSON.stringify(i.hosting.content.config)) > 65536
+    )
+      fail('provider-rejected');
+  }
+  if (i.source !== undefined && !request.operation.endsWith('-hosting')) {
     if (
       typeof i.source !== 'string' ||
       Buffer.byteLength(i.source) > BYTES ||
@@ -190,7 +241,11 @@ async function fetchJson(url, options, deadline) {
   }
   let value;
   try {
-    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const bytes = Buffer.concat(chunks);
+    value =
+      bytes.length === 0 && response.status >= 200 && response.status < 300
+        ? null
+        : JSON.parse(bytes.toString('utf8'));
   } catch {
     fail('unknown');
   }
@@ -203,6 +258,8 @@ async function execute(request, deps) {
   if (r.operation === 'compatibility')
     return { versions: SUPPORTED, maxBytes: BYTES, maxPages: PAGES };
   const deadline = deps.deadline;
+  const now = deps.now ?? Date.now;
+  const wait = deps.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   let effect = false;
   async function identity() {
     const credential = await deps.credential();
@@ -229,8 +286,16 @@ async function execute(request, deps) {
     firestore: 'https://firestore.googleapis.com/v1',
     auth: 'https://identitytoolkit.googleapis.com/admin/v2',
     rules: 'https://firebaserules.googleapis.com/v1',
+    hosting: 'https://firebasehosting.googleapis.com/v1beta1',
   };
-  async function api(service, route, method = 'GET', body, absent = false) {
+  async function api(
+    service,
+    route,
+    method = 'GET',
+    body,
+    absent = false,
+    callDeadline = deadline
+  ) {
     const earlierEffect = effect;
     if (method !== 'GET') {
       credential = await identity();
@@ -246,7 +311,7 @@ async function execute(request, deps) {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       },
-      deadline
+      callDeadline
     );
     if (absent && reply.status === 404) return null;
     if (reply.status < 200 || reply.status >= 300) {
@@ -263,7 +328,7 @@ async function execute(request, deps) {
     for (let page = 0; page < PAGES; page++) {
       const result = await api(
         service,
-        `${route}${route.includes('?') ? '&' : '?'}pageSize=200${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`
+        `${route}${route.includes('?') ? '&' : '?'}pageSize=${service === 'hosting' && key === 'versions' ? 100 : 200}${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`
       );
       if (!result || (result[key] !== undefined && !Array.isArray(result[key]))) fail('unknown');
       if ((result[key] ?? []).length > 200) fail('unknown');
@@ -277,6 +342,426 @@ async function execute(request, deps) {
     }
     fail('unknown');
   }
+  // Hosting uses the same credential/effect fence and bounded requests as Firestore.
+  const stable = (value) => JSON.stringify(normalize(value));
+  function normalize(value) {
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((k) => [k, normalize(value[k])])
+      );
+    return value;
+  }
+  const appName = () => `tmt Remote (${i.deployment})`;
+  function resource(value, prefix) {
+    if (
+      typeof value !== 'string' ||
+      value.length > 256 ||
+      !value.startsWith(prefix) ||
+      !/^[A-Za-z0-9_:-]+$/.test(value.slice(prefix.length))
+    )
+      fail('unknown');
+    return value;
+  }
+  async function apps() {
+    const found = await pages('firebase', `projects/${project}/webApps`, 'apps');
+    if (found.length > 256) fail('unknown');
+    return found.map((a) => {
+      if (
+        a.projectId !== project ||
+        typeof a.appId !== 'string' ||
+        typeof a.displayName !== 'string' ||
+        typeof a.state !== 'string'
+      )
+        fail('unknown');
+      resource(a.name, `projects/${project}/webApps/`);
+      return { id: a.appId, displayName: a.displayName, state: a.state };
+    });
+  }
+  async function publicConfig(appId) {
+    const config = await api(
+      'firebase',
+      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`
+    );
+    if (
+      config.projectId !== project ||
+      config.appId !== appId ||
+      config.authDomain !== `${project}.firebaseapp.com` ||
+      typeof config.apiKey !== 'string' ||
+      !config.apiKey ||
+      config.apiKey.length > 256 ||
+      /[\x00-\x1f\x7f]/.test(config.apiKey)
+    )
+      fail('unknown');
+    return { apiKey: config.apiKey, authDomain: config.authDomain, projectId: project, appId };
+  }
+  async function liveHosting() {
+    const site = await api(
+      'hosting',
+      `projects/${project}/sites/${project}`,
+      'GET',
+      undefined,
+      true
+    );
+    if (site === null)
+      return {
+        siteExists: false,
+        siteAppId: null,
+        siteAppConfig: null,
+        webApps: await apps(),
+        live: null,
+      };
+    if (
+      site.name !== `projects/${project}/sites/${project}` ||
+      site.defaultUrl !== `https://${project}.web.app`
+    )
+      fail('unknown');
+    const channel = await api('hosting', `sites/${project}/channels/live`, 'GET', undefined, true);
+    let live = null;
+    if (channel?.release) {
+      const name = resource(channel.release.version?.name, `sites/${project}/versions/`);
+      const version = await api('hosting', name);
+      if (version.status !== 'FINALIZED') fail('unknown');
+      const files = await pages('hosting', `${name}/files`, 'files');
+      if (
+        files.length > 256 ||
+        files.some(
+          (f) =>
+            f.status !== 'ACTIVE' || !/^[0-9a-f]{64}$/.test(f.hash) || typeof f.path !== 'string'
+        )
+      )
+        fail('unknown');
+      files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      if (new Set(files.map((f) => f.path)).size !== files.length) fail('unknown');
+      const config = version.config;
+      if (!config || Buffer.byteLength(stable(config)) > 65536) fail('unknown');
+      live = {
+        version: name,
+        deploymentId: version.labels?.['tmt-deployment'] ?? null,
+        planDigestPrefix: version.labels?.['tmt-plan'] ?? null,
+        contentDigest: version.labels?.['tmt-content'] ?? null,
+        files: files.map(({ path, hash, status }) => ({ path, hash, status })),
+        config,
+      };
+    }
+    const siteAppId = site.appId || null;
+    const listed = await apps();
+    let siteAppConfig = null;
+    if (siteAppId !== null) {
+      if (
+        typeof siteAppId !== 'string' ||
+        listed.filter((a) => a.id === siteAppId && a.state === 'ACTIVE').length !== 1
+      )
+        fail('unknown');
+      siteAppConfig = await publicConfig(siteAppId);
+    }
+    return { siteExists: true, siteAppId, siteAppConfig, webApps: listed, live };
+  }
+  if (r.operation === 'hosting-inventory') return liveHosting();
+  async function hosting() {
+    const cp = structuredClone(i.checkpoint);
+    const h = i.hosting;
+    const files = h.content.files.map((f) => ({
+      path: f.path,
+      hash: f.gzipDigest,
+      status: 'ACTIVE',
+    }));
+    const contentDigest = sha(stable({ files, config: h.content.config }));
+    const labels = {
+      'tmt-deployment': i.deployment,
+      'tmt-plan': i.planDigest.slice(0, 12),
+      'tmt-content': contentDigest.slice(0, 32),
+    };
+    const reply = (state) => ({ state, checkpoint: cp });
+    const applying = r.operation === 'apply-hosting';
+    async function checkedApp(app) {
+      const site = await api(
+        'hosting',
+        `projects/${project}/sites/${project}`,
+        'GET',
+        undefined,
+        true
+      );
+      if (site?.appId && site.appId !== app.id) fail('unknown');
+      await publicConfig(app.id);
+      return app;
+    }
+    async function selectedApp() {
+      const listed = await apps();
+      if (cp.appId !== null) {
+        const matches = listed.filter((a) => a.id === cp.appId && a.state === 'ACTIVE');
+        if (matches.length !== 1) fail('unknown');
+        return checkedApp(matches[0]);
+      }
+      const matches = listed.filter((a) => a.state === 'ACTIVE' && a.displayName === appName());
+      if (matches.length > 1) fail('unknown');
+      if (matches.length === 1) {
+        cp.appId = matches[0].id;
+        cp.operation = null;
+        return checkedApp(matches[0]);
+      }
+      return null;
+    }
+    async function stageVersion() {
+      if (cp.version !== null) {
+        resource(cp.version, `sites/${project}/versions/`);
+        const found = await api('hosting', cp.version, 'GET', undefined, true);
+        if (found === null || found.status === 'ABANDONED' || found.status === 'DELETED')
+          fail('unknown');
+        if (
+          found.status === 'CREATED' &&
+          (!Number.isFinite(cp.versionCreatedMs) ||
+            Date.now() - cp.versionCreatedMs >= 12 * 60 * 60 * 1000)
+        )
+          fail('unknown');
+        if (
+          stable(found.config) !== stable(h.content.config) ||
+          stable(found.labels) !== stable(labels)
+        )
+          fail('unknown');
+        return found;
+      }
+      const versions = await pages('hosting', `sites/${project}/versions`, 'versions');
+      const matches = versions.filter(
+        (v) => stable(v.labels) === stable(labels) && stable(v.config) === stable(h.content.config)
+      );
+      if (matches.length > 1) fail('unknown');
+      if (!matches.length) return null;
+      const found = matches[0];
+      cp.version = resource(found.name, `sites/${project}/versions/`);
+      cp.versionCreatedMs = Date.parse(found.createTime);
+      return stageVersion();
+    }
+    async function versionFiles() {
+      const listed = await pages(
+        'hosting',
+        `${resource(cp.version, `sites/${project}/versions/`)}/files`,
+        'files'
+      );
+      if (listed.length > 256 || new Set(listed.map((f) => f.path)).size !== listed.length)
+        fail('unknown');
+      const sorted = listed
+        .map(({ path, hash, status }) => ({ path, hash, status }))
+        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      return sorted;
+    }
+    async function exactLive() {
+      const live = (await liveHosting()).live;
+      return (
+        live &&
+        live.version === cp.version &&
+        stable(live.files) === stable(files) &&
+        stable(live.config) === stable(h.content.config) &&
+        live.deploymentId === i.deployment &&
+        live.planDigestPrefix === i.planDigest.slice(0, 12) &&
+        live.contentDigest === contentDigest.slice(0, 32)
+      );
+    }
+    if (i.action === 'web-app') {
+      if (await selectedApp()) return reply(applying ? 'done' : 'satisfied');
+      if (cp.operation !== null) {
+        resource(cp.operation, 'operations/');
+        const op = await api('firebase', cp.operation, 'GET', undefined, true);
+        if (op?.error || op === null) fail('unknown');
+        if (!op.done) return reply('building');
+        if (!(await selectedApp())) fail('unknown');
+        return reply(applying ? 'done' : 'satisfied');
+      }
+      if (!applying) return reply('absent');
+      if (!h.createWebApp) fail('provider-rejected');
+      const operation = await api('firebase', `projects/${project}/webApps`, 'POST', {
+        displayName: appName(),
+      });
+      cp.operation = resource(operation.name, 'operations/');
+      // Bound read-only provisioning observation within the existing apply budget.
+      const pollDeadline = Math.min(deadline, now() + APP_OBSERVE_MS);
+      while (now() < pollDeadline) {
+        const op = await api('firebase', cp.operation, 'GET', undefined, true, pollDeadline);
+        if (op?.error) fail('unknown');
+        // Completed operations are deleted. The named ACTIVE app is the durable evidence.
+        if (op === null || op.done) {
+          if (await selectedApp()) return reply('done');
+          fail('unknown');
+        }
+        if (await selectedApp()) return reply('done');
+        const remaining = pollDeadline - now();
+        if (remaining > 0) await wait(Math.min(APP_POLL_MS, remaining));
+      }
+      return reply('building');
+    }
+    if (i.action === 'site') {
+      const site = await api(
+        'hosting',
+        `projects/${project}/sites/${project}`,
+        'GET',
+        undefined,
+        true
+      );
+      if (site !== null) {
+        if (site.name !== `projects/${project}/sites/${project}` || site.defaultUrl !== h.publicUrl)
+          fail('unknown');
+        return reply(applying ? 'done' : 'satisfied');
+      }
+      if (!applying) return reply('absent');
+      if (!h.createSite) fail('provider-rejected');
+      await api('hosting', `projects/${project}/sites?siteId=${project}`, 'POST', {});
+      return reply('done');
+    }
+    if (i.action === 'configure') {
+      if (!(await selectedApp())) fail('unknown');
+      const route = `projects/${project}/sites/${project}`;
+      const site = await api('hosting', route);
+      if (site.name !== route || site.defaultUrl !== h.publicUrl) fail('unknown');
+      if (site.appId === cp.appId) return reply(applying ? 'done' : 'satisfied');
+      if (site.appId) fail('provider-rejected');
+      if (!applying) return reply('absent');
+      if (!h.configureSite) fail('provider-rejected');
+      const latest = await api('hosting', route);
+      if (stable(latest) !== stable(site)) fail('unknown');
+      await api('hosting', `${route}?updateMask=appId`, 'PATCH', { appId: cp.appId });
+      if ((await api('hosting', route)).appId !== cp.appId) fail('unknown');
+      return reply('done');
+    }
+    if (i.action === 'create') {
+      if (await stageVersion()) return reply(applying ? 'done' : 'satisfied');
+      if (!applying) return reply('absent');
+      const version = await api('hosting', `sites/${project}/versions`, 'POST', {
+        config: h.content.config,
+        labels,
+      });
+      cp.version = resource(version.name, `sites/${project}/versions/`);
+      cp.versionCreatedMs = Date.parse(version.createTime);
+      if (!Number.isFinite(cp.versionCreatedMs)) fail('unknown');
+      return reply('done');
+    }
+    const version = await stageVersion();
+    if (version === null) fail('unknown');
+    if (i.action === 'populate') {
+      const listed = await versionFiles();
+      const expected = files.map(({ path, hash }) => ({ path, hash }));
+      if (stable(listed.map(({ path, hash }) => ({ path, hash }))) === stable(expected))
+        return reply(applying ? 'done' : 'satisfied');
+      if (listed.length) fail('unknown');
+      if (!applying) return reply('absent');
+      const result = await api('hosting', `${cp.version}:populateFiles`, 'POST', {
+        files: Object.fromEntries(expected.map((f) => [f.path, f.hash])),
+      });
+      const expectedUrl = `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files`;
+      if (
+        result.uploadUrl !== expectedUrl ||
+        !Array.isArray(result.uploadRequiredHashes) ||
+        result.uploadRequiredHashes.some((hash) => !files.some((f) => f.hash === hash))
+      )
+        fail('unknown');
+      return reply('done');
+    }
+    if (i.action === 'upload') {
+      const listed = await versionFiles();
+      const matching = listed.filter((f) => f.hash === i.hash);
+      if (
+        !matching.length ||
+        matching.some((f) => !files.some((e) => e.path === f.path && e.hash === f.hash))
+      )
+        fail('unknown');
+      if (matching.every((f) => f.status === 'ACTIVE'))
+        return reply(applying ? 'done' : 'satisfied');
+      if (!applying) return reply('absent');
+      const bytes = Buffer.from(i.bytesBase64, 'base64');
+      if (
+        bytes.length > 4 * 1024 * 1024 + 65536 ||
+        sha(bytes) !== i.hash ||
+        bytes.toString('base64') !== i.bytesBase64
+      )
+        fail('provider-rejected');
+      credential = await identity();
+      effect = true;
+      const result = await deps.http(
+        `https://upload-firebasehosting.googleapis.com/upload/${cp.version}/files/${i.hash}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${credential.token}`,
+            'Content-Type': 'application/octet-stream',
+          },
+          body: bytes,
+        },
+        deadline
+      );
+      if (result.status !== 200) fail(fault(result, result.body));
+      return reply('done');
+    }
+    if (i.action === 'finalize') {
+      if (version.status === 'FINALIZED') return reply(applying ? 'done' : 'satisfied');
+      if (stable(await versionFiles()) !== stable(files)) return reply('building');
+      if (!applying) return reply('absent');
+      await api('hosting', `${cp.version}?updateMask=status`, 'PATCH', { status: 'FINALIZED' });
+      return reply('done');
+    }
+    if (i.action === 'release') {
+      if (await exactLive()) return reply(applying ? 'done' : 'satisfied');
+      const live = (await liveHosting()).live;
+      // A retained own release is still checked by its complete frozen fingerprint.
+      const fingerprint = live === null ? null : sha(stable(live));
+      if (h.replaces === 'foreign' && fingerprint !== h.replacedFingerprint)
+        fail('provider-rejected');
+      if (h.replaces === 'none' && live !== null) fail('provider-rejected');
+      if (h.replaces === 'own' && live?.deploymentId !== i.deployment) fail('provider-rejected');
+      if (!applying) return reply('absent');
+      if (version.status !== 'FINALIZED' || stable(await versionFiles()) !== stable(files))
+        fail('unknown');
+      // Re-read immediately before the public switch; no cross-service CAS exists.
+      if (stable((await liveHosting()).live) !== stable(live)) fail('unknown');
+      await api(
+        'hosting',
+        `sites/${project}/releases?versionName=${encodeURIComponent(cp.version)}`,
+        'POST',
+        {}
+      );
+      if (!(await exactLive())) fail('unknown');
+      return reply('done');
+    }
+    if (i.action === 'verify') {
+      if (
+        !(await selectedApp()) ||
+        version.status !== 'FINALIZED' ||
+        !(await exactLive()) ||
+        (await liveRules()) !== i.source
+      )
+        fail('unknown');
+      const config = await publicConfig(cp.appId);
+      if (
+        config.projectId !== project ||
+        config.appId !== cp.appId ||
+        config.authDomain !== `${project}.firebaseapp.com` ||
+        typeof config.apiKey !== 'string'
+      )
+        fail('unknown');
+      const site = await api('hosting', `projects/${project}/sites/${project}`);
+      if (site.appId !== cp.appId) fail('unknown');
+      const release = (await api('hosting', `sites/${project}/channels/live`)).release;
+      if (
+        release.version?.name !== cp.version ||
+        !(await exactLive()) ||
+        (await liveRules()) !== i.source ||
+        (await api('hosting', `projects/${project}/sites/${project}`)).appId !== cp.appId
+      )
+        fail('unknown');
+      return {
+        siteAppId: cp.appId,
+        publicConfig: {
+          apiKey: config.apiKey,
+          authDomain: config.authDomain,
+          projectId: project,
+          appId: cp.appId,
+        },
+        release: resource(release.name, `sites/${project}/releases/`),
+      };
+    }
+    fail('provider-rejected');
+  }
+
   const database = `projects/${project}/databases/(default)`;
   const release = `projects/${project}/releases/cloud.firestore`;
   async function liveRules() {
@@ -310,6 +795,8 @@ async function execute(request, deps) {
     return sha(source) === i.replacedDigest;
   }
   try {
+    if (['observe-hosting', 'apply-hosting', 'verify-hosting'].includes(r.operation))
+      return await hosting();
     // Validate an existing Firebase project; this adapter never creates or enables one.
     const p = await api('firebase', `projects/${project}`);
     if (p.projectId !== project || p.state !== 'ACTIVE') fail('provider-rejected');
@@ -503,8 +990,10 @@ async function execute(request, deps) {
 }
 async function run(raw, root, deps) {
   try {
-    if (Buffer.byteLength(raw) > BYTES) fail('provider-rejected');
+    if (Buffer.byteLength(raw) > UPLOAD_BYTES) fail('provider-rejected');
     const request = validate(JSON.parse(raw));
+    if (request.operation !== 'apply-hosting' && Buffer.byteLength(raw) > BYTES)
+      fail('provider-rejected');
     compatibility(root);
     if (request.operation === 'compatibility')
       return { version: 1, result: { versions: SUPPORTED, maxBytes: BYTES, maxPages: PAGES } };
@@ -532,7 +1021,7 @@ async function main() {
     size = 0;
   for await (const chunk of process.stdin) {
     size += chunk.length;
-    if (size > BYTES) {
+    if (size > UPLOAD_BYTES) {
       emit(JSON.stringify({ version: 1, error: 'provider-rejected' }));
       return;
     }
