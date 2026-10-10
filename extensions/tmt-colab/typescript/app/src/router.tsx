@@ -43,8 +43,8 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
-import { readmittable, ReadmitBudget } from './readmit.js';
-import { terminalFailure } from './terminal-failure.js';
+import { readmittable, ReadmitBudget, reopenWithBackoff, retryableReopen } from './readmit.js';
+import { FAILURE_CAUSES, terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
@@ -615,7 +615,13 @@ function Home() {
 }
 function Page() {
   const { transport } = root.useRouteContext();
-  const snapshot = page.useLoaderData();
+  const loaded = page.useLoaderData();
+  // A reopened binding replaces the loaded snapshot until the route loads a newer one.
+  const [reopened, setReopened] = useState<{
+    from: typeof loaded;
+    next: typeof loaded;
+  } | null>(null);
+  const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
   const toolbar = useRef<HTMLElement>(null);
@@ -658,8 +664,17 @@ function Page() {
     ),
   );
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
-  const router = useRouter();
   const readmit = useRef(new ReadmitBudget());
+  // The controller owns a reopened binding's lifetime; `pending` is the attempt in flight.
+  const reopenedLife = useRef<AbortController | null>(null);
+  const pending = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      pending.current?.abort();
+      reopenedLife.current?.abort();
+    },
+    [],
+  );
   const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
     null,
   );
@@ -716,11 +731,31 @@ function Page() {
       },
       (error) => {
         // An epoch advance or authority recheck is not a lost grant: reopen the page for the
-        // new epoch without a reload. A refused fresh open, or an exhausted budget, shows the card.
-        if (readmittable(error) && readmit.current.take(Date.now())) {
-          void router.invalidate();
+        // new epoch without a reload, retrying a lagging epoch. A refused fresh open, or an
+        // exhausted budget, shows the card.
+        if (readmittable(error) && !pending.current && readmit.current.take(Date.now())) {
+          const controller = new AbortController();
+          pending.current = controller;
+          void reopenWithBackoff(() => transport.page(loaded.id, controller.signal), {
+            signal: controller.signal,
+            retryable: (failure) => retryableReopen(failure, FAILURE_CAUSES),
+          }).then((result) => {
+            if (controller.signal.aborted) return;
+            pending.current = null;
+            if ('value' in result) {
+              reopenedLife.current?.abort();
+              reopenedLife.current = controller;
+              snapshot.binding?.close();
+              setReopened({ from: loaded, next: result.value });
+              return;
+            }
+            void buildWatch.check();
+            setLiveError(result.error);
+            setEviction(result.error instanceof SessionEvictedError ? result.error : null);
+          });
           return;
         }
+        if (pending.current) return;
         void buildWatch.check();
         setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
@@ -729,7 +764,7 @@ function Page() {
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, router]);
+  }, [snapshot, loaded, transport]);
   async function save() {
     if (!snapshot.binding || saving) return;
     setSaving(true);

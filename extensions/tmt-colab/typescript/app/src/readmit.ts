@@ -22,3 +22,58 @@ export class ReadmitBudget {
     return true;
   }
 }
+
+/** Pause before each reopen attempt: the first is immediate, later ones wait out a lagging epoch. */
+export const READMIT_DELAYS_MS: readonly number[] = [0, 1000, 3000, 8000, 15_000];
+
+/** A failed reopen worth another attempt: a readmittable refusal or a cause nobody classified. */
+export function retryableReopen(error: Error, causes: Readonly<Record<string, string>>): boolean {
+  if (readmittable(error)) return true;
+  const cause = causes[error.message];
+  return cause === undefined || cause === 'generic';
+}
+
+export type Reopened<T> = { readonly value: T } | { readonly error: Error };
+
+/**
+ * Reopen a page for its new epoch, retrying a lagging epoch or a transient refusal with the
+ * delays above. A refusal that says the access ended, or the last failed attempt, is the answer.
+ */
+export async function reopenWithBackoff<T>(
+  open: () => Promise<T>,
+  options: {
+    signal: AbortSignal;
+    retryable: (error: Error) => boolean;
+    wait?: (ms: number, signal: AbortSignal) => Promise<void>;
+    delays?: readonly number[];
+  },
+): Promise<Reopened<T>> {
+  const delays = options.delays ?? READMIT_DELAYS_MS;
+  const wait = options.wait ?? sleep;
+  let last = new Error('Reopen aborted');
+  for (const delay of delays) {
+    if (delay > 0) await wait(delay, options.signal);
+    if (options.signal.aborted) return { error: last };
+    try {
+      return { value: await open() };
+    } catch (error) {
+      last = error instanceof Error ? error : new Error(String(error));
+      if (!options.retryable(last)) return { error: last };
+    }
+  }
+  return { error: last };
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
