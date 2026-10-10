@@ -79,6 +79,7 @@ pub(in crate::board) fn render_frame(
         .begin(app.shown_tab().unwrap_or_default(), frame.area().width);
     app.hits.borrow_mut().clear();
     app.detail_more_hits.borrow_mut().clear();
+    app.chip_hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
     app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();

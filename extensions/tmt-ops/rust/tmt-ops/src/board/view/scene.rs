@@ -76,6 +76,15 @@ impl<T> Kept<T> {
     }
 }
 
+/// Where a node landed in its painted section: the line, the first column and
+/// the columns it covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Spot {
+    pub line: usize,
+    pub x: u16,
+    pub width: u16,
+}
+
 /// The painted section and where each identified node landed.
 pub(in crate::board) struct Painted {
     pub lines: Vec<Line<'static>>,
@@ -88,6 +97,15 @@ impl Painted {
             .iter()
             .find(|(own, _)| own.iter().map(String::as_str).eq(id.iter().copied()))
             .map(|(_, rect)| rect)
+    }
+
+    /// The one-line place of a node.
+    pub fn spot(&self, id: &[&str]) -> Option<Spot> {
+        self.rect(id).map(|rect| Spot {
+            line: rect.y.max(0) as usize,
+            x: rect.x.clamp(0, i32::from(u16::MAX)) as u16,
+            width: rect.width.min(u32::from(u16::MAX)) as u16,
+        })
     }
 
     /// The scene lines a node covers.

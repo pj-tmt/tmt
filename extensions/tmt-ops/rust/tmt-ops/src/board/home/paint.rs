@@ -167,6 +167,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut input_area = area;
     let mut selected_range = 0..0;
     let mut counter_regions = Vec::new();
+    let mut chip_regions = Vec::new();
     let receipt_now = std::time::Instant::now();
     let mut section = "";
     let mut handled = 0;
@@ -197,6 +198,9 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             for row in block.rows {
                 let at = index + row.local;
                 starts.push(base + row.start);
+                if let Some(chip) = row.chip {
+                    chip_regions.push((at, base + chip.line, chip.x, chip.width));
+                }
                 regions.push((
                     at,
                     base + row.start
@@ -251,6 +255,9 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             for lead in block.leads {
                 let at = index + lead.local;
                 starts.push(base + lead.start);
+                if let Some(chip) = lead.chip {
+                    chip_regions.push((at, base + chip.line, chip.x, chip.width));
+                }
                 regions.push((
                     at,
                     base + lead.hit.start..base + lead.hit.end,
@@ -433,6 +440,19 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     target: crate::board::app::HitTarget::Row(row),
                 });
             }
+        }
+    }
+    for (row, line, x, width) in chip_regions {
+        if (offset..offset + shown).contains(&line) {
+            app.chip_hits.borrow_mut().push((
+                Rect::new(
+                    area.x.saturating_add(x),
+                    area.y + (line - offset) as u16,
+                    width.min(area.width.saturating_sub(x)),
+                    1,
+                ),
+                row,
+            ));
         }
     }
     for (key, line, x, width, prefix) in counter_regions {

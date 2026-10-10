@@ -5,7 +5,7 @@
 //! in the order submitted.
 
 use super::{BoardEvent, Request, execute};
-use crate::{config::Config, core::Core};
+use crate::{config::Config, core::Core, labels::Refresh};
 use std::{
     sync::mpsc::{Sender, channel},
     thread::JoinHandle,
@@ -42,15 +42,21 @@ impl Job {
 }
 
 /// The result of one job.
-pub(super) fn run(core: &Core, job: Job) -> BoardEvent {
+pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent {
     match job {
         Job::Act(request) => {
             let jump = matches!(request, Request::Jump(_));
             let sends = request.sends();
+            let digest = matches!(request, Request::Digest(_));
+            let outcome = execute(core, request);
+            // What the extension supplies changed: read it now, not at the next tick.
+            if let (true, Ok(_), Some(labels)) = (digest, &outcome, labels) {
+                labels.now();
+            }
             BoardEvent::Acted {
                 jump,
                 sends,
-                outcome: execute(core, request),
+                outcome,
             }
         }
         Job::Open(opening) => BoardEvent::Opened {
@@ -74,11 +80,11 @@ pub(super) struct Lane {
 }
 
 impl Lane {
-    pub fn spawn(core: Core, events: Sender<BoardEvent>) -> Self {
+    pub fn spawn(core: Core, labels: Option<Refresh>, events: Sender<BoardEvent>) -> Self {
         let (jobs, queue) = channel();
         let thread = std::thread::spawn(move || {
             for job in queue {
-                if events.send(run(&core, job)).is_err() {
+                if events.send(run(&core, labels.as_ref(), job)).is_err() {
                     break;
                 }
             }

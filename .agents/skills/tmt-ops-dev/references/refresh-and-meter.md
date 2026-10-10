@@ -41,11 +41,12 @@
   reload), asks each `[labels] sources` entry `tmt <name> status --json` through `Core` with
   a 5 s limit, one read in flight, every 5 s. A document that is not version 1, has no
   member list or has a malformed row leaves that source or row unavailable; unknown additive
-  fields are ignored and actions are not read here. A failing source backs off to 60 s; its
+  fields are ignored; a label's `choose` action is checked by `labels/action.rs` and carried with the label. A failing source backs off to 60 s; its
   last good rows stand in for 30 s, then drop. The reader sends `BoardEvent::Labels` only
   when the combined result changed, `App` replaces `labels` wholesale, and painters read
   it through `board/row_chips.rs`. Supplied text never depends on the clock, so only the
-  digest policy chip feeds `header::time_marks`. Dropping the reader cancels the read in
+  digest policy chip feeds `header::time_marks`. A `Refresh` handle (`Reader::refresher`) makes the thread read at once and restart its wait;
+  the lane uses it after a successful digest change. Dropping the reader cancels the read in
   flight and joins the thread.
 - Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
   reads. It applies the digest rows and bodies this worker already read (`Known`), so a

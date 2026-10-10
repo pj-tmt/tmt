@@ -63,7 +63,7 @@ fn duration(text: &str) -> Result<u64, SquadError> {
     }
     Ok(total)
 }
-fn admission(error: SquadError) -> SquadError {
+pub(crate) fn admission(error: SquadError) -> SquadError {
     match error.code.as_str() {
         "CALLER_IDENTITY_AMBIGUOUS"
         | "SQUAD_SENDER_UNKNOWN"

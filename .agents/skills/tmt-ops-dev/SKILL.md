@@ -83,6 +83,19 @@ background `Reader`. It names no extension; `[labels] sources` is data. `board/r
 is the only place that decides what a row's chips are (supplied labels, else the digest
 policy chip) and how many fit; every surface asks it for the room left after the member's
 name and whole state, and paints roles, never sources.
+A label's one possible action is a `choose` (`labels/action.rs`): the source lists the
+options and the argv that applies one, with the namespace of the supplying source as
+`argv[0]` and exactly one whole `{value}` element. `Choose::argv` is the only place a
+value enters an argv; `Core::succeeds` spawns it with no shell. `run` actions have no
+consumer, so such a label stays display-only. `board/digest.rs` owns the change: `grant`
+(on the lane, never the board thread) resolves the person with `management::actor` and
+admits them for `management::DIGEST`; `apply` admits again, runs the argv and words the
+result, so a refused or failed change is never reported as saved. The menu and the
+composer are the existing `Menu` and `Compose`; the row menu lists `digest` only for a
+member whose labels offer a choice. `row_chips` ends that label's chip with `▾`
+(`row_chips::offers_choice` finds it again); each painter reports where the chip landed
+(`scene::Painted::spot` for the template painters, `RowPaint::choices` for the Rows pane)
+into `App::chip_hits`, which `App::mouse` reads before row hits.
 Details of the reader thread: [refresh-and-meter.md](references/refresh-and-meter.md#extension-labels).
 
 ## References
