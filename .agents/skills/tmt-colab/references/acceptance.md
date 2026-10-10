@@ -173,8 +173,9 @@ the CLI `tmt colab export`. It asserts the page, both conversation files and the
 writers' comments, the accepted Ask and the stored reply.
 
 `tabs.spec.ts` pins the Remote contract the Ask design depends on: several
-sessions of one device can coexist, while session eviction at the configured
-limit ends only the evicted tab's transports and reports the active limit.
+sessions of one device can coexist; at the configured limit a detached session is evicted
+and reports the active limit, while an attached page is never evicted: a new page is refused
+(#2566) and every open page stays live.
 
 `idle-tab.spec.ts` (#2170) leaves one live tab idle for 150 s, past the door's 120 s tunnel
 limit, and counts the page's `/sync` sockets: none may close or reopen, because the server pings
