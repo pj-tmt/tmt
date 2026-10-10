@@ -973,8 +973,9 @@ The wire-independent client boundary is `@tmt/remote-client`. The shipped browse
 Its `RemoteOperations` interface has `listAgents():Promise<RemoteAgent[]>`,
 `send({operationId,agentId,message}):Promise<SendState>`, read-only
 `operation(operationId):Promise<SendState>` and `result(requestId):Promise<ResultState>`.
-`RemoteAgent` contains `id`, `name`, `presence` and optional core-owned `delivery`, forwarded
-unchanged. Send/operation use SendState; result uses ResultState as defined below. No
+`RemoteAgent` contains `id`, `name`, `presence`, optional core-owned `delivery` forwarded unchanged,
+and optional `runningDriver` (`claude` | `codex`; see above for provenance/decoding).
+Send/operation use SendState; result uses ResultState as defined below. No
 selection/URL/title/note fields are reformatted: they are already inside the caller's frozen
 message. The caller owns durable operation IDs and intent; the SDK stores no dispatch bytes in
 IndexedDB. Explicit identical re-sends rebuild the same payload bytes.
