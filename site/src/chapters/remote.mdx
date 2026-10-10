@@ -5,11 +5,13 @@ Everything so far happens on one machine. With the remote extension, `talk` reac
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair                  # shows a code to enter on the other machine
+$ tmt remote pair --talk           # shows a code to enter on the other machine
 $ tmt talk reviewer@studio "Review the patch"   # same talk, another machine
 `}</Cmd>
 
 <Caption>Proposal. Command names aren't final.</Caption>
+
+Pairing gives read access. To let a device send to agents, answer yes at pairing, pair with `tmt remote pair --talk`, or turn sending on for it in Remote settings.
 
 ### You own the backend
 

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/remote.mdx
-sourceRevision: fb2be5df056de1865d6335a235649da068570931
+sourceRevision: f77c7ba23576260446fe8369277aaa348e215a59
 title: 別のマシンの agent と話す
 ---
 
@@ -12,11 +12,13 @@ import { components as Mdx } from "../../components/mdx";
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair                  # 別のマシンで入力するコードを表示
+$ tmt remote pair --talk           # 別のマシンで入力するコードを表示
 $ tmt talk reviewer@studio "Review the patch"   # 同じ talk で別のマシンへ
 `}</Cmd>
 
 <Caption>提案段階です。コマンド名は未確定です。</Caption>
+
+ペアリングで得られるのは読み取りだけです。デバイスから agent に送信できるようにするには、ペアリング時に yes と答えるか、`tmt remote pair --talk` でペアリングするか、Remote の設定でそのデバイスの送信をオンにします。
 
 <Mdx.h3 id="you-own-the-backend">backend は自分で管理する</Mdx.h3>
 
