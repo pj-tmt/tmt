@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { BrowserHeader } from '../src/react';
 
-it('renders the handbook aperture as one hidden currentColor SVG inside a retained brand link', () => {
+it('renders the TMT mark as one hidden currentColor SVG inside a retained brand link', () => {
   const source = readFileSync(
     new URL('../../../site/src/home/assets/v9-0.svg', import.meta.url),
     'utf8',
@@ -17,9 +17,10 @@ it('renders the handbook aperture as one hidden currentColor SVG inside a retain
   );
   expect(html).toContain('<a href="/pages"><svg');
   expect(html).toContain('class="tmt-ui-mark"');
-  expect(html).toContain('viewBox="0 0 200 200"');
+  expect(html).toContain('viewBox="0 0 96 96"');
   expect(html).toContain('aria-hidden="true"');
   expect(html).toContain('fill="currentColor"');
+  expect(html).toContain('fill-rule="evenodd"');
   expect(html).not.toContain('style=');
   expect(html).not.toContain('<title');
   expect(html.match(/<svg/g)).toHaveLength(1);
