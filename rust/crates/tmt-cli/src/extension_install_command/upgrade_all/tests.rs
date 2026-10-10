@@ -40,6 +40,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
             pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
+            pending(Product::Digest),
         ],
         |question| {
             asked.set(asked.get() + 1);
@@ -47,6 +48,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
             assert!(question.contains("ops 1.0.0 -> 1.1.0"));
             assert!(question.contains("remote 1.0.0 -> 1.1.0"));
             assert!(question.contains("colab 1.0.0 -> 1.1.0"));
+            assert!(question.contains("digest 1.0.0 -> 1.1.0"));
             Ok(true)
         },
         |product, selected| {
@@ -68,7 +70,8 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
             Product::Office,
             Product::Ops,
             Product::Remote,
-            Product::Colab
+            Product::Colab,
+            Product::Digest
         ]
     );
     assert_eq!(rows[0]["status"], "failed");
@@ -76,6 +79,7 @@ fn one_consent_lists_all_versions_and_failure_does_not_stop_other_products() {
     assert_eq!(rows[1]["status"], "changed");
     assert_eq!(rows[2]["status"], "changed");
     assert_eq!(rows[3]["status"], "changed");
+    assert_eq!(rows[4]["status"], "changed");
 }
 
 #[test]
@@ -109,6 +113,7 @@ fn child_protocol_rejects_duplicate_products_unknown_fields_and_unbounded_report
             pending(Product::Ops),
             pending(Product::Remote),
             pending(Product::Colab),
+            pending(Product::Digest),
         ],
     }
     .document();

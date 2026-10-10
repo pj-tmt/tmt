@@ -284,3 +284,42 @@ fn removal_and_exact_versions_name_only_features_that_stop_working() {
     // Squad is not used by anything.
     assert!(affected(&prefix, Product::Ops, None).is_empty());
 }
+
+#[test]
+fn digest_installation_declares_uses_and_is_visible_to_other_extensions() {
+    let (_directory, prefix) = prefix();
+    let digest = extension(
+        Product::Digest,
+        "0.1.0-alpha.1",
+        Some((COLAB_USES, 0o644)),
+        None,
+    );
+    let report = install(Product::Digest, &digest, &prefix).unwrap();
+    inspect_product(Product::Digest, &report.executable).unwrap();
+    assert_eq!(
+        declared_uses(Product::Digest, &prefix).unwrap()[0].extension,
+        Product::Remote
+    );
+    let needs_digest = COLAB_USES.replace("remote", "digest");
+    let colab = extension(
+        Product::Colab,
+        "0.1.0-alpha.1",
+        Some((&needs_digest, 0o644)),
+        None,
+    );
+    install(Product::Colab, &colab, &prefix).unwrap();
+    assert!(
+        check_use(&prefix, Product::Colab, "browser-access")
+            .unwrap()
+            .available()
+    );
+    uninstall_extension(&prefix, Product::Digest).unwrap();
+    assert_eq!(
+        check_use(&prefix, Product::Colab, "browser-access")
+            .unwrap()
+            .unavailable,
+        Some(Unavailable::Missing)
+    );
+    assert!(prefix.join("lib/tmt-digest/releases").exists());
+    assert!(inspect_product(Product::Colab, &prefix.join("bin/tmt-colab")).is_ok());
+}

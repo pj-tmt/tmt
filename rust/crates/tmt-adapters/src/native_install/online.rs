@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn unpublished_extensions_never_download_another_products_binary_or_creates_a_prefix() {
-        for product in [Product::Remote, Product::Colab] {
+        for product in [Product::Remote, Product::Colab, Product::Digest] {
             let tagged = format!(
                 r#"[{{"ref":"refs/tags/{}0.1.0-alpha.1"}}]"#,
                 product.tag_prefix()

@@ -144,6 +144,7 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
         tmt_core::native_install::Product::Office,
         tmt_core::native_install::Product::Remote,
         tmt_core::native_install::Product::Colab,
+        tmt_core::native_install::Product::Digest,
     ] {
         let mut selected = input.to_vec();
         selected.extend(["--product", product.as_str()]);

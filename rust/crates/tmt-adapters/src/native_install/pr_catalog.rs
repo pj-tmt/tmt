@@ -314,7 +314,13 @@ impl Catalog {
             candidate.validate(pr, head, &self.producer)?;
             previous = Some(key);
         }
-        for product in [Product::Cli, Product::Colab, Product::Remote, Product::Ops] {
+        for product in [
+            Product::Cli,
+            Product::Colab,
+            Product::Digest,
+            Product::Remote,
+            Product::Ops,
+        ] {
             let group = self
                 .candidates
                 .iter()

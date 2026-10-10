@@ -1,5 +1,6 @@
 ---
 source: crates/tmt-cli/src/extension_install_command.rs
+assertion_line: 728
 expression: document.to_string()
 ---
-{"extensions":[{"name":"ops","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-ops"],"shadowedBy":[]},{"name":"remote","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-remote"],"shadowedBy":[]},{"name":"colab","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-colab"],"shadowedBy":[]}]}
+{"extensions":[{"name":"ops","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-ops"],"shadowedBy":[]},{"name":"remote","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-remote"],"shadowedBy":[]},{"name":"colab","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-colab"],"shadowedBy":[]},{"name":"digest","installed":false,"version":null,"channel":null,"pinned":null,"commands":["tmt-digest"],"shadowedBy":[]}]}

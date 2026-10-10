@@ -73,7 +73,7 @@ upgrade failure, retirement, re-launch or automatic rebind.
 
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
   inventory, namespace and links for the CLI and the official extensions (Ops with the sole `tmt-ops`
-  link, Remote, Colab, Office). Archive data never adds a product. Every product uses one
+  link, Remote, Colab, Digest, Office). Archive data never adds a product. Every product uses one
   acquisition, receipt and atomic-publication path with independent links, lock and current
   release. Manifest selection uses product and target together and rejects ambiguous or multiply
   owned artifacts.
@@ -186,9 +186,10 @@ A parent CLI released before Ops registration parses the candidate's upgrade pla
 
 - The facade `extension_install_command` keeps dispatch, consent, errors, interruption, rendering
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
-  come from the fixed product table. Ops, Remote and Colab are installable; with no published
-  release in the selected channel, install returns `EXTENSION_RELEASE_UNAVAILABLE` (marked by
-  `release::ReleaseUnavailable` after complete discovery) and changes nothing.
+  come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation.
+  Without a published release in the selected channel, install returns `EXTENSION_RELEASE_UNAVAILABLE`
+  (marked by `release::ReleaseUnavailable` after complete discovery) and changes nothing.
+  Digest remains unpublished until its release activation.
 - Office is frozen: install and explicit upgrade refuse before consent or acquisition, root
   upgrade skips it, listing marks an existing one frozen and never looks up an upgrade, and
   `tmt office install|upgrade` share the same `require_installable` guard. Historical receipts and
