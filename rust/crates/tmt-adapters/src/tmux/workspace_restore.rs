@@ -119,18 +119,11 @@ impl<R: CommandRunner> Tmux<R> {
                 BOOTSTRAP_COMMAND.join(" ")
             ),
         ];
-        let mut args = vec![
-            "respawn-pane".into(),
-            "-k".into(),
-            "-t".into(),
-            pane.native.clone(),
-            "-c".into(),
-            format_literal(cwd),
-        ];
-        // tmux expands startup formats; protect literal hashes independently of
-        // the nested command lexer's byte quoting.
-        args.extend(argv.iter().map(|word| format_literal(word)));
-        restore.guard(Some(&pane.native), &checks, args)?;
+        restore.guard(
+            Some(&pane.native),
+            &checks,
+            respawn_args(&pane.native, cwd, argv),
+        )?;
         Ok(())
     }
 
@@ -798,6 +791,20 @@ fn number(value: &str) -> Result<u64, TmuxError> {
 fn native_id(value: &str, prefix: u8) -> bool {
     value.as_bytes().first() == Some(&prefix) && number(&value[1..]).is_ok()
 }
+/// tmux expands cwd formats but passes multi-argument startup argv literally.
+fn respawn_args(pane: &str, cwd: &str, argv: &[String]) -> Vec<String> {
+    let mut args = vec![
+        "respawn-pane".into(),
+        "-k".into(),
+        "-t".into(),
+        pane.into(),
+        "-c".into(),
+        format_literal(cwd),
+    ];
+    args.extend_from_slice(argv);
+    args
+}
+
 fn format_literal(value: &str) -> String {
     value.replace('#', "##")
 }

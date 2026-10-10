@@ -20,6 +20,26 @@ fn nested_command_quotes_literal_bytes_without_expanding_saved_data() {
 }
 
 #[test]
+fn revival_startup_preserves_literal_hash_arguments_and_expands_only_cwd() {
+    let argv = vec![
+        "/tmt".into(),
+        "workspace-board".into(),
+        "ui".into(),
+        "literal '$()#{pid};\n".into(),
+    ];
+    let args = respawn_args("%4", "/tmp/#{pid}", &argv);
+    assert_eq!(
+        &args[..6],
+        ["respawn-pane", "-k", "-t", "%4", "-c", "/tmp/##{pid}"]
+    );
+    assert_eq!(&args[6..], argv);
+    // The nested lexer encoding keeps these bytes out of format evaluation.
+    let encoded = command(&args);
+    assert!(!encoded.contains("#{pid}"));
+    assert!(!encoded.contains("$()"));
+}
+
+#[test]
 fn revival_never_starts_an_unowned_or_replaced_pane_process() {
     let saved = snapshot();
     let layout = LayoutRestore {
