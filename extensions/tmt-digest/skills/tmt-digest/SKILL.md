@@ -33,7 +33,7 @@ Member commands save configuration. They do not start a timer or immediately cha
 tmt digest tick
 ```
 
-Run once a minute from an Ops squad cron, cron or launchd. Each invocation stays until the next minute boundary; another invocation exits quietly while the first holds the lock. A Core call already in progress may finish within its existing bound before tick exits. A scheduler's child timeout should allow 90 seconds.
+When the Ops board clock is running, it runs the tick for you. Without Ops, run `tmt digest tick` once a minute from cron or launchd (child timeout 90 s). Each invocation stays until the next minute boundary; another invocation exits quietly while the first holds the lock. A Core call already in progress may finish within its existing bound before tick exits.
 
 For interval mode, tick holds automatic messages and delivers a digest when the oldest has waited the interval, or sooner when the flush count is reached. A due message still needs Core's live readiness checks; a busy or approval-blocked member can wait longer. Core may still deliver at the end of the member's turn.
 
