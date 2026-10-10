@@ -266,10 +266,184 @@ pub(super) fn admit() -> Result<(), String> {
     Scaffold::get().map(|_| ())
 }
 
+/// What starts on the row under a pane.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Under {
+    /// A titled frame: its heading rule is the boundary.
+    Rule,
+    /// A collapsed pane's strip, which shares the row with a neighbour's rule.
+    Strip,
+    /// The member list, which draws its own edges and may scroll its top away.
+    Plain,
+}
+
+/// Whether `parts`, the column ranges of panes on one row, run across `area`
+/// with at most the one-column gap the layout leaves between siblings.
+fn spans(mut parts: Vec<(u16, u16)>, area: Rect) -> bool {
+    parts.sort_unstable();
+    let mut reached = None;
+    for (left, right) in parts {
+        match reached {
+            None if left > area.x => return false,
+            Some(reached) if left > reached + 1 => return false,
+            _ => {}
+        }
+        reached = Some(reached.map_or(right, |reached: u16| reached.max(right)));
+    }
+    reached.is_some_and(|reached| reached >= area.right())
+}
+
+/// Whether the panes starting on the row under `area` together span its width
+/// and at least one paints a heading rule there, so that rule replaces its
+/// bottom edge.
+fn heading_covers_bottom(
+    slots: &[(Vec<String>, Rect)],
+    area: Rect,
+    under: impl Fn(&Vec<String>) -> Under,
+) -> bool {
+    let mut parts = Vec::new();
+    let mut ruled = false;
+    for (id, below) in slots {
+        if below.is_empty() || below.y != area.bottom() {
+            continue;
+        }
+        let (left, right) = (below.x.max(area.x), below.right().min(area.right()));
+        if right <= left {
+            continue;
+        }
+        match under(id) {
+            Under::Rule => ruled = true,
+            Under::Strip => {}
+            Under::Plain => return false,
+        }
+        parts.push((left, right));
+    }
+    ruled && spans(parts, area)
+}
+
+/// Whether the panes ending on the row above `area` together span its width and
+/// each is a titled frame, which draws a bottom edge there.
+fn framed_above(
+    slots: &[(Vec<String>, Rect)],
+    area: Rect,
+    frame_edge: impl Fn(&Vec<String>) -> bool,
+) -> bool {
+    let mut parts = Vec::new();
+    for (id, above) in slots {
+        if above.is_empty() || above.bottom() != area.y {
+            continue;
+        }
+        let (left, right) = (above.x.max(area.x), above.right().min(area.right()));
+        if right <= left {
+            continue;
+        }
+        if !frame_edge(id) {
+            return false;
+        }
+        parts.push((left, right));
+    }
+    spans(parts, area)
+}
+
+/// The rules a neighbour already draws beside a pane that paints its own box,
+/// so the pane leaves out the matching edge and the boundary has one rule.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Shared {
+    pub above: bool,
+    pub below: bool,
+}
+
+/// Chrome computed alongside placement, including the rule supplied by a neighbour.
+#[derive(Clone, Copy)]
+pub(super) struct Chrome {
+    pub pane: Pane,
+    pub area: Rect,
+    pub painted: Option<Rect>,
+    pub inner: Rect,
+    pub shared: Shared,
+}
+
+fn split_chrome(
+    slots: &[(Vec<String>, Rect)],
+    board: &Board,
+    collapsed: &BTreeSet<Pane>,
+    rule_below: bool,
+) -> Vec<Chrome> {
+    let pane_of = |id: &Vec<String>| {
+        Pane::parse(id.last().expect("named pane")).expect("validated pane slot")
+    };
+    let under = |id: &Vec<String>| {
+        let pane = pane_of(id);
+        if collapsed.contains(&pane) {
+            Under::Strip
+        } else if pane == Pane::Rows && board.members {
+            Under::Plain
+        } else {
+            Under::Rule
+        }
+    };
+    let bottom = slots.iter().map(|(_, area)| area.bottom()).max();
+    let outline = tmt_tui::components::Outline {
+        title: Default::default(),
+        border: Default::default(),
+        title_style: Default::default(),
+    };
+    slots
+        .iter()
+        .map(|(id, area)| {
+            let pane = pane_of(id);
+            let area = *area;
+            let below = (rule_below && Some(area.bottom()) == bottom)
+                || heading_covers_bottom(slots, area, under);
+            let framed = under(id) == Under::Rule && board.panes.len() > 1;
+            let painted = framed.then(|| {
+                if below {
+                    Rect {
+                        height: area.height.saturating_add(1),
+                        ..area
+                    }
+                } else if area.height <= 2 {
+                    Rect { height: 1, ..area }
+                } else {
+                    area
+                }
+            });
+            Chrome {
+                pane,
+                area,
+                painted,
+                inner: painted.map_or(area, |painted| outline.inner(painted)),
+                shared: Shared {
+                    above: framed_above(slots, area, |id| under(id) == Under::Rule),
+                    below,
+                },
+            }
+        })
+        .collect()
+}
+
 pub(super) struct Cache {
-    key: (Board, BTreeSet<Pane>, Option<Pane>, Rect),
+    key: (Board, BTreeSet<Pane>, Option<Pane>, Rect, bool),
+    derived_folds: BTreeSet<Pane>,
+    pub chrome: Vec<Chrome>,
     slots: Vec<(Vec<String>, Rect)>,
 }
+impl Cache {
+    /// Stale board, manual folds or width never contribute transient folds.
+    pub fn derived_folds(
+        &self,
+        board: &Board,
+        manual: &BTreeSet<Pane>,
+        width: u16,
+    ) -> BTreeSet<Pane> {
+        if self.key.0 == *board && self.key.1 == *manual && self.key.3.width == width {
+            self.derived_folds.clone()
+        } else {
+            BTreeSet::new()
+        }
+    }
+}
+
 /// Immutable views retain geometry; only inputs that affect placement invalidate it.
 pub(super) fn layout(
     cache: &mut Option<Cache>,
@@ -277,22 +451,44 @@ pub(super) fn layout(
     collapsed: &BTreeSet<Pane>,
     focused: Pane,
     area: Rect,
+    rule_below: bool,
 ) -> Result<Vec<(Vec<String>, Rect)>, String> {
     let key = (
         board.clone(),
         collapsed.clone(),
         (board.mode == BoardMode::Tabs).then_some(focused),
         area,
+        rule_below,
     );
     if cache.as_ref().is_none_or(|old| old.key != key) {
-        let node = if board.mode == BoardMode::Tabs {
-            tabs(focused)?
-        } else {
-            compile(&board.split, collapsed)?
+        let mut effective = collapsed.clone();
+        let (placed, chrome) = loop {
+            let node = if board.mode == BoardMode::Tabs {
+                tabs(focused)?
+            } else {
+                compile(&board.split, &effective)?
+            };
+            let placed = slots(&node, area)?;
+            if board.mode == BoardMode::Tabs {
+                break (placed, Vec::new());
+            }
+            let chrome = split_chrome(&placed, board, &effective, rule_below);
+            let short = chrome
+                .iter()
+                .filter(|pane| !effective.contains(&pane.pane) && pane.inner.height == 0)
+                .map(|pane| pane.pane)
+                .collect::<BTreeSet<_>>();
+            if short.is_empty() {
+                break (placed, chrome);
+            }
+            // Only this solve accumulates folds. The next input starts from manual folds.
+            effective.extend(short);
         };
         *cache = Some(Cache {
             key,
-            slots: slots(&node, area)?,
+            derived_folds: effective.difference(collapsed).copied().collect(),
+            slots: placed,
+            chrome,
         });
     }
     Ok(cache
@@ -344,6 +540,174 @@ mod tests {
         }
     }
     #[test]
+    fn short_split_releases_the_empty_frame_row_and_restores_on_growth() {
+        let board = Board::simple(
+            BoardMode::Split,
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            &[50, 50],
+        );
+        let mut cache = None;
+        let placed = layout(
+            &mut cache,
+            &board,
+            &BTreeSet::new(),
+            Pane::Detail,
+            Rect::new(0, 0, 80, 4),
+            false,
+        )
+        .unwrap();
+        assert_eq!(placed[0].1, Rect::new(0, 0, 80, 3));
+        assert_eq!(placed[1].1, Rect::new(0, 3, 80, 1));
+        let grown = layout(
+            &mut cache,
+            &board,
+            &BTreeSet::new(),
+            Pane::Rows,
+            Rect::new(0, 0, 80, 8),
+            false,
+        )
+        .unwrap();
+        assert_eq!(grown[0].1.height, 4);
+        assert_eq!(grown[1].1.height, 4);
+        assert!(board.collapsed.is_empty());
+    }
+
+    #[test]
+    fn short_split_uses_shared_rules_and_never_caches_its_result_as_input() {
+        let board = Board::simple(
+            BoardMode::Split,
+            Direction::TopBottom,
+            vec![Pane::Rows, Pane::Detail],
+            &[50, 50],
+        );
+        let manual = BTreeSet::new();
+        let area = Rect::new(0, 0, 80, 4);
+        let mut cache = None;
+        // The jobs heading provides Detail's bottom edge: both two-row slots
+        // retain an inner row, unlike an isolated two-row frame.
+        layout(&mut cache, &board, &manual, Pane::Detail, area, true).unwrap();
+        assert!(cache.as_ref().unwrap().derived_folds.is_empty());
+        assert!(
+            cache
+                .as_ref()
+                .unwrap()
+                .chrome
+                .iter()
+                .all(|pane| pane.inner.height == 1)
+        );
+        let folded = layout(&mut cache, &board, &manual, Pane::Detail, area, false).unwrap();
+        assert_eq!(
+            cache.as_ref().unwrap().derived_folds,
+            BTreeSet::from([Pane::Detail])
+        );
+        for focused in [Pane::Detail, Pane::Rows, Pane::Detail] {
+            assert_eq!(
+                layout(&mut cache, &board, &manual, focused, area, false).unwrap(),
+                folded
+            );
+            assert!(cache.as_ref().unwrap().key.1.is_empty());
+        }
+        assert!(
+            cache
+                .as_ref()
+                .unwrap()
+                .derived_folds(&board, &manual, 81)
+                .is_empty()
+        );
+        let configured = BTreeSet::from([Pane::Detail]);
+        assert!(
+            cache
+                .as_ref()
+                .unwrap()
+                .derived_folds(&board, &configured, 80)
+                .is_empty()
+        );
+        let grown = Rect::new(0, 0, 80, 8);
+        layout(&mut cache, &board, &configured, Pane::Rows, grown, false).unwrap();
+        assert!(cache.as_ref().unwrap().derived_folds.is_empty());
+        assert_eq!(
+            cache.as_ref().unwrap().slots[1].1.height,
+            1,
+            "manual fold wins on growth"
+        );
+        layout(&mut cache, &board, &manual, Pane::Rows, grown, false).unwrap();
+        assert!(cache.as_ref().unwrap().derived_folds.is_empty());
+        assert_eq!(cache.as_ref().unwrap().slots[1].1.height, 4);
+    }
+
+    #[test]
+    fn short_team_releases_rows_without_folding_a_shared_two_row_frame() {
+        let config = crate::config::Config::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/markup-parity.toml"),
+        )
+        .unwrap();
+        let board = config
+            .preview_view(
+                &crate::view::ViewScope::Board,
+                Some(crate::view::ViewName::Team),
+                "team",
+            )
+            .unwrap()
+            .board("team")
+            .unwrap();
+        let mut cache = None;
+        for height in [8, 7, 6, 5, 6, 7, 8] {
+            let area = Rect::new(2, 3, 120, height);
+            let placed = layout(
+                &mut cache,
+                &board,
+                &BTreeSet::new(),
+                Pane::Rows,
+                area,
+                false,
+            )
+            .unwrap();
+            let saved = cache.as_ref().unwrap();
+            assert!(
+                saved
+                    .chrome
+                    .iter()
+                    .filter(|pane| !saved.derived_folds.contains(&pane.pane))
+                    .all(|pane| pane.inner.height > 0)
+            );
+            assert_eq!(
+                placed.iter().map(|(_, rect)| rect.bottom()).max(),
+                Some(area.bottom())
+            );
+            for pane in &saved.derived_folds {
+                assert_eq!(
+                    saved
+                        .chrome
+                        .iter()
+                        .find(|geometry| geometry.pane == *pane)
+                        .unwrap()
+                        .area
+                        .height,
+                    1
+                );
+            }
+            if height == 8 {
+                assert!(saved.derived_folds.is_empty());
+                let detail = saved
+                    .chrome
+                    .iter()
+                    .find(|pane| pane.pane == Pane::Detail)
+                    .unwrap();
+                assert_eq!(detail.area.height, 2);
+                assert_eq!(
+                    detail.inner.height, 1,
+                    "Replies supplies Detail's bottom rule"
+                );
+            }
+            if height == 6 {
+                assert!(saved.derived_folds.contains(&Pane::Notes));
+            }
+        }
+    }
+
+    #[test]
     fn folds_retain_shares_and_cache_tracks_geometry_inputs() {
         for direction in [Direction::LeftRight, Direction::TopBottom] {
             let tree = Split::simple(
@@ -382,9 +746,25 @@ mod tests {
         );
         let mut cache = None;
         let area = Rect::new(0, 0, 100, 20);
-        let first = layout(&mut cache, &board, &BTreeSet::new(), Pane::Rows, area).unwrap();
+        let first = layout(
+            &mut cache,
+            &board,
+            &BTreeSet::new(),
+            Pane::Rows,
+            area,
+            false,
+        )
+        .unwrap();
         assert_eq!(
-            layout(&mut cache, &board, &BTreeSet::new(), Pane::Notes, area).unwrap(),
+            layout(
+                &mut cache,
+                &board,
+                &BTreeSet::new(),
+                Pane::Notes,
+                area,
+                false
+            )
+            .unwrap(),
             first
         );
         assert!(cache.as_ref().unwrap().key.2.is_none());
@@ -394,7 +774,8 @@ mod tests {
                 &board,
                 &BTreeSet::from([Pane::Notes]),
                 Pane::Rows,
-                area
+                area,
+                false
             )
             .unwrap(),
             first
@@ -405,18 +786,37 @@ mod tests {
                 &board,
                 &BTreeSet::new(),
                 Pane::Rows,
-                Rect::new(0, 0, 80, 20)
+                Rect::new(0, 0, 80, 20),
+                false
             )
             .unwrap(),
             first
         );
         board.mode = BoardMode::Tabs;
         assert_eq!(
-            layout(&mut cache, &board, &BTreeSet::new(), Pane::Notes, area).unwrap()[1].0,
+            layout(
+                &mut cache,
+                &board,
+                &BTreeSet::new(),
+                Pane::Notes,
+                area,
+                false
+            )
+            .unwrap()[1]
+                .0,
             vec!["notes"]
         );
         assert_eq!(
-            layout(&mut cache, &board, &BTreeSet::new(), Pane::Rows, area).unwrap()[1].0,
+            layout(
+                &mut cache,
+                &board,
+                &BTreeSet::new(),
+                Pane::Rows,
+                area,
+                false
+            )
+            .unwrap()[1]
+                .0,
             vec!["rows"]
         );
     }
