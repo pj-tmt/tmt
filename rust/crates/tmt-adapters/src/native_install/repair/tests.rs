@@ -41,19 +41,23 @@ impl Fixture {
             _directory: directory,
             layout,
             old,
-            metadata: serde_json::to_vec(&release).unwrap(),
+            metadata: release::indexed_routes(&release, &manifest, &archive)
+                .into_iter()
+                .find(|(url, _)| url.ends_with("tmt-release-record.json"))
+                .unwrap()
+                .1,
             manifest,
             archive,
         }
     }
     fn download(&self, url: &str) -> io::Result<Vec<u8>> {
-        if url.ends_with("/assets/421") {
+        if url.ends_with("/dist-manifest.json") {
             Ok(self.manifest.clone())
-        } else if url.ends_with("/assets/422") {
+        } else if url.ends_with("/tmt-ops-aarch64-apple-darwin.tar.gz") {
             Ok(self.archive.clone())
         } else {
             assert!(
-                url.ends_with("/tags/tmt-ops-v1.2.3"),
+                url.ends_with("/tmt-ops-v1.2.3/tmt-release-record.json"),
                 "repair selects exact version: {url}"
             );
             Ok(self.metadata.clone())
@@ -191,7 +195,7 @@ fn receipt_or_current_swap_during_acquisition_is_refused_before_publication() {
             || Ok(()),
             |url, _, _, _| {
                 let bytes = fixture.download(url)?;
-                if url.ends_with("/assets/422") {
+                if url.ends_with("/tmt-ops-aarch64-apple-darwin.tar.gz") {
                     if swap == "receipt" {
                         let path = fixture.old.join("receipt.json");
                         let mut bytes = fs::read(&path).unwrap();
@@ -238,9 +242,9 @@ fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
                     ));
                 }
                 let bytes = fixture.download(url)?;
-                if url.ends_with("/tags/tmt-ops-v1.2.3") {
+                if url.ends_with("/tmt-ops-v1.2.3/tmt-release-record.json") {
                     let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                    value["id"] = 43.into();
+                    value["releaseId"] = 43.into();
                     return Ok(serde_json::to_vec(&value).unwrap().into());
                 }
                 Ok(bytes.into())
@@ -251,7 +255,7 @@ fn unavailable_or_different_original_artifact_leaves_everything_unchanged() {
             error.to_string().contains(if different {
                 "does not match"
             } else {
-                "unavailable"
+                "cannot be installed directly"
             }),
             "{error}"
         );
@@ -391,7 +395,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
                 || Ok(()),
                 |url, _, _, _| {
                     let bytes = fixture_ref.download(url)?;
-                    if url.ends_with("/assets/422") {
+                    if url.ends_with("/tmt-ops-aarch64-apple-darwin.tar.gz") {
                         ready_a.send(()).unwrap();
                         acquire_a
                             .recv_timeout(Duration::from_secs(5))
@@ -413,7 +417,7 @@ fn concurrent_repair_installs_preserve_the_winner_and_clean_losing_staging() {
                 || Ok(()),
                 |url, _, _, _| {
                     let bytes = fixture_ref.download(url)?;
-                    if url.ends_with("/assets/422") {
+                    if url.ends_with("/tmt-ops-aarch64-apple-darwin.tar.gz") {
                         ready_b.send(()).unwrap();
                         acquire_b
                             .recv_timeout(Duration::from_secs(5))

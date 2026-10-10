@@ -98,22 +98,21 @@ fn injected_release(
     manifest: Vec<u8>,
     archive: Vec<u8>,
 ) -> impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> {
-    let endpoint = "https://api.github.com/repos/pj-tmt/tmt/releases".to_owned();
-    let exact = format!("{endpoint}/tags/v{version}");
-    let manifest_url = format!("{endpoint}/assets/{}", RELEASE_ID * 10 + 1);
-    let archive_url = format!("{endpoint}/assets/{}", RELEASE_ID * 10 + 2);
-    let release_bytes = serde_json::to_vec(&release).unwrap();
+    assert_eq!(release["tag_name"], format!("v{version}"));
+    let routes = super::release::indexed_routes(&release, &manifest, &archive);
     move |url, accept, maximum, deadline| {
         assert!(deadline > Instant::now());
-        let (bytes, expected_accept) = match url {
-            url if url == exact => (release_bytes.clone(), "application/vnd.github+json"),
-            url if url == manifest_url => (manifest.clone(), "application/octet-stream"),
-            url if url == archive_url => (archive.clone(), "application/octet-stream"),
-            _ => panic!("unexpected canonical release URL: {url}"),
+        let bytes = routes
+            .get(url)
+            .unwrap_or_else(|| panic!("unexpected canonical release URL: {url}"));
+        let expected_accept = if url.ends_with("/tmt-release-record.json") {
+            "application/json"
+        } else {
+            "application/octet-stream"
         };
         assert_eq!(accept, expected_accept);
         assert!(bytes.len() <= maximum);
-        Ok(bytes.into())
+        Ok(bytes.clone().into())
     }
 }
 

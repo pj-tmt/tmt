@@ -27,7 +27,7 @@ pub fn install_release(
 ) -> io::Result<InstallReport> {
     let deadline = Instant::now() + Duration::from_secs(60);
     let client = if matches!(channel, Channel::Pr(_)) {
-        crate::release_http::Https::authenticated(deadline, &crate::process::UnixCommandRunner)?
+        crate::release_http::Https::authenticated()?
     } else {
         crate::release_http::Https::new()
     };
@@ -170,9 +170,9 @@ mod tests {
                 calls += 1;
                 assert_eq!(
                     url,
-                    "https://api.github.com/repos/pj-tmt/tmt/git/matching-refs/tags/tmt-office-v?per_page=100&page=1"
+                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/office/alpha.json"
                 );
-                Ok(b"[]".to_vec().into())
+                Err(io::Error::new(io::ErrorKind::NotFound, "pointer missing"))
             },
         )
         .unwrap_err();
@@ -182,47 +182,24 @@ mod tests {
     }
 
     #[test]
-    fn unpublished_extensions_never_download_another_products_binary_or_creates_a_prefix() {
+    fn unavailable_extension_pointer_never_downloads_another_product_or_creates_a_prefix() {
         for product in [Product::Remote, Product::Colab, Product::Digest] {
-            let tagged = format!(
-                r#"[{{"ref":"refs/tags/{}0.1.0-alpha.1"}}]"#,
-                product.tag_prefix()
-            );
-            for refs in [b"[]".as_slice(), tagged.as_bytes()] {
-                let directory = TestDirectory::new();
-                let prefix = directory.path.join("prefix");
-                let mut calls = Vec::new();
-                let error = install_release_with(
-                    product,
-                    &prefix,
-                    "aarch64-apple-darwin",
-                    Channel::Alpha,
-                    None,
-                    || Ok(()),
-                    |url, _, _, _| {
-                        calls.push(url.to_owned());
-                        if url.ends_with(&format!(
-                            "/git/matching-refs/tags/{}?per_page=100&page=1",
-                            product.tag_prefix()
-                        )) {
-                            return Ok(refs.to_vec().into());
-                        }
-                        assert!(url.ends_with(&format!(
-                            "/releases/tags/{}0.1.0-alpha.1",
-                            product.tag_prefix()
-                        )));
-                        Err(io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "No published product release",
-                        ))
-                    },
+            let directory = TestDirectory::new();
+            let prefix = directory.path.join("prefix");
+            let mut calls = Vec::new();
+            let error = install_release_with(product,&prefix,"aarch64-apple-darwin",Channel::Alpha,None,||Ok(()),
+                |url,_,_,_| {calls.push(url.to_owned()); assert_eq!(url,format!("https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/{}/alpha.json",product.as_str()));
+                    Err(io::Error::new(io::ErrorKind::NotFound,"pointer missing"))}).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::NotFound);
+            assert_eq!(calls.len(), 1);
+            assert!(!prefix.exists());
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "Could not check for {} updates on raw.githubusercontent.com: pointer missing. Nothing was changed.",
+                    product.as_str()
                 )
-                .unwrap_err();
-                assert_eq!(error.kind(), io::ErrorKind::NotFound);
-                assert!(error.get_ref().unwrap().is::<release::ReleaseUnavailable>());
-                assert_eq!(calls.len(), if refs == b"[]" { 1 } else { 2 });
-                assert!(!prefix.exists());
-            }
+            );
         }
     }
 

@@ -24,19 +24,7 @@ fn serving(
         42,
         companions,
     );
-    move |url, _, limit, _| {
-        let bytes = if url.ends_with("/assets/421") {
-            manifest.clone()
-        } else if url.ends_with("/assets/422") {
-            archive.clone()
-        } else if url.ends_with(&format!("/tags/v{version}")) {
-            serde_json::to_vec(&release).unwrap()
-        } else {
-            serde_json::to_vec(&serde_json::json!([{ "ref": format!("refs/tags/{}", release["tag_name"].as_str().unwrap()) }])).unwrap()
-        };
-        assert!(bytes.len() <= limit);
-        Ok(bytes.into())
-    }
+    crate::native_install::release::indexed_download(release, manifest, archive)
 }
 
 fn upgrade_to(

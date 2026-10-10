@@ -34,7 +34,6 @@ mod receipt;
 mod repair;
 pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_from_archive};
 mod release;
-pub use release::ReleaseUnavailable;
 mod skills_tree;
 mod uses;
 pub use uses::{
