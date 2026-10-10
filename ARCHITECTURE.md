@@ -636,12 +636,9 @@ core discovery or storage access.
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
-- **Firestore declaration.** `tmt colab deploy-declaration --json` is a hidden, state-free machine entry that
-  prints Colab's declaration and admission Rules compiled into the binary; Remote runs it through the public
-  `tmt` dispatch and composes it, with no Colab dependency edge either way. The bytes live under
-  `extensions/tmt-colab/firestore/`, their vector and composed goldens under `contracts/vectors/`, and the
-  [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns
-  tenancy, the Rules facts and their stated limits.
+- **Firestore declaration.** Hidden `tmt colab deploy-declaration --json` prints the declaration and admission Rules
+  compiled in from `extensions/tmt-colab/firestore/`; Remote composes it through public dispatch, with no dependency edge
+  either way. The [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns the Rules and their limits.
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#content-publication-1908-1928-1934) validate sealed intent. The native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content (or, as `kind:"own"`, a status action) with its scoped terminal outcome in the Store; `tmt colab page write`, `threads resolve|reopen` and proposal record/placement operations publish through it (offline or the local `page-publish` route), and the browser Save does over the owner sync socket (colab-v1 Browser Save), signed by the root-local writer.

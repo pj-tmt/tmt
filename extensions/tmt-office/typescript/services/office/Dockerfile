@@ -71,6 +71,7 @@ COPY extensions/tmt-ops extensions/tmt-ops
 COPY extensions/tmt-remote/rust extensions/tmt-remote/rust
 COPY extensions/tmt-colab/rust extensions/tmt-colab/rust
 COPY extensions/tmt-colab/contracts extensions/tmt-colab/contracts
+COPY extensions/tmt-colab/firestore extensions/tmt-colab/firestore
 COPY extensions/tmt-colab/skills extensions/tmt-colab/skills
 COPY design/tokens/tokens.json design/tokens/tokens.json
 COPY design/browser-ui/generated/static.css design/browser-ui/generated/static.css
