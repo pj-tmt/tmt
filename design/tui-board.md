@@ -123,7 +123,7 @@ layout behavior, not new styling breakpoints.
 
 | View    | Composition                                               | Width/fold behavior                                    |
 | ------- | --------------------------------------------------------- | ------------------------------------------------------ |
-| HOME    | Counts, blocked, grouped leads, audience, cron, squads    | One stream; full-width squad table at every width      |
+| HOME    | Overview, blocked, grouped leads, audience, squads, cron  | One stream; full-width squad table at every width      |
 | leads   | Grouped lead headings and admitted preview/read bands     | Existing stream and clipped row hits                   |
 | members | Lead, members rule and member/task list; lead notes below | Default grouped list; notes can be hidden/shown        |
 | team    | Rows with detail/replies beside them and notes below      | Detail/replies fold below 100 cells                    |
@@ -138,28 +138,39 @@ HOME is the built-in `@all` board, not another aggregate member grid. Public
 lead row; the members rule is not selectable. HOME chooses an admitted blocked,
 lead or squad row; the cron heading is not an initial member selection.
 
-### HOME usage row
+### HOME overview and sections
 
-Put observed usage below HOME's counts, separate from body selection. At 100
-cells and wider it includes the last two global `[board] tok` windows and the
-longest-window top member/share, for example:
+Needs you comes first: `◆ Needs you` names the waiting squads; known empty
+attention says `✓ Nothing needs you`. Working/idle/blocked totals fit at the
+right, with marks and words. Retain partial-read and unknown-user notices.
+Provider meters follow, then one muted longest-window usage line:
+`Usage 1h N tok · top member P%`. Use actual configured window labels,
+`~` for partial evidence and `0` for measured zero; missing readings say so.
+Deduplicate UUIDs using the better-covered observation. No rate or money
+estimate substitutes for observed completed-request totals.
 
-```text
-tok 5m ~N · 1h ~N · share 1h: member P%
-```
+The overview is the first cursor stop, but initial focus remains on the first
+blocked row, else lead, else squad. Its selection paints only the usage line;
+never select the bar rows. `e`/Enter opens shared in-place detail for values
+hidden at the current width: short windows, rates, missing-data coverage and
+shortened labels. Do not repeat visible values or acquire data on paint/input.
+Hide this stop during search; retain target identity on refresh and resize.
 
-At 140 cells it also includes the first window, model shares and the number of
-members without data. Deduplicate UUIDs across shown sampling squads using the
-better-covered observation; search limits the row to currently shown squads.
-Use `~` for incomplete totals/shares, `0` for measured zero and no share for a zero
-total. Missing readings are excluded and counted once; model attribution is
-best effort. Hide the row below 100 cells or when no shown sampling squad has an
-observed reading. Do not show a named-squad summary on HOME or replace observed
-completed-request totals with a token rate or money estimate.
+At 160 cells, provider bars are side by side with 34-cell inside labels. At
+100, each occupies a row, followed by rate/5h. At 80 use 26 cells; at 60 use
+16, keeping percentage inside and depletion warning outside. Reverse-fill the
+existing working/waiting/blocked role; use Text over the neutral Selection
+background for the track. NO_COLOR reverses fill and underlines track. Forecast
+only from a positive measured rate: before-reset depletion is `! empties
+~duration`, at or within 12h is `✗ empties ~duration`. Stale readings show words.
 
-Squad table token columns and their legend appear only when observations admit
-them. Sampling-off hides token cells; observed model names can remain. Missing
-and measured zero stay distinct; mixed window settings label actual durations.
+One blank line precedes Leads and Squads. Every HOME rule heading uses `── `;
+one rule separates each boundary. Leads label their age `last exchange` and
+show squad from 80 cells. Squads has aligned squad/lead/members/token/`lead %`
+headers (`lead %` is the lead's fraction of the squad window), retains the longest observed window/lead percentage at narrow widths and puts
+short windows, model and hidden counts in detail. Sampling-off hides token
+cells; missing differs from zero; mixed settings label actual durations. Cron
+is one muted line after Squads, above the existing effective footer hints.
 
 ## Rows, reading and composing
 

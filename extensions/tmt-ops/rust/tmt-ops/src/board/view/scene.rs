@@ -205,6 +205,9 @@ fn lift(buffer: &Buffer) -> Vec<Line<'static>> {
 
 /// Every section, including quiet and empty ones, reaches the same body edge.
 pub(in crate::board) fn rule(title: &str, width: usize) -> String {
+    if title.is_empty() {
+        return "─".repeat(width);
+    }
     let title = format!("── {title} ");
     let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
     fit(&format!("{title}{}", "─".repeat(tail)), width)

@@ -81,10 +81,35 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(Rect::default());
     app.scrolls.begin_frame();
-    let [tabs, summary, meter_status, body, footer] = ratatui::layout::Layout::vertical([
+    let home_usage = app
+        .home_header_usage(Instant::now())
+        .and_then(|usage| crate::board::home::usage_of(app, &usage, frame.area().width, look));
+    let home_limits = crate::board::home::limits_of(app, frame.area().width, look);
+    let overview = (!app.loading())
+        .then(|| {
+            app.home_entries()
+                .iter()
+                .position(|entry| entry.target.section == crate::board::home::USAGE)
+        })
+        .flatten();
+    let home_history_pending = !app.loading()
+        && app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.home.is_some() && view.history_pending);
+    let [tabs, boundary, summary, limits, meter_status, body, footer] = ratatui::layout::Layout::vertical([
         ratatui::layout::Constraint::Length(1),
+        ratatui::layout::Constraint::Length(u16::from(
+            app.view.as_ref().is_some_and(|view| view.home.is_some()),
+        )),
         ratatui::layout::Constraint::Length(1),
-        ratatui::layout::Constraint::Length(u16::from(header::meter_enabled(app))),
+        ratatui::layout::Constraint::Length(home_limits.len().min(usize::from(u16::MAX)) as u16),
+        ratatui::layout::Constraint::Length(u16::from(
+            header::meter_enabled(app)
+                || home_usage.is_some()
+                || home_history_pending
+                || overview.is_some(),
+        )),
         ratatui::layout::Constraint::Min(1),
         ratatui::layout::Constraint::Length(1),
     ])
@@ -92,6 +117,17 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     lap.mark("frame state reset");
     strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     lap.mark("tab line strip");
+    if boundary.height > 0 {
+        strip::paint_left(
+            frame.buffer_mut(),
+            boundary,
+            ratatui::text::Line::styled(
+                scene::rule("", usize::from(boundary.width)),
+                look.role(tmt_cli_style::Role::Dim),
+            ),
+        );
+    }
+
     let summary_text = app
         .view
         .as_ref()
@@ -108,6 +144,50 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     lap.mark("summary strip");
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
+    let usage = if home_history_pending {
+        Some(ratatui::text::Line::styled(
+            "Updating usage…",
+            look.role(tmt_cli_style::Role::Muted),
+        ))
+    } else {
+        home_usage.or_else(|| {
+            overview.map(|_| {
+                ratatui::text::Line::styled(
+                    "Usage no reading",
+                    look.role(tmt_cli_style::Role::Muted),
+                )
+            })
+        })
+    };
+    if let Some(mut line) = usage {
+        app.home_counters.borrow_mut().place_header(meter_status);
+        if overview == Some(app.selected) {
+            let unused = usize::from(meter_status.width).saturating_sub(line.width());
+            line.spans
+                .push(ratatui::text::Span::raw(" ".repeat(unused)));
+            line.style = look.selection();
+        }
+        strip::paint_left(frame.buffer_mut(), meter_status, line);
+    }
+    if let Some(row) = overview.filter(|_| meter_status.height > 0) {
+        app.hits.borrow_mut().push(crate::board::app::Hit {
+            y: meter_status.y,
+            x: meter_status.x,
+            width: meter_status.width,
+            target: crate::board::app::HitTarget::Row(row),
+        });
+    }
+    for (offset, line) in home_limits
+        .into_iter()
+        .enumerate()
+        .take(usize::from(limits.height))
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            ratatui::layout::Rect::new(limits.x, limits.y + offset as u16, limits.width, 1),
+            line,
+        );
+    }
     lap.mark("meter strips");
     panes::render_body(frame, app, body);
     lap.mark("body (rows scene, outlines, pane strips, home)");
@@ -554,7 +634,7 @@ fn render_replica_matches_render() {
         (member_board(Layout::Crew), "member-05", true),
         (member_board(Layout::Team), "member-05", true),
         (home_board(), "blocked", true),
-        (home_full_board(), "squads", false),
+        (home_full_board(), "Squads", false),
     ] {
         let mut expected = terminal();
         expected.draw(|frame| render(frame, &app)).unwrap();

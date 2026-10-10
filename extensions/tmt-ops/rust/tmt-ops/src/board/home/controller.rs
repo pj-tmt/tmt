@@ -8,6 +8,8 @@ use serde_json::Value;
 pub const CRON: &str = "cron";
 pub const LEADS: &str = "leads";
 pub const ALL_LEADS: &str = "all-leads";
+/// One overview focus stop; its selection is painted on the usage line only.
+pub const USAGE: &str = "usage";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -70,7 +72,7 @@ impl Home {
 static NO_ROW: Value = Value::Null;
 
 impl App {
-    /// One reading order: attention, leads, audience footer, cron, squads.
+    /// One reading order: overview, attention, leads, audience footer, squads, cron.
     pub(in crate::board) fn home_entries(&self) -> Vec<HomeEntry<'_>> {
         let mut entries = self
             .view
@@ -123,15 +125,26 @@ impl App {
             entries.splice(at..at, leads);
         }
         if self.search.is_empty() && self.cron_shown() && !entries.is_empty() {
-            let at = entries
-                .iter()
-                .position(|entry| entry.target.section == "squads")
-                .unwrap_or(entries.len());
+            entries.push(HomeEntry {
+                target: Target {
+                    section: CRON.into(),
+                    squad: String::new(),
+                    member: None,
+                },
+                row: &NO_ROW,
+                lead: None,
+                age: None,
+            });
+        }
+        if !self.searching
+            && self.search.is_empty()
+            && self.view.as_ref().is_some_and(|view| view.home.is_some())
+        {
             entries.insert(
-                at,
+                0,
                 HomeEntry {
                     target: Target {
-                        section: CRON.into(),
+                        section: USAGE.into(),
                         squad: String::new(),
                         member: None,
                     },
@@ -167,7 +180,9 @@ impl App {
         let Some(entry) = entries.get(self.selected) else {
             return self.say("No home row is selected.");
         };
-        if entry.target.section == ALL_LEADS {
+        if entry.target.section == USAGE {
+            self.toggle_row_detail()
+        } else if entry.target.section == ALL_LEADS {
             self.home_write()
         } else if entry.target.section == CRON {
             self.open_cron_list(None)

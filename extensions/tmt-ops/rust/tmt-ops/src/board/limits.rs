@@ -11,7 +11,7 @@ mod footer;
 mod listing;
 mod store;
 
-pub use estimate::{Figures, Left, Outlook, outlook};
+pub use estimate::{Figures, Outlook, outlook};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,

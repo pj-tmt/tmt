@@ -328,12 +328,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "provider limits",
             &[
                 (
-                    "7d 5h",
-                    "the share of each account window left, then the time until it refills",
+                    "limits bar",
+                    "the share of each account window left and reset time inside the bar; e on overview shows values hidden at this width",
                 ),
                 (
                     "~N%/h",
-                    "average weekly use over the last 6 hours, shown after an hour of samples; `! before reset` (`runs out before reset` when wide) means that pace empties the week first",
+                    "average weekly use over the last 6 hours, after an hour of samples; ! empties warns before reset, ✗ empties at or within 12 hours; no positive measured rate means no forecast",
                 ),
                 (
                     "no reading",

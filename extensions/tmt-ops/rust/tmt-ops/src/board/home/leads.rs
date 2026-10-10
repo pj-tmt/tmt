@@ -55,7 +55,11 @@ fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) 
     let squad = if room > name_width + 3 {
         format!(
             "   {}",
-            fit(&escape(&lead.squad), room - name_width - 3).trim_end()
+            fit(
+                &escape(lead.squad.strip_prefix("tmt-").unwrap_or(&lead.squad)),
+                room - name_width - 3
+            )
+            .trim_end()
         )
     } else {
         String::new()
@@ -67,10 +71,35 @@ fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) 
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
         "name_role": Role::Text.name(),
-        "squad": squad,
+        "squad": if width >= 100 { squad.clone() } else { String::new() },
+        "tag": if (80..100).contains(&width) { squad } else { String::new() },
         "age": member_list::age_cell(&age, age_cells),
         "age_role": Role::Dim.name(),
     })
+}
+
+/// Disclosure uses the same fitted heading as paint, so visible labels are not repeated.
+pub(in crate::board) fn hidden_metadata(
+    labels: &crate::labels::Supplied,
+    lead: &Lead,
+    width: u16,
+    now: u64,
+) -> Vec<(&'static str, String)> {
+    let row = heading(labels, lead, width, now);
+    let mut fields = Vec::new();
+    if row["name"].as_str().unwrap().trim_end() != escape(lead.name()) {
+        fields.push(("lead", lead.name().into()));
+    }
+    let shown = format!(
+        "{}{}",
+        row["squad"].as_str().unwrap(),
+        row["tag"].as_str().unwrap()
+    );
+    let label = escape(lead.squad.strip_prefix("tmt-").unwrap_or(&lead.squad));
+    if !shown.contains(&label) {
+        fields.push(("squad", lead.squad.clone()));
+    }
+    fields
 }
 
 /// The section's block, painted again only when its key changed.
@@ -112,7 +141,7 @@ pub(super) fn paint(
             let mut row = heading(&app.labels, lead, area.width, now);
             row["id"] = json!(id(local));
             row["before"] = json!([]);
-            for field in ["tag", "state", "model"] {
+            for field in ["state", "model"] {
                 row[field] = json!("");
             }
             row["model_role"] = json!(Role::Muted.name());
@@ -142,10 +171,10 @@ pub(super) fn paint(
                 {"id": "gap", "text": null, "role": null},
                 {
                     "id": "rule",
-                    "text": rule(
-                        "leads",
-                        usize::from(area.width),
-                    ),
+                    "text": if area.width >= 80 {
+                        let label = "last exchange";
+                        format!("{} {label}", rule("Leads", usize::from(area.width).saturating_sub(label.len() + 1)))
+                    } else { rule("Leads", usize::from(area.width)) },
                     "role": Role::Muted.name(),
                 },
             ],

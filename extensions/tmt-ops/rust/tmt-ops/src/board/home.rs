@@ -275,8 +275,11 @@ pub(super) mod tests;
 mod controller;
 pub(crate) mod counters;
 mod paint;
-pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
+pub(super) use bar::{hidden_needs, hidden_usage};
+pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target, USAGE};
+pub(super) use limits::hidden_limits;
 pub(super) use paint::{age_label, hints_of, limits_of, render, summary_of, usage_of};
+pub(super) use tiles::{TileItem, hidden_squad};
 
 /// The painted sections of one immutable view, each held with the key it was
 /// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
@@ -290,7 +293,7 @@ pub(super) struct Scenes {
     /// The strips outside the body.
     summary: scene::Kept<ratatui::text::Line<'static>>,
     usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
-    limits: scene::Kept<Option<ratatui::text::Line<'static>>>,
+    limits: scene::Kept<Vec<ratatui::text::Line<'static>>>,
     hints: scene::Kept<String>,
 }
 
@@ -316,3 +319,5 @@ mod limits;
 mod rows;
 use super::view::scene;
 mod tiles;
+
+pub(super) use leads::hidden_metadata as hidden_lead_metadata;

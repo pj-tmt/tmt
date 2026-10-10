@@ -190,7 +190,7 @@ fn home_opens_on_the_first_row_from_the_top() {
         (target.section.as_str(), target.member.as_deref()),
         ("leads", Some("L"))
     );
-    assert_eq!(app.selected, 0);
+    assert_eq!(app.selected, 1);
     // No lead at all: the first squad.
     let leaderless = document("a", Value::Null, vec![row("W", "worker", "working")]);
     assert_eq!(opening_section(leaderless), "squads");
@@ -227,7 +227,10 @@ fn the_first_lead_read_replaces_the_opening_row_once_and_never_after_the_user_mo
     let read = reordered(&app, "b");
     app.apply_home_leads(read);
     assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
-    assert_eq!(app.selected, 0, "the cursor is on the first row again");
+    assert_eq!(
+        app.selected, 1,
+        "the cursor stays on the first lead, after overview"
+    );
     // Only the first read places it: later reads follow the cursor's lead.
     let mut later = app.home_leads.leads.clone();
     later.reverse();
@@ -240,7 +243,7 @@ fn the_first_lead_read_replaces_the_opening_row_once_and_never_after_the_user_mo
     let read = reordered(&app, "a");
     app.apply_home_leads(read);
     assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
-    assert_eq!(app.selected, 1);
+    assert_eq!(app.selected, 2);
 }
 
 fn leave_and_return(app: &mut App) {
@@ -266,7 +269,7 @@ fn switching_back_to_home_returns_to_the_row_that_was_left() {
     assert_eq!(left.as_ref().unwrap().section, "leads");
     leave_and_return(&mut app);
     assert_eq!(app.home_target, left, "restored from the cached view");
-    assert_eq!(app.selected, 1);
+    assert_eq!(app.selected, 2);
     // A second round trip keeps the new position, and so does a refresh.
     press(&mut app, Down);
     let left = app.home_target.clone();
@@ -322,7 +325,7 @@ fn refresh_and_search_reconcile_the_stable_target() {
     app.home_leads
         .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
     press(&mut app, Down);
-    assert_eq!(app.selected, 0);
+    assert_eq!(app.selected, 1);
     assert_eq!(app.home_target.unwrap().section, "squads");
 }
 
@@ -580,7 +583,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 view: Ok(refreshed.view.unwrap()),
             });
             assert_eq!(app.selected_row().unwrap()["name"], "worker-2");
-            assert_eq!(app.selected, 2);
+            assert_eq!(app.selected, 3);
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
@@ -618,7 +621,7 @@ fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
     // These cases isolate the squad table's own geometry; combined HOME lead
     // selection, clipping and bands are covered in leads.rs.
     app.home_leads.leads.clear();
-    app.select(0);
+    app.select(1);
     app
 }
 
@@ -645,7 +648,7 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
         for row in 0..5 {
             let tiles = hits
                 .iter()
-                .filter(|hit| hit.row().unwrap() == row)
+                .filter(|hit| hit.row().unwrap() == row + 1)
                 .collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
             assert!(tiles.windows(2).all(|pair| pair[1].y == pair[0].y + 1));
@@ -656,11 +659,11 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
             assert!((area.y..area.bottom()).contains(&hit.y));
         }
         if width >= 100 {
-            let left = hits.iter().find(|hit| hit.row().unwrap() == 0).unwrap();
+            let left = hits.iter().find(|hit| hit.row().unwrap() == 1).unwrap();
             assert!(!hits.iter().any(|hit| hit.y == left.y
                 && (hit.x..hit.x + hit.width).contains(&(left.x + left.width))));
         }
-        let continuation = hits.iter().rfind(|hit| hit.row().unwrap() == 4).unwrap();
+        let continuation = hits.iter().rfind(|hit| hit.row().unwrap() == 5).unwrap();
         assert_eq!(
             app.mouse(
                 MouseEvent {
@@ -673,7 +676,7 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
             ),
             Effect::None
         );
-        assert_eq!(app.selected, 4);
+        assert_eq!(app.selected, 5);
         assert_eq!(app.home_target.as_ref().unwrap().squad, "e");
         assert!(app.home_target.as_ref().unwrap().member.is_none());
         assert_eq!(press(&mut app, Enter), Effect::Load("e".into()));
@@ -684,7 +687,7 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
 fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     use crate::{board::scroll::Step, config::Pane};
     let mut app = tile_board();
-    app.select(4);
+    app.select(5);
     let target = app.home_target.clone();
     for width in [160, 100, 80, 160] {
         let area = Rect::new(3, 2, width, 5);
@@ -693,7 +696,7 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
             .hits
             .borrow()
             .iter()
-            .filter(|hit| hit.row().unwrap() == 4)
+            .filter(|hit| hit.row().unwrap() == 5)
             .copied()
             .collect::<Vec<_>>();
         assert_eq!(selected.len(), 1);
@@ -711,16 +714,16 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row().unwrap() == 4).count(), 1);
+    assert_eq!(hits.iter().filter(|hit| hit.row().unwrap() == 5).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
-    assert_eq!(app.selected, 4);
+    assert_eq!(app.selected, 5);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
         app.hits
             .borrow()
             .iter()
-            .filter(|hit| hit.row().unwrap() == 4)
+            .filter(|hit| hit.row().unwrap() == 5)
             .count(),
         1
     );
@@ -739,7 +742,7 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
                 depth,
             };
-            app.select(4);
+            app.select(5);
             let target = app.home_target.clone();
             press(&mut app, Char('a'));
             let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
@@ -753,7 +756,7 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
             let hits = app.hits.borrow().clone();
             let selected = hits
                 .iter()
-                .filter(|hit| hit.row().unwrap() == 4)
+                .filter(|hit| hit.row().unwrap() == 5)
                 .collect::<Vec<_>>();
             assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
@@ -762,11 +765,11 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                     .iter()
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
-            let next_grid_row = 5;
+            let next_grid_row = 6;
             assert!(hits.iter().any(|hit| hit.row().unwrap() == next_grid_row));
             assert!(
                 hits.iter()
-                    .filter(|hit| hit.row().unwrap() == 0)
+                    .filter(|hit| hit.row().unwrap() == 1)
                     .all(|hit| hit.y < band.y)
             );
             assert!(
@@ -884,21 +887,11 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
                 .buffer()
                 .content
                 .chunks(width as usize)
-                .nth(2)
-                .unwrap()
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>();
-            if width >= MD.cells {
-                assert!(
-                    header.starts_with("tok ") && header.contains("share 1h: "),
-                    "{base}/{width}: {header}"
-                );
-                assert_eq!(header.contains("1m ~21"), width >= LG.cells);
-                assert_eq!(header.contains("models "), width >= LG.cells);
-            } else {
-                assert!(!header.starts_with("tok "), "{base}/{width}: {header}");
-            }
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .find(|line| line.contains("1h ~21 tok"))
+                .expect("longest-window usage line");
+            assert!(!header.contains("models "));
+            assert!(header.contains("top "), "{base}/{width}: {header}");
             assert!(
                 screen.matches("~21").count() >= 2,
                 "{base}/{width}: {screen}"
@@ -1106,47 +1099,43 @@ fn animated_header_boundaries_keep_all_non_counter_cells_and_settled_bytes() {
 fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     let app = board(&[]);
     let mut usage = header_usage();
-    assert!(paint::usage(&usage, MD.cells - 1, app.look()).is_none());
-    for width in [MD.cells, LG.cells - 1] {
+    for width in [160, 100, 80, 60] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
-        assert_eq!(super::glyph_error(&line.to_string()), None);
-        assert_eq!(
-            line.to_string(),
-            "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%"
-        );
-    }
-    for width in [LG.cells, 149, 160] {
-        let line = paint::usage(&usage, width, app.look()).unwrap();
-        assert_eq!(super::glyph_error(&line.to_string()), None);
-        assert_eq!(
-            line.to_string(),
-            "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data"
-        );
-        assert!(line.width() <= width as usize);
+        let text = line.to_string();
+        assert!(text.contains("1h ~2k tok"), "{width}: {text}");
+        assert_eq!(text.contains("top worker ~60%"), width >= 80);
+        assert!(!text.contains("5m") && !text.contains("models") && !text.contains("without data"));
+        assert!(line.width() <= usize::from(width));
+        assert_eq!(super::glyph_error(&text), None);
+        let hidden = crate::board::home::hidden_usage(&usage, width);
+        let detail = hidden
+            .iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert!(detail.contains("5m") && detail.contains("members without data"));
+        assert_eq!(detail.contains("worker"), width < 80);
     }
     usage.windows =
         ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
-    let line = paint::usage(&usage, 100, app.look()).unwrap().to_string();
-    assert!(line.starts_with("tok 1h ~1k · 24h ~2k · share 24h:") && line.ends_with("~60%"));
-    usage.unreported = 1;
-    let line = paint::usage(&usage, LG.cells, app.look())
-        .unwrap()
-        .to_string();
-    assert!(line.ends_with("1 member without data"));
     usage.totals = [None; 3];
     assert!(
-        paint::usage(&usage, 160, app.look()).is_none(),
-        "no observed samples admit no header row"
+        paint::usage(&usage, 160, app.look())
+            .unwrap()
+            .to_string()
+            .contains("24h no reading")
     );
     usage.totals[2] = Some(crate::board::rate::Reading {
         tokens: 0,
         partial: false,
         span: 3_600_000,
     });
-    usage.top = None;
-    usage.models.clear();
-    let line = paint::usage(&usage, 160, app.look()).unwrap().to_string();
-    assert!(line.contains("24h 0 · share 24h: – · models – · 1 member without data"));
+    assert!(
+        paint::usage(&usage, 160, app.look())
+            .unwrap()
+            .to_string()
+            .contains("24h 0 tok")
+    );
 }
 
 #[test]
@@ -1182,7 +1171,7 @@ fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["squads", "members", "blocked", "idle"] {
+        for word in ["Nothing", "blocked", "idle"] {
             let x = text[..text.find(word).unwrap()].width() as u16;
             assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
         }
@@ -1199,9 +1188,9 @@ fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        for word in ["–", "~1k", "worker", "without data"] {
+        for word in ["~2k", "worker", "tok"] {
             let x = text[..text.find(word).unwrap()].width() as u16;
-            assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
+            assert_eq!(buffer[(x, 0)].fg, fg(Role::Muted), "{word}");
         }
     }
 }
@@ -1217,8 +1206,8 @@ fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
         let text = line.to_string();
         assert!(line.width() <= width as usize, "{width}: {text}");
         assert!(!text.contains('\n') && !text.contains('\u{1b}'));
-        assert!(text.contains("share 1h:") && text.contains("~60%"));
-        assert_eq!(text.contains("2 members without data"), width >= LG.cells);
+        assert!(text.contains("top ") && text.contains("~60%"));
+        assert!(!text.contains("members without data"));
         assert!(!text.ends_with(" · "));
     }
 }
@@ -1248,7 +1237,7 @@ fn header_frames() -> Value {
                     .flatten();
                 let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
                 terminal
-                    .draw(|frame| crate::board::view::render_frame(frame, &app, line, None))
+                    .draw(|frame| crate::board::view::render_frame(frame, &app, line, Vec::new()))
                     .unwrap();
                 let buffer = terminal.backend().buffer().clone();
                 let cells = buffer
@@ -1266,30 +1255,21 @@ fn header_frames() -> Value {
                 hits.push(hit);
                 buffers.push(buffer);
             }
-            let shift = u16::from(width >= MD.cells);
-            assert_eq!(hits[0].len(), hits[1].len());
-            for (before, after) in hits[0].iter().zip(&hits[1]) {
-                assert_eq!(after.y, before.y + shift);
-                assert_eq!(
-                    (after.x, after.width, after.row().unwrap()),
-                    (before.x, before.width, before.row().unwrap())
-                );
-            }
-            if shift == 0 {
-                assert_eq!(frames[0], frames[1]);
-            } else {
-                assert_eq!(
-                    &buffers[0].content[..2 * width as usize],
-                    &buffers[1].content[..2 * width as usize]
-                );
-                for y in 2..28 {
-                    let start = y * width as usize;
-                    let next = start + width as usize;
-                    assert_eq!(
-                        &buffers[0].content[start..next],
-                        &buffers[1].content[next..next + width as usize]
-                    );
+            assert_eq!(hits[0], hits[1], "usage evidence cannot move existing hits");
+            assert_eq!(frames[0]["starts"], frames[1]["starts"]);
+            assert_eq!(frames[0]["tabs"], frames[1]["tabs"]);
+            let usage_y = hits[0].iter().find(|hit| hit.row() == Some(0)).unwrap().y;
+            for y in 0..30 {
+                if y == usage_y {
+                    continue;
                 }
+                let start = usize::from(y) * usize::from(width);
+                let end = start + usize::from(width);
+                assert_eq!(
+                    &buffers[0].content[start..end],
+                    &buffers[1].content[start..end],
+                    "only the reserved usage line changes with evidence, {width}/{name}/{y}"
+                );
             }
             captures.push(json!({"theme":name,"width":width,"before":frames[0],"after":frames[1]}));
         }
@@ -1342,7 +1322,7 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
                 .map(|cell| cell.symbol())
                 .collect::<String>();
             assert!(
-                text.contains("blocked") && text.contains("squads"),
+                text.contains("blocked") && text.contains("Squads"),
                 "{squad:?}/{width}"
             );
             assert!(!text.contains('\n') && !text.contains('\t'));
@@ -1391,4 +1371,88 @@ fn a_reloaded_home_comes_back_on_the_row_it_was_on() {
         !after.home_start,
         "the opening rule does not move the restored cursor"
     );
+}
+
+#[test]
+fn overview_is_first_in_traversal_but_does_not_replace_initial_focus() {
+    use crate::board::row_detail::Target as DetailTarget;
+    for width in [160, 100, 80, 60] {
+        let mut app = board(&[("a", waiting())]);
+        app.set_body_width(width);
+        assert_eq!(
+            app.home_entries()[0].target.section,
+            crate::board::home::USAGE
+        );
+        assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+        assert_eq!(press(&mut app, Up), Effect::None);
+        assert_eq!(
+            app.home_target.as_ref().unwrap().section,
+            crate::board::home::USAGE
+        );
+        let target = DetailTarget::Row(app.row_target(app.selected).unwrap());
+        assert_eq!(press(&mut app, Char('e')), Effect::None);
+        assert!(app.row_details.contains(&target));
+        assert!(
+            app.detail_read().is_none(),
+            "overview detail never acquires reply data"
+        );
+        let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert_eq!(press(&mut app, Enter), Effect::None);
+        assert!(
+            !app.row_details.contains(&target),
+            "Enter toggles the same shared detail"
+        );
+        let stable = app.home_target.clone();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert_eq!(
+            app.home_target, stable,
+            "resize/paint retains the overview identity"
+        );
+        press(&mut app, Char('/'));
+        assert!(
+            app.home_entries()
+                .iter()
+                .all(|entry| entry.target.section != crate::board::home::USAGE)
+        );
+    }
+}
+
+#[test]
+fn compact_home_footer_keeps_the_approved_actions_and_discoverable_overflow() {
+    for (overflow, expected) in [
+        (false, "↑↓  ⏎  t  e  /  ? more  q"),
+        (true, "↑↓  ⏎  t  e  /  s  ? more  q"),
+    ] {
+        assert_eq!(paint::hints(60, overflow), expected);
+    }
+}
+
+#[test]
+fn missing_usage_never_borrows_animated_digits_or_claims_a_token_reading() {
+    let mut usage = header_usage();
+    usage.totals[2] = None;
+    usage.top = None;
+    for width in [160, 100, 80, 60] {
+        let digits = ["–".into(), "–".into(), "–".into()];
+        let line = crate::board::home::bar::usage_in(
+            &mut Default::default(),
+            &usage,
+            width,
+            crate::look::Look::default(),
+            Some(&digits),
+        )
+        .unwrap();
+        let text = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert!(text.contains("1h no reading"), "{width}: {text}");
+        assert!(!text.contains(" tok") && !text.contains('–'), "{text}");
+    }
 }

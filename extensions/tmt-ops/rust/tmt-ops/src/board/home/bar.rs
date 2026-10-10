@@ -4,7 +4,7 @@
 //! here, and the content fit (the member name that shrinks, the hints that drop)
 //! stays measurement that feeds the branch it belongs to.
 use super::{
-    Counts, Home,
+    Home,
     scene::{self, Kept, Key, Painted, Part},
 };
 use crate::{
@@ -97,31 +97,112 @@ pub(super) fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
     )
 }
 
-fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
-    [
-        ("◆", counts.waiting, Role::Waiting, "waiting on you"),
-        ("✗", counts.blocked, Role::Blocked, "blocked"),
-        ("◐", counts.review, Role::Review, "review"),
-        ("●", counts.working, Role::Working, "working"),
-        ("◌", counts.idle, Role::Dim, "idle"),
-    ]
-    .into_iter()
-    .flat_map(|(mark, count, role, label)| {
-        let suffix = if words {
-            format!(" {label}")
+fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
+    let names = home
+        .squads
+        .iter()
+        .filter(|squad| squad.counts.waiting > 0)
+        .map(|squad| escape(squad.squad.strip_prefix("tmt-").unwrap_or(&squad.squad)))
+        .collect::<Vec<_>>();
+    let needs = if names.is_empty() {
+        if home.failures.is_empty() && !home.incomplete {
+            "✓ Nothing needs you".into()
         } else {
-            String::new()
+            "Needs you: partial reading".into()
+        }
+    } else if width < 80 {
+        format!(
+            "◆ {} need{} you {}",
+            names.len(),
+            if names.len() == 1 { "s" } else { "" },
+            names.join(" ")
+        )
+    } else {
+        format!("◆ Needs you  {}", names.join(" · "))
+    };
+    let totals = if width >= 100 {
+        format!(
+            "● {} working  ◌ {} idle  ✗ {} blocked",
+            home.summary.working, home.summary.idle, home.summary.blocked
+        )
+    } else if width >= 80 {
+        format!("● {} ◌ {}", home.summary.working, home.summary.idle)
+    } else {
+        String::new()
+    };
+    let available =
+        usize::from(width).saturating_sub(totals.width() + usize::from(!totals.is_empty()) * 2);
+    let needs = fit(&needs, available).trim_end().to_owned();
+    let gap = if totals.is_empty() {
+        String::new()
+    } else {
+        " ".repeat(usize::from(width).saturating_sub(needs.width() + totals.width()))
+    };
+    let (mark, words, role) = if let Some(words) = needs.strip_prefix("◆") {
+        ("◆", words, Role::Waiting)
+    } else if let Some(words) = needs.strip_prefix("✓") {
+        ("✓", words, Role::Muted)
+    } else {
+        ("", needs.as_str(), Role::Text)
+    };
+    let mut pieces = vec![
+        (mark.into(), Some(role)),
+        (words.into(), Some(Role::Text)),
+        (gap, None),
+    ];
+    for (index, group) in totals
+        .split("  ")
+        .filter(|group| !group.is_empty())
+        .enumerate()
+    {
+        if index > 0 {
+            pieces.push(("  ".into(), None));
+        }
+        let (mark, words) = group.split_at(group.chars().next().unwrap().len_utf8());
+        let role = match mark {
+            "●" => Role::Working,
+            "◌" => Role::Muted,
+            _ => Role::Blocked,
         };
-        [
-            (
-                mark.to_owned(),
-                Some(if count == 0 { Role::Dim } else { role }),
-            ),
-            (format!(" {count}{suffix}"), Some(Role::Text)),
-            ("  ".into(), Some(Role::Dim)),
-        ]
-    })
-    .collect()
+        pieces.push((mark.into(), Some(role)));
+        pieces.push((words.into(), Some(Role::Text)));
+    }
+    pieces
+}
+
+/// Only names omitted by the actual fitted summary belong in overview detail.
+pub(in crate::board) fn hidden_needs(home: &Home, width: u16) -> Option<String> {
+    let shown = summary_pieces(home, width)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<String>();
+    let names = home
+        .squads
+        .iter()
+        .filter(|squad| squad.counts.waiting > 0)
+        .collect::<Vec<_>>();
+    let mut prefix = if width < 80 {
+        format!(
+            "◆ {} need{} you ",
+            names.len(),
+            if names.len() == 1 { "s" } else { "" }
+        )
+    } else {
+        "◆ Needs you  ".into()
+    };
+    let mut hidden = Vec::new();
+    for (index, squad) in names.iter().enumerate() {
+        if index > 0 {
+            prefix.push_str(if width < 80 { " " } else { " · " });
+        }
+        prefix.push_str(&escape(
+            squad.squad.strip_prefix("tmt-").unwrap_or(&squad.squad),
+        ));
+        if !shown.starts_with(&prefix) {
+            hidden.push(squad.squad.as_str());
+        }
+    }
+    (!hidden.is_empty()).then(|| hidden.join(" · "))
 }
 
 /// The strip's line: its content, without the unpainted tail of the row.
@@ -143,8 +224,7 @@ pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
     Some(line)
 }
 
-/// The summary: squads and members in words from `lg`, squads and the five
-/// counts alone below it.
+/// Needs-you names lead; state totals use the remaining space.
 #[cfg(test)]
 pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
     summary_in(&mut Kept::default(), home, width, look)
@@ -167,22 +247,12 @@ pub(super) fn summary_in(
         );
         scene::compile(FILE, &markup, &schema(&["wide", "narrow"]))
     });
-    let mut wide = vec![(
-        format!(
-            "{} squads · {} members   ",
-            home.squads.len(),
-            home.summary.members
-        ),
-        Some(Role::Text),
-    )];
-    wide.extend(count_pieces(&home.summary, true));
-    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), Some(Role::Text))];
-    narrow.extend(count_pieces(&home.summary, false));
+    let pieces = summary_pieces(home, width);
     let key = Key {
         width,
         look,
         selected: None,
-        data: data(&[("wide", wide), ("narrow", narrow)]),
+        data: data(&[("wide", pieces.clone()), ("narrow", pieces)]),
     };
     slot.get(key, |key| {
         lines(paint(key, FILE, template)).unwrap_or_default()
@@ -209,36 +279,75 @@ fn usage_number(usage: &HomeHeaderUsage<'_>, index: usize) -> String {
     )
 }
 
-/// One step of the usage line. `wide` is the `lg` step: it adds the first window,
-/// the models and the members without data. The member name shrinks until the
-/// step fits `width`; that is a fit, not a step.
+/// The longest configured window stays visible. The top member drops below
+/// 80 cells; short windows and model shares belong in the shared detail.
 fn usage_pieces(
     usage: &HomeHeaderUsage<'_>,
     width: u16,
-    wide: bool,
+    _wide: bool,
     digits: Option<&[String; 3]>,
 ) -> Vec<Piece> {
-    let width = usize::from(width);
-    let windows = (usize::from(!wide)..3)
+    let accepted = if usage.totals[2].is_some() {
+        usage_number(usage, 2)
+    } else {
+        "no reading".into()
+    };
+    let number = digits
+        .filter(|digits| usage.totals[2].is_some() && digits[2].width() <= accepted.width())
+        .map_or_else(
+            || accepted.clone(),
+            |digits| format!("{:>budget$}", digits[2], budget = accepted.width()),
+        );
+    let mut text = format!(
+        "{}{} {number}{}",
+        if width >= 100 { "Usage " } else { "" },
+        usage.windows[2].label(),
+        if usage.totals[2].is_some() {
+            " tok"
+        } else {
+            ""
+        }
+    );
+    if width >= 80
+        && let Some(top) = &usage.top
+    {
+        let suffix = format!(" {}", percent(&top.share));
+        let room =
+            usize::from(width).saturating_sub(text.width() + " · top ".width() + suffix.width());
+        text.push_str(&format!(
+            " · top {}{suffix}",
+            fit(&escape(top.member), room).trim_end()
+        ));
+    }
+    vec![(text, Some(Role::Muted))]
+}
+
+pub(in crate::board) fn hidden_usage(
+    usage: &HomeHeaderUsage<'_>,
+    width: u16,
+) -> Vec<(&'static str, String)> {
+    let shown = usage_pieces(usage, width, true, None)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<String>();
+    let mut fields = (0..2)
         .map(|index| {
-            let accepted = usage_number(usage, index);
-            let number = digits.map_or_else(
-                || accepted.clone(),
-                |digits| {
-                    let budget = accepted.width();
-                    if digits[index].width() > budget {
-                        accepted.clone()
+            (
+                "usage",
+                format!(
+                    "{} {}",
+                    usage.windows[index].label(),
+                    if usage.totals[index].is_some() {
+                        format!("{} tok", usage_number(usage, index))
                     } else {
-                        format!("{:>budget$}", digits[index])
+                        "no reading".into()
                     }
-                },
-            );
-            format!("{} {number}", usage.windows[index].label())
+                ),
+            )
         })
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let windows = format!("tok {windows}");
-    let unreported = wide.then(|| {
+        .collect::<Vec<_>>();
+    fields.push((
+        "coverage",
         format!(
             "{} {} without data",
             usage.unreported,
@@ -247,74 +356,36 @@ fn usage_pieces(
             } else {
                 "members"
             }
-        )
-    });
-    let reserved = unreported.as_ref().map_or(0, |text| text.len() + 3);
-    let mut member_width = 18;
-    let top = loop {
-        let top = usage.top.as_ref().map_or_else(
-            || format!("share {}: –", usage.windows[2].label()),
-            |top| {
-                format!(
-                    "share {}: {} {}",
-                    usage.windows[2].label(),
-                    fit(&escape(top.member), member_width).trim_end(),
-                    percent(&top.share)
-                )
-            },
-        );
-        let used = windows.width()
-            + top.width()
-            + 3
-            + reserved
-            + if wide { " · models –".width() } else { 0 };
-        if used <= width || member_width == 1 {
-            break top;
+        ),
+    ));
+    if let Some(top) = &usage.top {
+        let full = format!("{} {}", escape(top.member), percent(&top.share));
+        if !shown.contains(&full) {
+            fields.push(("top", full));
         }
-        member_width -= 1;
-    };
-    let mut pieces: Vec<Piece> = vec![
-        (windows, Some(Role::Text)),
-        (" · ".into(), Some(Role::Dim)),
-        (top, Some(Role::Text)),
-    ];
-    if let Some(unreported) = unreported {
-        let used: usize = pieces.iter().map(|(text, _)| text.width()).sum();
-        let available = width.saturating_sub(used + reserved + 3);
-        let mut models = String::from("models ");
-        for model in &usage.models {
-            let one = format!(
-                "{} {}",
-                fit(
-                    &escape(model.model.map(crate::source::model_name).unwrap_or("–")),
-                    12
-                )
-                .trim_end(),
-                percent(&model.share)
-            );
-            let separator = if models == "models " { "" } else { ", " };
-            let next = format!("{models}{separator}{one}");
-            if next.width() > available {
-                break;
-            }
-            models = next;
-        }
-        if models == "models " {
-            models.push('–');
-        }
-        if models.width() <= available {
-            pieces.push((" · ".into(), Some(Role::Dim)));
-            pieces.push((models, Some(Role::Text)));
-        }
-        pieces.push((" · ".into(), Some(Role::Dim)));
-        pieces.push((unreported, Some(Role::Text)));
     }
-    pieces
+    let models = usage
+        .models
+        .iter()
+        .map(|model| {
+            format!(
+                "{} {}",
+                model
+                    .model
+                    .map(crate::source::model_name)
+                    .unwrap_or("model not known"),
+                percent(&model.share)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    if !models.is_empty() {
+        fields.push(("models", models));
+    }
+    fields
 }
 
-/// The usage line: nothing below `md`, the last two windows and the top member's
-/// share from `md`, and from `lg` all three windows, the models and the members
-/// without data. `None` when the switch selects nothing or nothing was observed.
+/// The longest-window usage line, including explicit missing-data wording.
 #[cfg(test)]
 pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
     usage_in(&mut Kept::default(), usage, width, look, None)
@@ -330,12 +401,9 @@ pub(super) fn usage_in(
 ) -> Option<Line<'static>> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.usage.xml";
-    if usage.totals.iter().all(Option::is_none) {
-        return None;
-    }
     let template = TEMPLATE.get_or_init(|| {
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-case min="md">{}</tmt-case><tmt-default/></tmt-switch></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
             row("wide"),
             row("medium")
         );
@@ -357,6 +425,17 @@ pub(super) fn usage_in(
 /// The key line: whole hints drop from the end until the line and the two exit
 /// hints fit (a fit, not a step).
 fn key_line(width: usize, overflow: bool, view_reply: bool) -> String {
+    if (60..80).contains(&width) {
+        let mut keys = vec!["↑↓", "⏎", "t", "e", "/"];
+        if view_reply {
+            keys.push("v");
+        }
+        if overflow {
+            keys.push("s");
+        }
+        keys.extend(["? more", "q"]);
+        return keys.join("  ");
+    }
     // The other keys (tabs, cron, refresh, ...) are in `?` help;
     // `s switch` comes back only while the tab line hides tabs.
     let mut optional = vec!["↑↓ move", "⏎ open", "t talk", "e expand", "/ search"];
@@ -431,17 +510,15 @@ pub(super) fn hints_in(
 
 /// Numeric cells of the admitted header branch, before viewport placement.
 pub(super) fn usage_slots(usage: &HomeHeaderUsage<'_>, width: u16) -> Vec<(usize, u16, u16)> {
-    if width < tmt_cli_style::breakpoint::MD.cells {
-        return Vec::new();
-    }
-    let mut x: u16 = "tok ".len() as u16;
-    (usize::from(width < tmt_cli_style::breakpoint::LG.cells)..3)
-        .map(|index| {
-            x += usage.windows[index].label().len() as u16 + 1;
-            let length = usage_number(usage, index).width() as u16;
-            let result = (index, x, length.min(width.saturating_sub(x)));
-            x += length + " · ".width() as u16;
-            result
-        })
-        .collect()
+    let prefix = format!(
+        "{}{} ",
+        if width >= 100 { "Usage " } else { "" },
+        usage.windows[2].label()
+    );
+    let x = prefix.width() as u16;
+    vec![(
+        2,
+        x,
+        (usage_number(usage, 2).width() as u16).min(width.saturating_sub(x)),
+    )]
 }

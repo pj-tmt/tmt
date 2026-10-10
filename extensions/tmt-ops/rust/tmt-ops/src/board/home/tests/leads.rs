@@ -254,7 +254,7 @@ fn a_lead_heading_keeps_its_cells_whether_the_age_is_missing_short_or_long() {
                 let screen = lines(&draw(&app, width, 40));
                 let rule = screen
                     .iter()
-                    .position(|line| line.contains("leads ─"))
+                    .position(|line| line.contains("Leads ─"))
                     .unwrap();
                 let line = screen[rule..]
                     .iter()
@@ -286,7 +286,7 @@ fn home_draws_one_rule_under_the_leads_heading_and_has_no_needs_you_or_exchange_
         let shown = lines(&draw(&app, width, 40));
         let heading = shown
             .iter()
-            .position(|line| line.contains("── leads"))
+            .position(|line| line.contains("── Leads"))
             .unwrap_or_else(|| panic!("no leads heading at {width}: {shown:#?}"));
         assert!(
             !shown[heading + 1].contains("──"),
@@ -295,12 +295,39 @@ fn home_draws_one_rule_under_the_leads_heading_and_has_no_needs_you_or_exchange_
         );
         let text = shown.join("\n");
         assert!(
-            !text.contains("needs you") && !text.contains("lead exchanges not shown"),
+            !text.contains("lead exchanges not shown"),
             "{width}: {text}"
         );
         assert!(
             text.contains("blocked ·"),
             "{width}: the blocked section stays"
         );
+    }
+}
+
+#[test]
+fn hidden_lead_metadata_discloses_cut_labels_without_repeating_visible_ones() {
+    let app = fixture();
+    let lead = &app.home_leads.leads[0];
+    for width in [160, 100, 80] {
+        assert!(crate::board::home::hidden_lead_metadata(&app.labels, lead, width, 100).is_empty());
+    }
+    assert_eq!(
+        crate::board::home::hidden_lead_metadata(&app.labels, lead, 60, 100),
+        vec![("squad", "a".into())]
+    );
+    let mut long = lead.clone();
+    long.row["name"] = json!("a-lead-name-that-does-not-fit-the-heading");
+    long.squad = "a-squad-label-that-does-not-fit".into();
+    for width in [160, 100, 80, 60] {
+        let hidden = crate::board::home::hidden_lead_metadata(&app.labels, &long, width, 100);
+        assert!(
+            hidden
+                .iter()
+                .any(|(label, text)| *label == "lead" && text == long.name())
+        );
+        if width == 60 {
+            assert!(hidden.iter().any(|(label, _)| *label == "squad"));
+        }
     }
 }

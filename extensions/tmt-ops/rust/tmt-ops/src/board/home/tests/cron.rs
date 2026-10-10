@@ -36,7 +36,7 @@ fn screen(app: &App, width: u16) -> Vec<String> {
 }
 
 #[test]
-fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
+fn the_cron_line_follows_squads_in_one_cursor_order() {
     let mut app = board(&[("a", waiting())]);
     assert!(
         !screen(&app, 120).join("\n").contains("cron ·"),
@@ -47,7 +47,7 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
         let lines = screen(&app, width);
         let at = |needle: &str| lines.iter().position(|line| line.contains(needle)).unwrap();
         assert!(at("✗ blocked") < at("cron · 1 job"), "{lines:#?}");
-        assert!(at("cron · 1 job") < at("squads"), "{lines:#?}");
+        assert!(at("Squads") < at("cron · 1 job"), "{lines:#?}");
         assert!(
             !lines[at("cron · 1 job")].contains("merge queue sweep"),
             "{lines:#?}"
@@ -61,18 +61,18 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
     };
     assert_eq!(
         sections(&app),
-        ["blocked", "leads", "all-leads", "cron", "squads"]
+        ["usage", "blocked", "leads", "all-leads", "squads", "cron"]
     );
     press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
     press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
     press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
-    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, Up);
+    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
+    press(&mut app, Up);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
     // A search hides the cron line like any non-matching row.
     app.search = "worker".into();
     assert!(!sections(&app).contains(&"cron".to_owned()));
@@ -129,9 +129,12 @@ fn a_failed_read_is_a_selectable_line_and_the_list_says_why() {
             .any(|line| line.contains("cron · ✗ jobs unavailable: storage unreachable")),
         "{lines:#?}"
     );
-    press(&mut app, Down);
-    press(&mut app, Down);
-    press(&mut app, Down);
+    let cron = app
+        .home_entries()
+        .iter()
+        .position(|entry| entry.target.section == "cron")
+        .unwrap();
+    app.select(cron);
     press(&mut app, Enter);
     assert!(app.cron_list.is_some());
 }

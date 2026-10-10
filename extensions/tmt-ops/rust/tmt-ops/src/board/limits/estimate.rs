@@ -4,6 +4,8 @@
 use super::{Reading, Window};
 
 const HOUR_MS: u64 = 3_600_000;
+/// A weekly window predicted to empty within this interval needs intervention.
+const URGENT_EMPTY_MS: u64 = 12 * HOUR_MS;
 /// How far back from the newest sample the burn is averaged.
 const BURN_SPAN_MS: u64 = 6 * HOUR_MS;
 /// Samples spanning less than this say nothing about a rate.
@@ -51,6 +53,23 @@ pub struct Figures {
     pub runs_out_before_reset: bool,
 }
 
+impl Figures {
+    /// No countdown is inferred without a finite positive measured rate.
+    pub fn empties_in_ms(&self) -> Option<u64> {
+        time_to_empty(self.weekly, self.burn)
+    }
+
+    /// Depletion is urgent only before reset, at or within the 12-hour boundary.
+    pub fn empties_soon(&self) -> bool {
+        self.runs_out_before_reset && self.empties_in_ms().is_some_and(|ms| ms <= URGENT_EMPTY_MS)
+    }
+}
+
+fn time_to_empty(weekly: Left, burn: Option<f64>) -> Option<u64> {
+    let rate = burn.filter(|rate| rate.is_finite() && *rate > 0.0)?;
+    Some((weekly.percent / rate * HOUR_MS as f64) as u64)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Outlook {
     /// No usable reading: never sampled, or the last one is too old to quote.
@@ -83,9 +102,8 @@ pub fn outlook(latest: Option<&Reading>, burn: Option<f64>, now_ms: u64) -> Outl
             age_ms: Some(age_ms),
         };
     };
-    let runs_out_before_reset = burn.is_some_and(|rate| {
-        rate > 0.0 && weekly.percent / rate * (HOUR_MS as f64) < weekly.resets_in_ms as f64
-    });
+    let runs_out_before_reset =
+        time_to_empty(weekly, burn).is_some_and(|ms| ms < weekly.resets_in_ms);
     Outlook::Known(Figures {
         weekly,
         short: reading.short.as_ref().and_then(left),

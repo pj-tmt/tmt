@@ -180,3 +180,51 @@ fn running_out_means_the_burn_empties_the_week_before_it_resets() {
     assert!(!before_reset(20.0, Some(0.0)));
     assert!(!before_reset(20.0, None));
 }
+
+#[test]
+fn urgent_depletion_includes_the_twelve_hour_boundary_only_before_reset() {
+    for (duration, urgent) in [
+        (URGENT_EMPTY_MS - 1, true),
+        (URGENT_EMPTY_MS, true),
+        (URGENT_EMPTY_MS + 1, false),
+    ] {
+        let reading = reading_with_reset(0.0, duration as f64 / HOUR as f64, RESET);
+        let figures = known(outlook(Some(&reading), Some(1.0), T0));
+        assert_eq!(figures.empties_in_ms(), Some(duration));
+        assert_eq!(figures.empties_soon(), urgent, "{duration}");
+    }
+    let reading = reading_with_reset(0.0, 12.0, T0 + URGENT_EMPTY_MS);
+    let figures = known(outlook(Some(&reading), Some(1.0), T0));
+    assert!(
+        !figures.empties_soon(),
+        "reset at depletion is not a warning"
+    );
+}
+
+#[test]
+fn depletion_requires_a_positive_finite_rate_and_a_current_reading() {
+    let reading = latest(0.0, 0.0);
+    for burn in [
+        None,
+        Some(0.0),
+        Some(-1.0),
+        Some(f64::NAN),
+        Some(f64::INFINITY),
+    ] {
+        let figures = known(outlook(Some(&reading), burn, T0));
+        assert_eq!(figures.empties_in_ms(), None);
+        assert!(!figures.runs_out_before_reset);
+        assert!(!figures.empties_soon());
+    }
+    let figures = known(outlook(Some(&reading), Some(1.0), T0));
+    assert_eq!(figures.empties_in_ms(), Some(0));
+    assert!(figures.empties_soon());
+    assert!(matches!(
+        outlook(Some(&reading), Some(1.0), T0 + STALE_MS + 1),
+        Outlook::Unknown { .. }
+    ));
+    assert!(matches!(
+        outlook(None, Some(1.0), T0),
+        Outlook::Unknown { .. }
+    ));
+}
