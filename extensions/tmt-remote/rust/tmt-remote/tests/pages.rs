@@ -115,6 +115,17 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         Some("text/javascript; charset=utf-8")
     );
     assert_eq!(sdk.header("x-content-type-options"), Some("nosniff"));
+    for copy in [
+        "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.",
+        "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+    ] {
+        assert!(sdk.body.contains(copy), "{copy}");
+    }
+    assert!(sdk.body.contains("tmt-ui-code"));
+    assert!(
+        !sdk.body
+            .contains("The pairing may have been removed on the machine.")
+    );
     assert_eq!(
         sdk.body,
         include_str!("../assets/remote-v1.js"),
@@ -481,8 +492,13 @@ fn embedded_shared_css_matches_browser_tokens_fonts_and_header_metrics() {
         }
     }
     for name in ["display", "body", "mono"] {
-        assert!(css.contains(&format!("--tmt-ui-font-{name}: {};",
-            tokens["font"][name]["stack"].as_str().unwrap().replace('"', "'"))));
+        assert!(css.contains(&format!(
+            "--tmt-ui-font-{name}: {};",
+            tokens["font"][name]["stack"]
+                .as_str()
+                .unwrap()
+                .replace('"', "'")
+        )));
     }
 }
 

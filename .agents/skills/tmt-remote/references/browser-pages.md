@@ -45,7 +45,9 @@ pairing, checking, connected, different machine, signed refusal and unconfirmed 
 Connected uses no invented friendly name. Technical evidence and local-time checked time stay in
 native Details; command Copy actions report denial honestly and leave selectable text.
 
-Only signed refusal supports Not accepted. Opaque404 remains unconfirmed even after a
+Only signed refusal supports Not accepted. Its body names pairing removal/expiry only for verified
+revoked/expired authority; a session-ended/evicted body offers Check again without claiming pairing
+loss. Opaque404 remains unconfirmed even after a
 descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
 requests after departure; per-check fences prevent late painting. Pair success still links back
 to `/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.

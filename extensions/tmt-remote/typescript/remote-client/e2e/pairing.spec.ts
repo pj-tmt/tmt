@@ -84,6 +84,7 @@ async function captureState(
   widths = [1440, 390, 320],
   themes: readonly ('light' | 'dark')[] = ['light', 'dark'],
   contained?: string,
+  directory = process.env.TMT_REMOTE_CAPTURE_DIR,
 ): Promise<void> {
   const { theme, controls } = await page.evaluate(() => ({
     theme: matchMedia('(prefers-color-scheme: dark)').matches
@@ -133,7 +134,6 @@ async function captureState(
       shadow: 'none',
     });
   if (contained) await feedbackBounds(page, contained);
-  const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
   if (!directory) return;
   await mkdir(directory, { recursive: true });
   const viewport = page.viewportSize();
@@ -1207,6 +1207,23 @@ test('the native entry checks once and presents all seven evidenced states witho
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const page = await context.newPage();
+  const captureRefused = async (state: string): Promise<void> => {
+    const directory = process.env.TMT_REMOTE_REFUSED_CAPTURE_DIR;
+    if (!directory) return;
+    for (const [width, theme] of [
+      [1440, 'light'],
+      [390, 'dark'],
+    ] as const)
+      await captureState(
+        page,
+        state,
+        'Verified refusal body and enabled Check again',
+        [width],
+        [theme],
+        undefined,
+        directory,
+      );
+  };
   const captureEntry = async (state: string): Promise<void> => {
     await expect(page.locator('#notice')).toHaveAttribute(
       'data-tone',
@@ -1566,7 +1583,13 @@ test('the native entry checks once and presents all seven evidenced states witho
   }
   await expect(page.locator('#state-label')).toHaveText('Not accepted');
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 1 });
+  await expect(page.locator('#status')).toHaveText(
+    "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+  );
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeEnabled();
+  await expect(page.locator('#status code')).toHaveCount(0);
   await captureEntry('not-accepted');
+  await captureRefused('entry-session-ended');
   expect(
     execFileSync(
       'python3',
@@ -1591,6 +1614,12 @@ test('the native entry checks once and presents all seven evidenced states witho
   // The retained key now receives a verified fresh-open revocation proof, not opaque 404.
   await expect(page.locator('#state-label')).toHaveText('Not accepted');
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 0 });
+  await expect(page.locator('#status')).toHaveText(
+    'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.',
+  );
+  await expect(page.locator('#status code.tmt-ui-code')).toHaveText('tmt remote pair');
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeEnabled();
+  await captureRefused('entry-authority-ended');
   await context.close();
   const unavailable = await browser.newContext();
   await unavailable.addInitScript(() => {

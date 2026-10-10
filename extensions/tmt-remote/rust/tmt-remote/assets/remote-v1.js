@@ -1876,7 +1876,8 @@ async function landingPage() {
 		["unconfirmed", "status"],
 		["unreadable", "pair"]
 	];
-	const render = (state, validated = false) => {
+	const render = (state, validated = false, refusalCode) => {
+		const authorityEnded = ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(refusalCode ?? "");
 		const copy = {
 			missing: [
 				"○",
@@ -1906,7 +1907,7 @@ async function landingPage() {
 				"×",
 				"Not accepted",
 				"Remote didn't accept this browser",
-				"The pairing may have been removed on the machine."
+				authorityEnded ? "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine." : "This browser's session ended. Choose Check again, or open your app from its link to start a new one."
 			],
 			unconfirmed: [
 				"×",
@@ -1932,6 +1933,13 @@ async function landingPage() {
 		element("state-label").textContent = copy[1];
 		element("heading").textContent = copy[2];
 		element("status").textContent = state === "checking" && !validated ? "Reading this browser's pairing." : copy[3];
+		if (state === "refused" && authorityEnded) {
+			const command = document.createElement("code");
+			command.className = "tmt-ui-code";
+			command.textContent = "tmt remote pair";
+			const [before, after] = copy[3].split(command.textContent);
+			element("status").replaceChildren(document.createTextNode(before), command, document.createTextNode(after));
+		}
 		for (const name of [
 			"missing",
 			"different",
@@ -2042,7 +2050,7 @@ async function landingPage() {
 				"REMOTE_GRANT_EXPIRED"
 			].includes(error.code);
 			session = void 0;
-			render(verifiedRefusal ? "refused" : "unconfirmed");
+			render(verifiedRefusal ? "refused" : "unconfirmed", false, error instanceof RefusalError ? error.code : void 0);
 		} finally {
 			if (currentPage() && restoreFocus && !button.hidden) button.focus();
 		}
