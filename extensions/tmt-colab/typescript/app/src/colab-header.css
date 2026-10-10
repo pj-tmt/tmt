@@ -156,7 +156,7 @@ body {
 .tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-title {
   min-width: 0;
 }
-.colab-header-divider {
+.colab-title-divider {
   flex: none;
   color: var(--c-muted);
 }

@@ -43,7 +43,7 @@ export function ColabHeader({
       }
       headingPrefix={
         remote === undefined ? undefined : (
-          <span className="colab-header-divider" aria-hidden="true">
+          <span className="colab-title-divider" aria-hidden="true">
             /
           </span>
         )
