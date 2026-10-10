@@ -49,6 +49,10 @@ fn observe(
             let Some(core_executable) = core_executable else {
                 return Some(UNKNOWN);
             };
+            let program = match super::env_program_operand(&report.active_executable) {
+                Ok(program) => program,
+                Err(message) => return Some(message),
+            };
             let mut core = OsString::from("TMT_EXECUTABLE=");
             core.push(core_executable);
             let args = [
@@ -57,7 +61,7 @@ fn observe(
                 "-u".into(),
                 "GITHUB_TOKEN".into(),
                 core,
-                report.active_executable.as_os_str().to_owned(),
+                program.to_owned(),
                 "status".into(),
                 "--json".into(),
             ];

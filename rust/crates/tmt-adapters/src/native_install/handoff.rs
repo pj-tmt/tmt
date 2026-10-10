@@ -345,7 +345,9 @@ pub(super) fn upgrade(
                     "GH_TOKEN".into(),
                     "-u".into(),
                     "GITHUB_TOKEN".into(),
-                    candidate.as_os_str().to_owned(),
+                    super::env_program_operand(&candidate)
+                        .map_err(io::Error::other)?
+                        .to_owned(),
                     "__native-install".into(),
                     "--handoff-version".into(),
                     version.to_string().into(),
@@ -407,7 +409,9 @@ pub(super) fn upgrade(
                 "GH_TOKEN".into(),
                 "-u".into(),
                 "GITHUB_TOKEN".into(),
-                candidate.as_os_str().to_owned(),
+                super::env_program_operand(&candidate)
+                    .map_err(io::Error::other)?
+                    .to_owned(),
                 "__native-install".into(),
                 "--handoff-version".into(),
                 version.to_string().into(),

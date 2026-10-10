@@ -750,3 +750,18 @@ fn token_removal_keeps_the_real_parent_environment() {
     );
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn env_program_operand_refuses_assignment_paths_and_preserves_spaces() {
+    let error =
+        super::super::env_program_operand(std::path::Path::new("/tmp/a=b/tmt")).unwrap_err();
+    assert_eq!(
+        error,
+        "Cannot launch the updater child: executable path contains '=' and would be interpreted as an environment assignment."
+    );
+    let valid = std::path::Path::new("/tmp/a b/tmt");
+    assert_eq!(
+        super::super::env_program_operand(valid).unwrap(),
+        valid.as_os_str()
+    );
+}

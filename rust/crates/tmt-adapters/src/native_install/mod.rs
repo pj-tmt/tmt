@@ -462,6 +462,17 @@ fn installed_report(
     }
 }
 
+// env parses '=' operands as assignments even when the executable is absolute.
+fn env_program_operand(program: &Path) -> Result<&std::ffi::OsStr, &'static str> {
+    if program.as_os_str().as_encoded_bytes().contains(&b'=') {
+        Err(
+            "Cannot launch the updater child: executable path contains '=' and would be interpreted as an environment assignment.",
+        )
+    } else {
+        Ok(program.as_os_str())
+    }
+}
+
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
