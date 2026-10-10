@@ -860,14 +860,24 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   const capacity = await app.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
     try {
-      await sdk.reopenSession();
+      const previous = (
+        globalThis as unknown as { continuitySession: import('../src/device.js').Session }
+      ).continuitySession;
+      await sdk.reopenSession(previous, { retry: 'bounded' });
       throw new Error('Attached capacity unexpectedly admitted another Session.');
     } catch (error) {
-      if (!(error instanceof sdk.RefusalError)) throw error;
-      return { code: error.code, limit: error.limit, settingsUrl: error.settingsUrl };
+      if (!(error instanceof sdk.ReopenSessionError) || !(error.cause instanceof sdk.RefusalError))
+        throw error;
+      return {
+        reason: error.reason,
+        code: error.cause.code,
+        limit: error.cause.limit,
+        settingsUrl: error.cause.settingsUrl,
+      };
     }
   });
   expect(capacity).toEqual({
+    reason: 'capacity',
     code: 'REMOTE_SESSION_LIMIT',
     limit: 1,
     settingsUrl: `${origin}/settings`,

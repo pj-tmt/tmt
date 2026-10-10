@@ -55,8 +55,8 @@ Rules that are easy to get wrong:
   `core_tests.rs`.
 - **Pre-auth stays generic.** Refusals before a verified signature are one 404
   with no inventory. A verified fresh open may receive the contract's signed
-  rejected-open envelope without allocating a Session or sequence row. The `tmt_door` cookie only identifies a
-  device context on mounted paths; `/r/` refuses cookies. A transport-only
+  rejected-open envelope without allocating a Session or sequence row. The `tmt_door` cookie
+  only identifies a device context on mounted paths; `/r/` refuses cookies. A transport-only
   `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The static Remote-owned short-entry table forwards public Colab entries without

@@ -291,9 +291,11 @@ attempt bounded to four seconds, with 250/500/1000 ms delays plus bounded jitter
 connection owner controls cancellation, retrying another series and reattaching; the SDK owns no
 second connection state machine. Same machine, origin, device identity and key pins are required;
 no key, pairing or uncertain effect is recreated. Typed exhaustion is `unreachable`, `unconfirmed`
-or `transient`; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`, and unreadable
-storage is not absence. Until verified fresh-open authority refusals ship, revoked/expired grants
-can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
+or `transient`. A verified session-limit refusal returns non-terminal `capacity`, is not
+retried inside the series, and carries the verified `RefusalError` as `cause` with its limit
+and optional settings action; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`,
+and unreadable storage is not absence. Until verified fresh-open authority refusals ship,
+revoked/expired grants can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
 never infers `revoked` or `expired`. Those two reasons are reserved for verified authority evidence.
 An uncertain effect retains its original ID and is observed after admission, never resent.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,

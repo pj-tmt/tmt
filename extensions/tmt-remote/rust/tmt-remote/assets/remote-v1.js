@@ -14,11 +14,13 @@ var __exportAll = (all, no_symbols) => {
 var ReopenSessionError = class extends Error {
 	reason;
 	detail;
-	constructor(reason, detail) {
+	cause;
+	constructor(reason, detail, cause) {
 		super(`Remote session admission: ${reason} (${detail}).`);
 		this.reason = reason;
 		this.detail = detail;
 		this.name = "ReopenSessionError";
+		this.cause = cause;
 	}
 };
 var DEADLINE = 2e4;
@@ -76,6 +78,7 @@ async function boundedAdmission(attempt, signal, clock = runtime) {
 		} catch (error) {
 			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
 			if ([
+				"capacity",
 				"mismatch",
 				"unpaired",
 				"revoked",
@@ -187,6 +190,7 @@ async function envelopeSigningBytes(value) {
 		"ack"
 	].includes(value.operation), "control operation");
 	if (value.kind === "control" && value.operation === "session.open") requireValue$1(value.sessionId === "new" && value.sequence === "0", "session.open");
+	else if (value.kind === "response" && value.operation === "session.open" && value.sessionId === "new") requireValue$1(value.sequence === "1", "rejected session.open");
 	else {
 		uuid(value.sessionId);
 		requireValue$1(value.sequence !== "0", "normal sequence");
@@ -574,7 +578,7 @@ function remoteError(value, address) {
 	valid$1(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
 	valid$1(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$1(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
+	valid$1(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
 		valid$1(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
@@ -587,6 +591,7 @@ function remoteError(value, address) {
 	valid$1(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
 	valid$1(PRE_EFFECT.has(error.code) || [
+		"REMOTE_SESSION_LIMIT",
 		"REMOTE_INPUT_TOO_LARGE",
 		"REMOTE_STATE_UNAVAILABLE",
 		"REMOTE_CORE_UNAVAILABLE",
@@ -1631,8 +1636,16 @@ async function openSession(paired, key, windowId, send = fetch, options) {
 		after: 0n
 	});
 	requireValue(reply.sequence === 1n, "session response sequence");
-	const session = JSON.parse(strictUtf8.decode(reply.payload));
-	requireValue(session.sessionId === reply.sessionId && Number.isSafeInteger(session.serverTimeMs) && session.serverTimeMs >= 0 && Number.isSafeInteger(session.grantRevision) && session.grantRevision > 0 && (session.expiresAtMs === null || Number.isSafeInteger(session.expiresAtMs) && session.expiresAtMs >= 0), "session payload");
+	const decoded = JSON.parse(strictUtf8.decode(reply.payload));
+	requireValue(typeof decoded === "object" && decoded !== null && !Array.isArray(decoded), "session decoded");
+	if (Object.hasOwn(decoded, "error")) {
+		requireValue(reply.sessionId === "new", "rejected-open session");
+		const refusal = remoteError(decoded, paired.address);
+		requireValue(refusal instanceof RefusalError, "rejected-open refusal");
+		throw refusal;
+	}
+	const session = decoded;
+	requireValue(UUID.test(session.sessionId) && session.sessionId === reply.sessionId && Number.isSafeInteger(session.serverTimeMs) && session.serverTimeMs >= 0 && Number.isSafeInteger(session.grantRevision) && session.grantRevision > 0 && (session.expiresAtMs === null || Number.isSafeInteger(session.expiresAtMs) && session.expiresAtMs >= 0), "session payload");
 	options?.signal.throwIfAborted();
 	registerChannel(session, paired, key, windowId, options?.transport ?? send);
 	return session;
@@ -1799,6 +1812,7 @@ async function reopenOnce(previous, signal) {
 		active(signal);
 		if (signal) {
 			if (error instanceof ReopenSessionError) throw error;
+			if (error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT") throw new ReopenSessionError("capacity", "admission-refused", error);
 			throw new ReopenSessionError("transient", "unverifiable-response");
 		}
 		if (!refused || !previous) throw error;

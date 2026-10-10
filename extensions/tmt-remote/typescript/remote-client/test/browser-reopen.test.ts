@@ -54,6 +54,21 @@ async function fixture() {
     }
     admissions++;
     if (mode === 'transport') throw new Error('Transport unavailable.');
+    if (mode === 'capacity' || mode === 'unverified-capacity') {
+      door.mutate = (reply) => {
+        reply.sessionId = 'new';
+        reply.sequence = '1';
+      };
+      door.tamper.signature = mode === 'unverified-capacity';
+      return door.response(JSON.parse(init!.body as string), {
+        error: {
+          code: 'REMOTE_SESSION_LIMIT',
+          message: 'Capacity reached.',
+          limit: 8,
+          settingsUrl: `${new URL(door.descriptor.address).origin}/settings`,
+        },
+      });
+    }
     if (mode === 'success' || mode === 'unverified' || (mode === 'recovered' && admissions > 1)) {
       door.tamper.signature = mode === 'unverified';
       return door.fetch(url, init);
@@ -350,3 +365,54 @@ test('a late real signed admission cannot resolve a bounded call after owner abo
     vi.unstubAllGlobals();
   }
 });
+
+for (const mode of ['capacity', 'unverified-capacity']) {
+  test(`bounded ${mode} preserves verified cause without retry or uncertain effect resend`, async () => {
+    const f = await fixture();
+    try {
+      const { operations } = await import('../src/operations.js');
+      const id = crypto.randomUUID();
+      f.door.afterAdoption = async (body) => {
+        if (body.operation === 'dispatch.create') throw new Error('lost reply');
+      };
+      await assert.rejects(
+        operations(f.previous).send({
+          operationId: id,
+          agentId: (f.door.agents[0] as { id: string }).id,
+          message: 'one original',
+        }),
+        (error) => error instanceof ClientError && error.operationId === id,
+      );
+      f.mode(mode);
+      await assert.rejects(reopenSession(f.previous, { retry: 'bounded' }), (error) => {
+        assert.ok(error instanceof ReopenSessionError);
+        if (mode === 'capacity') {
+          assert.equal(error.reason, 'capacity');
+          assert.ok(error.cause instanceof RefusalError);
+          assert.equal(error.cause.code, 'REMOTE_SESSION_LIMIT');
+          assert.equal(error.cause.limit, 8);
+          assert.equal(
+            error.cause.settingsUrl,
+            `${new URL(f.door.descriptor.address).origin}/settings`,
+          );
+        } else {
+          assert.equal(error.reason, 'transient');
+          assert.equal(error.detail, 'unverifiable-response');
+          assert.equal(error.cause, undefined);
+        }
+        return true;
+      });
+      assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
+      assert.equal(
+        f.door.calls.filter((call) => call.envelope.operation === 'dispatch.create').length,
+        1,
+      );
+      assert.equal(
+        f.door.calls.filter((call) => call.envelope.operation === 'operation.show').length,
+        0,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}

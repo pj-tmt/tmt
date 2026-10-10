@@ -337,8 +337,10 @@ Session, and retains drafts, threads and original operation IDs. The SDK never r
 A lost reply is recovered by observing the original ID after admission, not a new effect.
 
 `ReopenSessionError.reason` is typed: `unreachable`, `unconfirmed` and `transient` remain
-non-terminal; `mismatch` fails closed on changed identity or pins; `unpaired` means the stored
-pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
+non-terminal. `capacity` is also non-terminal but is not retried inside the series; its
+`cause` is the verified `RefusalError(REMOTE_SESSION_LIMIT)` with `limit` and optional
+`settingsUrl`, so the connection owner can show the existing capacity action. `mismatch` fails
+closed on changed identity or pins; `unpaired` means the stored pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
 answers: until that seam ships, an opaque 404 returns `unconfirmed`, never either terminal reason.
 The error's `detail` is fixed/sanitized; an aborted owner is `transient`/`cancelled`.
 Same machine, browser origin and stored key pins are required; no fallback or new pairing occurs.
