@@ -49,6 +49,7 @@ pub(crate) fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Err
     })
 }
 /// What a command that needs `--yes` is about to do, in the words the refusal prints.
+#[derive(Clone, PartialEq, Eq)]
 struct Confirmation {
     consequence: String,
     action: &'static str,
@@ -794,6 +795,25 @@ fn title_or_error(store: &Store, key: &Keyring, page: &mut Value) -> Result<()> 
     }
     Ok(())
 }
+/// Compare what was authorized, excluding the new capability material generated for an intent.
+fn confirmation_scope(
+    operation: &'static str,
+    payload: &Value,
+    confirmation: &Option<Confirmation>,
+) -> (&'static str, Value, Option<Confirmation>) {
+    let mut scope = payload.clone();
+    let capability = match operation {
+        "link.add" => Some(&mut scope),
+        "link.remove" => scope.get_mut("replacement").filter(|v| !v.is_null()),
+        _ => None,
+    };
+    if let Some(Value::Object(capability)) = capability {
+        capability.remove("seed");
+        capability.remove("linkId");
+    }
+    (operation, scope, confirmation.clone())
+}
+
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
     let layout = Layout::existing(root)?;
     let Some(layout) = layout else {
@@ -958,7 +978,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         return output_with(&detail, false, &page_rows(&reach, &path));
     }
-    let Some((operation, payload, confirmation)) = selection(command, args, &page, &detail)? else {
+    let Some((mut operation, mut payload, confirmation)) =
+        selection(command, args, &page, &detail)?
+    else {
         if command == "retention" {
             return output(
                 &json!({"membershipHead":detail["membershipHead"],"page":{
@@ -975,7 +997,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     if let Some(Confirmation {
         consequence,
         action,
-    }) = confirmation.filter(|_| !args.get_flag("yes"))
+    }) = confirmation.as_ref().filter(|_| !args.get_flag("yes"))
     {
         return Err(Box::new(ManagementFault {
             code: "COLAB_CONFIRMATION_REQUIRED",
@@ -984,33 +1006,39 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             source: None,
         }));
     }
-    let operation_id = args
+    let authorized_scope = confirmation_scope(operation, &payload, &confirmation);
+    let frozen = args.get_one::<String>("operation-id").is_some()
+        || args.get_one::<String>("expected-revision").is_some();
+    let mut operation_id = args
         .get_one::<String>("operation-id")
         .map(|v| uuid(v))
         .transpose()?
         .map_or_else(fresh_id, Ok)?;
-    let revision = args
+    let mut revision = args
         .get_one::<String>("expected-revision")
         .map(String::as_str)
-        .unwrap_or_else(|| detail["membershipHead"]["revision"].as_str().unwrap_or("0"));
-    values::decimal(revision, false)
+        .unwrap_or_else(|| detail["membershipHead"]["revision"].as_str().unwrap_or("0"))
+        .to_owned();
+    values::decimal(&revision, false)
         .map_err(|_| input("Expected a positive canonical owner revision."))?;
-    let mut correlation =
-        json!({"pageId":id,"operationId":operation_id,"expectedRevision":revision});
-    let link_id = match operation {
-        "link.add" => payload.get("linkId"),
-        "link.remove" => payload["replacement"].get("linkId"),
-        _ => None,
-    };
-    if let Some(id) = link_id {
-        correlation["linkId"] = id.clone();
-    }
-    let body = serde_json::to_vec(
-        &json!({"space":key.space_id,"page":id,"expectedRevision":revision,"operationId":operation_id,
-        "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
-    )?;
     store.close()?;
-    let outcome = (|| -> Result<Value> {
+    let mut rebuilt = false;
+    let outcome = loop {
+        let mut correlation =
+            json!({"pageId":id,"operationId":operation_id,"expectedRevision":revision});
+        let link_id = match operation {
+            "link.add" => payload.get("linkId"),
+            "link.remove" => payload["replacement"].get("linkId"),
+            _ => None,
+        };
+        if let Some(id) = link_id {
+            correlation["linkId"] = id.clone();
+        }
+        let body = serde_json::to_vec(
+            &json!({"space":key.space_id,"page":id,"expectedRevision":revision,"operationId":operation_id,
+        "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
+        )?;
+        let outcome = (|| -> Result<Value> {
         let bytes = mutate(&layout, &key.space_id, &body)?;
         let ack: Acknowledgment = serde_json::from_slice(&bytes).map_err(|_| fail(
             "COLAB_OUTCOME_UNKNOWN", "Invalid management acknowledgment; effects may have committed."))?;
@@ -1056,7 +1084,53 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 source: Some(e),
             }) as Box<dyn std::error::Error + Send + Sync>
         }
-    })?;
+    });
+        match outcome {
+            Ok(value) => break value,
+            Err(error)
+                if !frozen
+                    && !rebuilt
+                    && error
+                        .downcast_ref::<ManagementFault>()
+                        .is_some_and(|f| f.code == "COLAB_STALE_HEAD") =>
+            {
+                // Only a verified pre-effect refusal permits a new intent. Unknown outcomes
+                // retain the original correlation and are never submitted again here.
+                rebuilt = true;
+                let fresh = Store::read(&layout)?;
+                fresh.require_current_schema()?;
+                let catalog = inspection::catalog(&fresh, &key)?;
+                let target = resolve_catalog_page(&fresh, &key, &catalog, &id, false)?;
+                let page = catalog["pages"]
+                    .as_array()
+                    .and_then(|rows| rows.iter().find(|p| p["pageId"] == target))
+                    .ok_or_else(|| fail("COLAB_PAGE_NOT_FOUND", "Local page is not available."))?;
+                let detail = inspection::detail(&fresh, &key, page)?;
+                if catalog["membershipHead"] != detail["membershipHead"] {
+                    return Err(management_error("STALE_HEAD"));
+                }
+                let selected = selection(command, args, page, &detail)?
+                    .ok_or_else(|| input("Management intent is no longer available."))?;
+                if confirmation_scope(selected.0, &selected.1, &selected.2) != authorized_scope {
+                    return Err(fail(
+                        "COLAB_CONFIRMATION_CHANGED",
+                        "Owner state changed the confirmed scope; review it and run a new command.",
+                    ));
+                }
+                revision = detail["membershipHead"]["revision"]
+                    .as_str()
+                    .ok_or_else(|| input("Invalid owner revision."))?
+                    .to_owned();
+                values::decimal(&revision, false)
+                    .map_err(|_| input("Expected a positive canonical owner revision."))?;
+                fresh.close()?;
+                operation = selected.0;
+                payload = selected.1;
+                operation_id = fresh_id()?;
+            }
+            Err(error) => return Err(error),
+        }
+    };
     // The door is looked up after the commit, so a slow answer never delays the effect.
     let reach = crate::reach::Reach::gather().with_pages(&ids);
     let path = crate::reach::Reach::path(&key.space_id, &id);

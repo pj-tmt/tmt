@@ -3154,8 +3154,14 @@ writes while leaving the page readable; retention and explicit deletion remain
 available. Deletion removes local content, receipts, checkpoints, baselines, wraps
 and epoch keys, retaining page, signed-policy and owner-operation tombstones.
 
-Mutations accept `--operation-id` and `--expected-revision`; generated/default
-values are captured once. Success is `{pageId, operationId, expectedRevision,
+Mutations accept `--operation-id` and `--expected-revision`. A non-frozen local
+management intent may be rebuilt once after a verified pre-effect `STALE_HEAD`:
+capture a fresh head, resolve the same full page ID and revalidate selections,
+roles and admission. The affected targets and confirmation scope must remain
+unchanged; otherwise refuse `COLAB_CONFIRMATION_CHANGED`. The rebuilt intent
+has a new operation ID and generated link capability. A second stale head refuses
+`COLAB_STALE_HEAD`. An explicit operation ID or expected revision freezes the
+intent and never takes this path; neither does an unknown outcome. Success is `{pageId, operationId, expectedRevision,
 membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
 nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
 revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
@@ -3221,7 +3227,7 @@ Failures exit 1. JSON is `{error:{code,message}}` with page/operation/revision/l
 correlation when captured; human failures use styled stderr. Management codes
 map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
-CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
+CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
 `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a

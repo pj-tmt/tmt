@@ -316,6 +316,9 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   holds the lifecycle lock and the offline path otherwise; an uncertain IPC reply never
   falls back to a second writer (`cli_management.rs`, `page/ipc.rs`). Management errors
   are exact plain codes/statuses; malformed or mismatched replies remain uncertain.
+  A non-frozen CLI management intent may rebuild once after a verified pre-effect stale
+  head, revalidating the same target and confirmation scope; explicit IDs/revisions,
+  changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 Local management CLI).
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).
