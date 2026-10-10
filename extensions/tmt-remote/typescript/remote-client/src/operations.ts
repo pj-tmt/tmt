@@ -29,6 +29,8 @@ export interface RemoteAgent {
   presence: 'active' | 'offline' | 'unknown';
   /** Core owns this additive projection; forward its published value unchanged. */
   delivery?: unknown;
+  /** Current verified runtime evidence; recognizing a new driver needs an additive SDK release. */
+  runningDriver?: 'claude' | 'codex';
 }
 export interface RemoteOperations {
   listAgents(): Promise<RemoteAgent[]>;
@@ -184,6 +186,9 @@ function agents(value: unknown): RemoteAgent[] {
       name: row.name as string,
       presence: row.presence as RemoteAgent['presence'],
       ...(Object.hasOwn(row, 'delivery') ? { delivery: row.delivery } : {}),
+      ...(row.runningDriver === 'claude' || row.runningDriver === 'codex'
+        ? { runningDriver: row.runningDriver }
+        : {}),
     };
   });
 }

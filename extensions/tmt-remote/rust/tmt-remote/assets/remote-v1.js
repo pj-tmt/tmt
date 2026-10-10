@@ -464,7 +464,8 @@ function agents(value) {
 			id: row.id,
 			name: row.name,
 			presence: row.presence,
-			...Object.hasOwn(row, "delivery") ? { delivery: row.delivery } : {}
+			...Object.hasOwn(row, "delivery") ? { delivery: row.delivery } : {},
+			...row.runningDriver === "claude" || row.runningDriver === "codex" ? { runningDriver: row.runningDriver } : {}
 		};
 	});
 }

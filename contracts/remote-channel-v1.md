@@ -914,7 +914,7 @@ Remote narrows supported operations/authority before core calls.
 | Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                      |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
-| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence and delivery status, without pane address/cwd/process/profile.                                                                                            |
+| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence, delivery status and optional `runningDriver`, without pane address/cwd/process/profile.                                                                  |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
 | `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
@@ -938,6 +938,12 @@ Remote forwards it unchanged and never infers it from panes; until core publishe
 the [public dispatch readiness and input-safety contract](extension-api.md#dispatch-readiness-and-input-safety)
 owns the shipped guarantees and limits. Diagnostic `check` capture and presence never prove
 safe input.
+
+Optional `runningDriver` uses Core's [List runtime driver](identity-status-v1.md#list-runtime-driver)
+provenance. Remote forwards only nonempty strings of at most 32 bytes in `[a-z0-9-]`; otherwise
+it omits the key, never null. The SDK recognizes exactly `claude` and `codex`; unknown values
+become an absent property without failing the list. Recognizing a new driver requires an additive
+SDK release. Remembered `driver` is never a fallback; this field grants no dispatch authority.
 
 Helper payloads are `agents.list:{}`, `check:{agentId,lines?}`, `operation.show:{operationId}` and
 `result:{requestId}`. `dispatch.create` payload is exactly

@@ -124,6 +124,36 @@ test('agents forward optional delivery unchanged and tolerate additive data', as
   );
 });
 
+test('agents decode only recognized runningDriver and never remembered driver', async () => {
+  const { door, client } = await ready();
+  const evidence = ['claude', 'codex', undefined, 'future-driver', 'CLAUDE', null, 7, {}];
+  door.agents = evidence.map((runningDriver, index) => ({
+    id: crypto.randomUUID(),
+    name: 'Codex remembered label',
+    presence: index === 2 ? 'offline' : 'active',
+    driver: 'codex',
+    ...(runningDriver === undefined ? {} : { runningDriver }),
+    delivery: { state: 'not_running' },
+  }));
+  const listed = await client.listAgents();
+  assert.equal(listed.length, evidence.length);
+  for (const [index, row] of listed.entries()) {
+    const runningDriver = evidence[index];
+    assert.equal(Object.hasOwn(row, 'runningDriver'), index < 2);
+    assert.deepEqual(row, {
+      id: (door.agents[index] as { id: string }).id,
+      name: 'Codex remembered label',
+      presence: index === 2 ? 'offline' : 'active',
+      delivery: { state: 'not_running' },
+      ...(index < 2 ? { runningDriver } : {}),
+    });
+  }
+  assert.deepEqual(
+    door.calls.map((call) => call.envelope.operation),
+    ['agents.list'],
+  );
+});
+
 for (const code of [
   'REMOTE_SCOPE_DENIED',
   'REMOTE_INPUT_INVALID',

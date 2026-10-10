@@ -14,11 +14,23 @@ function output(value) {
 }
 if (process.argv[2] === 'list') {
   assert.deepEqual(process.argv.slice(2), ['list', '--json']);
-  output({
-    identities: [
-      { id: agentId, name: 'Browser agent', presence: 'active', pane: '%private', cwd: '/private' },
-    ],
-  });
+  appendFileSync(join(root, 'core-list-calls.jsonl'), `${JSON.stringify(process.argv.slice(2))}\n`);
+  const inventory = join(root, 'agents.json');
+  output(
+    existsSync(inventory)
+      ? JSON.parse(readFileSync(inventory, 'utf8'))
+      : {
+          identities: [
+            {
+              id: agentId,
+              name: 'Browser agent',
+              presence: 'active',
+              pane: '%private',
+              cwd: '/private',
+            },
+          ],
+        },
+  );
 } else {
   assert.deepEqual(process.argv.slice(2), ['api']);
   const request = JSON.parse(readFileSync(0, 'utf8'));

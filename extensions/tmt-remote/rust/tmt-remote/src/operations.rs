@@ -394,6 +394,10 @@ impl Operations {
                         if !permit.authority.permits(id) { continue; }
                         let mut projected = json!({"id":id,"name":row["name"].as_str().ok_or_else(invalid)?,"presence":row["presence"].as_str().ok_or_else(invalid)?});
                         if let Some(delivery) = row.get("delivery") { projected["delivery"] = delivery.clone(); }
+                        if let Some(driver) = row.get("runningDriver").and_then(Value::as_str).filter(|driver| {
+                            !driver.is_empty() && driver.len() <= crate::limits::RUNNING_DRIVER_BYTES
+                                && driver.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                        }) { projected["runningDriver"] = json!(driver); }
                         agents.push(projected);
                     }
                     Ok(json!({"identities":agents}))

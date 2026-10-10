@@ -412,6 +412,74 @@ fn allowlist_and_strict_intent_refuse_before_any_core_call() {
 }
 
 #[test]
+fn agents_list_forwards_only_bounded_runtime_evidence_with_one_scoped_core_read() {
+    let cases = [
+        (Some(json!("claude")), Some("claude")),
+        (Some(json!("codex")), Some("codex")),
+        (None, None),
+        (Some(json!("future-driver-2")), Some("future-driver-2")),
+        (
+            Some(json!("a".repeat(32))),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ),
+        (Some(json!("a".repeat(33))), None),
+        (Some(json!("")), None),
+        (Some(json!("Claude")), None),
+        (Some(json!("driver_name")), None),
+        (Some(json!("../claude")), None),
+        (Some(json!("codéx")), None),
+        (Some(Value::Null), None),
+        (Some(json!(42)), None),
+    ];
+    let mut rows = Vec::new();
+    let mut expected = Vec::new();
+    let mut allowed = Vec::new();
+    for (index, (value, forwarded)) in cases.into_iter().enumerate() {
+        let id = uuid_v4().unwrap();
+        allowed.push(id.clone());
+        let presence = if index == 2 { "offline" } else { "active" };
+        let mut row = json!({"id":id,"name":"Remembered Claude","presence":presence,
+            "driver":"claude","pane":"%secret","cwd":"/secret","delivery":{"state":"not_running"}});
+        if let Some(value) = value {
+            row["runningDriver"] = value;
+        }
+        rows.push(row);
+        let mut row = json!({"id":id,"name":"Remembered Claude","presence":presence,"delivery":{"state":"not_running"}});
+        if let Some(value) = forwarded {
+            row["runningDriver"] = json!(value);
+        }
+        expected.push(row);
+    }
+    rows.push(json!({"id":uuid_v4().unwrap(),"name":"Denied","presence":"active","runningDriver":"codex"}));
+    allowed.sort();
+    let owner = OwnerDoor::with_limits(
+        vec!["agents.read".into()],
+        "direct",
+        json!(allowed).to_string(),
+        None,
+    );
+    let core = Core::new();
+    fs::write(
+        core.root.join("agents"),
+        json!({"identities":rows}).to_string(),
+    )
+    .unwrap();
+    let session = owner.open();
+    let before = journal_snapshot(&owner);
+    let query = owner.wire(&session, "1", "agents.list", b"{}");
+    assert_eq!(
+        append(&owner, core.operations(), &query),
+        json!({"identities":expected})
+    );
+    assert_eq!(journal_snapshot(&owner), before);
+    assert_eq!(
+        core.calls(),
+        vec![json!({"operation":"list","argv":["list","--json"]})]
+    );
+    assert_eq!(core.sends(), 0);
+}
+
+#[test]
 fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
     let permitted = uuid_v4().unwrap();
     let other = uuid_v4().unwrap();

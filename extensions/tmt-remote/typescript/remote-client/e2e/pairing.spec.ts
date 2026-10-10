@@ -1539,6 +1539,84 @@ test('the native entry checks once and presents all seven evidenced states witho
   ).toBe('0 0');
 });
 
+test('agents list carries only verified runtime evidence through the served SDK', async () => {
+  const identities = [
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      name: 'Claude live',
+      presence: 'active',
+      runningDriver: 'claude',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000002',
+      name: 'Codex live',
+      presence: 'active',
+      runningDriver: 'codex',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      name: 'Future',
+      presence: 'active',
+      runningDriver: 'future-driver',
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000004',
+      name: 'Codex remembered',
+      presence: 'offline',
+      driver: 'codex',
+    },
+  ];
+  await writeFile(join(root, 'agents.json'), JSON.stringify({ identities }));
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Driver observation browser');
+  await page.click('#pair button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await exited(pair);
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  const listed = await page.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    const rows = await sdk.operations(await sdk.reopenSession()).listAgents();
+    return { rows, keys: rows.map((row) => Object.hasOwn(row, 'runningDriver')) };
+  });
+  expect(listed.keys).toEqual([true, true, false, false]);
+  expect(listed.rows).toEqual(
+    identities.map((row) => ({
+      id: row.id,
+      name: row.name,
+      presence: row.presence,
+      ...(row.runningDriver === 'claude' || row.runningDriver === 'codex'
+        ? { runningDriver: row.runningDriver }
+        : {}),
+    })),
+  );
+  expect(
+    (await readFile(join(root, 'core-list-calls.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line)),
+  ).toEqual([['list', '--json']]);
+  expect(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sqlite3,sys;d=sqlite3.connect(sys.argv[1]);print(d.execute("select count(*) from operations").fetchone()[0],d.execute("select count(*) from entries").fetchone()[0])',
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ).trim(),
+  ).toBe('0 0');
+  await context.close();
+});
+
 test('bare pairing is read only and settings explicitly enables audited sending', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
