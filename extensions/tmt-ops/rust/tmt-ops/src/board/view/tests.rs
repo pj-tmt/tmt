@@ -5132,14 +5132,17 @@ fn supplied_chips(ids: &[&str]) -> crate::labels::Supplied {
         Label {
             text: "Auto".into(),
             role: Role::Text,
+            action: None,
         },
         Label {
             text: "3 held".into(),
             role: Role::Muted,
+            action: None,
         },
         Label {
             text: "Due now".into(),
             role: Role::Waiting,
+            action: None,
         },
     ];
     crate::labels::Supplied::from_rows(vec![(
@@ -5200,6 +5203,108 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
                         .iter()
                         .any(|label| label.contains("digest"))
                 );
+            });
+        }
+    }
+}
+
+/// The choice chip is the only place a click opens the digest dropdown, on every
+/// surface that paints member rows; the rest of the row keeps its click.
+#[test]
+fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
+    use crate::{
+        board::app::Request,
+        labels::{Choose, Label, Supplied},
+    };
+    let choose = Choose::parse(
+        "digest",
+        &json!({"kind":"choose","options":[{"label":"Auto","value":"default"}],
+            "current":"default","argv":["digest","m","{value}"]}),
+    )
+    .unwrap();
+    let supplied = |ids: &[&str]| {
+        Supplied::from_rows(vec![(
+            "digest".into(),
+            ids.iter()
+                .map(|id| {
+                    (
+                        (*id).to_owned(),
+                        vec![
+                            Label {
+                                text: "Auto".into(),
+                                role: Role::Text,
+                                action: Some(choose.clone()),
+                            },
+                            Label {
+                                text: "3 held".into(),
+                                role: Role::Muted,
+                                action: None,
+                            },
+                        ],
+                    )
+                })
+                .collect(),
+        )])
+    };
+    let settle = |app: &mut App| {
+        if let Some(tab) = app.current.clone() {
+            app.set_tab_focus_for_test(&tab);
+        }
+    };
+    let click = |app: &mut App, (column, row): (u16, u16)| {
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        )
+    };
+    for (members, home) in [(false, false), (true, false), (false, true)] {
+        for width in [100, 160] {
+            crate::status::with_now_ms(1_000, || {
+                let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
+                app.labels = supplied(&["worker", "lead"]);
+                settle(&mut app);
+                let buffer = board_buffer(&app, width, 20);
+                let chips = find_cells(&buffer, "Auto ▾");
+                assert_eq!(
+                    chips.len(),
+                    if home { 2 } else { 1 },
+                    "{members} {home} {width}: {}",
+                    detail_text(&buffer).join("\n")
+                );
+                for (index, at) in chips.into_iter().enumerate() {
+                    let expected = if index == 1 { "lead" } else { "worker" };
+                    // Both ends of the chip, and the glyph itself, are the chip.
+                    for dx in [0, 4, 5] {
+                        let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
+                        app.labels = supplied(&["worker", "lead"]);
+                        settle(&mut app);
+                        board_buffer(&app, width, 20);
+                        let effect = click(&mut app, (at.0 + dx, at.1));
+                        let Effect::Act(Request::DigestOpen(ask)) = effect else {
+                            panic!(
+                                "{members} {home} {width} +{dx}: the chip did not open: {effect:?} {:?}",
+                                app.notice
+                            );
+                        };
+                        assert_eq!(ask.squad, "product");
+                        assert_eq!(ask.member, expected, "{members} {home} {width}");
+                        assert_eq!(app.selected, usize::from(expected == "lead"));
+                    }
+                    // Left of the chip is the row, not the dropdown.
+                    let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
+                    app.labels = supplied(&["worker", "lead"]);
+                    settle(&mut app);
+                    board_buffer(&app, width, 20);
+                    assert!(!matches!(
+                        click(&mut app, (at.0 - 2, at.1)),
+                        Effect::Act(Request::DigestOpen(_))
+                    ));
+                }
             });
         }
     }
@@ -5505,6 +5610,7 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
                     .map(|(text, role)| Label {
                         text: (*text).into(),
                         role: *role,
+                        action: None,
                     })
                     .collect();
                 (format!("member-m{}", n + 1), labels)

@@ -11,6 +11,10 @@ use std::{
 };
 use tmt_cli_style::Role;
 
+mod action;
+
+pub use action::Choose;
+
 const VERSION: u64 = 1;
 /// A source supplies at most this many labels per member.
 const MAX_LABELS: usize = 3;
@@ -21,6 +25,8 @@ const MAX_TEXT_CHARS: usize = 48;
 pub struct Label {
     pub text: String,
     pub role: Role,
+    /// What choosing on the label does, when its source lets the user choose.
+    pub action: Option<Choose>,
 }
 
 /// One source's labels, by identity.
@@ -50,27 +56,27 @@ impl Supplied {
 /// Reads a `status` document: `None` unless it is version 1 with a member list.
 /// A member whose labels are malformed is left out, never guessed; fields this
 /// version does not know are ignored.
-pub fn parse(document: &Value) -> Option<Rows> {
+pub fn parse(source: &str, document: &Value) -> Option<Rows> {
     if document["version"].as_u64() != Some(VERSION) {
         return None;
     }
     let mut rows = Rows::new();
     for member in document["members"].as_array()? {
-        if let (Some(id), Some(labels)) = (member["identityId"].as_str(), labels(member)) {
+        if let (Some(id), Some(labels)) = (member["identityId"].as_str(), labels(source, member)) {
             rows.entry(id.to_owned()).or_insert(labels);
         }
     }
     Some(rows)
 }
 
-fn labels(member: &Value) -> Option<Vec<Label>> {
+fn labels(source: &str, member: &Value) -> Option<Vec<Label>> {
     let labels = member["labels"]
         .as_array()
         .filter(|l| l.len() <= MAX_LABELS)?;
-    labels.iter().map(label).collect()
+    labels.iter().map(|value| label(source, value)).collect()
 }
 
-fn label(value: &Value) -> Option<Label> {
+fn label(source: &str, value: &Value) -> Option<Label> {
     let text = value["text"].as_str().filter(|text| {
         !text.is_empty()
             && text.chars().count() <= MAX_TEXT_CHARS
@@ -86,6 +92,8 @@ fn label(value: &Value) -> Option<Label> {
     Some(Label {
         text: text.to_owned(),
         role,
+        // An action Ops will not offer leaves the label display-only.
+        action: Choose::parse(source, &value["action"]).ok(),
     })
 }
 
@@ -113,11 +121,27 @@ impl Default for Timing {
     }
 }
 
+enum Signal {
+    Read,
+    Stop,
+}
+
+/// Asks the reader to read again at once, such as after the user changed what a
+/// source supplies. Cheap to clone; ignored once the reader is gone.
+#[derive(Clone)]
+pub struct Refresh(mpsc::Sender<Signal>);
+
+impl Refresh {
+    pub fn now(&self) {
+        let _ = self.0.send(Signal::Read);
+    }
+}
+
 /// The background reader: one thread, one read in flight, newest answer delivered.
 /// Dropping it cancels the read in flight and waits for the thread.
 pub struct Reader {
     cancellation: Cancellation,
-    stop: Option<mpsc::Sender<()>>,
+    signals: mpsc::Sender<Signal>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -135,7 +159,7 @@ impl Reader {
         }
         let cancellation = Cancellation::default();
         let core = core.cancellable(cancellation.clone());
-        let (stop, stopped) = mpsc::channel::<()>();
+        let (signals, wake) = mpsc::channel::<Signal>();
         let thread = std::thread::spawn(move || {
             let mut last: Vec<Option<(Rows, Instant)>> = vec![None; sources.len()];
             let mut sent = Supplied::default();
@@ -146,7 +170,7 @@ impl Reader {
                     let read = core
                         .json_within(&[source, "status"], timing.deadline)
                         .ok()
-                        .and_then(|document| parse(&document));
+                        .and_then(|document| parse(source, &document));
                     match read {
                         Some(rows) => *last = Some((rows, Instant::now())),
                         None => {
@@ -181,24 +205,37 @@ impl Reader {
                 } else {
                     timing.every
                 };
-                match stopped.recv_timeout(wait) {
+                match wake.recv_timeout(wait) {
                     Err(RecvTimeoutError::Timeout) => {}
-                    _ => return,
+                    Ok(Signal::Read) => {
+                        wait = timing.every;
+                        // Requests that piled up behind one read are one read.
+                        while let Ok(signal) = wake.try_recv() {
+                            if matches!(signal, Signal::Stop) {
+                                return;
+                            }
+                        }
+                    }
+                    Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
         });
         Some(Self {
             cancellation,
-            stop: Some(stop),
+            signals,
             thread: Some(thread),
         })
+    }
+
+    pub fn refresher(&self) -> Refresh {
+        Refresh(self.signals.clone())
     }
 }
 
 impl Drop for Reader {
     fn drop(&mut self) {
         self.cancellation.cancel();
-        self.stop.take();
+        let _ = self.signals.send(Signal::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }

@@ -34,6 +34,8 @@ pub enum Verb {
     HomePick,
     Reply,
     Annotate,
+    /// The digest dropdown of the selected member.
+    Digest,
 }
 
 impl Verb {
@@ -63,6 +65,7 @@ impl Verb {
             "home-pick" => Self::HomePick,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
+            "digest" => Self::Digest,
             _ => return None,
         })
     }
@@ -80,6 +83,7 @@ impl Verb {
                 | Self::Talk
                 | Self::Reply
                 | Self::Annotate
+                | Self::Digest
         )
     }
 
@@ -109,6 +113,7 @@ impl Verb {
             Self::HomePick => "home-pick",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
+            Self::Digest => "digest",
         }
     }
 }
@@ -179,6 +184,7 @@ impl Action {
             Verb::Reply => 0,
             Verb::Talk => 1,
             Verb::Annotate => 2,
+            Verb::Digest => 3,
             Verb::Jump if !lead => 3,
             Verb::Open => 4,
             Verb::Copy => 5,
@@ -219,6 +225,7 @@ impl Action {
             // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
             Verb::Jump
             | Verb::Annotate
+            | Verb::Digest
             | Verb::AskLead
             | Verb::Back
             | Verb::Open
@@ -280,6 +287,7 @@ impl Action {
             Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "write answer/note/talk; Tab changes mode".into(),
+            Verb::Digest => "change the member's digest".into(),
         }
     }
 
@@ -440,6 +448,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("t", "talk"),
         ("a", "annotate lead"),
         ("A", "ask-lead"),
+        ("i", "digest"),
         ("o", "open"),
         ("y", "copy"),
         ("n", "notes"),
@@ -501,6 +510,7 @@ pub fn all_preset() -> Bindings {
             ("e", Some("home-message")),
             ("v", Some("view-reply")),
             ("A", Some("home-write")),
+            ("i", Some("digest")),
             ("@", Some("home-pick")),
             ("enter", Some("tab")),
             ("double-click", Some("tab")),

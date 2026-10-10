@@ -13,6 +13,7 @@ fn supplied(texts: &[(&str, Role)]) -> Supplied {
                 .map(|(text, role)| Label {
                     text: (*text).into(),
                     role: *role,
+                    action: None,
                 })
                 .collect(),
         )]
@@ -88,6 +89,7 @@ fn each_source_leads_its_own_labels() {
             vec![Label {
                 text: text.into(),
                 role: Role::Text,
+                action: None,
             }],
         )]
         .into()
@@ -193,4 +195,58 @@ fn only_the_policy_chip_depends_on_the_clock() {
         clock(&Supplied::default(), &row(1), 0).as_deref(),
         Some("digest 1m · 1 held")
     );
+}
+
+#[test]
+fn a_label_that_offers_a_choice_ends_with_the_mark_and_only_it_is_found() {
+    let choose = crate::labels::Choose::parse(
+        "digest",
+        &json!({"kind":"choose","options":[{"label":"Auto","value":"default"}],
+            "current":"default","argv":["digest","m","{value}"]}),
+    )
+    .unwrap();
+    let source = Supplied::from_rows(vec![(
+        "digest".into(),
+        [(
+            ID.to_owned(),
+            vec![
+                Label {
+                    text: "Auto".into(),
+                    role: Role::Text,
+                    action: Some(choose),
+                },
+                Label {
+                    text: "2 held".into(),
+                    role: Role::Muted,
+                    action: None,
+                },
+            ],
+        )]
+        .into(),
+    )]);
+    let row = row(0);
+    assert_eq!(
+        texts(&of(&source, &row, 0)),
+        ["digest ", "Auto ▾", " · 2 held"]
+    );
+    // The mark takes room like any text: it is part of the chip that must fit whole.
+    let (chips, all) = fitted(&source, &row, 0, "digest Auto ▾".width());
+    assert_eq!(texts(&chips), ["digest ", "Auto ▾"]);
+    assert!(!all);
+    let (chips, _) = fitted(&source, &row, 0, "digest Auto".width());
+    assert!(chips.is_empty(), "the mark is never cut off its chip");
+    let shown = shown(&source, &row, 0, 40, true);
+    assert_eq!(choice_piece(&shown.pieces).as_deref(), Some("chip-1"));
+    // The detail lists plain text; the mark belongs to the heading.
+    assert_eq!(
+        detail(&source, &row, 0),
+        [("digest".to_owned(), "Auto · 2 held".to_owned())]
+    );
+    // Labels that offer nothing have no mark to find.
+    let plain = supplied(&[("Auto", Role::Text)]);
+    assert_eq!(choice_piece(&shown_pieces(&plain)), None);
+}
+
+fn shown_pieces(supplied: &Supplied) -> Value {
+    shown(supplied, &row(0), 0, 40, true).pieces
 }

@@ -108,7 +108,8 @@ fn every_status_snapshot_reads_into_rows_exactly_as_supplied() {
     assert_eq!(snapshots.len(), 3);
     for snapshot in snapshots {
         let response = &snapshot["response"];
-        let rows = parse(response).unwrap_or_else(|| panic!("{} reads", snapshot["name"]));
+        let rows =
+            parse(NAMESPACE, response).unwrap_or_else(|| panic!("{} reads", snapshot["name"]));
         let members = response["members"].as_array().unwrap();
         assert_eq!(rows.len(), members.len(), "{}", snapshot["name"]);
         for member in members {
@@ -128,7 +129,7 @@ fn malformed_documents_are_unavailable_and_malformed_rows_are_left_out() {
     let good =
         json!({"identityId":"a","labels":[{"text":"Auto","colorClass":"text","action":null}]});
     let document = |version: Value, members: Value| json!({"version":version,"members":members});
-    assert!(parse(&document(json!(1), json!([good]))).is_some());
+    assert!(parse(NAMESPACE, &document(json!(1), json!([good]))).is_some());
     for unavailable in [
         document(json!(2), json!([good])),
         document(json!("1"), json!([good])),
@@ -137,28 +138,31 @@ fn malformed_documents_are_unavailable_and_malformed_rows_are_left_out() {
         document(json!(1), json!({"a":1})),
         json!([]),
     ] {
-        assert!(parse(&unavailable).is_none(), "{unavailable}");
+        assert!(parse(NAMESPACE, &unavailable).is_none(), "{unavailable}");
     }
     let label = |text: Value, class: &str, action: Value| json!({"identityId":"bad","labels":[{"text":text,"colorClass":class,"action":action}]});
-    let rows = parse(&document(
-        json!(1),
-        json!([
-            good,
-            label(json!("Auto"), "red", Value::Null),
-            label(json!("Auto"), "accent", Value::Null),
-            label(json!(""), "text", Value::Null),
-            label(json!("Aut\u{1b}[31mo"), "text", Value::Null),
-            label(json!("x".repeat(49)), "text", Value::Null),
-            label(json!(7), "text", Value::Null),
-            json!({"identityId":"four","labels":[
+    let rows = parse(
+        NAMESPACE,
+        &document(
+            json!(1),
+            json!([
+                good,
+                label(json!("Auto"), "red", Value::Null),
+                label(json!("Auto"), "accent", Value::Null),
+                label(json!(""), "text", Value::Null),
+                label(json!("Aut\u{1b}[31mo"), "text", Value::Null),
+                label(json!("x".repeat(49)), "text", Value::Null),
+                label(json!(7), "text", Value::Null),
+                json!({"identityId":"four","labels":[
                 {"text":"a","colorClass":"text","action":null},
                 {"text":"b","colorClass":"text","action":null},
                 {"text":"c","colorClass":"text","action":null},
                 {"text":"d","colorClass":"text","action":null}]}),
-            json!({"labels":[]}),
-            json!({"identityId":"nolabels"}),
-        ]),
-    ))
+                json!({"labels":[]}),
+                json!({"identityId":"nolabels"}),
+            ]),
+        ),
+    )
     .unwrap();
     assert_eq!(rows.keys().collect::<Vec<_>>(), ["a"]);
 }
@@ -170,8 +174,8 @@ fn unknown_additive_fields_are_ignored() {
     document["members"][0]["future"] = json!(true);
     document["members"][0]["labels"][0]["future"] = json!("later");
     assert_eq!(
-        parse(&document).unwrap(),
-        parse(&vectors()["status"][1]["response"]).unwrap()
+        parse(NAMESPACE, &document).unwrap(),
+        parse(NAMESPACE, &vectors()["status"][1]["response"]).unwrap()
     );
 }
 
@@ -185,7 +189,7 @@ fn a_ready_source_is_delivered_once_and_never_read_twice_at_the_same_time() {
     ));
     let (reader, received) = reader(&core, quick());
     let supplied = next(&received);
-    let mixed = parse(&vectors()["status"][0]["response"]).unwrap();
+    let mixed = parse(NAMESPACE, &vectors()["status"][0]["response"]).unwrap();
     let id = mixed.keys().next().unwrap();
     assert_eq!(
         supplied
@@ -280,7 +284,7 @@ fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
     let (_reader, received) = reader(&core, timing);
     let good = next(&received);
     assert!(
-        good.of(parse(&vectors()["status"][1]["response"])
+        good.of(parse(NAMESPACE, &vectors()["status"][1]["response"])
             .unwrap()
             .keys()
             .next()
@@ -309,6 +313,34 @@ fn no_configured_source_starts_no_reader() {
 }
 
 #[test]
+fn a_refresh_reads_again_at_once_instead_of_waiting_for_the_cadence() {
+    let scratch = Scratch::new();
+    scratch.status(&vectors()["status"][1]["response"]);
+    let timing = Timing {
+        every: Duration::from_secs(3600),
+        ..quick()
+    };
+    let (reader, received) = reader(&scratch.fake(""), timing);
+    let refresh = reader.refresher();
+    let first = next(&received);
+    scratch.status(&vectors()["status"][2]["response"]);
+    assert!(
+        received.recv_timeout(Duration::from_millis(200)).is_err(),
+        "the cadence is an hour"
+    );
+    refresh.now();
+    refresh.now();
+    let second = next(&received);
+    assert_ne!(first, second);
+    // Two requests while idle are one read each time they are served, never a storm.
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(scratch.calls().len() <= 3, "{:?}", scratch.calls());
+    drop(reader);
+    // A handle outlives the reader harmlessly.
+    refresh.now();
+}
+
+#[test]
 fn dropping_the_reader_stops_the_thread() {
     let scratch = Scratch::new();
     scratch.status(&vectors()["status"][1]["response"]);
@@ -321,7 +353,23 @@ fn dropping_the_reader_stops_the_thread() {
 }
 
 #[test]
-fn actions_are_not_this_readers_business() {
+fn only_the_mode_chip_carries_an_action_in_the_mixed_snapshot() {
+    let rows = parse(NAMESPACE, &vectors()["status"][0]["response"]).unwrap();
+    for labels in rows.values() {
+        assert!(labels[0].action.is_some(), "{labels:?}");
+        assert!(labels[1..].iter().all(|label| label.action.is_none()));
+    }
+    let action = rows.values().next().unwrap()[0].action.as_ref().unwrap();
+    assert!(
+        action
+            .options
+            .iter()
+            .any(|offer| offer.value == action.current)
+    );
+}
+
+#[test]
+fn an_action_ops_will_not_offer_leaves_its_label_display_only() {
     let label = |action: Value| {
         json!({"version":1,"members":[{"identityId":"a","labels":[
             {"text":"Auto","colorClass":"text","action":action}]}]})
@@ -329,9 +377,13 @@ fn actions_are_not_this_readers_business() {
     for action in [
         Value::Null,
         json!({"kind":"shell","argv":"rm -rf /"}),
+        json!({"kind":"run","argv":["digest","status","--json"]}),
+        json!({"kind":"choose","argv":["ops","{value}"],
+            "options":[{"label":"Auto","value":"auto"}],"current":"auto"}),
         json!("x"),
     ] {
-        let rows = parse(&label(action)).unwrap();
-        assert_eq!(rows["a"].len(), 1);
+        let rows = parse(NAMESPACE, &label(action.clone())).unwrap();
+        assert_eq!(rows["a"].len(), 1, "{action}");
+        assert_eq!(rows["a"][0].action, None, "{action}");
     }
 }

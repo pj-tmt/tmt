@@ -153,6 +153,20 @@ cell).
   only with its first label, and show no chip when those do not fit. `e` lists all
   labels under the extension's name.
   The sources are read when the board starts; restart it after changing them.
+- A label may offer a choice; its chip ends with `▾`, such as `digest Auto ▾`. Click the
+  chip, press `i` (`digest`, rebindable) on a member row, or choose `digest` in its Enter
+  menu, to open that member's choices (for the digest extension: Auto, 1 minute up to
+  1 hour, and `Custom…`), the current one marked `(current)`. Enter or a click runs a choice; the wheel and Up/Down move the
+  highlight; Esc closes. The click and the wheel work in every action menu; a click
+  outside its entries does nothing. `Custom…` asks for a duration such as `20s`, `10m` or `1h`;
+  empty text goes back to the default. Only the recorded user and the squad's lead may
+  change a digest, as with `tmt ops digest`; anyone else is told so and nothing runs,
+  and the check is made again when the choice is applied. A member without an offered
+  choice, or no extension at all, says so on `i` and has no `digest` menu entry. The
+  extension, not the board, decides what is offered and what runs: the board starts
+  `tmt` with the extension's own arguments, the chosen text as one argument, never
+  through a shell, and shows the extension's refusal as is. The chip updates at once
+  after a change.
 - A row has the optional `colors` key only when a cell has a color:
   `{field: theme token}`. `colors.state` holds the resolved state token; other
   keys come from the user's column thresholds or a field provider's suggestion.

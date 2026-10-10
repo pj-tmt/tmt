@@ -101,6 +101,8 @@ pub(super) struct RowSpan {
     pub start: usize,
     pub end: usize,
     pub reserve: Option<Range<usize>>,
+    /// The chip that offers a choice, when the member line shows one.
+    pub chip: Option<crate::board::view::scene::Spot>,
 }
 
 pub(super) struct Section<'a> {
@@ -259,6 +261,8 @@ fn build(key: &Key) -> Block {
                 start: block.start,
                 end: block.end,
                 reserve,
+                chip: row_chips::choice_piece(&key.data["rows"][local]["chips"])
+                    .and_then(|piece| painted.spot(&[&id(local), "line", &piece])),
             }
         })
         .collect();
@@ -267,6 +271,9 @@ fn build(key: &Key) -> Block {
     for row in &mut rows {
         row.start += shift;
         row.end += shift;
+        if let Some(chip) = &mut row.chip {
+            chip.line += shift;
+        }
         if let Some(range) = &mut row.reserve {
             range.start += shift;
             range.end += shift;
