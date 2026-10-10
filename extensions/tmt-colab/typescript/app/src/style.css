@@ -626,6 +626,7 @@ body:has(.page-header-actions) {
 .management-dialog > .dialog-bar {
   flex-shrink: 0;
   padding: 24px 24px 0;
+  border-bottom: 1px solid var(--c-rule);
 }
 .management-dialog-body {
   min-height: 0;
