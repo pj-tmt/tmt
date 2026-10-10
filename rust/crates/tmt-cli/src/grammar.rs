@@ -318,7 +318,10 @@ pub fn public_grammar(definition: &Command, root: bool) -> Command {
 
 /// Resolve public command paths without dispatching any runtime operation.
 pub fn help_command(path: &[String]) -> Result<Command, String> {
-    let definition = grammar();
+    let mut definition = grammar();
+    if path.is_empty() {
+        definition = definition.mut_arg("version", |arg| arg.hide(false));
+    }
     let mut selected = &definition;
     let mut names = vec!["tmt".to_owned()];
     for name in path {
