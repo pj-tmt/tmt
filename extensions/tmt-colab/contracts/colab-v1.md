@@ -2612,7 +2612,7 @@ still emits exactly one JSON document with the short-link fallback.
 `{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a
 damaged file reads as the default with a warning). JSON: `{open,source:"default"|"settings.json"}`.
 
-### Firestore deployment declaration (#2397)
+### Firestore deployment declaration
 
 `tmt colab deploy-declaration --json` is a fixed machine entry: `tmt remote deploy firestore`
 runs it through the installed `tmt`, and no person needs it, so it is hidden from help. It prints
@@ -2653,8 +2653,8 @@ IDs, a missing `space` field and queries that omit a filter.
 | `pages`         | checkpoint | `space_page`                    | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page |
 | `links`         | checkpoint | `space_page_link`               | an owner-written enrollment secret and role for a share link; holders cannot read it                                                               |
 | `members`       | checkpoint | `space_page_uid`                | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
-| `log`           | log        | `space_page_epoch_stream_seq`   | one create-only encrypted envelope: `hash`, `envelope`, `expiresAt`                                                                                |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one create-only 32 KiB chunk of an encrypted object, `index` of `count` (at most 513)                                                              |
+| `log`           | log        | `space_page_epoch_stream_seq`   | one create-only encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                            |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one create-only 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                          |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -2669,10 +2669,15 @@ ciphertext, never authority; clients still verify every statement, chain and env
   rechecks, so they take effect on the next request. Old-epoch entries stay readable by members.
 - _Append_ (`log`, `checkpoints`): create-only; `space`, `page` and `epoch` equal the page row
   (`state` is `open`); the writer's member row is not `viewer`; the ID equals the fields it is
-  built from; `seq` is at most 2^53−1 and the previous `seq` of that stream exists (`existsAfter`,
-  so a contiguous batch passes and a gap is refused); the field set and sizes are exactly those
+  built from; the entry's `uid` is the writer's own; `seq` is at most 2^53−1 and the previous
+  `seq` of that stream exists and carries the same `uid` (`getAfter`, so a contiguous batch passes
+  and a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
+  chunk 0 of its object to carry the same `uid`; the field set and sizes are exactly those
   declared; `expiresAt` is in the future and at most the page's `expiresAt`. Sequence zero, an
-  update and a delete are refused: owner cleanup is #2454.
+  update and a delete are refused: owner cleanup is #2454. Commenters and bridges may write
+  checkpoints because each device seals checkpoints over its own stream (the compaction rules
+  above); the role check keeps viewers out, and clients still verify every checkpoint's signed
+  descriptor against the writer's cut.
 - _Admission rows_ (`pages`, `links`, `members`): written only by the owner uid recorded on the
   space row. A link holder creates its own `members` row only by equality of `token` with the
   secret in the link's row, with that link's role (the secret is separate from every content key
@@ -2682,9 +2687,10 @@ ciphertext, never authority; clients still verify every statement, chain and env
 
 - A space ID is first-writer-wins, so someone who knows an unused ID can squat it: an availability
   attack, because clients verify the owner signature chain against the space ID.
-- Rules do not bind a `stream` to the writer's uid: a member with a writer role can occupy another
-  writer's next `(stream, seq)` slot, and clients then flag and freeze that stream. This is an
-  availability attack by an admitted writer, not an authority or confidentiality break.
+- Whoever creates `seq` 1 of a stream (or chunk 0 of an object) owns the rest of it: stream and
+  object IDs are random or content-derived, so an admitted writer can only squat one it already
+  knows before its owner writes it, an availability attack that clients detect by the signed
+  chain and freeze. The uid binds the stream to one Firebase uid; it is not the signing device.
 - A list query is admitted by membership and the page's expiry only: Firestore cannot compare an
   entry's own `expiresAt` with `request.time` in a query, so a query can return an entry past its
   own `expiresAt` while its page is live. Clients drop it. Physical TTL is not provisioned
@@ -2727,7 +2733,7 @@ named Google sign-in for named members, Spark by default. Rules admit uid,
 the owner's member projection and link enrollment by equality with an
 owner-written secret (Rules cannot hash a join proof); enforce create-only
 scoped sequence, current epoch and expiry. The
-[declaration subsection](#firestore-deployment-declaration-2397) is the
+[declaration subsection](#firestore-deployment-declaration) is the
 implemented subset. No public
 mode is allowed in cloud v1. Checkpoints are chunked Firestore documents,
 without Cloud Storage or Functions; attachments over Firestore are not in the

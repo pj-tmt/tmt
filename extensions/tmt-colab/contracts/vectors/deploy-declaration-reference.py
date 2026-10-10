@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent oracle for the Colab Firestore declaration envelope (#2397).
+"""Independent oracle for the Colab Firestore declaration envelope.
 
 Builds the exact `tmt colab deploy-declaration --json` reply from the two embedded source
 files with Python stdlib only (hashlib, json); it imports no Rust code. Without `--write` it

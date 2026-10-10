@@ -1,4 +1,4 @@
-// Firestore Rules conformance for Colab's admission fragment (#2397), loaded the way it
+// Firestore Rules conformance for Colab's admission fragment, loaded the way it
 // deploys: the composed golden Remote produces from Colab's own vector, not the bare fragment.
 // Run only under `firebase emulators:exec --only firestore` (see the tmt-colab skill); there is
 // no skip path: without the emulator the suite fails.
@@ -84,8 +84,8 @@ async function commit(writes, headers) {
 }
 
 const T = {
-  A: { space: "a".repeat(32), page: "10000000-0000-4000-8000-000000000001", stream: "20000000-0000-4000-8000-000000000001", link: "30000000-0000-4000-8000-000000000001" },
-  B: { space: "b".repeat(32), page: "10000000-0000-4000-8000-000000000002", stream: "20000000-0000-4000-8000-000000000002", link: "30000000-0000-4000-8000-000000000002" },
+  A: { space: "a".repeat(32), page: "10000000-0000-4000-8000-000000000001", stream: "20000000-0000-4000-8000-000000000001", link: "30000000-0000-4000-8000-000000000001", writer: "writerA" },
+  B: { space: "b".repeat(32), page: "10000000-0000-4000-8000-000000000002", stream: "20000000-0000-4000-8000-000000000002", link: "30000000-0000-4000-8000-000000000002", writer: "writerB" },
 };
 const TOKEN_A = "A".repeat(43);
 const TOKEN_B = "B".repeat(43);
@@ -93,20 +93,20 @@ const HASH = "h".repeat(43);
 const sp = (t) => `${t.space}_${t.page}`;
 const logId = (t, epoch, stream, seq) => `${sp(t)}_${epoch}_${stream}_${seq}`;
 const entry = (t, seq, extra = {}) => ({
-  space: t.space, page: t.page, epoch: 1, stream: t.stream, seq, hash: HASH, envelope: "ZW52ZWxvcGU", expiresAt: sooner, ...extra,
+  space: t.space, page: t.page, epoch: 1, stream: t.stream, seq, uid: t.writer, hash: HASH, envelope: "ZW52ZWxvcGU", expiresAt: sooner, ...extra,
 });
 const chunk = (t, index, extra = {}) => ({
-  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, count: 513, bytes: "Ynl0ZXM", expiresAt: sooner, ...extra,
+  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, count: 513, uid: t.writer, bytes: "Ynl0ZXM", expiresAt: sooner, ...extra,
 });
 const chunkId = (t, index) => `${sp(t)}_1_${"c".repeat(64)}_${index}`;
 
-/** Two independent tenants under one deployment: each has an owner, a writer and a viewer. */
+/** Two independent tenants under one deployment: each has an owner, two commenters (writer, peer) and a viewer. */
 async function seedWorld() {
   await clear();
   for (const [name, t] of Object.entries(T)) {
     await seed(`spaces/${t.space}`, { space: t.space, owner: `owner${name}` });
     await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: future });
-    for (const [uid, role] of [[`owner${name}`, "editor"], [`writer${name}`, "commenter"], [`viewer${name}`, "viewer"]]) {
+    for (const [uid, role] of [[`owner${name}`, "editor"], [`writer${name}`, "commenter"], [`peer${name}`, "commenter"], [`viewer${name}`, "viewer"]]) {
       await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role });
     }
     await seed(`links/${sp(t)}_${t.link}`, { space: t.space, page: t.page, link: t.link, role: "viewer", token: name === "A" ? TOKEN_A : TOKEN_B });
@@ -255,14 +255,26 @@ test("log append: create-only, contiguous per stream, current epoch, writer role
   assert.equal(await at(4, { expiresAt: future }), 200, "up to the page's retention");
   assert.equal(await at(1, undefined, 2, "20000000-0000-4000-8000-0000000000ab"), 403, "an epoch the page has not reached");
 
-  const bare = entry(t, 5);
-  delete bare.space;
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, bare, writer), 403, "a missing space field");
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), as("viewerA")), 403, "viewers read only");
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), as("outsider")), 403, "no member row");
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), NOBODY), 403, "sign-in required");
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), as("writerB")), 403, "another tenant's writer");
-  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), as("ownerA")), 200, "the owner's own row writes");
+  // Who may start a stream: seq 1 of a stream nobody has used, by an admitted writer for itself.
+  const own = "20000000-0000-4000-8000-0000000000a1";
+  const first = (uid, headers, over) => set(`log/${logId(t, 1, own, 1)}`, entry(t, 1, { stream: own, uid, ...over }), headers);
+  assert.equal(await first("viewerA", as("viewerA")), 403, "viewers read only");
+  assert.equal(await first("outsider", as("outsider")), 403, "no member row");
+  assert.equal(await first("writerA", NOBODY), 403, "sign-in required");
+  assert.equal(await first("writerB", as("writerB")), 403, "another tenant's writer");
+  assert.equal(await first("writerA", as("peerA")), 403, "the uid field must be the writer's own");
+  assert.equal(await first("ownerA", as("ownerA")), 200, "the owner's own row writes");
+
+  // A stream belongs to the uid that started it: an admitted peer cannot take its next slot.
+  const peer = as("peerA");
+  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5, { uid: "peerA" }), peer), 403, "a peer cannot take the next slot of another writer's stream");
+  assert.equal(await set(`log/${logId(t, 1, t.stream, 5)}`, entry(t, 5), peer), 403, "nor claim the writer's uid");
+  assert.equal(await at(5), 200, "the stream's own writer is not blocked");
+  assert.equal(await set(`log/${logId(t, 1, t.stream, 6)}`, entry(t, 6, { uid: "peerA" }), peer), 403, "still refused after the writer advanced");
+  assert.equal(await set(`log/${logId(t, 1, "20000000-0000-4000-8000-0000000000a3", 1)}`, entry(t, 1, { uid: "peerA", stream: "20000000-0000-4000-8000-0000000000a2" }), peer), 403, "ID must equal its stream");
+  assert.equal(await set(`log/${logId(t, 1, "20000000-0000-4000-8000-0000000000a2", 1)}`, entry(t, 1, { uid: "peerA", stream: "20000000-0000-4000-8000-0000000000a2" }), peer), 200, "a peer starts its own stream");
+  assert.equal(await set(`log/${logId(t, 1, "20000000-0000-4000-8000-0000000000a2", 2)}`, entry(t, 2, { uid: "writerA", stream: "20000000-0000-4000-8000-0000000000a2" }), writer), 403, "and the writer cannot take the peer's next slot");
+  assert.equal(await set(`log/${logId(t, 1, "20000000-0000-4000-8000-0000000000a2", 2)}`, entry(t, 2, { uid: "peerA", stream: "20000000-0000-4000-8000-0000000000a2" }), peer), 200, "while the peer continues its own stream");
   assert.equal(await set(`log/${logId(t, 1, t.stream, 4)}`, entry(t, 4, { hash: "g".repeat(43) }), writer), 403, "no update of an existing entry");
   assert.equal(await remove(`log/${logId(t, 1, t.stream, 4)}`, writer), 403, "no delete");
   assert.equal(await remove(`log/${logId(t, 1, t.stream, 4)}`, as("ownerA")), 403, "no delete even by the owner (retention is #2454)");
@@ -300,7 +312,8 @@ test("page lifecycle: archive freezes writes, epoch advance fences the old epoch
   // Deleting the admission row denies everyone, and writes too.
   assert.equal(await remove(`pages/${sp(t)}`, as("ownerA")), 200);
   assert.equal(await get(`log/${logId(t, 1, t.stream, 2)}`, as("viewerA")), 403, "deleted page: no reads");
-  assert.equal(await set(`log/${logId(t, 2, t.stream, 2)}`, entry(t, 2, { epoch: 2 }), as("ownerA")), 403, "deleted page: no writes");
+  const fresh = "20000000-0000-4000-8000-0000000000b1";
+  assert.equal(await set(`log/${logId(t, 2, fresh, 1)}`, entry(t, 1, { epoch: 2, stream: fresh, uid: "ownerA" }), as("ownerA")), 403, "deleted page: no writes");
   assert.equal(await get(`log/${logId(T.B, 1, T.B.stream, 1)}`, as("viewerB")), 200, "the other tenant is unaffected");
 });
 
@@ -370,9 +383,21 @@ test("checkpoint chunks: create-only, bounded, indexed, current epoch and writer
   const writer = as("writerA");
   const at = (index, over, headers = writer) => set(`checkpoints/${chunkId(t, index)}`, chunk(t, index, over), headers);
 
-  assert.equal(await at(1), 200);
+  const peer = as("peerA");
+  // An object belongs to the uid that wrote its chunk 0: a peer cannot add to or complete it.
+  assert.equal(await at(1, { uid: "peerA" }, peer), 403, "a peer cannot extend another writer's object");
+  assert.equal(await at(1, undefined, peer), 403, "nor claim the writer's uid");
+  assert.equal(await at(1), 200, "the object's own writer extends it");
+  assert.equal(await at(2, { uid: "peerA" }, peer), 403, "still refused after the writer extended it");
+  const mine = "d".repeat(64);
+  const peerChunk = (index, uid = "peerA", headers = peer) => set(`checkpoints/${sp(t)}_1_${mine}_${index}`, chunk(t, index, { object: mine, uid }), headers);
+  assert.equal(await peerChunk(1), 403, "an object starts at index 0 (no predecessor to bind to)");
+  assert.equal(await peerChunk(0, "writerA"), 403, "the uid field must be the writer's own, so an object cannot be started in another uid's name");
+  assert.equal(await peerChunk(0), 200, "a peer starts its own object");
+  assert.equal(await peerChunk(1), 200, "and extends it");
+  assert.equal(await peerChunk(2, "writerA", writer), 403, "while the writer cannot add to the peer's object");
   assert.equal(await at(1), 403, "a chunk cannot be overwritten");
-  assert.equal(await at(2), 200, "chunks need not arrive in order");
+  assert.equal(await at(2), 200, "chunks need not arrive in order beyond the writer's own chain");
   assert.equal(await at(3, { count: 3 }), 403, "index must be below count");
   assert.equal(await at(4, { count: 514 }), 403, "over the largest object's chunk count");
   assert.equal(await at(4), 200);

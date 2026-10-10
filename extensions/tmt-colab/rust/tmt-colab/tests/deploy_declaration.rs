@@ -1,4 +1,4 @@
-//! `tmt colab deploy-declaration --json` (#2397): the installed binary's compiled-in Firestore
+//! `tmt colab deploy-declaration --json`: the installed binary's compiled-in Firestore
 //! declaration against the checked-in vector, the contract's caps and the declaration grammar.
 //! Colab cannot depend on Remote, so the grammar below is re-implemented from
 //! `remote-channel-v1.md` ("extension backend declarations"); Remote's `deploy_vectors` mirror
@@ -31,7 +31,10 @@ fn sha256(text: &str) -> String {
 struct Scratch(PathBuf);
 impl Scratch {
     fn new(name: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("tmt-2397-{name}-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "tmt-deploy-declaration-{name}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir(&path).unwrap();
         Self(path)

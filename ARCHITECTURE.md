@@ -640,7 +640,7 @@ core discovery or storage access.
   prints Colab's declaration and admission Rules compiled into the binary; Remote runs it through the public
   `tmt` dispatch and composes it, with no Colab dependency edge either way. The bytes live under
   `extensions/tmt-colab/firestore/`, their vector and composed goldens under `contracts/vectors/`, and the
-  [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration-2397) owns
+  [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns
   tenancy, the Rules facts and their stated limits.
 - **Plaintext invariant.** Page source, discussion reads and export are root-local: only the isolated decoder
   child decodes Yjs, no browser route serves plaintext, and the browser Worker is resource

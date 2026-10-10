@@ -1,4 +1,4 @@
-// Colab admission for the Firestore backend (#2397). Remote composes this fragment under x/colab.
+// Colab admission for the Firestore backend. Remote composes this fragment under x/colab.
 // It admits ciphertext and checks routing facts; it is never authority. Rules cannot hash or
 // verify Ed25519, so every client still verifies statements, chains and envelopes.
 //
@@ -14,8 +14,11 @@
 // links/{space_page_link}: owner-written enrollment secret for a share link, unreadable by holders.
 // members/{space_page_uid}: who may read or write. The owner writes rows; a link holder creates
 //   its own row by equality with the link's secret (Rules cannot hash a join proof).
-// log/{space_page_epoch_stream_seq}: create-only encrypted envelope, contiguous per stream.
-// checkpoints/{space_page_epoch_object_index}: create-only chunk of an encrypted object.
+// log/{space_page_epoch_stream_seq}: create-only encrypted envelope, contiguous per stream. A stream
+//   belongs to the uid that wrote its first entry: seq 1 is safe because a stream ID is unknown until
+//   used, and every later entry needs its predecessor's uid to equal the writer's.
+// checkpoints/{space_page_epoch_object_index}: create-only chunk of an encrypted object, owned by the
+//   uid that wrote index 0 the same way, so no one can fill an object's later chunks with garbage.
 //
 // A list query is admitted by membership and the page's expiry only: Firestore cannot compare
 // a document's own expiresAt with request.time in a query, so a query may return an entry past
@@ -103,8 +106,8 @@ match /log/{id} {
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'stream', 'seq', 'hash', 'envelope', 'expiresAt'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'stream', 'seq', 'hash', 'envelope', 'expiresAt'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && request.resource.data.stream.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
@@ -112,6 +115,7 @@ match /log/{id} {
     && request.resource.data.seq is int
     && request.resource.data.seq >= 1
     && request.resource.data.seq <= 9007199254740991
+    && request.resource.data.uid == request.auth.uid
     && request.resource.data.hash.matches('[A-Za-z0-9_-]{43}')
     && request.resource.data.envelope is string
     && request.resource.data.envelope.size() <= 354304
@@ -123,7 +127,7 @@ match /log/{id} {
     && request.resource.data.expiresAt <= ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.expiresAt
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.seq == 1
-      || ext.existsAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))));
+      || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid);
 }
 
 match /checkpoints/{id} {
@@ -135,8 +139,8 @@ match /checkpoints/{id} {
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'count', 'bytes', 'expiresAt'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'count', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && request.resource.data.epoch is int
@@ -146,6 +150,7 @@ match /checkpoints/{id} {
     && request.resource.data.index >= 0
     && request.resource.data.index < request.resource.data.count
     && request.resource.data.count <= 513
+    && request.resource.data.uid == request.auth.uid
     && request.resource.data.bytes is string
     && request.resource.data.bytes.size() <= 43692
     && id == request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.object + '_' + string(request.resource.data.index)
@@ -154,5 +159,7 @@ match /checkpoints/{id} {
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.state == 'open'
     && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.epoch == request.resource.data.epoch
     && request.resource.data.expiresAt <= ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.expiresAt
-    && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer';
+    && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
+    && (request.resource.data.index == 0
+      || ext.getAfter(/checkpoints/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.object + '_0')).data.uid == request.auth.uid);
 }

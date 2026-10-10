@@ -1,4 +1,4 @@
-//! The static read behind `tmt colab deploy-declaration --json` (#2397): Colab's Firestore backend
+//! The static read behind `tmt colab deploy-declaration --json`: Colab's Firestore backend
 //! declaration and admission Rules, compiled in so the release checksum and receipt cover them.
 //! The reply is a pure function of the binary: it reads no state, door, network, clock, current
 //! directory or environment, so it works on a machine that never started Colab.
