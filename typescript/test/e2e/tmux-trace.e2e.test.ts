@@ -55,6 +55,42 @@ describe('tmux invocation trace', { concurrent: false }, () => {
     });
   });
 
+  it('admits exact live peer sockets sharing storage and revokes them on teardown', async () => {
+    await withE2EFixture(async (fixture) => {
+      let retiredSocket = '';
+      await withE2EFixture(
+        async (peer) => {
+          retiredSocket = peer.socketPath;
+          for (const prefix of [['-S', peer.socketPath], [`-S${peer.socketPath}`]]) {
+            fixture.tmux([...prefix, 'set-option', '-p', '-t', peer.pane, '@tmt.agent', 'peer']);
+            expect(peer.paneMetadata()).toBe('peer');
+            expect(fixture.paneMetadata()).toBe('');
+          }
+          await withE2EFixture(async (unrelated) => {
+            expect(() =>
+              fixture.tmux([
+                '-S',
+                unrelated.socketPath,
+                'set-option',
+                '-p',
+                '-t',
+                unrelated.pane,
+                '@tmt.agent',
+                'unowned',
+              ])
+            ).toThrow('E2E fixture refuses a foreign tmux socket');
+            expect(unrelated.paneMetadata()).toBe('');
+          });
+        },
+        { globalDir: fixture.globalDir }
+      );
+      expect(() => fixture.tmux(['-S', retiredSocket, 'list-panes'])).toThrow(
+        'E2E fixture refuses a foreign tmux socket'
+      );
+      expect(fixture.paneMetadata()).toBe('');
+    });
+  });
+
   it.each(['ambient', 'explicit socket'])(
     'traces %s commands without changing multiline or option-like payloads',
     async (selection) => {

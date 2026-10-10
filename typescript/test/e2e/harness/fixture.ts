@@ -48,6 +48,8 @@ function shellQuote(value: string): string {
 }
 
 export class E2EFixture {
+  private static readonly peers = new Set<E2EFixture>();
+  private peerGroup = '';
   readonly executables: CliExecutables;
   readonly root: string;
   readonly socketRoot: string;
@@ -113,42 +115,70 @@ export class E2EFixture {
     return path.join(this.socketRoot, `tmux-${process.getuid!()}`, this.socket);
   }
 
+  private get peerSocketsPath(): string {
+    return path.join(this.root, 'peer-tmux-sockets');
+  }
+
+  private registerPeerSocket(register: boolean): void {
+    if (register) {
+      this.peerGroup = fs.realpathSync(this.globalDir);
+      E2EFixture.peers.add(this);
+    } else if (!E2EFixture.peers.delete(this)) {
+      return;
+    }
+    const peers = [...E2EFixture.peers].filter((peer) => peer.peerGroup === this.peerGroup);
+    const sockets = peers.map((peer) => peer.expectedSocketPath).join('\n') + '\n';
+    for (const peer of peers) {
+      const stage = `${peer.peerSocketsPath}.next`;
+      fs.writeFileSync(stage, sockets);
+      fs.renameSync(stage, peer.peerSocketsPath);
+    }
+  }
+
   async start(options: E2EFixtureOptions = {}): Promise<void> {
     try {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
       fs.mkdirSync(this.wrapperDir, { recursive: true });
       if (options.metadataBarrier) fs.mkdirSync(this.metadataBarrierDirectory);
+      fs.writeFileSync(this.peerSocketsPath, '');
       writeExecutable(
         path.join(this.wrapperDir, 'tmux'),
         `#!/bin/sh
 unset TMUX TMUX_PANE
 export TMUX_TMPDIR=${shellQuote(this.socketRoot)}
 TMT_E2E_SOCKET=${shellQuote(this.socket)}
-# A later explicit selector overrides the prepended private -L. Refuse it
-# before either delegation path, including metadata publication and removal.
+# Explicit -S may reach an exact peer socket registered by another live fixture
+# sharing this storage. Default discovery and -L stay on this private namespace.
+allowed_socket() {
+  [ "${'$'}1" = ${shellQuote(this.expectedSocketPath)} ] && return 0
+  while IFS= read -r peer; do
+    [ "${'$'}1" = "${'$'}peer" ] && return 0
+  done < ${shellQuote(this.peerSocketsPath)}
+  return 1
+}
+refuse_socket() {
+  echo "E2E fixture refuses a foreign tmux socket" >&2
+  exit 97
+}
 socket_option=""
 for arg in "${'$'}@"; do
   if [ -n "${'$'}socket_option" ]; then
     case "${'$'}socket_option" in
-      -S) expected=${shellQuote(this.expectedSocketPath)} ;;
-      -L) expected=${shellQuote(this.socket)} ;;
+      -S) allowed_socket "${'$'}arg" || refuse_socket ;;
+      -L) [ "${'$'}arg" = ${shellQuote(this.socket)} ] || refuse_socket ;;
       -c|-f|-T) socket_option=""; continue ;;
     esac
-    if [ "${'$'}arg" != "${'$'}expected" ]; then
-      echo "E2E fixture refuses a foreign tmux socket" >&2
-      exit 97
-    fi
     socket_option=""
     continue
   fi
   case "${'$'}arg" in
     -c|-f|-L|-S|-T) socket_option="${'$'}arg" ;;
     -S*)
-      [ "${'$'}{arg#-S}" = ${shellQuote(this.expectedSocketPath)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
+      allowed_socket "${'$'}{arg#-S}" || refuse_socket
       ;;
     -L*)
-      [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
+      [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || refuse_socket
       ;;
     -c*|-f*|-T*) ;;
     -*[cfSLT]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
@@ -321,6 +351,7 @@ exit ${'$'}status
       this.tmux(['-V']);
       await this.launchPrivateServer();
       this.started = true;
+      this.registerPeerSocket(true);
     } catch (error) {
       await this.stop();
       throw new Error(
@@ -744,6 +775,7 @@ exit ${'$'}status
         `E2E reply process groups survived cleanup: ${replySurvivors.join(', ')}`
       );
     }
+    this.registerPeerSocket(false);
     fs.rmSync(this.root, { recursive: true, force: true });
     fs.rmSync(this.socketRoot, { recursive: true, force: true });
     if (cleanupError) throw cleanupError;
