@@ -70,8 +70,8 @@ full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
 
-The header brand uses the six-blade aperture copied from
-`site/src/home/assets/v9-0.svg`, rendered inline with the original `0 0 200 200`
+The header brand uses the TMT mark (a knocked-out rounded square, one even-odd
+path) mirrored in `site/src/home/assets/v9-0.svg`, rendered inline with the `0 0 96 96`
 viewBox, `aria-hidden="true"` and `fill="currentColor"`. The leaf neither imports
 the site nor fetches the mark. The product label and brand link use the normal
 text colour. Mark size and brand gap derive from the wordmark-size token using
