@@ -12,6 +12,18 @@
         "steps": ["uses:./.github/workflows/native-release-bundle.yml"],
         "sha256": "97e540892c8e36b07380c41ce965db1b0088be3b5f82dd87859eeb9ceea8d48c",
         "releaseOnly": "The bundle call adds draft admission, attachment and publication to the prepare stages; those stages are inventoried under native-release-bundle.yml and native-release-prepare.yml, where the prepare jobs have a pre-merge rehearsal and the publishing jobs carry their own entries."
+      },
+      "release-index": {
+        "releaseOnly": "Environment secrets are unreachable from reusable workflows under the enforced owner boundary. The top-level main-only release-index job verifies fresh published bytes before minting the App token; inert release-workflow controls pin this boundary, failure visibility and job ordering, while actual environment/App delivery and protected branch advancement require owner-authorized live release evidence.",
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "name:Verify the published release in this job's download directory",
+          "name:Require release index App credentials",
+          "id:index-app",
+          "name:Advance the verified release index"
+        ],
+        "sha256": "5ba356334d344225e6511a25ef2eb3a1e54b10842a4d7c130fc7dd8da2113b24"
       }
     },
     "native-release-bundle.yml": {
@@ -93,16 +105,9 @@
         "releaseOnly": "Publishing the allocated immutable release is an authorized side effect that cannot happen in pre-merge verification."
       },
       "published": {
-        "steps": [
-          "uses:actions/checkout@v4",
-          "uses:actions/setup-node@v4",
-          "name:Check immutability, flags, tag and attestation of the published release",
-          "name:Require release index App credentials",
-          "id:index-app",
-          "name:Advance the verified release index"
-        ],
-        "sha256": "b079bc3af4fc65b8731ffea159929e88d2e4656aa07e774b1580c86b0bb9895c",
-        "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication. The protected App pointer writer rechecks that same verified directory after all checks succeed; inert tooling controls cover pointer identity, idempotence, non-force races and refusals before merge."
+        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:verify"],
+        "sha256": "b6a8754823b0447c9b088715a3b0446bbd85c30d7f78fa911d4bee430fc8d91f",
+        "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication. This reusable verifier returns verified-publication evidence without environment App secrets; smoke and Project dispatch remain its dependents."
       },
       "smoke": {
         "steps": ["uses:./.github/workflows/native-release-smoke.yml"],
@@ -860,7 +865,7 @@
       "release": {
         "workflow": "native-release-bundle.yml",
         "job": "published",
-        "step": "name:Check immutability, flags, tag and attestation of the published release"
+        "step": "id:verify"
       },
       "preMerge": [
         {

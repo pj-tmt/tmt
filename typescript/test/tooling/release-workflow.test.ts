@@ -1395,6 +1395,7 @@ describe('publication (native-release-bundle.yml)', () => {
   const finish = job(bundle, 'finish');
   const publish = job(bundle, 'publish');
   const published = job(bundle, 'published');
+  const indexJob = job(run, 'release-index');
 
   it('publishes only after finish ran and held nothing, never for a bundle prepared without a draft', () => {
     expect(finish).toContain('held: ${{ steps.finish.outputs.held }}');
@@ -1424,7 +1425,7 @@ describe('publication (native-release-bundle.yml)', () => {
     );
     expect(published).not.toMatch(/^ {10}ref:/m);
     expect(published).toContain('persist-credentials: false');
-    expect(published).toContain('environment: release');
+    expect(published).not.toContain('environment: release');
     expect(published).toContain(
       'release-publish.mjs verify --product "$PRODUCT" --tag "$RELEASE_TAG"'
     );
@@ -1433,35 +1434,94 @@ describe('publication (native-release-bundle.yml)', () => {
       '--run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'
     );
   });
+  it('indexes only verified publication after the bundle completes smoke and Project dispatch', () => {
+    expect(bundle).toContain('value: ${{ jobs.published.outputs.published }}');
+    expect(published).toContain('published: ${{ steps.verify.outputs.published }}');
+    expect(published.indexOf('echo "published=true" >> "$GITHUB_OUTPUT"')).toBeGreaterThan(
+      published.indexOf('release-publish.mjs verify')
+    );
+    expect(indexJob).toContain('needs: [plan, bundle]');
+    expect(indexJob).toContain('matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}');
+    expect(indexJob).toContain('RELEASE_TAG: ${{ matrix.tag }}');
+    expect(indexJob).toContain('timeout-minutes: 15');
+    expect(indexJob).toMatch(
+      /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {4}steps:/m
+    );
+    const condition = /^ {4}if: \$\{\{ (.+) \}\}$/m.exec(indexJob)![1];
+    const selected = (plan: string, bundleResult: string, publication: string) =>
+      new Function(
+        'plan',
+        'bundleResult',
+        'publication',
+        `return (${condition
+          .replace(/!cancelled\(\)/g, 'true')
+          .replace(/needs\.plan\.result/g, 'plan')
+          .replace(/needs\.bundle\.result/g, 'bundleResult')
+          .replace(/needs\.bundle\.outputs\.published/g, 'publication')});`
+      )(plan, bundleResult, publication);
+    expect(selected('success', 'success', 'true')).toBe(true);
+    for (const [plan, result, publication] of [
+      ['success', 'success', ''], // held/tagless: the Published verifier never ran
+      ['success', 'failure', 'true'],
+      ['failure', 'skipped', ''],
+    ])
+      expect(selected(plan, result, publication)).toBe(false);
+    expect(job(bundle, 'smoke')).toContain('needs: published');
+    expect(job(bundle, 'project-release')).toContain('needs: [published, smoke]');
+    expect(bundle).not.toContain('release-publish.mjs index');
+  });
+
+  it('fails visibly on a non-main ref or missing App credentials before token creation', () => {
+    const admission = indexJob.slice(
+      indexJob.indexOf('name: Require release index App credentials'),
+      indexJob.indexOf('name: Create the release index App token')
+    );
+    const command = admission
+      .split('        run: |\n')[1]
+      .split('\n      - ')[0]
+      .replace(/^ {10}/gm, '');
+    for (const [ref, available, status] of [
+      ['refs/heads/main', 'true', 0],
+      ['refs/heads/main', 'false', 1],
+      ['refs/heads/topic', 'true', 1],
+    ] as const) {
+      const result = spawnSync('bash', ['-e', '-c', command], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_REF: ref, HAS_APP_CREDENTIALS: available },
+      });
+      expect(result.status).toBe(status);
+    }
+  });
+
   it('creates a minimum-scope App token only after full verification, and reuses its download directory', () => {
-    const verify = published.indexOf('release-publish.mjs verify');
-    const token = published.indexOf(
+    const verify = indexJob.indexOf('release-publish.mjs verify');
+    const token = indexJob.indexOf(
       'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1'
     );
-    const writer = published.indexOf('release-publish.mjs index');
-    const admission = published.indexOf('name: Require release index App credentials');
+    const writer = indexJob.indexOf('release-publish.mjs index');
+    const admission = indexJob.indexOf('name: Require release index App credentials');
     expect(admission).toBeGreaterThan(verify);
     expect(admission).toBeLessThan(token);
-    const credentials = published.slice(
+    const credentials = indexJob.slice(
       admission,
-      published.indexOf('name: Create the release index App token')
+      indexJob.indexOf('name: Create the release index App token')
     );
     expect(credentials).toContain(`if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo 'Release index writer requires refs/heads/main.' >&2
             exit 1
           fi`);
     expect(credentials).not.toMatch(/^\s+if:/m);
-    expect(published).not.toMatch(/if:.*github\.ref/);
-    expect(published).toContain('environment: release');
-    expect(published).not.toMatch(/^ {10}ref:/m);
+    expect(indexJob).not.toMatch(/if:.*github\.ref/);
+    expect(indexJob).toContain('environment: release');
+    expect(indexJob).not.toMatch(/^ {10}ref:/m);
     expect(verify).toBeGreaterThan(0);
     expect(token).toBeGreaterThan(verify);
     expect(writer).toBeGreaterThan(token);
-    expect(published).toContain('permission-contents: write');
-    expect(published).not.toMatch(/permission-(issues|pull-requests|organization-projects):/);
-    expect(published).toContain('GH_TOKEN: ${{ steps.index-app.outputs.token }}');
-    expect([...published.matchAll(/--directory "\$RUNNER_TEMP\/published"/g)]).toHaveLength(2);
-    expect(published).not.toMatch(/continue-on-error|if:.*always|git push|--force/);
+    expect(indexJob).toContain('permission-contents: write');
+    expect(indexJob).not.toMatch(/permission-(issues|pull-requests|organization-projects):/);
+    expect(indexJob).toContain('GH_TOKEN: ${{ steps.index-app.outputs.token }}');
+    expect([...indexJob.matchAll(/--directory "\$RUNNER_TEMP\/release-index"/g)]).toHaveLength(2);
+    expect(indexJob).not.toMatch(/continue-on-error|if:.*always|git push|--force/);
   });
 });
 
@@ -1733,5 +1793,65 @@ describe('PR-only authenticated public install proof', () => {
     expect(proof).toContain('repos/$GITHUB_REPOSITORY/releases/latest');
     expect(proof).toContain('persist-credentials: false');
     expect(proof).toContain('if-no-files-found: error');
+  });
+});
+
+describe('release environment App secrets stay in top-level workflows', () => {
+  const secretReaders = (workflows: Record<string, string>) => {
+    const reusable = new Set<string>();
+    for (const [file, text] of Object.entries(workflows)) {
+      if (/\bworkflow_call(?:\s*:|(?=[,\]]))/.test(text)) reusable.add(file);
+      for (const [, target] of text.matchAll(/uses:\s*\.\/\.github\/workflows\/([\w-]+\.yml)/g))
+        reusable.add(target);
+    }
+    return [...reusable]
+      .filter((file) => {
+        const text = workflows[file];
+        expect(text, `Missing reusable workflow ${file}`).toBeDefined();
+        return /secrets(?:\.RELEASE_APP_(?:ID|PRIVATE_KEY)\b|\[['"]RELEASE_APP_(?:ID|PRIVATE_KEY)['"]\])/.test(
+          text
+            .split('\n')
+            .filter((line) => !/^\s*#/.test(line))
+            .join('\n')
+        );
+      })
+      .sort();
+  };
+
+  it('refuses App-secret reads in all local reusable workflows, including nested and dormant files', () => {
+    const workflows = Object.fromEntries(
+      readdirSync(path.join(repository, '.github/workflows'))
+        .filter((file) => file.endsWith('.yml'))
+        .map((file) => [file, read(`.github/workflows/${file}`)])
+    );
+    expect(secretReaders(workflows)).toEqual([]);
+    expect(bundle).not.toMatch(/secrets[.\[][^\n]*RELEASE_APP_/);
+    expect(run).toContain('secrets.RELEASE_APP_ID');
+    expect(run).toContain('secrets.RELEASE_APP_PRIVATE_KEY');
+  });
+
+  it('detects dotted and bracket secret access without rejecting a top-level environment owner', () => {
+    const workflows = {
+      'owner.yml':
+        'on: [workflow_dispatch]\njobs:\n  child:\n    uses: ./.github/workflows/child.yml\n  writer:\n    env: ${{ secrets.RELEASE_APP_ID }}',
+      'child.yml':
+        'on:\n  workflow_call:\njobs:\n  nested:\n    uses: ./.github/workflows/nested.yml',
+      'nested.yml': 'on:\n  workflow_call:\njobs:\n  reader:\n    run: true',
+      'dormant.yml': 'on:\n  workflow_call:\njobs:\n  reader:\n    run: true',
+    };
+    expect(secretReaders(workflows)).toEqual([]);
+    expect(
+      secretReaders({
+        ...workflows,
+        'nested.yml': workflows['nested.yml'] + '\n    env: ${{ secrets.RELEASE_APP_ID }}',
+      })
+    ).toEqual(['nested.yml']);
+    expect(
+      secretReaders({
+        ...workflows,
+        'dormant.yml':
+          workflows['dormant.yml'] + "\n    env: ${{ secrets['RELEASE_APP_PRIVATE_KEY'] }}",
+      })
+    ).toEqual(['dormant.yml']);
   });
 });

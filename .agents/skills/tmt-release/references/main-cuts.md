@@ -367,10 +367,13 @@ The full verifier requires `tmt-release-record.json`; pre-record tags fail disti
 and historical bootstrap needs separate owner-authorized verification without mutating
 old assets.
 
-After full verification, the published job rechecks that same download directory
-and advances the protected `release-index` pointer with the Release App. It uses
-at most five non-force attempts for concurrent product writes. A failed pointer
-write is recovered by owner-authorized rerun of only the failed published job;
+The top-level `release-index` job in `native-release.yml` uses the release
+environment: reusable workflows cannot read its App secrets. After the bundle,
+smoke and Project reconcile dispatch succeed, it re-verifies into its own download
+directory, then obtains the Release App token and advances the protected pointer
+from those same bytes. It uses at most five non-force attempts for concurrent
+product writes. A failed index job leaves the release published and the overall
+run red; when index alone fails, owner-authorized failed-job recovery reruns only it;
 lower/equal-identical versions are no-ops. An ambiguous readback is reported,
 without claiming rollback of a possibly completed pointer write.
 

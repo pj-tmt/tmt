@@ -83,9 +83,12 @@ and re-apply against the latest tip, preserving unrelated products and monotonic
 version selection, with at most five non-force update attempts. Equal-version
 differing identities refuse. Failure leaves the preceding pointer intact and is
 reported visibly. An ambiguous readback does not claim rollback of a possibly
-completed update. The writer rechecks the same verified download directory; no
-flag file substitutes for verification.
-Owner recovery reruns only the failed published job: lower/equal-identical
+completed update. The top-level `release-index` job in `native-release.yml` re-verifies into its own
+download directory before obtaining the App token, then the writer rechecks those
+same bytes; no flag file substitutes for verification. Reusable workflows do not
+read the release environment App secrets. Smoke and the Project reconcile dispatch
+complete before this job; a failed index write leaves the release published and
+the overall run red. When index alone fails, owner recovery reruns only that job: lower/equal-identical
 versions are no-ops, while a higher verified version advances. Historical bootstrap
 separately performs the existing immutable/tag/attestation/digest gates; it does not
 pass a recordless release through the new full verifier or mutate old assets.
