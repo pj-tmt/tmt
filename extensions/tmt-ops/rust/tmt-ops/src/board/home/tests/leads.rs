@@ -331,3 +331,16 @@ fn hidden_lead_metadata_discloses_cut_labels_without_repeating_visible_ones() {
         }
     }
 }
+
+#[test]
+fn home_keeps_the_squad_display_name_including_tmt_prefix_at_every_width() {
+    for name in ["tmt-x", "tmt-"] {
+        let mut lead = row("A", "lead-a", "working");
+        lead["waitingOnYou"] = json!([{"requestId":"question","preparedAtMs":20}]);
+        let app = board(&[(name, document(name, lead, vec![]))]);
+        for width in [160, 100, 80, 60] {
+            let screen = lines(&draw(&app, width, 40)).join("\n");
+            assert!(screen.contains(name), "{name} at {width}:\n{screen}");
+        }
+    }
+}

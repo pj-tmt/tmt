@@ -83,7 +83,10 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
     let overview = !app.loading()
-        && app.home_entries().iter().any(|entry| entry.target.section == super::home::USAGE);
+        && app
+            .home_entries()
+            .iter()
+            .any(|entry| entry.target.section == super::home::USAGE);
     Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(u16::from(

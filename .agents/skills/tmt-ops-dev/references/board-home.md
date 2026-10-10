@@ -19,8 +19,10 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   (squads), `limits` (provider meters) and `bar` (summary/usage/keys). Builders report local entry/start/end/x/width
   placements; `home::paint` translates them into one stream, cursor, reveal and
   viewport-clipped hit map. Scene IDs are local ordinals, not names or cursor identity.
-- Width steps stay in `tmt-switch`/`hide-below` markup; content fitting stays Rust
-  measurement feeding bound branches. `tiles` supplies one full-width squad table
+- Template branch visibility uses `tmt-switch`/`hide-below` named steps; Rust
+  projections use the shared SM/MD steps plus HOME-local compact (60) and wide
+  (160) checkpoints for budgets and hidden-value disclosure. Content fitting stays
+  Rust measurement feeding bound data. `tiles` supplies one full-width squad table
   at every width, in filtered reading order. Padding belongs to row selection;
   headings/gaps have no hit. Member counts align inside the table rather than at
   the terminal edge. Marks exclude leads and assign each member one urgency class;

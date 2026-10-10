@@ -133,6 +133,9 @@ layout behavior, not new styling breakpoints.
 | wide    | Rows, detail/replies and notes in three columns           | Detail/replies fold below 180 cells                    |
 | custom  | Authored sections, cells, splits and tabs                 | Preserve configured geometry and duplicate occurrences |
 
+HOME keeps squad display names as the tabs do, including any `tmt-` prefix; narrow
+name cells truncate with `…`.
+
 HOME is the built-in `@all` board, not another aggregate member grid. Public
 `ls --tab all` is a separate listing projection. Named squad tabs start at the
 lead row; the members rule is not selectable. HOME chooses an admitted blocked,

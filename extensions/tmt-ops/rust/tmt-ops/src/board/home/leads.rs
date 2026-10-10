@@ -55,11 +55,7 @@ fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) 
     let squad = if room > name_width + 3 {
         format!(
             "   {}",
-            fit(
-                &escape(lead.squad.strip_prefix("tmt-").unwrap_or(&lead.squad)),
-                room - name_width - 3
-            )
-            .trim_end()
+            fit(&escape(&lead.squad), room - name_width - 3).trim_end()
         )
     } else {
         String::new()
@@ -71,8 +67,8 @@ fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) 
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
         "name_role": Role::Text.name(),
-        "squad": if width >= 100 { squad.clone() } else { String::new() },
-        "tag": if (80..100).contains(&width) { squad } else { String::new() },
+        "squad": if width >= super::MD.cells { squad.clone() } else { String::new() },
+        "tag": if (super::SM.cells..super::MD.cells).contains(&width) { squad } else { String::new() },
         "age": member_list::age_cell(&age, age_cells),
         "age_role": Role::Dim.name(),
     })
@@ -95,7 +91,7 @@ pub(in crate::board) fn hidden_metadata(
         row["squad"].as_str().unwrap(),
         row["tag"].as_str().unwrap()
     );
-    let label = escape(lead.squad.strip_prefix("tmt-").unwrap_or(&lead.squad));
+    let label = escape(&lead.squad);
     if !shown.contains(&label) {
         fields.push(("squad", lead.squad.clone()));
     }
@@ -171,7 +167,7 @@ pub(super) fn paint(
                 {"id": "gap", "text": null, "role": null},
                 {
                     "id": "rule",
-                    "text": if area.width >= 80 {
+                    "text": if area.width >= super::SM.cells {
                         let label = "last exchange";
                         format!("{} {label}", rule("Leads", usize::from(area.width).saturating_sub(label.len() + 1)))
                     } else { rule("Leads", usize::from(area.width)) },

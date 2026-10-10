@@ -363,7 +363,7 @@ impl App {
             )),
             Role::Muted,
         );
-        if width < 80 {
+        if width < super::home::SM.cells {
             detail.add(
                 "states",
                 Some(&format!(
@@ -372,7 +372,7 @@ impl App {
                 )),
                 Role::Muted,
             );
-        } else if width < 100 {
+        } else if width < super::home::MD.cells {
             detail.add(
                 "blocked",
                 Some(&format!("✗ {} blocked", home.summary.blocked)),
@@ -536,7 +536,7 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let labels = if width < 60 {
+    let labels = if width < super::home::COMPACT {
         5
     } else {
         fields

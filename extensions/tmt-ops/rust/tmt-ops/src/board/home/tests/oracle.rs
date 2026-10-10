@@ -751,18 +751,6 @@ fn approved_matrix(expanded: bool) -> Value {
 }
 
 #[test]
-#[ignore = "read-only approved layout evidence before oracle approval"]
-fn dump_approved_home_matrix() {
-    let path = std::env::var("TMT_HOME_MATRIX_OUT").expect("task-owned output path");
-    assert!(std::path::Path::new(&path).starts_with("/private/tmp"));
-    fs::write(
-        path,
-        serde_json::to_string_pretty(&approved_matrix(false)).unwrap() + "\n",
-    )
-    .unwrap();
-}
-
-#[test]
 fn every_hidden_overview_item_is_reachable_through_usage_detail_at_narrow_widths() {
     let folded = approved_matrix(false);
     let expanded = approved_matrix(true);

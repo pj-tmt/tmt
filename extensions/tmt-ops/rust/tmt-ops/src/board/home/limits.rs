@@ -103,6 +103,26 @@ fn split_label(label: &str, fill: usize) -> (String, String) {
     (filled, track)
 }
 
+fn rate_text(figures: &Figures) -> String {
+    figures.burn.map_or_else(
+        || "rate not known".into(),
+        |rate| {
+            if rate == 0.0 {
+                "no measured burn".into()
+            } else {
+                format!("~{rate:.1}%/h")
+            }
+        },
+    )
+}
+
+fn window_text(figures: &Figures) -> String {
+    figures.short.map_or_else(
+        || "5h no reading".into(),
+        |left| format!("5h {}", percent(left.percent)),
+    )
+}
+
 fn meter(
     standing: &Standing,
     now_ms: u64,
@@ -163,20 +183,8 @@ fn meter(
         pieces.push(piece("warning", warning, state(&figures)));
     }
     if matches!(size, Size::Full) && show_detail {
-        let rate = figures.burn.map_or_else(
-            || "rate not known".into(),
-            |rate| {
-                if rate == 0.0 {
-                    "no measured burn".into()
-                } else {
-                    format!("~{rate:.1}%/h")
-                }
-            },
-        );
-        let window = figures.short.map_or_else(
-            || "5h no reading".into(),
-            |left| format!("5h {}", percent(left.percent)),
-        );
+        let rate = rate_text(&figures);
+        let window = window_text(&figures);
         let extra = format!("   {rate} · {window}");
         let used: usize = pieces
             .iter()
@@ -194,7 +202,7 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16, size: Size) -> 
         return json!([{"id":"pending", "pieces":[piece("missing", PENDING.into(), Role::Muted)]}]);
     };
     let mut rows = Vec::new();
-    let group = if width >= 160 { 2 } else { 1 };
+    let group = if width >= super::WIDE { 2 } else { 1 };
     for (index, chunk) in standings.chunks(group).enumerate() {
         let mut pieces = Vec::new();
         for (at, standing) in chunk.iter().enumerate() {
@@ -211,7 +219,7 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16, size: Size) -> 
                 now_ms,
                 available,
                 size,
-                (100..160).contains(&width),
+                (super::MD.cells..super::WIDE).contains(&width),
             ) {
                 let id = part["id"].as_str().unwrap();
                 part["id"] = Value::String(format!("{id}{at}"));
@@ -230,14 +238,14 @@ pub(in crate::board) fn hidden_limits(
     now_ms: u64,
     width: u16,
 ) -> Vec<(&'static str, String)> {
-    let size = if width >= 100 {
+    let size = if width >= super::MD.cells {
         Size::Full
-    } else if width >= 80 {
+    } else if width >= super::SM.cells {
         Size::Medium
     } else {
         Size::Short
     };
-    let available = if width >= 160 {
+    let available = if width >= super::WIDE {
         width.saturating_sub(7) / 2
     } else {
         width
@@ -250,7 +258,7 @@ pub(in crate::board) fn hidden_limits(
             now_ms,
             available,
             size,
-            (100..160).contains(&width),
+            (super::MD.cells..super::WIDE).contains(&width),
         );
         let shown = parts
             .iter()
@@ -271,23 +279,11 @@ pub(in crate::board) fn hidden_limits(
         if !label.contains(&reset) {
             fields.push(("reset", format!("{provider} {reset}")));
         }
-        let rate = figures.burn.map_or_else(
-            || "rate not known".into(),
-            |rate| {
-                if rate == 0.0 {
-                    "no measured burn".into()
-                } else {
-                    format!("~{rate:.1}%/h")
-                }
-            },
-        );
+        let rate = rate_text(&figures);
         if !shown.contains(&rate) {
             fields.push(("rate", format!("{provider} {rate}")));
         }
-        let short = figures.short.map_or_else(
-            || "5h no reading".into(),
-            |left| format!("5h {}", percent(left.percent)),
-        );
+        let short = window_text(&figures);
         if !shown.contains(&short) {
             fields.push(("window", format!("{provider} {short}")));
         }
@@ -315,10 +311,10 @@ pub(super) fn limits_in(
             ("id".into(), Schema::StableId), ("text".into(), Schema::Scalar), ("role".into(), Schema::Scalar)]));
         let row = Schema::Object(BTreeMap::from([
             ("id".into(), Schema::StableId), ("pieces".into(), Schema::Collection(Box::new(piece)))]));
-        let schema = Schema::Object(["wide", "medium", "compact", "narrow"].into_iter()
+        let schema = Schema::Object(["medium", "compact", "narrow"].into_iter()
             .map(|name| (name.into(), Schema::Collection(Box::new(row.clone())))).collect());
-        let markup = format!(r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-case min="md">{}</tmt-case><tmt-case min="sm">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            branch("wide"), branch("medium"), branch("compact"), branch("narrow"));
+        let markup = format!(r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-case min="sm">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
+            branch("medium"), branch("compact"), branch("narrow"));
         scene::compile(FILE, &markup, &schema)
     });
     let key = Key {
@@ -326,7 +322,6 @@ pub(super) fn limits_in(
         look,
         selected: None,
         data: json!({
-            "wide":rows(standings, now_ms, width, Size::Full),
             "medium":rows(standings, now_ms, width, Size::Full),
             "compact":rows(standings, now_ms, width, Size::Medium),
             "narrow":rows(standings, now_ms, width, Size::Short),

@@ -1,8 +1,7 @@
 //! HOME's three strips outside the body: the summary under the tab line, the
 //! usage line under it and the key line in the footer. Each is a literal template
-//! whose width steps (`lg`, `md`) are a `tmt-switch`; what each step shows is built
-//! here, and the content fit (the member name that shrinks, the hints that drop)
-//! stays measurement that feeds the branch it belongs to.
+//! whose named width steps and content fit are projected here before painting.
+//! Member names shrink and whole hints drop according to the same held data.
 use super::{
     Home,
     scene::{self, Kept, Key, Painted, Part},
@@ -102,7 +101,7 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
         .squads
         .iter()
         .filter(|squad| squad.counts.waiting > 0)
-        .map(|squad| escape(squad.squad.strip_prefix("tmt-").unwrap_or(&squad.squad)))
+        .map(|squad| escape(&squad.squad))
         .collect::<Vec<_>>();
     let needs = if names.is_empty() {
         if home.failures.is_empty() && !home.incomplete {
@@ -110,7 +109,7 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
         } else {
             "Needs you: partial reading".into()
         }
-    } else if width < 80 {
+    } else if width < super::SM.cells {
         format!(
             "◆ {} need{} you {}",
             names.len(),
@@ -120,12 +119,12 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
     } else {
         format!("◆ Needs you  {}", names.join(" · "))
     };
-    let totals = if width >= 100 {
+    let totals = if width >= super::MD.cells {
         format!(
             "● {} working  ◌ {} idle  ✗ {} blocked",
             home.summary.working, home.summary.idle, home.summary.blocked
         )
-    } else if width >= 80 {
+    } else if width >= super::SM.cells {
         format!("● {} ◌ {}", home.summary.working, home.summary.idle)
     } else {
         String::new()
@@ -181,7 +180,7 @@ pub(in crate::board) fn hidden_needs(home: &Home, width: u16) -> Option<String> 
         .iter()
         .filter(|squad| squad.counts.waiting > 0)
         .collect::<Vec<_>>();
-    let mut prefix = if width < 80 {
+    let mut prefix = if width < super::SM.cells {
         format!(
             "◆ {} need{} you ",
             names.len(),
@@ -193,11 +192,9 @@ pub(in crate::board) fn hidden_needs(home: &Home, width: u16) -> Option<String> 
     let mut hidden = Vec::new();
     for (index, squad) in names.iter().enumerate() {
         if index > 0 {
-            prefix.push_str(if width < 80 { " " } else { " · " });
+            prefix.push_str(if width < super::SM.cells { " " } else { " · " });
         }
-        prefix.push_str(&escape(
-            squad.squad.strip_prefix("tmt-").unwrap_or(&squad.squad),
-        ));
+        prefix.push_str(&escape(&squad.squad));
         if !shown.starts_with(&prefix) {
             hidden.push(squad.squad.as_str());
         }
@@ -240,19 +237,15 @@ pub(super) fn summary_in(
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.summary.xml";
     let template = TEMPLATE.get_or_init(|| {
-        let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            row("wide"),
-            row("narrow")
-        );
-        scene::compile(FILE, &markup, &schema(&["wide", "narrow"]))
+        let markup = format!(r#"<tmt-view version="1">{}</tmt-view>"#, row("summary"));
+        scene::compile(FILE, &markup, &schema(&["summary"]))
     });
     let pieces = summary_pieces(home, width);
     let key = Key {
         width,
         look,
         selected: None,
-        data: data(&[("wide", pieces.clone()), ("narrow", pieces)]),
+        data: data(&[("summary", pieces)]),
     };
     slot.get(key, |key| {
         lines(paint(key, FILE, template)).unwrap_or_default()
@@ -284,7 +277,6 @@ fn usage_number(usage: &HomeHeaderUsage<'_>, index: usize) -> String {
 fn usage_pieces(
     usage: &HomeHeaderUsage<'_>,
     width: u16,
-    _wide: bool,
     digits: Option<&[String; 3]>,
 ) -> Vec<Piece> {
     let accepted = if usage.totals[2].is_some() {
@@ -300,7 +292,11 @@ fn usage_pieces(
         );
     let mut text = format!(
         "{}{} {number}{}",
-        if width >= 100 { "Usage " } else { "" },
+        if width >= super::MD.cells {
+            "Usage "
+        } else {
+            ""
+        },
         usage.windows[2].label(),
         if usage.totals[2].is_some() {
             " tok"
@@ -308,7 +304,7 @@ fn usage_pieces(
             ""
         }
     );
-    if width >= 80
+    if width >= super::SM.cells
         && let Some(top) = &usage.top
     {
         let suffix = format!(" {}", percent(&top.share));
@@ -326,7 +322,7 @@ pub(in crate::board) fn hidden_usage(
     usage: &HomeHeaderUsage<'_>,
     width: u16,
 ) -> Vec<(&'static str, String)> {
-    let shown = usage_pieces(usage, width, true, None)
+    let shown = usage_pieces(usage, width, None)
         .into_iter()
         .map(|(text, _)| text)
         .collect::<String>();
@@ -402,21 +398,14 @@ pub(super) fn usage_in(
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.usage.xml";
     let template = TEMPLATE.get_or_init(|| {
-        let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            row("wide"),
-            row("medium")
-        );
-        scene::compile(FILE, &markup, &schema(&["wide", "medium"]))
+        let markup = format!(r#"<tmt-view version="1">{}</tmt-view>"#, row("usage"));
+        scene::compile(FILE, &markup, &schema(&["usage"]))
     });
     let key = Key {
         width,
         look,
         selected: None,
-        data: data(&[
-            ("wide", usage_pieces(usage, width, true, digits)),
-            ("medium", usage_pieces(usage, width, false, digits)),
-        ]),
+        data: data(&[("usage", usage_pieces(usage, width, digits))]),
     };
     slot.get(key, |key| lines(paint(key, FILE, template)))
         .clone()
@@ -425,7 +414,7 @@ pub(super) fn usage_in(
 /// The key line: whole hints drop from the end until the line and the two exit
 /// hints fit (a fit, not a step).
 fn key_line(width: usize, overflow: bool, view_reply: bool) -> String {
-    if (60..80).contains(&width) {
+    if (usize::from(super::COMPACT)..usize::from(super::SM.cells)).contains(&width) {
         let mut keys = vec!["↑↓", "⏎", "t", "e", "/"];
         if view_reply {
             keys.push("v");
@@ -512,7 +501,11 @@ pub(super) fn hints_in(
 pub(super) fn usage_slots(usage: &HomeHeaderUsage<'_>, width: u16) -> Vec<(usize, u16, u16)> {
     let prefix = format!(
         "{}{} ",
-        if width >= 100 { "Usage " } else { "" },
+        if width >= super::MD.cells {
+            "Usage "
+        } else {
+            ""
+        },
         usage.windows[2].label()
     );
     let x = prefix.width() as u16;

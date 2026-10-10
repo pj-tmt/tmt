@@ -104,7 +104,6 @@ fn mixed_windows(items: &[TileItem<'_>]) -> bool {
 struct Columns {
     name: u16,
     lead: u16,
-    model: u16,
     members: u16,
     values: u16,
     indices: Vec<usize>,
@@ -130,7 +129,7 @@ fn member_label(counts: &Counts) -> String {
 
 impl Columns {
     /// The text budgets are shared by header, rows, detail visibility and counters.
-    fn new(items: &[TileItem<'_>], width: u16, _wide: bool) -> Self {
+    fn new(items: &[TileItem<'_>], width: u16) -> Self {
         let sampled = items.iter().any(|item| item.usage.is_some());
         let mixed = mixed_windows(items);
         let indices = if sampled { vec![2] } else { Vec::new() };
@@ -138,17 +137,16 @@ impl Columns {
         let room = width.saturating_sub(3);
         let mut result = Self {
             name: 13.min(room),
-            lead: if width >= 100 {
+            lead: if width >= super::MD.cells {
                 19
-            } else if width >= 80 {
+            } else if width >= super::SM.cells {
                 17
             } else {
                 0
             },
-            model: 0,
-            members: if width >= 100 {
+            members: if width >= super::MD.cells {
                 16
-            } else if width >= 80 {
+            } else if width >= super::SM.cells {
                 12
             } else {
                 0
@@ -163,7 +161,7 @@ impl Columns {
             mixed,
             sampled,
         };
-        if width >= 100 {
+        if width >= super::MD.cells {
             // Use spare columns for the member marks and full count label.
             let wanted = items
                 .iter()
@@ -291,28 +289,15 @@ fn pieces(
     };
     let mut pieces = vec![
         (fit(badge, width.min(3)), role),
-        (
-            column(
-                item.squad
-                    .squad
-                    .strip_prefix("tmt-")
-                    .unwrap_or(&item.squad.squad),
-                columns.name,
-            ),
-            Role::Accent,
-        ),
+        (column(&item.squad.squad, columns.name), Role::Accent),
         (column(lead(item), columns.lead), Role::Text),
-        (
-            column(model(item).unwrap_or_default(), columns.model),
-            Role::Muted,
-        ),
     ];
     pieces.extend(member_pieces(item.members, columns.members));
     let unavailable = item
         .usage
         .as_ref()
         .is_some_and(|usage| usage.lead.iter().all(Option::is_none) && usage.share.is_none());
-    let used = 3 + columns.name + columns.lead + columns.model + columns.members + columns.values;
+    let used = 3 + columns.name + columns.lead + columns.members + columns.values;
     pieces.push((
         " ".repeat(usize::from(width.saturating_sub(used))),
         Role::Text,
@@ -417,7 +402,7 @@ pub(in crate::board) fn hidden_squad(
     item: &TileItem<'_>,
     width: u16,
 ) -> Vec<(&'static str, String)> {
-    let columns = Columns::new(std::slice::from_ref(item), width, width >= 80);
+    let columns = Columns::new(std::slice::from_ref(item), width);
     let mut fields = Vec::new();
     let survives = |value: &str, cells: u16| {
         cells > 0
@@ -482,9 +467,9 @@ fn row_id(item: usize) -> String {
     format!("squad-{item}")
 }
 
-/// The rule and rows of one branch of the `md` switch.
-fn branch(items: &[TileItem<'_>], width: u16, wide: bool, digits: Option<&[[String; 3]]>) -> Value {
-    let columns = Columns::new(items, width, wide);
+/// The rule and full-width rows at the current named width step.
+fn branch(items: &[TileItem<'_>], width: u16, digits: Option<&[[String; 3]]>) -> Value {
+    let columns = Columns::new(items, width);
     let legend = if columns.mixed {
         "windows vary".into()
     } else {
@@ -501,7 +486,7 @@ fn branch(items: &[TileItem<'_>], width: u16, wide: bool, digits: Option<&[[Stri
     );
     json!({
         "rule": rule(&title, usize::from(width)),
-        "header": if width >= 80 { vec![json!({"text": header(items, width, &columns)})] } else { Vec::new() },
+        "header": if width >= super::SM.cells { vec![json!({"text": header(items, width, &columns)})] } else { Vec::new() },
         "rows": items.iter().enumerate().map(|(at, item)| {
             json!({
                 "id": row_id(at),
@@ -521,11 +506,7 @@ fn markup() -> String {
             r#"<tmt-text id="rule" bind="$.{branch}.rule" token="muted" class="w-full"/><tmt-repeat each="$.{branch}.header" as="header"><tmt-text id="header" bind="header.text" token="muted" class="w-full h-1"/></tmt-repeat><tmt-repeat each="$.{branch}.rows" as="row"><tmt-row id-bind="row.id" class="w-full"><tmt-repeat each="row.cells" as="cell"><tmt-text id-bind="cell.id" bind="cell.text" token-bind="cell.role" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat>"#
         )
     };
-    format!(
-        r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-        body("wide"),
-        body("narrow")
-    )
+    format!(r#"<tmt-view version="1">{}</tmt-view>"#, body("squads"))
 }
 
 fn schema() -> Schema {
@@ -561,7 +542,7 @@ fn schema() -> Schema {
             ),
         ])
     };
-    object(vec![("wide", branch()), ("narrow", branch())])
+    object(vec![("squads", branch())])
 }
 
 fn template() -> &'static Template<()> {
@@ -612,7 +593,7 @@ pub(super) fn paint_display_in(
         width,
         look,
         selected: selected.map(row_id),
-        data: json!({"wide": branch(items, width, true, digits), "narrow": branch(items, width, false, digits)}),
+        data: json!({"squads": branch(items, width, digits)}),
     };
     slot.get(key, build).clone()
 }
@@ -648,13 +629,13 @@ fn build(key: &Key) -> TilePaint {
         },
     );
     let mut lines = painted.lines;
-    let header = usize::from(key.width >= 80);
+    let header = usize::from(key.width >= super::SM.cells);
     let rows = lines.split_off(1 + header);
     TilePaint {
         head: lines,
         regions: placement(
             key.width,
-            key.data["wide"]["rows"].as_array().map_or(0, Vec::len),
+            key.data["squads"]["rows"].as_array().map_or(0, Vec::len),
         ),
         lines: rows,
     }
@@ -665,7 +646,7 @@ mod tests;
 
 /// Counter slots reuse the same table budget used by the admitted branch.
 pub(super) fn counter_slots(items: &[TileItem<'_>], width: u16) -> Vec<(usize, u16, u16, bool)> {
-    let columns = Columns::new(items, width, width >= tmt_cli_style::breakpoint::MD.cells);
+    let columns = Columns::new(items, width);
     let slots = columns.slots() as u16;
     if slots == 0 {
         return Vec::new();

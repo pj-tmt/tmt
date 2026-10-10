@@ -134,7 +134,8 @@ pub(in crate::board) fn pieces(state: &State, now_ms: i64, width: u16) -> Option
         ClockStatus::NoClock => ("clock off", Role::Blocked),
         ClockStatus::Unknown => ("clock checking", Role::Waiting),
     };
-    if (60..80).contains(&width)
+    if (usize::from(crate::board::home::COMPACT)..usize::from(crate::board::home::SM.cells))
+        .contains(&width)
         && state.failure.is_none()
         && let Some((at, view)) = cron.next()
         && let Some(time) = short_time(at, now_ms, &zone(view))

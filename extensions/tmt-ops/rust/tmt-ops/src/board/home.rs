@@ -13,6 +13,11 @@ use crate::{
 };
 use serde_json::{Value, json};
 
+pub(super) use tmt_cli_style::breakpoint::{MD, SM};
+/// HOME-only compact and two-meter design checkpoints; not shared token roles.
+pub(super) const COMPACT: u16 = 60;
+pub(super) const WIDE: u16 = 160;
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Counts {
     pub members: usize,
