@@ -518,6 +518,32 @@ for (const width of [1440, 390])
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toBeVisible();
       await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      // C above is a keyboard guard case. Capture the ordinary pointer activation separately.
+      await expect(mode).toBeFocused();
+      expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+      // Use the preceding hint as a test-only starting point for native Tab navigation.
+      const hint = page.getByText(text.selectionModeHint, { exact: true });
+      await hint.evaluate((node: HTMLElement) => {
+        node.tabIndex = -1;
+        node.focus();
+        node.removeAttribute('tabindex');
+      });
+      await page.keyboard.press('Tab');
+      await expect(mode).toBeFocused();
+      expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+      // Release this test's forced keyboard focus before exercising the body shortcut.
+      await mode.evaluate((node) => node.blur());
+      await page.keyboard.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await page.keyboard.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+      await mode.click();
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await mode.click();
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+      await expect(page.locator('.selection-mode .tmt-ui-icon-action-tooltip')).toBeHidden();
       await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
       const frame = page.frameLocator('#ask-page-fixture iframe');
       await frame.locator('#selected').hover();
