@@ -235,13 +235,14 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       timeout: 60_000,
     });
     await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
-    // Removing the link advanced the epoch: the owner's live session stops (STALE_EPOCH) and,
-    // reopened, still reads the file sealed under the earlier epoch.
-    await expect(first.getByRole('heading', { name: 'Preview stopped' })).toBeVisible({
+    // Removing the link advanced the epoch: the owner's open page re-admits on its own (#2557)
+    // and, without a reload, still reads the file sealed under the earlier epoch.
+    await expect(first.locator('.status.live .status-label')).toHaveText('Live', {
       timeout: 60_000,
     });
-    await first.reload();
-    await openFiles(first);
+    await expect(first.getByRole('heading', { name: 'Preview stopped' })).toHaveCount(0);
+    // The Files panel opened earlier stays open across the re-admission.
+    await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
     expect(await downloaded(first, rowsOf(first).first(), note.name)).toBe(sha(note.buffer));
   });
