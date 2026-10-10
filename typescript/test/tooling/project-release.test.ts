@@ -491,8 +491,8 @@ describe('full repository-state release sweep', () => {
       expect(affectedProducts([file], map, workspace)).toEqual({
         products:
           leaf === 'tmt-invoke'
-            ? ['cli', 'colab', 'driver-herdr', 'ops', 'remote']
-            : ['cli', 'colab', 'ops', 'remote'],
+            ? ['cli', 'colab', 'digest', 'driver-herdr', 'ops', 'remote']
+            : ['cli', 'colab', 'digest', 'ops', 'remote'],
         unpublished: [],
       });
       expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
@@ -504,7 +504,7 @@ describe('full repository-state release sweep', () => {
 
   it('requires activated Ops publication for shared leaves and attributes TUI only to Ops', () => {
     expect(affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], actualMap, workspace)).toEqual({
-      products: ['cli', 'colab', 'driver-herdr', 'ops', 'remote'],
+      products: ['cli', 'colab', 'digest', 'driver-herdr', 'ops', 'remote'],
       unpublished: [],
     });
     expect(affectedProducts(['rust/crates/tmt-tui/src/lib.rs'], actualMap, workspace)).toEqual({
@@ -535,18 +535,24 @@ describe('full repository-state release sweep', () => {
           text: 'tmt-ops 0.1.0-alpha.1',
           waiting:
             leaf === 'tmt-invoke'
-              ? ['Awaiting cli', 'Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
-              : ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
+              ? [
+                  'Awaiting cli',
+                  'Awaiting colab',
+                  'Awaiting digest',
+                  'Awaiting driver-herdr',
+                  'Awaiting remote',
+                ]
+              : ['Awaiting cli', 'Awaiting colab', 'Awaiting digest', 'Awaiting remote'],
         });
         releases.push(release('v5.0.0-alpha.2', 1));
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
           waiting:
             leaf === 'tmt-invoke'
-              ? ['Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
-              : ['Awaiting colab', 'Awaiting remote'],
+              ? ['Awaiting colab', 'Awaiting digest', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting colab', 'Awaiting digest', 'Awaiting remote'],
         });
-        for (const product of ['remote', 'colab']) {
+        for (const product of ['remote', 'colab', 'digest']) {
           const tag = `tmt-${product}-v0.1.0-alpha.1`;
           git(['tag', tag]);
           releases.push(release(tag, 2));
@@ -565,6 +571,7 @@ describe('full repository-state release sweep', () => {
         if (leaf === 'tmt-invoke') expect(row.text).toContain('tmt-driver-herdr 0.1.0-alpha.1');
         expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
         expect(row.text).toContain('tmt-ops 0.1.0-alpha.1');
+        expect(row.text).toContain('tmt-digest 0.1.0-alpha.1');
         expect(row.waiting).toEqual([]);
         expect(writes(api)).toHaveLength(0);
       })

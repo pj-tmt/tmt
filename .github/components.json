@@ -48,7 +48,7 @@
       "release": true,
       "bootstrapSha": "e2aedb34b75ee551252a53174a0c377da27e12a9",
       "initialVersion": "0.1.0-alpha.1",
-      "requiresCliSha": "485a0b1548f6ee4559a266084a2f1291264db326"
+      "requiresCliSha": "506abd65febb889144bfb84cbadf1932cc90f995"
     },
     "office": {
       "package": "tmt-office",

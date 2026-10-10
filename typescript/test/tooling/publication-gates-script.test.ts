@@ -150,6 +150,7 @@ function scenario(options: Scenario = {}) {
       })
     );
   writeReleaseWorkspace(repo, [
+    'digest',
     'remote',
     'colab',
     'driver-herdr',
