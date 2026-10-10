@@ -408,6 +408,34 @@
         "sha256": "b8f5e4c8980e0e489f9bae65b1daf61736f7df164bf200b46c8684f07ef21371",
         "releaseOnly": "Cadence, draft visibility and concurrent allocation/recovery admission depend on live main and release state, and the planner needs a token that sees drafts, which no pull request holds. The pure cut planner is tested pre-merge; the commit-title input that once broke it is checked on every pull request (#1643)."
       }
+    },
+    "release-index-bootstrap.yml": {
+      "backfill": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "name:Require the main ref",
+          "name:Read the newest published inventory",
+          "id:reviewed",
+          "name:Require release index App credentials",
+          "id:index-app",
+          "name:Backfill the verified historical release"
+        ],
+        "sha256": "eac7ab1d09e4b4448ac56d925316e26eb9cb390dcd46a7f08062ed26a8ae8a2f",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "unit-tests",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "native_scope",
+              "value": "full"
+            },
+            "coverage": "policy",
+            "tests": ["typescript/test/tooling/release-workflow.test.ts"]
+          }
+        ]
+      }
     }
   },
   "publicationGates": {

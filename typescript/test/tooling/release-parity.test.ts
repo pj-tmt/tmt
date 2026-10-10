@@ -15,12 +15,13 @@ const bundle = '.github/workflows/native-release-bundle.yml';
 const prepare = '.github/workflows/native-release-prepare.yml';
 
 describe('release gate parity inventory', () => {
-  it('covers both release entry points and every local reusable workflow with current evidence', () => {
+  it('covers all three release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
-      workflows: 7,
-      jobs: 27,
+      workflows: 8,
+      jobs: 28,
       publicationGates: 6,
     });
+    expect(Object.keys(releaseInventory(read))).toContain('release-index-bootstrap.yml');
     expect(Object.keys(releaseInventory(read))).toContain('native-release-upgrade.yml');
     expect(Object.keys(releaseInventory(read))).toContain('native-release-smoke.yml');
   });
