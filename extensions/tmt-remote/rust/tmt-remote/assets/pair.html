@@ -69,11 +69,11 @@
               <span class="tmt-ui-action-label">Pair</span>
             </button>
           </form>
-          <div id="comparison" hidden>
-            <p class="words-label">Words</p>
+          <div id="comparison" role="region" aria-labelledby="words-label" aria-describedby="status" tabindex="-1" hidden>
+            <p id="words-label" class="words-label">Words to compare</p>
             <p id="words"></p>
           </div>
-          <p id="status" role="status">Pairing is unavailable until the current offer is ready.</p>
+          <p id="status" role="status" tabindex="-1">Pairing is unavailable until the current offer is ready.</p>
           <p id="entry-link" hidden><a href="/">Return to Remote and connect</a></p>
         </div>
       </section>

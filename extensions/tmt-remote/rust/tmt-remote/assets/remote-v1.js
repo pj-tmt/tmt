@@ -1913,9 +1913,12 @@ async function pairingPage(link) {
 	}
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
+		const ownsFocus = form.contains(document.activeElement);
 		form.hidden = true;
+		if (ownsFocus) status.focus({ preventScroll: true });
 		const name = element("name").value.trim();
 		ceremony(parsed, name, status).catch(() => {
+			if (document.activeElement === element("comparison")) status.focus({ preventScroll: true });
 			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
 	});
@@ -1928,7 +1931,9 @@ async function ceremony({ descriptor, code }, name, status) {
 	const indexes = await fingerprintIndexes(key.publicKey());
 	const words = element("words");
 	words.textContent = indexes.map((i) => WORDS[i]).join(" ");
-	element("comparison").hidden = false;
+	const comparison = element("comparison");
+	comparison.hidden = false;
+	if (document.activeElement === status) comparison.focus({ preventScroll: true });
 	showState(status, "waiting", "Waiting for confirmation in your terminal. Compare these words and confirm only if they match.");
 	const result = await pair({
 		descriptor,
@@ -1946,6 +1951,7 @@ async function ceremony({ descriptor, code }, name, status) {
 	await openSession(result, key, descriptor.windowId);
 	showState(status, "paired", "This browser is paired. You can close this page.");
 	element("entry-link").hidden = false;
+	if (document.activeElement === comparison || document.activeElement === status) element("entry-link").querySelector("a").focus({ preventScroll: true });
 }
 /** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.
 * Use only to construct a transport; never navigate to or log this URL.

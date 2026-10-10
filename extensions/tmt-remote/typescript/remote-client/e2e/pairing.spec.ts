@@ -1560,7 +1560,9 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   execFileSync(BINARY, ['devices', 'designate', device.clientId, '--json'], { env });
   await page.goto(`${origin}/settings`);
   await expect(page.locator('#access')).toContainText('confirmed');
-  await expect(page.getByRole('button', { name: 'Enable sending', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
+  ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending off ·');
   await captureState(
     page,
@@ -1577,14 +1579,18 @@ test('bare pairing is read only and settings explicitly enables audited sending'
     ['dark'],
   );
   const confirmation = page.waitForEvent('dialog');
-  const enable = page.getByRole('button', { name: 'Enable sending', exact: true }).click();
+  const enable = page
+    .getByRole('button', { name: 'Enable sending for Settings browser', exact: true })
+    .click();
   const dialog = await confirmation;
   expect(dialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
   await dialog.accept();
   await enable;
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await page.click('#recover');
-  await expect(page.getByRole('button', { name: 'Disable sending', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Disable sending for Settings browser', exact: true }),
+  ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toContainText('Paired · Sending on ·');
   await captureState(
     page,
@@ -1705,7 +1711,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
       shadow: 'none',
       opacity: '1',
     });
-    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleName('Device name');
+    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleName(
+      'Device name for Settings browser',
+    );
     await expect(page.locator('#opening')).toHaveAccessibleName('Open a browser when pairing');
   }
   await page.emulateMedia({ colorScheme: 'light' });
@@ -1742,11 +1750,15 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Designated browser; unset default8 and admitted controls',
   );
   // Explicit self scope changes use the same original-only recovery, never a resend.
-  await page.getByRole('button', { name: 'Disable sending', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Disable sending for Settings browser', exact: true })
+    .click();
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await expect(page.locator('#access')).toContainText('unconfirmed');
   await page.click('#recover');
-  await expect(page.getByRole('button', { name: 'Enable sending', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
+  ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toHaveText(
     /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last activity .+$/,
   );
@@ -1759,14 +1771,18 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     );
   }
   const sendingConfirmation = page.waitForEvent('dialog');
-  const enableSending = page.getByRole('button', { name: 'Enable sending', exact: true }).click();
+  const enableSending = page
+    .getByRole('button', { name: 'Enable sending for Settings browser', exact: true })
+    .click();
   const sendingDialog = await sendingConfirmation;
   expect(sendingDialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
   await sendingDialog.accept();
   await enableSending;
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await page.click('#recover');
-  await expect(page.getByRole('button', { name: 'Disable sending', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: 'Disable sending for Settings browser', exact: true }),
+  ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toHaveText(
     /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last activity .+$/,
   );
@@ -1966,7 +1982,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   const confirmation = page.waitForEvent('dialog');
   const revokeClick = page
     .locator('.device')
-    .getByRole('button', { name: 'Revoke', exact: true })
+    .getByRole('button', { name: 'Revoke Renamed browser', exact: true })
     .click();
   const dialog = await confirmation;
   try {
@@ -2147,11 +2163,13 @@ test('settings pagination retains later-page drafts across refresh and guards na
     'settings-revoke-ready',
     'Native revoke action; confirm text is asserted separately, not rasterized by headless Chromium',
   );
-  await target.getByRole('button', { name: 'Revoke', exact: true }).click();
+  await target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }).click();
   await expect(target.locator('.device-summary')).toContainText('Revoked');
-  await expect(target.getByRole('button', { name: 'Revoke', exact: true })).toBeDisabled();
   await expect(
-    target.getByRole('button', { name: 'Revoke', exact: true }),
+    target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }),
   ).toHaveAccessibleDescription('This device is revoked.');
   await captureState(
     page,
@@ -2928,5 +2946,226 @@ for (const [width, theme] of [
       ),
     ).toBe(false);
     await context.close();
+  });
+}
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+  test(`settings accessibility preserves refresh focus and quiet projections (${width}/${theme})`, async () => {
+    const { context, page, clientId } = await feedbackFixture(width, theme);
+    await expect(page.locator('#firestore-budget')).toBeVisible();
+    await page.evaluate(() => {
+      const state = window as typeof window & { a11yTrace?: string[] };
+      state.a11yTrace = [];
+      for (const kind of ['focusin', 'focusout'])
+        document.addEventListener(kind, (event) => {
+          const target = event.target as HTMLElement;
+          state.a11yTrace!.push(`${kind}:${target.id || target.tagName}`);
+        });
+    });
+    async function gatedRefresh(move: boolean): Promise<void> {
+      const barrier = routeBarrier();
+      const joined = routeBarrier();
+      const hold = async (route: import('@playwright/test').Route) => {
+        const wire = route.request().postDataJSON();
+        const input = JSON.parse(Buffer.from(wire.payload, 'base64url').toString('utf8'));
+        if (wire.operation !== 'remote.settings.show' || input.firestore === true) {
+          await route.continue();
+          return;
+        }
+        barrier.arrive();
+        try {
+          await barrier.held;
+          await route.continue();
+        } finally {
+          joined.arrive();
+        }
+      };
+      await page.route('**/append', hold);
+      await page.locator('#refresh').focus();
+      await page.locator('#refresh').press('Enter');
+      try {
+        await barrier.reached;
+        await expect(page.locator('#refresh')).toBeDisabled();
+        if (move) {
+          // A real intentional move outside the disabled form must never be stolen back.
+          await page.evaluate(() => {
+            const probe = document.createElement('button');
+            probe.id = 'focus-probe';
+            probe.textContent = 'Fixture focus target';
+            document.body.append(probe);
+            probe.focus();
+          });
+        }
+      } finally {
+        barrier.release();
+        await joined.reached;
+        await page.unroute('**/append', hold);
+      }
+      await expect(page.locator('#refresh')).toBeEnabled();
+      await expect(page.locator(move ? '#focus-probe' : '#refresh')).toBeFocused();
+      if (move) await page.locator('#focus-probe').evaluate((probe) => probe.remove());
+      await expect(page.locator('#firestore-budget')).toBeVisible();
+    }
+    await gatedRefresh(false);
+    await gatedRefresh(true);
+    const own = page.locator(`#name-${clientId}`);
+    await expect(own).toHaveAccessibleName('Device name for Feedback browser');
+    await expect(
+      page.getByRole('button', { name: 'Rename this device (Feedback browser)', exact: true }),
+    ).toBeEnabled();
+    const other = page.locator('#name-00000000-0000-4000-8000-000000000001');
+    await expect(other).toHaveAccessibleName('Device name for Device 1');
+    await expect(page.getByRole('button', { name: 'Rename Device 1', exact: true })).toBeEnabled();
+    await expect(
+      page.getByRole('button', { name: 'Enable sending for Device 1', exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Revoke Device 1', exact: true })).toBeEnabled();
+    await page.locator('#firestore-budget summary').click();
+    await page.evaluate(() => {
+      const state = window as typeof window & { quiet?: { count: number; budget: Element } };
+      state.quiet = { count: 0, budget: document.querySelector('#firestore-budget')! };
+      new MutationObserver((records) => {
+        state.quiet!.count += records.length;
+      }).observe(document.querySelector('#access-announcement')!, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+      new MutationObserver((records) => {
+        state.quiet!.count += records.length;
+      }).observe(document.querySelector('#firestore-content')!, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    });
+    await page.selectOption('#limit-mode', 'custom');
+    await page.locator('#limit-custom').fill('');
+    await page.locator('#limit-custom').pressSequentially('123');
+    await page.locator('#limit-custom').press('Tab');
+    expect(
+      await page.evaluate(() => {
+        const state = window as typeof window & { quiet?: { count: number; budget: Element } };
+        return {
+          count: state.quiet!.count,
+          same: state.quiet!.budget === document.querySelector('#firestore-budget'),
+          open: document.querySelector<HTMLDetailsElement>('#firestore-budget')!.open,
+        };
+      }),
+    ).toEqual({ count: 0, same: true, open: true });
+    await page.locator('#refresh').focus();
+    await captureState(
+      page,
+      'a11y-settings-refreshed',
+      'Refresh focus and admitted device action names; budget outside live region',
+      [width],
+      [theme],
+    );
+    execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+    await gatedRefresh(false);
+    await expect(page.locator('#read-only')).toBeVisible();
+    const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+    if (directory)
+      await appendFile(
+        join(directory, 'focus-traces.jsonl'),
+        JSON.stringify({
+          state: 'settings',
+          width,
+          theme,
+          trace: await page.evaluate(
+            () => (window as typeof window & { a11yTrace?: string[] }).a11yTrace,
+          ),
+        }) + '\n',
+      );
+    await context.close();
+  });
+
+  test(`pairing accessibility follows visible ceremony focus (${width}/${theme})`, async () => {
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const events = lines(pair);
+    const offer = await events.next();
+    const context = await browser.newContext({
+      viewport: { width, height: 900 },
+      colorScheme: theme,
+    });
+    const page = await context.newPage();
+    await page.goto(offer.link as string);
+    await page.evaluate(() => {
+      const state = window as typeof window & { a11yTrace?: string[] };
+      state.a11yTrace = [];
+      for (const kind of ['focusin', 'focusout'])
+        document.addEventListener(kind, (event) => {
+          const target = event.target as HTMLElement;
+          state.a11yTrace!.push(`${kind}:${target.id || target.tagName}`);
+        });
+    });
+    await page.fill('#name', 'Keyboard browser');
+    await page.locator('#pair button').focus();
+    await page.locator('#pair button').press('Enter');
+    await expect(page.locator('#comparison')).toBeVisible();
+    await expect(page.locator('#comparison')).toBeFocused();
+    await expect(page.locator('#comparison')).toHaveAccessibleName('Words to compare');
+    await captureState(
+      page,
+      'a11y-pair-waiting',
+      'Visible named word-comparison focus while terminal confirmation is held',
+      [width],
+      [theme],
+    );
+    await events.next();
+    pair.stdin.write('confirm\n');
+    expect((await events.next()).reason).toBe('paired');
+    await exited(pair);
+    await expect(page.locator('#entry-link a')).toBeFocused();
+    await expect(page.locator('#status')).toContainText('This browser is paired.');
+    await captureState(
+      page,
+      'a11y-pair-paired',
+      'Return to Remote owns focus only after the same ceremony transition',
+      [width],
+      [theme],
+    );
+    const directory = process.env.TMT_REMOTE_CAPTURE_DIR;
+    if (directory)
+      await appendFile(
+        join(directory, 'focus-traces.jsonl'),
+        JSON.stringify({
+          state: 'pairing',
+          width,
+          theme,
+          trace: await page.evaluate(
+            () => (window as typeof window & { a11yTrace?: string[] }).a11yTrace,
+          ),
+        }) + '\n',
+      );
+    await context.close();
+    // A subsequent ceremony must not steal intentional focus on another control.
+    pair = spawn(BINARY, ['pair', '--json'], { env });
+    const secondEvents = lines(pair);
+    const secondOffer = await secondEvents.next();
+    const movedContext = await browser.newContext();
+    const movedPage = await movedContext.newPage();
+    await movedPage.goto(secondOffer.link as string);
+    await movedPage.fill('#name', 'Moved focus browser');
+    await movedPage.locator('#pair button').focus();
+    await movedPage.locator('#pair button').press('Enter');
+    await expect(movedPage.locator('#comparison')).toBeFocused();
+    await secondEvents.next();
+    await movedPage.evaluate(() => {
+      const probe = document.createElement('button');
+      probe.id = 'focus-probe';
+      probe.textContent = 'Fixture focus target';
+      document.body.append(probe);
+      probe.focus();
+    });
+    pair.stdin.write('confirm\n');
+    expect((await secondEvents.next()).reason).toBe('paired');
+    await exited(pair);
+    await expect(movedPage.locator('#entry-link')).toBeVisible();
+    await expect(movedPage.locator('#focus-probe')).toBeFocused();
+    await movedContext.close();
   });
 }

@@ -160,3 +160,18 @@ input {
   color: var(--tmt-ui-color-secondary);
   font-size: 14px;
 }
+
+/* Programmatic ceremony focus shares the host's existing focus tokens. */
+#comparison:focus-visible,
+#status:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.screen-reader-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

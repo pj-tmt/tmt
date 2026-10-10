@@ -133,12 +133,21 @@ function renderOutcome(): void {
 
 function render(): void {
   renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
-  element('access').textContent = {
+  const access = {
     checking: 'Checking current access…',
     live: 'Current browser access confirmed.',
     lost: 'Current browser access refused.',
     unconfirmed: 'Current browser access unconfirmed.',
   }[page.access];
+  if (element('access').textContent !== access) element('access').textContent = access;
+  const announcement = {
+    checking: '',
+    live: 'Browser access confirmed',
+    lost: 'Access ended',
+    unconfirmed: 'Access unconfirmed',
+  }[page.access];
+  if (announcement && element('access-announcement').textContent !== announcement)
+    element('access-announcement').textContent = announcement;
   const editable = page.access === 'live' && page.settings?.capabilities.settingsWrite === true;
   element('read-only').hidden = editable;
   element('access-notice').dataset.tone =
@@ -246,6 +255,7 @@ function render(): void {
         save.append(saveLabel);
         const revoke = document.createElement('button');
         revoke.type = 'button';
+        revoke.dataset.action = 'revoke';
         revoke.className = 'tmt-ui-action';
         revoke.dataset.variant = 'destructive';
         const revokeLabel = document.createElement('span');
@@ -315,7 +325,27 @@ function render(): void {
         `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : `Paired · Sending ${device.talkEnabled ? 'on' : 'off'}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
       row.querySelector('[data-action="talk"] .tmt-ui-action-label')!.textContent =
         device.talkEnabled ? 'Disable sending' : 'Enable sending';
+      const form = row.querySelector('form')!;
+      form.setAttribute('aria-label', `Device ${device.name}`);
       const name = row.querySelector<HTMLInputElement>('input')!;
+      name.removeAttribute('aria-labelledby');
+      name.setAttribute('aria-label', `Device name for ${device.name}`);
+      // The target name comes from the admitted summary, never its unsent draft.
+      row
+        .querySelector('button[type=submit]')!
+        .setAttribute(
+          'aria-label',
+          device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`,
+        );
+      row
+        .querySelector('[data-action="talk"]')!
+        .setAttribute(
+          'aria-label',
+          `${device.talkEnabled ? 'Disable' : 'Enable'} sending for ${device.name}`,
+        );
+      row
+        .querySelector('button[data-action="revoke"]')!
+        .setAttribute('aria-label', `Revoke ${device.name}`);
       name.disabled = !editable || device.revoked;
       if (editable) name.removeAttribute('aria-describedby');
       else name.setAttribute('aria-describedby', 'read-only');
@@ -396,7 +426,31 @@ for (const field of [opening, mode, custom]) {
   field.addEventListener('input', render);
   field.addEventListener('change', render);
 }
-refresh.addEventListener('click', () => void run(() => refreshView()));
+refresh.addEventListener('click', () => {
+  if (page.busy) return;
+  const ownedFocus = document.activeElement === refresh;
+  let moved = false;
+  const trackFocus = (event: Event) => {
+    if (event.target !== refresh && event.target !== document.body) moved = true;
+  };
+  const trackPointer = (event: Event) => {
+    if (!refresh.contains(event.target as Node)) moved = true;
+  };
+  document.addEventListener('focusin', trackFocus);
+  document.addEventListener('pointerdown', trackPointer);
+  void run(() => refreshView()).finally(() => {
+    document.removeEventListener('focusin', trackFocus);
+    document.removeEventListener('pointerdown', trackPointer);
+    if (
+      ownedFocus &&
+      !moved &&
+      refresh.isConnected &&
+      !refresh.disabled &&
+      (document.activeElement === document.body || document.activeElement === refresh)
+    )
+      refresh.focus({ preventScroll: true });
+  });
+});
 // Navigation never discards an unsent name. Keep only this bounded page's forms,
 // rather than accumulating drafts or cursor history across the whole inventory.
 function navigate(cursor: string | null): void {
@@ -431,6 +485,8 @@ try {
       ? 'Current browser access refused. Use the local CLI.'
       : 'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.',
   );
+  element('access-announcement').textContent =
+    error instanceof RefusalError ? 'Access ended' : 'Access unconfirmed';
   refresh.disabled = true;
   element('access-notice').dataset.tone = 'blocked';
   element('controls-reason').textContent = 'Current access is unavailable. Use the local CLI.';

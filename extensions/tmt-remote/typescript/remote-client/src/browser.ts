@@ -525,9 +525,12 @@ export async function pairingPage(link: string): Promise<void> {
   }
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    const ownsFocus = form.contains(document.activeElement);
     form.hidden = true;
+    if (ownsFocus) status.focus({ preventScroll: true });
     const name = (element('name') as HTMLInputElement).value.trim();
     void ceremony(parsed, name, status).catch(() => {
+      if (document.activeElement === element('comparison')) status.focus({ preventScroll: true });
       showState(
         status,
         'blocked',
@@ -548,7 +551,9 @@ async function ceremony(
   const indexes = await fingerprintIndexes(key.publicKey());
   const words = element('words');
   words.textContent = indexes.map((i) => WORDS[i]).join(' ');
-  element('comparison').hidden = false;
+  const comparison = element('comparison');
+  comparison.hidden = false;
+  if (document.activeElement === status) comparison.focus({ preventScroll: true });
   showState(
     status,
     'waiting',
@@ -570,6 +575,8 @@ async function ceremony(
   await openSession(result, key, descriptor.windowId);
   showState(status, 'paired', 'This browser is paired. You can close this page.');
   element('entry-link').hidden = false;
+  if (document.activeElement === comparison || document.activeElement === status)
+    element('entry-link').querySelector<HTMLAnchorElement>('a')!.focus({ preventScroll: true });
 }
 
 /** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.

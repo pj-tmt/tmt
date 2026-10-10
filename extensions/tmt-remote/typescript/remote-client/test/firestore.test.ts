@@ -66,7 +66,15 @@ const cases = [
 ] as const;
 // A bounded DOM stand-in, matching the browser-entry tests; browser geometry is checked separately.
 class FirestoreDomNode {
-  textContent = '';
+  private content = '';
+  writes = 0;
+  get textContent() {
+    return this.content;
+  }
+  set textContent(value: string) {
+    this.content = value;
+    this.writes++;
+  }
   dataset: Record<string, string> = {};
   children: FirestoreDomNode[] = [];
   attributes: Record<string, string> = {};
@@ -99,8 +107,16 @@ class FirestoreDomNode {
     ];
   }
 }
-function render(layers: unknown, budget = publishedFixture()) {
+function render(
+  layers: unknown,
+  budget = publishedFixture(),
+  announcement = new FirestoreDomNode('p'),
+) {
   vi.stubGlobal('document', {
+    getElementById: (id: string) => {
+      assert.equal(id, 'firestore-announcement');
+      return announcement;
+    },
     createElement: (tag: string) => new FirestoreDomNode(tag),
     createTextNode: (text: string) => new FirestoreDomNode('#text', text),
   });
@@ -265,5 +281,34 @@ test('SDK readiness vocabulary mechanically equals the Rust-owned table fixture'
     layer.state = 'not-enabled';
     if (spec.requiresPaidPlan) parseFirestoreLayers(layers);
     else assert.throws(() => parseFirestoreLayers(layers));
+  }
+});
+
+test('unchanged Firestore projection preserves Details and only changed settled state announces', () => {
+  try {
+    const announcement = new FirestoreDomNode('p');
+    const target = render(enabledFixture(), publishedFixture(), announcement);
+    const details = target.find('details')[0]!;
+    details.setAttribute('open', '');
+    const writes = announcement.writes;
+    const view = {
+      firestoreLayers: parseFirestoreLayers(enabledFixture()),
+      firestoreBudget: parsePublishedLimits(publishedFixture()),
+    } as FirestoreSettingsView;
+    renderFirestore(target as unknown as HTMLElement, 'confirmed', view);
+    assert.equal(target.find('details')[0], details);
+    assert.equal(details.attributes.open, '');
+    assert.equal(announcement.writes, writes);
+    renderFirestore(target as unknown as HTMLElement, 'checking');
+    assert.equal(announcement.writes, writes);
+    renderFirestore(target as unknown as HTMLElement, 'confirmed', view);
+    assert.equal(announcement.writes, writes, 'same settled state is quiet after checking');
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
+    assert.equal(announcement.textContent, 'Firestore setup could not be confirmed.');
+    assert.equal(announcement.writes, writes + 1);
+    renderFirestore(target as unknown as HTMLElement, 'unconfirmed');
+    assert.equal(announcement.writes, writes + 1);
+  } finally {
+    vi.unstubAllGlobals();
   }
 });

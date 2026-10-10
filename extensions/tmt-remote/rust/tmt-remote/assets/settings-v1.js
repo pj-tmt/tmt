@@ -93,7 +93,14 @@ function allowance(amount, bytes, period) {
 	}
 	return `${written}${period ? ` per ${period}` : ""}`;
 }
+var painted = /* @__PURE__ */ new WeakMap();
 function renderFirestore(target, access, view) {
+	const projection = JSON.stringify([access, view]);
+	if (painted.get(target) === projection) return;
+	painted.set(target, projection);
+	const announcement = document.getElementById("firestore-announcement");
+	const summary = access === "checking" ? "" : access !== "confirmed" || !view ? "Firestore setup could not be confirmed." : !view.firestoreLayers.length ? "Firestore is not configured." : view.firestoreLayers.map((layer) => `${firestoreTitles[layer.layer]}: ${layer.prerequisites.some((item) => item.item === "support" && item.reason === "not-implemented") ? "Not available in this release" : states[layer.state][1]}.`).join(" ");
+	if (summary && announcement.textContent !== summary) announcement.textContent = summary;
 	target.replaceChildren();
 	if (access !== "confirmed" || !view) {
 		target.append(node("p", access === "checking" ? "Checking recorded Firestore setup…" : "Firestore setup could not be confirmed."));
@@ -406,12 +413,20 @@ function renderOutcome() {
 }
 function render() {
 	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
-	element("access").textContent = {
+	const access = {
 		checking: "Checking current access…",
 		live: "Current browser access confirmed.",
 		lost: "Current browser access refused.",
 		unconfirmed: "Current browser access unconfirmed."
 	}[page.access];
+	if (element("access").textContent !== access) element("access").textContent = access;
+	const announcement = {
+		checking: "",
+		live: "Browser access confirmed",
+		lost: "Access ended",
+		unconfirmed: "Access unconfirmed"
+	}[page.access];
+	if (announcement && element("access-announcement").textContent !== announcement) element("access-announcement").textContent = announcement;
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
 	element("read-only").hidden = editable;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
@@ -490,6 +505,7 @@ function render() {
 				save.append(saveLabel);
 				const revoke = document.createElement("button");
 				revoke.type = "button";
+				revoke.dataset.action = "revoke";
 				revoke.className = "tmt-ui-action";
 				revoke.dataset.variant = "destructive";
 				const revokeLabel = document.createElement("span");
@@ -554,7 +570,13 @@ function render() {
 			}
 			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This device" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : `Paired · Sending ${device.talkEnabled ? "on" : "off"}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? "session" : "sessions"} · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
 			row.querySelector("[data-action=\"talk\"] .tmt-ui-action-label").textContent = device.talkEnabled ? "Disable sending" : "Enable sending";
+			row.querySelector("form").setAttribute("aria-label", `Device ${device.name}`);
 			const name = row.querySelector("input");
+			name.removeAttribute("aria-labelledby");
+			name.setAttribute("aria-label", `Device name for ${device.name}`);
+			row.querySelector("button[type=submit]").setAttribute("aria-label", device.thisBrowser ? `Rename this device (${device.name})` : `Rename ${device.name}`);
+			row.querySelector("[data-action=\"talk\"]").setAttribute("aria-label", `${device.talkEnabled ? "Disable" : "Enable"} sending for ${device.name}`);
+			row.querySelector("button[data-action=\"revoke\"]").setAttribute("aria-label", `Revoke ${device.name}`);
 			name.disabled = !editable || device.revoked;
 			if (editable) name.removeAttribute("aria-describedby");
 			else name.setAttribute("aria-describedby", "read-only");
@@ -633,7 +655,24 @@ for (const field of [
 	field.addEventListener("input", render);
 	field.addEventListener("change", render);
 }
-refresh.addEventListener("click", () => void run(() => refreshView()));
+refresh.addEventListener("click", () => {
+	if (page.busy) return;
+	const ownedFocus = document.activeElement === refresh;
+	let moved = false;
+	const trackFocus = (event) => {
+		if (event.target !== refresh && event.target !== document.body) moved = true;
+	};
+	const trackPointer = (event) => {
+		if (!refresh.contains(event.target)) moved = true;
+	};
+	document.addEventListener("focusin", trackFocus);
+	document.addEventListener("pointerdown", trackPointer);
+	run(() => refreshView()).finally(() => {
+		document.removeEventListener("focusin", trackFocus);
+		document.removeEventListener("pointerdown", trackPointer);
+		if (ownedFocus && !moved && refresh.isConnected && !refresh.disabled && (document.activeElement === document.body || document.activeElement === refresh)) refresh.focus({ preventScroll: true });
+	});
+});
 function navigate(cursor) {
 	if (page.busy) return;
 	for (const device of page.devices?.devices ?? []) {
@@ -659,6 +698,7 @@ try {
 	await run(() => refreshView());
 } catch (error) {
 	commandNotice(element("access"), error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.");
+	element("access-announcement").textContent = error instanceof RefusalError ? "Access ended" : "Access unconfirmed";
 	refresh.disabled = true;
 	element("access-notice").dataset.tone = "blocked";
 	element("controls-reason").textContent = "Current access is unavailable. Use the local CLI.";
