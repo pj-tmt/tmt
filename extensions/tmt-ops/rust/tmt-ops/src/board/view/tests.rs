@@ -2444,6 +2444,33 @@ fn detail_uses_failed_missing_and_shared_cell_escaping() {
 }
 
 #[test]
+fn a_pane_above_another_ends_on_the_next_heading_rule() {
+    for (height, panes) in [
+        (24, vec![Pane::Rows, Pane::Notes]),
+        (40, vec![Pane::Rows, Pane::Notes]),
+        (40, vec![Pane::Notes, Pane::Rows]),
+    ] {
+        let app = paned(
+            split(Direction::TopBottom, panes, vec![50, 50]),
+            Notes::Text("ship it".into()),
+        );
+        let screen = draw(&app, 100, height);
+        let headings = screen
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.starts_with("─ ") && line.contains(" ─"))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        assert_eq!(headings.len(), 2, "{screen:#?}");
+        let lower = headings[1];
+        assert!(
+            !screen[lower - 1].starts_with('─'),
+            "a frame edge stacks above the heading rule: {screen:#?}"
+        );
+    }
+}
+
+#[test]
 fn split_panes_follow_direction_and_sizes() {
     let app = paned(
         split(

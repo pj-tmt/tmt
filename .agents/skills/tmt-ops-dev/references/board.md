@@ -25,6 +25,9 @@ and changed clock text or spinner frames, rather than periodic full repainting.
 
 Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizontal
 rules and blank side slots retain measured inner areas and title/fold hits.
+Each boundary has one rule: a framed pane whose bottom row is a later heading's row
+(another framed pane's title, or the cron heading) extends its frame over that row
+and the heading is painted over it (`render_split`, panes in top-to-bottom order).
 Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
 Invisible walls do not change the actual borderless dispatch predicate. The shared
 inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
