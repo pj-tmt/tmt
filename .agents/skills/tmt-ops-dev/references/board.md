@@ -30,6 +30,27 @@ Invisible walls do not change the actual borderless dispatch predicate. The shar
 inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
 and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay square.
 
+## Reload in place
+
+`board::reload::Watch` lets a running board adopt a new `tmt-ops` without losing its
+place. Once a second on the existing loop wake it compares the launcher fingerprint
+(canonical path, device, inode, mtime of the PATH-resolved `argv[0]`) with the one
+taken at start, and the `reload/request` marker under the Ops cache (written by
+`ui --reload-all`) with the board's start time; a replaced launcher wins over a
+request, and a missing or non-runnable launcher never triggers a reload. A due
+reload runs only when `App::reload_blocked` is false and the board has had no input
+for `Watch::idle` (1 s); `reload_waiting` makes the footer append a dim cue instead
+of replacing its prompt, notice or hints. `session` then returns `Ok(None)` with
+`App::restart` set. `run` restores the terminal, stops the worker, writes
+`board::resume::Resume` to `reload/resume-<pid>.json` (0600, version, pid and
+freshness checked, size-bounded, never through a symlink) and `exec`s the launcher,
+so the pid is kept; a failed `exec` discards the snapshot and returns
+`SQUAD_RELOAD_FAILED`. The new process takes the snapshot once at start and
+`App::carry` applies it on the first fresh view of that tab (`carry.rs`): selection
+by `RowTarget` identity, never by index, a vanished row falling back to the normal
+start, and the snapshot dropped if that view fails. The snapshot holds view state
+only, no squad data.
+
 ## Rows, grid and identity
 
 - `rows::Rows` owns positional tracks and prefix coverage, including empty cells

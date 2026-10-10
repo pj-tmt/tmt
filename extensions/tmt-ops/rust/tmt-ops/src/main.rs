@@ -216,6 +216,13 @@ fn grammar() -> Command {
                         .long("popup")
                         .action(ArgAction::SetTrue)
                         .help("Close after a successful jump (for a tmux popup)"),
+                )
+                .arg(
+                    Arg::new("reload-all")
+                        .long("reload-all")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["squad", "tabs", "popup"])
+                        .help("Reload every open board in place once it is idle, keeping its tab and place"),
                 ),
         )
         .subcommand(
@@ -1098,6 +1105,9 @@ fn main() -> ExitCode {
     if command == "skill" {
         return print_embedded(SKILL);
     }
+    if command == "ui" && sub.get_flag("reload-all") {
+        return reload_all(json);
+    }
     // The board needs a person at a terminal; otherwise it is `ls`.
     if command == "ui" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
@@ -1158,6 +1168,31 @@ fn main() -> ExitCode {
                 Ok(()) => ExitCode::from(code),
                 Err(_) => ExitCode::FAILURE,
             }
+        }
+        Err(failure) if json => print_document(&failure.to_json(), 1),
+        Err(failure) => {
+            report(&failure);
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `ui --reload-all`: records the request every board older than now obeys.
+/// It needs no terminal and no Core, and says nothing about how many boards are open.
+fn reload_all(json: bool) -> ExitCode {
+    let now_ms = status::now_ms();
+    match board::request_reload_all(now_ms) {
+        Ok(()) if json => print_document(&json!({"requested": true, "atMs": now_ms}), 0),
+        Ok(()) => {
+            let mut stdout = tmt_cli_style::stream::stdout(false);
+            let terminal = stdout.terminal();
+            let written = message::success(
+                &mut stdout,
+                terminal,
+                "Every open board reloads when it is idle",
+            )
+            .and_then(|()| stdout.flush());
+            ExitCode::from(u8::from(written.is_err()))
         }
         Err(failure) if json => print_document(&failure.to_json(), 1),
         Err(failure) => {
@@ -1350,7 +1385,14 @@ mod tests {
         );
         assert_eq!(
             complete(&words("-- ui --")),
-            ["--help", "--json", "--popup", "--squad", "--tabs"]
+            [
+                "--help",
+                "--json",
+                "--popup",
+                "--reload-all",
+                "--squad",
+                "--tabs"
+            ]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(

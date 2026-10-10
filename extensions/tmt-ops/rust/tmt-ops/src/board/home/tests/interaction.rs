@@ -18,6 +18,14 @@ pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
 }
 pub(super) fn board(documents: &[(&str, Value)]) -> App {
+    board_resuming(documents, None)
+}
+/// The HOME board of `documents` as a reloaded process starts it: the carried state is
+/// handed over before the first view arrives.
+pub(super) fn board_resuming(
+    documents: &[(&str, Value)],
+    resume: Option<crate::board::resume::Resume>,
+) -> App {
     let fixture = Fixture::new("");
     let acquired = fixture.acquired(documents);
     let mut order = documents
@@ -37,6 +45,9 @@ pub(super) fn board(documents: &[(&str, Value)]) -> App {
     order.push(ALL.into());
     snapshot.tabs = order;
     let mut app = App::new(Some(ALL.into()));
+    if let Some(resume) = resume {
+        app.carry(resume);
+    }
     app.apply(snapshot);
     app
 }
@@ -1344,4 +1355,36 @@ fn dump_home_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+#[test]
+fn a_reloaded_home_comes_back_on_the_row_it_was_on() {
+    let documents = [
+        ("a", waiting()),
+        (
+            "b",
+            document(
+                "b",
+                row("L2", "lead-b", "working"),
+                vec![row("M", "member-b", "working")],
+            ),
+        ),
+    ];
+    let mut before = board(&documents);
+    keys(&mut before, &[Down, Down]);
+    let target = before.row_target(before.selected).unwrap();
+    let opening = board(&documents);
+    assert_ne!(
+        opening.row_target(opening.selected),
+        Some(target.clone()),
+        "the control: a normal start opens elsewhere"
+    );
+
+    let resume = before.resume().unwrap();
+    let after = board_resuming(&documents, Some(resume));
+    assert_eq!(after.row_target(after.selected), Some(target));
+    assert!(
+        !after.home_start,
+        "the opening rule does not move the restored cursor"
+    );
 }

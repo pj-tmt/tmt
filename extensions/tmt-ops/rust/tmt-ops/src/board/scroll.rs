@@ -53,6 +53,20 @@ impl Scrolls {
         }
     }
 
+    /// Every pane's position, for a reload to carry.
+    pub fn offsets(&self) -> Vec<(Pane, usize)> {
+        self.offsets
+            .borrow()
+            .iter()
+            .map(|(pane, offset)| (*pane, *offset))
+            .collect()
+    }
+
+    /// Sets positions saved by `offsets`; the next draw clamps them to the content.
+    pub fn restore(&self, offsets: impl IntoIterator<Item = (Pane, usize)>) {
+        self.offsets.borrow_mut().extend(offsets);
+    }
+
     /// Lines `pane` shows at once in `area` for `content` lines.
     pub fn viewport(area: Rect, content: usize) -> usize {
         let height = usize::from(area.height);

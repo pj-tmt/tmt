@@ -39,6 +39,10 @@ Every strip, border and scroll line is painted through `tmt-tui` (`Strip`,
 the row or request name); `Action::order` orders its entries, the selected row's
 actions before the board's.
 
+`board/reload.rs` and `board/resume.rs` own the in-place reload trigger, `exec`
+and snapshot file; `board/app/carry.rs` owns what `App` captures and restores
+([Reload in place](references/board.md#reload-in-place)).
+
 `App`, terminal/worker lifecycle, acquisition, `Scrolls` (position math; it paints
 its lines and overflow indicator through `Strip`), home and shared TUI
 components keep their separate owners. Home dispatch precedes ordinary panes;

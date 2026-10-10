@@ -21,6 +21,8 @@ mod pick;
 mod picker_surface;
 mod rate;
 mod refresh;
+mod reload;
+mod resume;
 mod row_detail;
 mod scroll;
 mod settings;
@@ -345,6 +347,7 @@ fn session(
     let mut dirty = true;
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
+    let mut last_input = Instant::now();
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
@@ -361,6 +364,16 @@ fn session(
             return Ok(Some(signal));
         }
         let now = Instant::now();
+        // The footer names a waiting reload, so a new one repaints.
+        dirty |= app.reload.poll(now);
+        if app.reload.pending()
+            && !app.reload_blocked()
+            && now.duration_since(last_input) >= app.reload.idle()
+            && let Some(resume) = app.resume()
+        {
+            app.restart = Some(resume);
+            return Ok(None);
+        }
         dirty |= app.meter.as_mut().is_some_and(|meter| meter.tick(now));
         dirty |= app.home_counters.borrow_mut().tick(now);
         let next_spinner = view::spinner_frame(app, now);
@@ -403,7 +416,11 @@ fn session(
         if let Some(interval) = interval {
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
-        let effect = match input.recv_timeout(wait) {
+        let received = input.recv_timeout(wait);
+        if matches!(received, Ok(BoardEvent::Input(_))) {
+            last_input = Instant::now();
+        }
+        let effect = match received {
             Ok(BoardEvent::Migration(notice)) => {
                 app.migration_notice = notice;
                 dirty = true;
@@ -851,6 +868,11 @@ pub(super) fn selection(
     Ok((picks, chosen))
 }
 
+/// `ui --reload-all`: every board that started before now reloads once it is idle.
+pub fn request_reload_all(now_ms: u64) -> Result<(), SquadError> {
+    reload::request_all(now_ms)
+}
+
 /// Returns the signal that ended the board; a popup closes after a successful jump.
 pub fn run(
     core: Core,
@@ -883,6 +905,10 @@ pub fn run(
         })
     })
     .map_err(failed)?;
+    // The state a reload left for this pid, consumed whether or not it is used.
+    let now_ms = crate::status::now_ms();
+    let resume = resume::directory()
+        .and_then(|directory| resume::Resume::take(&directory, std::process::id(), now_ms));
     let (events, input) = mpsc::channel();
     // The worker's setup reads (caller identity, config location) overlap the config
     // read and the terminal's background query. Loads build looks from that
@@ -897,6 +923,14 @@ pub fn run(
         Config::load(&core)
     })?;
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
+    // A reloaded board comes back on the tab it was on, with the tabs it had admitted.
+    let (picks, squad) = match &resume {
+        Some(resume) => (
+            pick::Picks::from_keys(resume.picks.clone()),
+            Some(resume.tab.clone()),
+        ),
+        None => (picks, squad),
+    };
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;
@@ -924,6 +958,11 @@ pub fn run(
     app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
+    app.reload = reload::Watch::start(now_ms);
+    if let Some(resume) = resume {
+        app.carry(resume);
+        app.notice.get_or_insert_with(reload::reloaded);
+    }
     let mut switch_ready = crate::board_switch::ready(&core)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     let lane = lane::Lane::spawn(core.clone(), events.clone());
@@ -961,6 +1000,12 @@ pub fn run(
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
     stopped?;
+    if let Some(resume) = app.restart.take() {
+        // The terminal is restored and the loop has ended. Stop the refresh worker,
+        // then become the new board: this returns only when that failed.
+        drop(worker);
+        return Err(app.reload.restart(&resume, crate::status::now_ms()));
+    }
     Ok(signal)
 }
 
@@ -1901,6 +1946,118 @@ mod tests {
                 .all(|value| *value == crate::attention::Attention::default())
         );
     }
+    /// A quiet product board whose installed binary was just replaced.
+    fn replaced_board(name: &str) -> (App, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("ops-session-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("state")).unwrap();
+        let program = root.join("tmt-ops");
+        std::fs::write(&program, "one").unwrap();
+        std::fs::set_permissions(
+            &program,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+        let mut app = App::new(Some("product".into()));
+        let mut loaded = app::tests::snapshot(
+            "product",
+            serde_json::json!([{"rows":[{"id":"A","name":"a"},{"id":"B","name":"b"}]}]),
+        );
+        loaded.view.as_mut().unwrap().refresh = None;
+        app.apply(loaded);
+        app.reload = reload::Watch::over(&program, &root.join("state"), 1_000);
+        // The installed binary is replaced after the board started.
+        std::fs::remove_file(&program).unwrap();
+        std::fs::write(&program, "two").unwrap();
+        std::fs::set_permissions(
+            &program,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+        (app, root)
+    }
+
+    fn run_session(app: &mut App, events: Vec<BoardEvent>) -> Option<i32> {
+        let (sender, input) = channel();
+        for event in events {
+            sender.send(event).unwrap();
+        }
+        session(
+            app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |_| Ok(()),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_idle_board_whose_binary_was_replaced_ends_its_session_to_reload_with_its_place() {
+        let (mut app, root) = replaced_board("idle");
+        app.selected = 1;
+        assert_eq!(run_session(&mut app, vec![]), None);
+        let resume = app.restart.take().expect("the session ended to reload");
+        assert_eq!(resume.tab, "product");
+        assert!(matches!(
+            resume.selected,
+            Some(app::RowTarget::Member { ref id, .. }) if id == "B"
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_board_with_a_draft_open_keeps_running_until_it_is_cancelled() {
+        let draft = || app::Input {
+            row_send: None,
+            others: Vec::new(),
+            quote: None,
+            link: None,
+            prompt: String::new(),
+            text: "half a thought".into(),
+            compose: app::Compose::AskLead {
+                to: "lead".into(),
+                sender: "ben".into(),
+            },
+            squad: "product".into(),
+            hint: None,
+        };
+        // The draft is still there when input ends: the reload never ran.
+        let (mut app, root) = replaced_board("draft");
+        app.input = Some(draft());
+        assert_eq!(
+            run_session(&mut app, vec![BoardEvent::InputClosed]),
+            Some(HANGUP)
+        );
+        assert!(app.restart.is_none() && app.input.is_some());
+        assert!(
+            app.reload_waiting(),
+            "the footer says the reload is waiting"
+        );
+
+        // Cancelling the draft lets the pending reload through.
+        let (mut app, _) = replaced_board("draft");
+        app.input = Some(draft());
+        assert_eq!(run_session(&mut app, vec![key(KeyCode::Esc)]), None);
+        assert!(app.input.is_none() && app.restart.is_some());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_board_with_nothing_to_reload_ends_only_when_asked() {
+        let mut quiet = App::new(Some("product".into()));
+        quiet.apply(app::tests::snapshot("product", serde_json::json!([])));
+        assert_eq!(run_session(&mut quiet, vec![key(KeyCode::Char('q'))]), None);
+        assert!(quiet.restart.is_none(), "an inert watch never reloads");
+        assert_eq!(
+            run_session(&mut quiet, vec![BoardEvent::InputClosed]),
+            Some(HANGUP)
+        );
+    }
+
     #[test]
     fn a_snapshot_turning_refresh_off_does_not_request_the_expired_previous_interval() {
         let (events, input) = channel();
