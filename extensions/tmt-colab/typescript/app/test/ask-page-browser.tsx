@@ -1175,6 +1175,7 @@ export function question(
     other?: boolean;
     placement?: 'inline' | 'duplicate' | 'nested';
     mixed?: boolean;
+    darkPage?: boolean;
   } = {},
 ) {
   const escape = (value: string) =>
@@ -1186,7 +1187,7 @@ export function question(
   if (options.mixed) proposal('inline');
   current = {
     ...current,
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
     threads: options.mixed ? current.threads : [],
   };
   emit();

@@ -200,59 +200,98 @@ test('removed markup leaves a normal annotation accessible in Comments', async (
 });
 
 for (const width of [1440, 390])
-  for (const theme of ['light', 'dark']) {
-    test(`shared question/proposal slots and presentation ${width} ${theme}`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      const card = await mount(page, { mixed: true, other: true });
-      if (theme === 'dark')
-        await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
-      const proposal = page.locator('[data-inline-proposal]');
-      await expect(proposal).not.toHaveAttribute('data-detached');
-      const after = page.frameLocator('#ask-page-fixture iframe').locator('#after-question');
-      const proposalSpacer = page
-        .frameLocator('#ask-page-fixture iframe')
-        .locator('tmt-proposal + [data-colab-proposal-slot]');
-      const afterProposal = page
-        .frameLocator('#ask-page-fixture iframe')
-        .locator('#after-proposal');
-      const settledSlots = async () => {
+  for (const theme of ['light', 'dark'])
+    for (const darkPage of [false, true]) {
+      test(`shared question/proposal slots and presentation ${width} ${theme} page-${darkPage ? 'dark' : 'light'}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        const card = await mount(page, { mixed: true, other: true, darkPage });
+        if (theme === 'dark')
+          await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
+        const proposal = page.locator('[data-inline-proposal]');
+        await expect(proposal).not.toHaveAttribute('data-detached');
+        // Both trusted overlays use the light leaf palette even when chrome/author differ.
+        for (const surface of [card, proposal.locator('.proposal-card')]) {
+          await expect(surface).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+          await expect(surface).toHaveCSS('color', 'rgb(52, 52, 52)');
+          await expect(surface).toHaveCSS('color-scheme', 'light');
+          await expect(surface).toHaveCSS('border-top-color', 'rgb(98, 98, 98)');
+          await expect(surface).toHaveCSS('border-top-width', '1px');
+          await expect(surface).toHaveCSS('box-shadow', 'none');
+        }
+        await expect(proposal.locator('.proposal-author')).toHaveCSS('color', 'rgb(98, 98, 98)');
+        await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
+          'background-color',
+          'rgb(52, 52, 52)',
+        );
+        await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCSS(
+          'color',
+          'rgb(98, 98, 98)',
+        );
+        const after = page.frameLocator('#ask-page-fixture iframe').locator('#after-question');
+        const proposalSpacer = page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('tmt-proposal + [data-colab-proposal-slot]');
+        const afterProposal = page
+          .frameLocator('#ask-page-fixture iframe')
+          .locator('#after-proposal');
+        const settledSlots = async () => {
+          await expect
+            .poll(async () => {
+              const box = await proposal.boundingBox(),
+                spacer = await proposalSpacer.boundingBox(),
+                below = await afterProposal.boundingBox();
+              return (
+                !!box &&
+                !!spacer &&
+                !!below &&
+                Math.abs(box.y - spacer.y) <= 1 &&
+                below.y >= box.y + box.height - 1
+              );
+            })
+            .toBe(true);
+        };
         await expect
           .poll(async () => {
-            const box = await proposal.boundingBox(),
-              spacer = await proposalSpacer.boundingBox(),
-              below = await afterProposal.boundingBox();
-            return (
-              !!box &&
-              !!spacer &&
-              !!below &&
-              Math.abs(box.y - spacer.y) <= 1 &&
-              below.y >= box.y + box.height - 1
-            );
+            const box = await card.boundingBox(),
+              below = await after.boundingBox();
+            return !!box && !!below && below.y >= box.y + box.height - 1;
           })
           .toBe(true);
-      };
-      await expect
-        .poll(async () => {
-          const box = await card.boundingBox(),
-            below = await after.boundingBox();
-          return !!box && !!below && below.y >= box.y + box.height - 1;
-        })
-        .toBe(true);
-      await settledSlots();
-      const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
-      if (captures) {
-        mkdirSync(captures, { recursive: true });
-        await page.screenshot({ path: `${captures}/question-open-${width}-${theme}.png` });
-      }
-      await card.getByLabel('Other', { exact: true }).check();
-      await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
-      await send(page);
-      await expect(proposal).not.toHaveAttribute('data-detached');
-      await settledSlots();
-      if (captures)
-        await page.screenshot({ path: `${captures}/question-answered-${width}-${theme}.png` });
-    });
-  }
+        await settledSlots();
+        const captures = process.env.COLAB_QUESTION_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({
+            path: `${captures}/question-open-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
+          });
+        }
+        await card.getByLabel('Other', { exact: true }).check();
+        await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
+        const sendButton = card.getByRole('button', { name: /^Send answer/ });
+        await expect(sendButton).toBeEnabled();
+        await expect(sendButton).toHaveCSS('background-color', 'rgb(52, 52, 52)');
+        await expect(sendButton).toHaveCSS('color', 'rgb(250, 250, 250)');
+        await sendButton.press('Tab');
+        await page.keyboard.press('Shift+Tab');
+        await expect(sendButton).toBeFocused();
+        await expect(sendButton).toHaveCSS('outline-color', 'rgb(98, 98, 98)');
+        await expect(sendButton).toHaveCSS('outline-width', '2px');
+        await send(page);
+        await expect(card).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+        await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toHaveCSS(
+          'color',
+          'rgb(52, 52, 52)',
+        );
+        await expect(proposal).not.toHaveAttribute('data-detached');
+        await settledSlots();
+        if (captures)
+          await page.screenshot({
+            path: `${captures}/question-answered-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
+          });
+      });
+    }
 
 test('cosmetic frame claims cannot supply an answer or send authority', async ({ page }) => {
   const card = await mount(page);
