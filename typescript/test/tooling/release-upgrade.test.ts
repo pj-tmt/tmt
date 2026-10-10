@@ -69,7 +69,7 @@ describe('extension verifier replacement contract', () => {
         extensionUpgradeOptions([...base, ...pair.slice(0, index), ...pair.slice(index + 2)])
       ).toThrow('is required for replacement');
     }
-    for (const product of ['remote', 'colab', 'office']) {
+    for (const product of ['remote', 'colab', 'office', 'digest']) {
       const args = [...base];
       args[1] = product;
       expect(() => extensionUpgradeOptions([...args, ...pair])).toThrow('Only squad -> ops');

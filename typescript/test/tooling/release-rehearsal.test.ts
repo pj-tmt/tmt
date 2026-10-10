@@ -12,7 +12,7 @@ import {
 } from '../../scripts/release-rehearsal.mjs';
 
 const map = componentMap();
-const all = ['cli', 'colab', 'driver-herdr', 'ops', 'remote'];
+const all = ['cli', 'colab', 'digest', 'driver-herdr', 'ops', 'remote'];
 const select = (...paths: string[]) => selectReleaseRehearsal(paths, map);
 
 describe('active products', () => {
@@ -76,6 +76,7 @@ describe('release rehearsal selection', () => {
     'typescript/scripts/verify-native-installation.mjs',
     'typescript/scripts/verify-native-extension-upgrade.mjs',
     'typescript/scripts/native-artifact-policy.mjs',
+    'typescript/scripts/native-runtime-proof.mjs',
     'rust/crates/tmt-core/Cargo.toml',
   ])('rehearses every active product for the shared release input %s', (changed) => {
     expect(select(changed)).toEqual(all);
@@ -84,6 +85,7 @@ describe('release rehearsal selection', () => {
   it.each([
     ['extensions/tmt-colab/rust/tmt-colab/Cargo.toml', ['colab']],
     ['extensions/tmt-remote/rust/Cargo.toml', ['remote']],
+    ['extensions/tmt-digest/rust/tmt-digest/Cargo.toml', ['digest']],
     ['extensions/tmt-ops/Cargo.toml', ['ops']],
   ])('attributes the product manifest %s to its product only', (changed, products) => {
     expect(select(changed)).toEqual(products);

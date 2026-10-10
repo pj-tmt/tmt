@@ -14,6 +14,7 @@ const executables = {
   squad: 'tmt-squad', // Published predecessor archives remain verifiable.
   remote: 'tmt-remote',
   colab: 'tmt-colab',
+  digest: 'tmt-digest',
   'driver-herdr': 'tmt-driver-herdr',
 };
 /**
@@ -32,6 +33,7 @@ const companions = {
   squad: [],
   remote: [],
   colab: [],
+  digest: [],
   'driver-herdr': [],
 };
 /** The agent-skills tree an extension archive carries under one directory. */

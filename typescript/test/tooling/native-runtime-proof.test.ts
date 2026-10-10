@@ -30,7 +30,8 @@ const { assertMacOsArchitecture, nativeHostTarget, verifyNativeRuntime } = (awai
   ) => void;
   verifyNativeRuntime: (options: {
     executable: string;
-    product?: 'colab';
+    product?: 'colab' | 'digest';
+    digestSkill?: string;
     colabSkill?: string;
     colabReferences?: Record<string, string>;
     colabApp?: string;
@@ -45,6 +46,91 @@ const { assertMacOsArchitecture, nativeHostTarget, verifyNativeRuntime } = (awai
 };
 
 describe('native runtime proof boundary', () => {
+  it('proves relocated Digest read-only commands and rejects version, help, skill and state drift', async () => {
+    await withSandbox(async (sandbox) => {
+      const executable = path.join(sandbox.root, 'tmt-digest');
+      writeExecutable(executable, '#!/bin/sh\nexit 99\n', 0o755);
+      const skill = 'Exact bundled Digest instructions\n';
+      const calls: string[][] = [];
+      const roots = new Set<string>();
+      let fault = '';
+      const inspect = vi.spyOn(childProcess, 'spawnSync').mockImplementation(((
+        command,
+        args,
+        options
+      ) => {
+        const words = args as string[];
+        const { env, cwd } = options as { env: NodeJS.ProcessEnv; cwd: string };
+        let stdout = '';
+        if (command === executable) {
+          calls.push(words);
+          expect(env.TMT_AGENT).toBe('1');
+          expect(env.BROWSER).toBe('/usr/bin/true');
+          expect(env.TMUX).toBeUndefined();
+          expect(env.TMT_HOME).toBeUndefined();
+          expect(cwd).not.toContain(repositoryRoot);
+          expect(path.dirname(env.HOME!)).toBe(path.dirname(cwd));
+          expect(path.dirname(env.PATH!)).toBe(path.dirname(cwd));
+          roots.add(path.dirname(cwd));
+          if (words[0] === '--version')
+            stdout = `digest ${fault === 'version' ? '0.0.0' : '0.1.0'}\n`;
+          else if (words[0] === '--help')
+            stdout = `Usage: tmt digest <MEMBER> <VALUE>\n  tick  Deliver\n${fault === 'help' ? '' : '  skill  Read instructions\n'}`;
+          else if (words[0] === 'tick') {
+            expect(words).toEqual(['tick', '--help']);
+            stdout = fault === 'tick help' ? 'Wrong command\n' : 'Usage: tmt digest tick\n';
+          } else {
+            expect(words).toEqual(['skill']);
+            stdout = fault === 'skill' ? skill + 'drift' : skill;
+            if (fault === 'config') mkdirSync(env.XDG_CONFIG_HOME!);
+            if (fault === 'home') writeFileSync(path.join(env.HOME!, 'unexpected'), 'state');
+            if (fault === 'workspace') writeFileSync(path.join(cwd, 'unexpected'), 'state');
+          }
+        } else if (command === '/usr/bin/xcrun') stdout = `/mock/${words[1]}\n`;
+        else if (command === '/mock/lipo')
+          stdout = process.arch === 'arm64' ? 'arm64\n' : 'x86_64\n';
+        else if (command === '/mock/otool')
+          stdout = `${executable}:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n`;
+        else expect(String(command)).toMatch(/readelf$/);
+        return { pid: 0, status: 0, signal: null, stdout, stderr: '', output: [null, stdout, ''] };
+      }) as typeof childProcess.spawnSync);
+      syncBuiltinESMExports();
+      const prove = (digestSkill: string | undefined) =>
+        verifyNativeRuntime({
+          executable,
+          target: nativeHostTarget(),
+          version: '0.1.0',
+          product: 'digest',
+          digestSkill,
+          skill: '',
+          inboxSkill: '',
+          profileContent: '',
+          subject: 'Digest archive fixture',
+        });
+      try {
+        await prove(skill);
+        expect(calls).toEqual([['--version'], ['--help'], ['tick', '--help'], ['skill']]);
+        for (const [failure, message] of [
+          ['version', 'version mismatch'],
+          ['help', 'missing skill'],
+          ['tick help', 'tick help mismatch'],
+          ['skill', 'embedded Digest skill mismatch'],
+          ['config', 'must not initialize config state'],
+          ['home', 'must not create home state'],
+          ['workspace', 'must not create workspace state'],
+        ]) {
+          fault = failure;
+          await expect(prove(skill)).rejects.toThrow(message);
+        }
+        await expect(prove(undefined)).rejects.toThrow('canonical skill');
+      } finally {
+        inspect.mockRestore();
+        syncBuiltinESMExports();
+        for (const root of roots) expect(existsSync(root)).toBe(false);
+      }
+    });
+  });
+
   it('rejects arm64 and universal bytes in an Intel proof even when the process target matches', () => {
     const options = { cwd: '/', env: {} };
     const inspected: string[][] = [];

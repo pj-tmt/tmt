@@ -33,6 +33,7 @@ on:
           - driver-herdr
           - remote
           - colab
+          - digest
       tag:
         description: Published release to install
         required: true

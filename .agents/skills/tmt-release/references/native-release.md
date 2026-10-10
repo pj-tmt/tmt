@@ -295,7 +295,7 @@ Receipt provenance accepts `pj-tmt/tmt` and the former organization name `wkh237
 
 ### Remote and Colab installer registration
 
-Core recognizes `remote` and `colab` separately from archive publication. From `rust/`:
+Core recognizes `remote`, `colab` and `digest` separately from archive publication. From `rust/`:
 
 ```sh
 CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-core native_install

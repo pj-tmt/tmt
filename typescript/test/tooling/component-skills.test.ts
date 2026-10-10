@@ -35,12 +35,12 @@ const { components } = parseComponentMap(text);
 const skillsComponents = components.filter((component) => component.skills);
 
 describe('components that ship agent skills', () => {
-  it('keeps the unpublished Digest skeleton out of archive and skills product policy', () => {
+  it('includes Digest in the declared archive skill inventory', () => {
     const digest = components.find((component) => component.name === 'digest');
     expect(digest).toBeDefined();
-    expect(digest?.package).toBeUndefined();
-    expect(digest?.skills).toBeUndefined();
-    expect(() => shipsSkills('digest')).toThrow('Ambiguous or missing component');
+    expect(digest?.package).toBe('tmt-digest');
+    expect(digest?.skills).toBe(true);
+    expect(shipsSkills('digest')).toBe(true);
   });
 
   it('declares at least one, and the reader agrees with the parsed map for every product', () => {
@@ -140,7 +140,7 @@ describe('components that ship agent skills', () => {
     ${workflow.slice(start, end)}`;
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-skills-prepare-'));
     try {
-      for (const product of ['ops', 'remote', 'colab']) {
+      for (const product of ['ops', 'remote', 'colab', 'digest']) {
         const args = runPackedCommand(
           '/bin/bash',
           ['--noprofile', '--norc', '-euo', 'pipefail', '-c', script],

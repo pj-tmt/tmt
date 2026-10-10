@@ -18,6 +18,7 @@ on:
           - driver-herdr
           - remote
           - colab
+          - digest
       tag:
         description: Exact allocated draft tag to build and publish (turn prepare off)
         required: false

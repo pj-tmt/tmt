@@ -123,7 +123,7 @@ describe('native dependency notices selection', () => {
 });
 
 describe('CI area selection', () => {
-  it('keeps the unpublished Digest skeleton private while retaining full native checks', () => {
+  it('attributes Digest releases to its own component while retaining full native checks', () => {
     const paths = [
       'extensions/tmt-digest/rust/tmt-digest/Cargo.toml',
       'extensions/tmt-digest/rust/tmt-digest/src/main.rs',
@@ -132,10 +132,10 @@ describe('CI area selection', () => {
     const map = parseComponentMap(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     );
-    expect(isReleased(map, 'digest')).toBe(false);
+    expect(isReleased(map, 'digest')).toBe(true);
     for (const file of paths) {
       expect(ownerOf(file, map)).toBe('digest');
-      expect(releasedComponentsForPath(file, map)).toEqual([]);
+      expect(releasedComponentsForPath(file, map).map(({ name }) => name)).toEqual(['digest']);
       expect(selectNativeScope([file], map)).toBe('full');
       expect(selectCiAreas([file], map)).toEqual({
         native: true,

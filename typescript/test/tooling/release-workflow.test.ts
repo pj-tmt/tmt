@@ -520,7 +520,7 @@ describe('release version gate workflow boundaries', () => {
   it('keeps native injection on pinned PR heads and all four hosts, with no publishing privileges', () => {
     const injection = read('.github/workflows/release-version-injection.yml');
     expect(injection).toContain('github.event.pull_request.head.sha || github.sha');
-    expect(injection).toContain('product: [cli, ops, remote, colab]');
+    expect(injection).toContain('product: [cli, ops, remote, colab, digest]');
     const products = /product: \[([^\]]+)\]/
       .exec(injection)?.[1]
       .split(',')
@@ -901,7 +901,7 @@ describe('live main release cuts (release.yml)', () => {
     );
   });
   it('keeps owner versions explicit and parked products out of manual selection', () => {
-    expect(release).toContain('options: [all, cli, ops, driver-herdr, remote, colab]');
+    expect(release).toContain('options: [all, cli, ops, driver-herdr, remote, colab, digest]');
     expect(release).toContain('VERSION: ${{ inputs.version }}');
     expect(release).toContain('driver-herdr');
     expect(release).toContain('release-cut-plan.json');
