@@ -1,5 +1,7 @@
 ## Scope
 
+Agent: <seat> <preset>
+
 - Issue:
 - Summary:
 - Files/areas owned:

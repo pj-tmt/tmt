@@ -123,6 +123,7 @@ ask when resolution would require an undecided product or authorization choice.
   `Co-authored-by: Codex <codex@openai.com>` or
   `Co-Authored-By: Claude <noreply@anthropic.com>`, plus any session trailer its
   harness requires. Preserve the user's authorship and signing configuration.
+- Every PR body names its contributors with visible `Agent:` lines; see the [attribution grammar](.agents/skills/tmt-release/references/native-release.md#pr-agent-attribution).
 - Merge only when authorized and all required CI has passed on the reviewed head.
   Never bypass protection or lower checks to deliver. Publishing, releases and
   destructive operations require their own applicable authorization.

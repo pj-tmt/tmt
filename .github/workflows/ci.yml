@@ -151,6 +151,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node typescript/scripts/pr-title-check.mjs
+      - name: Check current PR Agent attribution
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            node typescript/scripts/pr-agent-check.mjs --report-only
+          else
+            node typescript/scripts/pr-agent-check.mjs
+          fi
       - name: Require selected Office verification
         env:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}

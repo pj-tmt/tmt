@@ -610,6 +610,36 @@ For `typescript/scripts/packed-command.mjs` changes run
 `vp test run --config vitest.config.ts`, then `pnpm check:tooling`. Keep the negative
 controls, confirmed-absence proof and original subprocess deadlines.
 
+## PR Agent attribution
+
+Every PR body needs visible `Agent: <seat> <preset>` lines for its contributors,
+or `Agent: ben` for human-only work. Seat is `[a-z0-9][a-z0-9-]*`; the parser and
+approved presets are owned by `typescript/scripts/pr-agent-check.mjs`.
+
+| Preset              | Model and effort   |
+| ------------------- | ------------------ |
+| codex-sol-high      | GPT-6.1-Sol high   |
+| codex-sol-med       | GPT-6.1-Sol medium |
+| codex-luna-med      | GPT-6-Luna medium  |
+| codex-luna-low      | GPT-6-Luna low     |
+| claude-opus-med     | Opus 5.5 medium    |
+| claude-sonnet-high  | Sonnet 5.5 high    |
+| claude-sonnet-xhigh | Sonnet 5.5 xhigh   |
+
+New models may use `Agent: <seat> <provider> <model> <effort>` with three
+`[A-Za-z0-9._-]+` value tokens. An unknown single preset or malformed claimed line
+fails even beside a valid line. Fenced examples and HTML comments do not count;
+replace the visible template placeholder. The provider co-author trailer stays.
+Only the exact REST author `tmt-ci-bot[bot]` together with a `chore(main):` title
+is exempt. The maintainer's account and other bots are not exempt.
+
+Code quality reads the current PR body through REST, including on reruns. The
+small Conventional PR title job also checks attribution on body edits; correcting
+that feedback does not replace an earlier failed Code quality result, which needs
+an authorized rerun. Merge-group checks initially report findings and unavailable
+evidence without failing; queue enforcement is a separate rollout after open PRs
+have been attributed. No required-check name or workflow permission changes.
+
 ## Conventional PR titles
 
 `typescript/scripts/pr-title-check.mjs` owns the exported `CONVENTIONAL_PR_TYPES` policy and
