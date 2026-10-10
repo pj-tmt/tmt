@@ -2,7 +2,7 @@
 
 This contract owns release discovery documents for #2371. Publication tooling emits
 and verifies release records and advances channel pointers after verification.
-Writer activation and bootstrap execution require owner authorization. The native
+The writer runs after verification in native-release.yml; bootstrap execution requires owner authorization. The native
 client consumes fixed-origin channel pointers and verified records without an API fallback.
 
 ## Origins and identity
