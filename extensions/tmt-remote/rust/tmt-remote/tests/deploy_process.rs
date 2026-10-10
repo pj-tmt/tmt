@@ -215,32 +215,15 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     assert!(preview["record"]["run"].is_null());
     assert!(preview["record"]["binding"].is_null());
     let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let draft_document: serde_json::Value = serde_json::from_slice(&before).unwrap();
+    assert_eq!(draft_document["version"], 1);
+    assert!(draft_document.get("target").is_none());
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
     assert!(
         calls.lines().all(
             |line| serde_json::from_str::<serde_json::Value>(line).unwrap()["method"] == "GET"
         )
     );
-    // Even with no installed Firebase tool on PATH, a retained target conflict is
-    // the refusal: no login, inventory or provider process is reached.
-    for (project, region) in [
-        ("demo-remote-2", "asia-east1"),
-        ("demo-remote-1", "us-central1"),
-    ] {
-        let mut words = ARGS.to_vec();
-        words[3] = project;
-        words[5] = region;
-        let out = base(&root).args(words).arg("--json").output().unwrap();
-        assert!(!out.status.success());
-        assert!(out.stderr.is_empty());
-        let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert_eq!(reply["error"]["code"], "REMOTE_DEPLOY_PROJECT_CONFLICT");
-        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
-        assert_eq!(
-            fs::read_to_string(package.join("calls.jsonl")).unwrap(),
-            calls
-        );
-    }
     let human = invoke(&root, &[]);
     assert!(human.status.success());
     assert!(human.stderr.is_empty());
@@ -264,6 +247,32 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     let saved: serde_json::Value =
         serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
     assert_eq!(saved["record"], done["record"]);
+    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
+    // Even with no installed Firebase tool on PATH, a retained target conflict is
+    // the refusal: no login, inventory or provider process is reached.
+    for (project, region) in [
+        ("demo-remote-2", "asia-east1"),
+        ("demo-remote-1", "us-central1"),
+    ] {
+        let mut words = ARGS.to_vec();
+        words[3] = project;
+        words[5] = region;
+        let out = base(&root).args(words).arg("--json").output().unwrap();
+        assert!(!out.status.success());
+        assert!(out.stderr.is_empty());
+        let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(reply["error"]["code"], "REMOTE_DEPLOY_PROJECT_CONFLICT");
+        let message = reply["error"]["message"].as_str().unwrap();
+        assert!(message.contains(&root.remote().join("deploy.json").display().to_string()));
+        assert!(message.contains("nothing else is deleted"));
+        assert!(message.contains("Rules stay and need a newly authorized takeover plan"));
+        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+        assert_eq!(
+            fs::read_to_string(package.join("calls.jsonl")).unwrap(),
+            calls
+        );
+    }
     let methods: Vec<_> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()

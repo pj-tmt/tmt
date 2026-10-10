@@ -865,18 +865,87 @@ mod cli_composition {
         assert_eq!(source.0, 4);
     }
     #[test]
+    fn plan_only_a_then_plan_and_authorize_b_binds_only_b() {
+        let root = Root::new();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
+        let request_a = args(&[]).unwrap();
+        let plan_a = deploy_cli::execute(
+            &request_a,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(1),
+        )
+        .unwrap();
+        let path = root.remote().join("deploy.json");
+        let draft: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(draft["version"], 1);
+        assert!(draft.get("target").is_none());
+        let mut request_b = args(&[]).unwrap();
+        request_b.project = "demo-remote-2".into();
+        request_b.region = "us-central1".into();
+        let plan_b = deploy_cli::execute(
+            &request_b,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
+        )
+        .unwrap();
+        assert_eq!(
+            plan_a.json["record"]["deploymentId"],
+            plan_b.json["record"]["deploymentId"]
+        );
+        assert_ne!(plan_a.json["planDigest"], plan_b.json["planDigest"]);
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            serde_json::to_vec(&draft).unwrap()
+        );
+        assert!(provider.0.effects.is_empty());
+        request_b.authorize = Some(plan_b.json["planDigest"].as_str().unwrap()[..12].to_owned());
+        let done = deploy_cli::execute(
+            &request_b,
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(3),
+        )
+        .unwrap();
+        assert_eq!(done.json["record"]["run"]["state"], "complete");
+        let bound: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(bound["version"], 2);
+        assert_eq!(
+            bound["target"],
+            serde_json::json!({"project":"demo-remote-2", "region":"us-central1"})
+        );
+    }
+    #[test]
     fn retained_target_conflict_precedes_provider_creation_and_preserves_the_record() {
         let root = Root::new();
         let mut source = DeployCliSource(0, true);
         let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
         let request = args(&[]).unwrap();
-        deploy_cli::execute(
+        let preview = deploy_cli::execute(
             &request,
             &mut source,
             &["colab"],
             || Ok(&mut provider),
             || Ok(root.layout()),
             || Ok(1),
+        )
+        .unwrap();
+        let digest = preview.json["planDigest"].as_str().unwrap();
+        deploy_cli::execute(
+            &args(&["--authorize", &digest[..12]]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(root.layout()),
+            || Ok(2),
         )
         .unwrap();
         let path = root.remote().join("deploy.json");
@@ -903,7 +972,7 @@ mod cli_composition {
             );
             assert_eq!(fs::read(&path).unwrap(), before);
         }
-        assert!(provider.0.effects.is_empty());
+        assert!(!provider.0.effects.is_empty());
     }
 }
 

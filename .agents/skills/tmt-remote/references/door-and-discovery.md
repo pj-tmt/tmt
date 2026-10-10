@@ -156,7 +156,10 @@ uses `google.com`. Provider reads require the owner's installed Firebase CLI and
 `--authorize <plan-digest-prefix>` needs at least 12 lowercase hex characters of the whole
 envelope digest, including the fingerprint of any foreign live Rules it destructively replaces.
 One Remote home deploys to one project and region; a different target refuses before provider
-setup without resetting the deployment record. Login, pairing and installation never authorize
+setup without resetting the deployment record. A plan-only read does not bind the target; the
+first authorized run does, before any effect. To move this home to another project or region,
+remove `deploy.json`; nothing else is deleted. The old project's Rules stay and need a newly
+authorized takeover plan from any home. Login, pairing and installation never authorize
 deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
 blind repeat of an effect.
 

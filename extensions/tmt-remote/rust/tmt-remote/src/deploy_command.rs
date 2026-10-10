@@ -77,7 +77,6 @@ pub fn execute(
     .map_err(DeployCommandError::Refused)?;
     let record = match options.authorize {
         None => {
-            store.bind_target(input.project, input.location)?;
             store.persist(&record)?;
             record
         }

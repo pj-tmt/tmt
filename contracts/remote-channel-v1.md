@@ -1735,11 +1735,14 @@ Never overwrite or delete unrelated account resources; deletion/data loss requir
 authorization in that concrete plan. Preserve an existing deployment on failed upgrade or report
 its actual partial availability; never claim provider rollback restored data.
 
-A Remote home binds its deployment identity to one `{project, region}` when the first explicit
-plan identity is atomically persisted, before any effect. A different target refuses with
-`REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory; no state is reset.
-Every v1 record is unbound, even if its binding names a project: reads neither infer a partial
-target nor convert it. The next explicit plan binds that identity to its named target.
+A Remote home binds its deployment identity to one `{project, region}` when the first authorized
+run is atomically persisted, before any effect. An unbound home's plan-only read persists a v1 draft.
+A different bound target refuses with `REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup,
+login or inventory; no state is reset. To move this home to another project or region, the owner
+removes `deploy.json`; nothing else is deleted. The old project's Rules stay and need a newly
+authorized takeover plan from any home. Every v1 record is unbound, even if its binding names a
+project: reads neither infer a partial target nor convert it. The next authorized plan binds
+that identity to its named target.
 
 A Firebase project has one deployer; tenants use identical composed Rules and share the project's
 quota. Colab separately grants access to its tenancy spaces (`spaceId`), not deployment ownership.
@@ -1747,9 +1750,7 @@ Another home sees the deployer's Rules as foreign. Its authorized destructive pl
 those Rules, including a newer release: a tenant must not deploy just to obtain access. Remote
 cannot enforce exclusivity across homes, so the single-writer-project limitation still applies.
 Remote links, registry selection and Hosting are separate delivery surfaces; deployment here does
-not publish them (planned in [registry selection](https://github.com/pj-tmt/tmt/issues/2461),
-[remote links](https://github.com/pj-tmt/tmt/issues/2458) and
-[Hosting](https://github.com/pj-tmt/tmt/issues/2486)).
+not publish them.
 
 **Firestore sharing layer (layer 1).** This layer deploys without the admission/token service. Its
 plan adds the owner's database `(default)` (edition `standard`, one location), the sign-in providers

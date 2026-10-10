@@ -232,12 +232,15 @@ impl<'a> DeployRecordStore<'a> {
         {
             return Err(RemoteError::new(
                 "REMOTE_DEPLOY_PROJECT_CONFLICT",
-                "This Remote home is bound to another Firebase project or region; its deployment was not reset.",
+                &format!(
+                    "This Remote home is bound to another Firebase project or region. To move it, remove '{}'; nothing else is deleted. The old project's Rules stay and need a newly authorized takeover plan from any home.",
+                    self.layout.directory.join("deploy.json").display()
+                ),
             ));
         }
         Ok(())
     }
-    /// Select only a validated explicit plan's target; the next atomic save binds it
+    /// Select only an authorized explicit plan's target; the next atomic save binds it
     /// together with the plan identity, before any provider effect.
     pub fn bind_target(&mut self, project: &str, region: &str) -> Result<(), RemoteError> {
         self.check_target(project, region)?;
