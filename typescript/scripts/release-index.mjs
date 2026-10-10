@@ -1,6 +1,8 @@
 // Release records bind GitHub's real release identity to the already verified cargo-dist bytes.
-// Index branch publication belongs to a later, separately authorized writer (#2373).
+// Protected branch activation and bootstrap execution require the owner's authorization.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { compareVersions } from './release-versions.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { readBoundedFile, selectNativeArtifact } from './native-artifact-policy.mjs';
@@ -206,4 +208,210 @@ export function verifyReleaseRecord({ recordBytes, ...input }) {
   for (const target of Object.keys(expected.archives))
     compare(actual.archives[target], expected.archives[target]);
   return actual;
+}
+
+/** A pointer binds the exact record bytes that publication verification checked. */
+export function channelPointer(recordBytes, { bootstrap = false } = {}) {
+  const record = parseReleaseRecord(recordBytes);
+  return parseChannelPointer(
+    JSON.stringify({
+      schemaVersion: 1,
+      product: record.product,
+      channel: record.version.includes('-alpha.') ? 'alpha' : 'stable',
+      version: record.version,
+      tag: record.tag,
+      record: {
+        url: bootstrap
+          ? `${INDEX_BASE}records/${record.tag}.json`
+          : `${RELEASE_BASE}${record.tag}/${RELEASE_RECORD}`,
+        size: Buffer.byteLength(recordBytes),
+        sha256: digest(recordBytes),
+      },
+    })
+  );
+}
+
+function pointerOrder(currentBytes, wanted) {
+  if (currentBytes === null) return -1;
+  const current = parseChannelPointer(currentBytes);
+  assert.equal(current.product, wanted.product, 'Index pointer product mismatch');
+  assert.equal(current.channel, wanted.channel, 'Index pointer channel mismatch');
+  const order = compareVersions(current.version, wanted.version);
+  if (order === 0)
+    assert.deepEqual(
+      {
+        tag: current.tag,
+        record: {
+          url: current.record.url,
+          size: current.record.size,
+          sha256: current.record.sha256,
+        },
+      },
+      { tag: wanted.tag, record: wanted.record },
+      'Equal-version index identity conflict'
+    );
+  return order;
+}
+
+/** Only captured-parent, non-force commits may update this already initialized branch. */
+export function updateReleaseIndex({ api, recordBytes, bootstrap = false }) {
+  const pointer = channelPointer(recordBytes, { bootstrap });
+  const pointerPath = `channels/${pointer.product}/${pointer.channel}.json`;
+  const recordPath = `records/${pointer.tag}.json`;
+  const pointerBytes = Buffer.from(`${JSON.stringify(pointer, null, 2)}\n`);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const tip = api.readTip();
+    const current = api.readFile(tip.sha, pointerPath, POINTER_LIMIT);
+    let existingRecord = null;
+    if (bootstrap) {
+      existingRecord = api.readFile(tip.sha, recordPath, RECORD_LIMIT);
+      if (existingRecord !== null)
+        assert(
+          Buffer.from(existingRecord).equals(Buffer.from(recordBytes)),
+          'Historical index record is immutable'
+        );
+    }
+    const order = pointerOrder(current, pointer);
+    if (bootstrap && order === 0)
+      assert(existingRecord !== null, 'Bootstrap pointer has no record');
+    if (order >= 0) return { changed: false, tip: tip.sha, path: pointerPath, attempts: attempt };
+    const entries = [{ path: pointerPath, bytes: pointerBytes }];
+    if (bootstrap && existingRecord === null)
+      entries.push({ path: recordPath, bytes: Buffer.from(recordBytes) });
+    const commit = api.createCommit(tip, entries);
+    const outcome = api.advance(commit);
+    if (outcome === 'race') continue;
+    assert.equal(outcome, 'updated', 'Unknown index update outcome');
+    const observed = api.readTip();
+    const readback = api.readFile(observed.sha, pointerPath, POINTER_LIMIT);
+    assert(readback !== null, 'Index pointer readback failed');
+    const observedOrder = pointerOrder(readback, pointer);
+    assert(
+      observedOrder > 0 || (observedOrder === 0 && Buffer.from(readback).equals(pointerBytes)),
+      'Index pointer readback bytes failed'
+    );
+    if (bootstrap) {
+      const bytes = api.readFile(observed.sha, recordPath, RECORD_LIMIT);
+      assert(
+        bytes !== null && Buffer.from(bytes).equals(Buffer.from(recordBytes)),
+        'Index record readback failed'
+      );
+    }
+    return { changed: true, tip: observed.sha, path: pointerPath, attempts: attempt };
+  }
+  throw new Error('Release index non-force race budget exhausted (5 attempts)');
+}
+
+/** Fixed-repository Git API; no ref initialization, force update or deletion operation exists. */
+export function ghIndexApi({ repository, env = process.env, spawn = spawnSync }) {
+  assert.equal(repository, 'pj-tmt/tmt', 'Release index repository mismatch');
+  const base = `repos/${repository}`;
+  function request(endpoint, method = 'GET', body) {
+    const result = spawn(
+      'gh',
+      [
+        'api',
+        `${base}/${endpoint}`,
+        '--include',
+        '--method',
+        method,
+        ...(body ? ['--input', '-'] : []),
+      ],
+      {
+        env,
+        encoding: 'utf8',
+        input: body ? JSON.stringify(body) : undefined,
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+      }
+    );
+    if (result.error) throw result.error;
+    const match = /^HTTP\/\S+ (\d+)/.exec(result.stdout ?? '');
+    assert(match, `Index API response has no HTTP status: ${result.stderr ?? ''}`);
+    const separator = /\r?\n\r?\n/.exec(result.stdout);
+    assert(separator, 'Index API response has no body boundary');
+    const data = JSON.parse(result.stdout.slice(separator.index + separator[0].length));
+    return { status: Number(match[1]), data, exit: result.status };
+  }
+  function checked(endpoint, method, body) {
+    const response = request(endpoint, method, body);
+    assert(
+      response.exit === 0 && response.status >= 200 && response.status < 300,
+      `Index API ${method ?? 'GET'} ${endpoint} failed (${response.status}): ${response.data.message ?? ''}`
+    );
+    return response.data;
+  }
+  function sha(value) {
+    assert(
+      typeof value === 'string' && /^[a-f0-9]{40}$/.test(value),
+      'Index API requires a commit/tree/blob SHA'
+    );
+    return value;
+  }
+  return {
+    readTip() {
+      const ref = checked('git/ref/heads/release-index');
+      assert.equal(ref.object?.type, 'commit', 'Index branch must reference a commit');
+      const commit = checked(`git/commits/${sha(ref.object.sha)}`);
+      return { sha: sha(ref.object.sha), tree: sha(commit.tree?.sha) };
+    },
+    readFile(tip, file, limit) {
+      assert(
+        /^channels\/[a-z-]+\/(alpha|stable)\.json$|^records\/[a-z0-9.-]+\.json$/.test(file),
+        'Index path outside allowed documents'
+      );
+      const response = request(`contents/${file}?ref=${sha(tip)}`);
+      if (response.status === 404) return null;
+      assert(
+        response.exit === 0 && response.status === 200,
+        `Index file read failed (${response.status})`
+      );
+      const data = response.data;
+      assert(
+        data.type === 'file' &&
+          data.encoding === 'base64' &&
+          Number.isSafeInteger(data.size) &&
+          data.size > 0 &&
+          data.size <= limit,
+        'Index file outside bounds'
+      );
+      const bytes = Buffer.from(data.content, 'base64');
+      assert(bytes.length === data.size && bytes.length <= limit, 'Index file size mismatch');
+      return bytes;
+    },
+    createCommit(tip, entries) {
+      const tree = entries.map(({ path: file, bytes }) => ({
+        path: file,
+        mode: '100644',
+        type: 'blob',
+        sha: sha(
+          checked('git/blobs', 'POST', { encoding: 'base64', content: bytes.toString('base64') })
+            .sha
+        ),
+      }));
+      const nextTree = checked('git/trees', 'POST', { base_tree: sha(tip.tree), tree });
+      return sha(
+        checked('git/commits', 'POST', {
+          message: `Advance verified release index: ${entries[0].path}`,
+          tree: sha(nextTree.sha),
+          parents: [sha(tip.sha)],
+        }).sha
+      );
+    },
+    advance(commit) {
+      const response = request('git/refs/heads/release-index', 'PATCH', {
+        sha: sha(commit),
+        force: false,
+      });
+      if (response.exit === 0 && response.status === 200) return 'updated';
+      if (
+        [409, 422].includes(response.status) &&
+        response.data.message === 'Update is not a fast forward'
+      )
+        return 'race';
+      throw new Error(
+        `Index ref update failed (${response.status}): ${response.data.message ?? ''}`
+      );
+    },
+  };
 }

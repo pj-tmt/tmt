@@ -18,7 +18,7 @@ describe('release gate parity inventory', () => {
   it('covers both release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
       workflows: 7,
-      jobs: 26,
+      jobs: 27,
       publicationGates: 6,
     });
     expect(Object.keys(releaseInventory(read))).toContain('native-release-upgrade.yml');

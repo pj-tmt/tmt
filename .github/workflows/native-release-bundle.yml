@@ -9,6 +9,10 @@ name: Native release bundle
 # is held and stays a draft until the owner acts.
 on:
   workflow_call:
+    outputs:
+      published:
+        description: The selected tag passed full publication verification
+        value: ${{ jobs.published.outputs.published }}
     inputs:
       product:
         description: Native product to build
@@ -284,6 +288,8 @@ jobs:
   # holds them while the newest published release is not immutable).
   published:
     name: Check the published ${{ inputs.tag }}
+    outputs:
+      published: ${{ steps.verify.outputs.published }}
     needs: publish
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -299,6 +305,7 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Check immutability, flags, tag and attestation of the published release
+        id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           PRODUCT: ${{ inputs.product }}
@@ -307,6 +314,7 @@ jobs:
           node typescript/scripts/release-publish.mjs verify --product "$PRODUCT" --tag "$RELEASE_TAG" \
             --directory "$RUNNER_TEMP/published" \
             --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
   # The published release is installed the way a user installs it: the public installer and
   # `tmt upgrade` for the CLI, the newest published CLI's extension install for an extension. It

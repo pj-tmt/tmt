@@ -17,13 +17,22 @@
 //   node release-publish.mjs report  --product P --tag TAG --directory DIR [--run-url URL]
 // Both run with a token that can write, so they run this repository's main and never the
 // release commit's code.
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { RELEASE_RECORD, RECORD_LIMIT, verifyReleaseRecord } from './release-index.mjs';
+import {
+  RELEASE_RECORD,
+  RECORD_LIMIT,
+  verifyReleaseRecord,
+  createReleaseRecord,
+  releaseRecordBytes,
+  updateReleaseIndex,
+  ghIndexApi,
+} from './release-index.mjs';
 import { readBoundedFile } from './native-artifact-policy.mjs';
 import {
   checkLatestTag,
@@ -192,7 +201,7 @@ function settle(attempt, { attempts, wait }) {
  * verification; immutability, `latest` and the release attestation are waited for because GitHub
  * finishes them shortly after publishing.
  */
-export function verifyPublication({
+function verifyPublishedAssets({
   api,
   product,
   tag,
@@ -241,7 +250,7 @@ export function verifyPublication({
     const current = api.getRelease(tag);
     return { ok: current?.immutable === true, current };
   }, retry).current;
-  if (!release) return [fail('published', `there is no published release ${tag}`)];
+  if (!release) return { results: [fail('published', `there is no published release ${tag}`)] };
 
   // GitHub moves `latest` a moment after publishing, like the rest: wait for the state the policy
   // expects before judging it.
@@ -278,7 +287,7 @@ export function verifyPublication({
   const downloaded = api.download(tag, directory);
   if (!downloaded.ok) {
     results.push(fail('assets', `the assets could not be downloaded: ${downloaded.output}`));
-    return results;
+    return { results, release, tagCommit, downloadFailed: true };
   }
   const names = (release.assets ?? []).map(({ name }) => name);
   const failed = [];
@@ -295,6 +304,15 @@ export function verifyPublication({
       ? pass('assets', `gh release verify-asset passed for ${names.length} assets`)
       : fail('assets', `gh release verify-asset failed for ${failed.join('; ')}`)
   );
+  return { results, release, tagCommit };
+}
+
+/** Every normal verification still requires a release record. */
+export function verifyPublication(input) {
+  const { results, release, tagCommit, downloadFailed } = verifyPublishedAssets(input);
+  if (!release || downloadFailed) return results;
+  const { product, tag, directory } = input;
+  const names = (release.assets ?? []).map(({ name }) => name);
   if (!names.includes(RELEASE_RECORD)) {
     results.push(
       fail('record', `release has no ${RELEASE_RECORD}; pre-record tags are expected to fail here`)
@@ -317,6 +335,101 @@ export function verifyPublication({
     }
   }
   return results;
+}
+
+/** Recheck the same verified directory; no success flag or new handoff document is accepted. */
+export function writeVerifiedReleaseIndex({ api, indexApi, product, tag, directory }) {
+  const release = api.getRelease(tag);
+  assert(
+    release && release.draft === false && release.immutable === true,
+    'Index writer needs an immutable published release'
+  );
+  const sourceSha = api.tagCommit(tag);
+  assert(
+    release.tag_name === tag && release.target_commitish === sourceSha,
+    'Index release/tag identity changed'
+  );
+  const bytes = readBoundedFile(path.join(directory, RELEASE_RECORD), RECORD_LIMIT);
+  verifyReleaseRecord({
+    recordBytes: bytes,
+    product,
+    tag,
+    directory,
+    releaseId: release.id,
+    sourceSha,
+  });
+  return updateReleaseIndex({ api: indexApi, recordBytes: bytes });
+}
+
+/** Operator-reviewed selection, not permission to mutate historical release assets. */
+export function backfillInventory({ api, product, channel }) {
+  assert(channel === 'alpha' || channel === 'stable', 'Backfill needs alpha or stable channel');
+  const selected = publishedReleases(api.listReleases(), product).find(
+    ({ tag_name }) => isAlphaVersion(versionOfTag(tag_name, product)) === (channel === 'alpha')
+  );
+  assert(selected, 'No published release for backfill channel');
+  const release = api.getRelease(selected.tag_name);
+  assert(
+    release && release.draft === false && release.tag_name === selected.tag_name,
+    'Backfill selection changed'
+  );
+  const sourceSha = api.tagCommit(selected.tag_name);
+  assert(
+    Number.isSafeInteger(release.id) && release.id > 0 && COMMIT.test(sourceSha),
+    'Backfill needs actual release ID/source'
+  );
+  return { product, channel, tag: release.tag_name, releaseId: release.id, sourceSha };
+}
+
+/** Separate historical entry: shared old gates, then an immutable branch record, never assets. */
+export function backfillReleaseIndex({
+  api,
+  indexApi,
+  product,
+  channel,
+  tag,
+  releaseId,
+  sourceSha,
+  directory,
+  attempts,
+  sleep,
+  clock,
+}) {
+  const expected = { product, channel, tag, releaseId, sourceSha };
+  assert.deepEqual(
+    backfillInventory({ api, product, channel }),
+    expected,
+    'Reviewed backfill inventory changed'
+  );
+  const { results, release, tagCommit } = verifyPublishedAssets({
+    api,
+    product,
+    tag,
+    directory,
+    attempts,
+    sleep,
+    clock,
+  });
+  assert(
+    results.every(({ ok }) => ok),
+    `Historical publication verification failed: ${results
+      .filter(({ ok }) => !ok)
+      .map(({ reason }) => reason)
+      .join('; ')}`
+  );
+  assert(
+    release.id === releaseId && tagCommit === sourceSha,
+    'Verified backfill release identity changed'
+  );
+  const recordBytes = releaseRecordBytes(
+    createReleaseRecord({ product, tag, directory, releaseId, sourceSha })
+  );
+  assert.deepEqual(
+    backfillInventory({ api, product, channel }),
+    expected,
+    'Reviewed backfill inventory changed'
+  );
+  return updateReleaseIndex({ api: indexApi, recordBytes, bootstrap: true });
 }
 
 /** The monitor still recognizes historical anonymous rate-limit issues. */
@@ -547,16 +660,54 @@ function main(argv, environment) {
       attempts: { type: 'string', default: String(VERIFY_ATTEMPTS) },
       'expected-results': { type: 'string', default: '0' },
       components: { type: 'string', default: COMPONENTS },
+      channel: { type: 'string' },
+      'release-id': { type: 'string' },
+      'source-sha': { type: 'string' },
     },
   });
-  for (const name of ['product', 'tag']) {
+  for (const name of command === 'backfill-inventory' ? ['product'] : ['product', 'tag']) {
     if (!values[name]) throw new Error(`--${name} is required.`);
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
   const api = ghPublishApi({ repository });
 
-  if (command === 'publish') {
+  if (command === 'backfill-inventory') {
+    process.stdout.write(
+      `${JSON.stringify(backfillInventory({ api, product: values.product, channel: values.channel }), null, 2)}\n`
+    );
+  } else if (command === 'index' || command === 'backfill') {
+    if (!values.directory) throw new Error(`${command} needs --directory.`);
+    if (command === 'backfill') {
+      assert(
+        !existsSync(values.directory) || readdirSync(values.directory).length === 0,
+        'Backfill needs an empty download directory'
+      );
+      mkdirSync(values.directory, { recursive: true });
+    }
+    const indexApi = ghIndexApi({ repository });
+    const input = {
+      api,
+      indexApi,
+      product: values.product,
+      tag: values.tag,
+      directory: values.directory,
+    };
+    const result =
+      command === 'index'
+        ? writeVerifiedReleaseIndex(input)
+        : backfillReleaseIndex({
+            ...input,
+            channel: values.channel,
+            releaseId: Number(values['release-id']),
+            sourceSha: values['source-sha'],
+            sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+          });
+    report(
+      environment,
+      `Release index ${result.changed ? 'advanced' : 'unchanged'}: ${result.path} at ${result.tip} (${result.attempts} attempts).\n`
+    );
+  } else if (command === 'publish') {
     const map = parseComponentMap(readFileSync(values.components, 'utf8'));
     const { flags } = publishDraft({
       api,

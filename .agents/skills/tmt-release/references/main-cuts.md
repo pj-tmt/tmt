@@ -367,6 +367,25 @@ The full verifier requires `tmt-release-record.json`; pre-record tags fail disti
 and historical bootstrap needs separate owner-authorized verification without mutating
 old assets.
 
+The top-level `release-index` job in `native-release.yml` uses the release
+environment: reusable workflows cannot read its App secrets. After the bundle,
+smoke and Project reconcile dispatch succeed, it re-verifies into its own download
+directory, then obtains the Release App token and advances the protected pointer
+from those same bytes. It uses at most five non-force attempts for concurrent
+product writes. A failed index job leaves the release published and the overall
+run red; when index alone fails, owner-authorized failed-job recovery reruns only it;
+lower/equal-identical versions are no-ops. An ambiguous readback is reported,
+without claiming rollback of a possibly completed pointer write.
+
+Historical bootstrap is a separate owner-authorized execution. First review
+`release-publish.mjs backfill-inventory --product <product> --channel <alpha|stable>`.
+Then run `backfill` with that exact `--tag`, `--release-id`, `--source-sha`, channel,
+product and an empty `--directory` outside the checkout. It reuses the historical
+immutable/tag/attestation/digest gates and writes a branch record and pointer,
+never old release assets. The writer requires an owner-initialized `release-index`
+branch protected so that only the Release App can advance it, without force push
+or deletion, and runs only from the main-only release environment.
+
 It verifies public immutable state, the exact tag commit, product flags, latest
 CLI selection, the completeness marker, release attestation and every downloaded
 asset's attestation. A failed readback needs diagnosis; never republish immutable
