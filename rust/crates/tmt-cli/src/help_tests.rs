@@ -137,6 +137,33 @@ fn unknown_help_topics_point_to_the_nearest_public_parent() {
 }
 
 #[test]
+fn root_help_advertises_version_without_changing_other_projections() {
+    let text = grammar::help_command(&[])
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(text.contains("-V, --version"), "{text}");
+    for path in [vec!["run".into()], vec!["talk".into()]] {
+        let text = grammar::help_command(&path)
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(!text.contains("--version"), "{path:?}: {text}");
+    }
+    let public = grammar::public_grammar(&grammar::grammar(), true);
+    assert!(!public.get_arguments().any(|arg| arg.get_id() == "version"));
+    for flag in ["-V", "--version"] {
+        assert_eq!(
+            parse(&arguments(&[flag])).unwrap().invocation,
+            Invocation::Version
+        );
+        let error = parse(&arguments(&["--json", flag])).unwrap_err();
+        assert_eq!(error.code, "JSON_UNSUPPORTED");
+        assert!(error.mode.json);
+    }
+}
+
+#[test]
 fn notes_help_identifies_the_shared_file_and_explicit_creation_boundary() {
     let text = grammar::help_command(&["notes".into(), "path".into()])
         .unwrap()

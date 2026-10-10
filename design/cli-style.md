@@ -581,8 +581,10 @@ the migration lists in the same change.
    `route`. `command` turns clap's version flag off: a root that reports its
    version adds `version_arg`, the hidden `-V`/`--version`
    (`ArgAction::Version` prints `<name> <version>`; core passes `SetTrue` and
-   answers itself). Each example is the full command a user types. The grammar walk parses it through the real parser, so run the walk
-   until the command leaves its help list.
+   answers itself). Core lists `--version` only in `tmt --help`; subcommand help
+   keeps it hidden. Each example is the full command a user types. The grammar
+   walk parses it through the real parser, so run the walk until the command
+   leaves its help list.
 2. **Streams.** Replace `io::stdout()`/`io::stderr()` and print macros with
    `stream::stdout(json)` and `stream::stderr()`. Pass `stream.terminal()` to
    every renderer.
