@@ -174,7 +174,7 @@ from is replaced (for example by `tmt extension upgrade ops` or `tmt upgrade`) o
 when `tmt ops ui --reload-all` asks every open board to. The board waits until it
 has been idle for a second and nothing is open: a composer, search, overlay, reader,
 pending request or loading view holds the reload, and the footer adds a dim
-`reload waiting`. After the reload the footer says `Reloaded on tmt-ops X.`.
+`reload waiting`. After the reload the footer says `Board reloaded · tmt-ops X`.
 Boards started before this behavior shipped need one manual restart.
 
 ## Board appearance

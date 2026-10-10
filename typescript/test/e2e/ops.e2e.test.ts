@@ -713,7 +713,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         () => {
           const now = screen(shell.pane);
           return (
-            now.includes('Reloaded on tmt-ops') &&
+            now.includes('Board reloaded · tmt-ops') &&
             now.includes('docs-fix') &&
             !now.includes('auth-fix')
           );
@@ -734,7 +734,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
 
       // One command asks every open board; boards started after it are unaffected.
       await fixture.waitFor(
-        () => screen(shell.pane).includes('Reloaded on tmt-ops'),
+        () => screen(shell.pane).includes('Board reloaded · tmt-ops'),
         15_000,
         'board back after the replacement'
       );

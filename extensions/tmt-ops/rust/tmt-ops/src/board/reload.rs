@@ -26,7 +26,7 @@ pub(super) const WAITING: &str = "  reload waiting";
 
 /// Shown by the board a reload started.
 pub(super) fn reloaded() -> String {
-    format!("Reloaded on tmt-ops {}.", env!("CARGO_PKG_VERSION"))
+    format!("Board reloaded · tmt-ops {}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Asks every board that started before now to reload. Boards older than this
