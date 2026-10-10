@@ -158,3 +158,31 @@ fn root_upgrade_keeps_ops_switch_summary_and_deferred_recovery_command() {
             .is_none()
     );
 }
+
+#[test]
+fn ordinary_extension_list_is_local_observation_without_update_discovery() {
+    let root = std::env::temp_dir().join(format!(
+        "tmt-public-list-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let result = crate::extension_install_command::listing(
+        &root,
+        false,
+        root.join("empty-path").as_os_str(),
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+    let (document, _) = result.unwrap();
+    assert!(
+        document["extensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row.get("update").is_none()),
+        "extension list without --check is local-only"
+    );
+}

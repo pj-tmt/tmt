@@ -124,6 +124,76 @@ mod tests {
     use crate::test_support::TestDirectory;
 
     #[test]
+    fn public_first_install_uses_only_published_hosts_in_both_channels() {
+        for product in [Product::Cli, Product::Ops, Product::Remote, Product::Colab] {
+            for (version, channel) in [
+                ("1.2.4", Channel::Stable),
+                ("1.2.4-alpha.2", Channel::Alpha),
+            ] {
+                for defect in [None, Some("pointer"), Some("archive")] {
+                    let directory = TestDirectory::new();
+                    let prefix = directory.path.join("prefix");
+                    let sentinel = directory.path.join("application-state");
+                    std::fs::write(&sentinel, b"untouched state").unwrap();
+                    let (release, manifest, archive, _) =
+                        release::product_fixture(product, version, "aarch64-apple-darwin", 42);
+                    let routes = release::indexed_routes(&release, &manifest, &archive);
+                    let network = release::PublishedNetwork::default();
+                    let result = install_release_with(
+                        product,
+                        &prefix,
+                        "aarch64-apple-darwin",
+                        channel,
+                        None,
+                        || Ok(()),
+                        |url, _, _, _| {
+                            network.record(url);
+                            if (defect == Some("pointer") && url.contains("/channels/"))
+                                || (defect == Some("archive") && url.ends_with(".tar.gz"))
+                            {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::NotFound,
+                                    "fixture unavailable",
+                                ));
+                            }
+                            Ok(routes
+                                .get(url)
+                                .expect("canonical install URL")
+                                .clone()
+                                .into())
+                        },
+                    );
+                    if defect.is_some() {
+                        assert!(result.is_err(), "install / extension install failure");
+                        assert!(
+                            !prefix.exists(),
+                            "failed acquisition must not create a prefix"
+                        );
+                    } else {
+                        let report = result.unwrap();
+                        assert!(report.changed);
+                        let installed =
+                            super::super::inspect_product_prefix(product, &prefix).unwrap();
+                        assert_eq!(installed.state.version.to_string(), version);
+                        assert_eq!(installed.state.channel, channel);
+                        assert_eq!(
+                            network.hosts(),
+                            [
+                                "raw.githubusercontent.com",
+                                "github.com",
+                                "github.com",
+                                "github.com"
+                            ],
+                            "install / extension install {product:?}"
+                        );
+                    }
+                    assert_eq!(std::fs::read(&sentinel).unwrap(), b"untouched state");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn pr_installation_never_falls_back_to_release_discovery_or_creates_a_prefix() {
         let directory = TestDirectory::new();
         let prefix = directory.path.join("prefix");

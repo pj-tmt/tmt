@@ -334,5 +334,6 @@ pub(super) fn schema_evidence(
 mod release_tests;
 #[cfg(test)]
 pub(super) use release_tests::{
-    companion_fixture, indexed_download, indexed_routes, product_fixture, valid_fixture,
+    PublishedNetwork, companion_fixture, indexed_download, indexed_routes, product_fixture,
+    valid_fixture,
 };

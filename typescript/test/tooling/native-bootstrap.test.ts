@@ -148,6 +148,9 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\\n' "$url" >> "$TMT_BOOTSTRAP_CURL_LOG"
 case "$url" in
+  https://api.github.com/*) printf 'normal bootstrap requested API\\n' >&2; exit 97 ;;
+esac
+case "$url" in
   *dist-manifest.json) source=\${TMT_BOOTSTRAP_MANIFEST:?} ;;
   *.tar.gz) source=\${TMT_BOOTSTRAP_ARCHIVE:?} ;;
   *) exit 22 ;;
@@ -350,6 +353,28 @@ describe('native curl bootstrap', () => {
       );
     });
   });
+
+  it.each(['5.0.0', '5.0.0-alpha.1'])(
+    'install.sh downloads only from the public release host for %s',
+    async (version) => {
+      await withSandbox(async (sandbox) => {
+        const fixture = await createFixture(sandbox, { version });
+        const script = await generateNativeBootstrap(
+          fixture.manifest,
+          path.dirname(fixture.archive)
+        );
+        const run = await runBootstrap(sandbox, script, fixture, ['--no-skill']);
+        expect(run.result.status).toBe(0);
+        const urls = readFileSync(run.curlLog, 'utf8').trim().split('\n');
+        expect(urls.map((url) => new URL(url).hostname)).toEqual(['github.com', 'github.com']);
+        expect(urls).toEqual([
+          `https://github.com/pj-tmt/tmt/releases/download/v${version}/dist-manifest.json`,
+          `https://github.com/pj-tmt/tmt/releases/download/v${version}/${path.basename(fixture.archive)}`,
+        ]);
+        expectCleanStage(run.stage);
+      });
+    }
+  );
 
   it('generates a release-specific script from verified cargo-dist artifacts', async () => {
     await withSandbox(async (sandbox) => {
