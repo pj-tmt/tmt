@@ -470,6 +470,18 @@ pub(in crate::board) fn render_squad(
     let right = if model_cells == 0 { 0 } else { model_cells + 2 }
         + if age_cells == 0 { 0 } else { age_cells + 1 };
     let available = width.saturating_sub(3 + right);
+    // All filtered members share one column; short lists leave room for whole chips.
+    let name_width = app
+        .items()
+        .into_iter()
+        .filter_map(|item| match item {
+            Item::Row(_, row) => Some(escape(row["name"].as_str().unwrap_or("–")).width()),
+            Item::Section(_) | Item::Rule(_) => None,
+        })
+        .max()
+        .unwrap_or(0)
+        .clamp(12, 26)
+        .min(available / 2);
     let mut before = Vec::new();
     let mut rows = Vec::new();
     for item in app.items() {
@@ -524,11 +536,6 @@ pub(in crate::board) fn render_squad(
         } else {
             ""
         };
-        // The name takes at most half the row, so the chips always have room beside it.
-        let name_width = available
-            .saturating_sub(tag.len() + 3)
-            .min(26)
-            .min(available / 2);
         let name = fit(&escape(row["name"].as_str().unwrap_or("–")), name_width);
         // The name and the whole state come first; the chips take what is left.
         let room = available

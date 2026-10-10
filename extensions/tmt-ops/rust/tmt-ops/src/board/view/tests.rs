@@ -5670,3 +5670,135 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
         }
     }
 }
+
+#[test]
+fn squad_name_columns_follow_display_cells_and_leave_room_for_interval_labels() {
+    use crate::labels::Label;
+    // CJK fixture glyphs distinguish terminal cells from bytes and character counts.
+    for (second, state_columns) in [
+        ("bravo", [18, 18, 18]),
+        ("documentation", [19, 19, 19]),
+        ("界界界界界界界", [20, 20, 20]),
+        ("documentation-with-a-very-long-name", [32, 29, 21]),
+    ] {
+        for (width, state_column) in [100, 60, 36].into_iter().zip(state_columns) {
+            for (base, depth) in [
+                ("tmt", tmt_cli_style::Depth::TrueColor),
+                ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                ("tmt", tmt_cli_style::Depth::None),
+            ] {
+                let mut app = board(json!([{"title": null, "rows": [
+                    row("alpha", "working", "", json!({"id":"first", "state":"working"})),
+                    row(second, "working", "", json!({"id":"second", "state":"working"})),
+                ]}]));
+                let view = app.view.as_mut().unwrap();
+                view.board.members = true;
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                let without = board_buffer(&app, width, 24);
+                let hits = format!("{:?}", app.hits.borrow());
+                let states = find_cells(&without, "working");
+                assert_eq!(states.len(), 2, "{second}/{width}/{base}: whole states");
+                assert!(states.iter().all(|(x, _)| *x == state_column), "{states:?}");
+                app.labels = crate::labels::Supplied::from_rows(vec![(
+                    "digest".into(),
+                    [("first", "Every 20s"), ("second", "Every 5m")]
+                        .into_iter()
+                        .map(|(id, text)| {
+                            (
+                                id.into(),
+                                vec![Label {
+                                    text: text.into(),
+                                    role: Role::Text,
+                                    action: None,
+                                }],
+                            )
+                        })
+                        .collect(),
+                )]);
+                let with = board_buffer(&app, width, 24);
+                assert_eq!(find_cells(&with, "working"), states, "labels move no state");
+                assert_eq!(
+                    format!("{:?}", app.hits.borrow()),
+                    hits,
+                    "labels move no row hit"
+                );
+                if second == "bravo" && width >= 60 {
+                    assert_eq!(find_cells(&with, "digest Every 20s").len(), 1);
+                    assert_eq!(find_cells(&with, "digest Every 5m").len(), 1);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn squad_search_remeasures_the_name_column_without_retaining_the_old_scene() {
+    let mut app = board(json!([{"title": null, "rows": [
+        row("alpha", "working", "", json!({"id":"first", "state":"working"})),
+        row("documentation", "working", "", json!({"id":"second", "state":"working"})),
+    ]}]));
+    app.view.as_mut().unwrap().board.members = true;
+    let before = board_buffer(&app, 100, 24);
+    assert!(find_cells(&before, "working").iter().all(|(x, _)| *x == 19));
+    app.search = "alpha".into();
+    let filtered = board_buffer(&app, 100, 24);
+    assert_eq!(find_cells(&filtered, "working").len(), 1);
+    assert_eq!(find_cells(&filtered, "working")[0].0, 18);
+    assert!(find_cells(&filtered, "documentation").is_empty());
+    app.search.clear();
+    assert_eq!(
+        board_buffer(&app, 100, 24),
+        before,
+        "restored cells and styles"
+    );
+}
+
+#[test]
+#[ignore = "read-only name-column review packet; requires SQUAD_NAMES_OUT"]
+fn capture_squad_name_column_frames() {
+    let mut frames = Vec::new();
+    for (case, name) in [
+        ("short", "bravo"),
+        ("long", "documentation-with-a-very-long-name"),
+        ("wide", "界界界界界界界"),
+    ] {
+        for width in [100, 60, 36] {
+            for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+                let mut app = board(json!([{"title": null, "rows": [
+                    row("alpha", "working", "", json!({"id":"first", "state":"working"})),
+                    row(name, "working", "", json!({"id":"second", "state":"working"})),
+                ]}]));
+                let view = app.view.as_mut().unwrap();
+                view.board.members = true;
+                view.look.depth = depth;
+                app.labels = crate::labels::Supplied::from_rows(vec![(
+                    "digest".into(),
+                    [("first", "Every 20s"), ("second", "Every 5m")]
+                        .into_iter()
+                        .map(|(id, text)| {
+                            (
+                                id.into(),
+                                vec![crate::labels::Label {
+                                    text: text.into(),
+                                    role: Role::Text,
+                                    action: None,
+                                }],
+                            )
+                        })
+                        .collect(),
+                )]);
+                frames.push(json!({"case":case,"width":width,"noColor":depth == tmt_cli_style::Depth::None,"lines":draw(&app,width,12)}));
+            }
+        }
+    }
+    std::fs::write(
+        std::env::var_os("SQUAD_NAMES_OUT").expect("SQUAD_NAMES_OUT"),
+        serde_json::to_string_pretty(&frames).unwrap() + "\n",
+    )
+    .unwrap();
+}
