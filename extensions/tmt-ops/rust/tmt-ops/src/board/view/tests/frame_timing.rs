@@ -355,7 +355,7 @@ fn measure(scene: &'static str, app: App) -> Report {
             terminal
                 .draw(|frame| {
                     let start = Instant::now();
-                    rows::render_rows(frame, &app, area);
+                    rows::render_rows(frame, &app, area, Default::default());
                     if index >= WARMUP {
                         painter.push(start.elapsed());
                     }

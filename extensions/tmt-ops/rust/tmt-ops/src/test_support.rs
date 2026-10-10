@@ -3,6 +3,19 @@
 use std::path::Path;
 use tmt_test_support::write_executable;
 
+/// The first line that is a full-width rule directly followed by another: a
+/// heading rule or a frame edge is mostly `─`, and neighbours share one.
+pub(crate) fn stacked_rules(lines: &[String]) -> Option<usize> {
+    let rule = |line: &str| {
+        let line = line.trim();
+        !line.is_empty()
+            && line.chars().filter(|c| *c == '─').count() * 5 >= line.chars().count() * 2
+    };
+    lines
+        .windows(2)
+        .position(|pair| rule(&pair[0]) && rule(&pair[1]))
+}
+
 /// Prewarm a fixture without executing its payload. macOS first-exec assessment
 /// queues fresh files under parallel load; keep it outside production deadlines.
 /// Never rewrite the executable after this one bounded readiness probe.

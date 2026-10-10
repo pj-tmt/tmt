@@ -25,7 +25,8 @@ dispatch and the independent clock lifecycle. The shipped Squad skill owns
   in one flex computation. The jobs half grows to content demand, capped at two
   fifths of body height; below 12 body lines it keeps only its rule. The rule is the
   boundary: a framed pane resting on it extends over the row and ends there
-  (`render_members`' `rule_below`), so no pane bottom edge stacks above it. Its ordinary
+  (`render_members`' `rule_below`), so no pane bottom edge stacks above it; the rich member
+  list drops its bottom edge there instead (`panes::Shared`). Its ordinary
   TUI list retains per-room `ListState` across tab switches. Selection and focus
   leave jobs collapsed; `e` toggles an explicit stable job expansion in
   `board::row_detail`, which owns the shared block rendering and reconciliation.
