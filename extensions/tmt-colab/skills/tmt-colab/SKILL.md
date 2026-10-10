@@ -27,7 +27,7 @@ seed; never create or disclose them to bypass pairing.
 
 ## Set up a page
 
-Check both extensions with `--help`. Explain what is missing; install only with
+Check both extensions with `--help`. Explain what is missing; install only with user
 consent:
 
 ```sh
