@@ -373,6 +373,9 @@ describe('independent release-tag concurrency guard', () => {
       const groups = [...workflow.matchAll(/^\s*group:\s*(.+)$/gm)].map((match) => match[1]);
       if (file === 'release.yml') {
         expect(groups).toEqual(['release-cut']); // Only allocation is serialized.
+      } else if (file === 'release-index-bootstrap.yml') {
+        // Historical pointer writes are serialized; this workflow publishes no release.
+        expect(groups).toEqual(['release-index-bootstrap']);
       } else if (
         !['project-release.yml', 'release-version-injection.yml', 'release-rehearsal.yml'].includes(
           file
@@ -1853,5 +1856,167 @@ describe('release environment App secrets stay in top-level workflows', () => {
           workflows['dormant.yml'] + "\n    env: ${{ secrets['RELEASE_APP_PRIVATE_KEY'] }}",
       })
     ).toEqual(['dormant.yml']);
+  });
+});
+
+describe('owner-authorized release index bootstrap', () => {
+  const bootstrap = read('.github/workflows/release-index-bootstrap.yml');
+  const backfill = job(bootstrap, 'backfill');
+  const steps = backfill.split('\n      - ').slice(1);
+  const command = (name: string) =>
+    steps
+      .find((step) => step.startsWith(`name: ${name}\n`))!
+      .split('        run: |\n')[1]
+      .replace(/^ {10}/gm, '');
+
+  it('requires main visibly and keeps inventory admission ahead of the minimum-scope App', () => {
+    expect(bootstrap).toMatch(/^on:\n {2}workflow_dispatch:/m);
+    expect(bootstrap).not.toMatch(/workflow_call|pull_request|^ {2}(push|schedule):/m);
+    expect(bootstrap).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(bootstrap).toContain('group: release-index-bootstrap\n  cancel-in-progress: false');
+    expect(backfill).toContain('environment: release');
+    expect(backfill).toContain('timeout-minutes: 15');
+    expect(backfill).toContain('persist-credentials: false');
+    expect(backfill).toContain('node-version: 22.23.2');
+    expect(backfill).not.toMatch(/^\s+(if|ref):|continue-on-error|--force|git push/m);
+    for (const [ref, status] of [
+      ['refs/heads/main', 0],
+      ['refs/heads/topic', 1],
+    ] as const) {
+      const result = spawnSync('bash', ['-e', '-c', command('Require the main ref')], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_REF: ref },
+      });
+      expect(result.status).toBe(status);
+      if (status) expect(result.stderr).toContain('requires refs/heads/main.');
+    }
+    const order = [
+      'Require the main ref',
+      'backfill-inventory',
+      'Require the reviewed inventory tuple',
+      'Require release index App credentials',
+      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1',
+      'Backfill the verified historical release',
+    ].map((part) => backfill.indexOf(part));
+    expect(
+      order.every((value, index) => value >= 0 && (index === 0 || value > order[index - 1]))
+    ).toBe(true);
+    expect(backfill).toContain('permission-contents: write');
+    expect(backfill).not.toMatch(/permission-(issues|actions|pull-requests):/);
+    expect(backfill).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(backfill).toContain('GH_TOKEN: ${{ steps.index-app.outputs.token }}');
+    for (const field of ['product', 'channel', 'tag', 'release-id', 'source-sha']) {
+      expect(backfill).toContain(`steps.reviewed.outputs.${field}`);
+    }
+    expect(backfill).toContain(
+      '--tag "$RELEASE_TAG" --release-id "$RELEASE_ID" --source-sha "$SOURCE_SHA"'
+    );
+    expect(backfill).toContain('--directory "$RUNNER_TEMP/release-index-backfill"');
+    for (const [available, status] of [
+      ['true', 0],
+      ['false', 1],
+    ] as const) {
+      expect(
+        spawnSync('bash', ['-e', '-c', command('Require release index App credentials')], {
+          env: { ...process.env, HAS_APP_CREDENTIALS: available },
+        }).status
+      ).toBe(status);
+    }
+  });
+
+  function checkTuple(inventory: unknown, overrides: Record<string, string> = {}, missing = false) {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'release-index-tuple-'));
+    const output = path.join(directory, 'output');
+    try {
+      if (!missing)
+        writeFileSync(
+          path.join(directory, 'release-index-inventory.json'),
+          JSON.stringify(inventory)
+        );
+      const result = spawnSync(
+        'bash',
+        ['-e', '-c', command('Require the reviewed inventory tuple')],
+        {
+          cwd: repository,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PRODUCT: 'cli',
+            CHANNEL: 'alpha',
+            RELEASE_TAG: 'v5.0.0-alpha.1',
+            RELEASE_ID: '123',
+            SOURCE_SHA: 'a'.repeat(40),
+            RUNNER_TEMP: directory,
+            GITHUB_OUTPUT: output,
+            ...overrides,
+          },
+        }
+      );
+      return {
+        status: result.status,
+        output: readdirSync(directory).includes('output') ? readFileSync(output, 'utf8') : '',
+      };
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  const inventory = {
+    product: 'cli',
+    channel: 'alpha',
+    tag: 'v5.0.0-alpha.1',
+    releaseId: 123,
+    sourceSha: 'a'.repeat(40),
+  };
+
+  it('captures the exact reviewed tuple for every published product and channel', () => {
+    for (const [product, prefix] of [
+      ['cli', 'v'],
+      ['ops', 'tmt-ops-v'],
+      ['remote', 'tmt-remote-v'],
+      ['colab', 'tmt-colab-v'],
+      ['driver-herdr', 'tmt-driver-herdr-v'],
+    ]) {
+      for (const channel of ['alpha', 'stable']) {
+        const tag = `${prefix}5.0.0${channel === 'alpha' ? '-alpha.1' : ''}`;
+        expect(bootstrap).toContain(`          - ${product}\n`);
+        expect(
+          checkTuple(
+            { ...inventory, product, channel, tag },
+            { PRODUCT: product, CHANNEL: channel, RELEASE_TAG: tag }
+          )
+        ).toEqual({
+          status: 0,
+          output: `product=${product}\nchannel=${channel}\ntag=${tag}\nrelease-id=123\nsource-sha=${'a'.repeat(40)}\n`,
+        });
+      }
+    }
+  });
+
+  it('refuses absent, malformed or changed inventory without exporting any writer inputs', () => {
+    const invalid = [
+      null,
+      [],
+      {},
+      { ...inventory, releaseId: 124 },
+      { ...inventory, sourceSha: 'b'.repeat(40) },
+      { ...inventory, tag: 'v5.0.0-alpha.2' },
+      { ...inventory, channel: 'stable' },
+      { ...inventory, extra: true },
+    ];
+    for (const value of invalid) expect(checkTuple(value)).toEqual({ status: 1, output: '' });
+    expect(checkTuple(inventory, {}, true)).toEqual({ status: 1, output: '' });
+    const invalidInputs: Record<string, string>[] = [
+      { RELEASE_ID: '01' },
+      { RELEASE_ID: '9007199254740992' },
+      { SOURCE_SHA: 'A'.repeat(40) },
+      { PRODUCT: 'squad' },
+      { CHANNEL: 'beta' },
+      { RELEASE_TAG: 'v5.0.0-alpha.1\ninjected=value' },
+      { RELEASE_TAG: 'v5.0.0' },
+      { RELEASE_TAG: 'tmt-ops-v5.0.0-alpha.1' },
+    ];
+    for (const overrides of invalidInputs) {
+      expect(checkTuple(inventory, overrides)).toEqual({ status: 1, output: '' });
+    }
   });
 });

@@ -1,0 +1,128 @@
+name: Bootstrap the release index
+run-name: 'Release index bootstrap: ${{ inputs.product }} ${{ inputs.channel }} ${{ inputs.tag }}'
+
+# Execution requires a separately reviewed inventory and owner authorization.
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Published product to backfill
+        required: true
+        type: choice
+        options:
+          - cli
+          - ops
+          - remote
+          - colab
+          - driver-herdr
+      channel:
+        description: Published channel to backfill
+        required: true
+        type: choice
+        options:
+          - alpha
+          - stable
+      tag:
+        description: Reviewed newest published tag for this product and channel
+        required: true
+        type: string
+      release-id:
+        description: Reviewed positive release ID
+        required: true
+        type: string
+      source-sha:
+        description: Reviewed 40-character lowercase tag commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-index-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    name: Backfill the reviewed ${{ inputs.tag }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require the main ref
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Release index bootstrap requires refs/heads/main.' >&2
+            exit 1
+          fi
+      - name: Read the newest published inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          node typescript/scripts/release-publish.mjs backfill-inventory --product "$PRODUCT" --channel "$CHANNEL" \
+            > "$RUNNER_TEMP/release-index-inventory.json"
+      - name: Require the reviewed inventory tuple
+        id: reviewed
+        env:
+          PRODUCT: ${{ inputs.product }}
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release-id }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { releasePolicy } from './typescript/scripts/native-release-policy.mjs';
+          const { PRODUCT, CHANNEL, RELEASE_TAG, RELEASE_ID, SOURCE_SHA, RUNNER_TEMP, GITHUB_OUTPUT } = process.env;
+          const fail = () => { throw new Error('Reviewed release inventory is invalid or changed.'); };
+          if (!['cli', 'ops', 'remote', 'colab', 'driver-herdr'].includes(PRODUCT) ||
+              !['alpha', 'stable'].includes(CHANNEL) || !/^[1-9][0-9]*$/.test(RELEASE_ID) ||
+              !Number.isSafeInteger(Number(RELEASE_ID)) || !/^[0-9a-f]{40}$/.test(SOURCE_SHA)) fail();
+          const prefix = releasePolicy(PRODUCT).tagPrefix;
+          const version = RELEASE_TAG?.startsWith(prefix) ? RELEASE_TAG.slice(prefix.length) : '';
+          const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-alpha\.(0|[1-9][0-9]*))?$/.exec(version);
+          if (!match || match.slice(1).filter(value => value !== undefined).some(value => !Number.isSafeInteger(Number(value))) ||
+              (match[4] !== undefined) !== (CHANNEL === 'alpha')) fail();
+          const inventory = JSON.parse(readFileSync(`${RUNNER_TEMP}/release-index-inventory.json`, 'utf8'));
+          const expected = { product: PRODUCT, channel: CHANNEL, tag: RELEASE_TAG, releaseId: Number(RELEASE_ID), sourceSha: SOURCE_SHA };
+          if (!inventory || Array.isArray(inventory) || Object.keys(inventory).length !== 5 ||
+              Object.entries(expected).some(([key, value]) => inventory[key] !== value)) fail();
+          appendFileSync(GITHUB_OUTPUT, `product=${PRODUCT}\nchannel=${CHANNEL}\ntag=${RELEASE_TAG}\nrelease-id=${RELEASE_ID}\nsource-sha=${SOURCE_SHA}\n`);
+          NODE
+      - name: Require release index App credentials
+        env:
+          HAS_APP_CREDENTIALS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_APP_CREDENTIALS" != true ]; then
+            echo 'Release index App credentials are missing.' >&2
+            exit 1
+          fi
+      - name: Create the release index App token
+        id: index-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: pj-tmt
+          repositories: tmt
+          permission-contents: write
+      - name: Backfill the verified historical release
+        env:
+          GH_TOKEN: ${{ steps.index-app.outputs.token }}
+          PRODUCT: ${{ steps.reviewed.outputs.product }}
+          CHANNEL: ${{ steps.reviewed.outputs.channel }}
+          RELEASE_TAG: ${{ steps.reviewed.outputs.tag }}
+          RELEASE_ID: ${{ steps.reviewed.outputs.release-id }}
+          SOURCE_SHA: ${{ steps.reviewed.outputs.source-sha }}
+        run: |
+          node typescript/scripts/release-publish.mjs backfill --product "$PRODUCT" --channel "$CHANNEL" \
+            --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" --source-sha "$SOURCE_SHA" \
+            --directory "$RUNNER_TEMP/release-index-backfill"

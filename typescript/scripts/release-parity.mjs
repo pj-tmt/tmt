@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GATES } from './publication-gates.mjs';
 
-const ROOTS = ['native-release.yml', 'release.yml'];
+const ROOTS = ['native-release.yml', 'release.yml', 'release-index-bootstrap.yml'];
 // Every failed or held release closes its gap here: an incident row names the release step that
 // caught it and either a pre-merge counterpart or a concrete release-only reason.
 const INCIDENTS = [
