@@ -1,8 +1,9 @@
 # Release index v1
 
 This contract owns release discovery documents for #2371. Publication tooling emits
-and verifies release records. Channel writing and native client consumption are
-separate pending deliveries; the shipped client still uses GitHub's API.
+and verifies release records and advances channel pointers after verification.
+Writer activation and bootstrap execution require owner authorization; native
+client consumption is pending and the shipped client still uses GitHub's API.
 
 ## Origins and identity
 
@@ -72,16 +73,22 @@ asset attestation checks stay required. A missing record fails distinctly;
 pre-record tags are expected to fail this full verifier. Published assets are
 never amended, and a failed readback cannot roll back immutable publication.
 
-The pending index writer may advance a pointer only after every publication
+The index writer may advance a pointer only after every publication
 check succeeds. It executes trusted main tooling under the minimum contents-write
 Release App token, never release-tag or PR code under writer credentials.
-Ben must authorize branch initialization and a ruleset admitting only that App,
-without force push or deletion, before the writer merges. Non-force races re-read
+The writer requires an owner-initialized `release-index` branch protected so that
+only the Release App can advance it, without force push or deletion, and runs only
+from the main-only release environment. Non-force races re-read
 and re-apply against the latest tip, preserving unrelated products and monotonic
-version selection. Equal-version differing identities refuse. Failure leaves the
-preceding pointer intact and is reported visibly. Historical bootstrap separately
-performs the existing immutable/tag/attestation/digest gates; it does not pass a
-recordless release through the new full verifier or mutate old assets.
+version selection, with at most five non-force update attempts. Equal-version
+differing identities refuse. Failure leaves the preceding pointer intact and is
+reported visibly. An ambiguous readback does not claim rollback of a possibly
+completed update. The writer rechecks the same verified download directory; no
+flag file substitutes for verification.
+Owner recovery reruns only the failed published job: lower/equal-identical
+versions are no-ops, while a higher verified version advances. Historical bootstrap
+separately performs the existing immutable/tag/attestation/digest gates; it does not
+pass a recordless release through the new full verifier or mutate old assets.
 
 ## Client and trust boundary
 

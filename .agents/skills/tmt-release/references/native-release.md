@@ -18,8 +18,9 @@ its independent inventory/checksum/notices and failure/cleanup checks.
 
 [Release-index v1](../../../../contracts/release-index-v1.md) owns record identity and
 bounds. Draft assembly reads back the record before the completeness marker;
-publication verifies it against release identity and downloaded bytes. Index writing
-and API-free client consumption remain pending.
+publication verifies it against release identity and downloaded bytes. The App writer
+rechecks that directory before a non-force pointer update; activation requires the
+owner's protected-branch authorization. API-free client consumption remains pending.
 
 The packaging stages (build, assemble, final verification on the four matching hosts) live in the
 read-only reusable `.github/workflows/native-release-prepare.yml`, called with an exact source SHA

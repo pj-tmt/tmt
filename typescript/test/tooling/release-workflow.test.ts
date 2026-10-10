@@ -1423,6 +1423,8 @@ describe('publication (native-release-bundle.yml)', () => {
       /^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {4}steps:/m
     );
     expect(published).not.toMatch(/^ {10}ref:/m);
+    expect(published).toContain('persist-credentials: false');
+    expect(published).toContain('environment: release');
     expect(published).toContain(
       'release-publish.mjs verify --product "$PRODUCT" --tag "$RELEASE_TAG"'
     );
@@ -1430,6 +1432,36 @@ describe('publication (native-release-bundle.yml)', () => {
     expect(published).toContain(
       '--run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"'
     );
+  });
+  it('creates a minimum-scope App token only after full verification, and reuses its download directory', () => {
+    const verify = published.indexOf('release-publish.mjs verify');
+    const token = published.indexOf(
+      'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1'
+    );
+    const writer = published.indexOf('release-publish.mjs index');
+    const admission = published.indexOf('name: Require release index App credentials');
+    expect(admission).toBeGreaterThan(verify);
+    expect(admission).toBeLessThan(token);
+    const credentials = published.slice(
+      admission,
+      published.indexOf('name: Create the release index App token')
+    );
+    expect(credentials).toContain(`if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Release index writer requires refs/heads/main.' >&2
+            exit 1
+          fi`);
+    expect(credentials).not.toMatch(/^\s+if:/m);
+    expect(published).not.toMatch(/if:.*github\.ref/);
+    expect(published).toContain('environment: release');
+    expect(published).not.toMatch(/^ {10}ref:/m);
+    expect(verify).toBeGreaterThan(0);
+    expect(token).toBeGreaterThan(verify);
+    expect(writer).toBeGreaterThan(token);
+    expect(published).toContain('permission-contents: write');
+    expect(published).not.toMatch(/permission-(issues|pull-requests|organization-projects):/);
+    expect(published).toContain('GH_TOKEN: ${{ steps.index-app.outputs.token }}');
+    expect([...published.matchAll(/--directory "\$RUNNER_TEMP\/published"/g)]).toHaveLength(2);
+    expect(published).not.toMatch(/continue-on-error|if:.*always|git push|--force/);
   });
 });
 
