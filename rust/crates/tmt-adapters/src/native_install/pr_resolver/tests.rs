@@ -375,19 +375,32 @@ fn newer_main_producer_run_is_followed_without_a_tooling_rotation() {
         .replace("9001", "9002")
         .into_bytes();
     let catalog_zip = zip(&[("catalog.json", &bytes)]);
+    let published_routes = fixture
+        .routes
+        .iter()
+        .filter(|(url, _)| !url.starts_with(ROOT))
+        .map(|(url, body)| (url.clone(), body.clone()))
+        .collect::<BTreeMap<_, _>>();
     let old = std::mem::take(&mut fixture.routes);
     for (url, body) in old {
-        let url = url.replace(TOOLING, newer).replace("9001", "9002");
-        let body = if url.ends_with("/zip") {
-            body
+        // Only Actions/API JSON contains the producer identity. Published index
+        // and asset routes stay byte-opaque, including their bound record hashes.
+        let (url, body) = if url.starts_with(ROOT) && !url.ends_with("/zip") {
+            (
+                url.replace(TOOLING, newer).replace("9001", "9002"),
+                String::from_utf8(body)
+                    .unwrap()
+                    .replace(TOOLING, newer)
+                    .replace("9001", "9002")
+                    .into_bytes(),
+            )
         } else {
-            String::from_utf8(body)
-                .unwrap()
-                .replace(TOOLING, newer)
-                .replace("9001", "9002")
-                .into_bytes()
+            (url, body)
         };
         fixture.routes.insert(url, body);
+    }
+    for (url, body) in published_routes {
+        assert_eq!(fixture.routes[&url], body, "published route changed: {url}");
     }
     fixture.routes.insert(catalog_url, catalog_zip.clone());
     for route in [
@@ -408,6 +421,7 @@ fn newer_main_producer_run_is_followed_without_a_tooling_rotation() {
     let Provenance::Pr(proof) = downloaded.provenance else {
         panic!("PR proof missing");
     };
+    assert_eq!(proof.admission.latest_alpha.release_id, 42);
     assert_eq!(proof.producer.run_id, 9002);
     assert_eq!(proof.producer.tooling_sha, newer);
     assert!(
