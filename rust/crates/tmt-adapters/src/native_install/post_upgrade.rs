@@ -52,6 +52,10 @@ fn observe(
             let mut core = OsString::from("TMT_EXECUTABLE=");
             core.push(core_executable);
             let args = [
+                "-u".into(),
+                "GH_TOKEN".into(),
+                "-u".into(),
+                "GITHUB_TOKEN".into(),
                 core,
                 report.active_executable.as_os_str().to_owned(),
                 "status".into(),
