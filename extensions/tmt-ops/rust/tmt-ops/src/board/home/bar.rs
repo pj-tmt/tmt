@@ -24,17 +24,17 @@ use tmt_cli_style::{Role, grid::Align, table::escape};
 use tmt_tui::binding::{Schema, Template};
 use unicode_width::UnicodeWidthStr;
 
-type Piece = (String, Option<Role>);
+pub(super) type Piece = (String, Option<Role>);
 
 /// One branch of a strip: a single row of role-tagged pieces. A piece without a
 /// role is plain text with no style of its own.
-fn row(branch: &str) -> String {
+pub(super) fn row(branch: &str) -> String {
     format!(
         r#"<tmt-row id="line" class="w-full h-1"><tmt-repeat each="$.{branch}" as="piece"><tmt-text id-bind="piece.id" bind="piece.text" token-bind="piece.role" class="shrink-0"/></tmt-repeat></tmt-row>"#
     )
 }
 
-fn schema(branches: &[&str]) -> Schema {
+pub(super) fn schema(branches: &[&str]) -> Schema {
     let piece = Schema::Object(BTreeMap::from([
         ("id".to_owned(), Schema::StableId),
         ("text".to_owned(), Schema::Scalar),
@@ -53,7 +53,7 @@ fn schema(branches: &[&str]) -> Schema {
     )
 }
 
-fn data(branches: &[(&str, Vec<Piece>)]) -> Value {
+pub(super) fn data(branches: &[(&str, Vec<Piece>)]) -> Value {
     Value::Object(
         branches
             .iter()
@@ -80,7 +80,7 @@ fn data(branches: &[(&str, Vec<Piece>)]) -> Value {
 }
 
 /// A plain piece (`raw…`) takes no style; a tagged one (`p…`) takes its role's.
-fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
+pub(super) fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
     let look = key.look;
     scene::paint(
         file,
@@ -125,7 +125,7 @@ fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
 }
 
 /// The strip's line: its content, without the unpainted tail of the row.
-fn lines(painted: Painted) -> Option<Line<'static>> {
+pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
     let mut line = painted.lines.into_iter().next()?;
     let blank = ratatui::buffer::Cell::default().style();
     while let Some(last) = line.spans.last_mut() {

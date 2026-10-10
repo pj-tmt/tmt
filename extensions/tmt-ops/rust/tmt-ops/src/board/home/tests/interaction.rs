@@ -1244,7 +1244,7 @@ fn header_frames() -> Value {
                     .flatten();
                 let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
                 terminal
-                    .draw(|frame| crate::board::view::render_frame(frame, &app, line))
+                    .draw(|frame| crate::board::view::render_frame(frame, &app, line, None))
                     .unwrap();
                 let buffer = terminal.backend().buffer().clone();
                 let cells = buffer

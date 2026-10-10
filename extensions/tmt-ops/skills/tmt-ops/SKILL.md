@@ -1050,6 +1050,20 @@ preserving older board observations, without bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
 on the next tab entry.
 
+At 100 columns and wider, while the usage meter is on, a second header row shows
+each provider's account limits as the share left and the time to reset:
+`Claude  7d 44% · 4d03h · ~2.1%/h ! before reset  │  Codex  7d 78% · 2d10h · ~0.4%/h`.
+At 140 columns both windows say `left`, the flag reads `runs out before reset`
+and the 5-hour window follows (`5h 97% left · 3h14m`, or `5h –`). `~N%/h` is the
+average weekly use over the last 6 hours, shown after an hour of samples; the flag
+appears only when that pace empties the week before it resets. Numbers come from
+a provider's own session reports when Core carries them (Codex) and otherwise
+from its statusline footer (`5h` and `7d` with their resets; Claude), read from a
+pane without sending it anything, so a footer reading needs a Core with
+`check --capture-only`. A provider with no
+reading newer than 2 hours says `no reading for 3h` (or `no reading yet`) and
+never shows an old number. The board samples only while it is open.
+
 Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
 window switches show the exact value immediately. Eight bucket-aligned bars show
 observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale

@@ -647,6 +647,8 @@ pub struct App {
     /// Where the jobs half was last drawn, for the pointer; empty when absent.
     pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
+    /// Provider limits as the worker last sampled them; `None` until the first sample.
+    pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
     pub(super) stable: RefCell<super::view::stable::Stable>,
     pub(super) meter: Option<super::meter::Meter>,
@@ -1193,6 +1195,13 @@ impl App {
         std::array::from_fn(|index| {
             counters.digits(keys.next().unwrap(), usage.totals[index], reduced, now)
         })
+    }
+
+    /// A sample that changes nothing paints nothing.
+    pub(super) fn set_limits(&mut self, snapshot: super::limits::Snapshot) -> bool {
+        let changed = self.limits.as_ref() != Some(&snapshot);
+        self.limits = Some(snapshot);
+        changed
     }
 
     /// The existing worker's one HOME receipt updates the same retained meters.

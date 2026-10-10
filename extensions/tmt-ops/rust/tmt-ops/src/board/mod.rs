@@ -13,6 +13,7 @@ mod help;
 mod home;
 mod home_leads;
 mod lane;
+mod limits;
 mod markdown;
 mod menu_surface;
 mod meter;
@@ -133,6 +134,8 @@ pub(super) enum BoardEvent {
     HomeUsage {
         cancellation: crate::runner::Cancellation,
         input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
+        /// Absent when the listing failed; the shown limits then keep aging.
+        limits: Option<limits::Snapshot>,
     },
     Message {
         cancellation: crate::runner::Cancellation,
@@ -529,9 +532,14 @@ fn session(
             Ok(BoardEvent::HomeUsage {
                 cancellation,
                 input,
+                limits,
             }) => {
                 if !cancellation.cancelled() {
-                    dirty |= app.sample_home(input.as_ref().map_err(|_| ()), Instant::now());
+                    let now = Instant::now();
+                    dirty |= app.sample_home(input.as_ref().map_err(|_| ()), now);
+                    if let Some(snapshot) = limits {
+                        dirty |= app.set_limits(snapshot);
+                    }
                 }
                 Effect::None
             }

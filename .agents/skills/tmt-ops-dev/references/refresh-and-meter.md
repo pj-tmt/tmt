@@ -257,6 +257,30 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   member's model is not repeated. No readings means no usage row, including
   warmup; measured zero admits it without a share denominator. Narrow widths,
   disabled sampling and search with no shown sampling squads keep their height.
+- Provider limits: `board::limits` owns the HOME limits row's data and
+  `home::limits` its strip. A provider is a driver ID from the listing; no Ops
+  code spells a driver (the #440 guard). The HOME usage receipt's one `ls` also
+  carries each session's `resume.consumption.rateLimits` when Core has them
+  (percent used, so the board shows percent left). For a provider whose
+  sessions report usage but no limits (Claude today), the windows exist only in
+  a pane's statusline footer: at most once a minute per provider, and only when
+  a listed active session has newer usage than the last reading or attempt, the
+  worker reads up to three panes with `tmt check <name> --capture-only --lines
+12 --json` and parses the exact `5h P% (reset)  7d P% (reset)` form
+  (otherwise no reading). Never a plain `check`: it may hand a retained Focus
+  checklist to an idle pane, and a Core without the flag leaves those providers
+  unread. A reading is dated by its source's own time (the limits' own
+  observation; a session's usage observation for a footer), never by the read.
+  Samples persist in `$XDG_CACHE_HOME/tmt-ops/limits/samples.json` (10-minute buckets, 8
+  days, saved at most every 5 minutes), a disposable cache. The burn is the
+  weekly percent left lost per hour over the 6 h before the newest sample inside
+  the current cycle (a rise in percent left, or a reset time later by more than
+  30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
+  h, or whose week has already reset, is shown only as `no reading for <age>`.
+  Only windows of about 7 days and 5 hours are shown, so the labels are exact.
+  The strip is reserved from the first HOME frame at MD and wider while the usage
+  meter is on (`Updating limits…` until the first sample), so a sample moves no
+  other row; with no provider listed or ever sampled it gives the row back.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix
