@@ -1354,7 +1354,7 @@ Connection: Upgrade
 Upgrade: tmt-object-channel-v1
 Content-Length: 0
 tmt-mount: <the exact selected mount>
-tmt-object-channel: 1
+tmt-object-channel: <1 or 2>
 tmt-object-generation: <lowercase UUIDv4 Remote just generated>
 ```
 
@@ -1363,7 +1363,10 @@ fields, each once in any letter case and in any order, with these values; any ot
 a `Sec-WebSocket-*` field, a device context, an origin), a repeat, a missing field, a nonzero length or bytes after the
 head is refused. A head is at most 8 KiB and 32 fields. The reply is `HTTP/1.1 101 Switching Protocols` with exactly
 `Connection: Upgrade`, `Upgrade: tmt-object-channel-v1` and the same `tmt-object-generation`, and no body; the initiator
-refuses any other status, field or generation, and a refused attempt is closed with no fallback. Every later frame names
+refuses any other status, field or generation. Remote first offers version 2; only a failure before a complete reply
+head permits exactly one fresh connection offering version 1, within the same absolute setup budget. No complete
+reply head (including a refused status or 101) permits fallback. A failed second attempt returns the existing failure;
+no downgrade is cached between connections. Acceptors admit either version and otherwise retain silent refusal. Every later frame names
 that generation, and a frame of another generation ends the channel. The extension reads the head within 2 s and writes
 the reply within 1 s, both clipped by the setup bound the caller holds.
 An acceptor whose router already read the head, through the blank line and within the router's own bound, to dispatch
@@ -1448,9 +1451,23 @@ bytes. `index` is any `u32`: it does not depend on the transport ceiling of 32,7
 (3,071 or u32 max are valid; 2^32 is not), and the backend alone enforces part order, full parts and the final
 remainder. `count` is 1 to 32,768, and `offset` is below `payloadBytes` (an empty payload reads from 0).
 
+Version 1 supports exactly the seven calls above, with unchanged bytes. Version 2 also supports:
+
+| Method                     | Input members                                         |
+| -------------------------- | ----------------------------------------------------- |
+| `objects.remove-namespace` | `namespace`                                           |
+| `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace`   |
+
+Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
+Callers check the negotiated link's support before either call; an unsupported call is never written on version 1.
+Removal is idempotent for unknown or already removed namespaces. It commits the existing namespace fence, drains
+in-flight work and retains deleted original identities; a loss after invocation is `unknown`, without replay or rollback.
+Usage is the existing ledger projection for the selected namespace or this extension, never the installation; its charge is rounded payload plus retained records and fences, plus the fixed tree base once if any namespace exists
+for extension scope, not “bytes stored”; cleanup-pending bytes stay charged until removal is confirmed.
+
 **Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
 has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
-`part`, `commit`, `status` and `discard`, and is absent for `config` and `read`. `ok` carries a `result` tag:
+`part`, `commit`, `status` and `discard`, and is absent for `config`, `read`, `remove-namespace` and `usage`. `ok` carries a `result` tag:
 
 | `result`    | Further members                                                                                               | Answers                      |
 | ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
@@ -1460,6 +1477,8 @@ has exactly one of `ok` and `error`. `transferId` repeats the original transfer 
 | `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                                  | `begin`, `commit`, `status`  |
 | `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
 | `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
+| `removed`   | none                                                                                                          | `remove-namespace`           |
+| `usage`     | `chargedBytes` (0 to 2^53-1), `entries`, `activeUploads`, `retainedIdentities` (each a `u32`)                      | `usage`                      |
 
 A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
 `config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
@@ -1471,13 +1490,13 @@ consumer's own envelope or authority.
 `error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
 and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
 `namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
-`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit` and
-`discard`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit`, `discard` and
+`remove-namespace`, where an effect may have happened. No error carries message text, and none proves that a possibly published
 effect did not happen.
 
 **Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
 asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
-`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit` and `discard` have one)
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit`, `discard` and `remove-namespace` have one)
 or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
 and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
 (`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
@@ -1486,6 +1505,8 @@ and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"
 For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
 `{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
 `{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
+For `remove-namespace` and `usage`, admit input repeats the request input. Their disclose classes are `removed`
+(with no further fields) and `usage` (the same four projection fields as the result).
 No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
 
 A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`

@@ -109,7 +109,7 @@ fn the_acceptor_refuses_every_one_token_change_and_replies_nothing() {
         ("upgrade", mutate(&request(), "tmt-object-channel-v1\r\nContent", "websocket\r\nContent"), Refusal::BadValue("upgrade")),
         ("body length", mutate(&request(), "Content-Length: 0", "Content-Length: 1"), Refusal::BadValue("content-length")),
         ("padded length", mutate(&request(), "Content-Length: 0", "Content-Length: 00"), Refusal::BadValue("content-length")),
-        ("channel version", mutate(&request(), after, "tmt-object-channel: 2\r\n"), Refusal::BadValue("tmt-object-channel")),
+        ("channel version", mutate(&request(), after, "tmt-object-channel: 3\r\n"), Refusal::BadValue("tmt-object-channel")),
         ("uppercase generation", mutate(&request(), GEN, &GEN.to_uppercase()), Refusal::BadValue("tmt-object-generation")),
         ("version 1 generation", mutate(&request(), "-4b86-", "-1b86-"), Refusal::BadValue("tmt-object-generation")),
         ("missing mount", mutate(&request(), "tmt-mount: colab\r\n", ""), Refusal::MissingHeader("tmt-mount")),
@@ -370,4 +370,198 @@ fn the_handshake_works_over_a_bound_socket_path() {
     let frame = super::super::tests::admission(GEN, 3);
     initiated.write_frame(&frame, &quick()).unwrap();
     assert_eq!(accepted.read_frame(idle(), &quick()).unwrap(), frame);
+}
+
+fn legacy_read_crosses_the_negotiated_channel(remote: Link, extension: Link) {
+    use crate::{
+        Bus, Bytes32, Call, Caps, Chunk, Counter, Frame, Origin, Outcome, Policy, ReadInput,
+        Request, ResultFrame, Sha256Hex, Success,
+    };
+    let remote = Bus::start(remote, quick(), Caps::contract(), None).unwrap();
+    let extension = Bus::start(extension, quick(), Caps::contract(), None).unwrap();
+    let request = Frame::Request(Request {
+        generation: generation(GEN),
+        request_id: Counter::new(1).unwrap(),
+        origin: Origin::LocalExtension,
+        call: Call::Read(ReadInput {
+            namespace: Bytes32::from_bytes([1; 32]),
+            opaque_key: Bytes32::from_bytes([2; 32]),
+            policy: Policy::new(vec![1]).unwrap(),
+            payload_sha256: Sha256Hex::from_bytes([0; 32]),
+            payload_bytes: 3,
+            offset: 0,
+            count: 3,
+        }),
+    });
+    extension.send(&request).unwrap();
+    assert_eq!(remote.recv(Some(setup())).unwrap(), request);
+    let response = Frame::Result(ResultFrame {
+        generation: generation(GEN),
+        request_id: Counter::new(1).unwrap(),
+        method: crate::Method::Read,
+        transfer_id: None,
+        outcome: Outcome::Success(Success::Read {
+            offset: 0,
+            total_bytes: 3,
+            bytes: Chunk::new(b"abc".to_vec()).unwrap(),
+        }),
+    });
+    remote.send(&response).unwrap();
+    assert_eq!(extension.recv(Some(setup())).unwrap(), response);
+}
+
+#[test]
+fn negotiation_offers_two_and_legacy_silent_close_falls_back_once_without_caching() {
+    for legacy in [false, true, false] {
+        let attempts = AtomicUsize::new(0);
+        let mut peers = Vec::new();
+        let link = negotiate(setup(), || {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+            let (client, mut server) = UnixStream::pair().unwrap();
+            peers.push(thread::spawn(move || {
+                if legacy && attempt == 0 {
+                    server
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut head = Vec::new();
+                    let mut byte = [0];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        server.read_exact(&mut byte).unwrap();
+                        head.push(byte[0]);
+                    }
+                    assert!(
+                        String::from_utf8(head)
+                            .unwrap()
+                            .contains("tmt-object-channel: 2\r\n")
+                    );
+                    // Exact legacy posture: it refuses silently and closes.
+                    None
+                } else {
+                    Some(accept(server, &expect(), &quick(), setup()).unwrap())
+                }
+            }));
+            Ok((client, offer()))
+        })
+        .unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), if legacy { 2 } else { 1 });
+        assert_eq!(link.supports(crate::Method::Usage), !legacy);
+        assert!(
+            link.supports(crate::Method::Read),
+            "legacy attachments remain supported"
+        );
+        let accepted = peers
+            .into_iter()
+            .filter_map(|peer| peer.join().unwrap())
+            .next()
+            .unwrap();
+        assert_eq!(accepted.supports(crate::Method::Usage), !legacy);
+        legacy_read_crosses_the_negotiated_channel(link, accepted);
+    }
+}
+
+#[test]
+fn negotiation_down_peer_has_two_attempts_but_a_complete_reply_never_retries() {
+    let attempts = AtomicUsize::new(0);
+    let failed = negotiate(setup(), || {
+        attempts.fetch_add(1, Ordering::SeqCst);
+        Err(Fault::Io(std::io::ErrorKind::ConnectionRefused))
+    });
+    assert!(matches!(
+        failed,
+        Err(Fault::Io(std::io::ErrorKind::ConnectionRefused))
+    ));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    for text in [
+        "HTTP/1.1 400 Refused\r\n\r\n".to_owned(),
+        reply().replace(GEN, "7f3c1a52-9d4e-4b86-8a21-5c0e9b7d3f15"),
+    ] {
+        let attempts = AtomicUsize::new(0);
+        let mut peers = Vec::new();
+        assert!(
+            negotiate(setup(), || {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                let (client, mut server) = UnixStream::pair().unwrap();
+                let text = text.clone();
+                peers.push(thread::spawn(move || {
+                    server
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut head = Vec::new();
+                    let mut byte = [0];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        server.read_exact(&mut byte).unwrap();
+                        head.push(byte[0]);
+                    }
+                    server.write_all(text.as_bytes()).unwrap();
+                }));
+                Ok((client, offer()))
+            })
+            .is_err()
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        for peer in peers {
+            peer.join().unwrap();
+        }
+    }
+}
+
+#[test]
+fn legacy_initiator_keeps_version_one_and_new_calls_are_never_sent() {
+    let (client, server) = UnixStream::pair().unwrap();
+    let accepted = thread::spawn(move || accept(server, &expect(), &quick(), setup()).unwrap());
+    let link = initiate(client, &offer(), setup()).unwrap();
+    let server = accepted.join().unwrap();
+    let mut raw = link.reader.duplicate_stream().unwrap();
+    assert!(!link.supports(crate::Method::RemoveNamespace));
+    assert!(!server.supports(crate::Method::Usage));
+    // The extension is the request sender; a refusal happens before ledger admission/write.
+    let bus =
+        super::super::Bus::start(server, quick(), super::super::Caps::contract(), None).unwrap();
+    let request = crate::Frame::Request(crate::Request {
+        generation: generation(GEN),
+        request_id: crate::Counter::new(1).unwrap(),
+        origin: crate::Origin::LocalExtension,
+        call: crate::Call::Usage(crate::UsageScope::Extension),
+    });
+    assert_eq!(
+        bus.send(&request),
+        Err(Fault::Unsupported(crate::Method::Usage))
+    );
+    assert!(bus.fault().is_none());
+    let mut byte = [0];
+    assert_eq!(
+        raw.read(&mut byte).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "unsupported call wrote no byte"
+    );
+    assert_eq!(
+        super::super::unsupported_hint(true),
+        "Restart Remote serve to enable this: tmt remote stop && tmt remote serve"
+    );
+    assert_eq!(super::super::unsupported_hint(false), "upgrade Remote");
+}
+
+#[test]
+fn negotiation_never_opens_a_fresh_connection_after_the_setup_budget_is_spent() {
+    let attempts = AtomicUsize::new(0);
+    let deadline = Instant::now();
+    assert!(matches!(
+        negotiate(deadline, || {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(Fault::Closed)
+        }),
+        Err(Fault::Timeout(Stage::Head))
+    ));
+    assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    let deadline = Instant::now() + Duration::from_millis(100);
+    let mut held = Vec::new();
+    let result = negotiate(deadline, || {
+        attempts.fetch_add(1, Ordering::SeqCst);
+        let (client, server) = UnixStream::pair().unwrap();
+        // The real carrier head deadline ends this attempt; the peer stays held.
+        held.push(server);
+        Ok((client, offer()))
+    });
+    assert_eq!(result.err(), Some(Fault::Timeout(Stage::Head)));
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }

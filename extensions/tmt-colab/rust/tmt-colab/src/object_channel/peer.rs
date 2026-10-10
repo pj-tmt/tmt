@@ -525,6 +525,7 @@ fn execute(
     };
     drop(view);
     let input = match &call {
+        Call::RemoveNamespace(_) | Call::Usage(_) => return Err(page::Fault::Invalid.into()),
         Call::Config(input) => AdmitInput::Config(input.clone()),
         Call::Read(input) => AdmitInput::Read(input.clone()),
         Call::Begin(input) => AdmitInput::Begin(input.clone()),

@@ -97,6 +97,8 @@ fn method(value: &Value) -> Result<Method, ErrorClass> {
         "objects.status" => Method::Status,
         "objects.read" => Method::Read,
         "objects.discard" => Method::Discard,
+        "objects.remove-namespace" => Method::RemoveNamespace,
+        "objects.usage" => Method::Usage,
         _ => return Err(ErrorClass::Shape),
     })
 }
@@ -105,6 +107,8 @@ fn call(method: Method, input: &Value) -> Result<Call, ErrorClass> {
     let mut object = Object::new(input)?;
     let call = match method {
         Method::Config => Call::Config(config_input(&mut object)?),
+        Method::RemoveNamespace => Call::RemoveNamespace(namespace_input(&mut object)?),
+        Method::Usage => Call::Usage(usage_scope(&mut object)?),
         Method::Begin => Call::Begin(begin_input(&mut object)?),
         Method::Part => Call::Part(PartInput {
             transfer_id: uuid(object.take("transferId")?)?,
@@ -118,6 +122,28 @@ fn call(method: Method, input: &Value) -> Result<Call, ErrorClass> {
     };
     object.finish()?;
     Ok(call)
+}
+fn namespace_input(object: &mut Object) -> Result<NamespaceInput, ErrorClass> {
+    Ok(NamespaceInput {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+    })
+}
+fn usage_scope(object: &mut Object) -> Result<UsageScope, ErrorClass> {
+    match text(object.take("scope")?)? {
+        "extension" => Ok(UsageScope::Extension),
+        "namespace" => Ok(UsageScope::Namespace(Bytes32::parse(text(
+            object.take("namespace")?,
+        )?)?)),
+        _ => Err(ErrorClass::Value),
+    }
+}
+fn usage(object: &mut Object) -> Result<Usage, ErrorClass> {
+    Ok(Usage {
+        charged_bytes: number(object.take("chargedBytes")?)?,
+        entries: index(object.take("entries")?)?,
+        active_uploads: index(object.take("activeUploads")?)?,
+        retained_identities: index(object.take("retainedIdentities")?)?,
+    })
 }
 fn config_input(object: &mut Object) -> Result<ConfigInput, ErrorClass> {
     Ok(ConfigInput {
@@ -183,6 +209,8 @@ fn success(value: &Value) -> Result<Success, ErrorClass> {
     let mut object = Object::new(value)?;
     let success = match text(object.take("result")?)? {
         "config" => Success::Config(config(&mut object)?),
+        "removed" => Success::Removed,
+        "usage" => Success::Usage(usage(&mut object)?),
         "pending" => Success::Pending {
             next_index: index(object.take("nextIndex")?)?,
             received: number(object.take("received")?)?,
@@ -329,6 +357,8 @@ fn admit_input(method: Method, value: &Value) -> Result<AdmitInput, ErrorClass> 
     let mut object = Object::new(value)?;
     let input = match method {
         Method::Config => AdmitInput::Config(config_input(&mut object)?),
+        Method::RemoveNamespace => AdmitInput::RemoveNamespace(namespace_input(&mut object)?),
+        Method::Usage => AdmitInput::Usage(usage_scope(&mut object)?),
         Method::Begin => AdmitInput::Begin(begin_input(&mut object)?),
         Method::Status => AdmitInput::Status(status_input(&mut object)?),
         Method::Read => AdmitInput::Read(read_input(&mut object)?),
@@ -390,6 +420,8 @@ fn disclosure(value: &Value) -> Result<Disclosure, ErrorClass> {
         "terminal" => Disclosure::Terminal {
             state: state(object.take("state")?)?,
         },
+        "removed" => Disclosure::Removed,
+        "usage" => Disclosure::Usage(usage(&mut object)?),
         "bytes" => Disclosure::Bytes {
             offset: number(object.take("offset")?)?,
             length: index(object.take("length")?)?,

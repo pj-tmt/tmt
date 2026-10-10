@@ -5,7 +5,7 @@
 //!
 //! The carrier names no Remote or Colab type and grants no authority. A handshake
 //! proves only that both ends agreed on one generation of one mount.
-use crate::{ErrorClass, Frame, Uuid4};
+use crate::{ErrorClass, Frame, Method, Uuid4};
 use std::{
     io,
     os::unix::net::UnixStream,
@@ -19,7 +19,7 @@ mod handshake;
 mod ledger;
 
 pub use bus::{Bus, StampedObjectFrame};
-pub use handshake::{Expect, Offer, accept, accept_head, initiate};
+pub use handshake::{Expect, Offer, accept, accept_head, initiate, negotiate};
 pub use ledger::{Budget, Caps, Reason};
 
 /// The reserved route that opens the channel.
@@ -100,6 +100,8 @@ pub enum Refusal {
 /// Why a carrier operation ended. Each is final for the link it came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
+    /// The negotiated legacy channel cannot carry this method; nothing was sent.
+    Unsupported(Method),
     /// The stream ended between frames, or the caller closed or interrupted the wait.
     Closed,
     /// The stream ended inside a head or a frame.
@@ -141,6 +143,7 @@ fn generation_of(frame: &Frame) -> Uuid4 {
 pub struct Link {
     generation: Uuid4,
     role: Role,
+    version: u8,
     reader: bounded::Reader,
     writer: bounded::Writer,
 }
@@ -157,7 +160,30 @@ fn halves(
     ))
 }
 
+fn supports(version: u8, method: Method) -> bool {
+    version == 2 || !matches!(method, Method::RemoveNamespace | Method::Usage)
+}
+/// The consumer-facing hint for an unsupported namespace management action.
+pub fn unsupported_hint(installed_is_newer: bool) -> &'static str {
+    if installed_is_newer {
+        "Restart Remote serve to enable this: tmt remote stop && tmt remote serve"
+    } else {
+        "upgrade Remote"
+    }
+}
+fn frame_supported(version: u8, frame: &Frame) -> bool {
+    let method = match frame {
+        Frame::Request(value) => value.call.method(),
+        Frame::Result(value) => value.method,
+        Frame::Admit(value) => value.operation.input.method(),
+        Frame::Admission(_) | Frame::OriginState(_) => return true,
+    };
+    supports(version, method)
+}
 impl Link {
+    pub fn supports(&self, method: Method) -> bool {
+        supports(self.version, method)
+    }
     pub fn generation(&self) -> Uuid4 {
         self.generation
     }

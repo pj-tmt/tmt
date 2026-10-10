@@ -44,6 +44,7 @@ fn bus_over(stream: UnixStream, role: Role, budget: Option<Budget>) -> Bus {
     let link = Link {
         generation: generation(GEN),
         role,
+        version: 1,
         reader,
         writer,
     };
@@ -399,6 +400,7 @@ fn stamped_receive_keeps_the_first_prefix_instant_through_body_and_queue() {
         Link {
             generation: generation(GEN),
             role: Role::Remote,
+            version: 1,
             reader,
             writer,
         },
@@ -458,6 +460,7 @@ fn the_absolute_send_deadline_clips_a_blocked_writer() {
         Link {
             generation: generation(GEN),
             role: Role::Remote,
+            version: 1,
             reader,
             writer,
         },

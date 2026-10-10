@@ -113,6 +113,8 @@ fn method(method: Method) -> &'static str {
         Method::Status => "objects.status",
         Method::Read => "objects.read",
         Method::Discard => "objects.discard",
+        Method::RemoveNamespace => "objects.remove-namespace",
+        Method::Usage => "objects.usage",
     }
 }
 
@@ -120,6 +122,10 @@ fn call(call: &Call) -> String {
     let mut object = Object::new();
     match call {
         Call::Config(input) => config_input(&mut object, input),
+        Call::RemoveNamespace(input) => {
+            object.text("namespace", input.namespace);
+        }
+        Call::Usage(scope) => usage_scope(&mut object, *scope),
         Call::Begin(input) => begin_input(&mut object, input),
         Call::Part(input) => {
             object
@@ -134,6 +140,25 @@ fn call(call: &Call) -> String {
         Call::Read(input) => read_input(&mut object, input),
     }
     object.finish()
+}
+fn usage_scope(object: &mut Object, scope: UsageScope) {
+    match scope {
+        UsageScope::Extension => {
+            object.text("scope", "extension");
+        }
+        UsageScope::Namespace(namespace) => {
+            object
+                .text("scope", "namespace")
+                .text("namespace", namespace);
+        }
+    }
+}
+fn usage(object: &mut Object, value: Usage) {
+    object
+        .number("chargedBytes", value.charged_bytes)
+        .number("entries", value.entries)
+        .number("activeUploads", value.active_uploads)
+        .number("retainedIdentities", value.retained_identities);
 }
 fn config_input(object: &mut Object, input: &ConfigInput) {
     object
@@ -169,6 +194,13 @@ fn read_input(object: &mut Object, input: &ReadInput) {
 fn success(success: &Success) -> String {
     let mut object = Object::new();
     match success {
+        Success::Removed => {
+            object.text("result", "removed");
+        }
+        Success::Usage(value) => {
+            object.text("result", "usage");
+            usage(&mut object, *value);
+        }
         Success::Config(value) => {
             object.text("result", "config");
             config(&mut object, value);
@@ -359,6 +391,10 @@ fn admit_input(input: &AdmitInput) -> String {
     let mut object = Object::new();
     match input {
         AdmitInput::Config(input) => config_input(&mut object, input),
+        AdmitInput::RemoveNamespace(input) => {
+            object.text("namespace", input.namespace);
+        }
+        AdmitInput::Usage(scope) => usage_scope(&mut object, *scope),
         AdmitInput::Begin(input) => begin_input(&mut object, input),
         AdmitInput::Status(input) => status_input(&mut object, input),
         AdmitInput::Read(input) => read_input(&mut object, input),
@@ -392,6 +428,13 @@ fn retained(retained: &Retained) -> String {
 fn disclosure(disclosure: &Disclosure) -> String {
     let mut object = Object::new();
     match *disclosure {
+        Disclosure::Removed => {
+            object.text("class", "removed");
+        }
+        Disclosure::Usage(value) => {
+            object.text("class", "usage");
+            usage(&mut object, value);
+        }
         Disclosure::Config { projection } => {
             object.text("class", "config").text(
                 "projection",

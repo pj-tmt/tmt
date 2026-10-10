@@ -116,6 +116,18 @@ fn inputs() -> Vec<(Method, AdmitInput, String)> {
             ),
         ),
         (Method::Discard, AdmitInput::Discard(transfer), held),
+        (
+            Method::RemoveNamespace,
+            AdmitInput::RemoveNamespace(NamespaceInput {
+                namespace: namespace(),
+            }),
+            format!(r#"{{"namespace":"{ONES}"}}"#),
+        ),
+        (
+            Method::Usage,
+            AdmitInput::Usage(UsageScope::Extension),
+            r#"{"scope":"extension"}"#.to_owned(),
+        ),
     ]
 }
 fn input(method: Method) -> (AdmitInput, String) {
@@ -131,6 +143,8 @@ fn word(method: Method) -> &'static str {
         Method::Status => "status",
         Method::Read => "read",
         Method::Discard => "discard",
+        Method::RemoveNamespace => "remove-namespace",
+        Method::Usage => "usage",
     }
 }
 
@@ -138,6 +152,9 @@ fn word(method: Method) -> &'static str {
 /// class for the independent matrix below.
 fn disclosures() -> Vec<(String, Disclosure, String)> {
     let mut all = vec![
+
+        ("removed".to_owned(), Disclosure::Removed, r#"{"class":"removed"}"#.to_owned()),
+        ("usage".to_owned(), Disclosure::Usage(Usage { charged_bytes: 3, entries: 1, active_uploads: 0, retained_identities: 2 }), r#"{"class":"usage","chargedBytes":3,"entries":1,"activeUploads":0,"retainedIdentities":2}"#.to_owned()),
         (
             "config".to_owned(),
             Disclosure::Config {
@@ -418,10 +435,12 @@ fn expected(method: Method, checkpoint: Checkpoint, class: Option<&str>) -> bool
         ],
         Method::Read => &["bytes", "bytes-empty"],
         Method::Discard => &["terminal:discarded"],
+        Method::RemoveNamespace => &["removed"],
+        Method::Usage => &["usage"],
     };
     let mutator = matches!(
         method,
-        Method::Begin | Method::Part | Method::Commit | Method::Discard
+        Method::Begin | Method::Part | Method::Commit | Method::Discard | Method::RemoveNamespace
     );
     match (checkpoint, class) {
         (Checkpoint::Acquire, None) => true,
@@ -461,8 +480,8 @@ fn every_method_checkpoint_and_disclosure_cell_is_enumerated() {
             }
         }
     }
-    // 7 acquire + 4 effect + the disclosable classes of each method.
-    assert_eq!(accepted, 7 + 4 + (1 + 7 + 1 + 1 + 8 + 2 + 1));
+    // 9 acquire + 5 effect + the disclosable classes of each method.
+    assert_eq!(accepted, 9 + 5 + (1 + 7 + 1 + 1 + 8 + 2 + 1 + 1 + 1));
 }
 
 #[test]

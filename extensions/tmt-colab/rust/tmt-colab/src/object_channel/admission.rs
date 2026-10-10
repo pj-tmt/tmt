@@ -277,7 +277,7 @@ impl RootWriteAdmission {
             | AdmitInput::Part(_)
             | AdmitInput::Commit(_)
             | AdmitInput::Discard(_) => self.input.as_ref() == Some(input),
-            AdmitInput::Config(_) => false,
+            AdmitInput::Config(_) | AdmitInput::RemoveNamespace(_) | AdmitInput::Usage(_) => false,
         }
     }
     /// The writer, page state and base must all still hold. A discard only cleans up the

@@ -26,8 +26,9 @@ a #1852 delivery requirement; a transport-only fixture is not that proof.
 owner above these: it opens `LocalFs` only when a static declaration enables an extension
 (`ObjectService::open` fails when accounting cannot settle and creates
 nothing for an all-Disabled declaration list), keeps at most one active bus and one setup candidate per extension and
-eight buses in all, and opens a channel only on an explicit `activate` (no retry, no
-polling). Its extension names come only from the declaration list and it names no
+eight buses in all, and opens a channel only on an explicit `activate` (no operation retry or
+polling). The carrier offers version 2 and permits one version-1 fallback only before a complete reply head,
+within the same setup budget; no downgrade is cached. Link/Bus support gates the new management methods. Its extension names come only from the declaration list and it names no
 extension itself. Serve attempts each static Local declaration once after constructing
 Site/Mounts and device events, before remembering the port and publishing door readiness.
 An absent or refusing listener is silent; unsafe, malformed or storage failures warn
@@ -81,7 +82,10 @@ snapshot of the delivered backend taken at `open` (backend identifier, capabilit
 `disclose` admission naming the projection, and refuses on anything but an allow. No decision is
 remembered. `upload.rs` owns begin, part, commit and discard through the existing backend algorithm: fresh acquire,
 then effect admission immediately before invoking the mutation, then disclose admission for successful results.
-`original.rs` derives the shared original identity. Later upload callbacks carry only the scoped original's frozen
+`namespace.rs` owns local-extension-only namespace removal and namespace/extension usage; mounted callers are denied
+before callbacks. Removal reuses the committed ledger fence and drain, with acquire/effect/disclose admission and
+post-invocation uncertainty. Usage returns the existing conservative ledger projection after acquire/disclose admission;
+cleanup-pending bytes remain charged, and deleted originals remain retained. `original.rs` derives the shared original identity. Later upload callbacks carry only the scoped original's frozen
 namespace, key, policy, digest and length (parts add index/length, never bytes). Staging work clips its budget to that
 original's stored expiry, without renewal. Invalid, conflict and capacity errors retain their wire class; no error
 proves unchanged storage. Invoked missing, unavailable, cancellation or deadline maps to unknown, without retry,
@@ -169,6 +173,7 @@ reader re-checks it after reading and before returning bytes.
 
 ## Charge formula
 
+Usage is conservative allocation charge, not “bytes stored”; consumers must preserve that distinction.
 Recomputed from rows, never cached. Per scope: payload (rounded up to 4 KiB until its
 removal is confirmed) + `OBJECT_RECORD_BYTES` per retained original + `OBJECT_FENCE_BYTES`
 per namespace (its directory block, entry and fence row). Extension and installation scopes

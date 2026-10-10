@@ -9,7 +9,7 @@
 //! Upgrade: tmt-object-channel-v1                    tmt-object-generation: <same>
 //! Content-Length: 0
 //! tmt-mount: <the selected mount>
-//! tmt-object-channel: 1
+//! tmt-object-channel: <1 or 2>
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
 use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, bounded, halves};
@@ -121,20 +121,59 @@ fn generation(fields: &[(&'static str, &str)]) -> Result<Uuid4, Refusal> {
 
 /// Open the channel as the initiator on `stream`, which is connected to the
 /// extension's socket. `setup` is the absolute end of the whole setup.
+/// Legacy one-attempt version-1 entry point. New Remote uses [`negotiate`].
 pub fn initiate(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Link, Fault> {
-    if !plain(&offer.host) || !plain(&offer.mount) {
-        return Err(Fault::Handshake(Refusal::BadValue("host")));
+    initiate_version(stream, offer, setup, 1).map_err(|(fault, _)| fault)
+}
+
+/// Open a fresh stream for each attempt; a pre-reply failure permits one version-1
+/// fallback within the same absolute setup budget. Nothing is cached or replayed.
+pub fn negotiate(
+    setup: Instant,
+    mut open: impl FnMut() -> Result<(UnixStream, Offer), Fault>,
+) -> Result<Link, Fault> {
+    if Instant::now() >= setup {
+        return Err(Fault::Timeout(Stage::Head));
     }
-    let (mut reader, mut writer) = halves(stream, Vec::new())?;
+    for version in [2, 1] {
+        let attempt = open()
+            .map_err(|fault| (fault, false))
+            .and_then(|(stream, offer)| initiate_version(stream, &offer, setup, version));
+        match attempt {
+            Ok(link) => return Ok(link),
+            Err((fault, complete)) if complete || version == 1 || Instant::now() >= setup => {
+                return Err(fault);
+            }
+            Err(_) => {}
+        }
+    }
+    unreachable!("two attempts always return")
+}
+
+fn initiate_version(
+    stream: UnixStream,
+    offer: &Offer,
+    setup: Instant,
+    version: u8,
+) -> Result<Link, (Fault, bool)> {
+    if !plain(&offer.host) || !plain(&offer.mount) {
+        return Err((Fault::Handshake(Refusal::BadValue("host")), true));
+    }
+    let (mut reader, mut writer) = halves(stream, Vec::new()).map_err(|fault| (fault, false))?;
     let request = format!(
-        "GET {ROUTE} HTTP/1.1\r\nHost: {}\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\nContent-Length: 0\r\ntmt-mount: {}\r\ntmt-object-channel: 1\r\ntmt-object-generation: {}\r\n\r\n",
+        "GET {ROUTE} HTTP/1.1\r\nHost: {}\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\nContent-Length: 0\r\ntmt-mount: {}\r\ntmt-object-channel: {version}\r\ntmt-object-generation: {}\r\n\r\n",
         offer.host, offer.mount, offer.generation
     );
-    writer.send_by(request.as_bytes(), setup, Stage::Reply)?;
-    let (head, first_bytes) = reader.head(HEAD_BYTES, setup)?;
+    writer
+        .send_by(request.as_bytes(), setup, Stage::Reply)
+        .map_err(|fault| (fault, false))?;
+    let mut complete = false;
+    let (head, first_bytes) = reader
+        .head_observed(HEAD_BYTES, setup, &mut complete)
+        .map_err(|fault| (fault, complete))?;
     let mut headers = [httparse::EMPTY_HEADER; HEAD_FIELDS];
     let mut reply = httparse::Response::new(&mut headers);
-    let refused = |refusal| Fault::Handshake(refusal);
+    let refused = |refusal| (Fault::Handshake(refusal), true);
     match reply.parse(&head) {
         Ok(httparse::Status::Complete(end)) if end == head.len() => {}
         _ => return Err(refused(Refusal::Head)),
@@ -156,6 +195,7 @@ pub fn initiate(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Lin
     Ok(Link {
         generation: offer.generation,
         role: Role::Remote,
+        version,
         reader,
         writer,
     })
@@ -171,8 +211,8 @@ pub fn accept(
 ) -> Result<Link, Fault> {
     let (mut reader, writer) = halves(stream, Vec::new())?;
     let (head, rest) = reader.head(HEAD_BYTES, within(Instant::now(), budgets.head, setup))?;
-    let generation = admitted(&head, &rest, expect).map_err(Fault::Handshake)?;
-    replied(reader, writer, generation, budgets, setup)
+    let (generation, version) = admitted(&head, &rest, expect).map_err(Fault::Handshake)?;
+    replied(reader, writer, generation, version, budgets, setup)
 }
 
 /// Accept the channel as the extension for a caller whose router already read one
@@ -188,14 +228,14 @@ pub fn accept_head(
     budgets: &Budgets,
     setup: Instant,
 ) -> Result<Link, Fault> {
-    let generation = admitted(head, rest, expect).map_err(Fault::Handshake)?;
+    let (generation, version) = admitted(head, rest, expect).map_err(Fault::Handshake)?;
     let (reader, writer) = halves(stream, Vec::new())?;
-    replied(reader, writer, generation, budgets, setup)
+    replied(reader, writer, generation, version, budgets, setup)
 }
 
 /// The one validation of an offered head, shared by both entry points: the generation
 /// it offers, or why it is refused.
-fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<Uuid4, Refusal> {
+fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<(Uuid4, u8), Refusal> {
     if head.len() > HEAD_BYTES {
         return Err(Refusal::Head);
     }
@@ -220,12 +260,16 @@ fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<Uuid4, Refusal>
     require(&seen, "upgrade", PROTOCOL)?;
     require(&seen, "content-length", "0")?;
     require(&seen, "tmt-mount", &expect.mount)?;
-    require(&seen, "tmt-object-channel", "1")?;
+    let version = match value(&seen, "tmt-object-channel") {
+        "1" => 1,
+        "2" => 2,
+        _ => return Err(Refusal::BadValue("tmt-object-channel")),
+    };
     let generation = generation(&seen)?;
     if !rest.is_empty() {
         return Err(Refusal::Pipelined);
     }
-    Ok(generation)
+    Ok((generation, version))
 }
 
 /// Write the one reply within its bound and hand the link over.
@@ -233,6 +277,7 @@ fn replied(
     reader: bounded::Reader,
     mut writer: bounded::Writer,
     generation: Uuid4,
+    version: u8,
     budgets: &Budgets,
     setup: Instant,
 ) -> Result<Link, Fault> {
@@ -247,6 +292,7 @@ fn replied(
     Ok(Link {
         generation,
         role: Role::Extension,
+        version,
         reader,
         writer,
     })

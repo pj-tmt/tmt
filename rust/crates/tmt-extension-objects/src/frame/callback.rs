@@ -64,6 +64,8 @@ pub enum AdmitInput {
     Status(StatusInput),
     Read(ReadInput),
     Discard(TransferAdmit),
+    RemoveNamespace(NamespaceInput),
+    Usage(UsageScope),
 }
 impl AdmitInput {
     pub fn method(&self) -> Method {
@@ -75,6 +77,8 @@ impl AdmitInput {
             Self::Status(_) => Method::Status,
             Self::Read(_) => Method::Read,
             Self::Discard(_) => Method::Discard,
+            Self::RemoveNamespace(_) => Method::RemoveNamespace,
+            Self::Usage(_) => Method::Usage,
         }
     }
 }
@@ -106,6 +110,8 @@ pub struct Retained {
 /// of a read are only counted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Disclosure {
+    Removed,
+    Usage(Usage),
     Config {
         projection: Projection,
     },
@@ -142,6 +148,8 @@ impl Disclosure {
     fn answer(&self) -> Answer {
         match self {
             Self::Config { .. } => Answer::Config,
+            Self::Removed => Answer::Removed,
+            Self::Usage(_) => Answer::Usage,
             Self::Status { .. } => Answer::Pending,
             Self::Progress { .. } => Answer::Progress,
             Self::Receipt { .. } => Answer::Committed,
@@ -168,7 +176,8 @@ impl Disclosure {
             Self::Bytes { offset, length } => {
                 require(offset <= PAYLOAD_BYTES && length as usize <= CHUNK_BYTES)
             }
-            Self::Config { .. } | Self::Terminal { .. } => Ok(()),
+            Self::Usage(usage) => require(usage.charged_bytes <= MAX_SAFE_INTEGER),
+            Self::Removed | Self::Config { .. } | Self::Terminal { .. } => Ok(()),
         }
     }
 }
@@ -199,7 +208,7 @@ impl AdmitInput {
                 require((1..=CHUNK_BYTES as u32).contains(&input.length))
             }
             Self::Commit(input) | Self::Discard(input) => input.retained.check(),
-            Self::Config(_) | Self::Status(_) => Ok(()),
+            Self::Config(_) | Self::Status(_) | Self::RemoveNamespace(_) | Self::Usage(_) => Ok(()),
         }
     }
 }

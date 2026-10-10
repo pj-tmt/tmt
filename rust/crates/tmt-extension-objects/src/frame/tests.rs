@@ -107,6 +107,65 @@ fn request_json(origin: &str, method: &str, input: &str) -> String {
         r#"{{"version":1,"kind":"request","generation":"{GENERATION}","requestId":"7","origin":{origin},"method":"objects.{method}","input":{input}}}"#
     )
 }
+
+#[test]
+fn namespace_management_results_pin_projection_and_method_association() {
+    let value = Usage {
+        charged_bytes: 3,
+        entries: 1,
+        active_uploads: 0,
+        retained_identities: 2,
+    };
+    for (method, word, success, body) in [
+        (
+            Method::RemoveNamespace,
+            "remove-namespace",
+            Success::Removed,
+            r#""ok":{"result":"removed"}"#,
+        ),
+        (
+            Method::Usage,
+            "usage",
+            Success::Usage(value),
+            r#""ok":{"result":"usage","chargedBytes":3,"entries":1,"activeUploads":0,"retainedIdentities":2}"#,
+        ),
+    ] {
+        let json = result_json(word, false, body);
+        let frame = self::success(method, success);
+        assert_eq!(encode(&frame).unwrap(), with_prefix(&json));
+        assert_eq!(decode(json.as_bytes()).unwrap(), frame);
+        assert!(
+            decode(mutate(&json, &format!("objects.{word}"), "objects.config").as_bytes()).is_err()
+        );
+    }
+    let json = request_json(LOCAL, "usage", r#"{"scope":"extension"}"#);
+    for input in [
+        r#"{"scope":"installation"}"#,
+        r#"{"scope":"namespace"}"#,
+        r#"{"scope":"extension","namespace":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}"#,
+    ] {
+        assert!(decode(mutate(&json, r#"{"scope":"extension"}"#, input).as_bytes()).is_err());
+    }
+    assert!(encode(&failure(Method::Usage, ErrorCode::Unknown)).is_err());
+    assert!(encode(&failure(Method::RemoveNamespace, ErrorCode::Unknown)).is_ok());
+}
+
+#[test]
+fn namespace_management_requests_have_canonical_bytes_without_transfer_ids() {
+    for (method, input) in [
+        ("remove-namespace", format!(r#"{{"namespace":"{ONES}"}}"#)),
+        ("usage", r#"{"scope":"extension"}"#.to_owned()),
+        (
+            "usage",
+            format!(r#"{{"scope":"namespace","namespace":"{ONES}"}}"#),
+        ),
+    ] {
+        let body = request_json(LOCAL, method, &input);
+        let frame = decode(body.as_bytes()).unwrap();
+        assert_eq!(encode(&frame).unwrap(), with_prefix(&body));
+        assert!(!body.contains("transferId"));
+    }
+}
 fn result_json(method: &str, transfer: bool, body: &str) -> String {
     let transfer = if transfer {
         format!(r#","transferId":"{TRANSFER}""#)

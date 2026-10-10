@@ -91,6 +91,7 @@ fn raw_link() -> (Link, UnixStream) {
     let link = Link {
         generation: generation(GEN),
         role: Role::Extension,
+        version: 1,
         reader,
         writer,
     };
