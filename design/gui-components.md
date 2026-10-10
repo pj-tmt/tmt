@@ -24,7 +24,7 @@ and [Remote served pages](../extensions/tmt-remote/rust/tmt-remote/src/pages.rs)
 embed the same checked static asset without requiring a React runtime.
 
 Colab's product-owned choice/action menus, previews and dialogs also use flat
-surfaces and thin shared edges, without hard shadows, following #2406. See its
+surfaces and thin shared edges, without hard shadows. See its
 [action-menu styles](../extensions/tmt-colab/typescript/app/src/components/action-menu.css)
 and [listbox styles](../extensions/tmt-colab/typescript/app/src/components/listbox.css).
 Their placement and product actions remain Colab-owned; flat styling does not

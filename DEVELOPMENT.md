@@ -140,14 +140,9 @@ workspace-relative paths; `docker-workspace.test.ts` checks it.
 Executable fixture publication and snapshot updates:
 [tmt-dev focused checks](.agents/skills/tmt-dev/references/focused-checks.md#executable-fixtures-and-snapshots).
 
-**CLI style and printed-command guards** ([enforcement](design/cli-style.md#enforcement))
-run in `cargo test`. When a migrated command leaves its list, run them directly:
-`cargo test --locked -p tmt-cli --bin tmt cli_style` and
-`cargo test --locked -p tmt-ops cli_style`; a failure prints the list entry to
-add or remove. When adding or changing a printed command template, update its
-presentation site's test-only `HintSpec` list (explicit command boundaries,
-representative operands, and a reason for any external-command skip); the guard
-parses without executing and fails on missing and stale samples.
+CLI style and printed-command guard procedures: [enforcement](design/cli-style.md#enforcement).
+Focused checks: `cargo test --locked -p tmt-cli --bin tmt cli_style` and
+`cargo test --locked -p tmt-ops cli_style`.
 
 ### Architecture guard
 
