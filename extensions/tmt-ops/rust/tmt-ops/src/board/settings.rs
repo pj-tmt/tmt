@@ -696,6 +696,10 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     }
     let width = usize::from(body.width.saturating_sub(4));
     let row_width = width.saturating_sub(2);
+    // The key is never cut while the value and the provenance can still give
+    // way: the narrowest columns they keep are `MIN_VALUE` and `MIN_SOURCE`.
+    const MIN_VALUE: usize = 12;
+    const MIN_SOURCE: usize = 12;
     let key_width = overlay
         .settings
         .entries
@@ -704,8 +708,15 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .chain(overlay.picks.iter().map(|pick| pick.name.width()))
         .max()
         .unwrap_or(0)
-        .min(row_width / 4);
-    let source_width = (row_width / 3).min(42);
+        .min(
+            row_width
+                .saturating_sub(6 + MIN_VALUE + MIN_SOURCE)
+                .max(row_width / 4),
+        );
+    let source_width = (row_width / 3)
+        .min(42)
+        .min(row_width.saturating_sub(key_width + 6 + MIN_VALUE))
+        .max(MIN_SOURCE.min(row_width / 3));
     // Two one-cell mark tracks and four one-cell gaps. Shared geometry owns
     // the actual grid fitting at tiny widths.
     let value_width = row_width
@@ -1100,6 +1111,38 @@ mod tests {
         app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
         for ch in text.chars() {
             press(app, KeyCode::Char(ch));
+        }
+    }
+    #[test]
+    fn the_longest_setting_key_is_shown_whole_at_every_usable_width() {
+        let f = fixture("key-width", "");
+        let overlay = f.app.settings.as_ref().unwrap();
+        let longest = overlay
+            .settings
+            .entries
+            .iter()
+            .map(|entry| {
+                setting_name(&entry.key).1.to_owned() + if entry.editable { "" } else { "*" }
+            })
+            .max_by_key(|name| name.width())
+            .unwrap();
+        assert!(longest.width() > 20, "{longest}");
+        for width in [160u16, 120, 100, 80] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 60)).unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, f.app.look(), frame.area()))
+                .unwrap();
+            let lines: Vec<String> = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect())
+                .collect();
+            assert!(
+                lines.iter().any(|line| line.contains(&longest)),
+                "{width}: {longest} is cut: {lines:#?}"
+            );
         }
     }
     #[test]

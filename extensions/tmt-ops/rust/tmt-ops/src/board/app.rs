@@ -3421,6 +3421,12 @@ impl App {
         })
     }
 
+    /// Whether an overlay or the action menu owns input: each draws its own key
+    /// hints, so the board's footer shows none underneath it.
+    pub(in crate::board) fn modal_open(&self) -> bool {
+        self.overlay().is_some() || self.menu.is_some()
+    }
+
     fn overlay(&self) -> Option<Overlay> {
         if self.row_details.reader.is_some() {
             Some(Overlay::ReplyReader)

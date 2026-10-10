@@ -257,7 +257,7 @@ help and context menus. When width runs out, whole optional hints drop from the 
 binding of your own keeps its hint. Rebind in `[bind]` (or a section), or
 `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported. Composing, search, menus and overlays
-keep their own footer.
+keep their own footer; the board's key hints are blank under a menu or overlay.
 
 Ordinary canvas, content and chrome inherit the terminal background. The board
 uses shared TMT tokens: `text` for shown tab names, primary counts and
@@ -311,8 +311,8 @@ When the squad tab's lead row is selected, detail shows its name with a dim `lea
 tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
 Missing values are omitted. With no row fields set, it shows
 `no row fields set · tmt ops sq set <lead> task=…`.
-The dim `notes below · replies at right` line points to the separate panes;
-lead detail reads and displays neither the notebook nor reply bodies.
+Lead detail reads and displays neither the notebook nor reply bodies; the pane
+headers name the other panes.
 
 For members, the detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 

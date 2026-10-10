@@ -2202,7 +2202,6 @@ fn lead_detail_keeps_fields_separate_from_notebooks_and_replies() {
                         "task: review the patch",
                         "◆ waits on you: Approve the rollout?",
                         "links: pr_link https://example.com/1741",
-                        "notes below · replies at right",
                     ]
                 );
                 assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
@@ -2244,11 +2243,7 @@ fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scrol
     let buffer = detail_buffer(&app, 100, 20);
     assert_eq!(
         detail_text(&buffer),
-        [
-            "sol  lead",
-            "no row fields set · tmt ops sq set sol task=…",
-            "notes below · replies at right",
-        ]
+        ["sol  lead", "no row fields set · tmt ops sq set sol task=…",]
     );
     assert_eq!(
         buffer[(0, 1)].fg,
@@ -2265,10 +2260,31 @@ fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scrol
     assert!(
         detail_text(&detail_buffer(&app, 12, 3))
             .join("")
-            .contains("right")
+            .contains("wrap")
     );
     detail_buffer(&app, 0, 0);
     detail_buffer(&app, 1, 1);
+}
+
+#[test]
+fn the_footer_shows_no_board_key_hints_while_an_overlay_owns_input() {
+    let mut app = board(
+        json!([{"rows":[row("worker", "working", "ship", json!({"id":"W", "lifetime":"saved"}))]}]),
+    );
+    let footer = |app: &App| draw(app, 100, 20).pop().unwrap();
+    assert!(footer(&app).contains("q quit"), "{}", footer(&app));
+    app.help = true;
+    assert!(app.modal_open());
+    assert!(footer(&app).trim().is_empty(), "{}", footer(&app));
+    app.notice = Some("saved".into());
+    assert!(
+        footer(&app).contains("saved"),
+        "notices stay: {}",
+        footer(&app)
+    );
+    app.help = false;
+    app.notice = None;
+    assert!(footer(&app).contains("q quit"));
 }
 
 #[test]
