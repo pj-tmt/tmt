@@ -23,6 +23,8 @@ export interface ConversationComment {
   body: string;
   deviceName: string;
   at: string;
+  /** Files of a live comment, by name only: the ID `attachment read` takes, never bytes. */
+  attachments?: { id: string; name: string; mediaType: string; sizeBytes: number }[];
 }
 export interface ConversationThread {
   writer: string;
@@ -165,6 +167,16 @@ export async function projectConversations(input: ConversationsInput): Promise<C
           body: comment.body,
           deviceName: comment.deviceName,
           at: comment.at,
+          ...(!comment.deleted && comment.attachments?.length
+            ? {
+                attachments: comment.attachments.map((file) => ({
+                  id: file.attachmentId,
+                  name: file.filename,
+                  mediaType: file.mediaType,
+                  sizeBytes: Number(file.plaintextBytes),
+                })),
+              }
+            : {}),
         }))
         .sort(byCommentOrder),
       ...(thread.proposal
@@ -388,6 +400,10 @@ export function renderConversationsMarkdown(conversations: Conversations): strin
         `- Comment ID: ${ref(comment.writer, comment.id)}`,
         `- By: ${codeSpan(comment.deviceName)} at ${time(comment.at)} (writer ${comment.writer})`,
         `- Revision: ${comment.revision}`,
+        ...(comment.attachments ?? []).map(
+          (file) =>
+            `- Attachment: ${file.id} ${codeSpan(file.name)} (${file.mediaType}, ${file.sizeBytes} bytes)`,
+        ),
         '',
       );
       lines.push(comment.deleted ? 'Deleted.' : fence(comment.body), '');

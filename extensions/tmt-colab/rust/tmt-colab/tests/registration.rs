@@ -1633,6 +1633,32 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         "a page revision is never a fence"
     );
     prepare_message(&sealed_fence).unwrap();
+    // Reads captured before an unrelated write: a message attachment (nothing but its message and
+    // authority bind it) stays readable, while a document attachment is stale once the page moves.
+    let early_message = AttachmentSelector::Message {
+        writer_id: DEVICE.into(),
+        message_id: MESSAGE.into(),
+        message_revision: "1".into(),
+        attachment_id: ATTACHMENT.into(),
+        descriptor_hash: hex(&descriptor.hash().unwrap()),
+    };
+    // The prepare closure above keeps the first decoder borrowed, so reads use their own.
+    let mut reader = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let message_read = attachments::capture_root_local(
+        &store,
+        &key,
+        PAGE,
+        &early_message,
+        &mut reader,
+        deadline(),
+    )
+    .unwrap();
+    let document_read =
+        attachments::capture_root_local(&store, &key, PAGE, &selector(), &mut reader, deadline())
+            .unwrap();
     // A foreign write: the page revision moves, the fence does not.
     let moving = Doc::with_client_id(18533);
     moving.get_or_insert_map("meta").insert(
@@ -1673,6 +1699,20 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
         .unwrap();
     assert_ne!(page::revision(&store, &key, PAGE).unwrap(), current);
     assert_eq!(fence(), sealed_fence);
+    assert_eq!(
+        message_read.disclose(&store, &key, &objects).unwrap(),
+        b"original attachment bytes",
+        "an unrelated record between capture and read is not a reason to refuse a message file"
+    );
+    assert_eq!(
+        document_read
+            .disclose(&store, &key, &objects)
+            .unwrap_err()
+            .downcast_ref::<page::Fault>()
+            .map(page::Fault::code),
+        Some("COLAB_STALE_BASE"),
+        "a document attachment is bound to the page revision"
+    );
     prepare_message(&sealed_fence).unwrap();
     assert!(
         attachments::prepare_publication(
@@ -1728,6 +1768,32 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
             .unwrap(),
         b"original attachment bytes"
     );
+    // The same page names the attachment by an ID prefix: the exact reference the read takes.
+    let by_prefix = attachments::resolve(
+        &store,
+        &key,
+        PAGE,
+        &ATTACHMENT[..8],
+        &mut decoder,
+        deadline(),
+    )
+    .unwrap();
+    assert_eq!(by_prefix, selector());
+    for refused in [&ATTACHMENT[..7], "zzzzzzzz", "ffffffff"] {
+        let code = attachments::resolve(&store, &key, PAGE, refused, &mut decoder, deadline())
+            .unwrap_err()
+            .downcast_ref::<page::Fault>()
+            .map(page::Fault::code);
+        assert_eq!(
+            code,
+            Some(if refused == "ffffffff" {
+                "COLAB_STATE_MISSING"
+            } else {
+                "COLAB_INPUT_INVALID"
+            }),
+            "{refused}"
+        );
+    }
     let head = store
         .owner_head(&key.space_id, &key.owner_public())
         .unwrap()

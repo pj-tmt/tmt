@@ -243,6 +243,21 @@ mod tests {
         )
     }
     #[test]
+    fn the_file_metadata_vector_verifies_and_carries_its_block_in_the_signed_bytes() {
+        let v: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/send-preview-v1.json"
+        ))
+        .unwrap();
+        let (mut signed, key) = fixture();
+        let listed = &v["withAttachments"];
+        signed.input = listed["input"].as_str().unwrap().into();
+        signed.signature = listed["signature"].as_str().unwrap().into();
+        signed.final_bytes = listed["finalBytes"].as_str().unwrap().into();
+        let intent = signed.verify(&key).unwrap();
+        assert_eq!(intent.message, listed["message"].as_str().unwrap());
+        assert!(intent.message.contains("\nAttachments:\n- 12345678 \""));
+    }
+    #[test]
     fn independent_send_vector_and_every_field_substitution() {
         let (signed, key) = fixture();
         let intent = signed.verify(&key).unwrap();

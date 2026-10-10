@@ -2,6 +2,7 @@
 use crate::{
     Result,
     decoder::Decoder,
+    export::conversations::{self, Conversations},
     fold::{Snapshot, View},
     keyring::Keyring,
     page,
@@ -92,18 +93,20 @@ pub(crate) fn current_base(
 ) -> Result<String> {
     match &descriptor.source {
         Source::Document { .. } => revision(key, &descriptor.page, snapshot),
-        Source::Message { .. } => {
-            let head = &snapshot.authority.head;
-            Ok(tmt_colab_model::attachment::message_fence(
-                &key.space_id,
-                &descriptor.page,
-                &snapshot.epoch.to_string(),
-                &head.revision.to_string(),
-                &head.hash,
-                &descriptor.author_device,
-            )?)
-        }
+        Source::Message { .. } => message_base(key, descriptor, snapshot),
     }
+}
+/// The membership head, epoch and author a message attachment is fenced by.
+fn message_base(key: &Keyring, descriptor: &Descriptor, snapshot: &Snapshot) -> Result<String> {
+    let head = &snapshot.authority.head;
+    Ok(tmt_colab_model::attachment::message_fence(
+        &key.space_id,
+        &descriptor.page,
+        &snapshot.epoch.to_string(),
+        &head.revision.to_string(),
+        &head.hash,
+        &descriptor.author_device,
+    )?)
 }
 /// `current_base` from a fresh owner-store snapshot, for rechecks after slow work.
 pub(crate) fn captured_base(
@@ -233,7 +236,14 @@ impl SessionReadOwner {
 pub struct AdmittedAttachmentRead {
     descriptor: Descriptor,
     snapshot: Snapshot,
-    current_revision: String,
+    /// What this read stays valid against (`current_base`): the whole page revision for a
+    /// document attachment, which is bound to the source it was written against, and only the
+    /// membership head, epoch and author for a message attachment, which nothing a foreign or
+    /// unrelated write can move. A read fails when its reference or its authority changed,
+    /// never because the page merely advanced.
+    base: String,
+    /// A message reference is fenced by authority; a document reference by the page revision.
+    by_message: bool,
     creator_key: [u8; 32],
     deadline: Instant,
     session: Option<SessionReadOwner>,
@@ -251,12 +261,24 @@ impl AdmittedAttachmentRead {
             return Err(page::Fault::Denied.into());
         }
         let current = Snapshot::capture_read(store, key, &self.descriptor.page, None)?;
-        let original =
-            Snapshot::capture_read(store, key, &self.descriptor.page, Some(self.snapshot.epoch))?;
-        if original.cuts != self.snapshot.cuts
-            || revision(key, &self.descriptor.page, &current)? != self.current_revision
-        {
+        let base = if self.by_message {
+            message_base(key, &self.descriptor, &current)?
+        } else {
+            revision(key, &self.descriptor.page, &current)?
+        };
+        if base != self.base {
             return Err(page::Fault::StaleBase.into());
+        }
+        if !self.by_message {
+            let original = Snapshot::capture_read(
+                store,
+                key,
+                &self.descriptor.page,
+                Some(self.snapshot.epoch),
+            )?;
+            if original.cuts != self.snapshot.cuts {
+                return Err(page::Fault::StaleBase.into());
+            }
         }
         Ok(())
     }
@@ -358,8 +380,11 @@ fn capture_read(
                 continue;
             }
             let snapshot = Snapshot::capture_read(store, key, page, Some(old))?;
-            if revision(key, page, &Snapshot::capture_read(store, key, page, None)?)?
-                != current_revision
+            // Only authority moving makes the scan stale; an unrelated record does not.
+            let latest = Snapshot::capture_read(store, key, page, None)?;
+            if latest.epoch != current.epoch
+                || latest.authority.head.revision != current.authority.head.revision
+                || latest.authority.head.hash != current.authority.head.hash
             {
                 return Err(page::Fault::StaleBase.into());
             }
@@ -380,16 +405,141 @@ fn capture_read(
     let view = snapshot.materialize_until(key, page, decoder, deadline)?;
     creation_proof(&view, &descriptor)?;
     let creator_key = snapshot.asset_author(key, &descriptor)?;
+    let by_message = matches!(selector, AttachmentSelector::Message { .. });
+    let base = if by_message {
+        message_base(key, &descriptor, &current)?
+    } else {
+        revision(key, page, &current)?
+    };
     let admitted = AdmittedAttachmentRead {
         descriptor,
         snapshot,
-        current_revision,
+        base,
+        by_message,
         creator_key,
         deadline,
         session,
     };
     admitted.recheck(store, key)?;
     Ok(admitted)
+}
+/// The exact selectors whose attachment ID starts with `prefix` (#2464): the files of live
+/// comments in the verified discussion projection, which already owns revision chains, deletion,
+/// scope and epoch, and, with a page revision, the page's document attachments. This only finds
+/// a reference; the read still verifies everything.
+fn candidates(
+    conversations: &Conversations,
+    meta: &Value,
+    prefix: &str,
+    space: &str,
+    page: &str,
+    page_revision: Option<&str>,
+) -> Result<Vec<AttachmentSelector>> {
+    let mut found = Vec::new();
+    if let (Some(revision), Some(list)) = (page_revision, meta.get("attachments")) {
+        for value in list.as_array().into_iter().flatten() {
+            let d = Descriptor::from_json(&serde_json::to_vec(value)?)?;
+            if d.attachment_id.starts_with(prefix) && d.space == space && d.page == page {
+                found.push(AttachmentSelector::DocumentCurrent {
+                    attachment_id: d.attachment_id.clone(),
+                    descriptor_hash: hex(&d.hash()?),
+                    content_revision: revision.to_owned(),
+                });
+            }
+        }
+    }
+    for comment in conversations.threads.iter().flat_map(|t| &t.comments) {
+        for file in comment
+            .attachments
+            .iter()
+            .filter(|f| f.id.starts_with(prefix))
+        {
+            found.push(AttachmentSelector::Message {
+                writer_id: comment.writer.clone(),
+                message_id: comment.id.clone(),
+                message_revision: comment.revision.clone(),
+                attachment_id: file.id.clone(),
+                descriptor_hash: file.descriptor_hash.clone(),
+            });
+        }
+    }
+    Ok(found)
+}
+/// The discussion projection of one materialized epoch.
+fn projected(key: &Keyring, page: &str, snapshot: &Snapshot, view: &View) -> Conversations {
+    Conversations::project(
+        conversations::Capture {
+            space_id: &key.space_id,
+            page_id: page,
+            title: &view.title,
+            epoch: &snapshot.epoch.to_string(),
+            head: conversations::Head {
+                revision: snapshot.authority.head.revision.to_string(),
+                statement_hash: hex(&snapshot.authority.head.hash),
+            },
+        },
+        &view.own,
+        &view.signing_keys,
+        &view.status_writers,
+    )
+}
+/// Resolve an attachment ID, or an unambiguous prefix of at least 8 hex characters, against the
+/// current verified page and the same earlier-epoch window `capture_read` searches. The result is
+/// the exact reference `attachment read --reference` takes, so the serve's read, with its access
+/// and epoch checks, is unchanged. No match is `Missing`; more than one is `Invalid`.
+pub fn resolve(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    prefix: &str,
+    decoder: &mut Decoder,
+    deadline: Instant,
+) -> Result<AttachmentSelector> {
+    use page::Fault;
+    if prefix.len() < 8
+        || prefix.len() > 36
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
+    {
+        return Err(Fault::Invalid.into());
+    }
+    remaining(deadline)?;
+    let current = Snapshot::capture_read(store, key, page, None)?;
+    let current_revision = revision(key, page, &current)?;
+    let epoch = current.epoch;
+    let view = current.materialize_until(key, page, decoder, deadline)?;
+    let mut found = candidates(
+        &projected(key, page, &current, &view),
+        &view.meta,
+        prefix,
+        &key.space_id,
+        page,
+        Some(&current_revision),
+    )?;
+    if found.is_empty() {
+        for old in (epoch.saturating_sub(63).max(1)..epoch).rev() {
+            remaining(deadline)?;
+            let snapshot = Snapshot::capture_read(store, key, page, Some(old))?;
+            let view = snapshot.materialize_until(key, page, decoder, deadline)?;
+            found = candidates(
+                &projected(key, page, &snapshot, &view),
+                &view.meta,
+                prefix,
+                &key.space_id,
+                page,
+                None,
+            )?;
+            if !found.is_empty() {
+                break;
+            }
+        }
+    }
+    match found.len() {
+        0 => Err(Fault::Missing.into()),
+        1 => Ok(found.remove(0)),
+        _ => Err(Fault::Invalid.into()),
+    }
 }
 /// Before object allocation, bind an upload to the actual mounted writer and
 /// the authenticated target base. This admits no receipt or publication: the
@@ -521,5 +671,126 @@ pub fn prepare_publication(
 impl Drop for AdmittedAttachmentRead {
     fn drop(&mut self) {
         self.snapshot.secret.fill(0);
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn descriptor() -> Descriptor {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/attachment-v1.json"
+        ))
+        .unwrap();
+        let case = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "message-asset")
+            .unwrap();
+        Descriptor::from_json(case["input"].as_str().unwrap().as_bytes()).unwrap()
+    }
+    /// The projection of one writer's thread with the given comment records (message ID, revision,
+    /// deleted), each listing the descriptor unless deleted.
+    fn project(d: &Descriptor, comments: &[(&str, &str, bool)]) -> Conversations {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let writer = d.author_device.clone();
+        let mut thread = fixture["thread"].clone();
+        let mut roots = json!({"threads": {}, "messages": {}, "intents": {}, "replies": {}});
+        for (field, value) in [
+            ("senderDevice", &writer),
+            ("spaceId", &d.space),
+            ("pageId", &d.page),
+        ] {
+            thread[field] = value.as_str().into();
+        }
+        roots["threads"][format!("{}:1", thread["threadId"].as_str().unwrap())] = thread.clone();
+        for (id, revision, deleted) in comments {
+            let mut comment = fixture["comment"].clone();
+            for (field, value) in [
+                ("senderDevice", writer.as_str()),
+                ("spaceId", &d.space),
+                ("pageId", &d.page),
+                ("messageId", id),
+                ("revision", revision),
+            ] {
+                comment[field] = value.into();
+            }
+            comment["thread"] = json!({"writer": writer, "id": thread["threadId"]});
+            comment["deleted"] = (*deleted).into();
+            if *deleted {
+                comment["body"] = "".into();
+            } else {
+                comment["attachments"] =
+                    json!([serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]);
+            }
+            roots["messages"][format!("{id}:{revision}")] = comment;
+        }
+        let own = BTreeMap::from([(writer.clone(), roots)]);
+        let keys = BTreeMap::from([(writer, [0; 32])]);
+        Conversations::project(
+            conversations::Capture {
+                space_id: &d.space,
+                page_id: &d.page,
+                title: "Files",
+                epoch: "1",
+                head: conversations::Head {
+                    revision: "1".into(),
+                    statement_hash: "00".repeat(32),
+                },
+            },
+            &own,
+            &keys,
+            &BTreeSet::new(),
+        )
+    }
+    fn find(d: &Descriptor, conv: &Conversations, prefix: &str) -> Vec<AttachmentSelector> {
+        candidates(conv, &Value::Null, prefix, &d.space, &d.page, None).unwrap()
+    }
+    const M1: &str = "00000000-0000-4000-8000-0000000000a1";
+    const M2: &str = "00000000-0000-4000-8000-0000000000a2";
+
+    #[test]
+    fn a_prefix_finds_the_exact_reference_of_a_projected_live_comment_attachment() {
+        let d = descriptor();
+        let found = find(&d, &project(&d, &[(M1, "1", false)]), &d.attachment_id[..8]);
+        assert_eq!(
+            found,
+            vec![AttachmentSelector::Message {
+                writer_id: d.author_device.clone(),
+                message_id: M1.into(),
+                message_revision: "1".into(),
+                attachment_id: d.attachment_id.clone(),
+                descriptor_hash: hex(&d.hash().unwrap()),
+            }]
+        );
+        assert!(find(&d, &project(&d, &[(M1, "1", false)]), "ffffffff").is_empty());
+    }
+    #[test]
+    fn a_deleted_message_is_not_in_the_projection_so_it_never_resolves() {
+        let d = descriptor();
+        let deleted = project(&d, &[(M1, "1", false), (M1, "2", true)]);
+        assert!(find(&d, &deleted, &d.attachment_id[..8]).is_empty());
+    }
+    #[test]
+    fn two_messages_listing_one_id_are_ambiguous_and_a_document_needs_the_current_revision() {
+        let d = descriptor();
+        let two = project(&d, &[(M1, "1", false), (M2, "1", false)]);
+        assert_eq!(find(&d, &two, &d.attachment_id[..8]).len(), 2);
+        let meta = json!({"attachments": [serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]});
+        let none = project(&d, &[]);
+        let id = &d.attachment_id[..8];
+        let at = |revision| candidates(&none, &meta, id, &d.space, &d.page, revision).unwrap();
+        assert!(at(None).is_empty());
+        assert!(matches!(
+            at(Some("v1:r"))[..],
+            [AttachmentSelector::DocumentCurrent { .. }]
+        ));
     }
 }

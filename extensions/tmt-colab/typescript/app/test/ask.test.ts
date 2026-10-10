@@ -11,6 +11,7 @@ import {
 } from '@tmt/colab-client';
 import { FrozenAsk, REQUEST_BYTES, escapedPreview } from '../src/ask-intent.js';
 import { storeAskDraft } from '../src/ask-record-store.js';
+import { attachmentBlock } from '../src/thread-store.js';
 import { destination, id, pageLink, selection } from './ask-fixtures.js';
 
 const records = new Map<string, unknown>();
@@ -39,6 +40,35 @@ async function key() {
 function preview() {
   return FrozenAsk.capture(selection(), destination());
 }
+
+it('freezes the file metadata block like any other message text, matching the independent vector', async () => {
+  const listed = vector.withAttachments;
+  const block = attachmentBlock(
+    {
+      deleted: false,
+      pageId: id(1),
+      attachments: [
+        {
+          attachmentId: '12345678-1234-4234-8234-123456789012',
+          filename: 'plan "v2"\u202e.txt',
+          mediaType: 'text/plain',
+          plaintextBytes: '12',
+        },
+      ],
+    } as never,
+    true,
+  );
+  const frozen = FrozenAsk.capture(
+    { ...selection(), quote: '', comment: `Summarize the file${block}` },
+    destination(),
+    { operationId: id(9), issuedAt: listed.issuedAt, validityMs: listed.validityMs },
+  );
+  expect(frozen.view.message).toBe(listed.message);
+  const signed = await frozen.signed(await key(), listed.issuedAt);
+  expect(signed.input).toBe(listed.input);
+  expect(signed.signature).toBe(listed.signature);
+  expect(signed.finalBytes).toBe(listed.finalBytes);
+});
 
 it('matches independently framed bytes, SHA-256 and Ed25519 over exact frozen UTF-8', async () => {
   const frozen = FrozenAsk.capture(selection(), destination(), {

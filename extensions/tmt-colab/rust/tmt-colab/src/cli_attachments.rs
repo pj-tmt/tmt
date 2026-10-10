@@ -28,7 +28,7 @@ pub fn command() -> Command {
         name: "attachment",
         summary: "Read or add page attachments",
         examples: &[Example {
-            command: "tmt colab attachment read 10000000-0000-4000-8000-000000000001 --reference reference.json --json",
+            command: "tmt colab attachment read 10000000-0000-4000-8000-000000000001 20000000 --json",
             note: "Write one attachment into a private output directory",
         }],
         outputs: OutputModes::HumanAndJson,
@@ -40,17 +40,24 @@ pub fn command() -> Command {
             name: "read",
             summary: "Write one verified attachment into a private directory",
             examples: &[Example {
-                command: "tmt colab attachment read 10000000-0000-4000-8000-000000000001 --reference reference.json --output . --json",
+                command: "tmt colab attachment read 10000000-0000-4000-8000-000000000001 20000000 --output . --json",
                 note: "Create a UUID-named directory holding attachment.bin and manifest.json",
             }],
             outputs: OutputModes::HumanAndJson,
-            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nThe reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: current directory) with attachment.bin and manifest.json, created the way export does. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
+            details: "This writes an unencrypted copy of the file. Anyone with these files can read it.\nName the attachment by the ID a request or `tmt colab threads` lists (the first 8 or more hex characters are enough when they match one file), or with --reference. An ID that matches nothing live, or more than one file, reads as unavailable or invalid; use the full ID from `threads --json` to disambiguate. The reference file is the exact `reference` of an attachments entry in an export manifest, so a changed page or ended access reads as unavailable rather than another version. The running serve checks the reference against the current page, access and epoch, then verifies the bytes before they are written. Output is a new private UUID-named subdirectory of --output (default: current directory) with attachment.bin and manifest.json, created the way export does. The result lists the size and SHA-256, never the bytes. Requires tmt colab serve; nothing is read without it.",
         })
         .arg(crate::cli_grammar::page())
         .arg(
+            Arg::new("attachment")
+                .index(2)
+                .value_name("attachment")
+                .help("Attachment ID, or its first 8 or more hex characters")
+                .required_unless_present("reference")
+                .conflicts_with("reference"),
+        )
+        .arg(
             Arg::new("reference")
                 .long("reference")
-                .required(true)
                 .value_name("file")
                 .value_parser(clap::value_parser!(PathBuf)),
         )
@@ -116,10 +123,30 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         &key,
         args.get_one::<String>("page").expect("required page"),
     );
+    // An ID only finds the exact reference in the verified local view; the serve's read below
+    // still checks that reference against current access and epoch.
+    let found = match (&page, args.get_one::<String>("attachment")) {
+        (Ok(page), Some(id)) => {
+            let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            Some(tmt_colab::attachments::resolve(
+                &store,
+                &key,
+                page,
+                id,
+                &mut decoder,
+                deadline,
+            ))
+        }
+        _ => None,
+    };
     let closed = store.close();
     let page = page?;
     closed?;
-    let reference = reference(args.get_one::<PathBuf>("reference").expect("required"))?;
+    let reference = match found {
+        Some(selector) => selector?,
+        None => reference(args.get_one::<PathBuf>("reference").expect("required"))?,
+    };
     let json_output = args.get_flag("json");
     if !json_output {
         let mut warning = tmt_cli_style::stream::stderr();
