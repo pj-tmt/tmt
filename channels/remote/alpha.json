@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "remote",
   "channel": "alpha",
-  "version": "0.1.0-alpha.52",
-  "tag": "tmt-remote-v0.1.0-alpha.52",
+  "version": "0.1.0-alpha.53",
+  "tag": "tmt-remote-v0.1.0-alpha.53",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-remote-v0.1.0-alpha.52/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-remote-v0.1.0-alpha.53/tmt-release-record.json",
     "size": 1596,
-    "sha256": "f684d37344718e1bf8d27bcd7bb16666ade587ca345d4aa3a63a66300947b970"
+    "sha256": "27ff2ec9816f3c30f9e65c90db8037945969f7951ce05ca64a37d3a0321f3320"
   }
 }
