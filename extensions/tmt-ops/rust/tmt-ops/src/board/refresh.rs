@@ -527,6 +527,17 @@ enum MeterRead {
     Home,
 }
 
+impl MeterRead {
+    /// Whether both read the same meter, whatever roster each last listed.
+    fn same_meter(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Home, Self::Home) => true,
+            (Self::Squad(left), Self::Squad(right)) => left.room == right.room,
+            _ => false,
+        }
+    }
+}
+
 /// Other tabs' attention follows the shown snapshot on the same worker.
 /// A new switch cancels this lower-priority work through the same core reader.
 struct AttentionJob {
@@ -670,30 +681,32 @@ fn serve(
         });
         let received = match pending.recv_timeout(wait) {
             Ok(wanted) => wanted,
-            Err(RecvTimeoutError::Timeout) => match &last {
-                Some((reload, automatic, seen))
-                    if {
-                        let now = stamp(reload.generation, *automatic);
-                        seen.layout_moved(&now) || (*automatic && seen.moved(&now))
-                    } =>
+            Err(RecvTimeoutError::Timeout) => {
+                // Sampling is due on its own clock. Where a busy team moves the
+                // change stamp at every check, the reload below would otherwise
+                // come first each time and the sample would never run.
+                if let (Some((reload, _, _)), Some((input, every, next))) = (&last, &mut sampling)
+                    && Instant::now() >= *next
                 {
-                    Work::Reload(reload.clone())
-                }
-                _ => {
-                    if let (Some((reload, _, _)), Some((input, every, next))) =
-                        (&last, &mut sampling)
-                        && Instant::now() >= *next
+                    if generation.load(Ordering::Acquire) == reload.generation
+                        && !deferred(Deferred::Usage(input.clone()), reload.generation)
                     {
-                        if generation.load(Ordering::Acquire) == reload.generation
-                            && !deferred(Deferred::Usage(input.clone()), reload.generation)
-                        {
-                            break;
-                        }
-                        *next = Instant::now() + *every;
+                        break;
                     }
-                    continue;
+                    *next = Instant::now() + *every;
                 }
-            },
+                match &last {
+                    Some((reload, automatic, seen))
+                        if {
+                            let now = stamp(reload.generation, *automatic);
+                            seen.layout_moved(&now) || (*automatic && seen.moved(&now))
+                        } =>
+                    {
+                        Work::Reload(reload.clone())
+                    }
+                    _ => continue,
+                }
+            }
             Err(RecvTimeoutError::Disconnected) => break,
         };
         let mut wanted = None;
@@ -769,19 +782,15 @@ fn serve(
             automatic,
             seen,
         ));
-        sampling = snapshot
+        // A reload of the same meter keeps its due time: only a new meter, or a
+        // new interval, starts a fresh period.
+        let wanted_sampling = snapshot
             .view
             .as_ref()
             .ok()
             .and_then(|view| view.token_rate.as_ref())
             .filter(|rate| rate.settings.enabled)
-            .map(|rate| {
-                (
-                    MeterRead::Squad(rate.input.clone()),
-                    rate.settings.every,
-                    Instant::now() + rate.settings.every,
-                )
-            })
+            .map(|rate| (MeterRead::Squad(rate.input.clone()), rate.settings.every))
             .or_else(|| {
                 if snapshot.squad.as_deref() != Some(ALL) {
                     return None;
@@ -795,8 +804,15 @@ fn serve(
                     .filter(|rate| rate.settings.enabled)
                     .map(|rate| rate.settings.every)
                     .min()
-                    .map(|every| (MeterRead::Home, every, Instant::now() + every))
+                    .map(|every| (MeterRead::Home, every))
             });
+        sampling = wanted_sampling.map(|(read, every)| {
+            let due = sampling
+                .as_ref()
+                .filter(|(was, was_every, _)| *was_every == every && was.same_meter(&read))
+                .map_or_else(|| Instant::now() + every, |(_, _, due)| *due);
+            (read, every, due)
+        });
         if !publish(snapshot, rooms, wanted.generation) {
             break;
         }
@@ -3148,6 +3164,73 @@ printf '%s\n' '{{}}'
             },
         );
         assert_eq!(samples, 1);
+    }
+
+    /// A busy team moves Core's change cursor at every check, so the shown tab
+    /// reloads continuously. Usage sampling keeps its own clock: reloads neither
+    /// push its due time out nor run ahead of it.
+    #[test]
+    fn usage_sampling_runs_on_its_own_clock_while_every_check_reloads() {
+        for home in [true, false] {
+            let (sender, pending) = mpsc::channel();
+            sender
+                .send(Work::Reload(Reload {
+                    preview_panes: false,
+                    squad: Some(if home { ALL } else { "product" }.into()),
+                    generation: 0,
+                }))
+                .unwrap();
+            let cursor = std::cell::Cell::new(0);
+            let loads = std::cell::Cell::new(0);
+            let mut samples = 0;
+            serve(
+                &pending,
+                |_, _, _| {
+                    loads.set(loads.get() + 1);
+                    loads.get() < 60
+                },
+                Duration::from_millis(1),
+                &AtomicU64::new(0),
+                |_, _| {
+                    cursor.set(cursor.get() + 1);
+                    Stamp::cursor(cursor.get())
+                },
+                |wanted, _, _, _| {
+                    let mut snapshot =
+                        crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                    let view = snapshot.view.as_mut().unwrap();
+                    let rate = super::super::app::RateView {
+                        history: None,
+                        settings: crate::config::TokenRate {
+                            enabled: true,
+                            every: Duration::from_millis(5),
+                            ..Default::default()
+                        },
+                        input: super::super::rate::tests::input(100),
+                    };
+                    if home {
+                        view.home_rate.insert("product".into(), rate);
+                    } else {
+                        view.token_rate = Some(rate);
+                    }
+                    Loaded::only(snapshot)
+                },
+                |job, _| {
+                    assert!(matches!(
+                        (home, job),
+                        (true, Deferred::Usage(MeterRead::Home))
+                            | (false, Deferred::Usage(MeterRead::Squad(_)))
+                    ));
+                    samples += 1;
+                    true
+                },
+            );
+            assert!(
+                loads.get() >= 60 && samples > 0 && samples < loads.get(),
+                "home={home}: {samples} samples in {} reloads",
+                loads.get()
+            );
+        }
     }
 
     #[test]

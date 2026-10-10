@@ -218,8 +218,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   and cannot bridge current cumulative counters.
 - Live sampling: a named-squad load carries public counters; idle reads use only
   `ls --room --json` for those UUIDs on separate 5–10 second deadlines, without
-  providers, notes or staleness publication. Full loads take priority; usage
-  shares generation cancellation and shutdown ownership. `App` accepts counter
+  providers, notes or staleness publication. Full loads take priority, but
+  sampling keeps its own due time (`serve`): a reload of the same meter and
+  interval leaves it unchanged, and an idle check runs a due sample before it
+  decides to reload, so a team whose Core changes every second still samples;
+  usage shares generation cancellation and shutdown ownership. `App` accepts counter
   receipts at the configured cadence and never treats cached tabs as fresh
   evidence. It retains meters for visited squads, pruned against visible/hidden
   tabs; leaving a tab closes continuity. Meter state is separate from folds/panes.
