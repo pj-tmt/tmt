@@ -146,4 +146,4 @@ The reviewed main producer supplies CLI candidates. A published schema-bearing
 alpha and verified preparation exports remain prerequisites; absent evidence refuses.
 The channel reader never builds candidates, dispatches a producer, publishes an alpha,
 mutates releases, installs globally or restarts live agents to manufacture inputs.
-Affected-extension channels are outside the CLI-only acceptance boundary.
+PR channels carry CLI candidates only.
