@@ -400,7 +400,7 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
     assert!(saved.verified_publication().is_some());
     let document: Value =
         serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     let calls: Vec<Value> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()
@@ -434,6 +434,129 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         })
         .unwrap();
     assert!(stage < rules && rules < live);
+    // Completion is a separate local save. Re-print sees one snapshot while the
+    // writer is held, and never invokes declarations, Node or the provider.
+    let saved_link = complete["remoteLink"].as_str().unwrap();
+    tmt_remote::remote_link::validate(saved_link).unwrap();
+    assert_eq!(document["remoteLink"], saved_link);
+    let bytes_before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let provider_before = fs::read(package.join("calls.jsonl")).unwrap();
+    let layout = root.layout();
+    let writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    let first = base(&root).args(["link", "--json"]).output().unwrap();
+    let second = base(&root).args(["link", "--json"]).output().unwrap();
+    assert!(first.status.success(), "{:?}", first);
+    assert_eq!(first.stdout, second.stdout);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&first.stdout).unwrap(),
+        json!({"version":1,"remoteLink":saved_link})
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        bytes_before
+    );
+    assert_eq!(
+        fs::read(package.join("calls.jsonl")).unwrap(),
+        provider_before
+    );
+    drop(writer);
+    // Legacy Complete is readable but does not manufacture a link on read.
+    let mut legacy = document.clone();
+    legacy["version"] = json!(3);
+    legacy.as_object_mut().unwrap().remove("remoteLink");
+    fs::write(
+        root.remote().join("deploy.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        tmt_remote::deploy_record::read(&layout)
+            .unwrap()
+            .unwrap()
+            .verified_publication()
+            .is_some()
+    );
+    assert_eq!(
+        tmt_remote::deploy_record::read_link(&layout)
+            .unwrap_err()
+            .code,
+        "REMOTE_LINK_UNAVAILABLE"
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        serde_json::to_vec(&legacy).unwrap()
+    );
+    // The same shipped command retries descriptor completion locally, not the run.
+    let firebase = root.0.join("bin/firebase");
+    let held_firebase = root.0.join("bin/firebase-held");
+    fs::rename(&firebase, &held_firebase).unwrap();
+    let wrong_prefix = invoke(&root, &["--authorize", "000000000000", "--json"]);
+    assert!(!wrong_prefix.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&wrong_prefix.stdout).unwrap()["error"]["code"],
+        "REMOTE_DEPLOY_TOOL_MISSING"
+    );
+    let retry_output = invoke(&root, &["--authorize", &digest[..12], "--json"]);
+    fs::rename(&held_firebase, &firebase).unwrap();
+    let retried = json_output(&retry_output);
+    assert_eq!(retried["remoteLink"], saved_link);
+    assert_eq!(
+        fs::read(package.join("calls.jsonl")).unwrap(),
+        provider_before
+    );
+    fs::write(
+        root.remote().join("deploy.json"),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+    // A completion-save failure leaves the verified Complete record intact. A
+    // retry finishes only this local publication without provider work.
+    let legacy_record = tmt_remote::deploy_record::read(&layout).unwrap().unwrap();
+    let mut completion = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let original_mode = fs::metadata(&layout.directory).unwrap().permissions();
+    fs::set_permissions(&layout.directory, fs::Permissions::from_mode(0o500)).unwrap();
+    let failed = completion.complete_link(&legacy_record);
+    fs::set_permissions(&layout.directory, original_mode).unwrap();
+    assert!(failed.is_err());
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        serde_json::to_vec(&legacy).unwrap()
+    );
+    assert_eq!(
+        completion.complete_link(&legacy_record).unwrap(),
+        saved_link
+    );
+    assert_eq!(
+        fs::read(package.join("calls.jsonl")).unwrap(),
+        provider_before
+    );
+    drop(completion);
+    assert_eq!(
+        tmt_remote::deploy_record::read_link(&layout).unwrap(),
+        saved_link
+    );
+    // A possible publication change suppresses the old saved link without deleting it.
+    let mut partial = document.clone();
+    partial["record"]["run"]["state"] = json!("partial");
+    for step in partial["record"]["run"]["steps"].as_array_mut().unwrap() {
+        if step["id"] == "hosting:release" {
+            step["state"] = json!("unknown");
+        }
+    }
+    let partial_bytes = serde_json::to_vec(&partial).unwrap();
+    fs::write(root.remote().join("deploy.json"), &partial_bytes).unwrap();
+    let refused = base(&root).args(["link", "--json"]).output().unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&refused.stdout).unwrap()["error"]["code"],
+        "REMOTE_LINK_UNAVAILABLE"
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        partial_bytes
+    );
+    fs::write(root.remote().join("deploy.json"), &bytes_before).unwrap();
     // Checkpoint data is validated on read, never converted or silently repaired.
     for corrupt in [
         "extra-envelope-key",

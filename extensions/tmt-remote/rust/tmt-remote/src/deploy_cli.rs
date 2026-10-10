@@ -151,6 +151,46 @@ pub fn execute<P: FirestoreCommandPort>(
     let layout = layout_factory()?;
     let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
         .map_err(DeployCliError::Local)?;
+    // Descriptor completion is local, after a durable verified Complete. It does
+    // not re-authorize a newly observed provider plan or replay any provider step.
+    let needs_link = match crate::deploy_record::read_link(&layout) {
+        Ok(_) => false,
+        Err(error) if error.code == "REMOTE_LINK_UNAVAILABLE" => true,
+        Err(error) => return Err(DeployCliError::Local(error)),
+    };
+    if needs_link {
+        let record = store.load_or_draft().map_err(DeployCliError::Local)?;
+        if record.verified_publication().is_some() {
+            let run = record.run.as_ref().expect("verified run");
+            let checkpoint = run.hosting.as_ref().expect("verified Hosting");
+            let view: crate::deploy_run::DeployView =
+                serde_json::from_value(checkpoint.envelope.clone())
+                    .map_err(|_| DeployCliError::Local(crate::remote_link::unavailable()))?;
+            let mut providers: Vec<_> = args.sign_in.iter().map(|p| p.name()).collect();
+            providers.sort_unstable();
+            providers.dedup();
+            if args
+                .authorize
+                .as_ref()
+                .is_some_and(|prefix| digest(prefix, 12) && run.plan_digest.starts_with(prefix))
+                && view.project == args.project
+                && view.database.location == args.region
+                && view.sign_in == providers
+                && view.extension_plan_digest == discovered.extensions.digest()
+                && view.rules.digest
+                    == crate::deploy_run::rules_digest(discovered.artifacts.rules.as_bytes())
+                && view.hosting.as_ref().map(|h| h.content.clone())
+                    == discovered.hosting.as_ref().map(|h| h.view())
+            {
+                return Ok(deploy_command::complete_saved_link(
+                    &mut store,
+                    &record,
+                    &discovered.extensions,
+                    &checkpoint.envelope,
+                ));
+            }
+        }
+    }
     let mut provider = provider_factory()?;
     provider.login().map_err(DeployCliError::Setup)?;
     let path = layout.directory.join("deploy.json");

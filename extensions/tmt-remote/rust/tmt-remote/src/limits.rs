@@ -156,3 +156,6 @@ pub const HOSTING_CSP_BYTES: usize = 2048;
 /// Base64 of the maximum gzip file plus bounded frozen plan/checkpoint metadata.
 pub const HOSTING_UPLOAD_REQUEST_BYTES: usize =
     (HOSTING_FILE_BYTES + 65536).div_ceil(3) * 4 + 256 * 1024;
+
+/// Complete public remote-link URL, including its canonical descriptor fragment.
+pub const REMOTE_LINK_BYTES: usize = 8 * 1024;

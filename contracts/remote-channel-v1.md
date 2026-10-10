@@ -1777,6 +1777,32 @@ works with Rules N. Tightening waits until the client no longer needing the old 
 the deployed bundle for one release. Colab owns the whole hosted bundle, including an
 unmodified, digest-checked copy of Remote's built SDK; Remote adds no hosted pages.
 
+**Remote link.** After a Hosting run is saved Complete, a separate local descriptor-completion
+step consumes only its typed verified publication and atomically saves a canonical remote link.
+Failure leaves Complete unchanged and reports that the link is not ready; rerunning the same
+explicit deployment retries completion. No provider call or access grant belongs to this step.
+The receiver is exactly `https://<project>.web.app/pair#<descriptor>`. The complete URL is bounded
+to 8 KiB. The fragment is unpadded base64url of canonical UTF-8 JSON, with sorted object keys and
+exact fields `version:1`, `kind:"firestore"`, `projectId`, `region`, `deploymentId`, `planDigest`,
+`hostedOrigin`, `publicWebConfig`, optional `ownerHost`, and `checksum`. Public config has exactly
+`apiKey`, `authDomain`, `projectId`, `appId` from the final verified publication. The project,
+origin and config must agree; origin is the same-project HTTPS `web.app` entry without a path.
+Unknown/duplicate fields, malformed text, unsafe or inconsistent URLs and changed checksums refuse.
+Checksum is lowercase SHA-256 of canonical descriptor JSON with the checksum field omitted; it
+detects corruption only, not authority. No credential, membership, uid or device grant is carried.
+`ownerHost`, if present, is nonempty control-free text bounded to 80 bytes. It is omitted unless an
+admitted machine label exists; no current label source exists.
+
+`tmt remote link [--json]` reads one bounded lock-free owner-home snapshot and prints the exact
+saved canonical URL, without deploying, opening a browser, converting or repairing state. JSON is
+`{version:1,remoteLink:<URL>}`. A missing or no-longer-usable link is `REMOTE_LINK_UNAVAILABLE`;
+unsafe deployment records retain the existing state refusal. The link is usable only while its
+original verified publication and binding match. Version-4 deployment documents add saved link
+metadata; v1/v2/v3 remain readable and readers never manufacture a link. Other atomic saves retain
+metadata without exposing a stale link during partial/unknown publication. The public link can be
+shared again and grants nothing; pairing/admission remains separate. Real tenant/browser acceptance
+still requires the hosted receiver and separately authorized provider proof.
+
 The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,
 which also covers each declaration's own digest, the target backend and whether physical TTL is provisioned. Its
 `profile` is `sharing`: extension resources and admission fragments without an operation root. A later layer-2 profile
@@ -1830,8 +1856,8 @@ quota. Colab separately grants access to its tenancy spaces (`spaceId`), not dep
 Another home sees the deployer's Rules as foreign. Its authorized destructive plan can replace
 those Rules, including a newer release: a tenant must not deploy just to obtain access. Remote
 cannot enforce exclusivity across homes, so the single-writer-project limitation still applies.
-Remote links, registry selection and Hosting are separate delivery surfaces; deployment here does
-not publish them.
+Remote links carry public configuration only as defined in the deployment section; registry
+selection and access are separate from deployment ownership.
 
 **Firestore sharing layer (layer 1).** This layer deploys without the admission/token service. Its
 plan adds the owner's database `(default)` (edition `standard`, one location), the sign-in providers

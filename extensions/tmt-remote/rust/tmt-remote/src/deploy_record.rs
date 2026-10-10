@@ -27,6 +27,12 @@ struct DeployDocument {
     record: DeployRecord,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target: Option<DeployTarget>,
+    #[serde(
+        default,
+        rename = "remoteLink",
+        skip_serializing_if = "Option::is_none"
+    )]
+    remote_link: Option<String>,
 }
 
 /// The immutable owner-home target, separate from the last usable binding.
@@ -155,13 +161,19 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
     // schema here so unknown fields or missing optional fields are not silently lost.
     if !matches!(
         (document.version, &document.target),
-        (1, None) | (2 | 3, Some(_))
-    ) || (document.version == 3)
-        != document
-            .record
-            .run
-            .as_ref()
-            .is_some_and(|r| r.hosting.is_some())
+        (1, None) | (2..=4, Some(_))
+    ) || (document.version == 4) != document.remote_link.is_some()
+        || document
+            .remote_link
+            .as_deref()
+            .is_some_and(|link| crate::remote_link::validate(link).is_err())
+        || (document.version != 4
+            && (document.version == 3)
+                != document
+                    .record
+                    .run
+                    .as_ref()
+                    .is_some_and(|r| r.hosting.is_some()))
         || document
             .target
             .as_ref()
@@ -172,6 +184,19 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
         return Err(invalid());
     }
     Ok(Some(document))
+}
+
+/// One bounded lock-free snapshot. Return saved bytes only if their original
+/// verified publication is still usable; no writer lock, repair, conversion or provider.
+pub fn read_link(layout: &Layout) -> Result<String, RemoteError> {
+    let document = read_document(layout)?.ok_or_else(crate::remote_link::unavailable)?;
+    let link = document
+        .remote_link
+        .ok_or_else(crate::remote_link::unavailable)?;
+    if crate::remote_link::from_record(&document.record)? != link {
+        return Err(crate::remote_link::unavailable());
+    }
+    Ok(link)
 }
 
 /// One bounded, lock-free snapshot per status request. No provider calls or repair;
@@ -202,6 +227,7 @@ pub struct DeployRecordStore<'a> {
     layout: &'a Layout,
     _lock: File,
     target: Option<DeployTarget>,
+    remote_link: Option<String>,
 }
 impl<'a> DeployRecordStore<'a> {
     pub(crate) fn record_path(&self) -> PathBuf {
@@ -232,11 +258,14 @@ impl<'a> DeployRecordStore<'a> {
         })?;
         // Every v1 record is unbound, even when its old binding names a project.
         // Never infer a target or convert a record on a read.
-        let target = read_document(layout)?.and_then(|document| document.target);
+        let document = read_document(layout)?;
+        let target = document.as_ref().and_then(|d| d.target.clone());
+        let remote_link = document.and_then(|d| d.remote_link);
         let owner = Self {
             layout,
             _lock: lock,
             target,
+            remote_link,
         };
         if let Some((project, region)) = requested {
             owner.check_target(project, region)?;
@@ -300,12 +329,24 @@ impl<'a> DeployRecordStore<'a> {
     pub fn load_or_draft(&self) -> Result<DeployRecord, RemoteError> {
         read(self.layout)?.map_or_else(|| uuid_v4().map(|id| DeployRecord::new(&id)), Ok)
     }
+    /// A distinct post-Complete publication. A failed save leaves the run Complete.
+    pub fn complete_link(&mut self, record: &DeployRecord) -> Result<String, RemoteError> {
+        let link = crate::remote_link::from_record(record)?;
+        let previous = self.remote_link.replace(link.clone());
+        if let Err(error) = self.persist(record) {
+            self.remote_link = previous;
+            return Err(error);
+        }
+        Ok(link)
+    }
     pub fn persist(&mut self, record: &DeployRecord) -> Result<(), RemoteError> {
         if !valid(record) {
             return Err(invalid());
         }
         let bytes = serde_json::to_vec(&DeployDocument {
-            version: if record.run.as_ref().is_some_and(|r| r.hosting.is_some()) {
+            version: if self.remote_link.is_some() {
+                4
+            } else if record.run.as_ref().is_some_and(|r| r.hosting.is_some()) {
                 3
             } else if self.target.is_some() {
                 2
@@ -314,6 +355,7 @@ impl<'a> DeployRecordStore<'a> {
             },
             record: record.clone(),
             target: self.target.clone(),
+            remote_link: self.remote_link.clone(),
         })
         .map_err(|_| invalid())?;
         if bytes.len() > limits::DEPLOY_RECORD_BYTES {

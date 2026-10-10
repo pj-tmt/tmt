@@ -173,8 +173,16 @@ unconfirmed, check the Firebase project, delete <deploy.json path>, then run wit
 to read a fresh plan. Existing Firebase resources stay; authorizing a new plan may create a second
 one.' Partial/unknown may include
 applied changes and never claims rollback or a usable joint publication. Complete records the
-verified public app config and same-project web.app entry; it does not yet print a remote link
-or prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.
+verified public app config and same-project web.app entry. A separate local completion then saves
+the remote link; it does not prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.
+
+`tmt remote link --json` re-prints the saved remote link from one lock-free snapshot; human output
+is `Remote link: <URL>`. It does not deploy or open a browser. The link carries public Firebase
+configuration, not access; pairing still grants access. You can share it again; it is not one-time.
+Missing or unusable links refuse with `REMOTE_LINK_UNAVAILABLE`: 'No remote link is saved yet.
+Run tmt remote deploy firestore to create one.' A descriptor-completion failure says 'Deployment
+complete, but the remote link is not ready. Rerun the same deployment command to finish it.' The
+contract owns the descriptor; unsafe records are never reset, repaired or converted on read.
 
 Declarations come from fixed public commands of enabled installed extensions. Colab's command
 is not shipped yet, so its output is unavailable with no provider/record effect; fixture
