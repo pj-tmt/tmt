@@ -65,15 +65,16 @@ test('an agent sees the files of a Chat message in its request and reads them by
       await until(() => agent.received().length === 1, 'the turn reached the agent');
       const request = composed.delivered();
 
-      // The request lists both files by metadata only, with the quoted name and the one command.
+      // The request lists both files by metadata only, in order, saying they came with this Chat
+      // comment, with the quoted name and the one command.
       const lines = request.split('\n');
-      const start = lines.indexOf('Attachments:');
+      const start = lines.indexOf('Attachments sent with this comment in the page chat:');
       expect(start).toBeGreaterThan(0);
       const listed = lines.slice(start + 1, start + 3);
       expect(listed[0]).toMatch(
-        /^- [0-9a-f]{8} "notes \\"v2\\"\.txt" \(application\/octet-stream, 40960 bytes\)$/,
+        /^- \[1 of 2\] [0-9a-f]{8} "notes \\"v2\\"\.txt" \(application\/octet-stream, 40960 bytes\)$/,
       );
-      expect(listed[1]).toMatch(/^- [0-9a-f]{8} "dot\.png" \(image\/png, \d+ bytes\)$/);
+      expect(listed[1]).toMatch(/^- \[2 of 2\] [0-9a-f]{8} "dot\.png" \(image\/png, \d+ bytes\)$/);
       expect(lines[start + 3]).toBe(`Read one: tmt colab attachment read ${created.pageId} <id>`);
       expect(request).not.toContain(notes.toString('latin1').slice(0, 64));
 
@@ -82,7 +83,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
           string,
           unknown
         >;
-      const shortIds = listed.map((line) => line.split(' ')[1]);
+      const shortIds = listed.map((line) => line.split(' ')[4]);
       const read = (id: string) => {
         const result = colab(['attachment', 'read', created.pageId, id, '--output', out]);
         return fs.readFileSync(result.path as string);

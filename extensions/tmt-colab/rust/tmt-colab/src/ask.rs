@@ -255,7 +255,9 @@ mod tests {
         signed.final_bytes = listed["finalBytes"].as_str().unwrap().into();
         let intent = signed.verify(&key).unwrap();
         assert_eq!(intent.message, listed["message"].as_str().unwrap());
-        assert!(intent.message.contains("\nAttachments:\n- 12345678 \""));
+        assert!(intent.message.contains(
+            "\nAttachments sent with this comment in the page chat:\n- [1 of 1] 12345678 \""
+        ));
     }
     #[test]
     fn independent_send_vector_and_every_field_substitution() {

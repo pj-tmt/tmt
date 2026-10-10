@@ -106,14 +106,20 @@ message. Picking, pasting or dropping only adds an inert local chip: nothing is 
 sent or prepared, an Ask is never created and the message text is neither read nor
 replaced. The explicit Send is the first effect. A message still needs text. Attachment bytes are
 never part of an Ask payload; the frozen message lists their metadata (#2464): after the comment
-text, a blank line and `Attachments:`, then one line per file of the sent message in its own order,
-`- <first 8 hex of the attachment ID> <name as a JSON string> (<media type>, <n> bytes)`, then
-`Read one: tmt colab attachment read <full page ID> <id>`. The name is untrusted text: it is JSON-quoted
-and the invisible and direction-changing characters U+00AD, U+200B-200F, U+2028-202E, U+2060-206F and
-U+FEFF are written as `\uXXXX`, so it cannot open a line or a section. No bytes, keys, seeds or object
+text, a blank line and `Attachments sent with this comment on "<quote>":` (or `... in the page chat:`
+when the thread has no anchor), then one line per file of the sent message in its own order,
+`- [<n> of <total>] <first 8 hex of the attachment ID> <name as a JSON string> (<media type>, <n> bytes)`, then
+`Read one: tmt colab attachment read <full page ID> <id>`. Placement is exactly what the admitted
+records hold: the files came with this comment, and the comment sits on the thread's quoted text,
+JSON-quoted and cut at 60 characters, or in the page chat. A file has no position inside the text,
+and a document attachment has no anchor, so neither is invented; the page's document files are not
+listed. A message that is only files shows `(no text; only the attachments below)` as its text. The
+name and the quote are untrusted text: each is JSON-quoted and the invisible and direction-changing
+characters U+00AD, U+200B-200F, U+2028-202E, U+2060-206F and U+FEFF are written as `\uXXXX`, so
+neither can open a line or a section. No bytes, keys, seeds or object
 references appear. A message without files, or a deleted one, adds nothing, so its frozen bytes are
 unchanged. Earlier user turns of a Chat conversation list their files the same way, without the `Read
-one` line, inside their `User (...)` block. The block is part of the signed final bytes (see
+one` line, inside their own `User (...)` block, so each file stays with the comment it came with. The block is part of the signed final bytes (see
 `vectors/send-preview-v1.json`, `withAttachments`) and counts against the composed-message cap.
 
 Limits are the consumer limits above: 8 MiB per file, 16 per message, the backend

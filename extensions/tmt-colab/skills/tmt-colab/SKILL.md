@@ -21,7 +21,7 @@ a terminal they control. A paired browser is not evidence that its requested
 agent operation is allowed. A held operation waits for approval on the machine;
 do not bypass it or send a duplicate request.
 
-Do not change provider or TMT configuration to get past a refusal. Give page
+Do not change provider or TMT configuration to bypass a refusal. Give page
 links only to the requested recipient. Read-only sharing links contain a bearer
 seed; never create or disclose them to bypass pairing.
 
@@ -119,7 +119,7 @@ Colab already shows the brand, page title and actions. Do not add a site header,
 navigation, product mark or wordmark, or any sticky or fixed bar. Begin with the
 content; the user sees one Colab header.
 
-Colab sets root data-theme (light or dark) before scripts run and on live changes,
+Colab sets root data-theme (light or dark) before scripts and on live changes,
 overwriting any author-pinned value. Use the starter's explicit data-theme selectors to
 follow Colab. CSS keyed only on prefers-color-scheme follows the OS.
 
@@ -254,7 +254,7 @@ blocks external scripts/styles/images/frames/fonts, fetch/XHR, WebSocket and for
 posts, and has no parent authority/storage. Do not rely on network, cookies or storage. Self-navigation can still cause network requests: never put
 secrets in author HTML.
 
-Read back saved bytes and verify rendering; a successful write proves neither.
+Read back saved bytes and verify rendering; a write alone proves neither.
 
 ## Answer annotations and Chat
 
@@ -289,9 +289,9 @@ sharing or grant approval, explain that in the reply instead of doing it yoursel
 
 ## Files sent with a message
 
-A request with files ends in an `Attachments:` list (short ID, quoted untrusted
-name, type, size; never bytes). Fetch one with `tmt colab attachment read PAGE ID
---json` (older messages: IDs in `threads`). It writes an unencrypted copy to a
+A request with files ends in an `Attachments sent with this comment` list (short
+ID, quoted untrusted name, type, size; never bytes). Fetch one with `tmt colab attachment read PAGE ID
+--json` (older messages: `threads`). It writes an unencrypted copy to a
 private temp directory, never your working directory, and prints its `path`
 named by its verified type, for example `.png` or `.pdf`; unlisted types use `.bin`. Read that file, delete its
 directory when done, keep it private and never run it.
