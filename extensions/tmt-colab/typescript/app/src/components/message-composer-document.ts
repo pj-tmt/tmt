@@ -1,3 +1,4 @@
+import { $richInputText as $messageText } from './rich-input-document.js';
 import {
   $createParagraphNode,
   $createRangeSelection,
@@ -76,13 +77,7 @@ export class MessageMentionNode extends DecoratorNode<ReactNode> {
   }
 }
 
-/** Single LF between paragraphs, preserving blank and trailing lines. */
-export function $messageText() {
-  return $getRoot()
-    .getChildren()
-    .map((node) => node.getTextContent())
-    .join('\n');
-}
+export { $richInputText as $messageText } from './rich-input-document.js';
 
 export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'] = []) {
   const root = $getRoot();
