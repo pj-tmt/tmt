@@ -4,23 +4,18 @@ This document owns how TMT's browser surfaces look and behave: Colab, the Remote
 pages, Office and any later TMT page in a browser. It defines the principles,
 the shared components and the interaction rules. Terminal output and the Squad
 board follow the [CLI style](cli-style.md). Colors, type, sizes and breakpoints
-come from [`tokens/tokens.json`](tokens/tokens.json). A surface never writes a
-color or size that is not a token. Component extraction and consumer ownership
-are recorded in the [browser component contracts](gui-components.md).
+come from [`tokens/tokens.json`](tokens/tokens.json). Use shared roles and the leaf
+contract's explicit host metric inputs; do not invent a product palette.
+Component extraction and consumer ownership are recorded in the [browser component contracts](gui-components.md).
 
-**Adoption status:** Colab's shipped implementations are named below under
-`extensions/tmt-colab/typescript/app/src`; the other descriptions include
-approved design targets that have not shipped yet. Remote's pairing and door
-pages follow the same token, header and card rules in their own `pages.css`.
-Office has not adopted this style. The private browser leaf and its shared
-integration are in place; product adoption is separate consumer work. The implementation basis column still includes proposals beyond that
-leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
+**Adoption status:** the [browser component contracts](gui-components.md#current-consumers-and-ownership)
+own current consumers and integration boundaries. Shipped Colab components are
+named below; explicitly labelled design targets remain unshipped.
 
 ## Principles
 
-1. **Square and flat.** Corners are square everywhere. The initial browser leaf
-   uses opaque surfaces and no shadows. Existing product shadows await owning
-   adoption; they are not a fallback for the new leaf.
+1. **Square and flat.** Corners are square everywhere. The browser leaf and Colab
+   menus, previews and dialogs use opaque surfaces without shadows.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
@@ -30,33 +25,23 @@ leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
    place and shows why. One primary filled button per card at most.
 5. **Mark plus word.** A state is a mark and a word (`◆ waiting`, `✗ failed`).
    Color is never the only signal.
-6. **Our controls only.** No native select, date picker, checkbox, tooltip
-   (`title`) or confirm dialog. Every control is a component below.
+6. **Our controls only.** Use custom choices, toggles and icon help,
+   without native selects, date pickers, checkboxes or confirm dialogs. Clipped
+   titles may retain native full-text hints.
 7. **One name per surface.** The header names the product once (`Colab`,
-   `Remote`) after the `tmt` mark.
+   `Remote`); the owner-header exception is defined under [Header](#header).
 8. **Say the consequence.** Copy that asks for a decision states what happens
    and how to undo it, in plain words. No internal terms (baseline, epoch,
    descriptor) in human text.
 
 ## Tokens
 
-Use the `color`, `surface`, `font`, `header` and `breakpoint` groups of
-`tokens.json` through the generated CSS variables. Light and dark themes come
-from the same tokens; `prefers-color-scheme` picks the default and the header's
-theme action overrides it.
-
-State roles map to marks:
-
-| Role      | Mark | Word examples                | Use                  |
-| --------- | ---- | ---------------------------- | -------------------- |
-| `waiting` | `◆`  | waiting, waits on you, held  | the user must act    |
-| `blocked` | `✗`  | failed, unavailable, deleted | stopped; needs a fix |
-| `working` | `●`  | running, live, replied       | healthy and active   |
-| `review`  | `◐`  | opening, in review           | in progress          |
-| `muted`   | `○`  | ended, archived, resolved    | finished or idle     |
-
-In the browser the mark may be the matching Lucide icon (Diamond, X, Circle
-filled, LoaderCircle, Circle), always followed by its word.
+Use the leaf's [roles and generation](browser-ui/README.md#entries-and-generation)
+and [host metric inputs](browser-ui/README.md#host-metric-inputs); those are the
+single owner of browser projection and metrics. Light/system-dark defaults and
+explicit theme overrides use the same tokens. State marks retain their words;
+[CLI marks](cli-style.md#marks) own the canonical meanings. Browser marks may use
+the matching Lucide icon, followed by the state word.
 
 ## Icons
 
@@ -67,8 +52,8 @@ name and a visible tooltip.
 
 ## Layout
 
-- **Widths:** compact below the header's `compact-max-width` (480 px), full
-  above. Content columns center at up to 1080 px; the page canvas behind them is
+- **Widths:** compact through the shared header's `compact-max-width`, full
+  above it. Content columns center at up to 1080 px; the page canvas behind them is
   edge to edge.
 - **Header height:** 56 px, 48 px when compact (`header` tokens).
 - **Overlays** (drawers and panels) open over the page from the right at full
@@ -78,9 +63,8 @@ name and a visible tooltip.
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
   horizontally: rows wrap, long titles truncate with `…`, and mono text breaks
-  anywhere. When the header lacks room it drops in a fixed order: actions into
-  the More menu first, then the device and audience items, then the live
-  status, leaving mark, product, title and More.
+  anywhere. Header actions overflow into More; the state chip stays visible.
+  The [Header](#header) rule owns the Colab compact fitting order.
 
 ## Components
 
@@ -91,14 +75,14 @@ shadcn manner (code copied into our package, not a themed dependency).
 
 ### Header
 
-The one sticky row on every screen: `tmt` mark · product word · rule · screen
-title on the left; status group, then light actions on the right. Use the same
-height, type and order across screens. Actions that do not fit overflow into More;
+The one sticky row on every screen: TMT mark, product word and plain screen
+title on the left, without a default divider; status group, then light actions on
+the right. Use the same height, type and order across screens. Actions that do not fit overflow into More;
 status remains visible as mark plus word.
 
 - Colab owner pages and space home are the exception to the leading mark: neutral
-  `◉ <machine> · <device>`, Colab, `/`, title and muted `by <name>` (original author
-  only) replace the default left group. Attribution is display-only, with no
+  `◉ local · <backend name>` (`local` when absent), Colab, `/`, title and muted
+  `by <name>` (original author only) replace the default left group. Attribution is display-only, with no
   switcher or menu; full labels remain accessible. Hide author below 900 px, then
   attribution text below 640 px; keep the Remote mark, title and state chip. At
   640 px and narrower, Discussion (count) and More remain; Agents, Files (count),
@@ -177,17 +161,19 @@ The first-run and not-installed screen, built from Card, Status mark and Button:
 one row per step (install tmt, install the extension, start it, open it), each
 with its state and, when it needs the terminal, one copyable command. The
 browser never runs a command for the user; the page checks state again and ticks
-each step by itself. The card's shadow takes the `waiting` role while a step is
-open. Not shipped. Basis: own.
+each step by itself. An open step carries the waiting mark and word.
+Not shipped. Basis: own.
 
 ### Button
 
-- Variants: **primary** (filled accent, hard shadow; one per card), **text**
+- Variants: **primary** (flat sheet; one emphasized decision per card), **text**
   (light, default for actions), **destructive** (text in the `blocked` role,
   always last in its group).
-- States: default, hover (underline), focus-visible (2 px accent ring),
-  pressed, disabled (muted, keeps width, `aria-disabled` with a reason),
-  busy (label kept, LoaderCircle before it).
+- States follow the leaf
+  [Action contract](browser-ui/README.md#controlled-input-contracts): selection
+  colors on enabled hover/focus, visible focus, opaque muted disabled controls
+  and a retained label with a caller-supplied mark while busy. Hosts supply
+  disabled reasons.
 - Basis: own.
 
 ### Toggle
@@ -198,11 +184,11 @@ Enter. Shipped as the page list's `Show archived` (#1728). Basis: own.
 
 ### Card
 
-A square sheet with a 1 px ink border and a hard shadow.
+A square, opaque, shadow-free sheet with the shared thin edge.
 
 - **Notice card:** the body of every state screen (opening, failed, ended,
   deleted, choose). Mark, eyebrow, title, one or two lines of text, actions
-  inside the card. The shadow takes the state role's color. Shipped as
+  inside the card. The mark carries the state role. Shipped as
   `NoticeCard` (`notice-card.tsx`).
 - **Item card:** a page in the page list: icon, title, short ID, audience tag,
   expiry, actions row.
@@ -246,10 +232,12 @@ A list of actions behind a trigger: the header's More menu and a message's `⋯`
 
 Short help for an icon or a status item, such as the Remote chip.
 
-- Opens on hover and on keyboard focus; Esc closes; the content is also the
-  element's accessible description. Never the only place for required
-  information.
-- Basis: Radix (Tooltip / Hover Card for rich lists).
+The leaf's [IconAction contract](browser-ui/README.md#controlled-input-contracts)
+owns tooltip behavior: real pointer movement or keyboard focus-visible opens
+help; layout-only entry does not. Display-only help repeats the button's
+accessible name, receives no pointer events and is never the only place for
+required information. Activation dismisses it. Escape hides it synchronously
+and still reaches the host's active menu, drawer or dialog.
 
 ### Overlay
 
@@ -333,31 +321,24 @@ Basis: own.
 
 ### Proposal item
 
-A checklist item an agent writes into a page: title, body, proposing agent,
-and a trusted action row (`Approve`, `Follow up`, `Decline`, resolve checkbox)
-drawn by Colab, not by page HTML. Designed in #1773; not shipped.
+Colab renders authenticated proposals as parent-owned cards: title, body,
+proposing agent and Approve / Decline / Follow up / Resolve actions. Approve is
+the emphasized decision; Resolve is muted. Follow up opens a composer inside
+the card. Resolved proposals fold to a plain one-line row with a resolved mark,
+retained-history disclosure and Reopen. Comments offers `Proposals only`; its
+header count combines unresolved ordinary threads and undecided unresolved
+proposals.
 
-## Token plan (proposal)
-
-`tokens.json` already has `color`, `surface`, `font`, `header` and
-`breakpoint`. These groups are proposed so components stop hard-coding values:
-
-| Group    | Values                                                                                                                 |
-| -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `driver` | `claude` → the `review` color, `codex` → the `link` color                                                              |
-| `type`   | sizes 11, 12, 13, 14, 16, 22 and 34 px with line heights and weights                                                   |
-| `space`  | 4, 8, 12, 16, 24, 32 px                                                                                                |
-| `size`   | controls 20 (chip), 24 (small control, minimum target), 32 (input, button); icons 16, 18; avatars 24, 28; status dot 8 |
-| `border` | 1 px default, 2 px emphasis (focus ring, selected underline, rails); radius always 0                                   |
-| `shadow` | hard offsets 2, 3, 4, 5 px (small button, chip and tooltip, menu and overlay, card), colored by role                   |
-| `layer`  | z order: page, header, overlay, popover, tooltip                                                                       |
-| `motion` | spinner 1 s; 0 under reduced motion                                                                                    |
+The [Colab proposal contract](../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
+owns decision states, placement, admission and failure behavior. Page HTML
+cannot supply these actions or grant authority. Shared component metrics remain
+owned by the [browser leaf](browser-ui/README.md).
 
 ## Interaction rules
 
 - **Keyboard:** every action is reachable by Tab; focus is always visible;
-  Esc closes the innermost open thing (list, menu, composer, overlay) and
-  nothing else.
+  Esc closes the innermost active interaction (list, menu, composer, overlay).
+  Display-only icon help hides on the same event without consuming it.
 - **Confirmation:** no modal confirm. A risky action states its consequence
   inline and asks for a second press or `--yes` on the CLI side; the message
   names its own consequence, never a shared generic one.
