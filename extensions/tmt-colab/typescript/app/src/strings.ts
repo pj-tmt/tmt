@@ -219,6 +219,7 @@ export const text = {
   askActionFailed: 'Could not update this ask. Its delivery may still be uncertain.',
   askEmpty: 'No asks on this page yet.',
   askReply: 'Agent reply',
+  askReplied: (agent: string) => `${agent} replied.`,
   askDeliveryAccepted: 'Accepted by your machine.',
   askReplyFrom: 'Reply from',
   askAgentLabel: 'Agent',

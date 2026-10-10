@@ -3,7 +3,16 @@ import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
-async function run(page: Page, method: string, argument?: string) {
+test.beforeEach(async ({ page }) => {
+  // This fixture owns the only app root; do not also start the preview app.
+  await page.route('**/src/main.tsx', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: '',
+    }),
+  );
+});
+async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
     async ({ fixture, method, argument }) => (await import(fixture))[method](argument),
     { fixture, method, argument },
@@ -386,3 +395,91 @@ for (const theme of ['light', 'dark'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
     await client.detach();
   });
+
+for (const width of [1440, 390]) {
+  test(`new replies announce once inside the active modal without moving focus ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const live = page.locator('.reply-announcement');
+    await expect(live).toHaveCount(1);
+    await expect(live).toHaveAttribute('role', 'status');
+    await expect(live).toHaveAttribute('aria-live', 'polite');
+    if (width === 390)
+      await expect(page.locator('dialog:modal .reply-announcement')).toHaveCount(1);
+    await page.evaluate(() => {
+      const events: string[] = [];
+      Object.assign(window, { replyAnnouncements: events });
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const target =
+            record.target instanceof Element ? record.target : record.target.parentElement;
+          const live = target?.closest('.reply-announcement');
+          if (live?.textContent) events.push(live.textContent);
+        }
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+    const events = () =>
+      page.evaluate(
+        () => (window as unknown as { replyAnnouncements: string[] }).replyAnnouncements,
+      );
+    const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
+    await input.focus();
+    await run(page, 'syncRecords', 'uncertain');
+    await expect(live).toHaveText('Agent 2 replied.'); // An empty reply is still a completion.
+    await run(page, 'syncRecords', 'accepted');
+    await expect(live).toHaveText('Agent 1 replied.');
+    await expect(input).toBeFocused();
+    await expect.poll(events).toEqual(['Agent 2 replied.', 'Agent 1 replied.']);
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
+    await (await pageAction(page, 'Chat')).click();
+    await expect(live).toHaveCount(1);
+    await expect(live).toHaveText(width === 390 ? '' : 'Agent 1 replied.');
+    await run(page, 'syncRecords', 'accepted');
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(await events()).toEqual(['Agent 2 replied.', 'Agent 1 replied.']);
+    await page.evaluate(() => {
+      location.hash = '/pages/notes';
+    });
+    await expect(page.getByRole('heading', { name: 'Another fixture page' })).toBeVisible();
+    await expect(live).toHaveCount(1);
+    await expect(live).toHaveText('');
+    await page.evaluate(() => {
+      location.hash = '/pages/welcome';
+    });
+    await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+    await expect(live).toHaveCount(1);
+    await expect(live).toHaveText('');
+    expect(await events()).toEqual(['Agent 2 replied.', 'Agent 1 replied.']);
+    await test.info().attach('reply-live-region-events.json', {
+      body: JSON.stringify(await events(), null, 2),
+      contentType: 'application/json',
+    });
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    expect(await run(page, 'seenProof')).toBe(0);
+  });
+}
+
+test('initial admitted reply history stays silent after loading and reopening', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { pastReplies: true });
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  const live = page.locator('.reply-announcement');
+  await expect(live).toHaveCount(1);
+  await expect(live).toHaveText('');
+  await (await pageAction(page, 'Chat')).click();
+  await expect(page.getByTestId('ask-reply')).toHaveText('A reply from before this page opened.');
+  await expect(live).toHaveText('');
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
+  await (await pageAction(page, 'Chat')).click();
+  await expect(live).toHaveText('');
+  expect((await run(page, 'proof')).sends).toEqual([]);
+});

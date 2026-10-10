@@ -100,7 +100,8 @@ Export downloads use the shared Action inside the drawer, with its header provid
 `BrowserField`, with host-owned popup ARIA, draft, ref, caret/IME and editor history.
 `PageDrawer` retains dialog modality and focus; Chat supplies its shared
 `ConversationWindow` header and close action instead of a duplicate drawer header.
-Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf. Annotation surfaces and drawers are shadow-free.
+Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.
+Escape dismisses the tooltip and reaches the containing drawer or dialog in the same activation. Annotation surfaces and drawers are shadow-free.
 Source loading does not block
 discussion input or explicit sends, which use the frozen quote and verified
 connection; renderer failures and connection errors still block them. It
@@ -191,3 +192,11 @@ the final decision. Comments offers Proposals only alongside the mixed list. The
 single header count uses `openThreadCount` for undecided unresolved proposals plus
 unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.
+
+`reply-announcer.ts` owns one persistent polite status per loaded page. It baselines
+admitted reply history, deduplicates writer/operation/reply identity across mirrored
+views, and announces new replies without moving focus or acknowledging a thread.
+Its node moves into the active native modal after clearing old text, so mobile
+inertness cannot hide it. Reload/page changes reset the baseline. Proposal cards
+return Cancel and completed decision actions to Follow up; while busy they keep
+focus on the card and never reclaim it after the reader moves elsewhere.

@@ -209,10 +209,7 @@ for (const width of [1440, 390])
     await close.focus();
     const closeTooltip = close.locator('..').locator('.tmt-ui-icon-action-tooltip');
     await expect(closeTooltip).toBeVisible();
-    // First Escape dismisses the focused close tooltip; second closes the dialog.
-    await page.keyboard.press('Escape');
-    await expect(closeTooltip).toBeHidden();
-    await expect(drawer).toBeVisible();
+    // One Escape dismisses the tooltip and closes its containing drawer.
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
     await expect(discussion).toBeFocused();

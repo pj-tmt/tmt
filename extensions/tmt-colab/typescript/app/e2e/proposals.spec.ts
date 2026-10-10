@@ -55,8 +55,9 @@ for (const width of [1440, 390])
         .getByRole('button', { name: 'Approve', exact: true })
         .evaluate((node) => (node as HTMLButtonElement).click());
       expect((await run(page, 'proof')).sends).toHaveLength(0);
-      await card.getByRole('button', { name: 'Approve', exact: true }).click();
+      await card.getByRole('button', { name: 'Approve', exact: true }).press('Enter');
       await expect(card.locator('.proposal-state')).toHaveText('Approved');
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const threads = await run(page, 'discussionProof');
       expect(threads[0].decision.decision).toBe('approved');
@@ -92,8 +93,10 @@ for (const width of [1440, 390])
       await expect(card.getByRole('combobox')).toHaveCount(0);
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       await expect(card.getByRole('combobox')).toBeFocused();
-      await card.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await card.getByRole('button', { name: 'Cancel', exact: true }).press('Enter');
       await expect(card.getByRole('combobox')).toHaveCount(0);
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
+      await capture(page, `cancel-focus-${width}-${theme}`);
       await run(page, 'proposalAsk', 'replied');
       await expect(card.getByTestId('ask-reply')).toBeVisible();
       await capture(page, `replied-${width}-${theme}`);
@@ -180,8 +183,9 @@ for (const width of [1440, 390])
         await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
       const card = page.locator('[data-inline-proposal] .proposal-card');
       await expect(card).toBeVisible();
-      await card.getByRole('button', { name: 'Decline', exact: true }).click();
+      await card.getByRole('button', { name: 'Decline', exact: true }).press('Enter');
       await expect(card.locator('.proposal-state')).toHaveText('Declined');
+      await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       await capture(page, `declined-${width}-${theme}`);
       for (const state of ['held', 'uncertain', 'refused', 'replied']) {
@@ -347,4 +351,18 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await expect(folded.locator('.proposal-body')).toBeVisible();
   expect(await run(page, 'seenProof')).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
+
+test('decision completion does not reclaim focus after the reader moves away', async ({ page }) => {
+  await mount(page);
+  const card = page.locator('[data-inline-proposal] .proposal-card');
+  await run(page, 'pausePrepare');
+  await card.getByRole('button', { name: 'Approve', exact: true }).press('Enter');
+  await expect(card).toBeFocused();
+  const chat = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
+  await chat.focus();
+  await run(page, 'resumePrepare');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
+  await expect(chat).toBeFocused();
 });

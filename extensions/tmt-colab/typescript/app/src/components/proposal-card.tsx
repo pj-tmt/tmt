@@ -1,6 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { Check, CircleCheck, CircleDot, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { ThreadView } from '../thread-records.js';
 import type { ProposalOutcome } from '../proposal-actions.js';
 import { text } from '../strings.js';
@@ -40,17 +40,52 @@ export function ProposalCard({
   unseen?: boolean;
 }) {
   const proposal = thread.proposal!;
+  const titleId = useId();
+  const card = useRef<HTMLElement>(null);
+  const followUpControl = useRef<HTMLSpanElement>(null);
+  const focused = useRef<HTMLElement | null>(null);
+  const returning = useRef(false);
   const busy = outcome?.state === 'deciding' || outcome?.state === 'notifying';
   const decision = thread.decision?.decision;
+  useLayoutEffect(() => {
+    const node = card.current;
+    if (!node) return;
+    if (
+      focused.current &&
+      !focused.current.isConnected &&
+      document.activeElement === document.body
+    ) {
+      returning.current = true;
+      node.focus({ preventScroll: true });
+    }
+    if (focused.current && !focused.current.isConnected) focused.current = null;
+    if (!returning.current) return;
+    if (document.activeElement !== node) {
+      returning.current = false;
+      return;
+    }
+    const next = followUpControl.current?.querySelector('button');
+    if (next && !next.disabled) {
+      returning.current = false;
+      next.focus({ preventScroll: true });
+    }
+  });
   return (
     <article
       className="proposal-card"
+      ref={card}
+      tabIndex={-1}
+      aria-labelledby={titleId}
+      onFocusCapture={(event) => {
+        if (event.target !== card.current) focused.current = event.target as HTMLElement;
+      }}
       data-proposal-id={proposal.proposalId}
       data-resolved={thread.resolved || undefined}
     >
       <header>
         {thread.resolved && toggleHistory ? (
           <button
+            id={titleId}
             className="tmt-ui-action proposal-title"
             type="button"
             data-variant="text"
@@ -63,7 +98,9 @@ export function ProposalCard({
             {proposal.title}
           </button>
         ) : (
-          <strong title={proposal.title}>{proposal.title}</strong>
+          <strong id={titleId} title={proposal.title}>
+            {proposal.title}
+          </strong>
         )}
         <span
           className="proposal-state"
@@ -134,15 +171,17 @@ export function ProposalCard({
               />
             </>
           )}
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={text.proposalFollowUp}
-            disabled={disabled || busy}
-            onActivate={(e) => {
-              if (e.isTrusted) followUp();
-            }}
-          />
+          <span ref={followUpControl}>
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.proposalFollowUp}
+              disabled={disabled || busy}
+              onActivate={(e) => {
+                if (e.isTrusted) followUp();
+              }}
+            />
+          </span>
           {resolve && (
             <span className="proposal-resolve">
               <BrowserAction

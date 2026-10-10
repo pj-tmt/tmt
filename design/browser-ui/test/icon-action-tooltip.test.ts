@@ -44,7 +44,7 @@ it('uses the visual viewport offset and bounds the remaining space without flipp
   ).toBe(0);
 });
 
-it('consumes Escape only while the tooltip is visible and releases the listener on dismissal', () => {
+it('dismisses an open tooltip without consuming the host Escape and releases its listener', () => {
   const events = new EventTarget();
   // Node's EventTarget removal ignores boolean capture options; adapt the DOM signature.
   const document = {
@@ -86,8 +86,8 @@ it('consumes Escape only while the tooltip is visible and releases the listener 
     const escape = Object.assign(new Event('keydown', { cancelable: true }), { key: 'Escape' });
     const stop = vi.spyOn(escape, 'stopPropagation');
     events.dispatchEvent(escape);
-    expect(escape.defaultPrevented).toBe(true);
-    expect(stop).toHaveBeenCalledOnce();
+    expect(escape.defaultPrevented).toBe(false);
+    expect(stop).not.toHaveBeenCalled();
     expect(dismiss).toHaveBeenCalledWith(true);
     // A tooltip can be hidden by native popover handling before React cleans up its effect.
     visible = false;

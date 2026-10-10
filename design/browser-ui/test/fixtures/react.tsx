@@ -236,13 +236,13 @@ async function run() {
     button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
   check(
-    !tooltip.matches(':popover-open') && parentEscapes === 0,
-    'Escape leaked past the open tooltip',
+    !tooltip.matches(':popover-open') && parentEscapes === 1,
+    'Escape must dismiss the tooltip and reach its host',
   );
   await act(() =>
     button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
-  check(parentEscapes === 1, 'Closed tooltip swallowed parent Escape');
+  check(parentEscapes === 2, 'Closed tooltip swallowed parent Escape');
   await act(() => button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
   await act(() => button.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
   check(tooltip.matches(':popover-open'), 'Pointer return did not reopen the tooltip');
@@ -251,7 +251,7 @@ async function run() {
   await act(() =>
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
-  check(parentEscapes === 2, 'Tooltip listener survived component removal');
+  check(parentEscapes === 3, 'Tooltip listener survived component removal');
   for (const variant of ['text', 'primary', 'destructive'] as const) {
     for (const busyMark of [
       undefined,

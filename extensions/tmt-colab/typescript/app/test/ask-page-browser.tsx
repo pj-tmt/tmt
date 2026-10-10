@@ -1,4 +1,6 @@
 /** Deterministic app data/Remote double. Never imported by production. */
+import '@tmt/browser-ui/static.css';
+import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
@@ -92,6 +94,8 @@ export async function mount(
     attachments?: boolean;
     /** An Export panel with one included attachment and one of each outcome that includes none. */
     exportAttachments?: boolean;
+    /** An admitted reply already present in the initial loader snapshot. */
+    pastReplies?: boolean;
   } = {},
 ) {
   root?.unmount();
@@ -105,12 +109,28 @@ export async function mount(
   dispatched = [];
   actions = [];
   readRefusal = undefined;
-  records = [];
+  records = options.pastReplies
+    ? [
+        {
+          operationId: id(21),
+          writer: id(4),
+          agent: id(6),
+          agentName: 'Agent 1',
+          deviceName: 'You',
+          issuedAt: Date.now() - 60_000,
+          machine: id(5),
+          message: 'An earlier question',
+          state: 'accepted',
+          canTrack: true,
+          reply: 'A reply from before this page opened.',
+        },
+      ]
+    : [];
   current = {
     source: '<p id="selected">Exact selected text</p>',
     title: 'Live shared page',
     own: {},
-    asks: [],
+    asks: records,
     threads: [],
     publisherAgent: 'Agent 1',
     ...(options.creator
