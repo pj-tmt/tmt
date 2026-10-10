@@ -68,8 +68,9 @@ Storage opening has its own 3-second budget; each selected pane gets a fresh
 3-second deadline within an overall 3-minute native-effect cap. A failed pane
 keeps its metadata and cannot consume a later pane's allocation. One summary
 reports converted and unchanged counts; panes without retired markers are unchanged
-without a rebind hint. Partial failure is a human hint or optional `paneRenameHints` JSON array, never
-upgrade failure, retirement, re-launch or automatic rebind.
+without a rebind hint. A newer schema silently skips this cosmetic pass before host work;
+invalid or incomplete histories retain the unavailable hint. Partial failure is a human hint
+or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-launch or automatic rebind.
 
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
   inventory, namespace and links for the CLI and the official extensions (Ops with the sole `tmt-ops`
