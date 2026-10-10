@@ -6,15 +6,21 @@ interface TooltipViewport {
 }
 
 export function iconActionTooltipPosition(
-  anchor: Pick<DOMRect, 'left' | 'right' | 'bottom'>,
+  anchor: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>,
   tooltipWidth: number,
+  tooltipHeight: number,
   viewport: TooltipViewport,
   gutter: number,
 ): { left: number; top: number; maxWidth: number; maxHeight: number } {
   const maxWidth = Math.max(0, viewport.width - gutter * 2);
   const width = Math.min(tooltipWidth, maxWidth);
   const leftEdge = viewport.left + gutter;
-  const top = Math.max(viewport.top, anchor.bottom);
+  const belowTop = Math.max(viewport.top, anchor.bottom);
+  const below = Math.max(0, viewport.top + viewport.height - gutter - belowTop);
+  const above = Math.max(0, anchor.top - viewport.top - gutter);
+  const flipped = tooltipHeight > below && above > below;
+  const maxHeight = flipped ? above : below;
+  const top = flipped ? anchor.top - Math.min(tooltipHeight, maxHeight) : belowTop;
   return {
     left: Math.max(
       leftEdge,
@@ -25,7 +31,7 @@ export function iconActionTooltipPosition(
     ),
     top,
     maxWidth,
-    maxHeight: Math.max(0, viewport.top + viewport.height - gutter - top),
+    maxHeight,
   };
 }
 
@@ -48,9 +54,12 @@ export function placeIconActionTooltip(anchor: HTMLElement, tooltip: HTMLElement
       height: viewport?.height ?? view.innerHeight,
     };
     tooltip.style.maxWidth = `${Math.max(0, bounds.width - gutter * 2)}px`;
+    const tooltipBox = tooltip.getBoundingClientRect();
     const next = iconActionTooltipPosition(
       box,
-      tooltip.getBoundingClientRect().width,
+      tooltipBox.width,
+      // Read the full content height even after a previous placement constrained it.
+      Math.max(tooltipBox.height, tooltip.scrollHeight),
       bounds,
       gutter,
     );

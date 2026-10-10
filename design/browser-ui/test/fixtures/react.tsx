@@ -260,8 +260,18 @@ async function run() {
   check(!tooltip.matches(':popover-open'), 'Entry alone restored Escape-dismissed help');
   await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
   check(tooltip.matches(':popover-open'), 'Pointer return and movement did not reopen the tooltip');
+  await act(() => root.render(<div className="fixture-bottom-action">{action()}</div>));
+  const bottomButton = host.querySelector('button')!;
+  const bottomTooltip = host.querySelector<HTMLElement>('[popover]')!;
+  await act(() => bottomButton.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
+  check(bottomTooltip.matches(':popover-open'), 'Bottom action did not show help');
+  const bottomBounds = bottomTooltip.getBoundingClientRect();
+  const anchorBounds = bottomButton.getBoundingClientRect();
+  check(bottomBounds.bottom <= anchorBounds.top, 'Bottom action tooltip did not flip above');
+  check(bottomBounds.top >= 0, 'Flipped tooltip escaped the viewport');
+  check(bottomTooltip.clientHeight >= bottomTooltip.scrollHeight, 'Flipped tooltip was clipped');
   await act(() => root.render(null));
-  check(!tooltip.isConnected, 'Tooltip survived component removal');
+  check(!tooltip.isConnected && !bottomTooltip.isConnected, 'Tooltip survived component removal');
   await act(() =>
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
   );
@@ -389,6 +399,15 @@ async function run() {
             onActivate={onActivate}
           />
           {action({ pressed: true })}
+          <div className="fixture-bottom-action">
+            <BrowserIconAction
+              type="button"
+              label="Bottom action details"
+              variant="text"
+              icon="+"
+              onActivate={onActivate}
+            />
+          </div>
           <BrowserIconAction
             type="button"
             label="Delete message"

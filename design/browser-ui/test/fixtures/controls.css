@@ -87,3 +87,9 @@ h2 {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
+
+.fixture-bottom-action {
+  position: fixed;
+  bottom: var(--tmt-ui-toggle-gap);
+  right: var(--tmt-ui-header-gap);
+}
