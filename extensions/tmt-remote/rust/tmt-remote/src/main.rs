@@ -831,7 +831,11 @@ fn pairing_grant_row(policy: &tmt_remote::pairing::PairingPolicy) -> String {
         "Read and send · {} · {} · no expiry",
         policy.agents.as_ref().map_or_else(
             || "all agents".into(),
-            |ids| format!("{} agents", ids.len())
+            |ids| format!(
+                "{} {}",
+                ids.len(),
+                if ids.len() == 1 { "agent" } else { "agents" }
+            )
         ),
         if policy.hold { "held" } else { "direct" },
     )
@@ -856,9 +860,7 @@ fn pairing_answer(
         write!(prompt, "{PAIR_TALK_PROMPT}")?;
         prompt.flush()?;
         answer.clear();
-        if input.read_line(&mut answer)? == 0 {
-            return Ok(None);
-        }
+        input.read_line(&mut answer)?;
         policy.talk = matches!(answer.trim(), "y" | "yes");
     }
     Ok(Some(policy))
@@ -1189,7 +1191,8 @@ mod tests {
             ("confirm\n", true, false, Some(false), false),
             ("confirm\n", true, true, Some(true), false),
             ("n\n", false, false, None, false),
-            ("y\n", false, false, None, true),
+            ("y\n", false, false, Some(false), true),
+            ("", false, false, None, false),
         ] {
             let mut prompts = Vec::new();
             let answer = super::pairing_answer(
@@ -1229,7 +1232,7 @@ mod tests {
                 hold: true,
                 agents: Some(vec!["11111111-1111-4111-8111-111111111111".into()])
             }),
-            "Read and send · 1 agents · held · no expiry"
+            "Read and send · 1 agent · held · no expiry"
         );
     }
 
