@@ -235,7 +235,8 @@ strings. Tabs share one browser cookie (the most recently issued token); Remote 
 live session's own token and at most one latest-token alias per device. When its carrier ends,
 the latest token follows a surviving same-device session with a live grant, exact current
 revision and unexpired lifetime: attached first, then most recently active, then session ID.
-No survivor deletes every device mapping. Issuing the next cookie retires the previous alias;
+If no session qualifies, Remote deletes every device mapping. Issuing the next cookie retires
+the previous alias;
 a request carrying that superseded alias during the brief in-flight window may fail.
 The cookie scopes the device context, while signed messages and
 transports belong to individual sessions. The cookie is a carrier for the same authenticated
