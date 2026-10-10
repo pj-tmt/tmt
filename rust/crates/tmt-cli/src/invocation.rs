@@ -271,6 +271,7 @@ pub enum ExtensionInstallRequest {
         name: String,
         prefix: Option<String>,
         channel: Option<tmt_core::native_install::Channel>,
+        to: Option<String>,
         archive: Option<String>,
         manifest: Option<String>,
         yes: bool,

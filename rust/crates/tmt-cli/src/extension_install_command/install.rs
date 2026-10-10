@@ -14,6 +14,7 @@ pub(super) fn install(
     product: Product,
     prefix: &Path,
     channel: Option<Channel>,
+    exact: Option<&str>,
     archive: Option<&str>,
     manifest: Option<&str>,
 ) -> Result<InstalledExtension, Failure> {
@@ -67,7 +68,7 @@ pub(super) fn install(
             UpgradeRequest {
                 executable: &executable,
                 channel: Some(channel),
-                exact: None,
+                exact,
                 unpin: false,
             },
             crate::office_facade::release_verifier(product),
@@ -77,9 +78,12 @@ pub(super) fn install(
         .map_err(|error| io::Error::new(error.kind(), error)),
         (None, None) => native_install::install_release(
             product,
-            prefix,
-            target,
-            channel,
+            native_install::ReleaseInstallRequest {
+                prefix,
+                target,
+                channel,
+                exact,
+            },
             crate::office_facade::release_verifier(product),
             checkpoint,
         ),

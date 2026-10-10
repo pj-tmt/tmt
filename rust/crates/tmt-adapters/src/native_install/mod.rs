@@ -6,7 +6,9 @@ mod online;
 mod post_upgrade;
 pub use post_upgrade::post_upgrade_hint;
 mod remove;
-pub use online::{default_install_prefix, install_release, latest_release_version};
+pub use online::{
+    ReleaseInstallRequest, default_install_prefix, install_release, latest_release_version,
+};
 pub use remove::{
     ProductRemoval, finish_product_replacement, plan_product_removal, remove_product,
     uninstall_extension,
