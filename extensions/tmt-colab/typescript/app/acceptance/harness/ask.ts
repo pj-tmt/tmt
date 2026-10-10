@@ -60,7 +60,7 @@ export function createPage(
     run(
       world,
       world.binaries.colab,
-      ['page', 'create', '--title', title, '--file', '-', '--json'],
+      ['page', 'create', '--title', title, '--file', '-', '--json', '--no-open'],
       html,
       callerPane,
     ),

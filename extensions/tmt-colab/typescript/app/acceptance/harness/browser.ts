@@ -24,7 +24,11 @@ export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door>
     String(port),
   ]);
   const descriptor = await remote.event((value) => typeof value.address === 'string');
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   const ready = await colab.event((value) => value.state === 'mounted');
   if (ready.socket !== path.join(world.dataRoot, 'colab', 'door.sock'))
     throw new Error('Colab mounted outside the isolated data root');
@@ -53,7 +57,11 @@ export interface ServedDoor extends Pick<Door, 'address' | 'origin' | 'mounts' |
  */
 export async function startServe(world: AcceptanceWorld): Promise<ServedDoor> {
   world.linkExtensions();
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   const ready = await colab.event((value) => value.state === 'mounted');
   if (ready.door !== 'attached' && ready.door !== 'started')
     throw new Error(`Colab found no door: ${String(ready.warning)}`);
@@ -131,6 +139,7 @@ export async function pairBrowser(
   const pair = world.spawn(`pair-${name}`, world.binaries.remote, [
     'pair',
     '--json',
+    '--no-open',
     ...(options.talk ? ['--talk'] : []),
   ]);
   const offer = await pair.event((value) => typeof value.link === 'string');
@@ -194,7 +203,11 @@ export async function restartRemote(world: AcceptanceWorld, door: Door): Promise
 /** Stop and start tmt-colab so its mounted socket and sync state are rebuilt. */
 export async function restartColab(world: AcceptanceWorld, door: Door): Promise<void> {
   await door.colab.stop();
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   await colab.event((value) => value.state === 'mounted');
   door.colab = colab;
 }
