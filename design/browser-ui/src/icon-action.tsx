@@ -102,7 +102,7 @@ export function BrowserIconAction({
           onFocus={(event) => {
             if (event.currentTarget.matches(':focus-visible')) {
               setFocused(true);
-              if (escapeFocus.has(event.currentTarget.ownerDocument)) setDismissed(true);
+              setDismissed(escapeFocus.has(event.currentTarget.ownerDocument));
             }
           }}
           onBlur={() => setFocused(false)}
