@@ -355,7 +355,7 @@ describe('native curl bootstrap', () => {
   });
 
   it.each(['5.0.0', '5.0.0-alpha.1'])(
-    'install.sh uses public download hosts without token for %s',
+    'install.sh downloads only from the public release host for %s',
     async (version) => {
       await withSandbox(async (sandbox) => {
         const fixture = await createFixture(sandbox, { version });
