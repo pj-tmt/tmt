@@ -210,6 +210,10 @@ pub enum Request {
     Reorder(Vec<String>),
     /// A cron job control, with its actor, job and viewed revision resolved.
     Cron(super::cronboard::CronRequest),
+    /// Check that the person at the board may change a member's digest.
+    DigestOpen(super::digest::Ask),
+    /// Apply a digest value the user chose.
+    Digest(super::digest::Set),
 }
 
 impl Request {
@@ -218,6 +222,8 @@ impl Request {
         match self {
             Self::Jump(_) | Self::Back => "Jumping…",
             Self::Open { .. } | Self::RevealFile { .. } | Self::Run(_) => "Opening…",
+            Self::DigestOpen(_) => "Checking digest access…",
+            Self::Digest(_) => "Saving digest…",
             Self::Copy { .. } => "Copying…",
             Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Leads { .. } => {
                 "Sending…"
@@ -240,6 +246,7 @@ impl Request {
                 | Self::Cron(_)
                 | Self::Leads { .. }
                 | Self::Status(_)
+                | Self::Digest(_)
         )
     }
 }
@@ -282,6 +289,10 @@ pub enum Choice {
         request: String,
         from: String,
     },
+    /// A digest value picked from the dropdown.
+    Digest(super::digest::Set),
+    /// The dropdown's own entry: type a value instead.
+    DigestCustom(Box<super::digest::Granted>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -338,6 +349,8 @@ pub enum Compose {
     AnswerPicker,
     /// One step of a cron form; its draft lives in `App::cron_draft`.
     Cron,
+    /// A digest value typed for a member the user may change.
+    Digest(Box<super::digest::Granted>),
 }
 
 /// A row occurrence, independent of its position after refresh or sorting.
@@ -428,7 +441,10 @@ impl RowSend {
                 self.note.as_ref() == Some(&input.compose)
                     && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
             }
-            Compose::AskLead { .. } | Compose::Leads { .. } | Compose::Cron => false,
+            Compose::AskLead { .. }
+            | Compose::Leads { .. }
+            | Compose::Cron
+            | Compose::Digest(_) => false,
         }
     }
 }
@@ -471,7 +487,7 @@ impl Input {
             }
             Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
-            Compose::Cron => self.prompt.clone(),
+            Compose::Cron | Compose::Digest(_) => self.prompt.clone(),
             Compose::AnswerPicker => self.prompt.clone(),
             Compose::Status => format!(
                 "Update status → {} / {}",
@@ -728,6 +744,8 @@ pub struct App {
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
     pub(super) detail_more_hits: RefCell<Vec<(ratatui::layout::Rect, super::row_detail::Target)>>,
+    /// Where a row's choice chip was last drawn, with its row.
+    pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     /// Each record's first visual line in the last rows draw, for paging.
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
@@ -2303,6 +2321,7 @@ impl App {
             Verb::HomeWrite => return self.home_write(),
             Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
+            Verb::Digest => return self.digest_row(self.selected),
             Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
@@ -2400,6 +2419,9 @@ impl App {
                 !matches!(event.as_str(), "click" | "double-click")
                     && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
                     && (row.is_some() || !action.verb.acts_on_member())
+                    // Without a digest source there is nothing for this entry to do.
+                    && (action.verb != Verb::Digest
+                        || row.as_ref().is_some_and(|row| self.digest_choice(row).is_some()))
             })
             .map(|(key, action)| MenuEntry {
                 key,
@@ -2748,6 +2770,8 @@ impl App {
                 Compose::Reply { request, from },
                 self.current.clone().unwrap_or_default(),
             ),
+            Choice::Digest(set) => Effect::Act(Request::Digest(set)),
+            Choice::DigestCustom(granted) => self.digest_custom(*granted),
         }
     }
 
@@ -3138,11 +3162,15 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 let cron = matches!(input.compose, Compose::Cron);
+                let digest = matches!(input.compose, Compose::Digest(_));
                 self.input = None;
                 self.status_draft = None;
                 if cron {
                     self.cron_draft = None;
                     return self.say("Cancelled; nothing changed.");
+                }
+                if digest {
+                    return self.say("Cancelled; digest not changed.");
                 }
                 return self.say("Nothing sent.");
             }
@@ -3174,6 +3202,9 @@ impl App {
             // A job message is stored exactly as typed: no trim, unlike talk.
             return self.cron_submit(input.text);
         }
+        if let Compose::Digest(granted) = input.compose {
+            return self.digest_submit(*granted, &input.text);
+        }
         let text = input.text.trim().to_owned();
         if input
             .row_send
@@ -3202,6 +3233,7 @@ impl App {
                     Compose::Cron
                     | Compose::Status
                     | Compose::AnswerPicker
+                    | Compose::Digest(_)
                     | Compose::Leads { .. } => false,
                     Compose::Reply { request, from } => {
                         from == member
@@ -3251,6 +3283,7 @@ impl App {
             Compose::Status => unreachable!("status submission has its own retained form"),
             Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
+            Compose::Digest(_) => unreachable!("a digest value is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
                 request,
@@ -3314,6 +3347,34 @@ impl App {
                 ..feedback
             });
         self.notice = Some(outcome.unwrap_or_else(|error| error));
+    }
+
+    /// A click on an entry runs it, as Enter on that entry would; the wheel moves
+    /// the highlight. The menu owns the pointer while it is open.
+    fn menu_mouse(&mut self, event: MouseEvent) -> Effect {
+        use super::menu_surface::Pointer;
+        let Some(menu) = &mut self.menu else {
+            return Effect::None;
+        };
+        let pointed = menu
+            .surface
+            .borrow()
+            .as_ref()
+            .and_then(|surface| surface.pointer(event));
+        match pointed {
+            Some(Pointer::Choose(index)) if index < menu.entries.len() => {
+                menu.selected = index;
+                self.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            }
+            Some(Pointer::Wheel(step)) => {
+                menu.selected = menu
+                    .selected
+                    .saturating_add_signed(step)
+                    .min(menu.entries.len().saturating_sub(1));
+                Effect::None
+            }
+            _ => Effect::None,
+        }
     }
 
     fn menu_key(&mut self, key: KeyEvent) -> Effect {
@@ -3900,10 +3961,24 @@ impl App {
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;
         }
-        if self.menu.is_some() || self.input.is_some() {
+        if self.menu.is_some() {
+            return self.menu_mouse(event);
+        }
+        if self.input.is_some() {
             return Effect::None;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let chip = self
+                .chip_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| area.contains((event.column, event.row).into()))
+                .map(|(_, row)| *row);
+            if let Some(row) = chip {
+                self.notice = None;
+                self.select(row);
+                return self.digest_row(row);
+            }
             let target = self
                 .detail_more_hits
                 .borrow()

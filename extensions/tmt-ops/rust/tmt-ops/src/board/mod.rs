@@ -7,6 +7,7 @@ mod checklist;
 mod composition;
 mod cronboard;
 mod derived;
+mod digest;
 #[cfg(test)]
 mod glyph_guard;
 mod help;
@@ -226,6 +227,8 @@ pub(super) enum ActionOutcome {
         mark: &'static str,
     },
     Status(Box<crate::membership::status_update::Outcome>),
+    /// Core agreed that the person at the board may change a member's digest.
+    Digest(Box<digest::Granted>),
 }
 impl From<String> for ActionOutcome {
     fn from(message: String) -> Self {
@@ -250,6 +253,11 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
     }
     let outcome = match request {
         Request::Status(_) => unreachable!("handled above"),
+        Request::DigestOpen(ask) => {
+            return digest::grant(core, ask)
+                .map(|granted| ActionOutcome::Digest(Box::new(granted)));
+        }
+        Request::Digest(set) => digest::apply(core, set),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),
@@ -599,6 +607,7 @@ fn session(
                     Ok(ActionOutcome::Accepted { notice, mark }) => {
                         app.finished_as(Ok(notice), mark)
                     }
+                    Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }
                 if jumped && app.popup {
@@ -992,7 +1001,11 @@ pub fn run(
     }
     let mut switch_ready = crate::board_switch::ready(&core)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
-    let lane = lane::Lane::spawn(core.clone(), events.clone());
+    let lane = lane::Lane::spawn(
+        core.clone(),
+        labels.as_ref().map(crate::labels::Reader::refresher),
+        events.clone(),
+    );
     spawn_input(events, filter);
     let result = session(
         &mut app,
@@ -1407,7 +1420,7 @@ mod tests {
         let (events, input) = channel();
         events.send(key(KeyCode::Char('A'))).unwrap();
         events.send(key(KeyCode::Enter)).unwrap();
-        let lane = lane::Lane::spawn(Core::at(fake), events.clone());
+        let lane = lane::Lane::spawn(Core::at(fake), None, events.clone());
         let started = Instant::now();
         let mut notices: Vec<(Duration, Option<String>)> = Vec::new();
         session(
@@ -1925,6 +1938,7 @@ mod tests {
                     vec![crate::labels::Label {
                         text: text.into(),
                         role: Role::Text,
+                        action: None,
                     }],
                 )]
                 .into(),
