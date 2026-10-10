@@ -240,6 +240,35 @@ it.each(nativeStages)('preserves every Cargo member in %s', (file, stage, destin
   expect(missing(misplaced)).toEqual(['tmt-remote']);
 });
 
+it('copies every external Cargo workspace member into the dependency cache planner', () => {
+  const dockerfile = readFileSync(
+    path.join(root, 'typescript/test/e2e/dependency-cache.Dockerfile'),
+    'utf8'
+  );
+  const block = dockerfile
+    .split(/^FROM /m)
+    .find((part) => part.split('\n')[0].endsWith(' AS ci-planner'))!;
+  const workdir = block.match(/^WORKDIR (\S+)$/m)![1];
+  const external = crates.filter(({ manifest }) => !manifest.startsWith('rust/'));
+  const missing = (text: string) =>
+    external
+      .filter(
+        ({ manifest }) =>
+          !copiedAt(text, manifest, workdir).includes(path.posix.join('/native', manifest))
+      )
+      .map(({ name }) => name);
+  expect(external.length).toBeGreaterThan(0);
+  expect(missing(block)).toEqual([]);
+  for (const line of block.split('\n').filter((line) => line.startsWith('COPY extensions/'))) {
+    const omitted = block.replace(`${line}\n`, '');
+    const members = external
+      .filter(({ manifest }) => copiedAt(line, manifest, workdir).length > 0)
+      .map(({ name }) => name);
+    expect(members.length).toBeGreaterThan(0);
+    expect(missing(omitted)).toEqual(members);
+  }
+});
+
 it.each(nativeStages)('preserves Rust embedded source inputs in %s', (file, stage, destination) => {
   const dockerfile = readFileSync(path.join(root, file), 'utf8');
   const block = dockerfile

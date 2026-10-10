@@ -11,6 +11,7 @@ WORKDIR /native/rust
 COPY rust/ /native/rust/
 COPY extensions/tmt-office/rust/ /native/extensions/tmt-office/rust/
 COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/
+COPY extensions/tmt-digest/rust/ /native/extensions/tmt-digest/rust/
 COPY extensions/tmt-remote/rust/ /native/extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ /native/extensions/tmt-colab/rust/
 RUN cargo chef prepare --recipe-path /recipe.json
