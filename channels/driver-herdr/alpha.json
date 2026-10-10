@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "driver-herdr",
   "channel": "alpha",
-  "version": "0.1.0-alpha.4",
-  "tag": "tmt-driver-herdr-v0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
+  "tag": "tmt-driver-herdr-v0.1.0-alpha.5",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-driver-herdr-v0.1.0-alpha.4/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-driver-herdr-v0.1.0-alpha.5/tmt-release-record.json",
     "size": 1676,
-    "sha256": "44f27c3eabd7d8b78cfa298d5ccb84e5e04672bb323fe786b8e02960bf14d0fc"
+    "sha256": "1b337a1db43275ac9537e5512197431caf5f7881ec463689fcf01f9ae6dba9c4"
   }
 }
