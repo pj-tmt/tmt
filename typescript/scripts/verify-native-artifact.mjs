@@ -171,6 +171,27 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
       values.product === 'colab'
         ? fs.readFileSync(path.join(values.skills, 'tmt-colab', 'SKILL.md'), 'utf8')
         : undefined,
+    colabReferences:
+      values.product === 'colab' &&
+      fs.existsSync(path.join(artifactRoot, 'skills', 'tmt-colab', 'references'))
+        ? Object.fromEntries(
+            fs
+              .readdirSync(path.join(artifactRoot, 'skills', 'tmt-colab', 'references'))
+              .map((name) => {
+                assert(
+                  /^[a-z][a-z0-9-]*\.md$/.test(name),
+                  `Invalid Colab archive reference name: ${name}`
+                );
+                return [
+                  name.slice(0, -3),
+                  fs.readFileSync(
+                    path.join(artifactRoot, 'skills', 'tmt-colab', 'references', name),
+                    'utf8'
+                  ),
+                ];
+              })
+          )
+        : {},
     profileContent: 'Persisted by native archive',
     subject: 'Native archive',
     matchingHostMessage: 'Artifact requires a matching native host',

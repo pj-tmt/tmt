@@ -6,7 +6,8 @@ import path from 'node:path';
 
 const repository = new URL('../../../../../', import.meta.url);
 const generator = 'extensions/tmt-colab/scripts/generate-page-style.mjs';
-const skillFile = 'extensions/tmt-colab/skills/tmt-colab/SKILL.md';
+const skillFile = 'extensions/tmt-colab/skills/tmt-colab/references/page-style.md';
+const rootSkillFile = 'extensions/tmt-colab/skills/tmt-colab/SKILL.md';
 const tokenFile = 'design/tokens/tokens.json';
 const begin = '<!-- BEGIN generated page style -->';
 const end = '<!-- END generated page style -->';
@@ -39,10 +40,12 @@ it('ships a compact content-only starter with exact browser token roles and both
   run(new URL(generator, repository).pathname);
   expect(read(skillFile)).toBe(skill);
   expect(Buffer.byteLength(starter)).toBeLessThanOrEqual(3_000);
+  expect(Buffer.byteLength(read(rootSkillFile))).toBeLessThanOrEqual(10_000);
   expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(12_000);
   expect(skill.split('\n').length - 1).toBeLessThanOrEqual(500);
   expect(skill).toContain('## Page look');
-  expect(skill.indexOf('## Page look')).toBeLessThan(skill.indexOf('## HTML that renders'));
+  expect(read(rootSkillFile)).toContain('references/page-style.md');
+  expect(read(rootSkillFile)).toContain('tmt colab skill page-style');
   expect(skill).toContain('Colab already shows the brand, page title and actions.');
   expect(skill).toContain('Do not add a site header,');
   expect(skill).toContain('any sticky or fixed bar.');

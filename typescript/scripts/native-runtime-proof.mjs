@@ -219,6 +219,7 @@ export async function verifyNativeRuntime({
   opsSkill,
   squadSkill,
   colabSkill,
+  colabReferences = {},
   profileContent,
   subject,
   product = 'cli',
@@ -282,6 +283,22 @@ export async function verifyNativeRuntime({
     if (product === 'colab') {
       assert.equal(typeof colabSkill, 'string', 'Colab runtime proof requires its skill');
       assert.equal(run(['skill']), colabSkill, `${subject} embedded skill mismatch`);
+      const names = [
+        ...new Set(
+          [...colabSkill.matchAll(/`tmt colab skill ([a-z][a-z0-9-]*)`/g)].map((match) => match[1])
+        ),
+      ];
+      for (const name of names) {
+        assert(Object.hasOwn(colabReferences, name), `${subject} missing skill reference: ${name}`);
+      }
+      for (const [name, bytes] of Object.entries(colabReferences)) {
+        assert(names.includes(name), `${subject} unknown skill reference: ${name}`);
+        assert.equal(
+          run(['skill', name]),
+          bytes,
+          `${subject} embedded skill reference mismatch: ${name}`
+        );
+      }
       assert(!fs.existsSync(xdg), 'Colab skill probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Colab skill probe must not create home state');
       assert.deepEqual(

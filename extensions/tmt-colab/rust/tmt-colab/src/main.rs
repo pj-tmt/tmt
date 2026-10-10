@@ -12,6 +12,24 @@ mod status;
 mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
 const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
+const SKILL_REFERENCES: &[(&str, &str)] = &[
+    (
+        "links",
+        include_str!("../../../skills/tmt-colab/references/links.md"),
+    ),
+    (
+        "message-files",
+        include_str!("../../../skills/tmt-colab/references/message-files.md"),
+    ),
+    (
+        "page-style",
+        include_str!("../../../skills/tmt-colab/references/page-style.md"),
+    ),
+    (
+        "proposals",
+        include_str!("../../../skills/tmt-colab/references/proposals.md"),
+    ),
+];
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
@@ -73,7 +91,7 @@ fn grammar() -> Command {
             note: "Read the exact instructions shipped with this executable",
         }],
         outputs: OutputModes::Human,
-        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions.",
+        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions. An optional reference name prints its exact bundled bytes.",
     };
     const HOSTING_BUNDLE: CommandSpec = CommandSpec {
         name: "hosting-bundle",
@@ -261,7 +279,13 @@ fn grammar() -> Command {
                             ),
                     ),
             ))
-            .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
+            .subcommand(tmt_cli_style::command(&SKILL_COMMAND).arg(
+                Arg::new("reference")
+                    .value_name("name")
+                    .value_parser(clap::builder::PossibleValuesParser::new(
+                        SKILL_REFERENCES.iter().map(|(name, _)| *name),
+                    )),
+            ))
             .subcommand(
                 tmt_cli_style::command(&DEPLOY_DECLARATION)
                     .hide(true)
@@ -355,7 +379,17 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     let (command, args) = matches.subcommand().expect("required subcommand");
     if command == "skill" {
         let mut output = tmt_cli_style::stream::stdout(false);
-        output.write_all(SKILL.as_bytes())?;
+        let text = match args.get_one::<String>("reference") {
+            None => SKILL,
+            Some(name) => {
+                SKILL_REFERENCES
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .expect("reference admitted by the command grammar")
+                    .1
+            }
+        };
+        output.write_all(text.as_bytes())?;
         output.flush()?;
         return Ok(());
     }

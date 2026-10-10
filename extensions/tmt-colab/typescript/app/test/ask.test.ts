@@ -107,7 +107,7 @@ it('keeps the shipped skill legacy page-ID instructions consistent with retained
   expect(link).toBeDefined();
   const url = new URL(link!);
   const skill = readFileSync(
-    new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url),
+    new URL('../../../skills/tmt-colab/references/links.md', import.meta.url),
     'utf8',
   );
   const documentedFragment = skill.match(/`(#space=SPACE&path=%2Fpages%2FPAGE)`/)?.[1];
@@ -127,7 +127,7 @@ it('keeps the shipped skill short-link instructions consistent with delivered As
   const message = FrozenAsk.capture(selected, destination()).view.message;
   const url = new URL(message.match(/^Link: (.+)$/m)![1]);
   const skill = readFileSync(
-    new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url),
+    new URL('../../../skills/tmt-colab/references/links.md', import.meta.url),
     'utf8',
   );
   const documentedPath = skill.match(/`(\/p\/SHORT)`/)?.[1];

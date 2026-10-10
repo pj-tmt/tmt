@@ -7,15 +7,17 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
-it, and `tmt colab skill` prints its exact bytes without core discovery or storage.
-Its Page look starter is generated from `design/tokens/tokens.json`. After changing
+the root and named references. `tmt colab skill` prints the exact root bytes;
+`tmt colab skill <name>` reads a compile-time key (`links`, `message-files`,
+`page-style`, `proposals`), never a path. Both work without core, state or a checkout.
+The Page look starter in `references/page-style.md` is generated from `design/tokens/tokens.json`. After changing
 those tokens or the starter generator, run
 `node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.
 The generator replaces only the marked style block; the surrounding prose stays
 handwritten. It is a development command, never a Cargo, serve or install hook.
 The app's `page-style.test.ts` checks token equality, forbidden chrome and effects,
-non-writing failures, and budgets of 3,000 bytes for the starter and 12,000 bytes /
-500 lines for the complete skill.
+non-writing failures, and budgets of 3,000 bytes for the starter, 12,000 bytes / 500 lines for its reference, and
+10,000 bytes for the root skill.
 `tests/cli.rs` verifies a relocated executable with no core or checkout. Its
 fixture publishes the exact binary bytes and mode through the existing dev-only
 `tmt-test-support::write_executable` boundary before execution; the test process
@@ -25,7 +27,9 @@ The component map declares `skills: true`; cargo-dist includes `../../skills`.
 The existing consented `tmt extension install colab --skills` path owns provider
 links, update receipts and unmanaged conflicts. Archive verification must supply
 the expected canonical tree via `--skills extensions/tmt-colab/skills`; a raw
-executable smoke does not establish that the tree ships. Shared release prepare
+executable smoke does not establish that the tree ships. Archive proof compares
+each shipped reference with relocated `skill <name>` output after the whole tree
+equals its source; missing, extra and drifted reference bytes refuse. Shared release prepare
 verification derives this argument from `shipsSkills(product)`.
 
 ## Hosted bundle build

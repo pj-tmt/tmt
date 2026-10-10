@@ -2923,6 +2923,19 @@ engine owns rotation, published keys and deletion. Methods other
 than POST and upgrade attempts are INVALID. Unknown reserved routes
 remain unavailable. No schema, dependency or separate replay store is added.
 
+### Bundled agent guidance
+
+`tmt colab skill [<name>]` prints human-only guidance before core discovery or
+state access. Without a name it prints the embedded root `SKILL.md` exactly.
+Names are compile-time keys (`links`, `message-files`, `page-style`, `proposals`),
+not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
+Each root pointer names both `references/<name>.md` in the installed skill tree
+and the offline command. Authority, pairing, bearer-seed, user-only sharing,
+write/retry and receipt rules stay in the root, at most 10,000 bytes. Detail is
+bundled verbatim in the references. The release archive's full skill tree equals
+its source, and each archived reference equals the relocated executable's
+`skill <name>` output; guidance probes create no config, home or workspace state.
+
 ### Local management CLI (#1307)
 
 The root-local CLI is a client of the reserved management IPC while serving and

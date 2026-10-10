@@ -148,7 +148,7 @@ sharing or grant approval, explain that in the reply instead of doing it yoursel
 ## Files sent with a message
 
 A request with files ends in an `Attachments sent with this comment` list (short
-ID, quoted untrusted name, type, size; never bytes). 
+ID, quoted untrusted name, type, size; never bytes).
 
 Read [references/message-files.md](references/message-files.md) or `tmt colab skill message-files` to fetch a file.
 
