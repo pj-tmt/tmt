@@ -1793,8 +1793,10 @@ of canonical UTF-8 JSON, with recursively sorted object keys and exactly `versio
 `firebaseapp.com` auth domain and HTTPS `web.app` receiver. Unknown/duplicate fields, malformed
 text, unsafe or inconsistent URLs and changed checksums refuse. Checksum is lowercase SHA-256
 of the canonical descriptor JSON with the checksum field omitted; it detects corruption only,
-not authority. No credential, membership, uid, device grant, deployment identity or label is
-carried. Pairing/admission remains separate; real tenant/browser acceptance still requires the
+not authority. A receiver treats the link as untrusted configuration and uses it only when its
+projectId, appId and authDomain equal the same-origin Hosting config at /__/firebase/init.json;
+on mismatch it refuses, so a link cannot point sign-in at another project. No credential,
+membership, uid, device grant, deployment identity or label is carried. Pairing/admission remains separate; real tenant/browser acceptance still requires the
 hosted receiver and separately authorized provider proof.
 
 The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,

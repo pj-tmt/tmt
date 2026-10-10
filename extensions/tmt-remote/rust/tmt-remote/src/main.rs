@@ -42,7 +42,7 @@ const STOP: CommandSpec = CommandSpec {
 };
 const LINK: CommandSpec = CommandSpec {
     name: "link",
-    summary: "Print this home's remote link",
+    summary: "Print the remote link",
     examples: &[Example {
         command: "tmt remote link --json",
         note: "Read the public configuration link",
