@@ -3344,8 +3344,11 @@ projection (the one `conversations.json` is built from, so its revision-chain an
 current epoch or the earlier-epoch window a message read searches) and, in the current epoch, the
 page's document attachments; no match is `COLAB_STATE_MISSING`, a malformed or
 too short prefix or one matching more than one file is `COLAB_INPUT_INVALID`, and it never guesses.
-The read itself is then unchanged, so a revoked or ended access, a moved epoch or a deleted message
-reads as unavailable; the manifest records the resolved reference. The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
+The read itself is then unchanged, so a revoked or ended access or a moved epoch reads as
+unavailable and a deleted message no longer resolves; the manifest records the resolved reference. A
+read stays valid against what binds its reference: a message attachment against the membership head,
+epoch and author alone, so an unrelated record (a reply, a status or another writer's update) landing
+while it reads never refuses it, and a document attachment against the page revision it was listed at. The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
 reference, file:{name,sizeBytes,sha256}}`; the result lists the directory, files, size and
 digest and never the bytes. Authority is the owner-only socket of this data root, not a
 caller-named agent or device: the serve checks the reference against the current page, access

@@ -93,18 +93,20 @@ pub(crate) fn current_base(
 ) -> Result<String> {
     match &descriptor.source {
         Source::Document { .. } => revision(key, &descriptor.page, snapshot),
-        Source::Message { .. } => {
-            let head = &snapshot.authority.head;
-            Ok(tmt_colab_model::attachment::message_fence(
-                &key.space_id,
-                &descriptor.page,
-                &snapshot.epoch.to_string(),
-                &head.revision.to_string(),
-                &head.hash,
-                &descriptor.author_device,
-            )?)
-        }
+        Source::Message { .. } => message_base(key, descriptor, snapshot),
     }
+}
+/// The membership head, epoch and author a message attachment is fenced by.
+fn message_base(key: &Keyring, descriptor: &Descriptor, snapshot: &Snapshot) -> Result<String> {
+    let head = &snapshot.authority.head;
+    Ok(tmt_colab_model::attachment::message_fence(
+        &key.space_id,
+        &descriptor.page,
+        &snapshot.epoch.to_string(),
+        &head.revision.to_string(),
+        &head.hash,
+        &descriptor.author_device,
+    )?)
 }
 /// `current_base` from a fresh owner-store snapshot, for rechecks after slow work.
 pub(crate) fn captured_base(
@@ -234,7 +236,14 @@ impl SessionReadOwner {
 pub struct AdmittedAttachmentRead {
     descriptor: Descriptor,
     snapshot: Snapshot,
-    current_revision: String,
+    /// What this read stays valid against (`current_base`): the whole page revision for a
+    /// document attachment, which is bound to the source it was written against, and only the
+    /// membership head, epoch and author for a message attachment, which nothing a foreign or
+    /// unrelated write can move. A read fails when its reference or its authority changed,
+    /// never because the page merely advanced.
+    base: String,
+    /// A message reference is fenced by authority; a document reference by the page revision.
+    by_message: bool,
     creator_key: [u8; 32],
     deadline: Instant,
     session: Option<SessionReadOwner>,
@@ -252,12 +261,24 @@ impl AdmittedAttachmentRead {
             return Err(page::Fault::Denied.into());
         }
         let current = Snapshot::capture_read(store, key, &self.descriptor.page, None)?;
-        let original =
-            Snapshot::capture_read(store, key, &self.descriptor.page, Some(self.snapshot.epoch))?;
-        if original.cuts != self.snapshot.cuts
-            || revision(key, &self.descriptor.page, &current)? != self.current_revision
-        {
+        let base = if self.by_message {
+            message_base(key, &self.descriptor, &current)?
+        } else {
+            revision(key, &self.descriptor.page, &current)?
+        };
+        if base != self.base {
             return Err(page::Fault::StaleBase.into());
+        }
+        if !self.by_message {
+            let original = Snapshot::capture_read(
+                store,
+                key,
+                &self.descriptor.page,
+                Some(self.snapshot.epoch),
+            )?;
+            if original.cuts != self.snapshot.cuts {
+                return Err(page::Fault::StaleBase.into());
+            }
         }
         Ok(())
     }
@@ -359,8 +380,11 @@ fn capture_read(
                 continue;
             }
             let snapshot = Snapshot::capture_read(store, key, page, Some(old))?;
-            if revision(key, page, &Snapshot::capture_read(store, key, page, None)?)?
-                != current_revision
+            // Only authority moving makes the scan stale; an unrelated record does not.
+            let latest = Snapshot::capture_read(store, key, page, None)?;
+            if latest.epoch != current.epoch
+                || latest.authority.head.revision != current.authority.head.revision
+                || latest.authority.head.hash != current.authority.head.hash
             {
                 return Err(page::Fault::StaleBase.into());
             }
@@ -381,10 +405,17 @@ fn capture_read(
     let view = snapshot.materialize_until(key, page, decoder, deadline)?;
     creation_proof(&view, &descriptor)?;
     let creator_key = snapshot.asset_author(key, &descriptor)?;
+    let by_message = matches!(selector, AttachmentSelector::Message { .. });
+    let base = if by_message {
+        message_base(key, &descriptor, &current)?
+    } else {
+        revision(key, page, &current)?
+    };
     let admitted = AdmittedAttachmentRead {
         descriptor,
         snapshot,
-        current_revision,
+        base,
+        by_message,
         creator_key,
         deadline,
         session,
