@@ -48,8 +48,14 @@ test('a same-request annotation reply recovers from a visible transient read fai
       agent.pane,
     );
     const page = await openPage(door, browser, created);
-    await selectInRenderer(page, '#quote');
-    await page.getByTestId('selection-ask').click();
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    await mode.click();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.frameLocator('iframe').locator('#quote').click();
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
     const input = await inputFor(
       page.getByRole('dialog', { name: 'Annotate selection' }),
       agent.name,

@@ -319,7 +319,7 @@ for (const selected of [false, true]) {
 }
 
 for (const theme of ['light', 'dark'] as const)
-  test(`390px ${theme}: Annotate waits for drag release; C opens without sending and stays out of the composing field`, async ({
+  test(`390px ${theme}: Annotate waits for drag release; Alt+Enter opens without sending and stays out of the composing field`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -357,7 +357,7 @@ for (const theme of ['light', 'dark'] as const)
     expect(actionBox.x).toBeGreaterThan(box.x + box.width);
     expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(390);
     await page.screenshot({ path: capturePath(`selection-finished-390-${theme}.png`) });
-    await page.keyboard.press('c');
+    await page.keyboard.press('Alt+Enter');
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();
     await expect(page.locator('.annotation-popover blockquote')).toHaveText('Exact selected text');
@@ -366,6 +366,10 @@ for (const theme of ['light', 'dark'] as const)
     // Capture the opened annotation before the separate editing and IME controls type into it.
     await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
     await input.press('c');
+    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await expect(input).toHaveText('c', { useInnerText: true });
     await page.evaluate(() => {
       document.addEventListener(
@@ -391,6 +395,10 @@ for (const theme of ['light', 'dark'] as const)
       await page.evaluate(() => (window as unknown as { composingKey: unknown }).composingKey),
     ).toEqual({ trusted: true, composing: true });
     await expect(input).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await expect(page.locator('.annotation-popover')).toHaveCount(1);
     expect((await run(page, 'proof')).sends).toEqual([]);
     await client.detach();
@@ -483,3 +491,82 @@ test('initial admitted reply history stays silent after loading and reopening', 
   await expect(live).toHaveText('');
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`selection mode retains anchored drafts without dispatch ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.goto('/');
+      await run(page, 'mount');
+      const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c');
+      await page.screenshot({ path: capturePath(`1923-off-${width}-${theme}.png`) });
+      await mode.focus();
+      for (const key of ['Shift+c', 'Alt+c', 'Control+c', 'Meta+c']) await page.keyboard.press(key);
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await page.keyboard.down('c');
+      await page.keyboard.down('c');
+      await page.keyboard.up('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByText(text.selectionModeHint, { exact: true })).toBeVisible();
+      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
+      const frame = page.frameLocator('#ask-page-fixture iframe');
+      await frame.locator('#selected').hover();
+      await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+      await page.screenshot({ path: capturePath(`1923-hover-${width}-${theme}.png`) });
+      await frame.locator('#selected').click();
+      const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+      await expect(input).toBeFocused();
+      await expect(page.locator('.annotation-popover blockquote')).toHaveText(
+        'Exact selected text',
+      );
+      await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
+      await input.fill('Retain this selection draft');
+      await input.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
+      const originalDraft = await input.textContent();
+      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await frame.locator('#selected').click();
+      await expect(input).toHaveText(originalDraft!);
+      expect((await run(page, 'proof')).sends).toEqual([]);
+      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      if (width === 1440) {
+        await (await pageAction(page, 'Source')).click();
+        await expect(page.locator('.page-drawer[open]')).toHaveCount(1);
+        await expect(mode).toHaveAttribute('aria-pressed', 'true');
+        await expect
+          .poll(async () => {
+            const controlBox = (await mode.boundingBox())!;
+            const panelBox = (await page.locator('.page-drawer[open]').boundingBox())!;
+            return controlBox.x + controlBox.width <= panelBox.x - 24;
+          })
+          .toBe(true);
+        await page.screenshot({ path: capturePath(`1923-panel-${width}-${theme}.png`) });
+        await page.getByRole('button', { name: 'Close Source', exact: true }).click();
+      }
+      await run(
+        page,
+        'change',
+        '<p id="selected">Exact selected text</p><div id="empty" style="width:80px;height:80px"></div>',
+      );
+      await expect(frame.locator('#empty')).toBeVisible();
+      await frame.locator('#empty').click();
+      await expect(frame.getByRole('status')).toHaveText('Select some text to comment');
+      await expect(page.locator('.annotation-popover')).toHaveCount(0);
+      await page.screenshot({ path: capturePath(`1923-textless-${width}-${theme}.png`) });
+      expect((await run(page, 'proof')).sends).toEqual([]);
+      await frame.locator('#selected').hover();
+      await expect(frame.getByRole('status')).toHaveCount(0);
+      await frame.locator('#selected').click();
+      await expect(input).toHaveText(originalDraft!);
+    });
+  }

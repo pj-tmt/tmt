@@ -148,6 +148,84 @@
             }
             return { points, spans, units, text: points.join('') };
           }
+          let selecting = false,
+            completedSelection = false,
+            hover,
+            hint,
+            hintTimer;
+          function clearTarget() {
+            hover?.remove();
+            hover = undefined;
+            hint?.remove();
+            hint = undefined;
+            clearTimeout(hintTimer);
+          }
+          const editingTarget = (target) =>
+            target instanceof HTMLElement &&
+            (target.isContentEditable ||
+              !!target.closest('input,textarea,select,[role="textbox"]'));
+          const targetAt = (target) =>
+            target instanceof Element &&
+            !target.closest('[data-colab-highlight]') &&
+            !editingTarget(target) &&
+            target !== document.body &&
+            target !== document.documentElement
+              ? target
+              : null;
+          function hoverTarget(event) {
+            clearTarget();
+            if (!selecting || !event.isTrusted) return;
+            const target = targetAt(event.target);
+            if (!target) return;
+            const box = target.getBoundingClientRect();
+            hover = document.createElement('div');
+            hover.dataset.colabHighlight = '';
+            hover.dataset.colabSelectionOutline = '';
+            hover.style.cssText = `position:absolute;pointer-events:none;z-index:2147483646;outline:2px solid #386ca3;outline-offset:2px;left:${box.left + scrollX}px;top:${box.top + scrollY}px;width:${box.width}px;height:${box.height}px`;
+            document.body.append(hover);
+          }
+          function chooseTarget(event) {
+            if (
+              !selecting ||
+              !event.isTrusted ||
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.altKey ||
+              event.ctrlKey ||
+              event.metaKey ||
+              event.shiftKey
+            )
+              return;
+            if (completedSelection) {
+              completedSelection = false;
+              return;
+            }
+            const target = targetAt(event.target);
+            if (!target) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            // Use the same range/quote owner as text selection; never invent an element anchor.
+            if (getSelection()?.isCollapsed) {
+              const range = document.createRange();
+              range.selectNodeContents(target);
+              getSelection()?.removeAllRanges();
+              getSelection()?.addRange(range);
+            }
+            const quote = capture();
+            if (quote) parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
+            else {
+              clearTarget();
+              hint = document.createElement('span');
+              hint.dataset.colabHighlight = '';
+              hint.dataset.colabSelectionHint = '';
+              hint.setAttribute('role', 'status');
+              hint.setAttribute('aria-live', 'polite');
+              hint.textContent = 'Select some text to comment';
+              hint.style.cssText = `position:absolute;pointer-events:none;z-index:2147483646;max-width:calc(100vw - 32px);padding:4px 8px;border:1px solid #888;background:#fff;color:#555;font:12px/1.4 sans-serif;left:${Math.max(8, Math.min(innerWidth - 220, event.clientX)) + scrollX}px;top:${event.clientY + scrollY + 12}px`;
+              document.body.append(hint);
+              hintTimer = setTimeout(clearTarget, 2000);
+            }
+          }
           let selected = JSON.stringify({ selector: null, rect: null });
           let pointerSelecting = false,
             keyboardSelecting = false,
@@ -203,6 +281,7 @@
               selector = null;
             }
             publishSelection(selector, rect);
+            return selector;
           }
           function publishSelection(selector, rect) {
             const next = JSON.stringify({ selector, rect });
@@ -229,22 +308,36 @@
           };
           const startSelection = (event) => {
             if (!event.isTrusted || event.button !== 0) return;
+            completedSelection = false;
             pointerSelecting = true;
             publishSelection(null, null);
           };
-          const finishSelection = () => {
+          const finishSelection = (event) => {
+            if (!pointerSelecting) return;
             pointerSelecting = false;
-            selectionChanged();
+            const quote = capture();
+            if (
+              selecting &&
+              event.isTrusted &&
+              !editingTarget(event.target) &&
+              !getSelection()?.isCollapsed &&
+              quote
+            ) {
+              completedSelection = true;
+              parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
+            }
           };
           const cancelSelection = () => {
             pointerSelecting = false;
             keyboardSelecting = false;
             publishSelection(null, null);
           };
-          const finishKeyboardSelection = () => {
+          const finishKeyboardSelection = (event) => {
             if (!keyboardSelecting) return;
             keyboardSelecting = false;
-            selectionChanged();
+            const quote = capture();
+            if (selecting && event.isTrusted && !editingTarget(event.target) && quote)
+              parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
           };
           function clear() {
             try {
@@ -523,6 +616,19 @@
               v &&
               typeof v === 'object' &&
               !Array.isArray(v) &&
+              Object.keys(v).length === 3 &&
+              v.type === 'colab.render.selection-mode' &&
+              v.renderId === renderId &&
+              typeof v.enabled === 'boolean'
+            ) {
+              selecting = v.enabled;
+              clearTarget();
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
               Object.keys(v).length === 4 &&
               v.type === 'colab.render.slots' &&
               v.renderId === renderId &&
@@ -664,6 +770,8 @@
               document.addEventListener('pointerup', finishSelection, true);
               document.addEventListener('pointercancel', cancelSelection, true);
               document.addEventListener('keyup', finishKeyboardSelection, true);
+              document.addEventListener('click', chooseTarget, true);
+              document.addEventListener('pointermove', hoverTarget, true);
               document.addEventListener('click', anchor, true);
               sizeObserver.observe(document.documentElement);
               sizeObserver.observe(document.body);
@@ -713,12 +821,18 @@
               publishSelection(null, null);
               return;
             }
+            if (isColabShortcut(event, editing)) {
+              event.preventDefault();
+              parent.postMessage({ type: 'colab.render.toggle-selection', renderId }, '*');
+              return;
+            }
             if (
               !pointerSelecting &&
               !keyboardSelecting &&
               !getSelection()?.isCollapsed &&
-              (isColabShortcut(event, editing) ||
-                (!editing && event.altKey && event.key === 'Enter'))
+              !editing &&
+              event.altKey &&
+              event.key === 'Enter'
             ) {
               event.preventDefault();
               capture();
@@ -726,6 +840,8 @@
             }
           };
           document.addEventListener('keydown', annotate);
+          addEventListener('resize', clearTarget);
+          addEventListener('scroll', clearTarget, { passive: true });
           addEventListener('resize', capture);
           addEventListener('scroll', capture, { passive: true });
           addEventListener('resize', schedule);
@@ -741,13 +857,18 @@
               observer.disconnect();
               port.close();
               clear();
+              clearTarget();
               document.removeEventListener('selectionchange', selectionChanged);
               document.removeEventListener('pointerdown', startSelection, true);
               document.removeEventListener('pointerup', finishSelection, true);
               document.removeEventListener('pointercancel', cancelSelection, true);
               document.removeEventListener('keyup', finishKeyboardSelection, true);
+              document.removeEventListener('click', chooseTarget, true);
+              document.removeEventListener('pointermove', hoverTarget, true);
               document.removeEventListener('click', anchor, true);
               document.removeEventListener('keydown', annotate);
+              removeEventListener('resize', clearTarget);
+              removeEventListener('scroll', clearTarget);
               removeEventListener('resize', capture);
               removeEventListener('scroll', capture);
               removeEventListener('resize', schedule);

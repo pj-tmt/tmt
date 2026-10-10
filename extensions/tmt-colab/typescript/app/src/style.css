@@ -1303,3 +1303,45 @@ footer {
 .question-history {
   margin-top: 16px;
 }
+
+/* Parent-owned selection mode clears drawers and anchored composers. */
+.selection-mode {
+  position: fixed;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.selection-mode .tmt-ui-icon-action-control {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid var(--c-text);
+  background: var(--c-sheet);
+  color: var(--c-text);
+}
+.selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
+  width: auto;
+  padding: 0 12px;
+  background: var(--c-text);
+  color: var(--c-sheet);
+  border-color: var(--c-text);
+}
+.selection-mode .tmt-ui-icon-action-icon {
+  width: auto;
+  height: auto;
+  gap: 8px;
+}
+.selection-mode .tmt-ui-icon-action-icon > svg {
+  width: 18px;
+  height: 18px;
+}
+.selection-mode-hint {
+  margin: 0;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 4px 8px;
+  color: var(--c-muted);
+  background: var(--c-sheet);
+  font-size: 12px;
+}

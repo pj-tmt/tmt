@@ -609,9 +609,9 @@ for (const width of [1440, 390])
           selection.addRange(range);
           node.ownerDocument.defaultView!.focus();
         });
-      // The long selection ends below this viewport. C must open a bounded
+      // The long selection ends below this viewport. Alt+Enter opens a bounded
       // annotation without clicking an offscreen selection affordance.
-      await page.keyboard.press('c');
+      await page.keyboard.press('Alt+Enter');
       await expect(annotation).toBeVisible();
       await expect(annotation.locator('blockquote')).toHaveText(longQuote);
       const long = await record(annotation, 'long-quote');

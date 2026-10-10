@@ -1884,10 +1884,18 @@ The bootstrap hides the affordance while a pointer drag or keyboard selection is
 progress and captures after release (coalescing other selection changes at the next
 animation frame). Its rectangle follows the selection's focus end, including backward
 selections; layout updates refresh only completed selections. Legacy text-only messages
-supply no anchor. Unmodified, non-repeating C and the existing Alt+Enter request the same
-view outside input/textarea/select/contenteditable/textbox targets, with IME and keyCode
-229 guards, using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
-parent action captures the quote. Page-wide comments have null anchors.
+supply no anchor. Unmodified, non-repeating C toggles parent-owned selection mode outside
+input/textarea/select/contenteditable/textbox targets, with all modifiers, handled-event,
+IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-selection",renderId`;
+the parent enables it only for the admitted comment surface. Its bound port projection is
+exactly `type:"colab.render.selection-mode",renderId,enabled` (boolean). Mode is cosmetic:
+one hover outline, a completed text selection or a text-bearing click captured through
+the same bounded quote owner opens the existing anchored discussion. Textless clicks
+show a temporary polite hint and create nothing. Source replacement reprojects mode;
+page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
+Alt+Enter still explicitly requests the annotation view with exactly
+`type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
+the quote. Page-wide comments have null anchors.
 
 The parent highlight request on the bound MessagePort contains exactly
 `type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
