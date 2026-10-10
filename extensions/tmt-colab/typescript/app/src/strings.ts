@@ -31,6 +31,8 @@ export const text = {
 
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
+  headerByAuthor: (name: string) => `by ${name}`,
+  remoteAttribution: (name: string) => `Remote: ${name}`,
   byAuthor: (name: string) => `By ${name}`,
   unknownAuthor: 'Unknown author',
   latestPublisher: 'Latest publisher',

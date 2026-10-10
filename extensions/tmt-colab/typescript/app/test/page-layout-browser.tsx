@@ -11,6 +11,7 @@ let current: PageView;
 export function mount(
   source: string,
   attribution?: Pick<Projection, 'originalAuthor' | 'publisherAgent'>,
+  header: { title?: string; deviceName?: string } = { deviceName: 'Studio Mac' },
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -21,7 +22,7 @@ export function mount(
     document.body.append(host);
   }
   root = createRoot(host);
-  current = { title: 'Release notes', source, ...attribution };
+  current = { title: header.title ?? 'Release notes', source, ...attribution };
   const binding: PageBinding = {
     subscribe(next) {
       publish = next;
@@ -46,7 +47,7 @@ export function mount(
     },
   ]);
   root.render(
-    <RouterProvider router={createAppRouter({ ...transport, backendName: 'Studio Mac' })} />,
+    <RouterProvider router={createAppRouter({ ...transport, backendName: header.deviceName })} />,
   );
   // Author fixtures share an existing preview route so the hidden app never opens an unknown page.
   location.hash = attribution ? '/pages/notes' : '/pages/layout';

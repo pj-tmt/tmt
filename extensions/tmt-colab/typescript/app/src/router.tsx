@@ -368,13 +368,16 @@ const blocked = createRoute({
 export function AppHeader({
   linked = true,
   title = text.pages,
+  remote,
 }: {
   linked?: boolean;
   title?: string;
+  remote?: { deviceName?: string };
 }) {
   return (
     <ColabHeader
       title={title}
+      remote={remote}
       home={
         linked
           ? (brand) => (
@@ -405,12 +408,14 @@ function ThemeButton() {
   );
 }
 function Shell() {
+  const { transport } = root.useRouteContext();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   return (
     <>
       {!isPage && (
         <AppHeader
+          remote={pathname === '/' ? { deviceName: transport.backendName } : undefined}
           title={
             pathname.startsWith('/short/')
               ? 'Open a page'
@@ -622,8 +627,6 @@ function Page() {
     next: typeof loaded;
   } | null>(null);
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
-  const backendName = transport.backendName?.trim();
-  const backendLabel = backendName ? `local · ${backendName}` : 'local';
   const toolbar = useRef<HTMLElement>(null);
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
@@ -1115,7 +1118,10 @@ function Page() {
       <ColabHeader
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
-        caption={view.originalAuthor === undefined ? undefined : text.byAuthor(view.originalAuthor)}
+        remote={{ deviceName: transport.backendName }}
+        caption={
+          view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
+        }
         home={(brand) => (
           <Link to="/" aria-label={text.home}>
             {brand}
@@ -1123,9 +1129,6 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
-            <span className="page-backend" title={backendLabel}>
-              {backendLabel}
-            </span>
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={

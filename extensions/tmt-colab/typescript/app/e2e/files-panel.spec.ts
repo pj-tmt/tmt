@@ -223,7 +223,12 @@ async function mountReader(page: Page, files: boolean) {
 
 test('a reader link lists files read-only and only when the page has files', async ({ page }) => {
   await mountReader(page, false);
-  await expect(await pageAction(page, 'Files')).toHaveCount(0);
+  await expect(
+    page
+      .locator('#reader-files-fixture')
+      .getByRole('heading', { name: 'Release notes', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Files(?: \d+)?$/ })).toHaveCount(0);
   await mountReader(page, true);
   const toggle = await pageAction(page, 'Files');
   await expect(toggle).toHaveText(`${text.files} 3`);

@@ -41,21 +41,24 @@ for (const width of [1440, 390])
       expect(rect?.x).toBe(0);
       const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
       expect(rect?.width).toBe(contentWidth);
-      expect(rect?.y).toBe(width < 480 ? 82 : 56);
-      expect(rect?.height).toBeGreaterThanOrEqual(width < 480 ? 818 : 844);
+      expect(rect?.y).toBe(width < 480 ? 48 : 56);
+      expect(rect?.height).toBeGreaterThanOrEqual(width < 480 ? 852 : 844);
       await expect(frame).toHaveAttribute('scrolling', 'no');
       await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       await expect(page.getByRole('heading', { name: 'Release notes', exact: true })).toBeVisible();
-      await expect(bar.locator('.page-backend')).toHaveText('local · Studio Mac');
-      await expect(bar.locator('.page-backend')).toHaveAttribute('title', 'local · Studio Mac');
+      await expect(bar.locator('.colab-remote-label')).toHaveText('local · Studio Mac');
+      await expect(bar.getByRole('group', { name: 'Remote: local · Studio Mac' })).toHaveAttribute(
+        'title',
+        'Remote: local · Studio Mac',
+      );
       await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
         await bar.locator('.page-sharing').evaluate((node) => node.scrollWidth <= node.clientWidth),
       ).toBe(true);
-      await expect(bar.locator('.page-header-actions button')).toHaveCount(5);
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(width <= 640 ? 2 : 5);
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await expect(
         page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
@@ -115,7 +118,12 @@ for (const width of [1440, 390])
       await editor.getByRole('button', { name: 'Close Source', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(editor).not.toBeVisible();
-      await expect(page.getByRole('button', { name: 'Source and export' })).toBeFocused();
+      await expect(
+        page.getByRole('button', {
+          name: width <= 640 ? 'More' : 'Source and export',
+          exact: true,
+        }),
+      ).toBeFocused();
       expect((await frame.boundingBox())?.width).toBe(
         await page.evaluate(() => document.documentElement.clientWidth),
       );
@@ -167,7 +175,7 @@ for (const width of [1440, 390])
       /^Source and export$/,
       /^More$/,
     ];
-    for (const name of names) {
+    for (const name of width <= 640 ? [names[0], names[4]] : names) {
       const button = actions.getByRole('button', { name });
       await expect(button).toBeInViewport();
       await button.hover();
@@ -323,3 +331,74 @@ for (const width of [1440, 390])
       await expect(drawer).not.toBeVisible();
     });
   }
+
+test('one-row fitting retains full labels, stable content and compact action authority', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const title = 'A very long release title '.repeat(8);
+  const deviceName = 'A very long device name '.repeat(8).trim();
+  await page.evaluate(
+    async ({ title, deviceName }) => {
+      const path = '/test/page-layout-browser.tsx';
+      (await import(path)).mount(
+        '<h1>Stable content</h1>',
+        { originalAuthor: 'Original writer', publisherAgent: 'Latest writer' },
+        { title, deviceName },
+      );
+    },
+    { title, deviceName },
+  );
+  const header = page.locator('.tmt-ui-header:visible');
+  const heading = header.getByRole('heading', { name: title, exact: true });
+  const remote = header.getByRole('group', { name: `Remote: local · ${deviceName}`, exact: true });
+  await expect(heading).toBeVisible();
+  await expect(header.locator('.tmt-ui-caption')).toBeVisible();
+  await expect(header.locator('.colab-remote-label')).toBeVisible();
+  const iframe = page.locator('#layout-fixture iframe');
+  await expect(
+    page.frameLocator('#layout-fixture iframe').getByRole('heading', { name: 'Stable content' }),
+  ).toBeVisible();
+  const frameHandle = await iframe.elementHandle();
+  const titleHandle = await heading.elementHandle();
+  for (const width of [800, 640, 390, 320, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(header.locator('.tmt-ui-caption'))[width <= 900 ? 'toBeHidden' : 'toBeVisible']();
+    await expect(header.locator('.colab-remote-label'))[
+      width <= 640 ? 'toBeHidden' : 'toBeVisible'
+    ]();
+    await expect(remote).toHaveAttribute('title', `Remote: local · ${deviceName}`);
+    await expect(heading).toHaveAttribute('title', title);
+    await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
+    expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
+    const chip = header.locator('.page-sharing');
+    await expect(chip).toBeVisible();
+    expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const actions = header.getByRole('navigation', { name: 'Page actions' });
+    await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
+    if (width <= 640) {
+      const more = actions.getByRole('button', { name: 'More', exact: true });
+      await more.press('ArrowDown');
+      await expect(actions.getByRole('menuitem', { name: 'Agents', exact: true })).toBeFocused();
+      await expect(
+        actions.getByRole('menuitem', { name: 'Files (0)', exact: true }),
+      ).toBeDisabled();
+      await expect(
+        actions.getByRole('menuitem', { name: 'Export page', exact: true }),
+      ).toBeEnabled();
+      await page.keyboard.press('ArrowDown');
+      await expect(actions.getByRole('menuitem', { name: 'Source', exact: true })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(more).toBeFocused();
+    }
+  }
+  await page.evaluate(async () => {
+    const path = '/test/page-layout-browser.tsx';
+    (await import(path)).mount('<h1>Stable content</h1>', {}, {});
+  });
+  await expect(header.getByRole('group', { name: 'Remote: local', exact: true })).toBeVisible();
+  await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
+});

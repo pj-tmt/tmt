@@ -229,7 +229,8 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       timeout: 30_000,
     });
     await expect(second.getByTestId('file-row')).toHaveCount(0);
-    await expect(await pageAction(second, 'Files')).toHaveCount(0);
+    await expect(second.locator('.page-header-actions')).toHaveCount(0);
+    await expect(second.getByRole('button', { name: /^Files(?: \(\d+\)| \d+)?$/ })).toHaveCount(0);
 
     // Removing the link ends the reader.
     // `devices revoke` rotates epochs in the background and the owner CLI refuses a stale head
