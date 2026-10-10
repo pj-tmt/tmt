@@ -23,6 +23,7 @@ import { Fold } from './fold.js';
 import type { AdmittedUpdate, JsonValue, OwnRecord, Projection } from './fold-protocol.js';
 import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
+import { SYNC_DISCONNECTED } from './connection-state.js';
 import { hex } from './export.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
 import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
@@ -169,7 +170,7 @@ export class Connection {
         )
         .finally(() => this.#queued--);
     };
-    socket.onerror = socket.onclose = () => this.close(new Error('Sync disconnected'));
+    socket.onerror = socket.onclose = () => this.close(new Error(SYNC_DISCONNECTED));
   }
   get active() {
     return !this.#stopped;
