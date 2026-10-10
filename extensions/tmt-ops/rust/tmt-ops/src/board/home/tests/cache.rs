@@ -27,7 +27,7 @@ struct Frame {
 fn capture(app: &App, width: u16) -> Frame {
     let mut terminal = Terminal::new(TestBackend::new(width, HEIGHT)).unwrap();
     terminal
-        .draw(|frame| render_frame(frame, app, None))
+        .draw(|frame| render_frame(frame, app, None, None))
         .unwrap();
     Frame {
         buffer: terminal.backend().buffer().clone(),

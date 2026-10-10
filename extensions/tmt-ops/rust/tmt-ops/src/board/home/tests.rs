@@ -497,6 +497,7 @@ mod cache;
 mod cron;
 mod interaction;
 mod leads;
+mod limits;
 pub(in crate::board) mod oracle;
 
 #[test]

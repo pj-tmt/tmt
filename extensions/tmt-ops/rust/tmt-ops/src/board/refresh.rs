@@ -114,6 +114,7 @@ impl Worker {
             let mut migration_notice = core.paths.board_notice();
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
+            let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
             // Root discovery and all cache work stay off the UI thread. The store
             // resolves once, on the first read or after the first publication.
             let cache = std::cell::RefCell::new(None);
@@ -291,16 +292,7 @@ impl Worker {
                             ),
                         },
                         Deferred::Usage(MeterRead::Home) => {
-                            let input = reader
-                                .json(&["ls"])
-                                .ok()
-                                .filter(|listed| listed["identities"].is_array())
-                                .map(|listed| super::rate::Input::resumes(&listed))
-                                .ok_or(());
-                            super::BoardEvent::HomeUsage {
-                                cancellation: cancellation.clone(),
-                                input,
-                            }
+                            home_usage(&reader, &mut limits, cancellation.clone())
                         }
                         Deferred::Usage(MeterRead::Squad(input)) => {
                             let sample = reader
@@ -469,6 +461,52 @@ impl HistoryJob {
             observed,
         }
     }
+}
+
+/// The HOME usage receipt: one listing feeds both the token meters and the
+/// provider limits. Codex's limits ride on the listing; Claude's come from its
+/// panes, read without side effects (a Core without the flag: no reading).
+fn home_usage(
+    reader: &Core,
+    limits: &mut super::limits::Sampler,
+    cancellation: crate::runner::Cancellation,
+) -> super::BoardEvent {
+    let listed = reader
+        .json(&["ls"])
+        .ok()
+        .filter(|listed| listed["identities"].is_array());
+    let limits = listed.as_ref().map(|listed| {
+        limits.sample(
+            listed,
+            crate::status::now_ms(),
+            Instant::now(),
+            &mut |name| capture_footer(reader, name),
+        )
+    });
+    super::BoardEvent::HomeUsage {
+        cancellation,
+        input: listed
+            .map(|listed| super::rate::Input::resumes(&listed))
+            .ok_or(()),
+        limits,
+    }
+}
+
+/// A pane's recent output for the provider-limits footer. `--capture-only` never
+/// hands the pane a retained Focus checklist, so a periodic read is not input;
+/// a Core without the flag rejects the command and the provider reads as unknown.
+fn capture_footer(reader: &Core, name: &str) -> Option<String> {
+    reader
+        .json(&[
+            "check",
+            name,
+            "--capture-only",
+            "--lines",
+            super::limits::CAPTURE_LINES,
+        ])
+        .ok()?["output"]
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// The existing worker's lower-priority work, behind full reloads.
@@ -1444,6 +1482,145 @@ printf '%s\n' '{{}}'
         );
         drop(worker);
         assert!(cancellation.cancelled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A fake `tmt` for the HOME usage receipt: one listing with a Codex session
+    /// that reports limits and a Claude session whose pane shows the footer.
+    fn fake_core(dir: &std::path::Path, check: &str) -> (Core, std::path::PathBuf) {
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        let listing = json!({"identities": [
+            {"id": "c1", "name": "builder", "presence": "active",
+             "resume": {"driver": "claude", "usage": {"observedAtMs": 1_791_600_000_000u64}}},
+            {"id": "x1", "name": "worker", "presence": "active",
+             "resume": {"driver": "codex", "usage": {"observedAtMs": 1_791_600_000_000u64},
+                "consumption": {"rateLimits": {"observedAtMs": 1_791_600_000_000u64, "windows": [
+                    {"windowMinutes": 10080, "usedPercent": 22.0, "resetsAtMs": 1_791_900_000_000u64}
+                ]}}}},
+        ]});
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+printf '%s\n' "$*" >> '{calls}'
+if [ "$1" = ls ]; then printf '%s\n' '{listing}'; exit 0; fi
+if [ "$1" = check ]; then {check}; fi
+printf '%s\n' '{{}}'
+"###,
+                calls = calls.display(),
+                listing = listing,
+                check = check,
+            ),
+        );
+        (Core::at(fake), calls)
+    }
+
+    fn sampled(event: super::super::BoardEvent) -> (bool, Vec<crate::board::limits::Standing>) {
+        let super::super::BoardEvent::HomeUsage { input, limits, .. } = event else {
+            panic!("home usage event")
+        };
+        (input.is_ok(), limits.unwrap_or_default())
+    }
+
+    #[test]
+    fn the_home_usage_receipt_reads_codex_from_the_listing_and_claude_without_side_effects() {
+        let dir = std::env::temp_dir().join(format!("squad-limits-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let footer =
+            r#"printf '%s\n' '{"output":"ctx 89%   5h 97.0% (3h14m)  7d 56.0% (4d03h)"}'; exit 0"#;
+        let (core, calls) = fake_core(&dir, footer);
+        let mut limits = crate::board::limits::Sampler::new(None);
+        let (listed, standings) = sampled(home_usage(
+            &core,
+            &mut limits,
+            crate::runner::Cancellation::default(),
+        ));
+        assert!(listed, "the token meters still get their listing");
+        let weekly = |provider| {
+            standings
+                .iter()
+                .find(|standing| standing.provider == provider)
+                .and_then(|standing| standing.latest)
+                .map(|reading| reading.weekly.left)
+        };
+        assert_eq!(
+            weekly(crate::board::limits::Provider::named("codex")),
+            Some(78.0)
+        );
+        assert_eq!(
+            weekly(crate::board::limits::Provider::named("claude")),
+            Some(56.0)
+        );
+        let calls = std::fs::read_to_string(&calls).unwrap();
+        let calls: Vec<_> = calls.lines().collect();
+        assert_eq!(
+            calls,
+            [
+                "ls --json",
+                "check builder --capture-only --lines 12 --json"
+            ],
+            "one listing and one side-effect-free capture; never a plain check"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_core_without_capture_only_leaves_claude_unread_and_never_falls_back() {
+        let dir = std::env::temp_dir().join(format!("squad-limits-old-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (core, calls) = fake_core(
+            &dir,
+            "printf '%s\n' 'error: unexpected argument --capture-only' >&2; exit 2",
+        );
+        let mut limits = crate::board::limits::Sampler::new(None);
+        let (_, standings) = sampled(home_usage(
+            &core,
+            &mut limits,
+            crate::runner::Cancellation::default(),
+        ));
+        let claude = standings
+            .iter()
+            .find(|standing| standing.provider == crate::board::limits::Provider::named("claude"))
+            .unwrap();
+        assert_eq!(claude.latest, None);
+        assert!(
+            standings.iter().any(|standing| standing.latest.is_some()),
+            "Codex is unaffected"
+        );
+        let calls = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(
+            calls
+                .lines()
+                .filter(|call| call.starts_with("check "))
+                .count(),
+            1,
+            "{calls}"
+        );
+        assert!(
+            calls
+                .lines()
+                .all(|call| !call.starts_with("check ") || call.contains("--capture-only"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_listing_samples_nothing_and_keeps_the_shown_limits() {
+        let dir = std::env::temp_dir().join(format!("squad-limits-down-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        crate::test_support::write_ready_executable(&fake, "#!/bin/sh\nexit 1\n");
+        let mut limits = crate::board::limits::Sampler::new(None);
+        let super::super::BoardEvent::HomeUsage { input, limits, .. } = home_usage(
+            &Core::at(fake),
+            &mut limits,
+            crate::runner::Cancellation::default(),
+        ) else {
+            panic!("home usage event")
+        };
+        assert!(input.is_err());
+        assert!(limits.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

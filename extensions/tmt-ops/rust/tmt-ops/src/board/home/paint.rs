@@ -64,6 +64,25 @@ pub(crate) fn usage_of(
     line
 }
 
+/// The provider-limits strip: only from `md`, and only while the usage meter is
+/// on, since that switch also drives the sampling that feeds it.
+pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Option<Line<'static>> {
+    let view = app.view.as_ref()?;
+    if width < tmt_cli_style::breakpoint::MD.cells
+        || view.home.is_none()
+        || !view.home_rate.values().any(|rate| rate.settings.enabled)
+    {
+        return None;
+    }
+    super::limits::limits_in(
+        &mut view.derived.borrow_mut().home.limits,
+        app.limits.as_deref(),
+        crate::status::now_ms(),
+        width,
+        look,
+    )
+}
+
 pub(crate) fn hints_of(
     view: &View,
     width: usize,

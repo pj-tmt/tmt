@@ -317,6 +317,31 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ));
         sections.insert(0, meter);
     }
+    if home
+        && app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.home_rate.values().any(|rate| rate.settings.enabled))
+    {
+        sections.push(section(
+            "limits",
+            "provider limits",
+            &[
+                (
+                    "7d 5h",
+                    "the share of each account window left, then the time until it refills",
+                ),
+                (
+                    "~N%/h",
+                    "average weekly use over the last 6 hours, shown after an hour of samples; `! before reset` (`runs out before reset` when wide) means that pace empties the week first",
+                ),
+                (
+                    "no reading",
+                    "the last sample is older than 2 hours, so no number is shown; the board samples only while it is open",
+                ),
+            ],
+        ));
+    }
     let mut bindings = app.bindings();
     let mut entries = Vec::new();
     for key in ["l", "T"].into_iter().map(str::to_owned).chain(

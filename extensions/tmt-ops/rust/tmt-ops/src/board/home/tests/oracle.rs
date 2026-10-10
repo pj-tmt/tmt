@@ -344,7 +344,7 @@ fn frame(
     app.hits.borrow_mut().clear();
     let mut terminal = Terminal::new(TestBackend::new(width, HEIGHT)).unwrap();
     terminal
-        .draw(|frame| crate::board::view::render_frame(frame, app, usage))
+        .draw(|frame| crate::board::view::render_frame(frame, app, usage, None))
         .unwrap();
     let mut captured = buffer_json(terminal.backend().buffer(), styles);
     captured["hits"] = json!(

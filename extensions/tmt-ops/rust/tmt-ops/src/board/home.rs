@@ -303,7 +303,7 @@ mod controller;
 pub(crate) mod counters;
 mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
-pub(super) use paint::{age_label, hints_of, render, summary_of, usage_of};
+pub(super) use paint::{age_label, hints_of, limits_of, render, summary_of, usage_of};
 
 /// The painted sections of one immutable view, each held with the key it was
 /// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
@@ -318,6 +318,7 @@ pub(super) struct Scenes {
     /// The strips outside the body.
     summary: scene::Kept<ratatui::text::Line<'static>>,
     usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
+    limits: scene::Kept<Option<ratatui::text::Line<'static>>>,
     hints: scene::Kept<String>,
 }
 
@@ -334,6 +335,7 @@ impl Scenes {
             + self.squads.builds
             + self.summary.builds
             + self.usage.builds
+            + self.limits.builds
             + self.hints.builds
     }
 }
@@ -341,6 +343,7 @@ impl Scenes {
 mod attention;
 mod bar;
 mod leads;
+mod limits;
 mod rows;
 use super::view::scene;
 mod tiles;

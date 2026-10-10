@@ -49,7 +49,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         .and_then(|(usage, _view)| {
             super::home::usage_of(app, &usage, frame.area().width, app.look())
         });
-    render_frame(frame, app, home_usage);
+    let home_limits = (!app.loading())
+        .then(|| super::home::limits_of(app, frame.area().width, app.look()))
+        .flatten();
+    render_frame(frame, app, home_usage, home_limits);
     app.home_counters.borrow_mut().finish(
         app.input_band.get(),
         app.help
@@ -67,6 +70,7 @@ pub(in crate::board) fn render_frame(
     frame: &mut Frame,
     app: &App,
     home_usage: Option<ratatui::text::Line<'static>>,
+    home_limits: Option<ratatui::text::Line<'static>>,
 ) {
     let look = app.look();
     app.input_band.set(None);
@@ -89,12 +93,13 @@ pub(in crate::board) fn render_frame(
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let [tabs, summary, meter_status, body, footer] = Layout::vertical([
+    let [tabs, summary, meter_status, limits, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(u16::from(
             header::meter_enabled(app) || home_usage.is_some() || home_history_pending,
         )),
+        Constraint::Length(u16::from(home_limits.is_some())),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -128,6 +133,9 @@ pub(in crate::board) fn render_frame(
     } else if let Some(line) = home_usage {
         app.home_counters.borrow_mut().place_header(meter_status);
         strip::paint_left(frame.buffer_mut(), meter_status, line);
+    }
+    if let Some(line) = home_limits {
+        strip::paint_left(frame.buffer_mut(), limits, line);
     }
     match app.cached_display() {
         Some(display) => cached::body(frame, app, display, body),
