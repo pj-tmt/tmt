@@ -134,6 +134,22 @@ pub(in crate::board) fn pieces(state: &State, now_ms: i64, width: u16) -> Option
         ClockStatus::NoClock => ("clock off", Role::Blocked),
         ClockStatus::Unknown => ("clock checking", Role::Waiting),
     };
+    if (usize::from(crate::board::home::COMPACT)..usize::from(crate::board::home::SM.cells))
+        .contains(&width)
+        && state.failure.is_none()
+        && let Some((at, view)) = cron.next()
+        && let Some(time) = short_time(at, now_ms, &zone(view))
+    {
+        let prefix = format!("cron next {time}");
+        let owner = first_line(view.owner_name.as_deref().unwrap_or("no owner"));
+        let room = width.saturating_sub(prefix.width() + 1);
+        let text = if room > 0 {
+            format!("{prefix} {}", fit(&owner, room.min(owner.width())))
+        } else {
+            fit(&prefix, width)
+        };
+        return Some(vec![(text, Role::Muted)]);
+    }
     let count = format!(
         "cron · {} job{}",
         cron.jobs.len(),

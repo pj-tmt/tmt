@@ -437,42 +437,32 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows counts and blocked members, then grouped leads, cron
-and squads. The counts row, the tab marks and the ◆ marks on leads and squads say who waits on you. Squads occupy one full-width column at every width, with one compact table row
-per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
-order (◆ ✗ ◐ ● ◌) and a member count. Each mark has a trailing space. Members
-with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
-Selection covers the whole row, including padding.
+The built-in `all` board shows needs-you squads first, then provider meters and
+one muted longest-window usage line, grouped leads, squads and cron. `◆ Needs
+you` names waiting squads; known empty attention says `✓ Nothing needs you`.
+Marks and words identify working/idle/blocked totals, with partial/unknown notices
+retained. One blank precedes Leads and Squads; each rule heading starts `── `,
+with one rule per boundary. Cron is one muted line after the squads table.
 
-At 100 columns and wider, observed HOME usage adds a header row below the counts:
-`tok 5m ~N · 1h ~N · share 1h: <member> P%`. At 140 columns it also
-shows the first window, `models sol P%, opus P%` and `N members without data`
-(`1 member without data` for one). The labels use global
-`[board] tok`; the top and model shares use its longest window. Squad rows and
-member grids retain their own overrides. UUIDs in several shown sampling squads
-count once, using the better-covered observation. Missing readings are excluded
-from totals and counted once as members without data; incomplete totals and
-shares carry `~`. A zero total has no share. Model attribution uses the current observed model
-and is best effort. The row hides below 100 columns and when no shown sampling
-squad has observed readings. Search limits it to the squads currently shown.
+The usage line is `Usage 1h N tok · top <member> P%`, using actual global
+`[board] tok` labels and its longest window. UUIDs in several sampling squads
+count once using the better-covered observation. Missing readings are counted
+as members without data; incomplete totals/shares carry `~`, measured zero is
+`0`, and a zero total has no share. Model attribution is best effort. Search
+limits observations to shown squads. Short windows, missing-data coverage and
+shortened metadata are available through `e` on the overview, not repeated when
+already visible. Reading acquires and sends nothing.
 
-Tiles use the board's observed usage (see below). Missing values show `–`, measured
-zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
-A sampling lead with no observed totals shows one dim `–` in the first token column. When a squad's token sampling
-is off, its tile hides token cells. Token/share columns appear only when observations admit them, and the squads
-heading hides the token legend when no rendered column has data. Below 100 columns
-only the last two windows are eligible; wider tables also show the first window
-and share when observed. Observed lead models remain visible with sampling off; without a model
-observation, the model cell is omitted. Home and crew use the same short family names, such as `opus`,
-`sonnet` and `sol`; unfamiliar names truncate to the available column width.
-The squads heading names shared windows once. Mixed `tok` settings label each
-tile's actual windows. Blocked rows show only member, squad and available relative
-age; ages say `observed` to identify the task/state observation. Questions
-appear in the inline composer after `a`. An empty
-blocked section disappears. Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
+Squads use one full-width row with aligned squad/lead/members/longest-window token
+and `lead %` headers (the lead’s fraction of its squad window). At 60 columns,
+lead/member cells move to shared detail; token and lead percentage remain. Missing values differ from zero and partial evidence; sampling
+off hides token cells. Mixed window settings label actual durations. `e` reveals
+hidden short windows, model and member counts from held observations. Blocked
+rows retain member, squad and `observed` age; questions stay in the `a` composer.
+Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
 
 Leads show the latest exchange with you in one full-width group between horizontal
-rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
+rules, with blank side margins. Each header has a bold name, its squad from 80 columns, and a labelled last-exchange age
 at the right. The header marks the latest exchange: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
 A lead with no exchange has a blank mark and `–` age. Leads marked ◆ come first,
@@ -489,7 +479,9 @@ sending. A changed sender or lead audience sends nothing. Feedback reports
 each recipient's queued or unavailable acceptance; uncertain acceptance keeps
 its operation ID and saved intent for inspection, with no automatic resend.
 
-One cursor spans attention rows, leads, their footer, cron and squads. Arrows or j/k move it; Tab
+One cursor spans overview, attention rows, leads, their footer, squads and cron.
+The overview is the first traversal stop; its selection appears only on usage,
+never on meter bars. `e`/Enter opens its shared detail; search hides this stop. Arrows or j/k move it; Tab
 keeps its board-wide pane-focus behavior and does not jump between home sections. Home opens on its first row from the top:
 the first blocked row, else the first lead, else the first squad. Switching back to home from
 another tab returns to the row you left. Squad tabs keep their own start on the lead. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
@@ -1076,19 +1068,20 @@ preserving older board observations, without bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
 on the next tab entry.
 
-At 100 columns and wider, while the usage meter is on, a second header row shows
-each provider's account limits as the share left and the time to reset:
-`Claude  7d 44% · 4d03h · ~2.1%/h ! before reset  │  Codex  7d 78% · 2d10h · ~0.4%/h`.
-At 140 columns both windows say `left`, the flag reads `runs out before reset`
-and the 5-hour window follows (`5h 97% left · 3h14m`, or `5h –`). `~N%/h` is the
-average weekly use over the last 6 hours, shown after an hour of samples; the flag
-appears only when that pace empties the week before it resets. Numbers come from
-a provider's own session reports when Core carries them (Codex) and otherwise
-from its statusline footer (`5h` and `7d` with their resets; Claude), read from a
-pane without sending it anything, so a footer reading needs a Core with
-`check --capture-only`. A provider with no
-reading newer than 2 hours says `no reading for 3h` (or `no reading yet`) and
-never shows an old number. The board samples only while it is open.
+While the usage meter is on, HOME shows provider account meters at every width.
+Labels inside the bar give provider, weekly percentage left and reset duration.
+At 160 columns two 34-cell bars share a row. At 100 each has its own row with
+rate and 5h reading alongside; 80 uses 26 cells, 60 uses 16 and moves reset to
+detail. Warnings remain outside: `! empties ~duration`, or `✗ empties ~duration`
+when depletion before reset is at or within 12 hours. No positive measured burn
+means no forecast. Fill reverses the existing state role; Text over neutral
+Selection is the track, never a selected bar. NO_COLOR reverses fill and
+underlines track. Overview detail lists only values hidden at the current width.
+`~N%/h` averages weekly use over the last 6 hours after an hour of samples.
+Numbers use provider session reports or its captured statusline footer through
+Core `check --capture-only`; reads send nothing. A sample older than 2 hours says
+`no reading for 3h` (or `no reading yet`), never an old percentage. The board
+samples only while open.
 
 Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
 window switches show the exact value immediately. Eight bucket-aligned bars show

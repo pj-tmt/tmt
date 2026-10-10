@@ -64,15 +64,14 @@ pub(crate) fn usage_of(
     line
 }
 
-/// The provider-limits strip: only from `md`, and only while the usage meter is
+/// The provider-limits strip at every width, only while the usage meter is
 /// on, since that switch also drives the sampling that feeds it.
-pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Option<Line<'static>> {
-    let view = app.view.as_ref()?;
-    if width < tmt_cli_style::breakpoint::MD.cells
-        || view.home.is_none()
-        || !view.home_rate.values().any(|rate| rate.settings.enabled)
-    {
-        return None;
+pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>> {
+    let Some(view) = app.view.as_ref() else {
+        return Vec::new();
+    };
+    if view.home.is_none() || !view.home_rate.values().any(|rate| rate.settings.enabled) {
+        return Vec::new();
     }
     super::limits::limits_in(
         &mut view.derived.borrow_mut().home.limits,
@@ -173,6 +172,23 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut handled = 0;
     for (index, entry) in entries.iter().enumerate() {
         if index < handled {
+            continue;
+        }
+        if entry.target.section == super::USAGE {
+            starts.push(0);
+            let detail = app.detail_value(index, &[]);
+            let block = crate::board::row_detail::render(
+                &detail,
+                area.width,
+                3,
+                look,
+                index == app.selected,
+            );
+            let start = lines.len();
+            lines.extend(block);
+            if index == app.selected {
+                selected_range = start..lines.len();
+            }
             continue;
         }
         if entry.target.section == "blocked" {
@@ -347,36 +363,31 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 Some(&digits),
             );
             lines.extend(painted.head);
-            let start = lines.len();
-            let selected_region =
-                selected.and_then(|item| painted.regions.iter().find(|region| region.item == item));
-            let boundary = selected_region.map(|region| region.lines.end);
-            let mut tile_lines = painted.lines;
-            let tail = boundary.map(|end| tile_lines.split_off(end));
-            lines.extend(tile_lines);
-            let before = lines.len();
-            if selected_region.is_some() {
-                if let Some(text) = app.sent.as_ref().and_then(|feedback| {
-                    feedback.line(&crate::board::app::RowTarget::Home(
-                        entries[app.selected].target.clone(),
-                    ))
-                }) {
-                    lines.push(Line::styled(format!("   {text}"), look.role(Role::Working)));
-                }
-                input_range =
-                    crate::board::view::waiting::reserve_input(app, app.selected, area, &mut lines);
-            }
-            let inserted = lines.len() - before;
-            if let Some(tail) = tail {
-                lines.extend(tail);
-            }
             for region in painted.regions {
-                let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
-                    inserted
-                } else {
-                    0
-                };
-                let range = start + region.lines.start + shift..start + region.lines.end + shift;
+                let at = index + region.item;
+                let start = lines.len();
+                lines.extend(painted.lines[region.lines.clone()].iter().cloned());
+                let parent_end = lines.len();
+                let detail = app.detail_value(at, &[]);
+                lines.extend(crate::board::row_detail::render(
+                    &detail,
+                    area.width,
+                    3,
+                    look,
+                    at == app.selected,
+                ));
+                if at == app.selected {
+                    if let Some(text) = app.sent.as_ref().and_then(|feedback| {
+                        feedback.line(&crate::board::app::RowTarget::Home(
+                            entries[at].target.clone(),
+                        ))
+                    }) {
+                        lines.push(Line::styled(format!("   {text}"), look.role(Role::Working)));
+                    }
+                    input_range =
+                        crate::board::view::waiting::reserve_input(app, at, area, &mut lines);
+                    selected_range = start..lines.len();
+                }
                 if items[region.item].usage.is_some() {
                     let keys = app.home_counter_keys(&items[region.item].squad.squad);
                     for &(window, x, width, mixed) in &slots {
@@ -388,14 +399,11 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                         } else {
                             String::new()
                         };
-                        counter_regions.push((keys[window].clone(), range.start, x, width, prefix));
+                        counter_regions.push((keys[window].clone(), start, x, width, prefix));
                     }
                 }
-                starts.push(range.start);
-                if index + region.item == app.selected {
-                    selected_range = range.start..range.end + inserted;
-                }
-                regions.push((index + region.item, range, region.x, region.width));
+                starts.push(start);
+                regions.push((at, start..parent_end, region.x, region.width));
             }
         }
     }

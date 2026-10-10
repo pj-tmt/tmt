@@ -91,7 +91,7 @@ fn the_row_holds_its_place_before_the_first_sample_and_moves_nothing_when_it_fil
         let body_before = index_of(&before, "product-lead");
         assert!(app.set_limits(standings()));
         let after = rows(&app, width);
-        assert_eq!(index_of(&after, "Codex  7d 78%"), pending, "{width}");
+        assert_eq!(index_of(&after, "Codex 78%"), pending, "{width}");
         assert_eq!(index_of(&after, "product-lead"), body_before, "{width}");
     }
 }
@@ -102,22 +102,23 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     app.set_limits(standings());
     let rows = rows(&app, 100);
     assert_eq!(
-        rows[index_of(&rows, "Codex  7d 78%")],
-        "Codex  7d 78% · 2d10h · ~0.4%/h"
+        rows[index_of(&rows, "Codex 78%")],
+        " Codex 78% left · 2d10h              ~0.4%/h · 5h no reading"
     );
-    assert!(index_of(&rows, "product-lead") > index_of(&rows, "Codex  7d 78%"));
+    assert!(index_of(&rows, "product-lead") > index_of(&rows, "Codex 78%"));
 }
 
 #[test]
-fn no_row_below_md_or_with_the_usage_meter_off() {
+fn meters_remain_at_narrow_widths_but_sampling_off_hides_them() {
     let mut narrow = app(true);
     narrow.set_limits(standings());
-    let shown = rows(&narrow, 99);
-    assert!(
-        shown
-            .iter()
-            .all(|row| !row.contains("Codex") && !row.contains("limits"))
-    );
+    for width in [160, 100, 80, 60] {
+        let shown = rows(&narrow, width);
+        assert!(
+            shown.iter().any(|row| row.contains("Codex 78%")),
+            "{width}: {shown:#?}"
+        );
+    }
     let mut off = app(false);
     off.set_limits(standings());
     let shown = rows(&off, 160);

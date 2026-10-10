@@ -16,11 +16,13 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 - HOME bypasses ordinary pane composition. The neutral `view::scene` admits literal templates,
   binds display-ready data, computes TUI geometry and lifts a scratch buffer into
   lines. Section owners are `attention`, `leads`, `rows` (audience/cron), `tiles`
-  (squads) and `bar` (summary/usage/keys). Builders report local entry/start/end/x/width
+  (squads), `limits` (provider meters) and `bar` (summary/usage/keys). Builders report local entry/start/end/x/width
   placements; `home::paint` translates them into one stream, cursor, reveal and
   viewport-clipped hit map. Scene IDs are local ordinals, not names or cursor identity.
-- Width steps stay in `tmt-switch`/`hide-below` markup; content fitting stays Rust
-  measurement feeding bound branches. `tiles` supplies one full-width squad table
+- Template branch visibility uses `tmt-switch`/`hide-below` named steps; Rust
+  projections use the shared SM/MD steps plus HOME-local compact (60) and wide
+  (160) checkpoints for budgets and hidden-value disclosure. Content fitting stays
+  Rust measurement feeding bound data. `tiles` supplies one full-width squad table
   at every width, in filtered reading order. Padding belongs to row selection;
   headings/gaps have no hit. Member counts align inside the table rather than at
   the terminal edge. Marks exclude leads and assign each member one urgency class;
@@ -30,18 +32,18 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 ## Runtime projections and identity
 
 - `App::home_usage` supplies observed totals, model attribution and longest-window
-  share; `tiles` only formats them. Missing differs from measured zero, partial
+  lead share; `tiles` only formats them. Missing differs from measured zero, partial
   evidence propagates to shares, and disabled sampling supplies no token cells.
-  Observations admit token columns/legend; mixed windows label actual durations.
+  Sampling admits the longest-window token/`lead %` columns; mixed windows label actual durations. Short windows use shared explicit detail.
   A sampling lead without totals has one missing mark in the first token column.
 - Session-model observations are independent of sampling: a bounded public `ls`
   on refresh seeds retained inputs, and meter receipts can update them. Failed
   model reads remain HOME failed-read evidence without changing aggregate JSON.
   `App::home_lead_model` can supply a model while sampling is disabled; without
-  observation the cell is omitted. `source::model_name` shares best-effort family
+  observation the field is omitted. Model metadata lives in explicit squad detail. `source::model_name` shares best-effort family
   formatting with session columns/meter; acquisition preserves the original name.
 - `App.selected` reconciles by section/squad/member identity across refresh/search.
-  Attention precedes deferred leads, their audience footer, cron and squads. Inline
+  Overview is first in traversal order, followed by attention, deferred leads, their audience footer, squads and cron. The overview uses a stable non-row `USAGE` target, hidden during search; only its usage line receives selection. Inline
   input and sent feedback join the stream beneath the selected row, shifting later
   regions together. Tiles expose no member names, task/PR fields or question text;
   composing uses the acquired target and ordinary send revalidation.
@@ -53,7 +55,7 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 - `home::leads` projects deferred lead headings into the shared `view::member_list`
   `Outline` box; a section whose `head` carries its own rule (HOME's `leads`) draws no
   box top, so each boundary has one rule. Leads and blocked members start collapsed. `board::row_detail`
-  owns their explicit in-place detail and reply blocks; section builders reserve
+  owns explicit overview, squad, lead/member detail and reply blocks; section builders reserve
   those lines and include their presentation data in cache keys. Every block line
   maps to its parent cursor target, while selection styles only the heading.
   The audience footer remains outside the box. Acquisition and audience effects

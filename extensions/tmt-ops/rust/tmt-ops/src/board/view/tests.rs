@@ -59,8 +59,12 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
         });
         view.history_pending = true;
         let pending = draw(&app, width, 24);
-        assert!(pending[2].contains("Updating usage…"));
-        assert!(pending[1].contains("0 squads"));
+        assert!(pending.iter().any(|line| line.contains("Updating usage…")));
+        assert!(
+            pending
+                .iter()
+                .any(|line| line.contains("Nothing needs you"))
+        );
         app.view.as_mut().unwrap().history_pending = false;
         assert!(
             draw(&app, width, 24)
@@ -5296,7 +5300,14 @@ fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
                         };
                         assert_eq!(ask.squad, "product");
                         assert_eq!(ask.member, expected, "{members} {home} {width}");
-                        assert_eq!(app.selected, usize::from(expected == "lead"));
+                        if home {
+                            assert_eq!(
+                                app.home_entries()[app.selected].target.member.as_deref(),
+                                Some(expected)
+                            );
+                        } else {
+                            assert_eq!(app.selected, usize::from(expected == "lead"));
+                        }
                     }
                     // Left of the chip is the row, not the dropdown.
                     let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
@@ -5319,7 +5330,15 @@ fn narrow_headings_keep_leading_labels_whole_and_detail_carries_all_of_them() {
         for (members, home) in [(false, false), (true, false), (false, true)] {
             let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
             app.labels = supplied_chips(&["worker", "lead"]);
-            let target = app.row_target(0).unwrap();
+            let index = if home {
+                app.home_entries()
+                    .iter()
+                    .position(|entry| entry.target.member.as_deref() == Some("worker"))
+                    .unwrap()
+            } else {
+                0
+            };
+            let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
             let narrow = detail_text(&board_buffer(&app, 22, 30)).join("\n");
@@ -5403,7 +5422,15 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
     for (members, home) in [(false, false), (true, false), (false, true)] {
         crate::status::with_now_ms(1_000, || {
             let mut app = digest_app(members, home, 999999, 4_801_000, Default::default());
-            let target = app.row_target(0).unwrap();
+            let index = if home {
+                app.home_entries()
+                    .iter()
+                    .position(|entry| entry.target.member.is_some())
+                    .unwrap()
+            } else {
+                0
+            };
+            let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
             let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");

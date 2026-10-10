@@ -1,5 +1,4 @@
-//! The two one-line targets between the leads and the squads: the `→ all leads`
-//! audience line and the cron line. Each is one selectable row; the cron line's
+//! The two one-line targets: `→ all leads` after Leads, and cron after Squads. Each is one selectable row; the cron line's
 //! text comes from the cron projection, the audience line's from this module.
 use super::scene::{self, Kept, Key, Part};
 use crate::{board::app::App, board::view::fit, look::Look};
@@ -18,7 +17,7 @@ const FILE: &str = "squad.home.row.xml";
 /// An optional blank line, the row (its pieces, then a filler that carries the
 /// row's base style to the edge), and the lines reserved under it.
 const MARKUP: &str = r#"<tmt-view version="1">
-<tmt-repeat each="$.gap" as="gap"><tmt-text id="gap" class="w-full h-1"/></tmt-repeat>
+<tmt-repeat each="$.gap" as="gap"><tmt-text id="gap" bind="gap.text" token="muted" class="w-full h-1"/></tmt-repeat>
 <tmt-row id="line" class="w-full h-1">
 <tmt-repeat each="$.pieces" as="piece"><tmt-text id-bind="piece.id" bind="piece.text" token-bind="piece.role" class="shrink-0"/></tmt-repeat>
 <tmt-text id="fill" class="grow h-1"/>
@@ -40,7 +39,7 @@ fn template() -> &'static Template<()> {
         };
         let list = |item| Schema::Collection(Box::new(item));
         let schema = object(vec![
-            ("gap", list(object(vec![]))),
+            ("gap", list(object(vec![("text", Schema::Scalar)]))),
             (
                 "pieces",
                 list(object(vec![
@@ -103,7 +102,7 @@ pub(super) fn paint(
         look,
         selected: (index == app.selected).then(|| "row".to_owned()),
         data: json!({
-            "gap": if kind == Kind::Cron { vec![json!({})] } else { Vec::new() },
+            "gap": if kind == Kind::Cron { vec![json!({"text": scene::rule("", usize::from(area.width))})] } else { Vec::new() },
             "pieces": pieces.iter().enumerate().map(|(at, (text, role))| {
                 json!({"id": format!("p{at}"), "text": text, "role": role.name()})
             }).collect::<Vec<_>>(),

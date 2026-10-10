@@ -2106,6 +2106,10 @@ impl App {
         folds
     }
 
+    pub(super) fn body_width(&self) -> u16 {
+        self.body_width
+    }
+
     pub fn set_body_width(&mut self, width: u16) {
         self.body_width = width;
         self.restore_focus();

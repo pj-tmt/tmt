@@ -327,3 +327,19 @@ fn record_home_line_snapshots() {
     )
     .unwrap();
 }
+
+#[test]
+fn compact_home_prioritizes_the_next_time_and_owner_without_disclosing_job_text() {
+    let jobs = vec![view(
+        "tmt-lead",
+        "private instruction",
+        Some(NOW + 3_600_000),
+    )];
+    let state = state(cron(jobs, running()));
+    let shown = text(&state, 60);
+    assert!(
+        shown.starts_with("cron next ") && shown.ends_with("tmt-lead"),
+        "{shown}"
+    );
+    assert!(!shown.contains("private") && shown.width() <= 60);
+}

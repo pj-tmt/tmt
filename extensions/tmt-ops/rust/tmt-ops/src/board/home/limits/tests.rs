@@ -53,10 +53,12 @@ fn text(line: &Line<'_>) -> String {
     line.spans
         .iter()
         .map(|span| span.content.as_ref())
-        .collect()
+        .collect::<String>()
+        .trim_end()
+        .into()
 }
 
-fn painted(standings: Option<&[Standing]>, width: u16) -> Option<String> {
+fn painted(standings: Option<&[Standing]>, width: u16) -> Vec<String> {
     limits_in(
         &mut Kept::default(),
         standings,
@@ -64,136 +66,222 @@ fn painted(standings: Option<&[Standing]>, width: u16) -> Option<String> {
         width,
         crate::look::Look::default(),
     )
-    .map(|line| text(&line))
+    .iter()
+    .map(text)
+    .collect()
 }
 
 #[test]
-fn from_lg_both_windows_say_left_and_the_flag_is_in_words() {
-    // Claude's burn empties its week (44% at 2.1%/h is 21 h; 99 h remain).
-    assert_eq!(
-        painted(Some(&mock()), 140).unwrap(),
-        "Claude  7d 44% left · 4d03h · ~2.1%/h · runs out before reset   5h 97% left · 3h14m  │  Codex  7d 78% left · 2d10h · ~0.4%/h   5h –"
-    );
-}
-
-#[test]
-fn at_md_only_the_week_shows_and_the_warning_mark_leads_the_flag() {
-    let expected =
-        "Claude  7d 44% · 4d03h · ~2.1%/h ! before reset  │  Codex  7d 78% · 2d10h · ~0.4%/h";
-    for width in [100, 139] {
-        assert_eq!(painted(Some(&mock()), width).unwrap(), expected, "{width}");
+fn meters_follow_the_approved_widths_without_clipping_critical_values() {
+    for (width, count) in [(160, 1), (100, 2), (80, 2), (60, 2)] {
+        let lines = painted(Some(&mock()), width);
+        assert_eq!(lines.len(), count, "{width}");
+        let content = lines.join("\n");
+        for value in ["Claude 44%", "Codex 78%", "!", "~20h57m"] {
+            assert!(content.contains(value), "{width}: {content}");
+        }
+        assert!(lines.iter().all(|line| line.width() <= usize::from(width)));
+        assert_eq!(content.contains("~2.1%/h"), width == 100);
+        assert_eq!(content.contains("5h 97%"), width == 100);
+        assert_eq!(content.contains("4d03h"), width >= 80);
+        assert_eq!(content.contains("empties"), width >= 80);
+        assert_eq!(content.contains(" left"), width >= 100);
     }
 }
 
 #[test]
-fn nothing_is_painted_below_md() {
-    assert_eq!(painted(Some(&mock()), 99), None);
+fn missing_stale_and_reset_readings_say_so_without_historical_numbers() {
+    for observed in [3 * HOUR + 5 * MINUTE, 10 * MINUTE] {
+        let expired = observed == 10 * MINUTE;
+        let stale = reading(
+            observed,
+            window(44.0, if expired { 0 } else { 100 * HOUR }),
+            None,
+        );
+        let standings = vec![
+            standing(Provider::named("claude"), Some(stale), Some(2.1)),
+            standing(Provider::named("codex"), None, None),
+        ];
+        for width in [160, 100, 80, 60] {
+            let content = painted(Some(&standings), width).join("\n");
+            assert!(
+                content.contains(if expired {
+                    "no reading for 10m"
+                } else {
+                    "no reading for 3h"
+                }),
+                "{width}: {content}"
+            );
+            assert!(content.contains("no reading yet"));
+            assert!(!content.contains("44%") && !content.contains("2.1%"));
+        }
+    }
 }
 
 #[test]
-fn a_rate_appears_only_with_enough_samples_and_the_flag_only_when_it_runs_out() {
+fn no_rate_never_invents_a_countdown_and_zero_burn_is_named() {
     let mut standings = mock();
     standings[0].burn = None;
     standings[1].burn = Some(0.0);
-    standings[1].latest.as_mut().unwrap().weekly.left = 78.0;
-    assert_eq!(
-        painted(Some(&standings), 100).unwrap(),
-        "Claude  7d 44% · 4d03h  │  Codex  7d 78% · 2d10h · ~0.0%/h"
-    );
+    let content = painted(Some(&standings), 100).join("\n");
+    assert!(content.contains("rate not known"));
+    assert!(content.contains("no measured burn"));
+    assert!(content.contains("5h no reading"));
+    assert!(!content.contains("empties") && !content.contains("!"));
 }
 
 #[test]
-fn a_provider_without_a_current_reading_says_so_and_never_shows_a_number() {
-    let stale = reading(3 * HOUR + 5 * MINUTE, window(44.0, 100 * HOUR), None);
-    let standings = vec![
-        standing(Provider::named("claude"), Some(stale), Some(2.1)),
-        standing(Provider::named("codex"), None, None),
-    ];
-    for width in [100, 140] {
-        let row = painted(Some(&standings), width).unwrap();
-        assert_eq!(
-            row, "Claude  no reading for 3h  │  Codex  no reading yet",
-            "{width}"
+fn pending_and_no_providers_have_explicit_geometry() {
+    for width in [160, 100, 80, 60] {
+        assert_eq!(painted(None, width), vec![PENDING]);
+        assert!(painted(Some(&[]), width).is_empty());
+    }
+}
+
+#[test]
+fn fill_and_track_keep_their_roles_without_selection_even_in_light_and_no_color() {
+    use tmt_cli_style::{Theme, theme::Base};
+    for base in [Base::Tmt, Base::TmtLight] {
+        for depth in [Depth::TrueColor, Depth::None] {
+            let look = crate::look::Look {
+                theme: Theme::new(base),
+                depth,
+            };
+            let lines = limits_in(&mut Kept::default(), Some(&mock()), NOW, 80, look);
+            let fill = lines[0]
+                .spans
+                .iter()
+                .find(|span| span.style.add_modifier.contains(Modifier::REVERSED))
+                .unwrap();
+            assert_eq!(
+                fill.style.fg.unwrap_or(ratatui::style::Color::Reset),
+                look.role(Role::Waiting)
+                    .fg
+                    .unwrap_or(ratatui::style::Color::Reset)
+            );
+            let track = lines[0]
+                .spans
+                .iter()
+                .find(|span| {
+                    if depth == Depth::None {
+                        span.style.add_modifier.contains(Modifier::UNDERLINED)
+                    } else {
+                        span.style.bg == look.role(Role::Selection).bg
+                    }
+                })
+                .unwrap();
+            assert_eq!(
+                track.style.fg.unwrap_or(ratatui::style::Color::Reset),
+                look.role(Role::Text)
+                    .fg
+                    .unwrap_or(ratatui::style::Color::Reset)
+            );
+            assert!(!track.style.add_modifier.contains(Modifier::REVERSED));
+            assert!(text(&lines[0]).contains("! empties"));
+        }
+    }
+}
+
+#[test]
+fn positive_slivers_fill_one_cell_and_zero_fills_none() {
+    for percent in [0.0, 0.4, 44.0, 100.0] {
+        let mut standings = mock();
+        standings.truncate(1);
+        standings[0].latest.as_mut().unwrap().weekly.left = percent;
+        let lines = limits_in(
+            &mut Kept::default(),
+            Some(&standings),
+            NOW,
+            60,
+            crate::look::Look::default(),
         );
-        assert!(!row.contains("44"), "the old number is never quoted");
-    }
-}
-
-#[test]
-fn a_week_that_already_reset_is_not_quoted_even_when_the_sample_is_fresh() {
-    let reset = reading(10 * MINUTE, window(44.0, 0), None);
-    let standings = vec![standing(Provider::named("claude"), Some(reset), None)];
-    assert_eq!(
-        painted(Some(&standings), 100).unwrap(),
-        "Claude  no reading for 10m"
-    );
-}
-
-#[test]
-fn before_the_first_sample_a_placeholder_holds_the_row() {
-    assert_eq!(painted(None, 100).unwrap(), PENDING);
-    assert_eq!(painted(None, 140).unwrap(), PENDING);
-}
-
-#[test]
-fn a_board_with_no_provider_shows_no_row() {
-    assert_eq!(painted(Some(&[]), 140), None);
-}
-
-#[test]
-fn reset_and_age_use_the_footers_whole_units() {
-    for (ms, expected) in [
-        (0, "0m"),
-        (59_999, "0m"),
-        (45 * MINUTE, "45m"),
-        (60 * MINUTE, "1h00m"),
-        (194 * MINUTE, "3h14m"),
-        (24 * HOUR, "1d00h"),
-        (5940 * MINUTE, "4d03h"),
-    ] {
-        assert_eq!(reset(ms), expected, "{ms}");
-    }
-    for (ms, expected) in [
-        (0, "0m"),
-        (59 * MINUTE, "59m"),
-        (HOUR, "1h"),
-        (23 * HOUR + 59 * MINUTE, "23h"),
-        (48 * HOUR, "2d"),
-    ] {
-        assert_eq!(age(ms), expected, "{ms}");
-    }
-}
-
-#[test]
-fn percent_is_rounded_and_a_sliver_is_never_shown_as_zero() {
-    for (value, expected) in [
-        (0.0, "0%"),
-        (0.4, "<1%"),
-        (1.0, "1%"),
-        (44.0, "44%"),
-        (97.4, "97%"),
-        (100.0, "100%"),
-    ] {
-        assert_eq!(percent(value), expected, "{value}");
-    }
-}
-
-#[test]
-fn the_warning_and_the_labels_take_their_roles() {
-    let look = crate::look::Look::default();
-    let line = limits_in(&mut Kept::default(), Some(&mock()), NOW, 140, look).unwrap();
-    let style_of = |needle: &str| {
-        line.spans
+        let filled: usize = lines[0]
+            .spans
             .iter()
-            .find(|span| span.content.contains(needle))
-            .unwrap_or_else(|| panic!("no span with {needle:?}"))
-            .style
-            .fg
-    };
-    assert_eq!(
-        style_of("runs out before reset"),
-        look.role(Role::Waiting).fg
+            .filter(|span| span.style.add_modifier.contains(Modifier::REVERSED))
+            .map(|span| span.content.width())
+            .sum();
+        let expected = match percent {
+            0.0 => 0,
+            0.4 => 1,
+            44.0 => 7,
+            _ => 16,
+        };
+        assert_eq!(filled, expected, "{percent}");
+        let expected_label = if percent == 0.4 {
+            "<1%".into()
+        } else {
+            format!("{percent:.0}%")
+        };
+        assert!(text(&lines[0]).contains(&expected_label));
+    }
+}
+
+#[test]
+fn labels_shorten_before_percentage_and_reset_and_cache_matches_fresh() {
+    let mut standings = mock();
+    standings[0].provider = Provider::named("longprovider");
+    let mut slot = Kept::default();
+    for width in [160, 100, 80, 60] {
+        let look = crate::look::Look::default();
+        let lines = limits_in(&mut slot, Some(&standings), NOW, width, look);
+        assert_eq!(
+            lines,
+            limits_in(&mut Kept::default(), Some(&standings), NOW, width, look)
+        );
+        let built = slot.builds;
+        assert_eq!(
+            lines,
+            limits_in(&mut slot, Some(&standings), NOW, width, look)
+        );
+        assert_eq!(slot.builds, built);
+        let content = lines.iter().map(text).collect::<Vec<_>>().join("\n");
+        assert!(content.contains("44%"));
+        assert!(content.contains("~20h57m"));
+        if width >= 80 {
+            assert!(content.contains("4d03h"));
+        }
+    }
+}
+
+#[test]
+fn reset_and_percent_preserve_the_actual_units() {
+    assert_eq!(reset(5940 * MINUTE), "4d03h");
+    assert_eq!(reset(194 * MINUTE), "3h14m");
+    assert_eq!(reset(45 * MINUTE), "45m");
+    assert_eq!(percent(0.4), "<1%");
+    assert_eq!(percent(0.0), "0%");
+}
+
+#[test]
+fn overview_detail_contains_only_the_values_hidden_at_each_width() {
+    let standings = mock();
+    for width in [160, 100, 80, 60] {
+        let hidden = hidden_limits(&standings, NOW, width);
+        let detail = hidden
+            .iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert_eq!(
+            detail.contains("~2.1%/h"),
+            width != 100,
+            "{width}: {detail}"
+        );
+        assert_eq!(detail.contains("5h 97%"), width != 100, "{width}: {detail}");
+        assert_eq!(detail.contains("4d03h"), width == 60, "{width}: {detail}");
+        assert!(!hidden.iter().any(|(label, _)| *label == "provider"));
+        assert!(
+            !detail.contains("44%"),
+            "the visible weekly reading is never repeated"
+        );
+    }
+    let mut long = standings[0].clone();
+    long.provider = Provider::named("longprovider");
+    let hidden = hidden_limits(&[long], NOW, 60);
+    assert!(
+        hidden
+            .iter()
+            .any(|(label, text)| *label == "provider" && text == "Longprovider")
     );
-    assert_eq!(style_of("Claude"), look.role(Role::Text).fg);
-    assert_ne!(look.role(Role::Waiting).fg, look.role(Role::Text).fg);
 }

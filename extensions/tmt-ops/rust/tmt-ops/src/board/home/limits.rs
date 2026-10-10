@@ -1,24 +1,21 @@
-//! The provider-limits strip under the HOME usage line: per provider the weekly
-//! and short window as the share left and the time to reset, the estimated burn
-//! of the week and whether it empties the week before it resets. A provider
-//! without a current reading says so in words and never shows an old number.
-//! Built like the other HOME strips: the `lg` and `md` steps are a
-//! `tmt-switch`, and what each shows is assembled here.
-use super::{
-    bar::{self, Piece},
-    scene::{self, Kept, Key},
-};
+//! HOME's provider meters, derived only from its already-held observations.
+//! Labels are inside reverse-filled bars; warnings remain outside. The neutral
+//! track is never a cursor row. Width branches share one admitted scene owner.
+use super::scene::{self, Kept, Key, Part};
 use crate::{
-    board::limits::{Figures, Left, Outlook, Standing},
+    board::{
+        limits::{Figures, Outlook, Standing},
+        view::fit,
+    },
     look::Look,
 };
-use ratatui::text::Line;
-use std::sync::OnceLock;
-use tmt_cli_style::Role;
-use tmt_tui::binding::Template;
+use ratatui::{style::Modifier, text::Line};
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, sync::OnceLock};
+use tmt_cli_style::{Depth, Role, grid::Align};
+use tmt_tui::binding::{Schema, Template};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// Shown from the first frame until the worker's first sample arrives, so the
-/// strip's row never appears late and moves the body.
 pub(crate) const PENDING: &str = "Updating limits…";
 
 const MINUTE_MS: u64 = 60_000;
@@ -52,99 +49,312 @@ fn percent(value: f64) -> String {
     }
 }
 
-fn window(label: &str, left: &Left, wide: bool) -> String {
+#[derive(Clone, Copy)]
+enum Size {
+    Full,
+    Medium,
+    Short,
+}
+
+fn state(figures: &Figures) -> Role {
+    if figures.empties_soon() {
+        Role::Blocked
+    } else if figures.runs_out_before_reset {
+        Role::Waiting
+    } else {
+        Role::Working
+    }
+}
+
+fn warning(figures: &Figures, short: bool) -> String {
+    if !figures.runs_out_before_reset {
+        return String::new();
+    }
+    let Some(ms) = figures.empties_in_ms() else {
+        return String::new();
+    };
     format!(
-        "{label} {}{} · {}",
-        percent(left.percent),
-        if wide { " left" } else { "" },
-        reset(left.resets_in_ms)
+        " {} {}~{}",
+        if figures.empties_soon() { "✗" } else { "!" },
+        if short { "" } else { "empties " },
+        reset(ms)
     )
 }
 
-fn figures(figures: &Figures, wide: bool) -> Vec<Piece> {
-    let mut pieces = vec![(window("7d", &figures.weekly, wide), Some(Role::Text))];
-    if let Some(burn) = figures.burn {
-        pieces.push((format!(" · ~{burn:.1}%/h"), Some(Role::Text)));
-    }
-    if figures.runs_out_before_reset {
-        // Words, never colour alone; the registered warning mark leads at `md`.
-        let text = if wide {
-            " · runs out before reset"
+fn piece(id: &str, text: String, role: Role) -> Value {
+    json!({"id": id, "text": text, "role": role.name()})
+}
+
+/// Split at a display-cell boundary without splitting a wide character or
+/// detaching its combining marks. Both pieces retain the complete inside label.
+fn split_label(label: &str, fill: usize) -> (String, String) {
+    let mut filled = String::new();
+    let mut track = String::new();
+    let mut cells = 0;
+    for ch in label.chars() {
+        let width = ch.width().unwrap_or(0);
+        if cells < fill || (width == 0 && track.is_empty()) {
+            filled.push(ch);
         } else {
-            " ! before reset"
-        };
-        pieces.push((text.into(), Some(Role::Waiting)));
+            track.push(ch);
+        }
+        cells += width;
     }
-    if wide {
-        pieces.push((
-            match &figures.short {
-                Some(short) => format!("   {}", window("5h", short, wide)),
-                None => "   5h –".into(),
+    (filled, track)
+}
+
+fn rate_text(figures: &Figures) -> String {
+    figures.burn.map_or_else(
+        || "rate not known".into(),
+        |rate| {
+            if rate == 0.0 {
+                "no measured burn".into()
+            } else {
+                format!("~{rate:.1}%/h")
+            }
+        },
+    )
+}
+
+fn window_text(figures: &Figures) -> String {
+    figures.short.map_or_else(
+        || "5h no reading".into(),
+        |left| format!("5h {}", percent(left.percent)),
+    )
+}
+
+fn meter(
+    standing: &Standing,
+    now_ms: u64,
+    width: u16,
+    size: Size,
+    show_detail: bool,
+) -> Vec<Value> {
+    let provider = standing.provider.label();
+    let figures = match standing.outlook(now_ms) {
+        Outlook::Known(figures) => figures,
+        Outlook::Unknown { age_ms } => {
+            let words = age_ms.map_or_else(
+                || "no reading yet".into(),
+                |ms| format!("no reading for {}", age(ms)),
+            );
+            return vec![piece(
+                "missing",
+                fit(&format!("{provider}  {words}"), usize::from(width))
+                    .trim_end()
+                    .into(),
+                Role::Muted,
+            )];
+        }
+    };
+    let short = matches!(size, Size::Short);
+    let warning = warning(&figures, short);
+    let preferred = match size {
+        Size::Full => 34,
+        Size::Medium => 26,
+        Size::Short => 16,
+    };
+    let cells = preferred.min(usize::from(width).saturating_sub(warning.width()));
+    let critical = if short {
+        format!(" {} ", percent(figures.weekly.percent))
+    } else {
+        format!(
+            " {}{} · {} ",
+            percent(figures.weekly.percent),
+            if matches!(size, Size::Full) {
+                " left"
+            } else {
+                ""
             },
-            Some(Role::Text),
-        ));
+            reset(figures.weekly.resets_in_ms)
+        )
+    };
+    let name = fit(&provider, cells.saturating_sub(critical.width() + 1));
+    let label = fit(&format!(" {}{critical}", name.trim_end()), cells);
+    let fill = ((cells as f64 * figures.weekly.percent / 100.0).round() as usize)
+        .max(usize::from(figures.weekly.percent > 0.0))
+        .min(cells);
+    let (filled, track) = split_label(&label, fill);
+    let mut pieces = vec![
+        piece("filled", filled, state(&figures)),
+        piece("track", track, Role::Text),
+    ];
+    if !warning.is_empty() {
+        pieces.push(piece("warning", warning, state(&figures)));
+    }
+    if matches!(size, Size::Full) && show_detail {
+        let rate = rate_text(&figures);
+        let window = window_text(&figures);
+        let extra = format!("   {rate} · {window}");
+        let used: usize = pieces
+            .iter()
+            .map(|piece| piece["text"].as_str().unwrap().width())
+            .sum();
+        if used + extra.width() <= usize::from(width) {
+            pieces.push(piece("detail", extra, Role::Muted));
+        }
     }
     pieces
 }
 
-fn strip(standings: &[Standing], now_ms: u64, wide: bool) -> Vec<Piece> {
-    let mut pieces = Vec::new();
-    for (i, standing) in standings.iter().enumerate() {
-        if i > 0 {
-            pieces.push(("  │  ".into(), Some(Role::Dim)));
-        }
-        pieces.push((format!("{}  ", standing.provider.label()), Some(Role::Text)));
-        match standing.outlook(now_ms) {
-            Outlook::Known(known) => pieces.extend(figures(&known, wide)),
-            Outlook::Unknown { age_ms: None } => {
-                pieces.push(("no reading yet".into(), Some(Role::Muted)));
+fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16, size: Size) -> Value {
+    let Some(standings) = standings else {
+        return json!([{"id":"pending", "pieces":[piece("missing", PENDING.into(), Role::Muted)]}]);
+    };
+    let mut rows = Vec::new();
+    let group = if width >= super::WIDE { 2 } else { 1 };
+    for (index, chunk) in standings.chunks(group).enumerate() {
+        let mut pieces = Vec::new();
+        for (at, standing) in chunk.iter().enumerate() {
+            if at > 0 {
+                pieces.push(piece(&format!("gap{at}"), "       ".into(), Role::Dim));
             }
-            Outlook::Unknown { age_ms: Some(ms) } => {
-                pieces.push((format!("no reading for {}", age(ms)), Some(Role::Muted)));
+            let available = if group == 2 {
+                width.saturating_sub(7) / 2
+            } else {
+                width
+            };
+            for mut part in meter(
+                standing,
+                now_ms,
+                available,
+                size,
+                (super::MD.cells..super::WIDE).contains(&width),
+            ) {
+                let id = part["id"].as_str().unwrap();
+                part["id"] = Value::String(format!("{id}{at}"));
+                pieces.push(part);
             }
         }
+        rows.push(json!({"id":format!("provider{index}"), "pieces": pieces}));
     }
-    pieces
+    Value::Array(rows)
 }
 
-/// The strip for `md` and wider, painted again only when its key changed.
-/// `None` for a board that has no provider to show.
+/// Hidden values use the same projection/budget as the meter, so detail never
+/// repeats a rate/window/label that already survives in the current strip.
+pub(in crate::board) fn hidden_limits(
+    standings: &[Standing],
+    now_ms: u64,
+    width: u16,
+) -> Vec<(&'static str, String)> {
+    let size = if width >= super::MD.cells {
+        Size::Full
+    } else if width >= super::SM.cells {
+        Size::Medium
+    } else {
+        Size::Short
+    };
+    let available = if width >= super::WIDE {
+        width.saturating_sub(7) / 2
+    } else {
+        width
+    };
+    let mut fields = Vec::new();
+    for standing in standings {
+        let provider = standing.provider.label();
+        let parts = meter(
+            standing,
+            now_ms,
+            available,
+            size,
+            (super::MD.cells..super::WIDE).contains(&width),
+        );
+        let shown = parts
+            .iter()
+            .map(|part| part["text"].as_str().unwrap())
+            .collect::<String>();
+        let label = parts
+            .iter()
+            .filter(|part| matches!(part["id"].as_str(), Some("filled" | "track")))
+            .map(|part| part["text"].as_str().unwrap())
+            .collect::<String>();
+        if !label.contains(&provider) {
+            fields.push(("provider", provider.clone()));
+        }
+        let Outlook::Known(figures) = standing.outlook(now_ms) else {
+            continue;
+        };
+        let reset = reset(figures.weekly.resets_in_ms);
+        if !label.contains(&reset) {
+            fields.push(("reset", format!("{provider} {reset}")));
+        }
+        let rate = rate_text(&figures);
+        if !shown.contains(&rate) {
+            fields.push(("rate", format!("{provider} {rate}")));
+        }
+        let short = window_text(&figures);
+        if !shown.contains(&short) {
+            fields.push(("window", format!("{provider} {short}")));
+        }
+    }
+    fields
+}
+
+fn branch(name: &str) -> String {
+    format!(
+        r#"<tmt-repeat each="$.{name}" as="row"><tmt-row id-bind="row.id" class="w-full h-1"><tmt-repeat each="row.pieces" as="piece"><tmt-text id-bind="piece.id" bind="piece.text" token-bind="piece.role" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat>"#
+    )
+}
+
 pub(super) fn limits_in(
-    slot: &mut Kept<Option<Line<'static>>>,
+    slot: &mut Kept<Vec<Line<'static>>>,
     standings: Option<&[Standing]>,
     now_ms: u64,
     width: u16,
     look: Look,
-) -> Option<Line<'static>> {
+) -> Vec<Line<'static>> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.limits.xml";
     let template = TEMPLATE.get_or_init(|| {
-        let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="lg">{}</tmt-case><tmt-case min="md">{}</tmt-case><tmt-default/></tmt-switch></tmt-view>"#,
-            bar::row("wide"),
-            bar::row("medium")
-        );
-        scene::compile(FILE, &markup, &bar::schema(&["wide", "medium"]))
+        let piece = Schema::Object(BTreeMap::from([
+            ("id".into(), Schema::StableId), ("text".into(), Schema::Scalar), ("role".into(), Schema::Scalar)]));
+        let row = Schema::Object(BTreeMap::from([
+            ("id".into(), Schema::StableId), ("pieces".into(), Schema::Collection(Box::new(piece)))]));
+        let schema = Schema::Object(["medium", "compact", "narrow"].into_iter()
+            .map(|name| (name.into(), Schema::Collection(Box::new(row.clone())))).collect());
+        let markup = format!(r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-case min="sm">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
+            branch("medium"), branch("compact"), branch("narrow"));
+        scene::compile(FILE, &markup, &schema)
     });
-    let (wide, medium) = match standings {
-        None => {
-            let pending = vec![(PENDING.to_owned(), Some(Role::Muted))];
-            (pending.clone(), pending)
-        }
-        Some([]) => return None,
-        Some(standings) => (
-            strip(standings, now_ms, true),
-            strip(standings, now_ms, false),
-        ),
-    };
     let key = Key {
         width,
         look,
         selected: None,
-        data: bar::data(&[("wide", wide), ("medium", medium)]),
+        data: json!({
+            "medium":rows(standings, now_ms, width, Size::Full),
+            "compact":rows(standings, now_ms, width, Size::Medium),
+            "narrow":rows(standings, now_ms, width, Size::Short),
+        }),
     };
-    slot.get(key, |key| bar::lines(bar::paint(key, FILE, template)))
-        .clone()
+    slot.get(key, |key| {
+        scene::paint(
+            FILE,
+            template,
+            &key.data,
+            key.width,
+            &mut |Part { id, role, .. }| {
+                let id = id
+                    .and_then(<[String]>::last)
+                    .map(String::as_str)
+                    .unwrap_or("");
+                let style = if id.starts_with("filled") {
+                    look.role(role).add_modifier(Modifier::REVERSED)
+                } else if id.starts_with("track") {
+                    if look.depth == Depth::None {
+                        look.role(Role::Text).add_modifier(Modifier::UNDERLINED)
+                    } else {
+                        look.role(Role::Text).patch(look.role(Role::Selection))
+                    }
+                } else {
+                    look.role(role)
+                };
+                (style, Align::Left)
+            },
+        )
+        .lines
+    })
+    .clone()
 }
 
 #[cfg(test)]

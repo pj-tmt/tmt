@@ -49,9 +49,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         .and_then(|(usage, _view)| {
             super::home::usage_of(app, &usage, frame.area().width, app.look())
         });
-    let home_limits = (!app.loading())
-        .then(|| super::home::limits_of(app, frame.area().width, app.look()))
-        .flatten();
+    let home_limits = if app.loading() {
+        Vec::new()
+    } else {
+        super::home::limits_of(app, frame.area().width, app.look())
+    };
     render_frame(frame, app, home_usage, home_limits);
     app.home_counters.borrow_mut().finish(
         app.input_band.get(),
@@ -68,25 +70,33 @@ pub fn render(frame: &mut Frame, app: &App) {
 /// Resolve transient folds before the existing manual-fold focus reconciliation.
 pub(super) fn prepare(app: &mut App, area: Rect) {
     if app.cached_display().is_none() {
-        let body = bands(app, area, false, false)[4];
+        let body = bands(app, area, false, 0)[5];
         panes::prepare(app, body);
     }
     app.set_body_width(area.width);
 }
 
-fn bands(app: &App, area: Rect, has_usage: bool, has_limits: bool) -> [Rect; 6] {
+fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
     let home_history_pending = !app.loading()
         && app
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
+    let overview = !app.loading()
+        && app
+            .home_entries()
+            .iter()
+            .any(|entry| entry.target.section == super::home::USAGE);
     Layout::vertical([
         Constraint::Length(1),
-        Constraint::Length(1),
         Constraint::Length(u16::from(
-            header::meter_enabled(app) || has_usage || home_history_pending,
+            app.view.as_ref().is_some_and(|view| view.home.is_some()),
         )),
-        Constraint::Length(u16::from(has_limits)),
+        Constraint::Length(1),
+        Constraint::Length(limit_rows),
+        Constraint::Length(u16::from(
+            header::meter_enabled(app) || has_usage || home_history_pending || overview,
+        )),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -98,7 +108,7 @@ pub(in crate::board) fn render_frame(
     frame: &mut Frame,
     app: &App,
     home_usage: Option<ratatui::text::Line<'static>>,
-    home_limits: Option<ratatui::text::Line<'static>>,
+    home_limits: Vec<ratatui::text::Line<'static>>,
 ) {
     let look = app.look();
     app.input_band.set(None);
@@ -117,18 +127,35 @@ pub(in crate::board) fn render_frame(
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
+    let overview = (!app.loading())
+        .then(|| {
+            app.home_entries()
+                .iter()
+                .position(|entry| entry.target.section == super::home::USAGE)
+        })
+        .flatten();
     let home_history_pending = !app.loading()
         && app
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let [tabs, summary, meter_status, limits, body, footer] = bands(
+    let [tabs, boundary, summary, limits, meter_status, body, footer] = bands(
         app,
         frame.area(),
         home_usage.is_some(),
-        home_limits.is_some(),
+        home_limits.len().min(usize::from(u16::MAX)) as u16,
     );
     strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
+    if boundary.height > 0 {
+        strip::paint_left(
+            frame.buffer_mut(),
+            boundary,
+            ratatui::text::Line::styled(
+                scene::rule("", usize::from(boundary.width)),
+                look.role(tmt_cli_style::Role::Dim),
+            ),
+        );
+    }
     let summary_text = app
         .view
         .as_ref()
@@ -148,18 +175,49 @@ pub(in crate::board) fn render_frame(
     }
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
-    if home_history_pending {
-        strip::paint_left(
-            frame.buffer_mut(),
-            meter_status,
-            ratatui::text::Line::styled("Updating usage…", look.role(tmt_cli_style::Role::Muted)),
-        );
-    } else if let Some(line) = home_usage {
+    let usage = if home_history_pending {
+        Some(ratatui::text::Line::styled(
+            "Updating usage…",
+            look.role(tmt_cli_style::Role::Muted),
+        ))
+    } else {
+        home_usage.or_else(|| {
+            overview.map(|_| {
+                ratatui::text::Line::styled(
+                    "Usage no reading",
+                    look.role(tmt_cli_style::Role::Muted),
+                )
+            })
+        })
+    };
+    if let Some(mut line) = usage {
         app.home_counters.borrow_mut().place_header(meter_status);
+        if overview == Some(app.selected) {
+            let unused = usize::from(meter_status.width).saturating_sub(line.width());
+            line.spans
+                .push(ratatui::text::Span::raw(" ".repeat(unused)));
+            line.style = look.selection();
+        }
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
-    if let Some(line) = home_limits {
-        strip::paint_left(frame.buffer_mut(), limits, line);
+    if let Some(row) = overview.filter(|_| meter_status.height > 0) {
+        app.hits.borrow_mut().push(super::app::Hit {
+            y: meter_status.y,
+            x: meter_status.x,
+            width: meter_status.width,
+            target: super::app::HitTarget::Row(row),
+        });
+    }
+    for (offset, line) in home_limits
+        .into_iter()
+        .enumerate()
+        .take(usize::from(limits.height))
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            ratatui::layout::Rect::new(limits.x, limits.y + offset as u16, limits.width, 1),
+            line,
+        );
     }
     match app.cached_display() {
         Some(display) => cached::body(frame, app, display, body),

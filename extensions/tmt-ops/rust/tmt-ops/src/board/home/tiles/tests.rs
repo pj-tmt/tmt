@@ -57,7 +57,7 @@ fn other_members_keep_the_marks_row_informative_without_inventing_a_state() {
 }
 
 #[test]
-fn compact_unknown_models_keep_a_gap_before_member_marks() {
+fn models_are_available_in_detail_without_crowding_the_squad_row() {
     let squad = squad("squad");
     let counts = members();
     let item = TileItem {
@@ -66,10 +66,14 @@ fn compact_unknown_models_keep_a_gap_before_member_marks() {
         lead_model: Some("unfamiliar-model-123"),
         usage: None,
     };
-    for width in [80, 99] {
+    for width in [160, 100, 80, 60] {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
-        let line = painted.lines[0].to_string();
-        assert!(line.contains("unfamil… ◆ "), "{line}");
+        assert!(!painted.lines[0].to_string().contains("unfamil"));
+        assert!(
+            hidden_squad(&item, width)
+                .iter()
+                .any(|(label, text)| *label == "model" && text == "unfamiliar-model-123")
+        );
         assert_eq!(painted.lines[0].width(), usize::from(width));
     }
 }
@@ -96,11 +100,20 @@ fn large_partial_token_values_keep_a_guaranteed_gap_and_short_models() {
     for width in [80, 100, 113, 160, 200] {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
+        assert!(!output.contains("opus"), "{output}");
         assert!(
-            output.contains("opus") && !output.contains("claude"),
+            output.contains("~12.4M") && output.contains("~38%"),
             "{output}"
         );
-        assert!(output.contains("~3.7M ~12.4M"), "{output}");
+        let detail = hidden_squad(&item, width)
+            .iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert!(
+            detail.contains("~3.7M") && detail.contains("opus"),
+            "{detail}"
+        );
         assert!(
             painted
                 .lines
@@ -167,8 +180,13 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
     for width in [160, 100, 80] {
         let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
-        assert!(output.contains("◆ ✗ ✗ ◐ ● ◌ "));
-        assert!(output.contains("6 members"));
+        assert!(output.contains("◆"), "{output}");
+        let detail = hidden_squad(&item, width)
+            .iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert!(detail.contains("blocked"), "{detail}");
         assert!(!output.contains("private"));
         assert!(
             painted
@@ -320,8 +338,17 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
     };
     let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None);
     let line = text(&painted.lines)[0].clone();
-    assert!(line.contains("gpt"));
-    assert!(line.contains("      0    ~8k   ~38%"), "{line}");
+    assert!(!line.contains("gpt"));
+    assert!(line.contains("~8k") && line.contains("~38%"), "{line}");
+    let hidden = hidden_squad(&item, 160)
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    assert!(
+        hidden.contains("0") && hidden.contains("no reading") && hidden.contains("gpt"),
+        "{hidden}"
+    );
     assert!(
         !line.contains('–'),
         "unobserved column is not admitted: {line}"
@@ -348,138 +375,66 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
 }
 
 #[test]
-fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
-    let squads = [squad("off"), squad("on"), squad("other")];
+fn disabled_sampling_hides_values_but_preserves_observed_model_in_detail() {
+    let squad = squad("off");
     let counts = members();
-    let mut items = vec![TileItem {
-        squad: &squads[0],
+    let item = TileItem {
+        squad: &squad,
         members: &counts,
-        lead_model: None,
+        lead_model: Some("off-model"),
         usage: None,
-    }];
-    for width in [160, 100, 80] {
-        assert_eq!(
-            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
-            ""
-        );
-        let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
-        assert!(output.contains("lead") && output.contains("6 members"));
+    };
+    for width in [160, 100, 80, 60] {
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
+        let output = text(&painted.lines).join("\n");
+        assert!(!output.contains('–') && !output.contains("tok"));
+        assert!(!text(&painted.head).join("\n").contains("tok"));
         assert!(
-            !output.contains('–'),
-            "disabled sampling invents no missing cells: {output}"
-        );
-    }
-    items[0].lead_model = Some("off-model");
-    for width in [160, 100, 80] {
-        let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
-        assert!(
-            output.contains("off-mod…"),
-            "observed model survives sampling off: {output}"
-        );
-        assert!(!output.contains('–'));
-    }
-    let windows = [
-        TokenWindow::FIVE_MINUTES,
-        TokenWindow::HOUR,
-        TokenWindow::parse("24h").unwrap(),
-    ];
-    items.push(TileItem {
-        squad: &squads[1],
-        members: &counts,
-        lead_model: None,
-        usage: Some(usage(windows)),
-    });
-    for width in [160, 100, 80] {
-        assert!(
-            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells).contains("24h")
-        );
-        assert!(
-            !legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells).contains("vary")
-        );
-        let output = paint(&items, width, Look::default(), None);
-        let off = &output.regions[0];
-        for line in &output.lines[off.lines.clone()] {
-            let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
-            terminal
-                .draw(|frame| frame.render_widget(Paragraph::new(line.clone()), frame.area()))
-                .unwrap();
-            let cells = &terminal.backend().buffer().content;
-            let off_text = cells[usize::from(off.x)..usize::from(off.x + off.width)]
+            hidden_squad(&item, width)
                 .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>();
-            assert!(
-                !off_text.contains('–') && !off_text.contains("3k"),
-                "{off_text}"
-            );
-        }
+                .any(|(label, value)| *label == "model" && value == "off-model")
+        );
     }
-    items.push(TileItem {
-        squad: &squads[2],
-        members: &counts,
-        lead_model: None,
-        usage: Some(usage(TokenWindow::DEFAULTS)),
-    });
-    assert_eq!(
-        legend(&items, 160, 160 >= tmt_cli_style::breakpoint::MD.cells),
-        "lead tokens · windows vary"
-    );
 }
 
 #[test]
-fn sampling_without_observations_hides_the_legend_and_keeps_one_aligned_dash() {
-    let squads = [squad("off"), squad("missing"), squad("on")];
+fn sampled_missing_values_keep_one_aligned_dash_without_inventing_zero() {
+    let squads = [squad("missing"), squad("on")];
     let counts = members();
-    let missing = HomeUsage {
-        lead_model: Some("luna"),
-        windows: TokenWindow::DEFAULTS,
-        lead: [None; 3],
-        squad: [None; 3],
-        share: None,
-    };
-    let mut items = vec![
+    let mut missing = usage(TokenWindow::DEFAULTS);
+    missing.lead = [None; 3];
+    missing.share = None;
+    let items = [
         TileItem {
             squad: &squads[0],
             members: &counts,
-            lead_model: Some("opus"),
-            usage: None,
+            lead_model: None,
+            usage: Some(missing),
         },
         TileItem {
             squad: &squads[1],
             members: &counts,
             lead_model: None,
-            usage: Some(missing),
+            usage: Some(usage(TokenWindow::DEFAULTS)),
         },
     ];
-    for width in [80, 100, 113, 160, 200] {
-        assert_eq!(
-            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
-            ""
+    for width in [160, 100, 80, 60] {
+        let output = text(&paint(&items, width, Look::default(), None).lines);
+        let dash = output[0].find('–').unwrap();
+        let end = output[1].find("3k").unwrap() + 1;
+        assert_eq!(dash, end, "{width}: {output:?}");
+        assert_eq!(output[0].matches('–').count(), 1);
+        assert!(!output[0].contains('0'));
+        assert!(
+            hidden_squad(&items[0], width)
+                .iter()
+                .any(|(_, text)| text.contains("no reading"))
         );
-        let output = text(&paint(&items, width, Look::default(), None).lines);
-        assert!(!output[0].contains('–'));
-        assert_eq!(output[1].matches('–').count(), 1);
-        assert!(output[1].find('–').unwrap() > output[1].find("members").unwrap());
-    }
-    items.push(TileItem {
-        squad: &squads[2],
-        members: &counts,
-        lead_model: None,
-        usage: Some(usage(TokenWindow::DEFAULTS)),
-    });
-    for width in [80, 100, 113, 160, 200] {
-        let output = text(&paint(&items, width, Look::default(), None).lines);
-        let dash = output[1].find('–').unwrap();
-        let first = if width < 100 { "2k" } else { "1k" };
-        let end = output[2].find(first).unwrap() + first.len() - 1;
-        assert_eq!(dash, end, "{output:?}");
-        assert_eq!(output[1].matches('–').count(), 1);
-        assert!(!output[0].contains('–'));
     }
 }
 
 #[test]
-fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
+fn uniform_window_labels_live_in_the_header_with_hidden_short_windows_in_detail() {
     let squad = squad("squad");
     let counts = members();
     let windows = [
@@ -493,23 +448,20 @@ fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
         lead_model: None,
         usage: Some(usage(windows)),
     };
-    for width in [160, 100, 80] {
-        let items = std::slice::from_ref(&item);
-        let label = legend(items, width, width >= tmt_cli_style::breakpoint::MD.cells);
-        assert_eq!(
-            label,
-            match width {
-                160 => "lead tokens · 5m · 1h · 24h · share (24h)",
-                100 => "lead tokens · 5m · 1h · 24h · share (24h)",
-                _ => "lead tokens · 1h · 24h",
-            }
-        );
-        let painted = text(&paint(items, width, Look::default(), None).lines).join("\n");
-        assert!(painted.contains("2k"));
-        assert!(painted.contains("3k"));
-        assert_eq!(painted.contains("1k"), width >= 100);
-        assert!(!painted.contains("1h"));
-        assert!(!painted.contains("24h"));
+    for width in [160, 100, 80, 60] {
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
+        let heading = text(&painted.head).join("\n");
+        assert_eq!(heading.contains("24h"), width >= 80, "{heading}");
+        assert_eq!(heading.contains("lead %"), width >= 80);
+        let row = text(&painted.lines).join("\n");
+        assert!(row.contains("3k") && row.contains("~38%"));
+        assert!(!row.contains("2k") && !row.contains("1k"));
+        let detail = hidden_squad(&item, width)
+            .iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        assert!(detail.contains("5m") && detail.contains("1h"), "{detail}");
     }
 }
 
@@ -536,18 +488,14 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
         },
     ];
     for width in [160, 100, 80] {
-        assert_eq!(
-            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
-            "lead tokens · windows vary"
-        );
         let painted = paint(&items, width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
-        assert!(output.contains("5m:2k"), "{output}");
+        assert!(!output.contains("5m:2k"), "{output}");
         assert!(output.contains("1h:3k"), "{output}");
-        assert!(output.contains("1h:2k"), "{output}");
+        assert!(!output.contains("1h:2k"), "{output}");
         assert!(output.contains("24h:3k"), "{output}");
-        assert_eq!(output.contains("1h:~38%"), width >= 100, "{output}");
-        assert_eq!(output.contains("24h:~38%"), width >= 100, "{output}");
+        assert!(output.contains("1h:~38%"), "{output}");
+        assert!(output.contains("24h:~38%"), "{output}");
         assert_eq!(
             painted
                 .regions
@@ -577,9 +525,47 @@ fn oversized_compact_totals_cannot_hide_the_next_window() {
         lead_model: None,
         usage: Some(usage),
     };
-    let painted = paint(&[item], 80, Look::default(), None);
+    let painted = paint(std::slice::from_ref(&item), 80, Look::default(), None);
     let output = text(&painted.lines).join("");
-    assert!(output.trim_end().ends_with("    3k"), "{output}");
-    assert!(output.contains('…'));
+    assert!(output.contains("3k") && output.contains("~38%"), "{output}");
+    let detail = hidden_squad(&item, 80)
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    assert!(detail.contains("5m"));
     assert_eq!(painted.lines[0].width(), 80);
+}
+
+#[test]
+fn roomy_member_cell_keeps_marks_and_other_member_label_without_truncation() {
+    let squad = squad("fixture");
+    let counts = Counts {
+        members: 20,
+        waiting: 2,
+        blocked: 1,
+        ..Default::default()
+    };
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        lead_model: None,
+        usage: Some(usage(TokenWindow::DEFAULTS)),
+    };
+    let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None);
+    let line = text(&painted.lines)[0].clone();
+    assert!(line.contains("17 other · 20 members"), "{line}");
+    assert!(line.contains("◆ ◆ ✗"), "{line}");
+    let heading = text(&painted.head).join("\n");
+    assert!(heading.contains("lead %"), "{heading}");
+    let hidden = hidden_squad(&item, 160)
+        .iter()
+        .map(|(_, value)| value.as_str())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    assert!(!hidden.contains("17 other · 20 members"), "{hidden}");
+    assert!(
+        hidden.contains("2 need you") && hidden.contains("1 blocked"),
+        "{hidden}"
+    );
 }

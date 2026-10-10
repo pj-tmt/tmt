@@ -135,6 +135,32 @@ fn age(at: Option<u64>, now: u64) -> String {
 
 impl App {
     pub(super) fn row_detail(&self, target: &RowTarget, visible: &[&str]) -> Option<Detail> {
+        if matches!(target, RowTarget::Home(target) if target.section == super::home::USAGE) {
+            return self.overview_detail(self.body_width());
+        }
+        if let RowTarget::Home(target) = target
+            && target.section == "squads"
+        {
+            let squad = self
+                .view
+                .as_ref()?
+                .home
+                .as_ref()?
+                .squads
+                .iter()
+                .find(|squad| squad.squad == target.squad)?;
+            let item = super::home::TileItem {
+                squad,
+                members: &squad.members,
+                lead_model: self.home_lead_model(&squad.squad),
+                usage: self.home_usage(&squad.squad, std::time::Instant::now()),
+            };
+            let mut detail = Detail::default();
+            for (label, text) in super::home::hidden_squad(&item, self.body_width()) {
+                detail.add(label, Some(&text), Role::Muted);
+            }
+            return Some(detail);
+        }
         let row = match target {
             RowTarget::Home(target) if target.section == super::home::LEADS => {
                 &self
@@ -183,6 +209,21 @@ impl App {
             show_reply: true,
             ..Detail::default()
         };
+        if home_lead
+            && let RowTarget::Home(target) = target
+            && let Some(lead) = self.home_leads.leads.iter().find(|lead| {
+                lead.squad == target.squad && Some(lead.id()) == target.member.as_deref()
+            })
+        {
+            for (label, text) in super::home::hidden_lead_metadata(
+                &self.labels,
+                lead,
+                self.body_width(),
+                crate::status::now_ms(),
+            ) {
+                detail.add(label, Some(&text), Role::Muted);
+            }
+        }
         if !visible.contains(&"task") {
             detail.add("task", row["fields"]["task"].as_str(), Role::Text);
         }
@@ -289,6 +330,56 @@ impl App {
             }
         }
         Some(detail.additional(visible))
+    }
+
+    fn overview_detail(&self, width: u16) -> Option<Detail> {
+        let view = self.view.as_ref()?;
+        let home = view.home.as_ref()?;
+        let mut detail = Detail::default();
+        if let Some(usage) = self.home_header_usage(std::time::Instant::now()) {
+            for (label, text) in super::home::hidden_usage(&usage, width) {
+                detail.add(label, Some(&text), Role::Muted);
+            }
+        }
+        if view.home_rate.values().any(|rate| rate.settings.enabled)
+            && let Some(standings) = &self.limits
+        {
+            for (label, text) in
+                super::home::hidden_limits(standings, crate::status::now_ms(), width)
+            {
+                detail.add(label, Some(&text), Role::Muted);
+            }
+        }
+        if let Some(names) = super::home::hidden_needs(home, width) {
+            detail.add("needs you", Some(&names), Role::Waiting);
+        }
+        detail.add(
+            "overview",
+            Some(&format!(
+                "{} squads · {} members · ◐ {} review",
+                home.squads.len(),
+                home.summary.members,
+                home.summary.review
+            )),
+            Role::Muted,
+        );
+        if width < super::home::SM.cells {
+            detail.add(
+                "states",
+                Some(&format!(
+                    "● {} working · ◌ {} idle · ✗ {} blocked",
+                    home.summary.working, home.summary.idle, home.summary.blocked
+                )),
+                Role::Muted,
+            );
+        } else if width < super::home::MD.cells {
+            detail.add(
+                "blocked",
+                Some(&format!("✗ {} blocked", home.summary.blocked)),
+                Role::Muted,
+            );
+        }
+        Some(detail)
     }
 
     pub(super) fn selected_detail_target(&self) -> Option<Target> {
@@ -445,7 +536,7 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let labels = if width < 60 {
+    let labels = if width < super::home::COMPACT {
         5
     } else {
         fields
