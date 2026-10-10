@@ -214,7 +214,13 @@ fn prepare(
     })
 }
 
-pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect, shared: super::panes::Shared) {
+pub(super) fn render_rows(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    shared: super::panes::Shared,
+    headings: Rect,
+) {
     let look = app.look();
     let Some(view) = &app.view else {
         return;
@@ -291,7 +297,14 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect, shared: supe
         scene.height,
         look,
         |frame, body, offset| {
-            hits = scene.paint(frame.buffer_mut(), body, offset, app.selected, look);
+            hits = scene.paint(
+                frame.buffer_mut(),
+                body,
+                headings,
+                offset,
+                app.selected,
+                look,
+            );
             choices = scene.choices(body, offset);
         },
     );

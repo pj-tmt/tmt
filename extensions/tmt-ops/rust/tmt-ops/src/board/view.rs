@@ -69,7 +69,8 @@ pub fn render(frame: &mut Frame, app: &App) {
 
 /// Resolve transient folds before the existing manual-fold focus reconciliation.
 pub(super) fn prepare(app: &mut App, area: Rect) {
-    if app.cached_display().is_none() {
+    if app.cached_display().is_none() && !app.view.as_ref().is_some_and(|view| view.home.is_some())
+    {
         let body = bands(app, area, false, 0)[5];
         panes::prepare(app, body);
     }

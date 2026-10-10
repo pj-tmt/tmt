@@ -2155,11 +2155,11 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("─ Focus: rows"), "{screen:#?}");
-    assert!(right(&screen[2]).starts_with("─ detail"), "{screen:#?}");
+    assert!(screen[2].starts_with("── Focus: rows"), "{screen:#?}");
+    assert!(right(&screen[2]).starts_with("── detail"), "{screen:#?}");
     let notes_top = screen
         .iter()
-        .position(|line| right(line).starts_with("─ notes · sol"))
+        .position(|line| right(line).starts_with("── notes · sol"))
         .expect("notes block");
     // 40% of the 20 body lines is detail: notes start 8 lines below it.
     assert_eq!(notes_top, 2 + 8, "{screen:#?}");
@@ -2478,12 +2478,13 @@ fn a_pane_above_another_ends_on_the_next_heading_rule() {
             Notes::Text("ship it".into()),
         );
         let screen = draw(&app, 100, height);
-        let headings = screen
+        let mut headings = app
+            .title_hits
+            .borrow()
             .iter()
-            .enumerate()
-            .filter(|(_, line)| line.starts_with("─ ") && line.contains(" ─"))
-            .map(|(index, _)| index)
+            .map(|hit| usize::from(hit.area.y))
             .collect::<Vec<_>>();
+        headings.sort_unstable();
         assert_eq!(headings.len(), 2, "{screen:#?}");
         let lower = headings[1];
         assert!(
@@ -2505,9 +2506,9 @@ fn split_panes_follow_direction_and_sizes() {
     );
     let screen = draw(&app, 100, 11);
     // 60% of 100 columns: the notes block starts at column 60.
-    let notes_at = screen[2].find("─ notes · sol").expect("notes block title");
+    let notes_at = screen[2].find("── notes · sol").expect("notes block title");
     assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("─ Focus: rows"));
+    assert!(screen[2].starts_with("── Focus: rows"));
     assert!(
         screen.iter().any(|line| line.contains("   Now")),
         "markdown heading"
@@ -2527,7 +2528,7 @@ fn split_panes_follow_direction_and_sizes() {
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
-        .position(|line| line.starts_with("─ detail"))
+        .position(|line| line.starts_with("── detail"))
         .unwrap();
     assert_eq!(
         detail_row, 12,
@@ -3370,8 +3371,10 @@ fn a_click_focuses_the_pane_under_it() {
     let mut terminal = Terminal::new(TestBackend::new(60, 11)).unwrap();
     terminal.draw(|frame| render(frame, &app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
-    assert!(buffer[(31, 2)].modifier.contains(Modifier::BOLD));
-    assert!(!buffer[(1, 2)].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(33, 2)].symbol(), "F");
+    assert!(buffer[(33, 2)].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(3, 2)].symbol(), "r");
+    assert!(!buffer[(3, 2)].modifier.contains(Modifier::BOLD));
     // A click on a row focuses the rows again and selects it.
     let hit = app.hits.borrow()[0];
     click(&mut app, hit.x, hit.y);
@@ -4724,11 +4727,14 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
         let scene = &derived.grid.as_ref().unwrap().scene;
         let area = Rect::new(0, 0, 50, 24);
         let mut selected = ratatui::buffer::Buffer::empty(area);
-        let hits = scene.paint(&mut selected, area, 0, 0, app.look());
+        let hits = scene.paint(&mut selected, area, area, 0, 0, app.look());
         let mut other = ratatui::buffer::Buffer::empty(area);
         assert_eq!(
             format!("{hits:?}"),
-            format!("{:?}", scene.paint(&mut other, area, 0, 1, app.look()))
+            format!(
+                "{:?}",
+                scene.paint(&mut other, area, area, 0, 1, app.look())
+            )
         );
         let lines = detail_text(&selected);
         assert!(
@@ -4771,7 +4777,7 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
         // A one-cell clip admits the diamond without exposing a prefix cell.
         let clip = Rect::new(0, 0, 1, 24);
         let mut narrow = ratatui::buffer::Buffer::empty(clip);
-        let narrow_hits = scene.paint(&mut narrow, clip, 0, 0, app.look());
+        let narrow_hits = scene.paint(&mut narrow, clip, clip, 0, 0, app.look());
         assert_eq!(narrow[(0, scene.starts[0] as u16)].symbol(), "◆");
         assert!(narrow.content.iter().all(|cell| cell.symbol() != ">"));
         assert!(narrow_hits.iter().all(|hit| hit.x == 0 && hit.width == 1));
@@ -4779,6 +4785,7 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
         let mut scrolled = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 50, 2));
         let visible = scene.paint(
             &mut scrolled,
+            Rect::new(0, 0, 50, 2),
             Rect::new(0, 0, 50, 2),
             scene.starts[0] + 1,
             0,
@@ -4894,7 +4901,7 @@ fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
                 assert_eq!(buffer[(x, rows.y)].fg, dim.fg.unwrap_or_default());
                 assert_eq!(buffer[(x, rows.y + 1)].symbol(), " ");
             }
-            let title = &buffer[(rows.x + 2, rows.y)];
+            let title = &buffer[(rows.x + 3, rows.y)];
             assert_eq!(title.symbol(), "F");
             assert!(title.modifier.contains(Modifier::BOLD));
             assert!(!title.modifier.contains(Modifier::DIM), "{base}/{depth:?}");
@@ -4967,7 +4974,7 @@ fn receiving_title_preserves_configured_accent_effects_and_semantic_notes_span()
             // the incidental frame. Styled age spans then patch that role.
             let mut expected = ratatui::buffer::Cell::default();
             expected.set_style(receiving);
-            let at = &buffer[(title.x + 2, title.y)];
+            let at = &buffer[(title.x + 3, title.y)];
             assert_eq!(at.symbol(), "F");
             assert_eq!(
                 (at.fg, at.bg, at.modifier),

@@ -88,7 +88,7 @@ pub(super) fn prepare(app: &App, area: Rect) {
 fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
     let look = app.look();
     let Some(view) = &app.view else {
-        render_rows(frame, app, area, Shared::default());
+        render_rows(frame, app, area, Shared::default(), area);
         return;
     };
     if view.home.is_some() {
@@ -132,7 +132,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
     let focused = receiving_pane(app);
     let pane_block = |pane: Pane| {
         let focus = if Some(pane) == focused { "Focus: " } else { "" };
-        let title = match pane {
+        let mut title = match pane {
             // The lead's notes nobody updated for a while say how long.
             Pane::Notes => {
                 let lead = view.document["squad"]["lead"]["name"]
@@ -148,6 +148,11 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
             }
             other => Line::from(format!(" {focus}{} ", other.title())),
         };
+        // Outline paints the first dash; the title supplies the second in the border role.
+        title.spans.insert(
+            0,
+            Span::styled("─", Style::reset().patch(look.role(Role::Dim))),
+        );
         Outline {
             title,
             border: look.role(Role::Dim),
@@ -168,7 +173,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
                 below: rule_below,
                 ..Shared::default()
             };
-            render_pane(frame, app, board.panes[0], slots[0].1, shared)
+            render_pane(frame, app, board.panes[0], slots[0].1, shared, slots[0].1)
         }
         BoardMode::Split => render_split(frame, app, &chrome, &pane_block),
         BoardMode::Tabs => {
@@ -186,14 +191,14 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
                     below: rule_below,
                     ..Shared::default()
                 };
-                render_pane(frame, app, focused, rest, shared);
+                render_pane(frame, app, focused, rest, shared, rest);
                 return;
             }
             let outline = pane_block(focused);
             let framed = if rule_below { reach_rule(rest) } else { rest };
             let inner = outline.inner(framed);
             outline.paint_flat(framed, frame.buffer_mut());
-            render_pane(frame, app, focused, inner, Shared::default());
+            render_pane(frame, app, focused, inner, Shared::default(), framed);
         }
     }
 }
@@ -252,10 +257,24 @@ fn render_split(
             if let Some(painted) = geometry.painted {
                 pane_block(pane).paint_flat(painted, frame.buffer_mut());
                 if !geometry.inner.is_empty() {
-                    render_pane(frame, app, pane, geometry.inner, Shared::default());
+                    render_pane(
+                        frame,
+                        app,
+                        pane,
+                        geometry.inner,
+                        Shared::default(),
+                        geometry.area,
+                    );
                 }
             } else {
-                render_pane(frame, app, pane, geometry.inner, geometry.shared);
+                render_pane(
+                    frame,
+                    app,
+                    pane,
+                    geometry.inner,
+                    geometry.shared,
+                    geometry.area,
+                );
             }
         }
     }
@@ -263,9 +282,16 @@ fn render_split(
 
 pub(in crate::board) use crate::board::composition::Shared;
 
-fn render_pane(frame: &mut Frame, app: &App, pane: Pane, area: Rect, shared: Shared) {
+fn render_pane(
+    frame: &mut Frame,
+    app: &App,
+    pane: Pane,
+    area: Rect,
+    shared: Shared,
+    headings: Rect,
+) {
     match pane {
-        Pane::Rows => render_rows(frame, app, area, shared),
+        Pane::Rows => render_rows(frame, app, area, shared, headings),
         Pane::Notes => render_notes(frame, app, area),
         Pane::Detail => render_detail(frame, app, area),
         Pane::Replies => render_replies(frame, app, area),

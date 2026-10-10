@@ -66,7 +66,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-repeat each="$.head" as="line"><tmt-text id-bind="line.id" bind="line.text" token-bind="line.role" class="w-full h-1"/></tmt-repeat>
 <tmt-repeat each="$.top" as="edge"><tmt-text id="top" bind="edge.text" class="w-full h-1"/></tmt-repeat>
 <tmt-repeat each="$.leads" as="lead"><tmt-col id-bind="lead.id" class="w-full">
-<tmt-repeat each="lead.before" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token="dim" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
+<tmt-repeat each="lead.before" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="text" bind="line.text" token="dim" class="w-full h-1"/></tmt-row></tmt-repeat>
 <tmt-repeat each="lead.separator" as="sep"><tmt-row id="separator" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
 <tmt-row id="head" class="w-full h-1">
 <tmt-text id="left" bind="$.left" class="shrink-0"/>
@@ -83,7 +83,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 </tmt-row>
 <tmt-repeat each="lead.after" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token-bind="line.role" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
 </tmt-col></tmt-repeat>
-<tmt-repeat each="$.tail" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token-bind="line.role" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
+<tmt-repeat each="$.tail" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="text" bind="line.text" token-bind="line.role" class="w-full h-1"/></tmt-row></tmt-repeat>
 <tmt-text id="bottom" bind="$.bottom" class="w-full h-1"/>
 </tmt-view>"#;
 
@@ -555,7 +555,10 @@ pub(in crate::board) fn render_squad(
                 .map(|line| json!({"id": format!("reserve-{line}"), "text": null, "role": null})),
         );
         for line in &mut before {
-            line["text"] = json!(rule(line["text"].as_str().unwrap_or_default(), width));
+            line["text"] = json!(rule(
+                line["text"].as_str().unwrap_or_default(),
+                usize::from(area.width)
+            ));
         }
         let task =
             super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default());
@@ -587,7 +590,7 @@ pub(in crate::board) fn render_squad(
     if rows.is_empty() {
         before.push(json!({"id": "empty", "text": if app.search.is_empty() { "(no members)" } else { "(no matching members)" }, "role": "dim"}));
     }
-    let tail = before.iter().enumerate().map(|(index, line)| json!({"id": format!("tail-{index}"), "text": rule(line["text"].as_str().unwrap_or_default(), usize::from(inner.width)), "role": "dim"})).collect::<Vec<_>>();
+    let tail = before.iter().enumerate().map(|(index, line)| json!({"id": format!("tail-{index}"), "text": rule(line["text"].as_str().unwrap_or_default(), usize::from(area.width)), "role": "dim"})).collect::<Vec<_>>();
     let details: Vec<_> = rows.iter().map(|row| row["detail"].clone()).collect();
     let key = Key {
         width: area.width,

@@ -3,7 +3,7 @@
 use super::*;
 use crate::config::{Config, Layout};
 
-fn capture(app: &mut App, width: u16) -> Value {
+pub(super) fn capture(app: &mut App, width: u16) -> Value {
     app.set_body_width(width);
     let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
     terminal.draw(|frame| render(frame, app)).unwrap();

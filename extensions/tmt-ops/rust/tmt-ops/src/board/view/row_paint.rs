@@ -22,6 +22,10 @@ use unicode_width::UnicodeWidthStr;
 /// Space between grid columns.
 pub(in crate::board) const GAP: usize = 1;
 
+/// Outlined panes inset rows by one cell on each side. Rule text includes
+/// those two cells; the heading rect still supplies its actual paint/clip width.
+const PANE_SIDE_CELLS: usize = 2;
+
 /// Per-row inputs that change without a new snapshot (clock text); part of the
 /// cache key, so a changed label rebuilds the scene.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -137,6 +141,8 @@ struct Part {
     root: bool,
     /// The leading `◆`: waiting-colored where there is color, plain in NO_COLOR.
     marker: bool,
+    /// A labelled rule uses the enclosing pane width, not the inset row grid.
+    rule: bool,
     emphasize: bool,
     align: Align,
     /// The chip that offers a choice: a click on it opens the choice.
@@ -189,6 +195,7 @@ impl RowPaint {
             row: parent.and_then(|index| self.parts[index].row),
             root: false,
             marker: false,
+            rule: false,
             emphasize: false,
             align: Align::Left,
             choice: false,
@@ -287,16 +294,19 @@ impl RowPaint {
                 }
                 Item::Rule(rule) => {
                     let title = format!("── {} ", rule.label());
-                    let tail = width.saturating_sub(title.width());
+                    let tail = width
+                        .saturating_add(PANE_SIDE_CELLS)
+                        .saturating_sub(title.width());
                     let line = format!("{title}{}", "─".repeat(tail));
                     let shown = line.width().min(width);
-                    scene.label(
+                    let index = scene.label(
                         Some(line),
                         (0, y, shown, 1),
                         Some(Role::Dim),
                         TextFlow::Clip,
                         None,
                     );
+                    scene.parts[index].rule = true;
                     y += 1;
                     continue;
                 }
@@ -659,6 +669,7 @@ impl RowPaint {
         &self,
         buffer: &mut Buffer,
         body: Rect,
+        headings: Rect,
         offset: usize,
         selected: usize,
         look: Look,
@@ -669,6 +680,13 @@ impl RowPaint {
             width: u32::from(body.width),
             height: u32::from(body.height),
         };
+        // Headings share vertical clipping/scrolling with rows, but reach only
+        // their own pane's horizontal edges; neighbouring panes stay untouched.
+        let rule_bounds = BoxRect {
+            x: i32::from(headings.x),
+            width: u32::from(headings.width),
+            ..bounds
+        };
         let cells = self
             .parts
             .iter()
@@ -678,13 +696,23 @@ impl RowPaint {
                     y: part.rect.y + bounds.y - offset as i32,
                     ..part.rect
                 };
+                let (rect, clip, text_width) = if part.rule {
+                    let rect = BoxRect {
+                        x: rule_bounds.x,
+                        width: rule_bounds.width,
+                        ..rect
+                    };
+                    (rect, rect.intersect(rule_bounds), headings.width)
+                } else {
+                    (rect, rect.intersect(bounds), part.width)
+                };
                 Cell {
                     node: &part.node,
                     parent: part.parent,
                     rect,
                     content: rect,
-                    clip: rect.intersect(bounds),
-                    text_width: part.width,
+                    clip,
+                    text_width,
                     cut: part.cut,
                     overflowing: false,
                 }
