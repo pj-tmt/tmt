@@ -184,10 +184,12 @@ describe('native configuration process boundary', () => {
             line.startsWith('exchange.') ||
             line.startsWith('ui.') ||
             line.startsWith('notifications.') ||
+            line.startsWith('experimental.') ||
             line.startsWith('notes.')
         )
         .map((line) => line.split(/\s{2,}/));
       expect(rows).toEqual([
+        ['experimental.channel', 'false', 'default', 'global CLI', 'true or false'],
         ['notes.compactionReminder', 'true', 'default', 'global CLI', 'true or false'],
         [
           'notifications.replyBatchWindowMs',
@@ -286,6 +288,58 @@ describe('native configuration process boundary', () => {
       }
       expect(fs.existsSync(sandbox.database)).toBe(false);
       expect(fs.existsSync(path.join(sandbox.globalDir, 'workspace'))).toBe(false);
+    });
+  });
+
+  it('keeps experimental channels off by default and validates global-only opt-in without launch effects', async () => {
+    await withSandbox(async (sandbox) => {
+      expect(parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']))).toMatchObject({
+        resolved: { experimental: { channel: false } },
+        sources: { experimental: { channel: 'default' } },
+      });
+      for (const driver of ['claude', 'codex']) {
+        for (const args of [
+          ['run', '--channel', 'Agent', driver],
+          ['run', '--resume', '--channel', 'Agent'],
+          ['resume', '--channel', 'Agent'],
+        ]) {
+          const before = fileSnapshot(sandbox.root);
+          const result = await runCli(sandbox, args);
+          expect(result.status).toBe(1);
+          expect(result.stderr.trim()).toBe(
+            'error: Message channels require experimental.channel=true.'
+          );
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+        }
+      }
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ experimental: { future: 'keep' } }));
+      for (const value of ['true', 'false']) {
+        expect(
+          (await runCli(sandbox, ['config', 'set', '--global', 'experimental.channel', value]))
+            .status
+        ).toBe(0);
+        expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+          experimental: { future: 'keep', channel: value === 'true' },
+        });
+      }
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['config', 'set', 'experimental.channel', 'true'],
+        ['config', 'rm', 'experimental.channel'],
+        ['config', 'set', '--global', 'experimental.channel', '1'],
+      ]) {
+        expectError(await runCli(sandbox, [...args, '--json']), 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      for (const value of ['true', 1, null, {}]) {
+        fs.writeFileSync(
+          sandbox.globalConfig,
+          JSON.stringify({ experimental: { channel: value } })
+        );
+        expectError(await runCli(sandbox, ['config', 'show', '--json']), 'CONFIG_ERROR');
+      }
+      expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
 
@@ -438,6 +492,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
+        experimental: { channel: false },
         notes: { compactionReminder: true },
         workspace: { snapshotEnabled: true, snapshotIntervalMs: 60000 },
         theme: {},
@@ -449,6 +504,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
+        experimental: { channel: 'default' },
         notes: { compactionReminder: 'default' },
         workspace: { snapshotEnabled: 'default', snapshotIntervalMs: 'default' },
         theme: 'default',
@@ -579,6 +635,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
+        experimental: { channel: false },
         notes: { compactionReminder: true },
         workspace: { snapshotEnabled: true, snapshotIntervalMs: 60000 },
         theme: {},
@@ -590,6 +647,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
+        experimental: { channel: 'default' },
         notes: { compactionReminder: 'default' },
         workspace: { snapshotEnabled: 'default', snapshotIntervalMs: 'default' },
         theme: 'default',

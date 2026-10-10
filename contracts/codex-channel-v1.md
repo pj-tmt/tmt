@@ -1,7 +1,7 @@
-# Codex native channel contract
+# Experimental Codex native channel contract
 
 Status: Codex launches and exact `tmt resume` use plain delivery by default.
-`--channel` opts into the native channel and requires enrollment; `--no-channel`
+`--channel` requires global `experimental.channel=true` and enrollment; `--no-channel`
 explicitly chooses a plain launch. Fresh channel launches let the remote TUI
 create its own thread; they never resume a supervisor-created zero-turn thread.
 The shared launcher policy and Codex-specific boundaries are below.
@@ -15,6 +15,18 @@ owns the extension-facing admission/wake boundary. Native readiness and queue ac
 do not grant an input-readiness lease or prove request completion.
 
 ## Default launch policy
+
+Global `experimental.channel` defaults false. Set it with
+`tmt config set experimental.channel true --global` to enable message-channel
+launches. While off, explicit `--channel` returns `CHANNEL_DISABLED` (exit 1)
+with a short message naming the setting, before launch or enrollment. Flagless
+exact resume uses paste without rewriting its remembered preference; re-enabling
+restores that choice. `--no-channel` remains accepted. A positively ended prior
+channel enrollment needs no manual cleanup for an admitted paste resume. Live or
+unverifiable evidence still blocks paste; a settings change never withdraws an
+existing session or changes provider settings. Inspection/recovery remain usable.
+
+The following channel-selection rules apply while the setting is enabled.
 
 Exact resume reuses the matching harness's remembered channel/plain choice from
 its last admitted fresh launch or explicit resume choice. Explicit `--channel`

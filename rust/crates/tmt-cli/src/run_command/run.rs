@@ -41,7 +41,7 @@ use tmt_core::{
     endpoint::ProcessIncarnation,
     identity::IdentityReader,
     names::normalize_name,
-    settings::PaneBadge,
+    settings::{PaneBadge, Settings},
 };
 
 pub(super) fn run_bound(
@@ -50,7 +50,7 @@ pub(super) fn run_bound(
     host: &Host,
     pane: &str,
     request: RunRequest<'_>,
-    badge: PaneBadge,
+    settings: &Settings,
     observer: &mut impl HookObserver,
 ) -> Result<u8, Failure> {
     let RunRequest {
@@ -210,7 +210,11 @@ pub(super) fn run_bound(
         .as_ref()
         .filter(|session| preferences.preferred_harness.as_ref() == Some(&session.harness))
         .and(preferences.channel);
-    let mode = super::channel::resume_mode(channel, launch.resumed.is_some(), remembered_channel);
+    let mode = if settings.experimental_channel {
+        super::channel::resume_mode(channel, launch.resumed.is_some(), remembered_channel)
+    } else {
+        crate::invocation::ChannelMode::Disabled
+    };
     let remember_channel =
         launch.resumed.is_none() || channel != crate::invocation::ChannelMode::Default;
     let mut channel = preflight(&registry, mode, claim.as_ref(), &launch.command, paths)
@@ -300,7 +304,7 @@ pub(super) fn run_bound(
             binding,
             PaneCosmetics::Bound {
                 identity: &bound.presence.identity,
-                badge: badge == PaneBadge::On,
+                badge: settings.pane_badge == PaneBadge::On,
                 border_hint: true,
             },
         )

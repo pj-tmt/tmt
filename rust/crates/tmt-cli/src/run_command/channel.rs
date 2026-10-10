@@ -29,7 +29,18 @@ use tmt_core::{
 #[cfg(test)]
 mod tests;
 
-/// A remembered channel is a requirement, never permission to fall back to paste.
+pub(super) fn require_enabled(requested: ChannelMode, enabled: bool) -> Result<(), Failure> {
+    if requested == ChannelMode::Required && !enabled {
+        return Err(Failure::new(
+            "CHANNEL_DISABLED",
+            "Message channels require experimental.channel=true.",
+            1,
+        ));
+    }
+    Ok(())
+}
+
+/// While experimental channels are enabled, a remembered channel is required.
 /// Explicit flags override memory; admitted launches persist explicit choices.
 pub(super) fn resume_mode(
     requested: ChannelMode,

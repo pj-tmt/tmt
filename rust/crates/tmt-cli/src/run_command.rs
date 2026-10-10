@@ -180,6 +180,14 @@ pub fn resume_with_options(
 
 fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
     crate::caller_context::require_independent_host()?;
+    let paths = ConfigPaths::discover().map_err(Failure::from)?;
+    let settings = ConfigFiles {
+        paths: paths.clone(),
+    }
+    .load()
+    .map_err(Failure::from)?
+    .settings;
+    channel::require_enabled(request.channel, settings.experimental_channel)?;
     let environment = CallerEnvironment::current();
     let host = Host::for_caller(&environment);
     let pane = host
@@ -192,14 +200,6 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
                 3,
             )
         })?;
-    let paths = ConfigPaths::discover().map_err(Failure::from)?;
-    let badge = ConfigFiles {
-        paths: paths.clone(),
-    }
-    .load()
-    .map_err(Failure::from)?
-    .settings
-    .pane_badge;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
             error,
@@ -215,7 +215,7 @@ fn run(request: RunRequest<'_>) -> Result<u8, Failure> {
         &host,
         &pane,
         request,
-        badge,
+        &settings,
         &mut EmptyObserver,
     );
     // The child's status remains authoritative after it has actually run.

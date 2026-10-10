@@ -10,7 +10,12 @@ struct Field {
     property: &'static str,
 }
 
-const GLOBAL_FIELDS: [Field; 13] = [
+const GLOBAL_FIELDS: [Field; 14] = [
+    Field {
+        key: SettingKey::ExperimentalChannel,
+        container: Some("experimental"),
+        property: "channel",
+    },
     Field {
         key: SettingKey::WorkspaceSnapshotEnabled,
         container: Some("workspace"),
@@ -122,6 +127,7 @@ fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
             "notifications",
             "notes",
             "workspace",
+            "experimental",
         ],
         Scope::Local => &["$config"],
     };
@@ -211,7 +217,9 @@ fn setting_value(setting: Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),
         Setting::PaneBadge(value) => json!(value.as_str()),
-        Setting::NotesCompactionReminder(value) | Setting::WorkspaceSnapshotEnabled(value) => {
+        Setting::ExperimentalChannel(value)
+        | Setting::NotesCompactionReminder(value)
+        | Setting::WorkspaceSnapshotEnabled(value) => {
             json!(value)
         }
         Setting::CaptureLines(value)

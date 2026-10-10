@@ -6,9 +6,19 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { withE2EFixture, type E2EFixture } from './harness.js';
+import { withE2EFixture as withFixture, type E2EFixture } from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
+
+// Existing channel-positive scenarios explicitly opt in within private fixture state.
+const withE2EFixture: typeof withFixture = (callback, options) =>
+  withFixture((fixture) => {
+    fs.writeFileSync(
+      path.join(fixture.globalDir, 'config.json'),
+      JSON.stringify({ experimental: { channel: true } })
+    );
+    return callback(fixture);
+  }, options);
 
 // Real product CLI/router, real isolated tmux, deterministic native protocol peer.
 // This proves routing and durable request behavior, not provider/model continuity.
@@ -264,6 +274,101 @@ async function assertTurnActivity(
 }
 
 describe('Codex native channel product routing', { concurrent: false }, () => {
+  it('disabled experimental channels resume an ended channel seat with paste and preserve exact preference bytes', async () => {
+    await withFixture(async (f) => {
+      const config = path.join(f.globalDir, 'config.json');
+      const set = (enabled: boolean) =>
+        fs.writeFileSync(config, JSON.stringify({ experimental: { channel: enabled } }));
+      const refused = start(f, 'Disabled', true);
+      expect(
+        await waitForFileContent(refused.status, { description: 'experimental channel refused' })
+      ).toBe('1');
+      expect(events(refused, 'started')).toEqual([]);
+      expect(events(refused, 'server-started')).toEqual([]);
+      expect(records(f)).toEqual([]);
+      expect(f.capture(100, refused.pane)).toContain(
+        'Message channels require experimental.channel=true.'
+      );
+      set(true);
+      const first = start(f, 'Restart', true);
+      const { retained, recordBytes, original } = await (async () => {
+        try {
+          await ready(f, first);
+          const [retained] = records(f);
+          const recordBytes = fs.readFileSync(retained.file);
+          const original = retained.record.ready.thread;
+          sql(f, (db) =>
+            db
+              .prepare(
+                `UPDATE identity_session_preferences SET remembered_harness='codex', runtime_mode='embedded', provider_session_id=?, driver_state_version=1, driver_state=? WHERE identity_id=(SELECT id FROM identities WHERE name='Restart')`
+              )
+              .run(original, '{ "model" : "fixture-model" }')
+          );
+          set(false);
+          expect((await f.runCli(['resume', 'Restart'], { pane: first.pane })).code).toBe(5);
+          return { retained, recordBytes, original };
+        } finally {
+          await quit(first);
+        }
+      })();
+      await f.waitFor(
+        () =>
+          records(f).length === 0 &&
+          gone(retained.record.ready.server.pid) &&
+          gone(retained.record.foreground.process!.pid) &&
+          gone(retained.record.launchOwner.pid),
+        10000,
+        'original channel processes and lease ended'
+      );
+      // Keep ended evidence on disk; no product recovery or enrollment cleanup is needed.
+      fs.writeFileSync(retained.file, recordBytes);
+      const preference = () =>
+        JSON.stringify(
+          sql(f, (db) =>
+            db
+              .prepare(
+                `SELECT * FROM identity_session_preferences WHERE identity_id=(SELECT id FROM identities WHERE name='Restart')`
+              )
+              .get()
+          )
+        );
+      const before = preference();
+      const plain = start(f, 'Restart', 'default', {}, first.pane, true);
+      try {
+        await ready(f, plain);
+        expect(events(plain, 'thread-resume')).toEqual([]);
+        expect(events(plain, 'started')[0].args).toEqual(
+          expect.arrayContaining(['resume', original, '--model', 'fixture-model'])
+        );
+        const trace = installTmuxTrace(f);
+        expect((await talk(f, 'Restart', 'resumed paste')).code).toBe(0);
+        await f.waitFor(
+          () => events(plain, 'paste').some((event) => event.line?.includes('resumed paste')),
+          5000,
+          'resumed foreground consumed paste'
+        );
+        expect(writes(trace, plain.pane).length).toBeGreaterThan(0);
+        expect(fs.readFileSync(retained.file)).toEqual(recordBytes);
+      } finally {
+        await quit(plain);
+      }
+      expect(preference()).toBe(before);
+      set(true);
+      const restored = start(f, 'Restart', 'default', {}, first.pane, true);
+      restored.channel = true;
+      try {
+        await ready(f, restored);
+        expect(events(restored, 'thread-resume')).toHaveLength(1);
+        expect(events(restored, 'thread-resume')[0].thread).toBe(original);
+        expect(events(restored, 'paste')).toEqual([]);
+      } finally {
+        await quit(restored);
+      }
+      expect(preference()).toBe(before);
+      await f.waitFor(() => records(f).length === 0, 5000, 'restored enrollment retired');
+    });
+  }, 60000);
+
   it('an eager fresh SessionStart waits for admission and remembers the exact foreground', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'EagerHook', true, {

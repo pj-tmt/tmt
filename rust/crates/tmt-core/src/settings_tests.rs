@@ -343,6 +343,7 @@ fn apply_has_last_write_precedence_across_all_setting_kinds() {
             pane_badge: PaneBadge::Off,
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
+            experimental_channel: false,
             notes_compaction_reminder: true,
             workspace_snapshot_enabled: true,
             workspace_snapshot_interval_ms: 60_000,
@@ -416,5 +417,22 @@ fn workspace_snapshot_settings_are_global_and_interval_is_a_bounded_integer() {
     }
     for value in ["-1", "1.5", "2147483648"] {
         assert!(Setting::edit("workspace.snapshotIntervalMs", value, Scope::Global).is_err());
+    }
+}
+
+#[test]
+fn experimental_channel_is_a_default_off_global_boolean() {
+    assert!(!Settings::default().experimental_channel);
+    let setting = Setting::edit("experimental.channel", "true", Scope::Global).unwrap();
+    let resolved = ResolvedSettings::from_layers(vec![setting], vec![]);
+    assert!(resolved.settings.experimental_channel);
+    assert_eq!(resolved.source(SettingKey::ExperimentalChannel), "global");
+    assert!(Setting::edit("experimental.channel", "true", Scope::Local).is_err());
+    assert!(LocalClear::parse(Some("experimental.channel")).is_err());
+    for value in ["1", "TRUE", " false", "on"] {
+        assert!(Setting::edit("experimental.channel", value, Scope::Global).is_err());
+    }
+    for value in [Scalar::Text("true"), Scalar::Number(1.0), Scalar::Invalid] {
+        assert!(Setting::validate(SettingKey::ExperimentalChannel, value).is_none());
     }
 }

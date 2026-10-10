@@ -1,4 +1,4 @@
-# Claude channel delivery (v1)
+# Experimental Claude channel delivery (v1)
 
 This document owns the shared launch policy, Claude opt-in, the channel endpoint, the enrollment
 lifecycle, the delivery result mapping, the supported provider range and the
@@ -32,6 +32,19 @@ processing.
 
 ## Opt-in and the launch lease
 
+Message channels require global `experimental.channel` (default false), set with
+`tmt config set experimental.channel true --global`. While disabled, explicit
+`--channel` returns `CHANNEL_DISABLED` (exit 1) with one short line naming the
+setting before any launch or enrollment. Flagless run/resume uses paste; exact
+resume preserves the remembered channel preference unchanged, so re-enabling
+restores it. `--no-channel` remains accepted and records plain delivery after
+admission. A positively ended prior enrollment needs no manual cleanup to resume
+with paste; live or unverifiable evidence still protects against double delivery.
+Existing sessions are not withdrawn by a settings change. Inspection and recovery
+remain available. No provider settings are changed.
+
+The following launch-selection rules apply when the setting is enabled.
+
 - The launcher selects one mode for both run and exact resume: Default when
   neither flag is present, Disabled for `--no-channel`, Required for `--channel`.
   The flags conflict in clap and go before the identity; `resume --forget`
@@ -55,8 +68,8 @@ processing.
   selected session and model arguments. It never reuses a prior enrollment.
   Failed launches do not record a new channel choice; successful fresh launches
   and explicit resume choices replace it, changing harness clears it, and forgetting the session
-  clears it. Retained/unknown enrollment still refuses a new launch rather than
-  permitting paste. Hooks identify the provider session; argv is not evidence.
+  clears it. Live or unverifiable enrollment still blocks paste; positively ended records
+  do not block an admitted new plain launch. Hooks identify the provider session; argv is not evidence.
 - A driver's preflight classifies an outcome as unavailable or informational.
   Informational advisories are shown and enrollment proceeds, including Claude's
   accepted-but-untested 2.x builds; its handshake decides readiness. Codex's

@@ -7,10 +7,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { expectJsonResult } from './cli-assertions.js';
-import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { withE2EFixture as withFixture, type CliResult, type E2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 import { waitForFileContent } from './wait-for-file.js';
+
+// Existing channel-positive scenarios explicitly opt in within private fixture state.
+const withE2EFixture: typeof withFixture = (callback, options) =>
+  withFixture((fixture) => {
+    fs.writeFileSync(
+      path.join(fixture.globalDir, 'config.json'),
+      JSON.stringify({ experimental: { channel: true } })
+    );
+    return callback(fixture);
+  }, options);
 
 // Claude channel delivery (#329), against a mock `claude` that plays only the MCP
 // client side. The invariants here are the contract's: an opted-in session is
@@ -55,11 +65,13 @@ function start(
     pane?: string;
     unnamed?: boolean;
     resume?: string;
+    exactResume?: boolean;
+    suffix?: string;
   }
 ): Session {
   const pane = options.pane ?? fixture.createShellPane(`claude-${name}`).pane;
-  const log = path.join(fixture.root, `${name}.log`);
-  const status = path.join(fixture.root, `${name}.status`);
+  const log = path.join(fixture.root, `${name}${options.suffix ?? ''}.log`);
+  const status = path.join(fixture.root, `${name}${options.suffix ?? ''}.status`);
   const home = path.join(fixture.root, `home-${name}`);
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   const env = {
@@ -75,10 +87,11 @@ function start(
     ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
     fixture.executables.cli.executable,
     ...fixture.executables.cli.args,
-    'run',
+    options.exactResume ? 'resume' : 'run',
     ...(options.channel ? ['--channel'] : []),
-    '-s',
-    ...(options.unnamed ? ['claude'] : [name, launcher(fixture)]),
+    ...(options.exactResume
+      ? [name]
+      : ['-s', ...(options.unnamed ? ['claude'] : [name, launcher(fixture)])]),
     ...(options.resume === undefined ? [] : ['--resume', options.resume]),
   ]
     .map(quote)
@@ -351,6 +364,110 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe('Claude channel delivery', { concurrent: false }, () => {
+  it('disabled experimental channels resume an ended channel seat with paste and preserve exact preference bytes', async () => {
+    await withFixture(async (fixture) => {
+      const config = path.join(fixture.globalDir, 'config.json');
+      const set = (enabled: boolean) =>
+        fs.writeFileSync(config, JSON.stringify({ experimental: { channel: enabled } }));
+      const refused = await fixture.runCli([
+        'run',
+        '--channel',
+        '-s',
+        'Disabled',
+        launcher(fixture),
+      ]);
+      expect(refused.code).toBe(1);
+      expect(refused.stderr.trim()).toBe(
+        'error: Message channels require experimental.channel=true.'
+      );
+      expect(channelFiles(fixture)).toEqual([]);
+      set(true);
+      const first = start(fixture, 'Restart', { channel: true });
+      const sessionId = '55555555-5555-4555-8555-555555555555';
+      const trace = installTmuxTrace(fixture);
+      const { retained, recordBytes } = await withCompletedSession(fixture, first, async () => {
+        await ready(fixture, first, 'Restart');
+        const retained = enrollment(fixture);
+        const recordBytes = fs.readFileSync(retained.file);
+        sql(fixture, (db) =>
+          db
+            .prepare(
+              `UPDATE identity_session_preferences SET remembered_harness='claude', runtime_mode='default', provider_session_id=?, driver_state_version=1, driver_state=? WHERE identity_id=?`
+            )
+            .run(sessionId, '{ "model" : "fixture-model" }', identityId(fixture, 'Restart'))
+        );
+        set(false);
+        const live = await fixture.runCli(['resume', 'Restart'], { pane: first.pane });
+        expect(live.code).toBe(5);
+        expect((await talk(fixture, 'Restart', 'still enrolled', ['--detach'])).code).toBe(0);
+        await fixture.waitFor(
+          () => contents(first).some((text) => text.includes('still enrolled')),
+          5000,
+          'existing channel stays active'
+        );
+        expect(terminalWrites(trace, first.pane)).toEqual([]);
+        return { retained, recordBytes };
+      });
+      // Retain the exact positively ended enrollment, without asking product recovery to clear it.
+      fs.writeFileSync(retained.file, recordBytes);
+      const preference = () =>
+        JSON.stringify(
+          sql(fixture, (db) =>
+            db
+              .prepare('SELECT * FROM identity_session_preferences WHERE identity_id=?')
+              .get(identityId(fixture, 'Restart'))
+          )
+        );
+      const before = preference();
+      const plain = start(fixture, 'Restart', {
+        channel: false,
+        exactResume: true,
+        pane: first.pane,
+        suffix: '-plain',
+      });
+      try {
+        await ready(fixture, plain, 'Restart');
+        expect(named(plain, 'started')[0].args).toEqual(
+          expect.arrayContaining(['--resume', sessionId, '--model', 'fixture-model'])
+        );
+        expect(named(plain, 'launch')).toMatchObject([{ channel: null }]);
+        trace.clear();
+        expect((await talk(fixture, 'Restart', 'resumed paste', ['--detach'])).code).toBe(0);
+        await fixture.waitFor(
+          () => named(plain, 'paste').some((event) => String(event.line).includes('resumed paste')),
+          5000,
+          'resumed foreground consumed paste'
+        );
+        expect(terminalWrites(trace, plain.pane).length).toBeGreaterThan(0);
+        expect(fs.readFileSync(retained.file)).toEqual(recordBytes);
+      } finally {
+        expect(await quit(plain)).toBe('0');
+      }
+      expect(preference()).toBe(before);
+      expect(fs.readFileSync(retained.file)).toEqual(recordBytes);
+      set(true);
+      const restored = start(fixture, 'Restart', {
+        channel: false,
+        exactResume: true,
+        pane: first.pane,
+        suffix: '-restored',
+      });
+      restored.channel = true;
+      await withCompletedSession(fixture, restored, async () => {
+        await ready(fixture, restored, 'Restart');
+        trace.clear();
+        expect((await talk(fixture, 'Restart', 'restored channel', ['--detach'])).code).toBe(0);
+        await fixture.waitFor(
+          () => contents(restored).some((text) => text.includes('restored channel')),
+          5000,
+          'remembered channel restored'
+        );
+        expect(terminalWrites(trace, restored.pane)).toEqual([]);
+      });
+      expect(preference()).toBe(before);
+    });
+  }, 60000);
+
   it.each([
     { label: 'bare', args: ['--bare'] },
     { label: 'safe mode', args: ['--safe-mode'] },

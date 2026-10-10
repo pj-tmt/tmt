@@ -133,6 +133,11 @@ channels and the driver protocol. The owner map is in
 
 ## Provider channels
 
+- Global `experimental.channel` defaults false. Shared run/resume composition refuses
+  explicit `--channel` before launch effects and selects paste for flagless resume
+  without rewriting its remembered choice; enabled launches retain driver defaults
+  and Required remembered-channel policy. Positively ended enrollments do not block
+  paste into an admitted new launch; live or unverifiable pane evidence still does.
 - `tmt run --channel` (`run_command/channel.rs`) is the only entry that enrolls.
   `ChannelError::Unsupported` becomes `CHANNEL_UNSUPPORTED`. A default-mode failure before
   foreground startup may fall back to the original command with one reason line, only when
