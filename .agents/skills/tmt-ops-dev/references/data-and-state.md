@@ -320,3 +320,15 @@ own these layers:
   owned core children before releasing the lease. Its own local process cancellation
   is a clean stop; completed real failures remain errors. A second foreground run or tick
   refuses an unexpired holder; a board waits and can take over after expiry.
+
+- The lease-owning clock starts `tmt digest tick` through its resolved `TMT_EXECUTABLE`
+  once on acquisition/current minute and once per later observed minute, without
+  catch-up or rollback replay. Each child runs independently of cron passes and
+  painting through the cancellable runner, with a 90-second process ceiling and
+  64 KiB per-stream capture. Digest owns its single-instance lock, in-minute
+  deadlines and delivery; Ops adds no scheduling policy or overlap suppression.
+  Missing/nonzero/failed ticks are skipped without a same-minute retry: one plain
+  stderr line in foreground run, only an in-memory skip count/last reason in the
+  board. Shutdown cancels and joins tick children before lease release. This
+  preserves the existing board-owned or explicit foreground clock lifetime;
+  closing the board starts no replacement clock or service.

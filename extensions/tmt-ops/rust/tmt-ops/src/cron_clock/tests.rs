@@ -511,3 +511,181 @@ fn deferred_worker_shutdown_cancels_and_joins_an_inflight_migration_read() {
     assert!(!f.directory.join("ops").exists());
     lease.release().unwrap();
 }
+
+/// Digest stands in only for its public process/lock lifetime, never delivery semantics.
+fn digest_core(f: &Fixture, mode: &str) -> Core {
+    fs::write(f.directory.join("digest-mode"), mode).unwrap();
+    fs::write(
+        f.directory.join("digest.py"),
+        r#"
+import pathlib,sys,fcntl,os,signal
+p=pathlib.Path(__file__).parent
+assert sys.argv[1:]==['digest','tick'], sys.argv
+with open(p/'digest-calls','a') as calls: calls.write('tick\n')
+lock=open(p/'digest.lock','a+')
+try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+except BlockingIOError: sys.exit(0)
+with open(p/'digest-acquired','a') as calls: calls.write('acquired\n')
+mode=(p/'digest-mode').read_text()
+if mode=='fail':
+ print('unavailable extension',file=sys.stderr); sys.exit(3)
+if mode=='block':
+ (p/'digest.pid').write_text(str(os.getpid()))
+ signal.pause()
+"#,
+    )
+    .unwrap();
+    let executable = f.directory.join("with-digest");
+    crate::test_support::write_ready_executable(
+        &executable,
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = digest ]; then exec python3 '{}' \"$@\"; fi\nexec '{}' \"$@\"\n",
+            f.directory.join("digest.py").display(),
+            f.core.executable().display()
+        ),
+    );
+    Core::at(executable)
+}
+
+fn digest_calls(f: &Fixture, name: &str) -> usize {
+    fs::read_to_string(f.directory.join(name)).map_or(0, |text| text.lines().count())
+}
+
+#[test]
+fn digest_minute_gate_has_no_same_minute_retry_catchup_or_rollback_replay() {
+    let f = Fixture::new();
+    let core = digest_core(&f, "success");
+    let mut ticks = DigestTicks::new(&core, false);
+    for (time, calls) in [
+        (61_000, 1),
+        (119_999, 1),
+        (120_000, 2),
+        (600_000, 3),
+        (60_000, 3),
+        (600_001, 3),
+    ] {
+        ticks.advance(time);
+        wait_for(|| {
+            ticks.reap();
+            ticks.children.is_empty().then_some(())
+        });
+        assert_eq!(digest_calls(&f, "digest-calls"), calls);
+    }
+    assert_eq!(ticks.skipped, 0);
+    assert_eq!(ticks.last_reason, None);
+    drop(ticks);
+    // A new clock run can attempt the current minute; Digest owns lock admission.
+    let mut restarted = DigestTicks::new(&core, false);
+    restarted.advance(600_002);
+    wait_for(|| {
+        restarted.reap();
+        restarted.children.is_empty().then_some(())
+    });
+    assert_eq!(digest_calls(&f, "digest-calls"), 4);
+}
+
+#[test]
+fn digest_nonzero_and_missing_process_are_quiet_one_attempt_per_minute() {
+    let f = Fixture::new();
+    let core = digest_core(&f, "fail");
+    let mut ticks = DigestTicks::new(&core, false);
+    ticks.advance(0);
+    wait_for(|| {
+        ticks.reap();
+        ticks.children.is_empty().then_some(())
+    });
+    assert_eq!(ticks.skipped, 1);
+    assert_eq!(ticks.last_reason, Some("nonzero exit"));
+    ticks.advance(59_999);
+    assert_eq!(digest_calls(&f, "digest-calls"), 1);
+    ticks.advance(60_000);
+    wait_for(|| {
+        ticks.reap();
+        ticks.children.is_empty().then_some(())
+    });
+    assert_eq!(ticks.skipped, 2);
+    assert_eq!(digest_calls(&f, "digest-calls"), 2);
+    let missing = Core::at(f.directory.join("absent-tmt"));
+    let mut ticks = DigestTicks::new(&missing, false);
+    ticks.advance(0);
+    wait_for(|| {
+        ticks.reap();
+        ticks.children.is_empty().then_some(())
+    });
+    assert_eq!(ticks.last_reason, Some("unavailable"));
+    ticks.advance(1);
+    assert_eq!(ticks.skipped, 1);
+    assert!(ticks.children.is_empty());
+}
+
+#[test]
+fn digest_overlap_is_admitted_by_extension_and_shutdown_reaps_the_waiting_child() {
+    use nix::{sys::signal::kill, unistd::Pid};
+    let f = Fixture::new();
+    let core = digest_core(&f, "block");
+    let mut ticks = DigestTicks::new(&core, false);
+    ticks.advance(0);
+    let pid: i32 = wait_for(|| {
+        fs::read_to_string(f.directory.join("digest.pid"))
+            .ok()
+            .and_then(|s| s.parse().ok())
+    });
+    ticks.advance(60_000); // Does not wait for the first child's in-minute deadline.
+    wait_for(|| {
+        ticks.reap();
+        (digest_calls(&f, "digest-calls") == 2 && ticks.children.len() == 1).then_some(())
+    });
+    assert_eq!(digest_calls(&f, "digest-acquired"), 1);
+    assert_eq!(ticks.skipped, 0);
+    drop(ticks);
+    assert_eq!(
+        kill(Pid::from_raw(pid), None).unwrap_err(),
+        nix::errno::Errno::ESRCH
+    );
+}
+
+#[test]
+fn board_and_explicit_clocks_run_digest_without_refresh_and_stop_before_lease_release() {
+    use nix::{sys::signal::kill, unistd::Pid};
+    for foreground in [false, true] {
+        let f = Fixture::new();
+        let core = digest_core(&f, "block");
+        // No board, refresh worker, session or renderer is started by this fixture.
+        let mut worker = ClockWorker::spawn(core.clone(), f.config.clone(), foreground);
+        let pid: i32 = wait_for(|| {
+            fs::read_to_string(f.directory.join("digest.pid"))
+                .ok()
+                .and_then(|s| s.parse().ok())
+        });
+        let clock = Clock::new(&f.directory.join("ops")).unwrap();
+        let first_expiry = match clock.status(now()) {
+            ClockStatus::Running(holder) => holder.expires_ms,
+            other => panic!("{other:?}"),
+        };
+        wait_for(|| {
+            matches!(clock.status(now()), ClockStatus::Running(holder) if holder.expires_ms > first_expiry).then_some(())
+        });
+        assert!(
+            f.model()["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|call| call["request"]["operation"] == "identityHooks.pending"),
+            "cron pass progresses while digest waits"
+        );
+        worker.stop().unwrap();
+        assert_eq!(
+            kill(Pid::from_raw(pid), None).unwrap_err(),
+            nix::errno::Errno::ESRCH
+        );
+        assert_eq!(clock.status(now()), ClockStatus::NoClock);
+        fs::remove_file(f.directory.join("digest.pid")).unwrap();
+        let mut restarted = ClockWorker::spawn(core, f.config.clone(), foreground);
+        wait_for(|| {
+            (digest_calls(&f, "digest-acquired") == 2 && f.directory.join("digest.pid").exists())
+                .then_some(())
+        });
+        restarted.stop().unwrap();
+        assert_eq!(clock.status(now()), ClockStatus::NoClock);
+    }
+}
