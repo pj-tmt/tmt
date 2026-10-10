@@ -33,6 +33,9 @@ pub struct AttachmentRow {
     pub name: String,
     pub media_type: String,
     pub size_bytes: u64,
+    /// The exact descriptor hash a read reference binds; not part of the export.
+    #[serde(skip)]
+    pub descriptor_hash: String,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,11 +155,17 @@ fn attachment_rows(record: &Value) -> Vec<AttachmentRow> {
         .into_iter()
         .flatten()
         .filter_map(|d| {
+            let hash =
+                tmt_colab_model::attachment::Descriptor::from_json(&serde_json::to_vec(d).ok()?)
+                    .ok()?
+                    .hash()
+                    .ok()?;
             Some(AttachmentRow {
                 id: owned(d, "attachmentId")?,
                 name: owned(d, "filename")?,
                 media_type: owned(d, "mediaType")?,
                 size_bytes: text(d, "plaintextBytes")?.parse().ok()?,
+                descriptor_hash: hash.iter().map(|b| format!("{b:02x}")).collect(),
             })
         })
         .collect()

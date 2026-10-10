@@ -2,6 +2,7 @@
 use crate::{
     Result,
     decoder::Decoder,
+    export::conversations::{self, Conversations},
     fold::{Snapshot, View},
     keyring::Keyring,
     page,
@@ -391,84 +392,65 @@ fn capture_read(
     admitted.recheck(store, key)?;
     Ok(admitted)
 }
-/// The exact selectors in one view whose attachment ID starts with `prefix` (#2464): live message
-/// attachments at their latest, undeleted revision, and, in the current epoch, the page's
-/// document attachments. This only finds a reference; the read still verifies everything.
-fn matching(
-    own: &std::collections::BTreeMap<String, Value>,
+/// The exact selectors whose attachment ID starts with `prefix` (#2464): the files of live
+/// comments in the verified discussion projection, which already owns revision chains, deletion,
+/// scope and epoch, and, with a page revision, the page's document attachments. This only finds
+/// a reference; the read still verifies everything.
+fn candidates(
+    conversations: &Conversations,
     meta: &Value,
     prefix: &str,
     space: &str,
     page: &str,
-    epoch: u64,
     page_revision: Option<&str>,
 ) -> Result<Vec<AttachmentSelector>> {
     let mut found = Vec::new();
-    let hits = |list: &Value| -> Result<Vec<Descriptor>> {
-        let mut out = Vec::new();
+    if let (Some(revision), Some(list)) = (page_revision, meta.get("attachments")) {
         for value in list.as_array().into_iter().flatten() {
             let d = Descriptor::from_json(&serde_json::to_vec(value)?)?;
             if d.attachment_id.starts_with(prefix) && d.space == space && d.page == page {
-                out.push(d);
-            }
-        }
-        Ok(out)
-    };
-    if let (Some(revision), Some(list)) = (page_revision, meta.get("attachments")) {
-        for d in hits(list)? {
-            found.push(AttachmentSelector::DocumentCurrent {
-                attachment_id: d.attachment_id.clone(),
-                descriptor_hash: hex(&d.hash()?),
-                content_revision: revision.to_owned(),
-            });
-        }
-    }
-    let epoch = epoch.to_string();
-    for (writer, roots) in own {
-        let Some(messages) = roots["messages"].as_object() else {
-            continue;
-        };
-        // The latest revision of each message decides whether it is still live.
-        let mut latest: std::collections::BTreeMap<&str, (u64, &Value)> = Default::default();
-        for message in messages.values() {
-            if message["kind"] != "comment" || message["senderDevice"] != *writer {
-                continue;
-            }
-            let (Some(id), Some(rev)) = (
-                message["messageId"].as_str(),
-                message["revision"]
-                    .as_str()
-                    .and_then(|r| values::decimal(r, false).ok()),
-            ) else {
-                continue;
-            };
-            if latest.get(id).is_none_or(|(seen, _)| *seen < rev) {
-                latest.insert(id, (rev, message));
-            }
-        }
-        for (id, (rev, message)) in latest {
-            if message["deleted"] != false
-                || message["spaceId"] != space
-                || message["pageId"] != page
-                || message["epoch"].as_str() != Some(epoch.as_str())
-            {
-                continue;
-            }
-            let Some(list) = message.get("attachments") else {
-                continue;
-            };
-            for d in hits(list)? {
-                found.push(AttachmentSelector::Message {
-                    writer_id: writer.clone(),
-                    message_id: id.to_owned(),
-                    message_revision: rev.to_string(),
+                found.push(AttachmentSelector::DocumentCurrent {
                     attachment_id: d.attachment_id.clone(),
                     descriptor_hash: hex(&d.hash()?),
+                    content_revision: revision.to_owned(),
                 });
             }
         }
     }
+    for comment in conversations.threads.iter().flat_map(|t| &t.comments) {
+        for file in comment
+            .attachments
+            .iter()
+            .filter(|f| f.id.starts_with(prefix))
+        {
+            found.push(AttachmentSelector::Message {
+                writer_id: comment.writer.clone(),
+                message_id: comment.id.clone(),
+                message_revision: comment.revision.clone(),
+                attachment_id: file.id.clone(),
+                descriptor_hash: file.descriptor_hash.clone(),
+            });
+        }
+    }
     Ok(found)
+}
+/// The discussion projection of one materialized epoch.
+fn projected(key: &Keyring, page: &str, snapshot: &Snapshot, view: &View) -> Conversations {
+    Conversations::project(
+        conversations::Capture {
+            space_id: &key.space_id,
+            page_id: page,
+            title: &view.title,
+            epoch: &snapshot.epoch.to_string(),
+            head: conversations::Head {
+                revision: snapshot.authority.head.revision.to_string(),
+                statement_hash: hex(&snapshot.authority.head.hash),
+            },
+        },
+        &view.own,
+        &view.signing_keys,
+        &view.status_writers,
+    )
 }
 /// Resolve an attachment ID, or an unambiguous prefix of at least 8 hex characters, against the
 /// current verified page and the same earlier-epoch window `capture_read` searches. The result is
@@ -496,13 +478,12 @@ pub fn resolve(
     let current_revision = revision(key, page, &current)?;
     let epoch = current.epoch;
     let view = current.materialize_until(key, page, decoder, deadline)?;
-    let mut found = matching(
-        &view.own,
+    let mut found = candidates(
+        &projected(key, page, &current, &view),
         &view.meta,
         prefix,
         &key.space_id,
         page,
-        epoch,
         Some(&current_revision),
     )?;
     if found.is_empty() {
@@ -510,13 +491,12 @@ pub fn resolve(
             remaining(deadline)?;
             let snapshot = Snapshot::capture_read(store, key, page, Some(old))?;
             let view = snapshot.materialize_until(key, page, decoder, deadline)?;
-            found = matching(
-                &view.own,
+            found = candidates(
+                &projected(key, page, &snapshot, &view),
                 &view.meta,
                 prefix,
                 &key.space_id,
                 page,
-                old,
                 None,
             )?;
             if !found.is_empty() {
@@ -667,9 +647,8 @@ impl Drop for AdmittedAttachmentRead {
 mod resolve_tests {
     use super::*;
     use serde_json::json;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    const WRITER: &str = "00000000-0000-4000-8000-000000000004";
     fn descriptor() -> Descriptor {
         let corpus: Value = serde_json::from_str(include_str!(
             "../../../contracts/vectors/attachment-v1.json"
@@ -683,110 +662,103 @@ mod resolve_tests {
             .unwrap();
         Descriptor::from_json(case["input"].as_str().unwrap().as_bytes()).unwrap()
     }
-    fn message(d: &Descriptor, id: &str, revision: &str, deleted: bool, epoch: &str) -> Value {
-        let mut value = json!({
-            "kind": "comment", "senderDevice": WRITER, "messageId": id, "revision": revision,
-            "deleted": deleted, "spaceId": d.space, "pageId": d.page, "epoch": epoch,
-        });
-        if !deleted {
-            value["attachments"] =
-                json!([serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]);
+    /// The projection of one writer's thread with the given comment records (message ID, revision,
+    /// deleted), each listing the descriptor unless deleted.
+    fn project(d: &Descriptor, comments: &[(&str, &str, bool)]) -> Conversations {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let writer = d.author_device.clone();
+        let mut thread = fixture["thread"].clone();
+        let mut roots = json!({"threads": {}, "messages": {}, "intents": {}, "replies": {}});
+        for (field, value) in [
+            ("senderDevice", &writer),
+            ("spaceId", &d.space),
+            ("pageId", &d.page),
+        ] {
+            thread[field] = value.as_str().into();
         }
-        value
+        roots["threads"][format!("{}:1", thread["threadId"].as_str().unwrap())] = thread.clone();
+        for (id, revision, deleted) in comments {
+            let mut comment = fixture["comment"].clone();
+            for (field, value) in [
+                ("senderDevice", writer.as_str()),
+                ("spaceId", &d.space),
+                ("pageId", &d.page),
+                ("messageId", id),
+                ("revision", revision),
+            ] {
+                comment[field] = value.into();
+            }
+            comment["thread"] = json!({"writer": writer, "id": thread["threadId"]});
+            comment["deleted"] = (*deleted).into();
+            if *deleted {
+                comment["body"] = "".into();
+            } else {
+                comment["attachments"] =
+                    json!([serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]);
+            }
+            roots["messages"][format!("{id}:{revision}")] = comment;
+        }
+        let own = BTreeMap::from([(writer.clone(), roots)]);
+        let keys = BTreeMap::from([(writer, [0; 32])]);
+        Conversations::project(
+            conversations::Capture {
+                space_id: &d.space,
+                page_id: &d.page,
+                title: "Files",
+                epoch: "1",
+                head: conversations::Head {
+                    revision: "1".into(),
+                    statement_hash: "00".repeat(32),
+                },
+            },
+            &own,
+            &keys,
+            &BTreeSet::new(),
+        )
     }
-    fn own(messages: Vec<Value>) -> BTreeMap<String, Value> {
-        let map: serde_json::Map<String, Value> = messages
-            .into_iter()
-            .map(|m| {
-                (
-                    format!(
-                        "{}:{}",
-                        m["messageId"].as_str().unwrap(),
-                        m["revision"].as_str().unwrap()
-                    ),
-                    m,
-                )
-            })
-            .collect();
-        BTreeMap::from([(WRITER.to_owned(), json!({ "messages": map }))])
+    fn find(d: &Descriptor, conv: &Conversations, prefix: &str) -> Vec<AttachmentSelector> {
+        candidates(conv, &Value::Null, prefix, &d.space, &d.page, None).unwrap()
     }
-    fn find(
-        own: &BTreeMap<String, Value>,
-        d: &Descriptor,
-        prefix: &str,
-    ) -> Vec<AttachmentSelector> {
-        matching(own, &Value::Null, prefix, &d.space, &d.page, 1, None).unwrap()
-    }
+    const M1: &str = "00000000-0000-4000-8000-0000000000a1";
+    const M2: &str = "00000000-0000-4000-8000-0000000000a2";
 
     #[test]
-    fn a_prefix_finds_the_exact_reference_of_a_live_message_attachment() {
+    fn a_prefix_finds_the_exact_reference_of_a_projected_live_comment_attachment() {
         let d = descriptor();
-        let m1 = "00000000-0000-4000-8000-0000000000a1";
-        let found = find(
-            &own(vec![message(&d, m1, "1", false, "1")]),
-            &d,
-            &d.attachment_id[..8],
-        );
+        let found = find(&d, &project(&d, &[(M1, "1", false)]), &d.attachment_id[..8]);
         assert_eq!(
             found,
             vec![AttachmentSelector::Message {
-                writer_id: WRITER.into(),
-                message_id: m1.into(),
+                writer_id: d.author_device.clone(),
+                message_id: M1.into(),
                 message_revision: "1".into(),
                 attachment_id: d.attachment_id.clone(),
                 descriptor_hash: hex(&d.hash().unwrap()),
             }]
         );
-        assert!(find(&own(vec![message(&d, m1, "1", false, "1")]), &d, "ffffffff").is_empty());
+        assert!(find(&d, &project(&d, &[(M1, "1", false)]), "ffffffff").is_empty());
     }
     #[test]
-    fn a_deleted_message_a_foreign_epoch_and_a_foreign_page_never_resolve() {
+    fn a_deleted_message_is_not_in_the_projection_so_it_never_resolves() {
         let d = descriptor();
-        let m1 = "00000000-0000-4000-8000-0000000000a1";
-        let deleted = own(vec![
-            message(&d, m1, "1", false, "1"),
-            message(&d, m1, "2", true, "1"),
-        ]);
-        assert!(find(&deleted, &d, &d.attachment_id[..8]).is_empty());
-        let other_epoch = own(vec![message(&d, m1, "1", false, "2")]);
-        assert!(find(&other_epoch, &d, &d.attachment_id[..8]).is_empty());
-        let live = own(vec![message(&d, m1, "1", false, "1")]);
-        assert!(
-            matching(
-                &live,
-                &Value::Null,
-                &d.attachment_id[..8],
-                &d.space,
-                "00000000-0000-4000-8000-0000000000ff",
-                1,
-                None
-            )
-            .unwrap()
-            .is_empty()
-        );
+        let deleted = project(&d, &[(M1, "1", false), (M1, "2", true)]);
+        assert!(find(&d, &deleted, &d.attachment_id[..8]).is_empty());
     }
     #[test]
     fn two_messages_listing_one_id_are_ambiguous_and_a_document_needs_the_current_revision() {
         let d = descriptor();
-        let found = find(
-            &own(vec![
-                message(&d, "00000000-0000-4000-8000-0000000000a1", "1", false, "1"),
-                message(&d, "00000000-0000-4000-8000-0000000000a2", "1", false, "1"),
-            ]),
-            &d,
-            &d.attachment_id[..8],
-        );
-        assert_eq!(found.len(), 2);
-        let meta = json!({ "attachments": [serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()] });
-        let none = BTreeMap::new();
+        let two = project(&d, &[(M1, "1", false), (M2, "1", false)]);
+        assert_eq!(find(&d, &two, &d.attachment_id[..8]).len(), 2);
+        let meta = json!({"attachments": [serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]});
+        let none = project(&d, &[]);
         let id = &d.attachment_id[..8];
-        assert!(
-            matching(&none, &meta, id, &d.space, &d.page, 1, None)
-                .unwrap()
-                .is_empty()
-        );
+        let at = |revision| candidates(&none, &meta, id, &d.space, &d.page, revision).unwrap();
+        assert!(at(None).is_empty());
         assert!(matches!(
-            matching(&none, &meta, id, &d.space, &d.page, 1, Some("v1:r")).unwrap()[..],
+            at(Some("v1:r"))[..],
             [AttachmentSelector::DocumentCurrent { .. }]
         ));
     }

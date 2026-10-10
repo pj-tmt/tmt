@@ -3339,9 +3339,10 @@ directory), created the way export creates its directory: `attachment.bin` then
 only its own staging cleaned. `--reference` is the exact `reference` of an export manifest row
 (at most 2 KiB). `<attachment>` is an attachment ID or a prefix of at least 8 hex characters (an
 Ask lists the first 8; `tmt colab threads --json` the full ID). The CLI resolves it in the verified
-local view to the exact reference, among live message attachments (the latest, undeleted revision of
-the message, in the current epoch or the earlier-epoch window a message read searches) and, in the
-current epoch, the page's document attachments; no match is `COLAB_STATE_MISSING`, a malformed or
+local view to the exact reference, among the files of live comments in the verified discussion
+projection (the one `conversations.json` is built from, so its revision-chain and deletion rules decide;
+current epoch or the earlier-epoch window a message read searches) and, in the current epoch, the
+page's document attachments; no match is `COLAB_STATE_MISSING`, a malformed or
 too short prefix or one matching more than one file is `COLAB_INPUT_INVALID`, and it never guesses.
 The read itself is then unchanged, so a revoked or ended access, a moved epoch or a deleted message
 reads as unavailable; the manifest records the resolved reference. The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
