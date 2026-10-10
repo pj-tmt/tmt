@@ -82,12 +82,16 @@ for (const width of [1440, 390])
       await expect(composer).toBeFocused();
       await expect(composer).toContainText('@Agent 1');
       await capture(page, `follow-up-${width}-${theme}`);
+      // Keyboard input must reach Follow up without a second click or locator focus.
+      await page.keyboard.type(' Please explain the change.');
+      await expect(composer).toContainText('Please explain the change.');
       expect((await run(page, 'proof')).sends).toHaveLength(1);
       await expect(page.locator('.annotation-new')).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
       await composer.press('Escape');
       await expect(card.getByRole('combobox')).toHaveCount(0);
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+      await expect(card.getByRole('combobox')).toBeFocused();
       await card.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(card.getByRole('combobox')).toHaveCount(0);
       await run(page, 'proposalAsk', 'replied');
@@ -112,6 +116,49 @@ for (const placement of ['missing', 'duplicate'])
     await expect(card.locator('.proposal-author')).toContainText('Detached');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   });
+test('Follow up retains focus while the renderer replies to its new height', async ({ page }) => {
+  await mount(page);
+  const inline = page.locator('[data-inline-proposal]');
+  await expect(inline).not.toHaveAttribute('data-detached');
+  const frame = page.frameLocator('#ask-page-fixture iframe').locator('body');
+  // Hold the real renderer's cosmetic replies, not the parent's focus or slot admission.
+  await frame.evaluate(() => {
+    const original = MessagePort.prototype.postMessage;
+    const pending: (() => void)[] = [];
+    MessagePort.prototype.postMessage = function (message) {
+      const send = () => original.call(this, message);
+      if (message?.type === 'colab.render.slots') pending.push(send);
+      else send();
+    };
+    Object.assign(window, {
+      pendingSlotReplies: () => pending.length,
+      releaseSlotReplies: () => {
+        MessagePort.prototype.postMessage = original;
+        pending.splice(0).forEach((send) => send());
+      },
+    });
+  });
+  const card = inline.locator('.proposal-card');
+  await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+  await expect
+    .poll(() =>
+      frame.evaluate(() =>
+        (window as Window & { pendingSlotReplies(): number }).pendingSlotReplies(),
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect(inline).not.toHaveAttribute('data-detached');
+  const composer = card.getByRole('combobox');
+  await expect(composer).toBeFocused();
+  await page.keyboard.type('A follow-up without another click.');
+  await expect(composer).toContainText('A follow-up without another click.');
+  await frame.evaluate(() =>
+    (window as Window & { releaseSlotReplies(): void }).releaseSlotReplies(),
+  );
+  await expect(composer).toBeFocused();
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
+
 test('vanished spacer detaches without another publication or send', async ({ page }) => {
   await mount(page);
   const inline = page.locator('[data-inline-proposal]');

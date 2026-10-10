@@ -60,7 +60,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   or resumes on reload. `renderer.ts` owns bounded cosmetic slot admission on the
   existing channel; the iframe owns spacers only, with no record text or action
   capability. Parent measurement reserves card
-  height, and vanished/duplicate slots or inner-scroll fallback detach to Comments.
+  height. Height exchanges retain admitted placement and composer focus until the
+  renderer confirms a vanished/duplicate slot; inner-scroll fallback detaches to Comments.
   Explicit trusted Send, Approve or Decline may dispatch; render/sync/recovery never do.
   Proposal creation requires canonical caller and machine provenance through bounded public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
   Actor labels and clocks remain display assertions.

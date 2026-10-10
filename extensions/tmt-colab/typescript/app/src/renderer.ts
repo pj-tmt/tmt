@@ -347,6 +347,7 @@ export async function mountRenderer(
       }
       // A disappeared slot is detached even after the convergence budget is used.
       if (next.length === 0) {
+        lastSlots = [];
         options.onSlots?.([]);
         return;
       }
@@ -471,7 +472,12 @@ export async function mountRenderer(
     slotRequestId = crypto.randomUUID();
     slotRounds = 0;
     slotPositions = '';
-    options.onSlots?.([]);
+    // Height changes retain admitted placement and focused controls until the
+    // renderer confirms a slot vanished. A request alone is not detachment.
+    lastSlots = lastSlots.filter(
+      (slot) => !innerScroll && slotHeights.some(({ id }) => id === slot.id),
+    );
+    options.onSlots?.(lastSlots);
     channel.port1.postMessage({
       type: 'colab.render.slots',
       renderId: snapshot.renderId,

@@ -976,7 +976,8 @@ one matching live `tmt-proposal[data-id]`, and reports only ID/top pairs. Unknow
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
 removed or moved spacers and inner-scroll fallback detach cards into Comments.
 Parent ResizeObserver measurement coalesces to one update per animation frame and
-only sends changed integer heights. Cosmetic top convergence stops after three
+only sends changed integer heights. Height requests retain admitted positions and
+composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
 changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
