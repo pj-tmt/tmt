@@ -150,6 +150,22 @@ and validates exact UTF-8 declaration/artifact bytes and both digests once, then
 plan/Rules owners. No installed-root/receipt parser or artifact-path read exists in Remote.
 An old unsupported command means no declaration; malformed/failed replies are unavailable.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
+For offline declaration-vector regeneration, run from `rust/`:
+
+```sh
+CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- /absolute/envelope.json /absolute/staging
+```
+
+The input is the contract's six-field reply containing exact declaration/artifact strings.
+Staging receives `firestore.rules`, `firestore.indexes.json` and `plan.json`; stdout is a stable
+JSON digest summary. No provider, credentials or product CLI is involved. Colab reviews and copies
+these files beside its vector as `deploy-declaration-v1.firestore.rules`,
+`deploy-declaration-v1.firestore.indexes.json` and `deploy-declaration-v1.plan.json` in its own
+`extensions/tmt-colab/contracts/vectors/` directory. Remote's `deploy_vectors` test reads that
+home only; an absent vector reports pending, a present vector needs the complete golden trio.
+Remote-private fixtures under `tests/fixtures/deploy_vectors/` qualify the entry without implying
+Colab provenance. The contract owns the parser boundary and input/output identity rules.
+
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.

@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "planDigest": "83f9f61f5808d6472cac1dc265eb244a662090c5904ea0717a90234bffeb4c32",
+  "declarationDigest": "f0f604b664da0b7a62170ae8ac7b7f902b1deb6debc9a6ef1a3b00b35b881dae",
+  "artifactDigest": "2d3f32c04c0bfe154c54d87781a8704c1e857a239d32cf8386dba7d018301bba",
+  "plan": {
+    "version": 1,
+    "profile": "sharing",
+    "backend": "firestore",
+    "capabilities": {
+      "physicalTtl": false
+    },
+    "extensions": [
+      {
+        "name": "colab",
+        "declarationDigest": "f0f604b664da0b7a62170ae8ac7b7f902b1deb6debc9a6ef1a3b00b35b881dae",
+        "admission": {
+          "artifactDigest": "2d3f32c04c0bfe154c54d87781a8704c1e857a239d32cf8386dba7d018301bba",
+          "entryPoint": "colab"
+        },
+        "resources": [
+          {
+            "name": "page-checkpoints",
+            "kind": "checkpoint",
+            "path": "x/colab/checkpoints",
+            "limits": {
+              "maxObjectBytes": 4194304,
+              "maxNamespaceBytes": 33554432,
+              "maxEntries": 64
+            },
+            "ttlField": "expiresAt",
+            "ttl": "not-provisioned",
+            "indexes": [
+              {
+                "field": "epoch",
+                "direction": "desc"
+              }
+            ]
+          },
+          {
+            "name": "page-docs",
+            "kind": "log",
+            "path": "x/colab/docs",
+            "limits": {
+              "maxObjectBytes": 262144,
+              "maxNamespaceBytes": 16777216,
+              "maxEntries": 1024
+            },
+            "ttlField": "expiresAt",
+            "ttl": "not-provisioned",
+            "indexes": [
+              {
+                "field": "expiresAt",
+                "direction": "desc"
+              },
+              {
+                "field": "sequence",
+                "direction": "asc"
+              }
+            ]
+          },
+          {
+            "name": "page-presence",
+            "kind": "awareness",
+            "path": "x/colab/presence",
+            "limits": {
+              "maxObjectBytes": 4096,
+              "maxNamespaceBytes": 65536,
+              "maxEntries": 64
+            },
+            "ttlField": null,
+            "ttl": "none",
+            "indexes": []
+          }
+        ]
+      }
+    ],
+    "unavailable": []
+  }
+}
