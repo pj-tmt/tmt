@@ -71,8 +71,15 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 
 ## Message editing boundary
 
-The main app uses one Colab-local `components/message-composer.tsx` for Chat,
-annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
+The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
+editable surface. `components/message-composer.tsx` configures its mention nodes,
+completion and message submission for Chat, annotations, agent follow-ups, plain
+replies and comment edits. The shared input accepts a caller-owned document adapter
+and keyboard policy; its optional `accessory` slot is presentation inside the input
+below text, aligned to its left edge; adding or removing it retains the editor root,
+focus, caret and selection. A caller without mentions uses
+`plainRichInputDocument`; it receives no recipient, transport or send capability.
+Page-list search semantics and filter metadata remain with their own feature owners. Exact 0.52.0
 `lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
 runtime dependencies; only plaintext/history extensions are imported. The source
 editor is a separate editing mode. Reader and recovery entries have no composer.

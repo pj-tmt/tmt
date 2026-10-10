@@ -1,17 +1,10 @@
-import { BrowserField } from '@tmt/browser-ui/react';
-import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react';
-import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
-import { ReactExtension } from '@lexical/react/ReactExtension';
-import { ContentEditable } from '@lexical/react/LexicalContentEditable';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { PlainTextExtension } from '@lexical/plain-text';
-import { HistoryExtension } from '@lexical/history';
 import {
   $createTextNode,
   TextNode,
   $getSelection,
   $isRangeSelection,
-  CLEAR_HISTORY_COMMAND,
   defineExtension,
   HISTORY_PUSH_TAG,
   KEY_DOWN_COMMAND,
@@ -32,6 +25,13 @@ import {
   mentionQuery,
   MessageMentionNode,
 } from './message-composer-document.js';
+import {
+  RichInput,
+  RichInputControl,
+  richInputExtension,
+  RICH_INPUT_RESET_TAG,
+} from './rich-input.js';
+import type { ComposerEdit } from './message-composer-edit.js';
 import './message-composer.css';
 
 // Module identity stays stable; each mounted composer receives its own editor/history.
@@ -39,7 +39,7 @@ const extension = defineExtension({
   name: 'Colab/MessageComposer',
   namespace: 'ColabMessage',
   nodes: [MessageMentionNode],
-  dependencies: [PlainTextExtension, HistoryExtension, ReactExtension],
+  dependencies: [richInputExtension],
   $initialEditorState: () => $replaceMessage(''),
   onError: (error: Error) => {
     throw error;
@@ -50,16 +50,29 @@ const extension = defineExtension({
 export function MessageComposer(props: MessageComposerProps) {
   return (
     <MessageMentionContext value={{ candidates: props.candidates, disabled: props.disabled }}>
-      <LexicalExtensionComposer extension={extension} contentEditable={null}>
+      <RichInput {...props} extension={extension} document={messageDocument}>
         <MessageField {...props} />
-      </LexicalExtensionComposer>
+      </RichInput>
     </MessageMentionContext>
   );
 }
 
+const messageDocument = {
+  read(previous: ComposerEdit): ComposerEdit {
+    return { value: $messageText(), mentions: $messageMentions(), edited: previous.edited };
+  },
+  replace(edit: ComposerEdit) {
+    $replaceMessage(edit.value, edit.mentions);
+  },
+  equal(a: ComposerEdit, b: ComposerEdit) {
+    return (
+      a.value === b.value && JSON.stringify(a.mentions ?? []) === JSON.stringify(b.mentions ?? [])
+    );
+  },
+};
+
 function MessageField(props: MessageComposerProps) {
   const [editor] = useLexicalComposerContext();
-  const controlId = useId();
   const current = useRef(props);
   current.current = props;
   const [{ query, open }, setSuggestions] = useState<{
@@ -69,47 +82,12 @@ function MessageField(props: MessageComposerProps) {
   const setOpen = useCallback((open: boolean) => {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
   }, []);
-  const reset = useRef(props.resetKey);
-  useEffect(() => {
-    // Lexical sets the caret; DOM focus must also leave the sandboxed renderer.
-    if (!props.autoFocus) return;
-    // The inline composer can mount before Lexical attaches its editable root.
-    return editor.registerRootListener((root) => {
-      if (root) editor.focus(() => root.focus({ preventScroll: true }));
-    });
-  }, [editor, props.autoFocus]);
   const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
   const options = candidates.map((agent) => ({
     value: `${agent.machine}:${agent.agent}`,
     label: `@${agent.agentName} · ${agent.machineName}${agent.presence === 'offline' ? ' · offline' : ''}`,
     disabled: agent.online !== 'online',
   }));
-  const wasDisabled = useRef(props.disabled);
-  useEffect(() => {
-    const completed = wasDisabled.current && !props.disabled;
-    wasDisabled.current = props.disabled;
-    editor.setEditable(!props.disabled);
-    if (
-      completed &&
-      props.autoFocus &&
-      editor.getRootElement()?.closest('dialog[open]') &&
-      document.activeElement === document.body
-    )
-      editor.focus();
-  }, [editor, props.disabled, props.autoFocus]);
-  useEffect(() => {
-    const explicit = reset.current !== props.resetKey;
-    reset.current = props.resetKey;
-    const value = editor.getEditorState().read($messageText);
-    if (explicit || value !== props.edit.value) {
-      editor.update(() => $replaceMessage(props.edit.value, props.edit.mentions), {
-        tag: 'parent-message-reset',
-        discrete: true,
-      });
-      setOpen(false);
-      editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
-    }
-  }, [editor, props.edit.value, props.edit.mentions, props.resetKey, setOpen]);
   useEffect(() => {
     const chipKeys = editor.registerCommand(
       KEY_DOWN_COMMAND,
@@ -135,16 +113,9 @@ function MessageField(props: MessageComposerProps) {
           const previous = current.current.edit;
           // Selection/normalization updates are not parent draft edits.
           const changed =
-            !tags.has('parent-message-reset') &&
+            !tags.has(RICH_INPUT_RESET_TAG) &&
             !!(dirtyElements.size || dirtyLeaves.size) &&
-            (value !== previous.value ||
-              JSON.stringify(mentions) !== JSON.stringify(previous.mentions ?? []));
-          if (changed)
-            current.current.onChange({
-              value,
-              mentions,
-              edited: previous.edited,
-            });
+            !messageDocument.equal({ value, mentions }, previous);
           // The IME owns its transient selection; keep the open list's query/highlight until commit.
           if (editor.isComposing()) return;
           setSuggestions((previous) => {
@@ -154,7 +125,7 @@ function MessageField(props: MessageComposerProps) {
               nextQuery?.query !== previous.query?.query;
             // DOM input can commit text before its caret. A newly admitted query opens
             // once selection arrives; Escape stays closed while that query is unchanged.
-            const open = tags.has('parent-message-reset')
+            const open = tags.has(RICH_INPUT_RESET_TAG)
               ? false
               : queryChanged || changed
                 ? nextQuery !== undefined
@@ -201,78 +172,56 @@ function MessageField(props: MessageComposerProps) {
           open: open && options.length > 0 && !props.disabled,
           onOpenChange: setOpen,
           render: (trigger) => (
-            <BrowserField
-              controlId={controlId}
-              label={props.label}
-              describedByIds={props.describedBy ? [props.describedBy] : []}
-              renderControl={(field) => (
-                <ContentEditable
-                  {...trigger}
-                  {...field}
-                  onKeyDown={undefined}
-                  placeholder={null}
-                  aria-placeholder={undefined}
-                  className={`${field.className} message-composer-field`}
-                  aria-multiline="true"
-                  aria-disabled={props.disabled}
-                  ref={trigger.ref as Ref<HTMLDivElement>}
-                  data-placeholder={props.placeholder}
-                  onKeyDownCapture={(event) => {
-                    const native = event.nativeEvent;
-                    // Chip actions keep their native keyboard activation; Enter here must not Send.
-                    if ((event.target as HTMLElement).closest('.message-mention')) {
-                      return;
-                    }
-                    if (
-                      !native.isTrusted ||
-                      native.isComposing ||
-                      editor.isComposing() ||
-                      native.keyCode === 229 ||
-                      props.disabled
-                    )
-                      return;
-                    if (trigger['aria-expanded'] === true) {
-                      trigger.onKeyDown?.(event);
-                      if (event.defaultPrevented) return;
-                    }
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      let next = props.edit;
-                      editor.update(
-                        () => {
-                          next = {
-                            ...$bindMessageMentions(props.candidates ?? [], true),
-                            edited: props.edit.edited,
-                          };
-                        },
-                        { discrete: true },
-                      );
-                      const resolution = resolveMessageMentions(next, props.candidates);
-                      if (resolution.ambiguous.length) {
-                        const ambiguous = resolution.ambiguousTokens[0];
-                        setSuggestions({
-                          open: true,
-                          query: { ...ambiguous.range, query: ambiguous.name },
-                        });
-                        event.preventDefault();
-                        event.stopPropagation();
-                        return;
-                      }
-                      if (props.onSubmit) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setOpen(false);
-                        props.onSubmit(native, next);
-                        return;
-                      }
-                    }
-                    if (event.key === 'Escape' && props.onCancel) {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      props.onCancel(native);
-                    }
-                  }}
-                />
-              )}
+            <RichInputControl
+              {...props}
+              className="message-composer-field"
+              trigger={trigger}
+              onKeyDownCapture={(event) => {
+                const native = event.nativeEvent;
+                // Chip actions keep their native keyboard activation; Enter here must not Send.
+                if ((event.target as HTMLElement).closest('.message-mention')) {
+                  return;
+                }
+                if (trigger['aria-expanded'] === true) {
+                  trigger.onKeyDown?.(event);
+                  if (event.defaultPrevented) return;
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  let next = props.edit;
+                  editor.update(
+                    () => {
+                      next = {
+                        ...$bindMessageMentions(props.candidates ?? [], true),
+                        edited: props.edit.edited,
+                      };
+                    },
+                    { discrete: true },
+                  );
+                  const resolution = resolveMessageMentions(next, props.candidates);
+                  if (resolution.ambiguous.length) {
+                    const ambiguous = resolution.ambiguousTokens[0];
+                    setSuggestions({
+                      open: true,
+                      query: { ...ambiguous.range, query: ambiguous.name },
+                    });
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                  }
+                  if (props.onSubmit) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpen(false);
+                    props.onSubmit(native, next);
+                    return;
+                  }
+                }
+                if (event.key === 'Escape' && props.onCancel) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  props.onCancel(native);
+                }
+              }}
             />
           ),
         }}

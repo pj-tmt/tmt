@@ -1,0 +1,45 @@
+.rich-input-field {
+  width: 100%;
+  min-height: 5.25em;
+  max-height: min(15em, 40dvh);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rich-input-field:has(> p:only-child > br:only-child)::before {
+  content: attr(data-placeholder);
+  color: var(--c-muted);
+  pointer-events: none;
+  position: absolute;
+}
+.rich-input-field p {
+  margin: 0;
+}
+.rich-input-surface:not([data-accessory]) {
+  display: contents;
+}
+.rich-input-surface[data-accessory] {
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  background: var(--tmt-ui-surface-sheet);
+}
+.rich-input-surface[data-accessory] .rich-input-field {
+  border: 0;
+}
+.rich-input-accessory {
+  padding: var(--tmt-ui-host-field-padding);
+  padding-top: 0;
+}
+
+.rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible) {
+  border-color: var(--tmt-ui-color-focus);
+  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-field-border-width)) solid
+    var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
+.rich-input-surface[data-accessory] .rich-input-field:focus-visible {
+  outline: none;
+}
+.rich-input-surface[data-accessory][data-disabled] {
+  color: var(--tmt-ui-color-disabled-text);
+  background: var(--tmt-ui-surface-disabled);
+}

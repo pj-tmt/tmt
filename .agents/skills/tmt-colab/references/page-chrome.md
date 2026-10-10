@@ -100,8 +100,10 @@ pending checks do not show the stale-quote hint. Annotation/Chat submits and rec
 Enter intent selects the one primary submit, while other submits and recipient selection
 remain text actions. The ready primary Send is solid; disabled Send stays outlined and muted.
 Export downloads use the shared Action inside the drawer, with its header providing the single close action.
-`MessageComposer` renders its retained Lexical editable combobox through
-`BrowserField`, with host-owned popup ARIA, draft, ref, caret/IME and editor history.
+`MessageComposer` configures its retained mention-aware combobox on the shared
+`RichInput` editing boundary and `BrowserField`. The caller owns popup ARIA and
+message policy; the shared input owns focus, caret/IME and editor history. Its
+optional accessory is inside the input below text at the shared text left edge.
 `PageDrawer` retains dialog modality and focus; Chat supplies its shared
 `ConversationWindow` header and close action instead of a duplicate drawer header.
 Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.

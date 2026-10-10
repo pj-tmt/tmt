@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { AgentDestination } from '../live-ask.js';
 import type { RecipientKey } from '../message-recipient.js';
 
@@ -14,6 +15,8 @@ export type MessageComposerProps = {
   edit: ComposerEdit;
   onChange(edit: ComposerEdit): void;
   label: string;
+  /** Optional presentation below text inside the shared input. */
+  accessory?: ReactNode;
   placeholder?: string;
   disabled: boolean;
   autoFocus?: boolean;
