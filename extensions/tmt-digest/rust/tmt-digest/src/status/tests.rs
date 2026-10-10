@@ -4,8 +4,14 @@ const ID: &str = "10000000-0000-4000-8000-000000000001";
 
 #[test]
 fn every_frozen_status_response_matches_the_same_projection() {
-    let vectors: Value =
-        serde_json::from_str(include_str!("../../../../contracts/vectors/status-v1.json")).unwrap();
+    let vectors: Value = serde_json::from_str(
+        &std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/vectors/status-v1.json"
+        ))
+        .expect("the supplier's frozen status vectors"),
+    )
+    .unwrap();
     for vector in vectors["status"].as_array().unwrap() {
         let expected = &vector["response"];
         let mut settings = format!(
