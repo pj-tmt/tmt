@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type RefObject } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+  type RefObject,
+} from 'react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { AnnotationInput, type MessageSendFailure } from './annotation-input.js';
 import { ProposalCard } from './components/proposal-card.js';
@@ -95,13 +103,17 @@ export function useProposalLayer({
   function changeProposalStatus(thread: ThreadView, location: 'inline' | 'comments') {
     if (!statusCoordinator) return;
     const id = `${thread.ref.writer}:${thread.ref.id}`;
-    setProposalStatusErrors(previous => new Set([...previous].filter(value => value !== id)));
-    void statusCoordinator.change(thread, !thread.resolved).then(() => {
-      if (location === 'comments') setActiveThread(previous => thread.resolved ? id : previous === id ? null : previous);
-    }).catch(() => {
-      setProposalStatusErrors(previous => new Set(previous).add(id));
-      if (location === 'comments') setActiveThread(id);
-    });
+    setProposalStatusErrors((previous) => new Set([...previous].filter((value) => value !== id)));
+    void statusCoordinator
+      .change(thread, !thread.resolved)
+      .then(() => {
+        if (location === 'comments')
+          setActiveThread((previous) => (thread.resolved ? id : previous === id ? null : previous));
+      })
+      .catch(() => {
+        setProposalStatusErrors((previous) => new Set(previous).add(id));
+        if (location === 'comments') setActiveThread(id);
+      });
   }
   function proposalCard(
     thread: ThreadView,
@@ -128,16 +140,24 @@ export function useProposalLayer({
         resolvedLabel={resolvedLabel(status)}
         unseen={status?.unseen}
         historyOpen={location === 'comments' && activeThread === id}
-        toggleHistory={location === 'comments' ? () => {
-          binding.current?.markThreadStatusSeen?.(thread.ref);
-          setActiveThread(previous => previous === id ? null : id);
-        } : undefined}
+        toggleHistory={
+          location === 'comments'
+            ? () => {
+                binding.current?.markThreadStatusSeen?.(thread.ref);
+                setActiveThread((previous) => (previous === id ? null : id));
+              }
+            : undefined
+        }
         detached={detached}
         disabled={discussionBlocked || proposalSending || !snapshot.binding?.discussion}
         canDecide={!!status?.controllable && !!snapshot.binding?.discussion?.decideProposal}
         decide={(decision) => void proposalActions.decide(id, decision)}
         followUp={() => followUpProposal(thread, location)}
-        resolve={status?.controllable && statusCoordinator ? () => changeProposalStatus(thread, location) : undefined}
+        resolve={
+          status?.controllable && statusCoordinator
+            ? () => changeProposalStatus(thread, location)
+            : undefined
+        }
         composer={
           proposalComposer?.id === id &&
           proposalComposer.location === location && (
