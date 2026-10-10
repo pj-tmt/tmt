@@ -15,7 +15,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   createHashHistory,
@@ -31,15 +31,12 @@ import {
 } from '@tanstack/react-router';
 import type { PageSummary, PageView, PageTransport } from './transport.js';
 import { orderPages, pageTitle, pageUpdate } from './page-index.js';
-import { AnnotationInput, type MessageSendFailure } from './annotation-input.js';
-import { ProposalCard } from './components/proposal-card.js';
-import { ProposalActions, type ProposalOutcome } from './proposal-actions.js';
-import { conversationAsks } from './thread-store.js';
-import { AskAgainAction } from './ask-again.js';
-import { CommentExchange, ThreadPanel, ThreadWindow } from './thread-panel.js';
+import { AnnotationInput } from './annotation-input.js';
+import { useProposalLayer } from './proposal-layer.js';
+import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import type { QuoteSelector, DiscussionRef, ThreadView } from './thread-records.js';
+import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
@@ -947,210 +944,28 @@ function Page() {
     setActiveThread(null);
     setPanel(null);
   }
-  const [slotPositions, setSlotPositions] = useState<{ id: string; top: number }[]>([]);
-  const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
-  const [proposalOutcomes, setProposalOutcomes] = useState(new Map<string, ProposalOutcome>());
-  const proposalContext = useRef({ discussionBlocked: false, snapshot, view });
-  const proposalActions = useMemo(() => {
-    const pageId = snapshot.id;
-    return new ProposalActions({
-      thread: (id) =>
-        proposalContext.current.view.threads?.find((t) => `${t.ref.writer}:${t.ref.id}` === id),
-      discussion: () => binding.current?.discussion,
-      ask: () => binding.current?.ask,
-      asks: () => proposalContext.current.view.asks ?? [],
-      current: (discussion, ask) =>
-        proposalContext.current.snapshot.id === pageId &&
-        !proposalContext.current.discussionBlocked &&
-        binding.current?.discussion === discussion &&
-        binding.current?.ask === ask,
-      title: () => proposalContext.current.view.title || proposalContext.current.snapshot.title,
-      url: () => location.href,
-      changed: (id, outcome) =>
-        setProposalOutcomes((previous) => new Map(previous).set(id, outcome)),
-    });
-  }, [snapshot.id]);
-  useEffect(() => setProposalOutcomes(new Map()), [snapshot.id]);
-  const [proposalComposer, setProposalComposer] = useState<{
-    id: string;
-    key: string;
-    location: 'inline' | 'comments';
-  }>();
-  const [proposalSending, setProposalSending] = useState(false);
-  const [proposalFailures, setProposalFailures] = useState(new Map<string, MessageSendFailure[]>());
-  const proposalBusy = useRef(false);
-  useEffect(() => {
-    setProposalComposer(undefined);
-    setProposalFailures(new Map());
-    proposalBusy.current = false;
-    setProposalSending(false);
-  }, [snapshot.id]);
-  function followUpProposal(thread: ThreadView, location: 'inline' | 'comments') {
-    if (proposalBusy.current || annotationBusy.current || statusBusy.current) return;
-    const id = `${thread.ref.writer}:${thread.ref.id}`;
-    if (proposalComposer?.id === id && proposalComposer.location === location) return;
-    closeRef.current(false);
-    binding.current?.markThreadStatusSeen?.(thread.ref);
-    setProposalComposer({ id, key: crypto.randomUUID(), location });
-  }
-  function proposalCard(
-    thread: ThreadView,
-    detached = false,
-    location: 'inline' | 'comments' = 'inline',
-  ) {
-    if (!thread.proposal) return;
-    const id = `${thread.ref.writer}:${thread.ref.id}`;
-    const localOutcome = proposalOutcomes.get(id);
-    const records = conversationAsks(thread, view.asks ?? [], true);
-    // Signed page outcomes own recovery and replace ephemeral adoption warnings.
-    const recorded =
-      localOutcome?.failure &&
-      records.some((record) =>
-        record.messageIds?.includes(localOutcome.failure!.input.context.message.id),
-      );
-    const outcome = recorded ? undefined : localOutcome;
-    const status = presentationOf(view.threadPresentations, thread.ref)?.status;
-    return (
-      <ProposalCard
-        thread={thread}
-        outcome={outcome}
-        statusError={proposalStatusErrors.has(id)}
-        detached={detached}
-        disabled={discussionBlocked || proposalSending || !snapshot.binding?.discussion}
-        canDecide={!!status?.controllable && !!snapshot.binding?.discussion?.decideProposal}
-        decide={(decision) => void proposalActions.decide(id, decision)}
-        followUp={() => followUpProposal(thread, location)}
-        resolve={
-          status?.controllable && statusCoordinator
-            ? () => {
-                setProposalStatusErrors(
-                  (previous) => new Set([...previous].filter((value) => value !== id)),
-                );
-                void statusCoordinator
-                  .change(thread, !thread.resolved)
-                  .catch(() => setProposalStatusErrors((previous) => new Set(previous).add(id)));
-              }
-            : undefined
-        }
-        composer={
-          proposalComposer?.id === id &&
-          proposalComposer.location === location && (
-            <AnnotationInput
-              key={proposalComposer.key}
-              showCancel
-              creationRecipient={thread.proposal.proposer}
-              binding={snapshot.binding?.ask}
-              discussion={snapshot.binding?.discussion}
-              anchor={thread.anchor}
-              thread={thread}
-              asks={view.asks ?? []}
-              title={view.title || snapshot.title}
-              blocked={discussionBlocked}
-              recoveryRequired={recoveryRequired}
-              initialEdit={drafts.current.get(id)}
-              onDraft={(value, edit) => keepDraft(id, value.trim() || edit.edited ? edit : null)}
-              onFailure={(failure) =>
-                setProposalFailures((previous) =>
-                  new Map(previous).set(id, [...(previous.get(id) ?? []), failure]),
-                )
-              }
-              onBusy={(busy) => {
-                proposalBusy.current = busy;
-                setProposalSending(busy);
-              }}
-              cancel={() => {
-                if (!proposalBusy.current) setProposalComposer(undefined);
-              }}
-              committed={() => {
-                keepDraft(id, null);
-                proposalBusy.current = false;
-                setProposalSending(false);
-                setProposalComposer(undefined);
-              }}
-            />
-          )
-        }
-      >
-        {thread.comments.map((comment) => (
-          <CommentExchange
-            key={`${comment.ref.writer}:${comment.messageId}`}
-            comment={comment}
-            thread={thread}
-            binding={snapshot.binding?.discussion}
-            ask={snapshot.binding?.ask}
-            asks={view.asks ?? []}
-            blocked={discussionBlocked}
-            title={view.title || snapshot.title}
-          />
-        ))}
-        {(proposalFailures.get(id) ?? [])
-          .filter(
-            (failure) =>
-              !records.some(
-                (record) =>
-                  record.machine === failure.recipient.machine &&
-                  record.agent === failure.recipient.agent &&
-                  record.messageIds?.includes(failure.message),
-              ),
-          )
-          .map((failure) => (
-            <div
-              key={`${failure.message}:${failure.recipient.agent}`}
-              className="annotation-delivery-failure"
-            >
-              <p role="status">
-                @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
-              </p>
-              {failure.uncertain ? (
-                <p className="ask-supporting">{text.askUncertain}</p>
-              ) : (
-                <AskAgainAction
-                  binding={snapshot.binding?.ask}
-                  blocked={discussionBlocked || proposalSending}
-                  input={failure.input}
-                  recipient={failure.recipient}
-                  retryOf={null}
-                  settled={(result) =>
-                    setProposalFailures((previous) =>
-                      new Map(previous).set(
-                        id,
-                        (previous.get(id) ?? []).flatMap((value) =>
-                          value !== failure
-                            ? [value]
-                            : result.adopted === true
-                              ? []
-                              : result.adopted === false
-                                ? [value]
-                                : [{ ...value, uncertain: true }],
-                        ),
-                      ),
-                    )
-                  }
-                />
-              )}
-            </div>
-          ))}
-        {outcome?.failure && !outcome.failure.uncertain && (
-          <AskAgainAction
-            binding={snapshot.binding?.ask}
-            blocked={discussionBlocked}
-            input={outcome.failure.input}
-            recipient={outcome.failure.recipient}
-            retryOf={null}
-          />
-        )}
-      </ProposalCard>
-    );
-  }
-  const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
-  proposalContext.current = { discussionBlocked, snapshot, view };
   const host = useRef<HTMLDivElement>(null);
+  const proposalLayer = useProposalLayer({
+    snapshot,
+    view,
+    binding,
+    renderer,
+    host,
+    state,
+    discussionBlocked,
+    recoveryRequired,
+    statusCoordinator,
+    otherBusy: () => annotationBusy.current || statusBusy.current,
+    closeAnnotation: () => closeRef.current(false),
+    draft: (key) => drafts.current.get(key),
+    keepDraft,
+  });
   useEffect(() => {
     const controller = new AbortController();
     if (liveError) {
@@ -1166,7 +981,7 @@ function Page() {
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
-      onSlots: setSlotPositions,
+      onSlots: proposalLayer.onSlots,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
@@ -1223,37 +1038,6 @@ function Page() {
       annotation?.selector ?? undefined,
     );
   }, [state, view.threads, annotation]);
-  const proposalIdentity = proposals.map((t) => `${t.ref.writer}:${t.ref.id}`).join(',');
-  useEffect(() => {
-    if (state !== 'ready') return;
-    const nodes = [
-      ...(host.current?.parentElement?.querySelectorAll<HTMLElement>('[data-inline-proposal]') ??
-        []),
-    ];
-    let frame: number | undefined;
-    let previous = '';
-    const measure = () => {
-      frame = undefined;
-      const heights = nodes.map((node) => ({
-        id: node.dataset.inlineProposal!,
-        height: Math.min(2000, Math.ceil(node.getBoundingClientRect().height)),
-      }));
-      const next = JSON.stringify(heights);
-      if (next !== previous) {
-        previous = next;
-        renderer.current?.slots(heights);
-      }
-    };
-    const observer = new ResizeObserver(() => {
-      if (frame === undefined) frame = requestAnimationFrame(measure);
-    });
-    nodes.forEach((node) => observer.observe(node));
-    measure();
-    return () => {
-      observer.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
-  }, [state, view.source, proposalIdentity]);
   return (
     <section
       className="page"
@@ -1369,24 +1153,7 @@ function Page() {
       <div className="workspace">
         <div className="canvas">
           <div className="frame-host" ref={host} />
-          {proposals
-            .filter(
-              (thread) => proposals.filter((t) => t.threadId === thread.threadId).length === 1,
-            )
-            .map((thread) => {
-              const slot = slotPositions.find((slot) => slot.id === thread.threadId);
-              return (
-                <div
-                  key={`${thread.ref.writer}:${thread.ref.id}`}
-                  data-inline-proposal={thread.threadId}
-                  className="proposal-inline"
-                  data-detached={!slot || undefined}
-                  style={{ top: slot?.top ?? 0 }}
-                >
-                  {proposalCard(thread)}
-                </div>
-              );
-            })}
+          {proposalLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
               state={recoveryRequired ? 'waiting' : 'blocked'}
@@ -1624,13 +1391,7 @@ function Page() {
         <ThreadPanel
           creationRecipient={view.creationRecipient}
           hideHeader
-          renderProposal={(thread) =>
-            proposalCard(
-              thread,
-              !slotPositions.some((slot) => slot.id === thread.threadId),
-              'comments',
-            )
-          }
+          renderProposal={proposalLayer.renderProposal}
           key={`discussion:${snapshot.id}:${draftsReady}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}

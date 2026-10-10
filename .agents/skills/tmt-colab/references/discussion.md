@@ -52,7 +52,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   cross-writer proposal bounds; `discussion::prepare_decision` checks finality against
   the same captured fold before the generic own writer freezes either edit. Proposal
   fields, causal ordering and recovery live in the contract above; no extra root,
-  store or dispatcher exists. `components/proposal-card.tsx` presents admitted cards; `proposal-actions.ts`
+  store or dispatcher exists. `proposal-layer.tsx` owns proposal state, card/composer
+  rendering and slot measurement; `router.tsx` only wires the layer. `components/proposal-card.tsx`
+  presents admitted cards; `proposal-actions.ts`
   fences live decisions, publishes the final decision first, then the ordinary
   decision comment and existing explicit Ask. Failed notification never rolls back
   or resumes on reload. `renderer.ts` owns bounded cosmetic slot admission on the
