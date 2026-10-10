@@ -139,6 +139,8 @@ exec {core} "$@"
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
         cmd.env_clear()
+            // Automatic browser effects are opt-in in fixtures, never a host opener.
+            .env("CI", "1")
             .env("HOME", &self.root)
             .env("XDG_CONFIG_HOME", self.root.join("config"))
             .env("XDG_DATA_HOME", self.root.join("data"))
@@ -165,33 +167,16 @@ exec {core} "$@"
         };
         fs::create_dir_all(self.root.join("bin")).unwrap();
         let path = self.root.join("bin").join(name);
-        fs::write(
+        tmt_test_support::write_executable(
             &path,
             format!(
-                "#!/bin/sh\nif [ \"$1\" = __fixture_ready ]; then exit 0; fi\nprintf '%s\\n' \"$1\" >> {}\nexit {exit}\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" >> {}\nexit {exit}\n",
                 quote(self.root.join("opened").to_str().unwrap())
-            ),
+            )
+            .as_bytes(),
+            0o700,
         )
         .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        // A just-written executable can be briefly busy while a parallel test forks; wait it out
-        // through the no-effect branch so the product's one exec is never the probe.
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            match Command::new(&path).arg("__fixture_ready").output() {
-                Ok(output) => {
-                    assert!(output.status.success());
-                    break;
-                }
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::ExecutableFileBusy
-                        && Instant::now() < deadline =>
-                {
-                    thread::sleep(Duration::from_millis(10))
-                }
-                Err(e) => panic!("opener publication failed: {e}"),
-            }
-        }
         assert!(!self.root.join("opened").exists());
     }
     fn opened(&self) -> Vec<String> {
@@ -3758,40 +3743,153 @@ fn a_failing_opener_warns_once_and_keeps_the_printed_link() {
     serving.stop(Signal::SIGTERM);
 }
 #[test]
-fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
-    let pilot = Pilot::new(None);
-    pilot.opener(0);
-    let create = |door: Option<&str>, extra: &[&str]| {
-        let mut cmd = pilot.command();
-        if let Some(status) = door {
-            cmd.env("TMT_EXECUTABLE", pilot.creation_core(Some(status), None));
+fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
+    // `script` gives the actual native executable a PTY, not a forced presentation setting.
+    for tty in [false, true] {
+        for json_output in [false, true] {
+            for setting in [false, true] {
+                for environment in ["local", "ci", "ssh", "forwarded", "no-opener", "no-open"] {
+                    let pilot = Pilot::new(None);
+                    pilot.opener(0);
+                    pilot.call(&[
+                        "settings",
+                        "open",
+                        if setting { "on" } else { "off" },
+                        "--json",
+                    ]);
+                    let mut command = pilot.command_with_creation_door(CREATION_DOOR);
+                    command.env_remove("CI").env("DISPLAY", ":fixture");
+                    command.args(["page", "create", "--title", "Created"]);
+                    if json_output {
+                        command.arg("--json");
+                    }
+                    match environment {
+                        "ci" => {
+                            command.env("CI", "1");
+                        }
+                        "ssh" => {
+                            command
+                                .env("SSH_CONNECTION", "fixture")
+                                .env_remove("DISPLAY");
+                        }
+                        "forwarded" => {
+                            command.env("SSH_CONNECTION", "fixture");
+                        }
+                        "no-opener" => {
+                            command.env("PATH", pilot.root.join("empty-bin"));
+                        }
+                        "no-open" => {
+                            command.arg("--no-open");
+                        }
+                        _ => {}
+                    }
+                    let out = if tty {
+                        let mut wrapped = Command::new("/usr/bin/script");
+                        wrapped.env_clear().envs(
+                            command
+                                .get_envs()
+                                .filter_map(|(name, value)| value.map(|v| (name, v))),
+                        );
+                        if cfg!(target_os = "macos") {
+                            wrapped
+                                .args(["-q", "/dev/null"])
+                                .arg(command.get_program())
+                                .args(command.get_args());
+                        } else {
+                            let line = std::iter::once(command.get_program())
+                                .chain(command.get_args())
+                                .map(|v| quote(v.to_str().unwrap()))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            wrapped.args(["-q", "-e", "-c", &line, "/dev/null"]);
+                        }
+                        // Keep the PTY's input open until the command exits: immediate EOF
+                        // makes macOS script echo a synthetic ^D into captured JSON.
+                        let mut child = wrapped
+                            .stdin(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn()
+                            .unwrap();
+                        let input = child.stdin.take();
+                        let output = child.wait_with_output().unwrap();
+                        drop(input);
+                        output
+                    } else {
+                        command.output().unwrap()
+                    };
+                    assert!(
+                        out.status.success(),
+                        "{tty}/{json_output}/{setting}/{environment}: {out:?}"
+                    );
+                    let expected = setting && matches!(environment, "local" | "forwarded");
+                    pilot.assert_creation_acquisitions(1);
+                    let calls = pilot.opened();
+                    assert_eq!(
+                        calls.len(),
+                        usize::from(expected),
+                        "{tty}/{json_output}/{setting}/{environment}"
+                    );
+                    if expected {
+                        assert!(
+                            calls[0].starts_with("http://127.0.0.1:53253/p/"),
+                            "{calls:?}"
+                        );
+                    }
+                    if json_output {
+                        // Parsing the entire output rejects extra documents or human/progress text.
+                        let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+                        assert_eq!(result["opened"], expected);
+                        assert!(
+                            result["shortLink"]
+                                .as_str()
+                                .unwrap()
+                                .starts_with("http://127.0.0.1:53253/p/")
+                        );
+                    } else if expected {
+                        assert!(
+                            String::from_utf8_lossy(&out.stdout)
+                                .contains("opened in your browser:")
+                        );
+                    }
+                }
+            }
         }
-        let out = cmd
-            .args(["page", "create", "--title", "T"])
-            .args(extra)
+    }
+}
+
+#[test]
+fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation() {
+    for (door, exit, expected_opened) in [(true, 0, true), (true, 9, false), (false, 0, false)] {
+        let pilot = Pilot::new(None);
+        pilot.opener(exit);
+        let mut command = if door {
+            pilot.command_with_creation_door(CREATION_DOOR)
+        } else {
+            pilot.command()
+        };
+        let out = command
+            .env_remove("CI")
+            .env("DISPLAY", ":fixture")
+            .args(["page", "create", "--title", "Kept", "--json"])
             .output()
             .unwrap();
         assert!(out.status.success(), "{out:?}");
-        String::from_utf8(out.stdout).unwrap()
-    };
-    // Not without --open (no terminal), not without a door, not for --json.
-    create(Some(CREATION_DOOR), &[]);
-    create(None, &["--open"]);
-    create(Some(CREATION_DOOR), &["--open", "--json"]);
-    assert!(pilot.opened().is_empty());
-    let text = create(Some(CREATION_DOOR), &["--open"]);
-    pilot.assert_creation_acquisitions(3);
-    let opened = pilot.opened();
-    assert_eq!(opened.len(), 1);
-    assert!(opened[0].starts_with("http://127.0.0.1:53253/p/"));
-    assert!(
-        text.contains(&format!("opened in your browser: {}", opened[0])),
-        "{text}"
-    );
-    assert!(
-        text.contains("pair for page access: tmt remote pair"),
-        "{text}"
-    );
+        let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+        if door {
+            pilot.assert_creation_acquisitions(1);
+        }
+        assert_eq!(result["opened"], expected_opened);
+        assert_eq!(pilot.opened().len(), usize::from(door));
+        let page = result["pageId"].as_str().unwrap();
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["title"],
+            "Kept"
+        );
+        if expected_opened {
+            assert_eq!(pilot.opened()[0], result["shortLink"].as_str().unwrap());
+        }
+    }
 }
 #[test]
 fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {

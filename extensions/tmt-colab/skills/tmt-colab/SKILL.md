@@ -61,12 +61,12 @@ Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 fil
 tmt colab page create --title "Weekly plan" --file page.html --json
 ```
 
-Use `--file -` for stdin; omitting `--file` creates an empty page. The result
-includes `pageId`, `path`, `link` and `shortLink`. Give the user `shortLink` when
-available, otherwise the full `link`, not just the page ID or JSON. If both links
-are null, inspect serving status instead of inventing a URL; `path` is relative
-to the Remote door address. `paired: false` and `next`
-indicate the user-only pairing step, not a command for the agent to execute.
+Use `--file -` for stdin; omit `--file` for an empty page. Returns
+`pageId`, `path`, `link`, `shortLink` and `opened`. With auto-open on and a local
+browser, creation opens the page without a TTY or with `--json`;
+`--no-open` suppresses it. Share `shortLink`, not `link`. If null,
+inspect serving status; do not invent a URL. `path` is relative
+to the Remote door. `paired: false` and `next` mean user-only pairing, never an agent command.
 `tmt colab show PAGE --json` inspects the page and its current link.
 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.

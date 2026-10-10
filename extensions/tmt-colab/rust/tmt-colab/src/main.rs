@@ -135,7 +135,7 @@ fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::HumanAndJson,
-        details: "open (default on) controls whether serve and page create open the link in your browser. It is skipped without a terminal, with --json, in CI, in an SSH session without a display and when no opener is installed; --open and --no-open override it per command. Stored in <data root>/colab/settings.json.",
+        details: "open (default on) controls whether serve and page create open the link in your browser. Page create opens even without a terminal or with --json; serve skips in those modes. Automatic opening is skipped in CI, in an SSH session without a display and when no opener is installed; --open and --no-open override it per command. Stored in <data root>/colab/settings.json.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -181,7 +181,7 @@ fn grammar() -> Command {
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the full link is printed (link in JSON, null otherwise) and opened in your browser unless --no-open, --json, the open setting or the environment says not to; without a door the path relative to the Remote door address and the reason are printed.",
+        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the page opens in the owner's browser even without a terminal or with --json, unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback; without a door the relative path and the reason are printed.",
     };
     const READ: CommandSpec = CommandSpec {
         name: "read",

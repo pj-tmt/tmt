@@ -597,8 +597,8 @@ core discovery or storage access.
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
   from a browser. Remote forwards public short entries without device context; Colab redirects only
-  to Remote's validated `tmt-mount` root, resolving page-ID prefixes from its verified catalog (browser ambiguity by parent chrome).
-  It stores ciphertext and never decodes Yjs.
+  to validated `tmt-mount`, resolving page prefixes from its verified catalog (ambiguity by parent chrome).
+  It stores ciphertext, never decodes Yjs; creation opening ignores TTY/JSON.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
