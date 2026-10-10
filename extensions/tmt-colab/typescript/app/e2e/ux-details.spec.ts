@@ -6,7 +6,10 @@ const captures = process.env.COLAB_DETAIL_CAPTURE_DIR;
 const native = process.env.COLAB_DETAIL_NATIVE_DIR;
 const phase = process.env.COLAB_DETAIL_CAPTURE_PHASE;
 const items = process.env.COLAB_DETAIL_CAPTURE_ITEMS?.split(',');
-const skill = readFileSync(new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url), 'utf8');
+const skill = readFileSync(
+  new URL('../../../skills/tmt-colab/references/page-style.md', import.meta.url),
+  'utf8',
+);
 const style = skill.match(/<style>[\s\S]*?<\/style>/)?.[0];
 if (!style) throw new Error('The author starter is missing.');
 async function fixture(page: Page, name: string, method: string, argument?: unknown) {

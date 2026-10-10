@@ -4,7 +4,10 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 // Use the shipped author starter rather than maintaining another palette fixture.
-const skill = readFileSync(new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url), 'utf8');
+const skill = readFileSync(
+  new URL('../../../skills/tmt-colab/references/page-style.md', import.meta.url),
+  'utf8',
+);
 const style = skill.match(/<style>[\s\S]*?<\/style>/)?.[0];
 if (!style) throw new Error('The bundled author starter is missing.');
 const content = `<h1>Review notes</h1>
