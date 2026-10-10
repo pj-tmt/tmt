@@ -126,10 +126,7 @@ export function AnnotationInput({
             agent.agent === creationRecipient.agentId,
         )
       : [];
-  const creator =
-    binding && creatorMatches.length === 1 && creatorMatches[0].online === 'online'
-      ? creatorMatches[0]
-      : undefined;
+  const creator = binding && creatorMatches.length === 1 ? creatorMatches[0] : undefined;
   function freshEdit(): ComposerEdit {
     if (!creator || !creatorPreference.enabled) return { value: '', edited: false };
     const token = `@${creator.agentName}`;

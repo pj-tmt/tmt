@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
 import { destination, id } from '../test/ask-fixtures.js';
+import type { AgentDestination } from '../src/live-ask.js';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: unknown) {
   return page.evaluate(
@@ -15,7 +16,7 @@ async function mount(
   surface = 'chat',
   options: {
     scope?: string;
-    agents?: (typeof alpha)[];
+    agents?: AgentDestination[];
     creator?: boolean;
     talk?: boolean;
     initialEdit?: unknown;
@@ -140,12 +141,35 @@ test('restored unknown-provenance creator mention is manual, and off does not de
   await expect(input).toHaveText('@alpha Saved', { useInnerText: true });
   await expect(page.locator('.message-mention-chip')).toHaveCount(1);
 });
+test('an offline saved creator stays seeded, and an offline agent on an online machine receives', async ({
+  page,
+}) => {
+  const unavailable = await mount(page, 'chat', {
+    agents: [{ ...alpha, online: 'offline' }],
+  });
+  await expect(toggle(page)).toBeVisible();
+  await expect(unavailable).toHaveText('@alpha ', { useInnerText: true });
+  await unavailable.pressSequentially('Waiting');
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
+
+  const input = await mount(page, 'chat', {
+    agents: [{ ...alpha, presence: 'offline' }],
+  });
+  await expect(toggle(page)).toBeVisible();
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
+  await input.pressSequentially('Inbox');
+  await input.press('Enter');
+  await expect
+    .poll(() => run(page, 'proof'))
+    .toMatchObject({ writes: 1, preparations: 1, commits: 1 });
+  await expect(input).toHaveText('@alpha ', { useInnerText: true });
+});
 test('no creator admission hides the toggle and never invents a fallback recipient', async ({
   page,
 }) => {
   for (const agents of [
     [],
-    [{ ...alpha, online: 'offline' as typeof alpha.online }],
     [{ ...alpha, agent: id(9) }],
     [alpha, alpha],
     [alpha, { ...alpha, online: 'offline' as typeof alpha.online }],
