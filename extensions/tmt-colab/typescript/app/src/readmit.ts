@@ -77,3 +77,50 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
     );
   });
 }
+
+/**
+ * One page's reopen state: at most one attempt in flight, and the controller of the binding the
+ * last successful reopen produced (its signal closes that binding). `reset()` ends both, so a
+ * route reload that brings a newer binding cannot leave a reopened one open beside it.
+ */
+export class PageReopener<T> {
+  #pending: AbortController | null = null;
+  #life: AbortController | null = null;
+
+  get busy(): boolean {
+    return this.#pending !== null;
+  }
+
+  start(
+    open: (signal: AbortSignal) => Promise<T>,
+    options: {
+      retryable: (error: Error) => boolean;
+      done: (result: Reopened<T>) => void;
+      wait?: (ms: number, signal: AbortSignal) => Promise<void>;
+    },
+  ): void {
+    if (this.#pending) return;
+    const controller = new AbortController();
+    this.#pending = controller;
+    void reopenWithBackoff(() => open(controller.signal), {
+      signal: controller.signal,
+      retryable: options.retryable,
+      wait: options.wait,
+    }).then((result) => {
+      if (controller.signal.aborted) return;
+      this.#pending = null;
+      if ('value' in result) {
+        this.#life?.abort();
+        this.#life = controller;
+      }
+      options.done(result);
+    });
+  }
+
+  reset(): void {
+    this.#pending?.abort();
+    this.#life?.abort();
+    this.#pending = null;
+    this.#life = null;
+  }
+}

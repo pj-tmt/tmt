@@ -181,8 +181,9 @@ tunnel limits or the live reconnect path.
 `connection-readmit.spec.ts` (#2557) opens an owner page, advances the page epoch by adding and
 removing a share link, and expects the same tab, with no reload, to return to Live, read the next
 `page write` and deliver a Chat message to an agent. An epoch advance or authority recheck
-(`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it up to three times a minute; a
-refused fresh open stays terminal.
+(`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it (up to three reopens a minute,
+five open attempts each, at 0/1/3/8/15 s); only a refusal that ends access is terminal, and the
+rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-page-readmission-2557).
 
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained

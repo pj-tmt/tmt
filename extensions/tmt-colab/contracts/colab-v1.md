@@ -1295,6 +1295,22 @@ The server index (`pageId, state, lastUpdateAt, expiresAt, epoch, writer list`)
 is an admission/management projection; trusted space-home labels derive from
 verified statements and decrypted metadata.
 
+### Owner-page readmission (#2557)
+
+An open page is bound to one page epoch. When that epoch advances or an authority recheck
+drops its sync socket, the socket ends with `STALE_EPOCH`, `DENIED` or `EXPIRED`. For the
+owner's own page this is not a lost grant: the page reopens itself for the new epoch without a
+reload, keeping drafts and the open panel.
+
+- A reopen starts at most three times in 60 s per page; within one reopen, up to five open
+  attempts run at 0, 1, 3, 8 and 15 s, so a lagging epoch or admission is retried.
+- A refusal that ends access (a revoked device, `Access ended`, a deleted page, a closed or
+  ended session) stops the reopen at once. Readmittable and unclassified refusals retry; after
+  the last attempt or an exhausted budget the page shows its terminal card.
+- A route reload that delivers a newer binding ends the reopen in flight and the binding an
+  earlier reopen produced, so one page keeps one sync socket.
+- A read-only link reader is never reopened: the same codes end its access ("Access ended").
+
 ### Snapshots and restore
 
 A snapshot contains a self-contained encrypted copy of exact source text and

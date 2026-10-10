@@ -230,7 +230,23 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await expect(await pageAction(second, 'Files')).toHaveCount(0);
 
     // Removing the link ends the reader.
-    colab(['share', 'link', 'remove', created.pageId, link.linkId as string, '--yes']);
+    // `devices revoke` rotates epochs in the background and the owner CLI refuses a stale head
+    // (COLAB_STALE_HEAD): repeat the removal until that settles.
+    await expect
+      .poll(
+        () => {
+          try {
+            colab(['share', 'link', 'remove', created.pageId, link.linkId as string, '--yes']);
+            return 'removed';
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.includes('COLAB_STALE_HEAD')) throw error;
+            return 'stale';
+          }
+        },
+        { timeout: 30_000, intervals: [250, 500, 1000] },
+      )
+      .toBe('removed');
     await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 60_000,
     });
