@@ -1020,7 +1020,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, liveError]);
+  }, [view.source, liveError, proposalLayer.onSlots]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(

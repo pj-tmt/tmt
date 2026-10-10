@@ -45,20 +45,20 @@ export function useProposalLayer({
   const [slotPositions, setSlotPositions] = useState<{ id: string; top: number }[]>([]);
   const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
   const [proposalOutcomes, setProposalOutcomes] = useState(new Map<string, ProposalOutcome>());
-  const proposalContext = useRef({ discussionBlocked, snapshot, view });
+  const proposalContext = useRef({ discussionBlocked, snapshot, view, binding, renderer, host });
   const proposalActions = useMemo(() => {
     const pageId = snapshot.id;
     return new ProposalActions({
       thread: (id) =>
         proposalContext.current.view.threads?.find((t) => `${t.ref.writer}:${t.ref.id}` === id),
-      discussion: () => binding.current?.discussion,
-      ask: () => binding.current?.ask,
+      discussion: () => proposalContext.current.binding.current?.discussion,
+      ask: () => proposalContext.current.binding.current?.ask,
       asks: () => proposalContext.current.view.asks ?? [],
       current: (discussion, ask) =>
         proposalContext.current.snapshot.id === pageId &&
         !proposalContext.current.discussionBlocked &&
-        binding.current?.discussion === discussion &&
-        binding.current?.ask === ask,
+        proposalContext.current.binding.current?.discussion === discussion &&
+        proposalContext.current.binding.current?.ask === ask,
       title: () => proposalContext.current.view.title || proposalContext.current.snapshot.title,
       url: () => location.href,
       changed: (id, outcome) =>
@@ -238,13 +238,14 @@ export function useProposalLayer({
     );
   }
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
-  proposalContext.current = { discussionBlocked, snapshot, view };
+  proposalContext.current = { discussionBlocked, snapshot, view, binding, renderer, host };
   const proposalIdentity = proposals.map((t) => `${t.ref.writer}:${t.ref.id}`).join(',');
   useEffect(() => {
     if (state !== 'ready') return;
     const nodes = [
-      ...(host.current?.parentElement?.querySelectorAll<HTMLElement>('[data-inline-proposal]') ??
-        []),
+      ...(proposalContext.current.host.current?.parentElement?.querySelectorAll<HTMLElement>(
+        '[data-inline-proposal]',
+      ) ?? []),
     ];
     let frame: number | undefined;
     let previous = '';
@@ -257,7 +258,7 @@ export function useProposalLayer({
       const next = JSON.stringify(heights);
       if (next !== previous) {
         previous = next;
-        renderer.current?.slots(heights);
+        proposalContext.current.renderer.current?.slots(heights);
       }
     };
     const observer = new ResizeObserver(() => {

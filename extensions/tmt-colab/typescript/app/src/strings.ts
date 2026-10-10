@@ -23,7 +23,8 @@ export const text = {
   proposalDecline: 'Decline',
   proposalFollowUp: 'Follow up',
   proposalSaving: 'Saving decision…',
-  proposalNotifyFailed: 'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
+  proposalNotifyFailed:
+    'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
 
   unknownPageTitle: 'Untitled page',
