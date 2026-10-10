@@ -64,7 +64,12 @@ result(requestId: string): Promise<ResultState>;
 `requestId`), `refused` and `cancelled` (optional `reason`), always with the original
 `operationId`. `ResultState` preserves `pending`, `replied` (exact inert `message`,
 including empty text) and `unavailable` (optional `reason`), always with `requestId`.
-`RemoteAgent` contains `id`, `name`, `presence` and optional core-owned `delivery`.
+`RemoteAgent` contains `id`, `name`, `presence`, optional core-owned `delivery` and optional
+`runningDriver: 'claude' | 'codex'`, with provenance owned by Core's
+[List runtime driver](../../../../contracts/identity-status-v1.md#list-runtime-driver) contract.
+Remote forwards only nonempty `[a-z0-9-]` strings up to 32 bytes. The SDK omits unknown values
+without failing the list and never falls back to remembered `driver`; the property is truly absent,
+never null. Recognizing a new driver needs an additive SDK release; this grants no send authority.
 These types and `SendInput` are exported by the browser entry.
 
 Each signed transport attempt defaults to a 40-second timeout. `send` and `operation` return
