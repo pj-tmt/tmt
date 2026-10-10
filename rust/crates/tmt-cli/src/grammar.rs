@@ -358,7 +358,7 @@ fn option(id: &'static str) -> Arg {
             flag("Authorize the command's documented protected replacement or removal").short('f')
         }
         "save" => flag("Preserve this identity after its pane is gone").short('s'),
-        "help" => flag("Show help").short('h').hide(true),
+        "help" => flag("Print help").short('h').hide(true),
         "version" => tmt_cli_style::version_arg(ArgAction::SetTrue),
         "wait" => flag("Retired; use timeout or detach").hide(true),
         "detach" => flag("Return after sending"),

@@ -132,9 +132,9 @@ stored; keep the request ID, receipt and body unchanged. Never delete storage or
 invent tmux caller variables. A user may optionally allow the data directory in
 Codex `writable_roots`; the agent must not change that setting without consent.
 
-`help`, `version`, `learn` and `run` reject
-`--json` with `JSON_UNSUPPORTED`; run them without that flag. Native managed
-`upgrade`/`update` supports one structured JSON result, including partial failures.
+`help`, `-V`/`--version`, `learn` and `run` reject
+`--json` with `JSON_UNSUPPORTED`; run them without that flag.
+`upgrade` and `update` on a managed install return one JSON result, partial failures included.
 
 ## Talk, reply, results, and notices
 

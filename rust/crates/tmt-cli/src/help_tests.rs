@@ -7,6 +7,43 @@ fn arguments(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn core_help_flag_uses_shared_factory_wording() {
+    let factory = tmt_cli_style::command(&tmt_cli_style::CommandSpec {
+        name: "example",
+        summary: "An example command",
+        examples: &[tmt_cli_style::Example {
+            command: "example --help",
+            note: "Print help",
+        }],
+        outputs: tmt_cli_style::OutputModes::Human,
+        details: "",
+    });
+    let expected = factory
+        .get_arguments()
+        .find(|arg| arg.get_id() == "help")
+        .unwrap()
+        .get_help()
+        .unwrap()
+        .to_string();
+    for path in [
+        vec![],
+        vec!["run".into()],
+        vec!["office".into(), "board".into(), "ls".into()],
+    ] {
+        let mut command = grammar::help_command(&path).unwrap();
+        let actual = command
+            .get_arguments()
+            .find(|arg| arg.get_id() == "help")
+            .unwrap()
+            .get_help()
+            .unwrap()
+            .to_string();
+        assert_eq!(actual, expected, "{path:?}");
+        assert!(command.render_long_help().to_string().contains(&expected));
+    }
+}
+
+#[test]
 fn every_public_command_has_scoped_help_without_required_operands() {
     fn visit(command: &clap::Command, path: Vec<String>) {
         for flag in ["-h", "--help"] {
