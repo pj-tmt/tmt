@@ -636,3 +636,52 @@ test('selection uses admitted comment authority without Ask; a read-only page ha
   await expect(page.locator('.annotation-popover')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`highlight opens its retained discussion without publishing ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.goto('/');
+      await run(page, 'mount');
+      await run(page, 'conversation', {
+        surface: 'thread',
+        state: 'empty',
+        message: 'Existing anchored discussion',
+      });
+      const frame = page.frameLocator('#ask-page-fixture iframe');
+      await expect(frame.locator('[data-colab-thread]')).toHaveCount(1);
+      const before = await run(page, 'discussionProof');
+      const proof = await run(page, 'proof');
+      const rect = await frame.locator('#selected').evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const box = range.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      });
+      const iframe = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
+      const point = { x: iframe.x + rect.x, y: iframe.y + rect.y };
+      await page.mouse.move(point.x, point.y);
+      await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+      await page.screenshot({ path: capturePath(`2586-hover-${width}-${theme}.png`) });
+      await page.mouse.click(point.x, point.y);
+      const window = page.locator('.annotation-popover');
+      await expect(window).toBeVisible();
+      await expect(window.getByText('Existing anchored discussion', { exact: true })).toBeVisible();
+      await page.screenshot({ path: capturePath(`2586-open-${width}-${theme}.png`) });
+      const input = window.getByRole('combobox', { name: 'Message' });
+      await input.fill('Keep this discussion draft');
+      await page.getByRole('button', { name: 'Close thread', exact: true }).click();
+      const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+      await mode.click();
+      await page.mouse.click(point.x, point.y);
+      await expect(input).toHaveText('Keep this discussion draft');
+      await expect(window.getByText('Existing anchored discussion', { exact: true })).toBeVisible();
+      expect(await run(page, 'discussionProof')).toEqual(before);
+      expect(await run(page, 'proof')).toEqual(proof);
+    });

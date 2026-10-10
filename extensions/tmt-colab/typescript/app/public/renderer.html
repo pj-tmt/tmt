@@ -102,8 +102,9 @@
           let layer, markers;
           const anchorRanges = new Map();
           const sheet = document.createElement('style');
-          sheet.textContent =
+          const highlightStyle =
             '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}';
+          sheet.textContent = highlightStyle;
           document.head.append(sheet);
           function collect() {
             const deadline = performance.now() + 20;
@@ -154,6 +155,7 @@
             hint,
             hintTimer;
           function clearTarget() {
+            sheet.textContent = highlightStyle;
             hover?.remove();
             hover = undefined;
             hint?.remove();
@@ -172,21 +174,49 @@
             target !== document.documentElement
               ? target
               : null;
+          // Geometry comes only from the current admitted anchor batch, never author attributes.
+          function highlightAt(x, y) {
+            const deadline = performance.now() + 20;
+            let hit,
+              length = Infinity,
+              rectangles = 0;
+            for (const [id, { range, length: size }] of anchorRanges) {
+              if (!range.startContainer.isConnected || !range.endContainer.isConnected) continue;
+              let contains = false;
+              for (const rect of range.getClientRects()) {
+                if (++rectangles > 2048 || performance.now() > deadline) return;
+                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+                  contains = true;
+              }
+              if (!contains) continue;
+              if (size < length || (size === length && id < hit.id)) {
+                hit = { id, range };
+                length = size;
+              }
+            }
+            return hit;
+          }
+          let gesture;
           function hoverTarget(event) {
             clearTarget();
-            if (!selecting || !event.isTrusted) return;
-            const target = targetAt(event.target);
-            if (!target) return;
-            const box = target.getBoundingClientRect();
+            if (!event.isTrusted) return;
+            if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4)
+              gesture.moved = true;
+            if (editingTarget(event.target)) return;
+            const hit = highlightAt(event.clientX, event.clientY);
+            if (hit) sheet.textContent = highlightStyle + '*{cursor:pointer!important}';
+            const target = selecting ? targetAt(event.target) : null;
+            if (!hit && !target) return;
+            const box = hit ? hit.range.getBoundingClientRect() : target.getBoundingClientRect();
             hover = document.createElement('div');
             hover.dataset.colabHighlight = '';
             hover.dataset.colabSelectionOutline = '';
+            if (hit) hover.dataset.colabThreadOutline = hit.id;
             hover.style.cssText = `position:absolute;pointer-events:none;z-index:2147483646;outline:2px solid #386ca3;outline-offset:2px;left:${box.left + scrollX}px;top:${box.top + scrollY}px;width:${box.width}px;height:${box.height}px`;
             document.body.append(hover);
           }
           function chooseTarget(event) {
             if (
-              !selecting ||
               !event.isTrusted ||
               event.defaultPrevented ||
               event.button !== 0 ||
@@ -200,6 +230,27 @@
               completedSelection = false;
               return;
             }
+            if (
+              editingTarget(event.target) ||
+              !getSelection()?.isCollapsed ||
+              gesture?.moved ||
+              (gesture && performance.now() - gesture.startedAt >= 500)
+            )
+              return;
+            const hit = event.detail === 1 && gesture && highlightAt(event.clientX, event.clientY);
+            gesture = undefined;
+            if (hit) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              port.postMessage({
+                type: 'colab.render.open-thread',
+                renderId,
+                requestId,
+                id: hit.id,
+              });
+              return;
+            }
+            if (!selecting) return;
             const target = targetAt(event.target);
             if (!target) return;
             event.preventDefault();
@@ -309,6 +360,12 @@
           const startSelection = (event) => {
             if (!event.isTrusted || event.button !== 0) return;
             completedSelection = false;
+            gesture = {
+              x: event.clientX,
+              y: event.clientY,
+              startedAt: performance.now(),
+              moved: false,
+            };
             pointerSelecting = true;
             publishSelection(null, null);
           };
@@ -319,6 +376,11 @@
             if (
               selecting &&
               event.isTrusted &&
+              !event.altKey &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              !event.shiftKey &&
+              (!gesture || gesture.moved || performance.now() - gesture.startedAt < 500) &&
               !editingTarget(event.target) &&
               !getSelection()?.isCollapsed &&
               quote
@@ -328,6 +390,7 @@
             }
           };
           const cancelSelection = () => {
+            gesture = undefined;
             pointerSelecting = false;
             keyboardSelecting = false;
             publishSelection(null, null);
@@ -505,7 +568,7 @@
                 // Empty ID is the unsaved composer's quote: resolve without drawing a marker.
                 if (item.id === '') continue;
                 ranges.push(range);
-                anchorRanges.set(item.id, range);
+                anchorRanges.set(item.id, { range, length: [...item.selector.exact].length });
                 const top = Math.max(0, range.getBoundingClientRect().top + scrollY);
                 if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
               }
@@ -567,6 +630,20 @@
               positions.length = 0;
               resolved.length = 0;
               clear();
+            }
+            const hoverId = hover?.dataset.colabThreadOutline;
+            if (hoverId) {
+              const range = anchorRanges.get(hoverId)?.range;
+              if (!range) clearTarget();
+              else {
+                const box = range.getBoundingClientRect();
+                Object.assign(hover.style, {
+                  left: `${box.left + scrollX}px`,
+                  top: `${box.top + scrollY}px`,
+                  width: `${box.width}px`,
+                  height: `${box.height}px`,
+                });
+              }
             }
             port.postMessage({
               type: 'colab.render.anchors',
@@ -699,7 +776,7 @@
               anchorRanges.has(v.id)
             ) {
               if (innerScroll)
-                anchorRanges.get(v.id).startContainer.parentElement?.scrollIntoView();
+                anchorRanges.get(v.id).range.startContainer.parentElement?.scrollIntoView();
               return;
             }
             if (
@@ -730,6 +807,8 @@
               )
             )
               return;
+            clearTarget();
+            gesture = undefined;
             batch = v.anchors;
             requestId = v.requestId;
             resolve();
@@ -740,6 +819,7 @@
                 (m) =>
                   !layer?.contains(m.target) &&
                   !markers?.contains(m.target) &&
+                  !hover?.contains(m.target) &&
                   !(
                     m.target instanceof Element && m.target.hasAttribute('data-colab-proposal-slot')
                   ) &&
