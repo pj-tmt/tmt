@@ -104,7 +104,7 @@ describe('native exchange attention process contract', () => {
         'human-exchange\n' +
           '  delivery      sent\n' +
           '  urgent        false\n' +
-          '  focus kind    fyi\n' +
+          '  digest kind   fyi\n' +
           '  final         retained\n' +
           '  revision      2\n' +
           '  acknowledged  false\n' +

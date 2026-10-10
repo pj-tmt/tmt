@@ -566,6 +566,9 @@ record. Equality is expired even outside the bounded physical scrub batch.
 The shared cleanup transaction scrubs at most 100 ordered indexed expired
 prompts, retaining their expiry markers. It neither renews nor acknowledges.
 `x show` reuses that projection for identity-scoped public context.
+The X JSON exchange projection exposes delivery-policy fields `urgent` (boolean)
+and `digestKind` (`decision`, `review`, `fyi`); `digestKind` is separate from the
+request/announcement `kind`.
 
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
