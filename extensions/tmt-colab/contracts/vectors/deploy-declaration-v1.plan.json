@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "planDigest": "ae939b631fee547cc48c009158fd164653d6ef966bed8394ba4bcc69c2a08a0f",
-  "declarationDigest": "cd80555e563bda8f564c9b740872b07b5032b3b9417a9a09b4a08877cf97b89f",
-  "artifactDigest": "bca059ee0459d29a7f41a907ac6e45efdaaabb627b52f26c07ccbc35d658ae87",
+  "planDigest": "4bdbb36ed08ce90a728f484471a9524ba8ee7f9fc7a89f87c714bebd46b4b3cf",
+  "declarationDigest": "2d5d77d8aa6888ecb35152539bc7fb008da34753e13e22e31e7e6a04b6d3678e",
+  "artifactDigest": "58c7abe56fd73f8eb95d5f78cb386c7f21d67725637320a1d935b97987bec439",
   "plan": {
     "version": 1,
     "profile": "sharing",
@@ -13,9 +13,9 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "cd80555e563bda8f564c9b740872b07b5032b3b9417a9a09b4a08877cf97b89f",
+        "declarationDigest": "2d5d77d8aa6888ecb35152539bc7fb008da34753e13e22e31e7e6a04b6d3678e",
         "admission": {
-          "artifactDigest": "bca059ee0459d29a7f41a907ac6e45efdaaabb627b52f26c07ccbc35d658ae87",
+          "artifactDigest": "58c7abe56fd73f8eb95d5f78cb386c7f21d67725637320a1d935b97987bec439",
           "entryPoint": "colabAdmitted"
         },
         "resources": [

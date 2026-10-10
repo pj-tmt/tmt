@@ -2673,9 +2673,10 @@ ciphertext, never authority; clients still verify every statement, chain and env
   `seq` of that stream exists and carries the same `uid` (`getAfter`, so a contiguous batch passes
   and a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
   chunk 0 of its object to carry the same `uid`; the field set and sizes are exactly those
-  declared; `expiresAt` is in the future and at most the page's `expiresAt`. Sequence zero and
-  ciphertext updates are refused. The owner may refresh only `expiresAt` within the page's
-  deadline, preserving every other field. Owner cleanup may delete an expired entry or an entry
+  declared; `expiresAt` is in the future and at most 365 days from the request, independent of the
+  page deadline. Sequence zero and
+  ciphertext updates are refused. The owner may refresh only `expiresAt` within its own 365-day
+  ceiling, preserving every other field. Owner cleanup may delete an expired entry or an entry
   of an expired or removed page; live entries of live pages cannot be cleaned up.
   Commenters and bridges may write checkpoints because each device seals checkpoints over its own stream (the compaction rules
   above); the role check keeps viewers out, and clients still verify every checkpoint's signed
@@ -2700,8 +2701,8 @@ ciphertext, never authority; clients still verify every statement, chain and env
 - Remote's current backend ceilings (12 MiB per object, 64 MiB and 1,024 entries per resource)
   bound the declared limits; Rules cannot count entries, so they are the owner-approved plan's
   numbers, not enforcement. Per-uid budgets are #2453. Page expiry is finite and at most
-  `request.time + duration.value(365, 'd')` on create and update; entry expiry inherits that
-  page bound. The declaration digest covers these Rules without adding a declaration field.
+  `request.time + duration.value(365, 'd')` on create and update; entry create and owner expiry refresh enforce the same ceiling independently of
+  the page deadline. The declaration digest covers these Rules without adding a declaration field.
 
 The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned firebase-tools,
 Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path
@@ -2762,7 +2763,7 @@ Cloud lifetime defaults to 30 days from the last activity refresh. Owner overrid
 are 1 through 365 days, with a maximum of 365 days from refresh; cloud lifetime
 has no forever option. The default and override selection are client policy;
 Firestore Rules enforce the finite 365-day admission ceiling, not the default.
-The Rules admit owner-only expiry refresh of logs and checkpoint chunks without
+The Rules admit owner-only expiry refresh of logs and checkpoint chunks, each at most 365 days from the request, without
 changing ciphertext, routing fields or writer identity. An owner may delete
 expired entries and entries of expired or removed pages, preserving live entries
 of live pages and other tenants' data. Physical TTL remains eventual and is not
@@ -2770,8 +2771,11 @@ required for logical expiry.
 
 Relay activity refresh, override selection, seven-day cloud warnings and the
 "not in the cloud" projection for expired reads await the Firestore relay binding.
-That binding must refresh each needed checkpoint and referenced blob to at least
-the live page's deadline, and map expired-but-present cloud data to absence.
+An activity refresh updates only the page row. Logs and checkpoint chunks have
+independent deadlines and need renewal only near their own expiry horizon, avoiding
+a rewrite of every entry on each page edit. Entries may outlive their page, but
+page expiry still denies every content read. The binding must renew needed entries
+before their own expiry and map expired-but-present cloud data to absence.
 Local expiry never deletes local data: existing local warnings begin seven days
 ahead in the browser and `ls/show`, and expired local pages remain readable and
 writable unless signed archive/delete policy forbids it. Local retention accepts
