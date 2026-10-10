@@ -1121,8 +1121,21 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
+mod cli_style_allowlist;
+
+#[cfg(test)]
 mod tests {
-    use super::{open::Outcome, open_row};
+    use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
+
+    #[test]
+    fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {
+        let report = tmt_cli_style::audit::hidden_report(
+            &grammar(),
+            &["tmt", "remote"],
+            cli_style_allowlist::HIDDEN,
+        );
+        assert!(report.is_empty(), "{}", report.join("\n"));
+    }
 
     #[test]
     fn only_a_handed_over_link_gets_an_open_row() {
