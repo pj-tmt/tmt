@@ -174,6 +174,12 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
     Ok(Some(document))
 }
 
+/// Derive the public carrier from one lock-free snapshot; never save or repair.
+pub fn read_link(layout: &Layout) -> Result<String, RemoteError> {
+    let record = read(layout)?.ok_or_else(crate::remote_link::unavailable)?;
+    crate::remote_link::from_record(&record)
+}
+
 /// One bounded, lock-free snapshot per status request. No provider calls or repair;
 /// atomic publication allows this reader to coexist with a long-running deployment.
 pub struct DeployRecordEvidence {

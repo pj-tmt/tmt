@@ -109,7 +109,7 @@ pub fn execute_with_hosting(
         }
     };
     let authorized = options.authorize.is_some();
-    let json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
+    let mut json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
         "extensions": input.extensions.view(), "record": record });
     let mut human = format!(
         "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} ({})\nIndex configs: {}\nRoles: none created\nTTL: not set up\nPlan digest: {}\n",
@@ -223,6 +223,10 @@ pub fn execute_with_hosting(
         describe_record(&mut human, &record, &store.record_path());
     } else {
         writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
+    }
+    if authorized && let Ok(link) = crate::remote_link::from_record(&record) {
+        writeln!(human, "Remote link: {link}").expect("String write");
+        json["remoteLink"] = Value::String(link);
     }
     Ok(DeployCommandOutput { json, human })
 }

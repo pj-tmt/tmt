@@ -40,6 +40,16 @@ const STOP: CommandSpec = CommandSpec {
     outputs: OutputModes::HumanAndJson,
     details: "Uses the same shutdown path as Ctrl-C/SIGTERM. Keeps pairings and grants.\nWaits at most 40 seconds for the lifecycle lease after acknowledgment; never signals a PID.",
 };
+const LINK: CommandSpec = CommandSpec {
+    name: "link",
+    summary: "Print the remote link",
+    examples: &[Example {
+        command: "tmt remote link --json",
+        note: "Read the public configuration link",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Read-only. The link carries public Firebase configuration, not access; pairing still grants access. You can share it again; it is not one-time. Does not deploy or open a browser.",
+};
 const STATUS: CommandSpec = CommandSpec {
     name: "status",
     summary: "Inspect the running door address without changing Remote state",
@@ -223,6 +233,7 @@ fn grammar() -> Command {
             name: "deploy", summary: "Plan and authorize cloud sharing deployment", examples: &[Example { command: "tmt remote deploy firestore --help", note: "Inspect the Firestore deployment inputs and authorization" }],
             outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
         }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
+        .subcommand(tmt_cli_style::command(&LINK))
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(
             tmt_cli_style::command(&STATUS)
@@ -345,6 +356,9 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
+    if name == "link" {
+        return link_command(arguments.get_flag("json"));
+    }
     if name == "deploy" {
         return deploy_firestore_command(arguments);
     }
@@ -392,6 +406,18 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return devices(arguments);
     }
     serve::run(arguments)
+}
+fn link_command(json_output: bool) -> Result<(), RemoteError> {
+    let root = discovery_root()?;
+    let layout = Layout::existing(&root)?.ok_or_else(tmt_remote::remote_link::unavailable)?;
+    let link = tmt_remote::deploy_record::read_link(&layout)?;
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{}", json!({"version":1,"remoteLink":link}))?;
+    } else {
+        writeln!(output, "Remote link: {link}")?;
+    }
+    Ok(())
 }
 fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     use tmt_remote::{deploy_cli, deploy_discovery, deploy_firestore, deploy_tools};

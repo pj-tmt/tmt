@@ -1000,13 +1000,7 @@ impl VerifiedHostingPublication {
         let version = checkpoint.version.as_ref()?;
         let config = &value["publicConfig"];
         if value["siteAppId"] != *app_id
-            || config.as_object()?.len() != 4
-            || config["projectId"] != *project
-            || config["appId"] != *app_id
-            || !config["apiKey"].as_str().is_some_and(|s| {
-                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
-            })
-            || config["authDomain"] != format!("{project}.firebaseapp.com")
+            || !crate::hosting::public_config_ok(Some(config), project, app_id)
         {
             return None;
         }
@@ -1057,13 +1051,11 @@ impl VerifiedHostingPublication {
                 .hosting
                 .as_ref()
                 .is_some_and(|h| h.content["digest"] == self.content_digest)
-            && self.public_config.as_object().is_some_and(|c| c.len() == 4)
-            && self.public_config["appId"] == self.app_id
-            && self.public_config["projectId"] == self.project
-            && self.public_config["authDomain"] == format!("{}.firebaseapp.com", self.project)
-            && self.public_config["apiKey"].as_str().is_some_and(|s| {
-                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
-            })
+            && crate::hosting::public_config_ok(
+                Some(&self.public_config),
+                &self.project,
+                &self.app_id,
+            )
     }
     fn matches(&self, plan: &DeployPlan) -> bool {
         self.project == plan.view.project

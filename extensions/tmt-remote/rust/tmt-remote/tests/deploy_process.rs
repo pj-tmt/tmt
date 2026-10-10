@@ -383,6 +383,41 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
             .lines()
             .all(|line| serde_json::from_str::<Value>(line).unwrap()["method"] == "GET")
     );
+    // Inventory has no app yet; a non-ASCII config discovered at final joint
+    // read-back must remain unconfirmed, never Complete without a derivable link.
+    let auth_path = package.join("lib/auth.js");
+    let auth = fs::read_to_string(&auth_path).unwrap();
+    assert!(auth.contains("apiKey: 'public-api-key'"));
+    fs::write(
+        &auth_path,
+        auth.replace(
+            "apiKey: 'public-api-key'",
+            "apiKey: h.live ? 'public-é' : 'public-api-key'",
+        ),
+    )
+    .unwrap();
+    let unconfirmed_output = invoke(&root, &["--authorize", &digest[..12], "--json"]);
+    fs::write(&auth_path, &auth).unwrap();
+    let unconfirmed = json_output(&unconfirmed_output);
+    assert_eq!(unconfirmed["record"]["run"]["state"], "partial");
+    let provider_state: Value =
+        serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
+    assert!(!provider_state["hosting"]["live"].is_null());
+    assert!(
+        unconfirmed["record"]["run"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| step["id"] == "verify" && step["state"] == "unknown")
+    );
+    assert!(unconfirmed.get("remoteLink").is_none());
+    assert!(
+        tmt_remote::deploy_record::read(&root.layout())
+            .unwrap()
+            .unwrap()
+            .verified_publication()
+            .is_none()
+    );
     let complete = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
     assert_eq!(complete["planDigest"], preview["planDigest"]);
     assert_eq!(complete["record"]["run"]["state"], "complete");
@@ -434,6 +469,69 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         })
         .unwrap();
     assert!(stage < rules && rules < live);
+    // Re-print derives one snapshot while the writer is held, without saving
+    // anything or invoking declarations, Node or the provider.
+    let derived_link = complete["remoteLink"].as_str().unwrap();
+    tmt_remote::remote_link::validate(derived_link).unwrap();
+    assert!(document.get("remoteLink").is_none());
+    let bytes_before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let provider_before = fs::read(package.join("calls.jsonl")).unwrap();
+    let layout = root.layout();
+    let writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    let first = base(&root).args(["link", "--json"]).output().unwrap();
+    let second = base(&root).args(["link", "--json"]).output().unwrap();
+    assert!(first.status.success(), "{:?}", first);
+    assert_eq!(first.stdout, second.stdout);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&first.stdout).unwrap(),
+        json!({"version":1,"remoteLink":derived_link})
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        bytes_before
+    );
+    assert_eq!(
+        fs::read(package.join("calls.jsonl")).unwrap(),
+        provider_before
+    );
+    drop(writer);
+    // Version 3 stays unchanged; there is no link metadata or reader conversion.
+    assert!(
+        tmt_remote::deploy_record::read(&layout)
+            .unwrap()
+            .unwrap()
+            .verified_publication()
+            .is_some()
+    );
+    assert_eq!(
+        tmt_remote::deploy_record::read_link(&layout).unwrap(),
+        derived_link
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        bytes_before
+    );
+    // A partial publication cannot yield a link; the reader changes nothing.
+    let mut partial = document.clone();
+    partial["record"]["run"]["state"] = json!("partial");
+    for step in partial["record"]["run"]["steps"].as_array_mut().unwrap() {
+        if step["id"] == "hosting:release" {
+            step["state"] = json!("unknown");
+        }
+    }
+    let partial_bytes = serde_json::to_vec(&partial).unwrap();
+    fs::write(root.remote().join("deploy.json"), &partial_bytes).unwrap();
+    let refused = base(&root).args(["link", "--json"]).output().unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&refused.stdout).unwrap()["error"]["code"],
+        "REMOTE_LINK_UNAVAILABLE"
+    );
+    assert_eq!(
+        fs::read(root.remote().join("deploy.json")).unwrap(),
+        partial_bytes
+    );
+    fs::write(root.remote().join("deploy.json"), &bytes_before).unwrap();
     // Checkpoint data is validated on read, never converted or silently repaired.
     for corrupt in [
         "extra-envelope-key",

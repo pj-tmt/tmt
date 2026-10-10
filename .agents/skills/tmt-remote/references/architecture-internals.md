@@ -16,7 +16,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `mount`, `pages`                                 | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                                        | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `hosting`, `rules` | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (bytes in; installed discovery belongs to `deploy_discovery`)                     |
-| `deploy_command`, `deploy_record`                | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
+| `deploy_command`, `deploy_record`, `remote_link` | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                             |
@@ -168,6 +168,10 @@ unassociated sites use the same explicit appId-only configure step; nonempty ass
 repointed. Joint verification binds that association. The contract owns app selection, partial
 availability and the single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
+`remote_link` derives the strict public descriptor, canonical fragment and corruption checksum
+only from the record's typed verified Complete publication. Deploy output and the lock-free
+re-print use that pure owner; no second save, schema version, repair, provider or browser call.
+The contract owns the descriptor schema; partial/unknown or unverified records yield no link.
 For offline declaration-vector regeneration, run from `rust/`:
 
 ```sh

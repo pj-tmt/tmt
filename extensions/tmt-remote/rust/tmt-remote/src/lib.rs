@@ -34,6 +34,7 @@ pub mod operations;
 pub mod pages;
 pub mod pairing;
 pub mod readiness;
+pub mod remote_link;
 pub mod routes;
 pub mod rules;
 pub mod session;

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "kind": "firestore",
+  "publicWebConfig": {
+    "apiKey": "public-key",
+    "appId": "1:123:web:mine",
+    "authDomain": "demo-remote-1.firebaseapp.com",
+    "projectId": "demo-remote-1"
+  },
+  "checksum": "42deaf4f32ad7a7986ef7963b589cf88a0c1ac6158f75730f5c2d098f7da9dcf"
+}
