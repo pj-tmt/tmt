@@ -96,10 +96,13 @@
         "steps": [
           "uses:actions/checkout@v4",
           "uses:actions/setup-node@v4",
-          "name:Check immutability, flags, tag and attestation of the published release"
+          "name:Check immutability, flags, tag and attestation of the published release",
+          "name:Require release index App credentials",
+          "id:index-app",
+          "name:Advance the verified release index"
         ],
-        "sha256": "1e8a000d8807ab34a0005a955349c5da314e68911072b3fcaa4311d071ff779c",
-        "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication."
+        "sha256": "876f304de7ca5cf64981e076df781882c596cac321bdea9498fdde3e093c6960",
+        "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication. The protected App pointer writer rechecks that same verified directory after all checks succeed; inert tooling controls cover pointer identity, idempotence, non-force races and refusals before merge."
       },
       "smoke": {
         "steps": ["uses:./.github/workflows/native-release-smoke.yml"],
