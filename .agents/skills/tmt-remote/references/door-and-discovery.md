@@ -181,7 +181,7 @@ Complete record; human output is `Remote link: <URL>`. Authorized Complete deplo
 the same link. No link is saved separately and deploy.json stays at version 3. Re-print does not
 deploy or open a browser. The link carries public Firebase configuration, not access; pairing
 still grants access. You can share it again; it is not one-time. Missing, partial/unknown or
-unverified records refuse with `REMOTE_LINK_UNAVAILABLE`: 'No remote link is saved yet.
+unverified records refuse with `REMOTE_LINK_UNAVAILABLE`: 'No remote link is available yet.
 Run tmt remote deploy firestore to create one.' The contract owns the descriptor; unsafe records
 are never reset, repaired or converted on read.
 

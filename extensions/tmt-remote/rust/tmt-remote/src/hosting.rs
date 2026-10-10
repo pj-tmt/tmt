@@ -502,8 +502,10 @@ pub(crate) fn public_config_ok(value: Option<&Value>, project: &str, app: &str) 
             && c["projectId"] == project
             && c["appId"] == app
             && c["authDomain"] == format!("{project}.firebaseapp.com")
-            && c["apiKey"].as_str().is_some_and(|s| {
-                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
+            && ["apiKey", "appId"].into_iter().all(|key| {
+                c[key].as_str().is_some_and(|s| {
+                    !s.is_empty() && s.len() <= 256 && s.bytes().all(|b| (0x20..=0x7e).contains(&b))
+                })
             })
     })
 }

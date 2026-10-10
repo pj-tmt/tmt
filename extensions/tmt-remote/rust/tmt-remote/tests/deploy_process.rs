@@ -383,6 +383,41 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
             .lines()
             .all(|line| serde_json::from_str::<Value>(line).unwrap()["method"] == "GET")
     );
+    // Inventory has no app yet; a non-ASCII config discovered at final joint
+    // read-back must remain unconfirmed, never Complete without a derivable link.
+    let auth_path = package.join("lib/auth.js");
+    let auth = fs::read_to_string(&auth_path).unwrap();
+    assert!(auth.contains("apiKey: 'public-api-key'"));
+    fs::write(
+        &auth_path,
+        auth.replace(
+            "apiKey: 'public-api-key'",
+            "apiKey: h.live ? 'public-é' : 'public-api-key'",
+        ),
+    )
+    .unwrap();
+    let unconfirmed_output = invoke(&root, &["--authorize", &digest[..12], "--json"]);
+    fs::write(&auth_path, &auth).unwrap();
+    let unconfirmed = json_output(&unconfirmed_output);
+    assert_eq!(unconfirmed["record"]["run"]["state"], "partial");
+    let provider_state: Value =
+        serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
+    assert!(!provider_state["hosting"]["live"].is_null());
+    assert!(
+        unconfirmed["record"]["run"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| step["id"] == "verify" && step["state"] == "unknown")
+    );
+    assert!(unconfirmed.get("remoteLink").is_none());
+    assert!(
+        tmt_remote::deploy_record::read(&root.layout())
+            .unwrap()
+            .unwrap()
+            .verified_publication()
+            .is_none()
+    );
     let complete = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
     assert_eq!(complete["planDigest"], preview["planDigest"]);
     assert_eq!(complete["record"]["run"]["state"], "complete");

@@ -25,7 +25,7 @@ struct Descriptor {
 pub fn unavailable() -> RemoteError {
     RemoteError::new(
         "REMOTE_LINK_UNAVAILABLE",
-        "No remote link is saved yet. Run tmt remote deploy firestore to create one.",
+        "No remote link is available yet. Run tmt remote deploy firestore to create one.",
     )
 }
 fn hash(bytes: &[u8]) -> String {

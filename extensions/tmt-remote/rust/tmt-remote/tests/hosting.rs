@@ -527,6 +527,7 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         ("projectId", "another-project"),
         ("appId", "named"),
         ("authDomain", "foreign.example"),
+        ("apiKey", "public-\u{e9}"),
     ] {
         let original = inventory.site_app_config.clone();
         inventory.site_app_config.as_mut().unwrap()[field] = json!(value);
@@ -536,6 +537,14 @@ fn site_association_selects_only_an_active_same_project_public_config_and_never_
         );
         inventory.site_app_config = original;
     }
+    let mut non_ascii_app = inventory.clone();
+    non_ascii_app.site_app_id = Some("app-\u{e9}".into());
+    non_ascii_app.web_apps[0].id = "app-\u{e9}".into();
+    non_ascii_app.site_app_config = Some(config("app-\u{e9}"));
+    assert_eq!(
+        hosting::deployment_view(&content, "demo-remote-1", ID, &non_ascii_app).unwrap_err(),
+        HostingRefusal::WebAppSelection
+    );
     inventory.web_apps[0].state = "DELETED".into();
     assert_eq!(
         hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap_err(),
