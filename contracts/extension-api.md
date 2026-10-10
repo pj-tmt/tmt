@@ -731,6 +731,7 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 | `digest.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
 | `digest.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
 | `digest.checklist.dueNow` | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
+| `digest.checklist.flush`  | `identityId`                                                                                          | `identityId`, `state`                                          |
 | `digest.stats.show`       | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
 | `digest.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
 | `digest.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
@@ -769,6 +770,17 @@ with no new arrivals keep the same range; definitely-unsent membership remains
 eligible for a later independently admitted opportunity. `turn_boundary` retains
 its existing broader eligibility and relies on the admitted provider adapter.
 Due-now grants no transport permission and starts no worker. No core scheduler exists.
+
+`digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
+active identity UUID, without name or pane resolution. Core reuses its ordinary
+live-session, readiness, claim, transport and settlement checks; it is not a
+readiness grant. The operation reads the configured paste-to-Enter delay, starts
+no timer and returns no message or captured pane text. `state` is `nothing_due`
+when no unclaimed range is mechanically eligible, `not_idle` when no idle claim
+is admitted, `delivered` after successful settlement, `uncertain` after uncertain
+transport, or `unavailable` after definitely-unsent settlement. Errors remain
+ordinary API errors. A competing or uncertain sealed checklist is never replayed;
+the result is not a retry lease.
 
 Stats contain `identityId`, `heldCount` (including active claimed membership),
 `oldestHeldAgeMs` (null with no held references), `deliveredDigests`, `dueCount`,

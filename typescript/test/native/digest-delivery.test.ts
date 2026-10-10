@@ -31,6 +31,7 @@ describe('native Digest held delivery and checklist seam', () => {
         'checklist.claim',
         'checklist.settle',
         'checklist.dueNow',
+        'checklist.flush',
         'stats.show',
       ];
       const discovery = await api(sandbox, 'capabilities', {});
@@ -48,6 +49,76 @@ describe('native Digest held delivery and checklist seam', () => {
       expect(existsSync(sandbox.database)).toBe(false);
     });
   });
+  it('offers a pinned flush without claiming offline work or retargeting a retired UUID', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const flush = async (identityId: string) => {
+        const before = readFileSync(tripwire, 'utf8');
+        const result = await api(sandbox, 'digest.checklist.flush', { identityId });
+        expect(readFileSync(tripwire, 'utf8')).toBe(before);
+        return result;
+      };
+      const target = await identity(sandbox, 'Worker');
+      const owner = await identity(sandbox, 'Owner');
+      expect((await flush(target)).body).toEqual({
+        identityId: target,
+        state: 'nothing_due',
+      });
+      expect(
+        (
+          await api(sandbox, 'digest.policy.set', {
+            identityId: target,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs: Date.now() + 600_000,
+          })
+        ).status
+      ).toBe(0);
+      const held = await runCli(sandbox, [
+        'talk',
+        'Worker',
+        'Pinned offline backlog',
+        '--detach',
+        '--json',
+      ]);
+      expect(JSON.parse(held.stdout)).toMatchObject({ digest: true, status: 'queued' });
+      expect((await flush(target)).body).toEqual({
+        identityId: target,
+        state: 'nothing_due',
+      });
+      expect(
+        (await api(sandbox, 'digest.checklist.dueNow', { identityId: target })).body.heldCount
+      ).toBe(1);
+      for (let i = 0; i < 2; i++) {
+        expect((await flush(target)).body).toEqual({ identityId: target, state: 'not_idle' });
+      }
+      expect(
+        (await api(sandbox, 'digest.stats.show', { identities: [target] })).body.stats[0]
+      ).toMatchObject({ heldCount: 1, dueCount: 1, deliveredDigests: 0 });
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(oracle.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get()).toEqual({
+          count: 0,
+        });
+      } finally {
+        oracle.close();
+      }
+      // Name-based talk and retirement may inspect pane inventory during setup.
+      // Each UUID flush above and below must itself leave the tripwire unchanged.
+      expect((await runCli(sandbox, ['rm', 'Worker', '--force', '--json'])).status).toBe(0);
+      const replacement = await identity(sandbox, 'Worker');
+      expect(replacement).not.toBe(target);
+      const retired = await flush(target);
+      expect(retired.status).toBe(1);
+      expect(retired.body.error.code).toBe('DIGEST_IDENTITY_UNAVAILABLE');
+      expect((await flush(replacement)).body).toEqual({
+        identityId: replacement,
+        state: 'nothing_due',
+      });
+    });
+  });
+
   it('launch callbacks refuse malformed, recursive and unbound evidence without initializing storage', async () => {
     await withSandbox(async (sandbox) => {
       const launch = JSON.stringify({

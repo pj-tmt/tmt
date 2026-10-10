@@ -407,7 +407,7 @@ upgrade handoff are in the
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
-Digest’s unpublished [settings](extensions/tmt-digest/contracts/digest-v1.md) live in `extensions/tmt-digest`.
+Digest’s unpublished [contract](extensions/tmt-digest/contracts/digest-v1.md) lives in `extensions/tmt-digest`.
 
 ## Ops extension
 

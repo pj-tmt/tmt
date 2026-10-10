@@ -41,6 +41,6 @@ Writes validate the whole existing document, preserve comments and unknown field
 serialize extension writers, and atomically replace the file with private permissions.
 Invalid input, invalid files and failed Core discovery leave settings unchanged.
 
-The extension remains unpublished. This command saves configuration; delivery ticks
-are implemented separately before activation. No skill or managed installation is
-shipped by this settings surface.
+The extension remains unpublished. Member writes save configuration; the
+[minute tick](digest-tick-v1.md) applies it and offers Core delivery opportunities.
+No skill or managed installation is shipped by this settings surface.

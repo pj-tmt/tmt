@@ -1049,14 +1049,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
   }, 60_000);
 
   it.each([
-    { channel: true, nativeParent: true, dueNow: false },
-    { channel: false, nativeParent: true, dueNow: false },
-    { channel: true, nativeParent: false, dueNow: false },
-    { channel: true, nativeParent: true, dueNow: true },
-    { channel: false, nativeParent: true, dueNow: true },
+    { channel: true, nativeParent: true, dueNow: false, flush: false },
+    { channel: false, nativeParent: true, dueNow: false, flush: false },
+    { channel: true, nativeParent: false, dueNow: false, flush: false },
+    { channel: true, nativeParent: true, dueNow: true, flush: false },
+    { channel: false, nativeParent: true, dueNow: true, flush: false },
+    { channel: true, nativeParent: true, dueNow: true, flush: true },
+    { channel: false, nativeParent: true, dueNow: true, flush: true },
+    { channel: true, nativeParent: false, dueNow: false, flush: true },
   ])(
-    'Digest channel=$channel nativeParent=$nativeParent dueNow=$dueNow fences checklist delivery at a verified idle check',
-    async ({ channel, nativeParent, dueNow }) => {
+    'Digest channel=$channel nativeParent=$nativeParent dueNow=$dueNow flush=$flush fences checklist delivery at a verified idle check',
+    async ({ channel, nativeParent, dueNow, flush }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'FocusedClaude';
         const sessionId = randomUUID();
@@ -1175,6 +1178,11 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           }
           const plain = await fixture.runJsonCli(['check', name]);
           expect(plain.code).toBe(0);
+          if (flush)
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: 'not_idle',
+            });
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
           expect(
@@ -1203,7 +1211,14 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 .get()
             )
           ).toEqual({ count: dueNow ? 3 : 2 });
-          expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          if (flush) {
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: !nativeParent ? 'unavailable' : channel ? 'uncertain' : 'delivered',
+            });
+          } else {
+            expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          }
           if (!nativeParent) {
             // A delegated mock MCP parent differs from the native provider
             // reported by its hooks. The ordinary driver must refuse this
@@ -1255,7 +1270,14 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             dueCount: 0,
           });
           const consumed = events(worker).length;
-          expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          if (flush) {
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: 'nothing_due',
+            });
+          } else {
+            expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          }
           expect(events(worker)).toHaveLength(consumed);
           expect(
             sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())

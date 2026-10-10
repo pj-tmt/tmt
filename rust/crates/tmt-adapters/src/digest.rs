@@ -221,7 +221,7 @@ pub fn idle_entry(
     Ok(Some(entry))
 }
 
-/// Called only by an existing talk/check invocation, never by a timer. A crash
+/// Called only by an admitted talk/check/API invocation; Core has no timer. A crash
 /// after claim leaves no replay permission. Refusal releases only proven unsent.
 pub fn flush_idle(
     storage: &mut Storage,

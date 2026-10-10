@@ -21,13 +21,26 @@ const ROOT: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::Human,
-    details: "Use a duration, auto or off to save a member override. Use default to remove it and inherit the global default. Global default and flush count (flushCount) are configured in digest.toml. This release saves the setting only; held messages are not yet delivered on a schedule.",
+    details: "Use a duration, auto or off to save a member override. Use default to remove it and inherit the global default. Global default and flush count (flushCount) are configured in digest.toml. Run tick once a minute to apply settings and deliver due digests; Core checks whether each member can receive them.",
+};
+
+const TICK: CommandSpec = CommandSpec {
+    name: "tick",
+    summary: "Apply digest settings and deliver due digests during this minute",
+    examples: &[Example {
+        command: "tmt digest tick",
+        note: "Run once a minute from Ops, cron or launchd",
+    }],
+    outputs: OutputModes::Human,
+    details: "A concurrent tick exits immediately. This run sleeps to deadlines within the minute, then exits. Interval messages become due after the oldest held message waits its interval, or at the flush count. Auto and off use normal Core delivery in this phase.",
 };
 
 pub fn command() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt digest")
         .version(env!("CARGO_PKG_VERSION"))
+        .subcommand_negates_reqs(true)
+        .subcommand(tmt_cli_style::command(&TICK))
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .arg(
             Arg::new("member")
