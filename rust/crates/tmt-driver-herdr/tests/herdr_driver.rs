@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::Write,
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -50,8 +50,13 @@ fn invoke(env: &[(&str, String)], args: &[&str], request: &[u8]) -> DriverOutput
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(request).unwrap();
+    // Malformed invocations and undeclared operations may answer without
+    // reading stdin. Close it and reap the child before checking the write.
+    let written = child.stdin.take().unwrap().write_all(request);
     let output = child.wait_with_output().unwrap();
+    if let Err(error) = written {
+        assert_eq!(error.kind(), ErrorKind::BrokenPipe, "{args:?}: {error}");
+    }
     DriverOutput {
         stdout: output.stdout,
         elapsed: started.elapsed(),
@@ -91,6 +96,21 @@ esac
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
     fs::set_permissions(&herdr, permissions).unwrap();
     bin
+}
+
+#[test]
+fn early_rejection_still_answers_when_the_request_exceeds_the_pipe_buffer() {
+    // These invocations intentionally answer before reading stdin. A request
+    // larger than a pipe can hold makes the writer observe the closed reader.
+    let request = vec![b'x'; 2 * tmt_driver_protocol::MAX_REQUEST_BYTES];
+    for (args, code) in [
+        (["__tmt-driver", "1", "status"], "unsupported"),
+        (["__tmt-driver", "0", "snapshot"], "bad_request"),
+    ] {
+        let output = invoke(&[], &args, &request);
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["error"]["code"], code, "{args:?}: {answer}");
+    }
 }
 
 #[test]
