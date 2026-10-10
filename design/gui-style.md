@@ -109,6 +109,60 @@ as mark plus word (`● running`, `○ not installed`) and one action (`Open`,
 stay listed and open the setup guide. Same position on every product; compact
 width shows `tmt ▾`. Not shipped. Basis: Radix (Dropdown Menu).
 
+### Remote switcher
+
+Design target for [#2463](https://github.com/pj-tmt/tmt/issues/2463); not shipped.
+Remote owns the registry, chip, menu, registration and Remotes settings; Colab owns
+page-follow behavior. Use **remote** throughout UI, CLI help and handbook copy,
+**Local** / **Firebase** for kinds and **this machine** for the current host.
+
+- **Header:** immediately after the logo, before the separate Product switcher:
+  `[● studio ▾] [Colab ▾] <page title>`. Show the display name with a state mark:
+  `● connected`, `◌ connecting`, `○ unreachable`, `✗ access ended` (revoked/expired).
+  Compact width keeps the mark and a truncated name; the tooltip and accessible
+  name retain the full name and state (`Remote: studio, connected`). State words
+  remain available; colour alone never carries state.
+- **Menu:** Local rows first, then Firebase rows with their project ID. Every
+  registered remote stays listed with mark plus state word; the selected one has
+  a check. Attention rows cannot be selected until fixed and expose the reason
+  and one action: `Unreachable · Retry`, `Access ended · Pair again`,
+  `Sign-in needed · Sign in`. Footer actions are `Add remote…` and
+  `Manage remotes`, opening Remote settings' Remotes section. Mark the configured
+  default `default`; choosing a row changes browser selection, while changing the
+  per-home default happens only in Manage remotes. Never silently fall back.
+- **Add remote:** a dialog offers Local host or Firebase project. Local host shows
+  `tmt remote pair` to run on that host, the existing pairing words flow, and
+  `--talk` for allowing sending; completion adds the host's name. Firebase uses a
+  **remote link** printed by `tmt remote deploy firestore` (or a terminal QR),
+  re-printable by a read-only command. It carries public configuration only;
+  access still requires sign-in, admission and deployed Rules. Opening or pasting
+  it in `Paste remote link` imports that configuration and asks
+  `Add Firebase remote <project ID>, deployed by <host>?` with Add / Cancel, then
+  starts that remote's sign-in. No free-form JSON field. Tenant registration uses
+  the same link and says `You'll join as a tenant of <host>'s project` before Add;
+  the link grants no space access.
+- **Per-remote states:** menu rows and Remotes settings show `Not paired` →
+  `Pairing…` → `Connected · read only` / `Connected · can send`. Firebase adds
+  `Sign-in needed` → `Signing in…` → `Signed in as <account>`. Show
+  `Unreachable · last seen <age>`, `Access ended · Pair again`, or
+  `Over budget today · resets at <time>` only from observed state/budget refusal;
+  never invent a usage percentage. With only the current host registered, show
+  `● this machine`, its single menu row and Add remote, without another banner.
+- **Page states:** an unreachable selected remote keeps the last verified page
+  read-only and its draft, with `<remote> is unreachable. Changes can't be saved.`
+  and Retry / Switch remote. Access ended hides page content and says
+  `Access to <remote> ended. Pair again or switch remote.` Colab shows
+  `This page is not on <remote>` when its space is not published there, with Publish
+  for the owner or Back to pages. Drafts and device keys stay per remote; warn
+  `Your draft stays on <remote>` before leaving an unsent draft, which remains on
+  return. Do not transfer drafts or keys across origins.
+
+**Open point:** the switch's reload/navigation target, origin and registry handoff
+await Remote's [#2461 registry plan](https://github.com/pj-tmt/tmt/issues/2461).
+
+Implementation look review covers the four chip states, a menu with three remotes,
+both Add remote choices and the unreachable-page notice at 1440 light / 390 dark.
+
 ### Setup guide
 
 The first-run and not-installed screen, built from Card, Status mark and Button:
