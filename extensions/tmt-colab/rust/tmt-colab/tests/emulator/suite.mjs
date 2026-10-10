@@ -174,6 +174,78 @@ test("pages: only the space owner admits a page; epoch never decreases; expiry a
   assert.equal(await remove(`pages/${id}`, as("ownerA")), 200);
 });
 
+test("retention: owners may choose up to 365 days; members and other tenants cannot extend", async () => {
+  await boot();
+  const t = T.A;
+  const page = (expiry) => ({ space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: expiry });
+  // The timestamp is taken just before the request; transport time leaves it within the server cap.
+  const cap = () => new Date(Date.now() + 365 * DAY);
+  assert.equal(await set(`pages/${sp(t)}`, page(cap()), as("writerA")), 403, "only the owner extends");
+  assert.equal(await set(`pages/${sp(t)}`, page(cap()), as("ownerB")), 403, "another tenant cannot extend");
+  assert.equal(await set(`pages/${sp(t)}`, page(new Date(Date.now() + 366 * DAY)), as("ownerA")), 403, "one day beyond cap");
+  assert.equal(await set(`pages/${sp(t)}`, page(cap()), as("ownerA")), 200, "365-day client deadline admitted");
+  const fresh = "10000000-0000-4000-8000-0000000000ab";
+  assert.equal(await set(`pages/${t.space}_${fresh}`, { ...page(new Date(Date.now() + 366 * DAY)), page: fresh }, as("ownerA")), 403, "create beyond cap");
+  assert.equal(await set(`pages/${t.space}_${fresh}`, { ...page(cap()), page: fresh }, as("ownerA")), 200, "create at client cap");
+  assert.equal(await set(`pages/${sp(t)}`, page("forever"), as("ownerA")), 403, "finite timestamp required");
+  assert.equal(await set(`pages/${sp(t)}`, page(new Date(Date.now() + DAY)), as("ownerA")), 200, "owner may shorten");
+});
+
+test("retention: expiry-only refresh preserves ciphertext and every routing field", async () => {
+  await boot();
+  const t = T.A;
+  for (const [path, data, mutations] of [
+    [`log/${logId(t, 1, t.stream, 1)}`, entry(t, 1), { envelope: "changed", hash: "z".repeat(43), uid: "ownerA", epoch: 2, space: T.B.space, seq: 2, extra: 1 }],
+    [`checkpoints/${chunkId(t, 0)}`, chunk(t, 0), { bytes: "changed", object: "d".repeat(64), uid: "ownerA", epoch: 2, page: T.B.page, count: 2, extra: 1 }],
+  ]) {
+    const refreshed = { ...data, expiresAt: future };
+    assert.equal(await set(path, refreshed, as("writerA")), 403, "writer cannot refresh");
+    assert.equal(await set(path, refreshed, as("ownerB")), 403, "foreign owner cannot refresh");
+    assert.equal(await set(path, { ...refreshed, expiresAt: new Date(future.getTime() + DAY) }, as("ownerA")), 403, "page bound");
+    assert.equal(await set(path, { ...refreshed, expiresAt: past }, as("ownerA")), 403, "expired deadline");
+    for (const [field, value] of Object.entries(mutations)) {
+      assert.equal(await set(path, { ...refreshed, [field]: value }, as("ownerA")), 403, `immutable ${field}`);
+    }
+    const missing = { ...refreshed };
+    delete missing.uid;
+    assert.equal(await set(path, missing, as("ownerA")), 403, "cannot remove a field");
+    assert.equal(await set(path, refreshed, as("ownerA")), 200, "owner refresh admitted");
+    const response = await fetch(`${documents}/${ROOT}/${path}`, { headers: ADMIN });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).fields, fields(refreshed), "exact stored bytes and fields");
+    assert.equal(await get(path, as("viewerA")), 200, "still readable");
+  }
+});
+
+test("retention: owner cleanup deletes expired entries or entries of expired/removed pages only", async () => {
+  await boot();
+  const t = T.A;
+  const rows = [[`log/${logId(t, 1, t.stream, 1)}`, entry(t, 1)], [`checkpoints/${chunkId(t, 0)}`, chunk(t, 0)]];
+  for (const [path, data] of rows) {
+    assert.equal(await remove(path, as("ownerA")), 403, "live entry preserved");
+    await seed(path, { ...data, expiresAt: past });
+    assert.equal(await get(path, as("viewerA")), 403, "expired cloud entry unavailable");
+    assert.equal(await remove(path, as("writerA")), 403, "writer cannot clean up");
+    assert.equal(await remove(path, as("ownerB")), 403, "another tenant cannot clean up");
+    assert.equal(await remove(path, as("ownerA")), 200, "expired entry removed");
+    assert.equal(await get(path, ADMIN), 404, "physical deletion");
+    await seed(path, data);
+  }
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: past });
+  for (const [path, data] of rows) {
+    assert.equal(await get(path, as("ownerA")), 403, "expired page unavailable");
+    assert.equal(await remove(path, as("ownerA")), 200, "expired page cleanup");
+    await seed(path, data);
+  }
+  assert.equal(await remove(`pages/${sp(t)}`, as("ownerA")), 200);
+  for (const [path] of rows) {
+    assert.equal(await remove(path, as("ownerB")), 403, "removed page retains tenant isolation");
+    assert.equal(await remove(path, as("ownerA")), 200, "removed page cleanup");
+    assert.equal(await get(path, ADMIN), 404);
+  }
+  assert.equal(await get(`log/${logId(T.B, 1, T.B.stream, 1)}`, as("viewerB")), 200, "other tenant retained");
+});
+
 test("links and members: an owner enrolls members; a link holder enrolls only by the link secret and role", async () => {
   await boot();
   const t = T.A;
