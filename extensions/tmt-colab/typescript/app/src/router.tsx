@@ -31,7 +31,7 @@ import {
 } from '@tanstack/react-router';
 import type { PageSummary, PageView, PageTransport } from './transport.js';
 import { orderPages, pageTitle, pageUpdate } from './page-index.js';
-import { AnnotationInput } from './annotation-input.js';
+import { AnnotationInput, type MessageSendFailure } from './annotation-input.js';
 import { ProposalCard } from './components/proposal-card.js';
 import { ProposalActions, type ProposalOutcome } from './proposal-actions.js';
 import { conversationAsks } from './thread-store.js';
@@ -971,24 +971,33 @@ function Page() {
     });
   }, [snapshot.id]);
   useEffect(() => setProposalOutcomes(new Map()), [snapshot.id]);
-  function followUpProposal(thread: ThreadView) {
-    const slot = slotPositions.find((slot) => slot.id === thread.threadId);
-    if (!slot) {
-      openThread(thread.ref);
-      return;
-    }
+  const [proposalComposer, setProposalComposer] = useState<{
+    id: string;
+    key: string;
+    location: 'inline' | 'comments';
+  }>();
+  const [proposalSending, setProposalSending] = useState(false);
+  const [proposalFailures, setProposalFailures] = useState(new Map<string, MessageSendFailure[]>());
+  const proposalBusy = useRef(false);
+  useEffect(() => {
+    setProposalComposer(undefined);
+    setProposalFailures(new Map());
+    proposalBusy.current = false;
+    setProposalSending(false);
+  }, [snapshot.id]);
+  function followUpProposal(thread: ThreadView, location: 'inline' | 'comments') {
+    if (proposalBusy.current || annotationBusy.current || statusBusy.current) return;
+    const id = `${thread.ref.writer}:${thread.ref.id}`;
+    if (proposalComposer?.id === id && proposalComposer.location === location) return;
     closeRef.current(false);
     binding.current?.markThreadStatusSeen?.(thread.ref);
-    setAnnotation({
-      key: crypto.randomUUID(),
-      selector: null,
-      rectangle: { x: 0, y: slot.top, width: host.current?.clientWidth ?? 0, height: 0 },
-      thread: thread.ref,
-      restored: drafts.current.get(`${thread.ref.writer}:${thread.ref.id}`),
-    });
-    setPanel(null);
+    setProposalComposer({ id, key: crypto.randomUUID(), location });
   }
-  function proposalCard(thread: ThreadView, detached = false, conversation = true) {
+  function proposalCard(
+    thread: ThreadView,
+    detached = false,
+    location: 'inline' | 'comments' = 'inline',
+  ) {
     if (!thread.proposal) return;
     const id = `${thread.ref.writer}:${thread.ref.id}`;
     const localOutcome = proposalOutcomes.get(id);
@@ -1007,10 +1016,10 @@ function Page() {
         outcome={outcome}
         statusError={proposalStatusErrors.has(id)}
         detached={detached}
-        disabled={discussionBlocked || !snapshot.binding?.discussion}
+        disabled={discussionBlocked || proposalSending || !snapshot.binding?.discussion}
         canDecide={!!status?.controllable && !!snapshot.binding?.discussion?.decideProposal}
         decide={(decision) => void proposalActions.decide(id, decision)}
-        followUp={() => followUpProposal(thread)}
+        followUp={() => followUpProposal(thread, location)}
         resolve={
           status?.controllable && statusCoordinator
             ? () => {
@@ -1023,19 +1032,103 @@ function Page() {
               }
             : undefined
         }
-      >
-        {conversation &&
-          thread.comments.map((comment) => (
-            <CommentExchange
-              key={`${comment.ref.writer}:${comment.messageId}`}
-              comment={comment}
+        composer={
+          proposalComposer?.id === id &&
+          proposalComposer.location === location && (
+            <AnnotationInput
+              key={proposalComposer.key}
+              showCancel
+              creationRecipient={thread.proposal.proposer}
+              binding={snapshot.binding?.ask}
+              discussion={snapshot.binding?.discussion}
+              anchor={thread.anchor}
               thread={thread}
-              binding={snapshot.binding?.discussion}
-              ask={snapshot.binding?.ask}
               asks={view.asks ?? []}
-              blocked={discussionBlocked}
               title={view.title || snapshot.title}
+              blocked={discussionBlocked}
+              recoveryRequired={recoveryRequired}
+              initialEdit={drafts.current.get(id)}
+              onDraft={(value, edit) => keepDraft(id, value.trim() || edit.edited ? edit : null)}
+              onFailure={(failure) =>
+                setProposalFailures((previous) =>
+                  new Map(previous).set(id, [...(previous.get(id) ?? []), failure]),
+                )
+              }
+              onBusy={(busy) => {
+                proposalBusy.current = busy;
+                setProposalSending(busy);
+              }}
+              cancel={() => {
+                if (!proposalBusy.current) setProposalComposer(undefined);
+              }}
+              committed={() => {
+                keepDraft(id, null);
+                proposalBusy.current = false;
+                setProposalSending(false);
+                setProposalComposer(undefined);
+              }}
             />
+          )
+        }
+      >
+        {thread.comments.map((comment) => (
+          <CommentExchange
+            key={`${comment.ref.writer}:${comment.messageId}`}
+            comment={comment}
+            thread={thread}
+            binding={snapshot.binding?.discussion}
+            ask={snapshot.binding?.ask}
+            asks={view.asks ?? []}
+            blocked={discussionBlocked}
+            title={view.title || snapshot.title}
+          />
+        ))}
+        {(proposalFailures.get(id) ?? [])
+          .filter(
+            (failure) =>
+              !records.some(
+                (record) =>
+                  record.machine === failure.recipient.machine &&
+                  record.agent === failure.recipient.agent &&
+                  record.messageIds?.includes(failure.message),
+              ),
+          )
+          .map((failure) => (
+            <div
+              key={`${failure.message}:${failure.recipient.agent}`}
+              className="annotation-delivery-failure"
+            >
+              <p role="status">
+                @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
+              </p>
+              {failure.uncertain ? (
+                <p className="ask-supporting">{text.askUncertain}</p>
+              ) : (
+                <AskAgainAction
+                  binding={snapshot.binding?.ask}
+                  blocked={discussionBlocked || proposalSending}
+                  input={failure.input}
+                  recipient={failure.recipient}
+                  retryOf={null}
+                  settled={(result) =>
+                    setProposalFailures((previous) =>
+                      new Map(previous).set(
+                        id,
+                        (previous.get(id) ?? []).flatMap((value) =>
+                          value !== failure
+                            ? [value]
+                            : result.adopted === true
+                              ? []
+                              : result.adopted === false
+                                ? [value]
+                                : [{ ...value, uncertain: true }],
+                        ),
+                      ),
+                    )
+                  }
+                />
+              )}
+            </div>
           ))}
         {outcome?.failure && !outcome.failure.uncertain && (
           <AskAgainAction
@@ -1393,9 +1486,6 @@ function Page() {
               >
                 <ThreadWindow
                   thread={annotationThread}
-                  proposal={
-                    annotationThread?.proposal && proposalCard(annotationThread, false, false)
-                  }
                   anchor={annotation.selector ?? undefined}
                   layout="anchored"
                   attached={resolved.includes(
@@ -1535,7 +1625,11 @@ function Page() {
           creationRecipient={view.creationRecipient}
           hideHeader
           renderProposal={(thread) =>
-            proposalCard(thread, !slotPositions.some((slot) => slot.id === thread.threadId), false)
+            proposalCard(
+              thread,
+              !slotPositions.some((slot) => slot.id === thread.threadId),
+              'comments',
+            )
           }
           key={`discussion:${snapshot.id}:${draftsReady}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}

@@ -443,12 +443,14 @@ body:has(.page-header-actions) {
   align-items: center;
   gap: 6px;
 }
-.annotation-compose .tmt-ui-action[data-variant='primary']:not(:disabled) {
+.annotation-compose .tmt-ui-action[data-variant='primary']:not(:disabled),
+.proposal-approve .tmt-ui-action:not(:disabled) {
   color: var(--c-paper);
   background: var(--c-text);
   border-color: var(--c-text);
 }
-.annotation-compose .tmt-ui-action[data-variant='primary']:disabled {
+.annotation-compose .tmt-ui-action[data-variant='primary']:disabled,
+.proposal-approve .tmt-ui-action:disabled {
   background: transparent;
 }
 .export-control button:disabled {
@@ -1194,4 +1196,13 @@ body:has(.page-header-actions) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.proposal-actions .proposal-resolve {
+  margin-inline-start: auto;
+  color: var(--c-muted);
+}
+
+.proposal-resolve .tmt-ui-action:not(:hover):not(:focus-visible) {
+  color: var(--c-muted);
 }

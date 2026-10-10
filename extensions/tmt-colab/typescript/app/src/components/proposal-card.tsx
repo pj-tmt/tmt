@@ -17,6 +17,7 @@ export function ProposalCard({
   followUp,
   resolve,
   children,
+  composer,
 }: {
   thread: ThreadView;
   outcome?: ProposalOutcome;
@@ -28,6 +29,7 @@ export function ProposalCard({
   followUp(): void;
   resolve?(): void;
   children?: ReactNode;
+  composer?: ReactNode;
 }) {
   const proposal = thread.proposal!;
   const busy = outcome?.state === 'deciding' || outcome?.state === 'notifying';
@@ -65,18 +67,20 @@ export function ProposalCard({
       <div className="proposal-actions">
         {!decision && !outcome && !thread.resolved && (
           <>
+            <span className="proposal-approve">
+              <BrowserAction
+                type="button"
+                variant="primary"
+                label={text.proposalApprove}
+                disabled={disabled || !canDecide}
+                onActivate={(e) => {
+                  if (e.isTrusted) decide('approved');
+                }}
+              />
+            </span>
             <BrowserAction
               type="button"
-              variant="text"
-              label={text.proposalApprove}
-              disabled={disabled || !canDecide}
-              onActivate={(e) => {
-                if (e.isTrusted) decide('approved');
-              }}
-            />
-            <BrowserAction
-              type="button"
-              variant="text"
+              variant="primary"
               label={text.proposalDecline}
               disabled={disabled || !canDecide}
               onActivate={(e) => {
@@ -95,15 +99,17 @@ export function ProposalCard({
           }}
         />
         {resolve && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={thread.resolved ? text.threadReopen : text.threadResolve}
-            disabled={disabled || busy}
-            onActivate={(e) => {
-              if (e.isTrusted) resolve();
-            }}
-          />
+          <span className="proposal-resolve">
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={thread.resolved ? text.threadReopen : text.threadResolve}
+              disabled={disabled || busy}
+              onActivate={(e) => {
+                if (e.isTrusted) resolve();
+              }}
+            />
+          </span>
         )}
       </div>
       {statusError && <p role="alert">{text.commentFailed}</p>}
@@ -116,6 +122,7 @@ export function ProposalCard({
         </p>
       )}
       {!thread.resolved && children}
+      {composer}
     </article>
   );
 }

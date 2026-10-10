@@ -82,6 +82,8 @@ function sessionDrafts(mode: 'session' | 'failing'): DraftStore {
 export async function mount(
   options: {
     creator?: boolean;
+    /** A bounded preparation fault before any intent exists. */
+    prepareFailures?: number;
     checking?: boolean;
     /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
     agents?: AgentDestination[];
@@ -115,6 +117,7 @@ export async function mount(
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
   };
+  let preparationFailures = options.prepareFailures ?? 0;
   const ask: AskBinding = {
     async destinations() {
       if (options.checking)
@@ -132,6 +135,10 @@ export async function mount(
       );
     },
     async prepare(input) {
+      if (preparationFailures > 0) {
+        preparationFailures--;
+        throw new Error('Fixture preparation unavailable');
+      }
       // The fixture routes by hash, so location.href is not the mounted page URL a real app has.
       const fixture = fixtureAttempt(
         {

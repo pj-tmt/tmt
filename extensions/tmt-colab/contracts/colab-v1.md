@@ -991,9 +991,12 @@ still applies; names never select another agent. Failure retains the decision an
 shows existing Ask failure, held or uncertain state. Recovery is an explicit
 existing Ask recheck or resend; reload, sync and rendering never resume sending,
 roll back the decision or create another automatic request. Follow up opens the
-existing conversation/composer, pre-addressed to that UUID pair; Send remains
-explicit. Resolve folds the card; Reopen retains the decision. Combined pending
-count/filter and `--after` placement remain later slices.
+shared composer inside the card under its history, pre-addressed to that UUID
+pair; Send remains explicit. Send, Escape and Cancel close that composer without
+opening an anchored thread window. The card retains any unrecorded delivery
+failure for explicit recovery after the composer closes; signed Ask outcomes own
+recovery once admitted. Proposals expose no Delete thread action.
+Resolve folds the card; Reopen retains the decision. Combined pending count/filter and `--after` placement remain later slices.
 
 `proposal ls PAGE` reads authenticated proposal threads, their retained decision and
 independent resolved state. Human rows print the shortest unique UUID prefix (at least

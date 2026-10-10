@@ -802,6 +802,18 @@ test('proposal decisions notify the exact proposer once and survive resolution a
       .body as string;
     await expect(card.getByTestId('ask-reply')).toHaveText(reply);
     await capture('approved-replied');
+    await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+    const composer = card.getByRole('combobox');
+    await expect(composer).toBeFocused();
+    await expect(composer).toContainText('@proposal-agent');
+    await expect(page.locator('.annotation-new')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
+    await capture('follow-up');
+    await composer.press('Escape');
+    await expect(card.getByRole('combobox')).toHaveCount(0);
+    await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+    await card.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(card.getByRole('combobox')).toHaveCount(0);
     await card.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(card).toHaveAttribute('data-resolved', 'true');
     await capture('resolved');

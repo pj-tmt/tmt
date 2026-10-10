@@ -328,7 +328,6 @@ export type ThreadWindowProps = {
   blocked: boolean;
   observationUnavailable?: boolean;
   composer?: ReactNode;
-  proposal?: ReactNode;
   initialEdit?: ComposerEdit;
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
@@ -354,7 +353,6 @@ export function ThreadWindow({
   blocked,
   observationUnavailable,
   composer,
-  proposal,
   initialEdit,
   onDraft,
   onBusy,
@@ -515,7 +513,6 @@ export function ThreadWindow({
             )
       }
     >
-      {proposal}
       {anchor && <blockquote>{anchor.exact}</blockquote>}
       {tracked && anchorsChecked && !attached && (
         <p className="annotation-hint">{text.commentQuoteChanged}</p>
@@ -532,7 +529,7 @@ export function ThreadWindow({
           title={title}
         />
       ))}
-      {binding && thread && !thread.deleted && owned && (
+      {binding && thread && !thread.proposal && !thread.deleted && owned && (
         <div className="comment-actions">
           {tracked && !attached && (
             <BrowserAction
@@ -719,29 +716,31 @@ export function ThreadPanel({
                     : ''}
                 </span>
               </button>
-              {active === id && (
-                <ThreadWindow
-                  creationRecipient={thread.proposal?.proposer ?? creationRecipient}
-                  proposal={renderProposal?.(thread)}
-                  thread={thread}
-                  attached={resolved.includes(id)}
-                  anchorsChecked={anchorsChecked}
-                  selection={selection}
-                  binding={binding}
-                  ask={ask}
-                  asks={asks}
-                  title={title}
-                  close={() => select(null)}
-                  blocked={blocked}
-                  initialEdit={draft?.(thread.ref)}
-                  onDraft={(edit) => onDraft?.(thread.ref, edit)}
-                  onBusy={onBusy}
-                  status={status}
-                  onStatusChange={
-                    onStatusChange && ((resolved) => onStatusChange(thread, resolved))
-                  }
-                />
-              )}
+              {active === id &&
+                (thread.proposal ? (
+                  renderProposal?.(thread)
+                ) : (
+                  <ThreadWindow
+                    creationRecipient={creationRecipient}
+                    thread={thread}
+                    attached={resolved.includes(id)}
+                    anchorsChecked={anchorsChecked}
+                    selection={selection}
+                    binding={binding}
+                    ask={ask}
+                    asks={asks}
+                    title={title}
+                    close={() => select(null)}
+                    blocked={blocked}
+                    initialEdit={draft?.(thread.ref)}
+                    onDraft={(edit) => onDraft?.(thread.ref, edit)}
+                    onBusy={onBusy}
+                    status={status}
+                    onStatusChange={
+                      onStatusChange && ((resolved) => onStatusChange(thread, resolved))
+                    }
+                  />
+                ))}
             </section>
           );
         })}

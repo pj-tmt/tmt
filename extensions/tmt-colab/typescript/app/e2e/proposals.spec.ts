@@ -78,11 +78,27 @@ for (const width of [1440, 390])
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
       await capture(page, `reopened-${width}-${theme}`);
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
-      const composer = page.getByTestId('comment-thread').getByRole('combobox');
+      const composer = card.getByRole('combobox');
       await expect(composer).toBeFocused();
       await expect(composer).toContainText('@Agent 1');
       await capture(page, `follow-up-${width}-${theme}`);
       expect((await run(page, 'proof')).sends).toHaveLength(1);
+      await expect(page.locator('.annotation-new')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
+      await composer.press('Escape');
+      await expect(card.getByRole('combobox')).toHaveCount(0);
+      await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+      await card.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(card.getByRole('combobox')).toHaveCount(0);
+      await run(page, 'proposalAsk', 'replied');
+      await expect(card.getByTestId('ask-reply')).toBeVisible();
+      await capture(page, `replied-${width}-${theme}`);
+      await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+      await card.getByRole('combobox').press('End');
+      await card.getByRole('combobox').pressSequentially('Please clarify');
+      await card.getByRole('button', { name: 'Send', exact: true }).click();
+      await expect(card.getByRole('combobox')).toHaveCount(0);
+      await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
     });
   }
 for (const placement of ['missing', 'duplicate'])
@@ -131,7 +147,10 @@ for (const width of [1440, 390])
           await retry.evaluate((node) => (node as HTMLButtonElement).click());
           expect((await run(page, 'proof')).sends).toHaveLength(1);
         }
-        await capture(page, `${state}-${width}-${theme}`);
+        await capture(
+          page,
+          `${state === 'replied' ? 'declined-replied' : state}-${width}-${theme}`,
+        );
       }
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });
@@ -146,7 +165,9 @@ for (const width of [1440, 390])
       await page.getByTestId('annotation-row').click();
       const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
       await expect(card).toBeVisible();
-      await expect(page.getByRole('combobox')).toContainText('@Deterministic agent');
+      await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+      await expect(card.getByRole('combobox')).toContainText('@Deterministic agent');
+      await card.getByRole('button', { name: 'Cancel', exact: true }).click();
       await capture(page, `detached-${width}-${theme}`);
       await card.getByRole('button', { name: 'Approve', exact: true }).click();
       await expect(card.getByRole('alert')).toHaveText(
@@ -157,3 +178,24 @@ for (const width of [1440, 390])
       expect((await run(page, 'proof')).sends).toHaveLength(0);
     });
   }
+
+test('follow-up preparation failure stays on the card after composer closes', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount', { prepareFailures: 1 });
+  await run(page, 'proposal', 'inline');
+  const card = page.locator('[data-inline-proposal] .proposal-card');
+  await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+  await card.getByRole('combobox').press('End');
+  await card.getByRole('combobox').pressSequentially('Please clarify');
+  await card.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(card.getByRole('combobox')).toHaveCount(0);
+  await expect(card.locator('.annotation-delivery-failure')).toContainText('Not delivered');
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  const retry = card.getByRole('button', { name: 'Ask again', exact: true });
+  await retry.evaluate((node) => (node as HTMLButtonElement).click());
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await retry.click();
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  await expect(card.locator('.annotation-delivery-failure')).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
+});

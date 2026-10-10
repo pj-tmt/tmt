@@ -177,7 +177,10 @@ run the [app/browser and real-binary acceptance gates](development.md).
 
 Proposal cards live in trusted parent chrome with a flat shared 1px edge and state
 mark plus word. The parent measures height; the one author iframe owns only inert
-spacers through the existing bounded renderer channel. Follow up reuses the
-anchored conversation/composer. Missing, duplicate or vanished slots and inner
-scroll fallback show the admitted proposal in Comments. Resolve folds the card;
+spacers through the existing bounded renderer channel. Approve is the filled
+primary Action; Decline uses the bordered Action, Follow up the text Action, and
+Resolve/Reopen muted text at the right end. Follow up opens the shared composer
+inside the card below its history; Send, Escape and Cancel close it. Proposal
+cards have no anchored window or Delete thread action. Missing, duplicate or
+vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds the card;
 Reopen retains the final decision. No new token or surface variant is introduced.
