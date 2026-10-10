@@ -685,7 +685,7 @@ presentation owns no routing, admission, page state or action/recovery capabilit
 Guidance MUST render its recovery status/script only when the admitted app inventory
 actually contains `/assets/recovery.js`; without it, pairing/app-unavailable guidance stays visible.
 
-Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
+Native app Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. App and native guidance responses share this
 exact parent CSP, including guidance served without an app build:
@@ -2708,7 +2708,7 @@ The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned
 Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path
 and runs locally; see [references/development.md](../../../.agents/skills/tmt-colab/references/development.md#firestore-rules-emulator).
 
-### `tmt colab hosting-bundle --json` (#2487)
+### `tmt colab hosting-bundle --json`
 
 This public release command reads the separate hosted inventory embedded in its running
 executable. It accepts no digest argument, discovers no core, opens no state, and uses no
@@ -2721,8 +2721,11 @@ path-sorted list of exactly `{path,bytesBase64}`; bytes use canonical standard B
 order `version,files` and file field order `path,sha256,length,contentType,csp`. Manifest
 version is 1, length counts decoded bytes, contentType is bare, and every file carries CSP.
 The build snapshots the manifest and bundle together, preserves the renderer CSP, and
-copies Remote's built SDK byte-for-byte to `/colab/sdk/remote-v1.js` with a digest check.
-Colab's own paths are below `/colab/`; unsafe paths, SDK overrides and growth reaching
+copies Remote's built SDK byte-for-byte to `/sdk/remote-v1.js` with a digest check.
+Files use site-root paths: `/index.html` is the HTML shell, alongside `/reader.html`,
+`/renderer.html`, `/THIRD-PARTY-NOTICES.txt` and `/assets/...`. The shell uses absolute
+`/assets/` URLs and no `<base>` so short-route rewrites preserve asset resolution.
+Unsafe paths, reserved `/__` paths, SDK overrides and growth reaching
 50% of Remote's v1 file-count, per-file or total-byte cap fail the build.
 
 The build pipeline and command are implemented independently of the deployment declaration.

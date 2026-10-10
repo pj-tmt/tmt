@@ -583,14 +583,10 @@ is [extension-serve-v1](contracts/extension-serve-v1.md).
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) is an activated native extension whose executable embeds the app and
-canonical agent skill. Its archive carries `skills/` from `extensions/tmt-colab/skills` for the existing
-opt-in extension skill installer; `tmt colab skill` reads those same embedded bytes without
-core discovery or storage access.
-The separate `hosting-bundle --json` command reads its embedded hosted inventory before core
-discovery. Colab's build snapshots its manifest and public bytes with a digest-checked Remote SDK copy.
-Without hosted inventory it refuses with `COLAB_UNAVAILABLE`; runtime has no native app or checkout fallback.
-Hosted entry glue and declaration integration remain planned in #2487.
+`@tmt/colab-app`) is a native extension embedding its app and skill.
+The opt-in installer uses its archived `skills/`; `tmt colab skill` reads embedded
+bytes without core and storage access.
+[colab-v1's hosted bundle](extensions/tmt-colab/contracts/colab-v1.md#tmt-colab-hosting-bundle---json) owns the hosting build.
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
 [tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
 

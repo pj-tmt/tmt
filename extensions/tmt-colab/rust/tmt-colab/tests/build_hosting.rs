@@ -34,10 +34,15 @@ impl Build {
         fs::create_dir(&output).unwrap();
         fs::write(
             app.join("index.html"),
-            b"<script type=module src='./sdk/remote-v1.js'></script>",
+            b"<link rel=stylesheet href='/assets/app.css'><script type=module src='/sdk/remote-v1.js'></script>",
         )
         .unwrap();
         fs::write(app.join("assets/app.css"), b"body{}").unwrap();
+        fs::write(
+            app.join("reader.html"),
+            b"<!doctype html><title>Reader fixture</title>",
+        )
+        .unwrap();
         fs::write(
             app.join("renderer.html"),
             b"<!doctype html><title>Renderer fixture</title>",
@@ -93,11 +98,12 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
     assert_eq!(
         paths,
         vec![
-            "/colab/THIRD-PARTY-NOTICES.txt",
-            "/colab/assets/app.css",
-            "/colab/index.html",
-            "/colab/renderer.html",
-            "/colab/sdk/remote-v1.js"
+            "/THIRD-PARTY-NOTICES.txt",
+            "/assets/app.css",
+            "/index.html",
+            "/reader.html",
+            "/renderer.html",
+            "/sdk/remote-v1.js"
         ]
     );
     for (metadata, wire) in files.iter().zip(bundle["files"].as_array().unwrap()) {
@@ -109,12 +115,12 @@ fn snapshot_matches_canonical_manifest_and_upstream_sdk_without_runtime_source_p
         assert_eq!(metadata["length"], bytes.len());
         assert_eq!(metadata["sha256"], digest(&bytes));
         assert!(!metadata["contentType"].as_str().unwrap().contains(';'));
-        if metadata["path"] == "/colab/renderer.html" {
+        if metadata["path"] == "/renderer.html" {
             assert_eq!(metadata["csp"], browser_policy::RENDERER_POLICY);
         } else {
             assert_eq!(metadata["csp"], browser_policy::POLICY);
         }
-        if metadata["path"] == "/colab/sdk/remote-v1.js" {
+        if metadata["path"] == "/sdk/remote-v1.js" {
             assert_eq!(bytes, fs::read(&build.sdk).unwrap());
             assert_eq!(
                 bytes,
@@ -160,7 +166,7 @@ fn changed_sdk_copy_is_refused_and_input_names_cannot_select_renderer_policy() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|file| file["path"] == "/colab/renderer-copy.html")
+        .find(|file| file["path"] == "/renderer-copy.html")
         .unwrap();
     assert_eq!(copy["csp"], browser_policy::POLICY);
     assert_ne!(copy["csp"], browser_policy::RENDERER_POLICY);
@@ -190,6 +196,7 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
         "directory-link",
         "unknown",
         "sdk-override",
+        "reserved",
         "sdk-missing",
         "sdk-link",
         "file-cap",
@@ -210,6 +217,10 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 fs::create_dir(build.app.join("sdk")).unwrap();
                 fs::write(build.app.join("sdk/remote-v1.js"), b"modified SDK").unwrap();
             }
+            "reserved" => {
+                fs::create_dir(build.app.join("__")).unwrap();
+                fs::write(build.app.join("__/init.json"), b"{}").unwrap();
+            }
             "sdk-missing" => fs::remove_file(&build.sdk).unwrap(),
             "sdk-link" => {
                 fs::remove_file(&build.sdk).unwrap();
@@ -223,6 +234,7 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 let seeded: u64 = [
                     build.app.join("index.html"),
                     build.app.join("renderer.html"),
+                    build.app.join("reader.html"),
                     build.app.join("THIRD-PARTY-NOTICES.txt"),
                     build.app.join("assets/app.css"),
                     build.sdk.clone(),
@@ -242,7 +254,7 @@ fn incomplete_unsafe_or_oversized_hosted_builds_are_refused() {
                 assert_eq!(remaining, 0);
             }
             "count-cap" => {
-                for n in 0..hosting::FILES - 5 {
+                for n in 0..hosting::FILES - 6 {
                     fs::write(build.app.join(format!("extra-{n}.js")), b"fixture").unwrap();
                 }
             }

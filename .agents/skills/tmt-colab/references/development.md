@@ -28,16 +28,18 @@ the expected canonical tree via `--skills extensions/tmt-colab/skills`; a raw
 executable smoke does not establish that the tree ships. Shared release prepare
 verification derives this argument from `shipsSkills(product)`.
 
-## Hosted bundle build (#2487)
+## Hosted bundle build
 
 `tmt colab hosting-bundle --json` reads only the executable's embedded hosted inventory,
 without core discovery, storage, or network. Ordinary builds embed none and return
 `COLAB_UNAVAILABLE`; `TMT_COLAB_APP_DIR` and native `--app-dir` do not supply hosted bytes.
 
 The build-only `TMT_COLAB_HOSTING_DIR` selects an absolute, separate hosted distribution.
-Its files are published below `/colab/`; `index.html` and `THIRD-PARTY-NOTICES.txt` are
-required. The generator copies Remote's existing built output
-`extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/colab/sdk/remote-v1.js`,
+Its files are published at the site root; `index.html` and `THIRD-PARTY-NOTICES.txt` are
+required. The shell must use absolute `/assets/` URLs with no `<base>` so rewritten
+short routes resolve the same assets. Build a hosted distribution with Vite's `--base /`
+option; native mounted distributions retain their relative base. The generator copies Remote's existing built output
+`extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js` to `/sdk/remote-v1.js`,
 checking its copied SHA-256 against that output. The input tree cannot override this path.
 Files and directories must be real, with supported bare content types. The build rejects
 inventory reaching 128 files, 2 MiB per file, or 8 MiB total (50% of Remote's v1 caps).

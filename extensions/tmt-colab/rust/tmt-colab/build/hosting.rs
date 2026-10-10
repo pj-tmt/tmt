@@ -13,7 +13,7 @@ use std::{
 pub const FILES: usize = 128;
 pub const FILE_BYTES: usize = 2 * 1024 * 1024;
 pub const TOTAL_BYTES: usize = 8 * 1024 * 1024;
-const SDK_ROUTE: &str = "/colab/sdk/remote-v1.js";
+const SDK_ROUTE: &str = "/sdk/remote-v1.js";
 
 #[derive(Serialize)]
 struct Manifest {
@@ -116,7 +116,7 @@ fn collect(
             return Err(invalid("Unsafe hosted filename"));
         }
         let route = format!("{prefix}/{name}");
-        if route.len() > 1024 || route == SDK_ROUTE {
+        if route.len() > 1024 || route == SDK_ROUTE || route == "/__" || route.starts_with("/__/") {
             return Err(invalid("Hosted path is reserved or too long"));
         }
         let path = entry.path();
@@ -148,8 +148,8 @@ pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Resu
     }
     let mut inputs = Vec::new();
     let mut files = Vec::new();
-    collect(directory, "/colab", &mut files, &mut inputs)?;
-    for route in ["/colab/index.html", "/colab/THIRD-PARTY-NOTICES.txt"] {
+    collect(directory, "", &mut files, &mut inputs)?;
+    for route in ["/index.html", "/THIRD-PARTY-NOTICES.txt"] {
         if !files.iter().any(|(path, _)| path == route) {
             return Err(invalid("Hosted entry or dependency notices are missing"));
         }
@@ -186,7 +186,7 @@ pub fn generate(directory: Option<&Path>, sdk: &Path, output: &Path) -> io::Resu
         let hash = digest(&bytes);
         manifest.files.push(File {
             content_type: content_type(&route)?,
-            csp: if route == "/colab/renderer.html" {
+            csp: if route == "/renderer.html" {
                 browser_policy::RENDERER_POLICY
             } else {
                 browser_policy::POLICY
