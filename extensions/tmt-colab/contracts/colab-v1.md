@@ -2066,9 +2066,11 @@ device cannot store drafts (unavailable, blocked, full), the draft stays in the 
 single line says `Drafts are not saved on this device.`; success is claimed only after
 the storage transaction completed. Source-editor text is outside this record.
 
-### Page Chat (#1645)
+### Owner page and space-home header
 
 Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row with display-only Remote attribution before Colab, an original-author caption next to the title, and compact actions in More. The connection chip retains its existing owner; attribution never supplies connection state or authority.
+
+### Page Chat (#1645)
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
