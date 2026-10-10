@@ -212,7 +212,10 @@ fn closed(socket: &mut UnixStream) -> bool {
 
 #[test]
 fn public_page_entries_keep_inventory_resolution_behind_admission() {
-    let server = Running::start(Tunnels::PRODUCT);
+    let app = tmt_colab::assets::App::selected(None)
+        .unwrap()
+        .expect("built app for public owner proof");
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
     let known = server.request(&Running::get("/p/00000000", mount));
     assert!(known.starts_with("HTTP/1.1 200"), "{known}");
@@ -267,7 +270,10 @@ fn public_page_entries_keep_inventory_resolution_behind_admission() {
 
 #[test]
 fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_pages() {
-    let server = Running::start(Tunnels::PRODUCT);
+    let app = tmt_colab::assets::App::selected(None)
+        .unwrap()
+        .expect("built app for public owner proof");
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
     let get = |prefix: &str| server.request(&Running::get(&format!("/p/{prefix}"), mount));
     let known = get("00000000");
@@ -425,7 +431,10 @@ fn anonymous_reader_entries_do_not_disclose_active_absent_revoked_or_deleted_lin
 
 #[test]
 fn public_entries_use_remote_mount_for_mounted_and_root_forwarded_requests() {
-    let server = Running::start(Tunnels::PRODUCT);
+    let app = tmt_colab::assets::App::selected(None)
+        .unwrap()
+        .expect("built app for public owner proof");
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     for mount in [
         "/r/abcdefghijklmnop/x/colab/",
         "/r/234567abcdefghij/x/colab/",

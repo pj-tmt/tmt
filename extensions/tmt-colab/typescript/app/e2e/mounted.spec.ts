@@ -213,8 +213,12 @@ test('discovery cannot silently replace an existing mount pin or conflicting fra
   await fixture(page);
   await page.goto(mount);
   await expect(page).toHaveURL(/\/colab\/$/);
-  await page.goto(`${mount}#space=${'a'.repeat(32)}`);
+  await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
+  await page.goto(`/colab/#space=${'a'.repeat(32)}`);
   await expect(page.getByRole('alert')).toContainText('does not match the pinned space');
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await page.goto(`${mount}#space=${'a'.repeat(32)}`);
+  await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
   await expect(page.locator('iframe')).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
@@ -546,9 +550,16 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await dialog.getByRole('button', { name: 'Create link' }).click();
-  await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
+  await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Confirm create link' }).click();
-  await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
+  await expect(dialog.getByLabel('Share link', { exact: true })).toBeVisible();
+  const shared = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
+  const capability = new URLSearchParams(shared.hash.slice(1));
+  expect(shared.origin).toBe(new URL(page.url()).origin);
+  expect(shared.pathname).toBe(`/read/${capability.get('link')}`);
+  expect(capability.get('seed')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(capability.get('page')).toBe(pageId);
+  await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
   await expect(dialog).toContainText(
     'Shared links open in a separate read-only view, whatever their role',
   );

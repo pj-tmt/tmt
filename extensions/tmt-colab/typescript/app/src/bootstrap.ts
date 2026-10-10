@@ -1,4 +1,4 @@
-import { entryMount, publicEntry } from './entry.js';
+import { entryMount, entryThread, publicEntry } from './entry.js';
 import {
   binary,
   decimal,
@@ -123,13 +123,7 @@ export async function discover(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
     );
-    if (publicEntry()) {
-      const target = new URLSearchParams(location.hash.slice(1));
-      requireValue(
-        [...target.keys()].every((key) => key === 't') && target.getAll('t').length <= 1,
-      );
-      if (target.has('t')) generatedId(target.get('t')!);
-    }
+    if (publicEntry()) entryThread();
     let path: string | null = null;
     if (!fragment && !publicEntry()) {
       const incoming = new URLSearchParams(location.hash.slice(1));

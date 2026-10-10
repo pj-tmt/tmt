@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { entryMount, publicEntry } from '../src/entry.js';
+import { entryMount, entryThread, publicEntry } from '../src/entry.js';
 import { readerUrl, parseReaderFragment } from '../src/reader-link.js';
 afterEach(() => vi.unstubAllGlobals());
 it('accepts exactly the public display-entry grammar', () => {
@@ -47,4 +47,19 @@ it('serializes one reader capability with matching path and fragment identity', 
       seed: 'A'.repeat(43),
     }),
   ).toThrow();
+});
+
+it('allows only one canonical thread display target at startup and during history navigation', () => {
+  const thread = '11111111-1111-4111-8111-111111111111';
+  expect(entryThread('')).toBeNull();
+  expect(entryThread(`#t=${thread}`)).toBe(thread);
+  for (const hash of [
+    '#space=foreign',
+    '#seed=secret',
+    '#t=',
+    '#t=bad',
+    `#t=${thread}&t=${thread}`,
+    `#t=${thread}&path=other`,
+  ])
+    expect(() => entryThread(hash)).toThrow();
 });

@@ -775,22 +775,6 @@ Previously written bytes, keys and plaintext cannot be recalled. Mounted native
 lifecycle tests and deterministic duplex blocked-transfer tests exercise these
 fences.
 
-### Short public entry and internal mount (#2385)
-
-Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
-Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
-bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
-Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
-happens only after SDK admission and verified catalog discovery. Mounted owner assets,
-API and sync keep their existing admission and cookie scope; there are no root aliases
-for them. Public recovery admits through the SDK before loading protected app assets
-in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
-after verified discovery. Internal mount and space pins remain separate from visible
-location; reload and history use short paths, with `#t=<threadId>` a display-only target.
-Reader entry uses only existing public reader assets and never obtains owner authority.
-Public responses for active, absent, revoked and archived/deleted-associated IDs are
-identical apart from any echoed display ID; they disclose no title, page, space or author.
-
 ### Read-only reader link (#1545)
 
 `share link add` and `share link reset` print one openable link for the link they create:
@@ -2552,10 +2536,9 @@ Every command that names a page tells a person where to open it, from one door a
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
 print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
-root redirect into `<door>/x/colab/p/<shortId>`; it does not bypass pairing or grant admission.
-Colab resolves that alias to an absolute same-origin mounted-root path from Remote's
-`tmt-mount` header; missing or invalid mounted roots refuse, with no relative fallback.
-Without a door they print the mount-relative alias `x/colab/p/<shortId>` and the
+in-place public forwarding; it does not bypass pairing or grant admission.
+Colab retains the short location and uses validated Remote `tmt-mount` only for its internal
+transport, as defined below. Without a door they print root-relative `/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
@@ -2586,6 +2569,20 @@ adds `tmt colab serve` to `next`. Browser navigation still undergoes existing ad
 
 ### Short owner-page aliases (#1688)
 
+Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
+Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
+bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
+Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
+happens only after SDK admission and verified catalog discovery. Mounted owner assets,
+API and sync keep their existing admission and cookie scope; there are no root aliases
+for them. Public recovery admits through the SDK before loading protected app assets
+in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
+after verified discovery. Internal mount and space pins remain separate from visible
+location; reload and history use short paths, with `#t=<threadId>` a display-only target.
+Reader entry uses only existing public reader assets and never obtains owner authority.
+Public responses for active, absent, revoked and archived/deleted-associated IDs are
+identical apart from any echoed display ID; they disclose no title, page, space or author.
+
 The shortest unique canonical page UUID prefix in the complete current catalog is the
 `shortId`, with a minimum of eight ASCII characters. Archived pages participate even when a
 listing hides them. Retained deleted IDs also participate, so a historical link cannot rebind
@@ -2594,22 +2591,16 @@ A missing catalog entry uses its full UUID rather than borrowing another page's 
 Previously copied aliases can become ambiguous when another page is created; they never
 choose an arbitrary match.
 
-Colab handles GET `/p/<shortId>` directly inside its mount, independently of Remote's root
-redirect. Prefixes are bounded to 8–36 canonical lowercase UUID-prefix characters; malformed
-or non-GET aliases receive the existing 404. Owner-context discovery uses the existing
-verified metadata catalog, without Yjs decoding, and responds with a relative same-mount 302
-and the existing no-store, no-referrer and CSP headers. A unique match targets the full
-`#space=<spaceId>&path=%2Fpages%2F<pageId>` route. Ambiguous and unknown prefixes target
-`#space=<spaceId>&path=%2Fshort%2F<shortId>`; the admitted parent shows every matching page
-as a plain link row, or the existing unavailable-page view when none match. A sole deleted
-match shows "This page was deleted"; deleted chooser rows are disabled and have no title. Choosing a live row
-opens its full UUID route. Display title hints confer no authority.
-
-Without owner context, the alias redirects to the private root guidance with only the
-requested prefix, never the space ID or inventory. The existing paired-session recovery
-retains that target across discovery/pinning; it creates no anonymous asset or API access.
-The long owner fragment route remains supported. Reader links retain their capability
-fragment and are never shortened into an owner alias.
+After admission, the parent resolves 8–36 canonical lowercase UUID-prefix characters
+against the complete verified metadata catalog, without decoding Yjs. A unique live match
+opens the internal full-page route while retaining the short public path. Ambiguous aliases
+show every matching page as a plain link row; missing or malformed aliases show the existing
+unavailable-page view. A sole deleted match shows "This page was deleted"; deleted chooser
+rows are disabled and have no title. Choosing a live row emits its shortest unique public
+alias. Display title hints and thread fragments confer no authority. Unexpected fragments
+are refused both at discovery and during history navigation, without changing the mount pin.
+Reader capabilities retain their fragment and are never interpreted as owner aliases.
+New Ask Link values use short owner URLs; already captured Ask bytes are not rewritten.
 
 `serve` (once the door is ready, attached or started) opens the page when the space
 has exactly one, else the space home. `page create` opens its committed page using

@@ -1,4 +1,4 @@
-import { publicEntry } from './entry.js';
+import { entryThread, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -1511,13 +1511,16 @@ export function createAppRouter(
             matches.length === 1 && !matches[0].deleted
               ? `/pages/${matches[0].pageId}`
               : `/short/${prefix}`;
-          let path = publicEntry()
-            ? prefix
-              ? target
-              : '/'
-            : fragment.get('space') === space
-              ? (fragment.get('path') ?? '/')
-              : '/blocked';
+          let path: string;
+          if (publicEntry()) {
+            try {
+              entryThread();
+              path = prefix ? target : '/';
+            } catch {
+              path = '/blocked';
+            }
+          } else
+            path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
           if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
           return {
             href: path,

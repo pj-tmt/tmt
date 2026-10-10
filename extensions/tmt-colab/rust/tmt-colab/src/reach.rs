@@ -98,7 +98,7 @@ impl Reach {
     pub fn step(&self) -> Option<&'static str> {
         self.pairing.as_ref().and_then(Pairing::step)
     }
-    /// Adds `path` (relative) and `link` (full, `null` without a door) to a JSON object.
+    /// Adds `path` (root-relative) and `link` (full, `null` without a door) to a JSON object.
     pub fn annotate_link(&self, value: &mut Value, path: &str) {
         value["path"] = json!(
             self.short_id(path)

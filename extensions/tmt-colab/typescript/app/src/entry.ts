@@ -1,3 +1,5 @@
+import { generatedId, requireValue } from '@tmt/colab-client';
+
 /** Remote supplies the internal mount; public location carries only a display target. */
 export function publicEntry(path = location.pathname): boolean {
   return (
@@ -15,4 +17,15 @@ export function entryMount(): URL {
   )
     throw new Error('Invalid Colab mount');
   return url;
+}
+
+/** Public owner fragments are display-only thread targets, never space or reader authority. */
+export function entryThread(hash = location.hash): string | null {
+  requireValue(hash === '' || hash.startsWith('#'));
+  const target = new URLSearchParams(hash.slice(1));
+  requireValue([...target.keys()].every((key) => key === 't') && target.getAll('t').length <= 1);
+  if (!target.has('t')) return null;
+  const thread = target.get('t')!;
+  generatedId(thread);
+  return thread;
 }
