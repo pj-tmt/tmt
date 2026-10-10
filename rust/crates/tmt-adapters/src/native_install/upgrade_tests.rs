@@ -549,38 +549,127 @@ fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
 }
 
 #[test]
-fn stale_index_pointer_refuses_a_downgrade_without_changing_active_files() {
-    let (_directory, layout, _) = published_layout();
-    let original = fs::read_link(layout.root.join("current")).unwrap();
-    let executable = layout.root.join(&original).join("tmt");
-    let receipt = layout.root.join(&original).join("receipt.json");
-    let before = (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap());
-    let (release, manifest, archive, _) =
-        release::valid_fixture("1.2.2", "aarch64-apple-darwin", 40);
-    let error = upgrade_with(
-        UpgradeRequest {
-            executable: &executable,
-            channel: None,
-            exact: None,
-            unpin: false,
-        },
-        || Ok(()),
-        release::indexed_download(release, manifest, archive),
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("does not permit a version downgrade")
-    );
-    assert!(error.activated.is_none());
-    assert_eq!(
-        fs::read_link(layout.root.join("current")).unwrap(),
-        original
-    );
-    assert_eq!(
-        (fs::read(&executable).unwrap(), fs::read(&receipt).unwrap()),
-        before
-    );
-    assert_no_downloads(&layout.root);
+fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
+    use crate::native_install::{Product, publication::Layout};
+    for product in [Product::Cli, Product::Ops] {
+        for (current, lower, higher, channel) in [
+            ("1.2.3", "1.2.2", "1.2.4", Channel::Stable),
+            (
+                "1.2.3-alpha.2",
+                "1.2.3-alpha.1",
+                "1.2.3-alpha.3",
+                Channel::Alpha,
+            ),
+        ] {
+            for candidate in [lower, current, higher] {
+                let directory = crate::test_support::TestDirectory::new();
+                let prefix = directory.path.join("prefix");
+                let target = "aarch64-apple-darwin";
+                let (_, manifest, archive, name) =
+                    release::product_fixture(product, current, target, 41);
+                let old =
+                    super::artifact::acquire_bytes(product, &manifest, &name, &archive, target)
+                        .unwrap();
+                let layout = Layout::open_product(&prefix, product).unwrap();
+                let mut installed = state(current, None);
+                installed.channel = channel;
+                let receipt = Receipt::new(&old, installed);
+                publish(&layout, &old, &receipt);
+                let executable = prefix.join("bin").join(product.executable());
+                let sentinel = prefix.join("application-state");
+                fs::write(&sentinel, b"untouched").unwrap();
+                let active = layout.root.join("releases").join(receipt.id.to_string());
+                let before = (
+                    fs::read(active.join(product.executable())).unwrap(),
+                    fs::read(active.join("receipt.json")).unwrap(),
+                );
+                let (release, manifest, archive, _) =
+                    release::product_fixture(product, candidate, target, 42);
+                let mut installed_cli = false;
+                let report = super::upgrade_product_with(
+                    product,
+                    UpgradeRequest {
+                        executable: &executable,
+                        channel: Some(channel),
+                        exact: None,
+                        unpin: false,
+                    },
+                    None,
+                    None,
+                    || Ok(()),
+                    release::indexed_download(release, manifest, archive),
+                    |current, downloaded, channel, pin, checkpoint| {
+                        installed_cli = true;
+                        assert_eq!(
+                            candidate, higher,
+                            "stale/equal pointer must not invoke installer"
+                        );
+                        crate::native_install::test_support::install_downloaded(
+                            current, downloaded, channel, pin, checkpoint,
+                        )
+                    },
+                )
+                .unwrap();
+                if candidate == higher {
+                    assert!(report.installation.changed);
+                    assert_eq!(report.state.version.to_string(), higher);
+                } else {
+                    assert!(!report.installation.changed);
+                    assert!(!report.skipped_pinned);
+                    assert!(!installed_cli);
+                    assert_eq!(report.state.version.to_string(), current);
+                    assert_eq!(layout.current().unwrap().unwrap().id, receipt.id);
+                    assert_eq!(
+                        (
+                            fs::read(active.join(product.executable())).unwrap(),
+                            fs::read(active.join("receipt.json")).unwrap()
+                        ),
+                        before
+                    );
+                    assert_eq!(
+                        fs::read_dir(layout.root.join("releases")).unwrap().count(),
+                        1
+                    );
+                }
+                assert_eq!(fs::read(sentinel).unwrap(), b"untouched");
+                assert_no_downloads(&layout.root);
+            }
+        }
+    }
+}
+
+#[test]
+fn explicit_lower_version_still_refuses_before_acquisition() {
+    use crate::native_install::{Product, publication::Layout};
+    for product in [Product::Cli, Product::Ops] {
+        let directory = crate::test_support::TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let target = "aarch64-apple-darwin";
+        let (_, manifest, archive, name) = release::product_fixture(product, "1.2.3", target, 41);
+        let old =
+            super::artifact::acquire_bytes(product, &manifest, &name, &archive, target).unwrap();
+        let layout = Layout::open_product(&prefix, product).unwrap();
+        let receipt = Receipt::new(&old, state("1.2.3", None));
+        publish(&layout, &old, &receipt);
+        let error = super::upgrade_product_with(
+            product,
+            UpgradeRequest {
+                executable: &prefix.join("bin").join(product.executable()),
+                channel: Some(Channel::Stable),
+                exact: Some("1.2.2"),
+                unpin: false,
+            },
+            None,
+            None,
+            || Ok(()),
+            |_, _, _, _| panic!("explicit downgrade must refuse before network"),
+            |_, _, _, _, _| panic!("explicit downgrade must not install"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Native installation does not permit a version downgrade."
+        );
+        assert_eq!(layout.current().unwrap().unwrap().id, receipt.id);
+    }
 }
