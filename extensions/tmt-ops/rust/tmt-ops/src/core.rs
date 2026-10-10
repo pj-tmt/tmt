@@ -161,7 +161,9 @@ impl Core {
     /// caller owns what `argv` may contain; nothing is added, joined or parsed.
     pub fn succeeds(&self, argv: &[String]) -> Result<bool, SquadError> {
         let argv: Vec<OsString> = argv.iter().map(OsString::from).collect();
-        Ok(self.finish(&argv, b"", TIMEOUT)?.success)
+        Ok(self
+            .finish(&argv, b"", TIMEOUT, tmt_invoke::EnvironmentPolicy::Inherit)?
+            .success)
     }
 
     /// Runs `tmt <args> --json` and returns its document, or core's own error.
