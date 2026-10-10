@@ -914,6 +914,78 @@ fn bounded_attribution_round_trips_compactly_without_evicting_legacy_counter() {
 }
 
 #[test]
+fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_to_go() {
+    use crate::runtime::driver_state;
+    use tmt_core::binding::session::DriverState;
+    let root = TestDirectory::new();
+    let path = root.path.join("round-trip.jsonl");
+    fs::write(&path, CODEX).unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    append(
+        &path,
+        &codex_limited(6_910_969, "2026-10-10T03:48:29.763Z", weekly_used(78.0)),
+    );
+    let limited = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let encoded = driver_state::after_observation(None, Some(limited.clone()), None).unwrap();
+    assert!(encoded.document().len() <= DriverState::MAXIMUM_BYTES);
+    assert_eq!(
+        driver_state::state_consumption(&encoded),
+        Some(limited.clone()),
+        "a typical Codex state keeps its limits in the opaque bound"
+    );
+
+    // Sweep the attribution size across the bound. Whatever the size, the
+    // counters survive, limits go no later than attribution, and some size
+    // loses only the limits.
+    let mut full = limited;
+    full.value.cache_write_tokens = Some(0);
+    full.value
+        .rate_limits
+        .as_mut()
+        .unwrap()
+        .windows
+        .push(RateWindow {
+            window_minutes: 20_000,
+            used_percent: 1.0,
+            resets_at_ms: 1_791_948_558_000,
+        });
+    let mut only_limits_lost = false;
+    for length in 1..=118 {
+        let mut state = full.clone();
+        state.value.input_tokens = 4;
+        state.value.output_tokens = 0;
+        state.value.cached_input_tokens = 0;
+        state.value.cache_write_tokens = Some(0);
+        state.value.delta_by_model = Some(
+            (0..4)
+                .map(|i| ModelUsage {
+                    model_id: format!("model-{i}-{}", "x".repeat(length)),
+                    input_tokens: 1,
+                    output_tokens: 0,
+                    cached_input_tokens: 0,
+                    cache_write_tokens: Some(0),
+                })
+                .collect(),
+        );
+        let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+        let bounded =
+            driver_state::after_observation(None, Some(state.clone()), Some(&launch)).unwrap();
+        assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
+        let restored = driver_state::state_consumption(&bounded).unwrap();
+        assert_eq!(restored.value.counts(), state.value.counts(), "{length}");
+        if restored.value.delta_by_model.is_none() {
+            assert_eq!(restored.value.rate_limits, None, "{length}");
+        }
+        only_limits_lost |=
+            restored.value.rate_limits.is_none() && restored.value.delta_by_model.is_some();
+    }
+    assert!(
+        only_limits_lost,
+        "limits must be dropped before attribution"
+    );
+}
+
+#[test]
 fn codex_completed_partial_counter_keeps_its_turn_attribution() {
     let root = TestDirectory::new();
     let path = root.path.join("partial.jsonl");
@@ -1031,4 +1103,109 @@ fn model_attribution_limit_never_discards_the_measured_legacy_or_write_totals() 
     assert_eq!(next.value.model_id.as_deref(), Some("model-4"));
     assert_eq!(next.value.delta_by_model, None);
     assert!(next.value.complete && !next.value.gap);
+}
+
+fn codex_limited(output: u64, timestamp: &str, limits: Value) -> String {
+    let mut entry: Value = serde_json::from_str(CODEX).unwrap();
+    entry["timestamp"] = timestamp.into();
+    entry["payload"]["info"]["total_token_usage"]["output_tokens"] = output.into();
+    entry["payload"]["info"]["total_token_usage"]["total_tokens"] = (2_674_657_871 + output).into();
+    if !limits.is_null() {
+        entry["payload"]["rate_limits"] = limits;
+    }
+    format!("{entry}\n")
+}
+
+fn weekly_used(percent: f64) -> Value {
+    json!({"primary": {"used_percent": percent, "window_minutes": 10080, "resets_at": 1_791_948_558u64}, "secondary": null, "plan_type": "prolite"})
+}
+
+#[test]
+fn codex_rate_limits_follow_the_newest_line_and_never_disturb_the_counters() {
+    let root = TestDirectory::new();
+    let path = root.path.join("limits.jsonl");
+    // A recorded line from before the provider reported limits has none.
+    fs::write(&path, CODEX).unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(first.value.rate_limits, None);
+
+    append(
+        &path,
+        &codex_limited(6_910_969, "2026-10-10T03:48:29.763Z", weekly_used(78.0)),
+    );
+    let limited = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let observed = limited.value.rate_limits.clone().unwrap();
+    assert_eq!(observed.observed_at_ms, 1_791_604_109_763);
+    assert_eq!(observed.windows.len(), 1);
+    assert_eq!(observed.windows[0].window_minutes, 10_080);
+    assert_eq!(observed.windows[0].used_percent, 78.0);
+    assert_eq!(observed.windows[0].resets_at_ms, 1_791_948_558_000);
+    assert_eq!(limited.value.output_tokens, 6_910_969);
+    assert!(limited.value.valid());
+
+    // The same file read again is the same observation, limits included.
+    assert_eq!(
+        codex(&root.path, &path, Some(&limited), NOW + 2),
+        Some(limited.clone())
+    );
+
+    append(
+        &path,
+        &codex_limited(6_910_970, "2026-10-10T04:10:00.000Z", weekly_used(79.5)),
+    );
+    let moved = codex(&root.path, &path, Some(&limited), NOW + 3).unwrap();
+    assert_eq!(
+        moved.value.rate_limits.as_ref().unwrap().windows[0].used_percent,
+        79.5
+    );
+    assert_eq!(
+        moved.value.rate_limits.as_ref().unwrap().observed_at_ms,
+        1_791_605_400_000
+    );
+    assert_eq!(moved.value.sequence, limited.value.sequence + 1);
+
+    // Limits that stop appearing are absent, not carried over from an older line.
+    append(
+        &path,
+        &codex_limited(6_910_971, "2026-10-10T04:20:00.000Z", Value::Null),
+    );
+    let dropped = codex(&root.path, &path, Some(&moved), NOW + 4).unwrap();
+    assert_eq!(dropped.value.rate_limits, None);
+    assert_eq!(dropped.value.output_tokens, 6_910_971);
+
+    // An invalid object costs only itself: the counters of that line still count.
+    let kept = fs::metadata(&path).unwrap().len();
+    for invalid in [
+        weekly_used(100.5),
+        json!({"primary": {"used_percent": 5.0, "window_minutes": 0, "resets_at": 1}}),
+    ] {
+        append(
+            &path,
+            &codex_limited(6_910_972, "2026-10-10T04:30:00.000Z", invalid),
+        );
+        let rejected = codex(&root.path, &path, Some(&dropped), NOW + 5).unwrap();
+        assert_eq!(rejected.value.rate_limits, None);
+        assert_eq!(rejected.value.output_tokens, 6_910_972);
+        assert!(rejected.value.valid() && !rejected.value.gap);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(kept)
+            .unwrap();
+    }
+}
+
+#[test]
+fn claude_never_reports_rate_limits() {
+    let (_root, _path, state) = claude_file();
+    assert_eq!(state.value.rate_limits, None);
+    assert!(
+        !state
+            .value
+            .document()
+            .as_object()
+            .unwrap()
+            .contains_key("rateLimits")
+    );
 }

@@ -128,7 +128,9 @@ mod tests {
         let public = serde_json::json!({
             "inputTokens":10,"outputTokens":2,"cachedInputTokens":5,
             "epoch":"00000000-0000-4000-8000-000000000001","sequence":1,
-            "observedAtMs":100,"complete":false,"gap":true
+            "observedAtMs":100,"complete":false,"gap":true,
+            // Optional Codex limits ride the same public document, unchanged.
+            "rateLimits":{"observedAtMs":90,"windows":[{"windowMinutes":10080,"usedPercent":78.5,"resetsAtMs":1_791_948_558_000u64}]}
         });
         let counters = State::read(&serde_json::json!({"value":public})).unwrap();
         preferences.remembered.as_mut().unwrap().state =

@@ -3,7 +3,9 @@
 //! formats are unofficial, and evidence loss establishes a new baseline.
 use super::transcript;
 mod attribution;
+mod rate_limits;
 pub use attribution::ModelUsage;
+pub use rate_limits::{RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -59,6 +61,10 @@ pub struct Consumption {
     /// model actually recorded for each accepted request/turn, not launch model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delta_by_model: Option<Vec<ModelUsage>>,
+    /// The account's rate-limit windows on the newest accepted source line.
+    /// Absent when the driver has no source or the line carries none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limits: Option<RateLimits>,
     pub epoch: String,
     pub sequence: u64,
     pub observed_at_ms: u64,
@@ -75,6 +81,7 @@ impl Consumption {
             cache_write_tokens: None,
             model_id: None,
             delta_by_model: None,
+            rate_limits: None,
             epoch: uuid::Uuid::new_v4().to_string(),
             sequence: 1,
             observed_at_ms: now,
@@ -122,6 +129,7 @@ impl Consumption {
                 .delta_by_model
                 .as_ref()
                 .is_none_or(|rows| attribution::valid(rows, self.counts()))
+            && self.rate_limits.as_ref().is_none_or(RateLimits::valid)
             && uuid::Uuid::parse_str(&self.epoch).is_ok()
             && self.sequence > 0
             && is_valid_js_safe_integer(self.sequence)
@@ -502,15 +510,17 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     let metadata = file.metadata().ok()?;
     // A recognized but invalid newest event stops the search. Older valid
     // counters must not masquerade as a fresh accepted observation.
-    let (counts, complete) = transcript::latest_complete_at(&mut file, metadata.len(), |line| {
+    let (latest, complete) = transcript::latest_complete_at(&mut file, metadata.len(), |line| {
         let entry: Value = match serde_json::from_str(line) {
             Ok(entry) => entry,
             Err(_) => return Some(None),
         };
-        (entry["type"] == "event_msg" && entry["payload"]["type"] == "token_count")
-            .then(|| codex_counts(&entry))
+        (entry["type"] == "event_msg" && entry["payload"]["type"] == "token_count").then(|| {
+            // Invalid limits only omit themselves; they never invalidate counters.
+            codex_counts(&entry).map(|counts| (counts, rate_limits::codex(&entry)))
+        })
     })?;
-    let counts = counts?;
+    let (counts, rate_limits) = latest?;
     let cursor = SourceCursor {
         dev: metadata.dev(),
         ino: metadata.ino(),
@@ -523,6 +533,7 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     let Some(previous) = previous else {
         let mut value = Consumption::baseline(now, false);
         value.set_counts(counts);
+        value.rate_limits = rate_limits;
         value.complete = complete;
         if let Some(details) = attribution::codex(&mut file, metadata.len(), None) {
             value.cache_write_tokens = details.0;
@@ -555,6 +566,7 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         previous.value.clone()
     };
     value.set_counts(counts);
+    value.rate_limits = rate_limits;
     value.cache_write_tokens = details.as_ref().and_then(|details| details.0);
     value.model_id = details.as_ref().and_then(|details| details.1.clone());
     value.delta_by_model = if decreased {

@@ -173,7 +173,11 @@ in `contracts/`.
   evidence (Claude `message.model`, Codex `turn_context.model`), separately from the
   starting-hook resume model. Deltas group at most four models per sequence, compacted
   only inside the existing opaque cursor; size/evidence loss omits attribution before
-  evicting legacy counters. History stores additive cache-write and `byModel` evidence
+  evicting legacy counters. A Codex `token_count` line also supplies optional `rateLimits`
+  ([contract](../../../../contracts/extension-api.md#consumption-history)) from that same
+  line, with its own timestamp; an invalid object is dropped whole without affecting
+  the counters, and it is omitted before attribution when the opaque bound is exceeded.
+  History stores additive cache-write and `byModel` evidence
   in the existing buckets, coalesces every model change, and omits unknown mixed portions.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts
   with `complete=false` on expiry; the hook supervisor stays the hard time authority.
