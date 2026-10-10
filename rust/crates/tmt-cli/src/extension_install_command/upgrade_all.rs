@@ -12,6 +12,15 @@ pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
 
 fn plan(prefix: &Path) -> Plan {
+    plan_with(prefix, |product, channel| {
+        native_install::latest_release_version(product, channel).map(|version| version.to_string())
+    })
+}
+
+fn plan_with(
+    prefix: &Path,
+    mut discover: impl FnMut(Product, tmt_core::native_install::Channel) -> io::Result<String>,
+) -> Plan {
     let mut outcomes = Vec::new();
     let mut pending = Vec::new();
     for &product in INSTALLABLE_EXTENSIONS {
@@ -25,9 +34,12 @@ fn plan(prefix: &Path) -> Plan {
             if current.state.pinned_version.is_some() {
                 return Ok(Some(pinned(product, &version)));
             }
-            let latest = native_install::latest_release_version(product, current.state.channel)
+            let discovered = discover(product, current.state.channel)
                 .map_err(|error| failure("EXTENSION_UPGRADE_FAILED", error))?;
-            if latest <= current.state.version {
+            let latest = discovered
+                .parse()
+                .map_err(|error| failure("EXTENSION_UPGRADE_FAILED", io::Error::other(error)))?;
+            if current.state.version.cmp_precedence(&latest) != std::cmp::Ordering::Less {
                 return Ok(Some(unchanged(product, &version)));
             }
             pending.push((product, version, latest.to_string()));

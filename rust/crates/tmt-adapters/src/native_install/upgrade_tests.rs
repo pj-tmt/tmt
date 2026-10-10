@@ -66,7 +66,7 @@ fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
         UpgradeRequest {
             executable: &executable,
             channel: None,
-            exact: None,
+            exact: Some("1.2.4"),
             unpin: false,
         },
         || {
@@ -97,7 +97,7 @@ fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
         UpgradeRequest {
             executable: &activated.installation.active_executable,
             channel: None,
-            exact: None,
+            exact: Some("1.2.4"),
             unpin: false,
         },
         || Ok(()),
