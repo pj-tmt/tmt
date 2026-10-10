@@ -101,7 +101,7 @@
           "id:index-app",
           "name:Advance the verified release index"
         ],
-        "sha256": "876f304de7ca5cf64981e076df781882c596cac321bdea9498fdde3e093c6960",
+        "sha256": "b079bc3af4fc65b8731ffea159929e88d2e4656aa07e774b1580c86b0bb9895c",
         "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication. The protected App pointer writer rechecks that same verified directory after all checks succeed; inert tooling controls cover pointer identity, idempotence, non-force races and refusals before merge."
       },
       "smoke": {

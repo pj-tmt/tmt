@@ -313,6 +313,10 @@ jobs:
         env:
           HAS_APP_CREDENTIALS: ${{ secrets.RELEASE_APP_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '' }}
         run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Release index writer requires refs/heads/main.' >&2
+            exit 1
+          fi
           if [ "$HAS_APP_CREDENTIALS" != true ]; then
             echo 'Release index App credentials are missing.' >&2
             exit 1

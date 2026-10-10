@@ -1439,9 +1439,19 @@ describe('publication (native-release-bundle.yml)', () => {
       'actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1'
     );
     const writer = published.indexOf('release-publish.mjs index');
-    expect(published.indexOf('name: Require release index App credentials')).toBeGreaterThan(
-      verify
+    const admission = published.indexOf('name: Require release index App credentials');
+    expect(admission).toBeGreaterThan(verify);
+    expect(admission).toBeLessThan(token);
+    const credentials = published.slice(
+      admission,
+      published.indexOf('name: Create the release index App token')
     );
+    expect(credentials).toContain(`if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo 'Release index writer requires refs/heads/main.' >&2
+            exit 1
+          fi`);
+    expect(credentials).not.toMatch(/^\s+if:/m);
+    expect(published).not.toMatch(/if:.*github\.ref/);
     expect(published).toContain('environment: release');
     expect(published).not.toMatch(/^ {10}ref:/m);
     expect(verify).toBeGreaterThan(0);
