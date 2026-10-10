@@ -108,7 +108,9 @@ only, no squad data.
   `natural` of unsized grid columns and the row-end label reserve from it;
   `member_list` takes the model cell (grow-only, at most 8) and the age cell (8 cells
   right-aligned; HOME lead headings 4) from it, and below 40 cells shows neither. The
-  name takes at most half of the row, so a focus always has room beside it. Layout
+  squad name column follows the widest filtered display name, with a 12-cell minimum
+  and a 26-cell / half-row maximum; whole state text precedes optional chips. HOME
+  keeps its existing name sizing. Layout
   reads no value as loaded now: placeholder, carried and fresh values share their cells
   (`view/tests/layout_shift.rs`). The stored display is a separate inert preview.
 - Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
