@@ -119,7 +119,7 @@ fn migrate_with_now<R: CommandRunner>(
                 ));
             }
         }
-        if converted + unchanged > 0 {
+        if converted > 0 {
             hints.push(format!(
                 "Pane option cutover: {converted} converted, {unchanged} left unchanged"
             ));
@@ -518,7 +518,7 @@ mod tests {
         storage.close().unwrap();
     }
     #[test]
-    fn panes_without_retired_markers_are_counted_without_a_rebind_hint_or_native_write() {
+    fn unchanged_panes_without_retired_markers_produce_no_hint_or_native_write() {
         let directory = Directory::new();
         let database = directory.0.join("state.db");
         let entries = forty_bindings(&database);
@@ -528,10 +528,7 @@ mod tests {
         assert_eq!(runner.seen.borrow().len(), 40);
         assert!(runner.deadlines.borrow().is_empty());
         assert!(runner.converted.borrow().is_empty());
-        assert_eq!(
-            hints,
-            ["Pane option cutover: 0 converted, 40 left unchanged"]
-        );
+        assert!(hints.is_empty());
     }
 
     #[test]
@@ -677,12 +674,8 @@ mod tests {
             driver_env: Default::default(),
         };
         let hints = migrate(&database, &caller, &runner);
-        assert_eq!(hints.len(), 2);
+        assert_eq!(hints.len(), 1);
         assert!(hints[0].contains("tmt this Alice"));
-        assert_eq!(
-            hints[1],
-            "Pane option cutover: 0 converted, 1 left unchanged"
-        );
         let mut storage = Storage::open(&database).unwrap();
         assert!(
             storage
