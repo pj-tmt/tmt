@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "cli",
   "channel": "alpha",
-  "version": "5.0.0-alpha.173",
-  "tag": "v5.0.0-alpha.173",
+  "version": "5.0.0-alpha.174",
+  "tag": "v5.0.0-alpha.174",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.173/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.174/tmt-release-record.json",
     "size": 1512,
-    "sha256": "78d6eb4be40eecbd072ebf65f8dd296d3fabc7387f7838e41caf1fe9def756e6"
+    "sha256": "5f1a3988949219741a43a0019efb9703aad221b57207b62ae19bf8b469365ac3"
   }
 }
