@@ -140,7 +140,7 @@ const RENAME: CommandSpec = CommandSpec {
         note: "The client ID is shown by tmt remote devices",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nRenaming preserves the authority revision, door sessions and held work.\nRepeating the same name is a no-op. Revoked devices cannot be renamed.",
+    details: "Names are 1–64 nonblank UTF-8 bytes without controls. Authority stays the same.\nRenaming keeps this device's access, its open sessions and any held work.\nRenaming to the current name changes nothing. Revoked devices cannot be renamed.",
 };
 const DESIGNATE: CommandSpec = CommandSpec {
     name: "designate",
