@@ -234,6 +234,10 @@ in `contracts/`.
 
 ## Provider launch Digest hooks
 
+Launch-baked hook names remain callable while their sessions can still run after
+an upgrade. Hidden `__focus-hook` aliases `__digest-hook` with identical arguments
+and exit behavior for pre-rename Claude and Codex launches.
+
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh
 and resumed launches. Explicit inline or regular-file settings retain unrelated

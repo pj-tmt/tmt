@@ -69,6 +69,14 @@ describe('native Digest held delivery and checklist seam', () => {
           stdin: JSON.stringify(input),
         });
         expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+        const legacy = await runCli(sandbox, ['__focus-hook', 'claude', '--launch', scope], {
+          stdin: JSON.stringify(input),
+        });
+        expect(legacy).toMatchObject({
+          status: result.status,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
       }
       expect(existsSync(sandbox.database)).toBe(false);
       expect(existsSync(path.join(sandbox.home, '.claude'))).toBe(false);
@@ -92,6 +100,14 @@ describe('native Digest held delivery and checklist seam', () => {
           stdin: JSON.stringify(input),
         });
         expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
+        const legacy = await runCli(sandbox, ['__focus-hook', 'codex', '--discover-launch'], {
+          stdin: JSON.stringify(input),
+        });
+        expect(legacy).toMatchObject({
+          status: result.status,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        });
       }
       expect(existsSync(sandbox.database)).toBe(false);
       expect(existsSync(path.join(sandbox.home, '.codex'))).toBe(false);
