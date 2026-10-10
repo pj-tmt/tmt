@@ -146,7 +146,7 @@ pub fn execute_with_hosting(
         .expect("String write");
         writeln!(
             human,
-            "Associate Hosting site with selected web app: {}",
+            "Link Hosting site to the selected web app: {}",
             if hosting.configure_site { "yes" } else { "no" }
         )
         .expect("String write");
@@ -265,7 +265,13 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
             deploy_run::StepState::OwnerAction(action) => action.code(),
         };
         if step.id.starts_with("hosting:stage:upload:") {
-            *uploads.entry(state).or_insert(0usize) += 1;
+            *uploads
+                .entry(if state == "unknown" {
+                    "unconfirmed"
+                } else {
+                    state
+                })
+                .or_insert(0usize) += 1;
             continue;
         }
         writeln!(text, "{}: {}", step.id, state).expect("String write");
@@ -277,7 +283,7 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
         if matches!(step.id.as_str(), "web-app:create" | "hosting:stage:create")
             && step.state == deploy_run::StepState::Unknown
         {
-            writeln!(text, "The original creation could not be confirmed; it will not be repeated. Rerun the same command to check its original result. If it remains unconfirmed, inspect the Firebase project, remove '{}' and run without --authorize to read a fresh plan. Existing Firebase resources stay; a newly authorized plan may create another resource.", record_path.display()).expect("String write");
+            writeln!(text, "Firebase did not confirm the original creation; tmt will not repeat it. Rerun the same command to check its result. If it is still unconfirmed, check the Firebase project, delete {}, then run without --authorize to read a fresh plan. Existing Firebase resources stay; authorizing a new plan may create a second one.", record_path.display()).expect("String write");
         }
         if let deploy_run::StepState::OwnerAction(action) = step.state {
             writeln!(text, "{}: {}", action.code(), action.instruction()).expect("String write");
@@ -332,14 +338,14 @@ mod tests {
             &record,
             std::path::Path::new("/fixture/remote/deploy.json"),
         );
-        assert!(text.contains("Hosting file uploads: 1 done, 1 unknown."));
+        assert!(text.contains("Hosting file uploads: 1 done, 1 unconfirmed."));
         assert!(!text.contains("hosting:stage:upload:"));
         assert_eq!(
-            text.matches("The original creation could not be confirmed; it will not be repeated.")
+            text.matches("Firebase did not confirm the original creation; tmt will not repeat it.")
                 .count(),
             2
         );
-        assert!(text.contains("remove '/fixture/remote/deploy.json' and run without --authorize"));
+        assert!(text.contains("delete /fixture/remote/deploy.json, then run without --authorize"));
         record.run.as_mut().unwrap().steps[0].state = StepState::Building;
         let mut pending = String::new();
         describe_record(

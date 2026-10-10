@@ -1761,9 +1761,10 @@ checkpoint; v1/v2 readers remain and reads never convert them. Recovery observes
 before any further effect; uncertain absence cannot justify a duplicate web-app or Version create.
 Other Hosting steps reapply only after observation proves their idempotent work absent. App
 creation observes its Operation within the apply budget; if still pending, the owner reruns the same
-command. If a create remains unconfirmed, the owner inspects the project, removes this home's
-`deploy.json` and reads a fresh plan without authorization. Existing Firebase resources stay; a
-newly authorized plan may create another resource. An unfinalized Version retained for at least
+command. An unconfirmed create reports: 'Firebase did not confirm the original creation; tmt will
+not repeat it. Rerun the same command to check its result. If it is still unconfirmed, check the
+Firebase project, delete <deploy.json path>, then run without --authorize to read a fresh plan.
+Existing Firebase resources stay; authorizing a new plan may create a second one.' An unfinalized Version retained for at least
 12 hours requires a newly displayed and explicitly authorized plan.
 
 Only final joint read-back produces a typed verified publication, saved atomically with Complete:
