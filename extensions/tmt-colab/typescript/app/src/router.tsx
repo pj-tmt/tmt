@@ -50,6 +50,7 @@ import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
+import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
 import { FilesPanel } from './files-panel.js';
 import { DraftSession } from './draft-store.js';
@@ -647,6 +648,14 @@ function Page() {
   const [liveError, setLiveError] = useState<Error | null>(null),
     [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<SaveProblem | null>(null);
+  const agents = useAgentPresentation(
+    snapshot.binding?.ask,
+    snapshot.id,
+    !!snapshot.binding && !liveError,
+    JSON.stringify(
+      (view.asks ?? []).map(({ writer, operationId }) => [writer, operationId]).sort(),
+    ),
+  );
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
   const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
     null,
@@ -1041,7 +1050,7 @@ function Page() {
       annotation?.selector ?? undefined,
     );
   }, [state, view.threads, annotation]);
-  return (
+  const content = (
     <section
       className="page"
       onPointerDownCapture={keepRecoverySelection}
@@ -1468,6 +1477,7 @@ function Page() {
       </PageDrawer>
     </section>
   );
+  return <AgentPresentation value={agents}>{content}</AgentPresentation>;
 }
 export function createAppRouter(transport: PageTransport, space?: string) {
   const history = space

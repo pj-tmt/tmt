@@ -24,7 +24,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   the session (that would end Live's tunnels); the SDK owns sequence resync and same-ID
   reads. `context()` combines `api/session` (device, name, grant revision) with
   `/sdk/mount` (machine). A failed `send` or `operation` becomes `uncertain`, never a
-  retry. `listAgents` keeps id, name and presence only; the port has no delivery field and
+  retry. `listAgents` keeps id, name, presence and whitelisted `runningDriver` (`claude`/`codex`) only; the port has no delivery field and
   no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
   `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
@@ -162,3 +162,15 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   [acceptance.md](acceptance.md); doubles do not replace them. Check the vectors with
   `contracts/vectors/send-preview-reference.py` in a throwaway virtualenv with
   `cryptography`; `--write` only for a reviewed regeneration.
+
+## Verified reply treatment
+
+`ask-remote` retains `runningDriver` only from the verified SDK row, never from
+remembered `driver`. `LiveAsk.observeDestinations` carries it through admitted
+machine/agent identity. One page-scoped read-only `useAgentPresentation` observes
+page/binding, admission and new-operation changes, ignores obsolete settlements,
+and supplies the shared Chat/thread `AskPanel` through `AgentPresentation`.
+Loading, failures and missing fields are neutral; the current observation updates
+existing turns without remounting them. No polling, Ask admission, persistence or
+recovery is added. The optional local SDK seam stays neutral until Remote's decoder
+exposes the field; fixture observations do not prove that served boundary.

@@ -46,7 +46,7 @@ export class RemoteDouble implements RemoteClient {
       mode: null,
     };
   }
-  async listAgents() {
+  async listAgents(): ReturnType<RemoteClient['listAgents']> {
     return [{ id: id(6), name: 'Deterministic agent', presence: 'active' as const }];
   }
   async send(input: SendInput): Promise<SendState> {

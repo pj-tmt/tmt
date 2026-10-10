@@ -1,7 +1,7 @@
 import type { CommentContext } from './thread-store.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
 import {
@@ -17,6 +17,7 @@ import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
 import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
+import { AgentPresentation, runningDriverFor } from './agent-directory.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -87,6 +88,7 @@ export function AskPanel({
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskAgainInput;
 }) {
+  const agents = useContext(AgentPresentation);
   const [now, setNow] = useState(0);
   useEffect(() => {
     const deadlines = records
@@ -308,6 +310,7 @@ export function AskPanel({
     const reply = record.reply !== undefined && (
       <ConversationTurn
         role="agent"
+        runningDriver={runningDriverFor(agents, record.machine, record.agent)}
         author={record.agentName || text.askAgentLabel}
         at={record.issuedAt}
         authorTitle={record.agent}

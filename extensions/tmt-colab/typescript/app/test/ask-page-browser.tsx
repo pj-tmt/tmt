@@ -57,6 +57,13 @@ let readRefusal: ConstructorParameters<typeof ReadRefusedError>[0] | undefined;
 let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
+let presentationAgents: AgentDestination[] = [];
+let presentationGate: Promise<void> | undefined;
+let releasePresentation: (() => void) | undefined;
+let rejectPresentation = false;
+let presentationClient: AskBinding | undefined;
+let presentationAsk: AskBinding | undefined;
+
 export function finishMentionDirectory() {
   finishDirectory?.();
 }
@@ -138,7 +145,18 @@ export async function mount(
       : {}),
   };
   let preparationFailures = options.prepareFailures ?? 0;
+  presentationAgents = [];
+  presentationGate = undefined;
+  releasePresentation = undefined;
+  rejectPresentation = false;
   const ask: AskBinding = {
+    async observeDestinations() {
+      const agents = structuredClone(presentationAgents);
+      const failed = rejectPresentation;
+      if (presentationGate) await presentationGate;
+      if (failed) throw new Error('Fixture directory unavailable');
+      return { kind: 'ready', checkedAt: Date.now(), destinations: agents };
+    },
     async destinations() {
       if (options.checking)
         await new Promise<void>((resolve) => {
@@ -499,8 +517,12 @@ export async function mount(
       );
     },
   };
+  presentationAsk = ask;
+  presentationClient = ask;
   const binding: PageBinding = {
-    ask,
+    get ask() {
+      return presentationClient;
+    },
     discussion,
     files,
     status: new ThreadStatusCoordinator({
@@ -725,6 +747,7 @@ export function conversation(options: {
   state: PageAsk['state'] | 'waiting' | 'replied' | 'empty' | 'unavailable' | 'timeout';
   message?: string;
   agentName?: string;
+  reply?: string;
 }) {
   const at = String(
     Date.now() - (options.state === 'timeout' ? 2 * 60 * 60 * 1000 + 1 : 5 * 60 * 1000),
@@ -788,7 +811,8 @@ export function conversation(options: {
             reply:
               options.state === 'empty'
                 ? ''
-                : 'Keep <script>reply</script> as text.\nThis is Atlas’s answer.',
+                : (options.reply ??
+                  'Keep <script>reply</script> as text.\nThis is Atlas’s answer.'),
           }
         : {}),
     },
@@ -1073,5 +1097,66 @@ export function mixedProposals() {
       '<p id="after-proposal">The page continues here.</p>',
     threads: [base, annotation, approved, resolved, chat],
   };
+  emit();
+}
+
+/** Trusted admitted-observation seam. Publishing a new operation uses the production trigger;
+ * no fixture control reaches the authored page frame or changes a retained turn key. */
+export function driverObservation(options: {
+  driver?: 'claude' | 'codex';
+  mismatch?: 'machine' | 'agent';
+  held?: boolean;
+  failed?: boolean;
+}) {
+  presentationAgents = [
+    {
+      ...destination(),
+      presence: 'active',
+      ...(options.driver ? { runningDriver: options.driver } : {}),
+      ...(options.mismatch === 'machine' ? { machine: id(99) } : {}),
+      ...(options.mismatch === 'agent' ? { agent: id(99) } : {}),
+    },
+  ];
+  rejectPresentation = !!options.failed;
+  presentationGate = options.held
+    ? new Promise<void>((resolve) => {
+        releasePresentation = resolve;
+      })
+    : undefined;
+  // Separate operation with no reply triggers observation without replacing the first exchange.
+  const seed = records[0]!;
+  const trigger = {
+    ...seed,
+    operationId: crypto.randomUUID(),
+    reply: undefined,
+    messageIds: undefined,
+    thread: undefined,
+  };
+  current = { ...current, asks: [...records, trigger] };
+  emit();
+}
+export function settleDriverObservation() {
+  releasePresentation?.();
+  presentationGate = undefined;
+  releasePresentation = undefined;
+}
+
+/** Same-client restoration is a scope change, not a new operation or a new turn. */
+export function driverClient(options: {
+  enabled: boolean;
+  held?: boolean;
+  driver?: 'claude' | 'codex';
+}) {
+  if (!presentationAsk) throw new Error('Fixture page not mounted');
+  presentationAgents = [
+    { ...destination(), ...(options.driver ? { runningDriver: options.driver } : {}) },
+  ];
+  rejectPresentation = false;
+  presentationGate = options.held
+    ? new Promise<void>((resolve) => {
+        releasePresentation = resolve;
+      })
+    : undefined;
+  presentationClient = options.enabled ? presentationAsk : undefined;
   emit();
 }

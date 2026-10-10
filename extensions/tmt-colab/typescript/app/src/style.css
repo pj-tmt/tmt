@@ -1292,3 +1292,31 @@ body:has(.page-header-actions) {
   white-space: nowrap;
   border: 0;
 }
+
+.conversation-turn[data-running-driver='claude'] {
+  --conversation-driver-color: var(--tmt-ui-color-review);
+}
+.conversation-turn[data-running-driver='codex'] {
+  --conversation-driver-color: var(--tmt-ui-color-link);
+}
+.conversation-turn[data-running-driver] {
+  border-left-color: var(--conversation-driver-color);
+}
+.conversation-turn[data-running-driver] .conversation-author {
+  font-weight: 700;
+}
+.conversation-avatar {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-right: 6px;
+  background: var(--conversation-driver-color);
+  color: var(--c-paper);
+}
+.conversation-driver {
+  margin-left: 6px;
+  color: var(--conversation-driver-color);
+}

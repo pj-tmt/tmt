@@ -200,3 +200,9 @@ Its node moves into the active native modal after clearing old text, so mobile
 inertness cannot hide it. Reload/page changes reset the baseline. Proposal cards
 return Cancel and completed decision actions to Follow up; while busy they keep
 focus on the card and never reclaim it after the reader moves elsewhere.
+
+Agent replies in Chat, threads and proposal Follow up share `ConversationTurn`.
+Its driver avatar, tag and rail follow the current verified page observation;
+missing metadata stays neutral and stable turn keys preserve focus. The data flow
+is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual rule is
+in [GUI style](../../../../design/gui-style.md#conversation-turn).

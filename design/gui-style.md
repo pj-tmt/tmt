@@ -287,17 +287,17 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
 One message in Chat or a thread: author line (`name · agent · time`), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
-- Chat: user turns on the right, tinted with `accent-soft`. Agent turns on the
-  left with a Bot mark. The approved target adds a square Bot avatar filled in
-  the agent's driver color, a bold name, a driver tag (`claude`, `codex`) and a
-  hard shadow in the driver color (the `review` role for Claude, `link` for
-  Codex, as on the board).
-- Threads: square User or Bot avatar and an agent-body rail. The approved target
-  colors the Bot avatar and rail for the agent's driver.
-- Literal markup in a body always renders as text.
-- The shared `components/conversation-turn.tsx` ships for Chat and threads through
-  `ask-panel.tsx` and `thread-panel.tsx` (#1772); the driver-colored treatment is
-  not shipped. Basis: own.
+- Chat and threads share the flat `ConversationTurn`: user and agent rows span
+  the history, separated by a 1 px rule; agent replies have a 3 px rail.
+- Only the current verified `runningDriver`, matched by machine and agent,
+  selects driver treatment: `claude` uses `review`, `codex` uses `link`. Present
+  metadata adds a square filled Bot avatar, bold name and lowercase driver tag;
+  the rail uses the same role. No shadow.
+- Loading, failed, absent or other values use neutral agent treatment, without a
+  driver tag or explanation. Names, body content and remembered `driver` cannot
+  select a treatment. Observation refreshes update treatment with stable turn
+  keys, preserving the mounted turn and focus; no driver history is persisted.
+- Literal markup in a body always renders as text. Basis: own.
 
 ### Status mark
 

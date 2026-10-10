@@ -22,7 +22,10 @@ import type {
 } from './thread-status-notification.js';
 import type { NotificationAdoption } from './thread-status-coordinator.js';
 
-export type AgentDestination = AskDestination & { presence?: RemoteAgent['presence'] };
+export type AgentDestination = AskDestination & {
+  presence?: RemoteAgent['presence'];
+  runningDriver?: RemoteAgent['runningDriver'];
+};
 export type AgentDirectoryObservation =
   | { kind: 'ready'; checkedAt: number; destinations: AgentDestination[] }
   | DirectoryReadFailure;
@@ -35,6 +38,7 @@ function agentDestinations(snapshot: AskDestinations): AgentDestination[] {
       agent: agent.id,
       agentName: agent.name,
       presence: agent.presence,
+      ...(agent.runningDriver ? { runningDriver: agent.runningDriver } : {}),
       grantExpiresAt: snapshot.context.expiresAtMs,
       deviceName: snapshot.context.deviceName,
       grantRevision: snapshot.context.grantRevision,
