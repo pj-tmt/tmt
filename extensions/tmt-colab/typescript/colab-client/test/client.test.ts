@@ -72,6 +72,56 @@ describe('colab browser values and immutable crypto', () => {
       ),
     ).toThrow();
   });
+  it('scans large JSON strings and preserves escape, Unicode and depth admission', () => {
+    const max = 16 * 1024 * 1024;
+    const samples = [
+      'a'.repeat(max - 2),
+      'data:image/png;base64,' + 'A'.repeat(1024 * 1024) + '\\"\n🌍',
+      '<main><img src="data:image/png;base64,' + 'A'.repeat(1024 * 1024) + '"></main>',
+    ];
+    for (const sample of samples) {
+      const raw = c.text(JSON.stringify(sample));
+      expect(c.strictJson(raw, max)).toBe(sample);
+      expect(() => c.strictJson(raw, raw.length - 1)).toThrow();
+    }
+    for (const raw of [
+      '"unterminated',
+      '"trailing\\',
+      '"\\x00"',
+      '"\\u00zz"',
+      '"control\n"',
+      '"\\ud800"',
+      '{"a":1,"\\u0061":2}',
+      '1e' + '9'.repeat(1024 * 1024),
+    ])
+      expect(() => c.strictJson(c.text(raw), max)).toThrow('Invalid colab-v1 value or proof');
+    expect(c.strictJson(c.text('"\\uD83C\\uDF0D"'), max)).toBe('🌍');
+    expect(c.strictJson(c.text('['.repeat(128) + '0' + ']'.repeat(128)), max)).toBeDefined();
+    expect(() => c.strictJson(c.text('['.repeat(129) + '0' + ']'.repeat(129)), max)).toThrow(
+      'Invalid colab-v1 value or proof',
+    );
+    for (const raw of ['-1', '-0', '1.0', '1e0', '9007199254740992'])
+      expect(() => c.strictJson(c.text(raw), max, true)).toThrow();
+    expect(c.strictJson(c.text('9007199254740991'), max, true)).toBe(9007199254740991);
+  });
+  it('admits a maximum-size checkpoint envelope without authenticating fixture bytes', () => {
+    const { context, objectId } = c.decodeHeader(hex(fixture.header));
+    const ciphertext = new Uint8Array(c.MAX_PLAINTEXT + 16);
+    const raw = c.text(
+      JSON.stringify({
+        header: c.encodeBinary(
+          c.header({ ...context, kind: 'checkpoint', streamSeq: '1' }, objectId),
+        ),
+        nonce: c.encodeBinary(new Uint8Array(12)),
+        ciphertext: c.encodeBinary(ciphertext),
+        signature: c.encodeBinary(new Uint8Array(64)),
+      }),
+    );
+    const envelope = c.Envelope.fromJson(raw);
+    expect(c.equal(envelope.ciphertext(), ciphertext)).toBe(true);
+    expect(c.equal(envelope.toJson(), raw)).toBe(true);
+    expect(() => c.binary('A'.repeat(c.MAX_PLAINTEXT) + '!', c.MAX_PLAINTEXT)).toThrow();
+  }, 30_000);
   it('matches independent ciphertext/hash and snapshots strict verify inputs', async () => {
     expect(await c.deriveSpaceId(hex(authority.public))).toBe(authority.space);
     const e = frozen(),

@@ -30,6 +30,13 @@ owner/issuer signature. Syntax grants nothing: every authority use still require
 a successful strict native signature. No custom curve or extra possession step
 is introduced.
 
+Strict JSON scans string and primitive tokens with a cursor before JSON.parse
+validates their grammar; malformed tokens retain the Colab admission error. It admits large flat strings within the caller's byte
+ceiling without browser regex recursion, rejects duplicate decoded keys and
+invalid Unicode, and refuses values nested beyond depth 128 (the root is depth 0).
+The three-engine harness covers near-cap strings, escaped data URIs, page-like
+source and the depth boundary with synthetic inputs.
+
 Object seal generates its ID internally. WebKit's native Ed25519 signer produces
 valid randomized signatures. No Colab code may rely on re-signing to reproduce
 envelope bytes or hashes: every retry must resend the stored frozen bytes. The
