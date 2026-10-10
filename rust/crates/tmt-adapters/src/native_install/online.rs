@@ -128,6 +128,7 @@ mod tests {
         let directory = TestDirectory::new();
         let prefix = directory.path.join("prefix");
         let channel = Channel::parse("pr234").unwrap();
+        let mut calls = Vec::new();
         let error = install_release_with(
             Product::Cli,
             &prefix,
@@ -135,15 +136,14 @@ mod tests {
             channel,
             None,
             || Ok(()),
-            |_, _, _, _| panic!("Unknown compiled producer must refuse before network"),
+            |url, _, _, _| {
+                calls.push(url.to_owned());
+                Err(io::Error::other("PR metadata unavailable"))
+            },
         )
         .unwrap_err();
-        assert!(
-            error
-                .get_ref()
-                .unwrap()
-                .is::<super::super::pr_resolver::Unavailable>()
-        );
+        assert_eq!(error.to_string(), "PR metadata unavailable");
+        assert_eq!(calls, ["https://api.github.com/repos/pj-tmt/tmt/pulls/234"]);
         assert!(!prefix.exists());
         assert!(
             latest_release_version(Product::Cli, channel)
