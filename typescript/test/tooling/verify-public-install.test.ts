@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 import { spawnSync } from 'node:child_process';
@@ -17,14 +25,6 @@ import {
   smokeRelease,
   type SmokeResult,
 } from '../../scripts/verify-public-install.mjs';
-
-const INSTALL_TO_USAGE = {
-  error: {
-    code: 'USAGE_ERROR',
-    message:
-      "error: unexpected argument '--to' found\n\n  tip: to pass '--to' as a value, use '-- --to'\n\nUsage: tmt extension install --yes --json --channel <channel> <name>\n",
-  },
-};
 
 let base: string;
 beforeAll(() => {
@@ -77,7 +77,7 @@ interface Fake {
   extension?: {
     command?: boolean;
     installs?: string;
-    upgrades?: string;
+    pointer?: 'missing' | 'stale' | 'current';
     reports?: string;
     link?: boolean;
     product?: string;
@@ -142,7 +142,13 @@ case "$*" in
     ${!fake.upgradeCause && fake.upgradeStderr ? `printf '%s' '${fake.upgradeStdout ?? ''}'; echo '${fake.upgradeStderr}' >&2; exit 1` : `printf '%s' '${JSON.stringify(upgrade)}' | sed "s#@EXE@#$exe#"`} ;;
   api) printf '{"dataRoot":"%s"}' "$TMT_HOME" ;;
   "extension install ${extension.product ?? 'ops'} "*)
-    case "$*" in *" --to "*) printf '%s\n' ${shellQuote(JSON.stringify(INSTALL_TO_USAGE))}; exit 1 ;; esac
+    case "$*" in
+      *" --to "*) selected_version='${extension.installs ?? '0.1.0-alpha.4'}' ;;
+      *)
+        echo '${extension.pointer ?? 'missing'}' >> "$HOME/pointer-reads"
+        ${extension.pointer === 'stale' ? "selected_version='0.1.0-alpha.3'" : extension.pointer === 'current' ? "selected_version='0.1.0-alpha.4'" : "echo 'fixture channel pointer missing' >&2; exit 1"}
+        ;;
+    esac
     ${requireToken}
     count=$(cat "$HOME/extension-count" 2>/dev/null || echo 0); echo $((count + 1)) > "$HOME/extension-count"
     ${fake.extensionCause ? `if [ "$count" -lt ${fake.extensionFailures ?? 10} ]; then printf '%s' '${JSON.stringify({ error: { code: 'EXTENSION_INSTALL_FAILED', message: fake.extensionCause + ' Inspect with: tmt extension ls', cause: fake.extensionCause } })}'; exit 1; fi` : ''}
@@ -157,13 +163,9 @@ case "$*" in
     ln -s ../lib/tmt-colab/releases/fixture/tmt-colab "$prefix/bin/tmt-colab"`
         : ''
     }
-    printf '{"extension":"${extension.installedProduct ?? extension.product ?? 'ops'}","installed":true,"changed":true,"version":"%s"}' '${extension.installs ?? '0.1.0-alpha.4'}' ;;
-  "extension upgrade ${extension.product ?? 'ops'} "*)
-    case "$*" in *" --to "*) true ;; *) echo 'missing exact --to selection' >&2; exit 1 ;; esac
-    ${requireToken}
-    printf '{"extension":"${extension.product ?? 'ops'}","changed":true,"version":"%s"}' '${extension.upgrades ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extension":"${extension.installedProduct ?? extension.product ?? 'ops'}","installed":true,"changed":true,"version":"%s"}' "$selected_version" ;;
   "extension list --json --prefix "*)
-    printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'ops'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.upgrades ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
+    printf '{"extensions":[{"name":"office","installed":false},{"name":"${extension.product ?? 'ops'}","installed":true,"version":"%s"}]}' '${extension.reports ?? extension.installs ?? '0.1.0-alpha.4'}' ;;
   "driver "*) ${fake.driverExecutable ? `exec ${shellQuote(fake.driverExecutable)} "$@"` : 'exit 9'} ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
@@ -661,7 +663,6 @@ describe('the public installer smoke of an extension release', () => {
       ['PATH selects the installed tmt', true],
       ['installed version', true],
       ['ops install', true],
-      ['ops upgrade', true],
       ['ops list', true],
     ]);
     // The installer's version is the CLI's, not the extension tag's, and nothing checks the skills.
@@ -679,8 +680,8 @@ describe('the public installer smoke of an extension release', () => {
   });
 
   it('fails an install of another version, a list that disagrees and a CLI link', async () => {
-    expect((await smoke({ upgrades: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
-      'it upgraded 0.1.0-alpha.3, not 0.1.0-alpha.4'
+    expect((await smoke({ installs: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
+      'it installed 0.1.0-alpha.3, not 0.1.0-alpha.4'
     );
     expect((await smoke({ reports: '0.1.0-alpha.3' })).at(-1)?.reason).toBe(
       'the list reports 0.1.0-alpha.3, not 0.1.0-alpha.4'
@@ -690,59 +691,75 @@ describe('the public installer smoke of an extension release', () => {
     expect(linked.at(-1)?.reason).toContain('must not create the CLI link');
   });
 
-  it('installs the exact extension while its pointer is behind and refuses a newer alpha', async () => {
+  it.each(['missing', 'stale', 'current'] as const)(
+    'installs the exact extension independently of a %s pointer',
+    async (pointer) => {
+      const attempt = run({ extension: { pointer } }, { product: 'ops', tag });
+      expect(failed(await attempt.results)).toEqual([]);
+      const home = path.join(attempt.root, 'work/home');
+      const commands = readFileSync(path.join(home, 'commands.txt'), 'utf8');
+      expect(commands).toContain(
+        'extension install ops --yes --json --channel alpha --to 0.1.0-alpha.4 --prefix '
+      );
+      expect(commands).not.toContain('extension upgrade ');
+      expect(existsSync(path.join(home, 'pointer-reads'))).toBe(false);
+      // Sensitivity: the fake's channel-only path really fails or selects its pointer version.
+      const channelOnly = spawnSync(
+        path.join(attempt.root, 'work/prefix/bin/tmt'),
+        [
+          'extension',
+          'install',
+          'ops',
+          '--yes',
+          '--json',
+          '--channel',
+          'alpha',
+          '--prefix',
+          path.join(attempt.root, 'channel-only'),
+        ],
+        { env: { ...process.env, HOME: home }, encoding: 'utf8' }
+      );
+      expect(readFileSync(path.join(home, 'pointer-reads'), 'utf8')).toBe(`${pointer}\n`);
+      if (pointer === 'missing') {
+        expect(channelOnly.status).toBe(1);
+        expect(channelOnly.stderr).toBe('fixture channel pointer missing\n');
+      } else {
+        expect(channelOnly.status).toBe(0);
+        expect(JSON.parse(channelOnly.stdout).version).toBe(
+          pointer === 'stale' ? '0.1.0-alpha.3' : '0.1.0-alpha.4'
+        );
+      }
+    }
+  );
+
+  it('bootstraps a first extension release with no product pointer', async () => {
     const attempt = run(
-      { extension: { installs: '0.1.0-alpha.3', upgrades: '0.1.0-alpha.4' } },
-      { product: 'ops', tag }
+      { extension: { product: 'ops', installs: '0.1.0-alpha.1', pointer: 'missing' } },
+      { product: 'ops', tag: 'tmt-ops-v0.1.0-alpha.1' }
     );
     expect(failed(await attempt.results)).toEqual([]);
+    expect(existsSync(path.join(attempt.root, 'work/home/pointer-reads'))).toBe(false);
     expect(readFileSync(path.join(attempt.root, 'work/home/commands.txt'), 'utf8')).toContain(
-      'extension upgrade ops --yes --json --channel alpha --to 0.1.0-alpha.4 --prefix '
+      'extension install ops --yes --json --channel alpha --to 0.1.0-alpha.1 --prefix '
     );
-    const commands = readFileSync(path.join(attempt.root, 'work/home/commands.txt'), 'utf8');
-    expect(commands).toContain('extension install ops --yes --json --channel alpha --prefix ');
-    expect(commands).not.toContain('extension install ops --yes --json --channel alpha --to ');
-    const executable = path.join(attempt.root, 'work/prefix/bin/tmt');
-    const env = { ...process.env, HOME: path.join(attempt.root, 'work/home') };
-    const rejected = spawnSync(
-      executable,
-      [
-        'extension',
-        'install',
-        'ops',
-        '--yes',
-        '--json',
-        '--channel',
-        'alpha',
-        '--to',
-        '0.1.0-alpha.4',
-      ],
-      { env, encoding: 'utf8' }
-    );
-    expect(rejected.status).toBe(1);
-    expect(JSON.parse(rejected.stdout)).toEqual(INSTALL_TO_USAGE);
-    const missing = spawnSync(
-      executable,
-      ['extension', 'upgrade', 'ops', '--yes', '--json', '--channel', 'alpha'],
-      { env, encoding: 'utf8' }
-    );
-    expect(missing.status).toBe(1);
-    expect(missing.stderr).toBe('missing exact --to selection\n');
-    expect((await smoke({ upgrades: '0.1.0-alpha.5' })).at(-1)).toEqual({
-      check: 'ops upgrade',
+  });
+
+  it('refuses a newer alpha from the exact install', async () => {
+    expect((await smoke({ installs: '0.1.0-alpha.5' })).at(-1)).toEqual({
+      check: 'ops install',
       ok: false,
-      reason: 'it upgraded 0.1.0-alpha.5, not 0.1.0-alpha.4',
+      reason: 'it installed 0.1.0-alpha.5, not 0.1.0-alpha.4',
     });
   });
 
   it.each(['0.1.0-alpha.3', '0.1.0', '0.2.0-beta.1', 'not-a-version', ''])(
     'refuses an older, non-alpha or malformed installed extension version %s',
     async (installs) => {
-      const results = await smoke({ upgrades: installs });
+      const results = await smoke({ installs });
       expect(results.at(-1)).toEqual({
-        check: 'ops upgrade',
+        check: 'ops install',
         ok: false,
-        reason: `it upgraded ${installs}, not 0.1.0-alpha.4`,
+        reason: `it installed ${installs}, not 0.1.0-alpha.4`,
       });
       expect(results.some(({ check }) => check === 'ops list')).toBe(false);
     }
@@ -769,7 +786,7 @@ describe('the public installer smoke of an extension release', () => {
       { extension: { installs: '0.1.0-alpha.4' } },
       { product: 'ops', tag, target: 'x86_64-apple-darwin', architectures: ['x86_64', 'arm64'] }
     );
-    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops upgrade', ok: false });
+    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops install', ok: false });
     expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
   });
 
@@ -803,7 +820,7 @@ describe('the public installer smoke of an extension release', () => {
     expect(failed(await control.results)).toEqual([]);
     expect(control.inspected.map((file) => path.basename(file))).toEqual(['tmt', 'tmt-ops']);
     const wrong = run({}, { ...options, architectures: ['x86_64', 'arm64'] });
-    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops upgrade', ok: false });
+    expect((await wrong.results).at(-1)).toMatchObject({ check: 'ops install', ok: false });
     expect((await wrong.results).at(-1)?.reason).toContain('exactly x86_64');
   });
 });

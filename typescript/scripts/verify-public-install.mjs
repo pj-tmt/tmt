@@ -7,8 +7,8 @@
 //              tag's, and `tmt upgrade --channel alpha --to <version> --json` verifies exact
 //              selection without depending on the verified-only channel pointer.
 //   extension  the newest published CLI, installed the same way, runs `tmt extension install
-//              <extension> --channel alpha`, then `tmt extension upgrade --to <version>`;
-//              the upgrade and list report that exact version and no CLI link appears.
+//              <extension> --channel alpha --to <version>` without a channel pointer;
+//              the install and list report that exact version and no CLI link appears.
 // A failure is a result, never a rollback. Only data of the release is read from `--source`, a
 // checkout of the tag; none of its code runs here.
 //   node verify-public-install.mjs --product P --tag TAG --source DIR [--target T] [--result-file F]
@@ -399,28 +399,6 @@ export async function smokeRelease({
           '--json',
           '--channel',
           'alpha',
-          '--prefix',
-          extensionPrefix,
-        ],
-        { timeoutMs: 300_000, acquire: true }
-      )
-    );
-    if (report.extension !== product)
-      throw new Error(`it installed ${report.extension}, not ${product}`);
-    return report.version;
-  });
-  if (!extensionInstalled) return finish();
-  const extensionUpgraded = await check(`${product} upgrade`, async () => {
-    const report = JSON.parse(
-      tmt(
-        [
-          'extension',
-          'upgrade',
-          product,
-          '--yes',
-          '--json',
-          '--channel',
-          'alpha',
           '--to',
           version,
           '--prefix',
@@ -430,13 +408,13 @@ export async function smokeRelease({
       )
     );
     if (report.extension !== product)
-      throw new Error(`it upgraded ${report.extension}, not ${product}`);
+      throw new Error(`it installed ${report.extension}, not ${product}`);
     if (report.version !== version)
-      throw new Error(`it upgraded ${report.version}, not ${version}`);
+      throw new Error(`it installed ${report.version}, not ${version}`);
     inspect(path.join(extensionPrefix, 'bin', `tmt-${product}`));
     return version;
   });
-  if (!extensionUpgraded) return finish();
+  if (!extensionInstalled) return finish();
   const listed = await check(`${product} list`, async () => {
     const { extensions } = JSON.parse(
       tmt(['extension', 'list', '--json', '--prefix', extensionPrefix])
