@@ -63,7 +63,7 @@ export interface Pending {
   readonly operation: Selection['operation'];
   readonly expiresAt: number;
   readonly expectedRevision: string;
-  readonly artifact?: { readonly linkId: string; readonly seed: string };
+  readonly artifact?: { readonly linkId: string; readonly seed: string; readonly space: string };
 }
 export interface Acknowledgment {
   operationId: string;
@@ -434,7 +434,9 @@ export class ManagementClient implements ManagementPort {
         payload: encodeBinary(bytes),
         signature: encodeBinary(signature),
       }),
-      ...(link ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed }) } : {}),
+      ...(link
+        ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed, space: cert.space }) }
+        : {}),
     });
   }
   async send(pending: Pending): Promise<Acknowledgment> {

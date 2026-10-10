@@ -1,3 +1,4 @@
+import { publicEntry, entryMount } from './entry.js';
 import { useSyncExternalStore } from 'react';
 
 const ENTRY_SCRIPTS = /<script\b[^>]*\btype="module"[^>]*\bsrc="([^"]+)"/gi;
@@ -48,7 +49,7 @@ export function loadedEntry(root: Document = document): string | null {
 
 /** The build the server serves now: one uncached read of this app's root page. */
 async function servedEntry(): Promise<string | null> {
-  const root = new URL(location.href);
+  const root = publicEntry() ? entryMount() : new URL(location.href);
   root.hash = '';
   root.search = '';
   const response = await fetch(root, {
@@ -79,7 +80,7 @@ export function parseServeRelease(value: unknown): ServeRelease | null {
 
 /** The serve's release, or null when the route is absent (an older serve) or unreadable. */
 async function serveRelease(): Promise<ServeRelease | null> {
-  const root = new URL(location.href);
+  const root = publicEntry() ? entryMount() : new URL(location.href);
   root.hash = '';
   root.search = '';
   const response = await fetch(new URL('api/serve-release', root), {

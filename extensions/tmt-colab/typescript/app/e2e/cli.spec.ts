@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { expect, test, type BrowserContext } from '@playwright/test';
 
 const execute = promisify(execFile);
-const mount = '/r/abcd/x/colab/';
+const mount = '/r/abcdefghijklmnop/x/colab/';
 const app = fileURLToPath(new URL('../dist/', import.meta.url));
 const binary = process.env.COLAB_SERVE_EXECUTABLE;
 const producer = process.env.COLAB_PAGE_FIXTURE_EXECUTABLE;
@@ -204,7 +204,11 @@ async function native() {
           socketPath,
           path: below,
           method: incoming.method,
-          headers: { ...incoming.headers, 'tmt-device-context': fixture.context },
+          headers: {
+            ...incoming.headers,
+            'tmt-device-context': fixture.context,
+            'tmt-mount': mount,
+          },
         },
         (reply) => {
           outgoing.writeHead(reply.statusCode!, reply.headers);
@@ -266,21 +270,19 @@ async function native() {
     throw error;
   }
 }
-test('a direct mounted short URL redirects into the native owner page with working relative assets', async ({
+test('a public short URL opens the native owner page with mounted assets', async ({
   page,
   context,
 }) => {
   const server = await native();
   try {
     await keys(context, server.fixture);
-    await page.goto(`${server.origin}${mount}p/${server.fixture.pageId.slice(0, 8)}`);
+    await page.goto(`${server.origin}/p/${server.fixture.pageId.slice(0, 8)}`);
     await expect(page.getByRole('heading', { name: 'CLI page', exact: true })).toBeVisible();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
     ).toBeVisible();
-    await expect(page).toHaveURL(
-      new RegExp(`/${mount.slice(1)}#space=.*&path=%2Fpages%2F${server.fixture.pageId}$`),
-    );
+    await expect(page).toHaveURL(new RegExp(`/p/${server.fixture.pageId.slice(0, 8)}$`));
     await page.reload();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
@@ -306,7 +308,7 @@ test('a direct mounted short URL redirects into the native owner page with worki
         }
       }
     }
-    await page.goto(`${server.origin}${mount}p/99999999`);
+    await page.goto(`${server.origin}/p/99999999`);
     await expect(page.getByRole('alert')).toContainText('Page unavailable');
   } finally {
     await page.goto('about:blank');

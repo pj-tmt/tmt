@@ -765,8 +765,15 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
-    if let Some(prefix) = request.path.strip_prefix("/p/") {
-        if request.method != "GET" || !crate::short_links::valid_prefix(prefix) {
+    if request.path.starts_with("/p/") || request.path.starts_with("/read/") {
+        let id = request.path.split('/').nth(2).unwrap_or_default();
+        if request.method != "GET"
+            || request.path.matches('/').count() != 2
+            || !(4..=64).contains(&id.len())
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        {
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
             return;
         }
@@ -774,34 +781,50 @@ fn serve(
             let _ = response(&mut socket, 400, b"INVALID", false);
             return;
         };
-        // Recovery must keep the requested alias without revealing private inventory.
-        let result = if request.owner.is_none() {
-            Ok(format!("{mount}#path=%2Fshort%2F{prefix}"))
-        } else {
-            registration
-                .ok_or(registration::Code::Unavailable)
-                .and_then(|service| {
-                    service
-                        .lock()
-                        .map_err(|_| registration::Code::Unavailable)?
-                        .page_alias(request.context.as_deref(), prefix, mount)
+        // Public bootstrap never consults the page or link catalog, even for a known device.
+        let reader = request.path.starts_with("/read/");
+        let html = if reader {
+            browser
+                .app
+                .as_ref()
+                .and_then(|app| app.find("/reader.html"))
+                .and_then(|(_, bytes)| std::str::from_utf8(bytes).ok())
+                .map(|html| {
+                    html.replace("./assets/", &format!("{mount}assets/"))
+                        .replace(
+                            "</head>",
+                            &format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\"></head>"),
+                        )
                 })
+        } else {
+            Some(public_entry(browser, mount))
         };
-        match result {
-            Ok(location) => {
-                let _ = response_with_headers(
-                    &mut socket,
-                    302,
-                    b"",
-                    "text/plain",
-                    POLICY,
-                    &format!("Location: {location}\r\n"),
-                );
-            }
-            Err(code) => {
-                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
-            }
+        if let Some(html) = html {
+            let _ = response_with_policy(
+                &mut socket,
+                200,
+                html.as_bytes(),
+                "text/html; charset=utf-8",
+                assets::POLICY,
+            );
+        } else {
+            let _ = response(&mut socket, 503, b"UNAVAILABLE", false);
         }
+        return;
+    }
+    if request.method == "GET"
+        && request.path == "/"
+        && request.owner.is_none()
+        && let Some(mount) = crate::short_links::mounted_root(request.mount.as_deref())
+    {
+        let html = public_entry(browser, mount);
+        let _ = response_with_policy(
+            &mut socket,
+            200,
+            html.as_bytes(),
+            "text/html; charset=utf-8",
+            assets::POLICY,
+        );
         return;
     }
     if request.method == "GET"
@@ -836,7 +859,20 @@ fn serve(
         } else {
             assets::POLICY
         };
-        let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+        // Preserve the verified internal mount when legacy entry discovery canonicalizes
+        // the visible location. Assets and API never resolve relative to the short URL.
+        if matches!(request.path.as_str(), "/" | "/index.html")
+            && let Some(mount) = crate::short_links::mounted_root(request.mount.as_deref())
+            && let Ok(html) = std::str::from_utf8(bytes)
+        {
+            let html = html.replace(
+                "</head>",
+                &format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\"></head>"),
+            );
+            let _ = response_with_policy(&mut socket, 200, html.as_bytes(), kind, policy);
+        } else {
+            let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+        }
         return;
     }
     if request.path.starts_with("/assets/")
@@ -857,13 +893,49 @@ fn serve(
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
-    let (eyebrow, heading, detail) = match &request.owner {
+    let recovery = request.owner.is_none()
+        && browser
+            .app
+            .as_ref()
+            .is_some_and(|app| app.find("/assets/recovery.js").is_some());
+    let page = guidance_page(
+        request.owner.as_deref(),
+        &browser.space_id,
+        "./",
+        "",
+        recovery,
+    );
+    let _ = response_with_policy(
+        &mut socket,
+        200,
+        page.as_bytes(),
+        "text/html; charset=utf-8",
+        assets::POLICY,
+    );
+}
+/// This entry contains no inventory or authority; all owner assets remain admitted.
+fn public_entry(browser: &Browser, mount: &str) -> String {
+    let meta = format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\">");
+    let recovery = browser
+        .app
+        .as_ref()
+        .is_some_and(|app| app.find("/assets/recovery.js").is_some());
+    guidance_page(None, "", mount, &meta, recovery)
+}
+fn guidance_page(
+    owner: Option<&str>,
+    space: &str,
+    assets: &str,
+    meta: &str,
+    recovery: bool,
+) -> String {
+    let (eyebrow, heading, detail) = match owner {
         Some(name) => (
             "Signed-in space",
             "Update Colab to open this page",
             format!(
                 "<p>Colab space {} is running. You are signed in as {}.</p><p>Update Colab on this machine, then restart the serving process.</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt extension upgrade colab</code></div>",
-                escape(&browser.space_id),
+                escape(space),
                 escape(name),
             ),
         ),
@@ -873,13 +945,8 @@ fn serve(
             "<p>This Colab space is private. For page access, pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link. To send to agents, pair with tmt remote pair --talk or ask the owner to enable sending for this device in Remote settings.</p>".into(),
         ),
     };
-    let recovery = request.owner.is_none()
-        && browser
-            .app
-            .as_ref()
-            .is_some_and(|app| app.find("/assets/recovery.js").is_some());
-    let stylesheet = "<link rel=\"stylesheet\" href=\"./assets/chrome.css\">";
-    let screen_title = if request.owner.is_some() {
+    let stylesheet = format!("<link rel=\"stylesheet\" href=\"{assets}assets/chrome.css\">");
+    let screen_title = if owner.is_some() {
         "App unavailable"
     } else {
         "Pair browser"
@@ -891,13 +958,13 @@ fn serve(
     };
     let hidden = if recovery { " hidden" } else { "" };
     let script = if recovery {
-        "<script type=\"module\" src=\"./assets/recovery.js\"></script>"
+        format!("<script type=\"module\" src=\"{assets}assets/recovery.js\"></script>")
     } else {
-        ""
+        String::new()
     };
     // Lucide Diamond geometry (lucide-react 1.52.0, ISC); text carries the state.
     let mark = "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>";
-    let (state, state_label) = if request.owner.is_some() {
+    let (state, state_label) = if owner.is_some() {
         ("waiting", "Update needed")
     } else {
         ("waiting", "waiting")
@@ -913,16 +980,9 @@ fn serve(
         r#"<g transform="rotate(300 100 100)"><path d="M100 18A82 82 0 0 1 164 49C143 45 117 55 110 77L92 75C85 50 87 31 100 18Z"/></g>"#,
         "</svg>",
     );
-    let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\">{brand_mark}<span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main>{script}</body></html>"
-    );
-    let _ = response_with_policy(
-        &mut socket,
-        200,
-        page.as_bytes(),
-        "text/html; charset=utf-8",
-        assets::POLICY,
-    );
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{meta}{stylesheet}</head><body class=\"guidance\"><div id=\"root\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\">{brand_mark}<span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main></div>{script}</body></html>"
+    )
 }
 type ActiveTunnels = Arc<Mutex<Vec<(String, Arc<UnixStream>)>>>;
 struct TunnelGuard<'a> {

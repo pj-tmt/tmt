@@ -775,18 +775,35 @@ Previously written bytes, keys and plaintext cannot be recalled. Mounted native
 lifecycle tests and deterministic duplex blocked-transfer tests exercise these
 fences.
 
+### Short public entry and internal mount (#2385)
+
+Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
+Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
+bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
+Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
+happens only after SDK admission and verified catalog discovery. Mounted owner assets,
+API and sync keep their existing admission and cookie scope; there are no root aliases
+for them. Public recovery admits through the SDK before loading protected app assets
+in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
+after verified discovery. Internal mount and space pins remain separate from visible
+location; reload and history use short paths, with `#t=<threadId>` a display-only target.
+Reader entry uses only existing public reader assets and never obtains owner authority.
+Public responses for active, absent, revoked and archived/deleted-associated IDs are
+identical apart from any echoed display ID; they disclose no title, page, space or author.
+
 ### Read-only reader link (#1545)
 
 `share link add` and `share link reset` print one openable link for the link they create:
 
 ```text
-<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>
+<door origin>/read/<linkId>#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>
 ```
 
-The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
-`path`; while a door runs it also prints the complete link as `readerUrl` (door discovery below),
-otherwise the owner prepends the Remote door address `tmt remote pair` printed. Everything is in
-the fragment, which a browser never sends to a server. Path and query carry nothing, and the
+The CLI prints root-relative `/read/<linkId>#...` as `readerPath`; while a door runs it
+also prints the complete short link as `readerUrl`. The share dialog copies the same single
+openable capability after signed-log verification. Without a door, prepend its origin.
+The path names the link ID and must match the fragment; all authority stays in
+the fragment, which a browser never sends to a server. No query is accepted, and the
 seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
 base64url hash of the `link.add` statement that introduced the link: the link-device chain
 must name that statement, and a wrong value only fails the server's chain check. The grammar is
@@ -795,7 +812,7 @@ once in any order; values are canonical (`space` and IDs as everywhere, `rev` a 
 decimal, `st` and `seed` unpadded base64url of 32 bytes); anything else, including percent
 escapes, an unknown key or more than 512 bytes, is not a reader link.
 
-The public `/read` entry removes the fragment from the address bar before any other work
+The public `/read/<linkId>` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
 the seed with the model's `link::Keys` derivation and wipes the seed. Its reader device is
 also derived from the seed: Ed25519 signing seed `HKDF(seed, LP("tmt-colab-link-device-seed-v1",
@@ -2509,7 +2526,7 @@ attach path.
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
 facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
-`<origin>/r/<prefix>/x/colab/`), `paired` (`true|false|null` when unreadable or no door),
+`<origin>/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
 first page's full link, or its relative path without a door), `shortLink` (its short owner link,
 `null` without a page or door), `next` (commands still
@@ -2545,8 +2562,8 @@ this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...`).
 
-`--json` results that name a page carry `path` (relative), `link` (full, `null` without a
-door), `shortLink` (short owner link, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
+`--json` results that name a page carry `path` (root-relative `/p/<prefix>`), `link`
+and `shortLink` (the same short owner URL, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
 `path`, `link` and `shortLink` on each page and `paired`/`next` once; its human rows lead with
 the title (`Untitled page` when empty), then its shortest unique catalog prefix (at least eight characters) and the
 audience/history. Each link is on its own indented line under the row. `show` retains the full

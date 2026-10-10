@@ -658,7 +658,10 @@ fn link_add_without_a_seed_file_generates_a_fresh_seed_and_prints_the_reader_lin
         let outcome = pilot.call(&["share", "link", "add", PAGE, "--yes", "--json"]);
         let path = outcome["readerPath"].as_str().unwrap();
         let (route, fragment) = path.split_once('#').unwrap();
-        assert_eq!(route, "x/colab/read");
+        assert_eq!(
+            route,
+            format!("/read/{}", outcome["linkId"].as_str().unwrap())
+        );
         let pairs: Vec<(&str, &str)> = fragment
             .split('&')
             .map(|p| p.split_once('=').unwrap())
@@ -694,7 +697,18 @@ fn link_add_without_a_seed_file_generates_a_fresh_seed_and_prints_the_reader_lin
         .output()
         .unwrap();
     assert!(human.status.success());
-    assert!(String::from_utf8_lossy(&human.stdout).contains("x/colab/read#v=1&"));
+    let human = String::from_utf8(human.stdout).unwrap();
+    let line = human
+        .lines()
+        .find(|line| line.trim().starts_with("/read/"))
+        .unwrap()
+        .trim();
+    let (route, fragment) = line.split_once('#').unwrap();
+    let id = route.strip_prefix("/read/").unwrap();
+    tmt_colab_model::values::generated_id(id).unwrap();
+    let shown = pilot.call(&["show", PAGE, "--json"]);
+    let space = shown["spaceId"].as_str().unwrap();
+    assert!(fragment.starts_with(&format!("v=1&space={space}&page={PAGE}&link={id}&")));
 }
 #[test]
 fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
@@ -769,7 +783,7 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         assert_eq!(
             result["readerPath"],
             format!(
-                "x/colab/read#v=1&space={space}&page={PAGE}&link={LINK}&rev=4&st={}&seed={}",
+                "/read/{LINK}#v=1&space={space}&page={PAGE}&link={LINK}&rev=4&st={}&seed={}",
                 result["membershipHead"]["statementHash"].as_str().unwrap(),
                 values::encode_binary(&[17; 32])
             )
@@ -841,7 +855,7 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         assert_eq!(
             outcome["readerPath"],
             format!(
-                "x/colab/read#v=1&space={space}&page={PAGE}&link={replacement}&rev={}&st={}&seed={}",
+                "/read/{replacement}#v=1&space={space}&page={PAGE}&link={replacement}&rev={}&st={}&seed={}",
                 outcome["membershipHead"]["revision"].as_str().unwrap(),
                 outcome["membershipHead"]["statementHash"].as_str().unwrap(),
                 values::encode_binary(&[18; 32])
@@ -1170,13 +1184,7 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         let id = created["pageId"].as_str().unwrap();
         tmt_colab_model::values::generated_id(id).unwrap();
         assert_eq!(created["title"], "Fresh 🐈");
-        assert_eq!(
-            created["path"],
-            format!(
-                "x/colab/#space={}&path=%2Fpages%2F{id}",
-                created["spaceId"].as_str().unwrap()
-            )
-        );
+        assert_eq!(created["path"], format!("/p/{}", &id[..8]));
         assert_eq!(created["membershipHead"]["revision"], "2");
         let read = pilot.call(&["page", "read", id, "--json"]);
         assert_eq!(read["source"], source);
@@ -2059,7 +2067,7 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     let message = String::from_utf8(human.stdout).unwrap();
     assert!(message.contains("PAGE CREATED"));
     // An unsupported creation projection leaves a neutral relative path.
-    assert!(message.contains("x/colab/p/"));
+    assert!(message.contains("/p/"));
     assert!(message.contains("(Remote link unavailable from the creation snapshot"));
     assert!(!message.contains("start tmt remote serve"));
     assert!(!message.contains("tmt remote pair printed"));
@@ -2089,13 +2097,10 @@ fn reader_links_print_a_full_url_only_while_a_door_runs() {
     let path = running["readerPath"].as_str().unwrap();
     assert_eq!(
         running["readerUrl"],
-        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+        format!("http://127.0.0.1:53253{path}")
     );
     let human = add(Some(DOOR), &[]);
-    assert!(
-        human.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/read#v=1&"),
-        "{human}"
-    );
+    assert!(human.contains("http://127.0.0.1:53253/read/"), "{human}");
     assert!(!human.contains("start tmt remote serve"));
     // The listing never carries a link, with or without a door.
     let listed = pilot
@@ -2106,7 +2111,7 @@ fn reader_links_print_a_full_url_only_while_a_door_runs() {
     assert!(!String::from_utf8_lossy(&listed.stdout).contains("readerUrl"));
 }
 #[test]
-fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_runs() {
+fn created_pages_only_print_short_links_and_root_paths_while_a_door_runs() {
     let pilot = Pilot::new(None);
     pilot.opener(0);
     let json = |status: &str| -> Value {
@@ -2153,7 +2158,7 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
             .is_none()
     );
     let path = created["path"].as_str().unwrap();
-    assert!(path.starts_with("x/colab/#space="));
+    assert!(path.starts_with("/p/"));
     assert_eq!(
         created["shortLink"],
         format!(
@@ -2162,10 +2167,7 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
         )
     );
     assert!(plain["shortLink"].is_null());
-    assert_eq!(
-        created["link"],
-        format!("http://127.0.0.1:53253/r/abcdefghijkl2345/{path}")
-    );
+    assert_eq!(created["link"], format!("http://127.0.0.1:53253{path}"));
     let human = pilot
         .command_with_creation_door(CREATION_DOOR)
         .args(["page", "create", "--title", "Human link"])
@@ -2294,12 +2296,7 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     assert!(created["link"].is_null() && created["shortLink"].is_null());
     assert!(created["paired"].is_null());
     assert_eq!(created["next"], json!([]));
-    assert!(
-        created["path"]
-            .as_str()
-            .unwrap()
-            .starts_with("x/colab/#space=")
-    );
+    assert!(created["path"].as_str().unwrap().starts_with("/p/"));
 }
 
 #[test]
@@ -3021,7 +3018,7 @@ fn cli_member_changes_capture_complete_verified_assignments() {
 
 const READY: &str = r#"{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:53253/r/3e2c69f7","machineId":"m","windowId":"w","startupCoreCalls":2}"#;
 const STOPPED: &str = r#"{"running":false,"lastPort":53253}"#;
-const PAGE_LINK: &str = "http://127.0.0.1:53253/r/3e2c69f7/x/colab/";
+const PAGE_LINK: &str = "http://127.0.0.1:53253/colab/";
 // Remote's JSON envelope joins its message and hint without introducing a hint field (#1734).
 const PORT_BUSY: &str = "Remote's port 53253 is in use: stop what is using it to keep this browser paired, or run tmt remote serve --port <n> and pair again";
 /// What the stand-in for `tmt remote serve --json` does.
@@ -3456,10 +3453,7 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     assert_eq!(ready["pages"], 1);
     assert_eq!(
         ready["page"],
-        format!(
-            "http://127.0.0.1:53253/r/3e2c69f7/x/colab/#space={}&path=%2Fpages%2F{page}",
-            ready["spaceId"].as_str().unwrap()
-        )
+        format!("http://127.0.0.1:53253/p/{}", &page[..8])
     );
     assert_eq!(ready["next"], json!([]));
     assert!(ready["warning"].is_null());
@@ -3599,10 +3593,7 @@ fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_comma
             .lines()
             .find(|l| l.trim_start().starts_with("open"))
             .unwrap();
-        assert!(
-            open.contains("x/colab/p/") && open.contains(reason),
-            "{open}"
-        );
+        assert!(open.contains("/p/") && open.contains(reason), "{open}");
         assert!(!text.contains("tmt remote serve"), "{text}");
         serving.stop(Signal::SIGTERM);
     }
@@ -3698,10 +3689,7 @@ fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
     // The space home is the link that lands on the space, the same one a rerun prints.
     let opened = pilot.opened();
     assert_eq!(opened.len(), 1, "{opened:?}");
-    assert!(
-        opened[0].starts_with(&format!("{home}#space=")),
-        "{opened:?}"
-    );
+    assert_eq!(opened[0], home, "{opened:?}");
 }
 #[test]
 fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
@@ -3913,8 +3901,7 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     }
     let opened = pilot.opened();
     assert_eq!(opened.len(), 2);
-    assert!(opened[0].starts_with("http://127.0.0.1:53253/r/"));
-    assert!(opened[0].contains("/x/colab/#space="));
+    assert_eq!(opened[0], "http://127.0.0.1:53253/colab/");
     assert_eq!(
         opened[1],
         format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
@@ -4115,7 +4102,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
                     format!("    {list_expiry}\n")
                 };
                 assert!(list_text.contains(&line), "{list_text:?}");
-                let link = format!("x/colab/p/{}", &id[..8]);
+                let link = format!("/p/{}", &id[..8]);
                 assert!(
                     list_text.contains(&link),
                     "short link survives narrow output: {list_text}"
@@ -4185,7 +4172,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     pilot.devices(r#"{"devices":[]}"#);
     let created = pilot.call(&["page", "create", "--title", "Notes", "--json"]);
     let page = created["pageId"].as_str().unwrap();
-    let path = format!("x/colab/p/{}", &page[..8]);
+    let path = format!("/p/{}", &page[..8]);
     let full = format!("http://127.0.0.1:53253/p/{}", &page[..8]);
     let human = |door: Option<&str>, args: &[&str]| {
         let mut cmd = pilot.command();
@@ -4271,19 +4258,16 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         serde_json::from_slice::<Value>(&out.stdout).unwrap()
     };
     let shown = json_of(Some(DOOR), &["show", page]);
-    let long_path = format!(
-        "x/colab/#space={}&path=%2Fpages%2F{page}",
-        created["spaceId"].as_str().unwrap()
-    );
-    let long_link = format!("http://127.0.0.1:53253/r/3e2c69f7/{long_path}");
-    assert_eq!(shown["link"], long_link);
+    let short_path = format!("/p/{}", &page[..8]);
+    let short_link = format!("http://127.0.0.1:53253{short_path}");
+    assert_eq!(shown["link"], short_link);
     assert_eq!(shown["shortLink"], full);
-    assert_eq!(shown["path"], long_path);
+    assert_eq!(shown["path"], short_path);
     assert_eq!(shown["paired"], false);
     assert_eq!(shown["next"], json!(["tmt remote pair"]));
     assert!(json_of(None, &["show", page])["link"].is_null());
     let listed = json_of(Some(DOOR), &["ls"]);
-    assert_eq!(listed["pages"][0]["link"], long_link);
+    assert_eq!(listed["pages"][0]["link"], short_link);
     assert_eq!(listed["pages"][0]["shortLink"], full);
     assert_eq!(listed["paired"], false);
 }
@@ -4824,7 +4808,7 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
         assert!(out.stderr.is_empty());
         let text = String::from_utf8(out.stdout).unwrap();
         assert!(text.contains("PAGE CREATED"), "{text}");
-        assert!(text.contains("x/colab/p/"), "{text}");
+        assert!(text.contains("/p/"), "{text}");
         assert!(
             text.contains("Remote link unavailable from the creation snapshot"),
             "{text}"

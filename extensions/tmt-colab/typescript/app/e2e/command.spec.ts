@@ -11,14 +11,13 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
   await page.getByRole('button', { name: 'Create link', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm create link', exact: true }).click();
   const block = page.locator('.bearer .tmt-ui-command');
-  const id = await page.getByLabel('Link ID', { exact: true }).inputValue();
-  const seed = await page.getByLabel('Link seed').inputValue();
-  const copy = page.getByRole('button', { name: 'Copy link ID and seed' });
+  const link = await page.getByLabel('Share link', { exact: true }).inputValue();
+  expect(new URL(link).pathname).toBe('/read/22222222-2222-4222-8222-222222222222');
+  expect(new URL(link).hash).toContain('seed=');
+  const copy = page.getByRole('button', { name: 'Copy share link' });
   await copy.focus();
   await page.keyboard.press('Enter');
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    `Link ID: ${id}\nLink seed: ${seed}`,
-  );
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
   await expect(block.getByRole('status')).toHaveText('Copied.');
   await page.evaluate(() =>
     Object.defineProperty(navigator, 'clipboard', {
@@ -34,12 +33,12 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
   await expect(block.getByRole('status')).toHaveText(
     'Clipboard unavailable. Select and copy the displayed values.',
   );
-  await page.getByLabel('Link seed').evaluate((node: HTMLInputElement) => node.select());
+  await page.getByLabel('Share link').evaluate((node: HTMLInputElement) => node.select());
   expect(
     await page
-      .getByLabel('Link seed')
+      .getByLabel('Share link')
       .evaluate((node: HTMLInputElement) => [node.selectionStart, node.selectionEnd]),
-  ).toEqual([0, seed.length]);
+  ).toEqual([0, link.length]);
   expect(
     await block.evaluate((node) => {
       const labels = [...node.querySelectorAll('label')];
@@ -57,7 +56,7 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
     }),
   ).toBe(true);
   expect(
-    await page.getByLabel('Link seed').evaluate((node) => {
+    await page.getByLabel('Share link').evaluate((node) => {
       const css = getComputedStyle(node);
       return (
         parseFloat(css.outlineWidth) > 0 &&

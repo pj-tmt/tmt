@@ -138,7 +138,7 @@ it('captures parent inputs before asynchronous admission and only explicit Send 
   expect(attempt.preview.view.deliveredMessage).toContain('[remote: ');
   expect(attempt.preview.view.message).toContain('Original quote');
   expect(attempt.preview.view.message).toContain('Original page');
-  expect(attempt.preview.view.message).toContain(`Link: ${pageLink()}\n`);
+  expect(attempt.preview.view.message).toContain(`Link: https://example.test/p/${id(1)}\n`);
   expect(f.remote.sends).toEqual([]);
   expect(f.own).toEqual({});
   const one = attempt.send(),

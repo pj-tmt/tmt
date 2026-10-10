@@ -19,7 +19,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
   await withWorld(async (world) => {
     const door = await startServe(world);
     expect(door.state).toBe('started');
-    expect(door.url).toBe(`${door.address}/x/colab/`);
+    expect(door.url).toBe(`${door.origin}/colab/`);
     // A clean state: nothing paired and no page yet, and the status says what to do next.
     expect(door.status).toMatchObject({
       origin: door.origin,
@@ -33,7 +33,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     const printed = await device.context.newPage();
     expect((await printed.goto(door.url))?.status()).toBe(200);
     await openColab(door, device);
-    // #1688: JSON retains the full owner link and adds the short human link. Both open
+    // #2385: JSON emits the same short link in both link fields. Both open
     // through the real Remote door as the paired device without a hand-built URL.
     const printed2 = await world.tmt(
       ['colab', 'page', 'create', '--title', 'Linked', '--file', '-', '--json'],
@@ -47,7 +47,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
       pageId: string;
       paired: boolean;
     };
-    expect(linked.link).toBe(`${door.address}/${linked.path}`);
+    expect(linked.link).toBe(new URL(linked.path, door.origin).href);
     expect(linked.paired).toBe(true);
     expect(linked.shortLink).toBe(`${door.origin}/p/${linked.pageId.slice(0, 8)}`);
     const linkedPage = await device.context.newPage();
@@ -62,7 +62,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
       'Opened from the printed link.',
     );
-    expect(new URL(shortPage.url()).hash).toContain(`%2Fpages%2F${linked.pageId}`);
+    expect(shortPage.url()).toBe(linked.shortLink);
     await shortPage.reload();
     await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
       'Opened from the printed link.',

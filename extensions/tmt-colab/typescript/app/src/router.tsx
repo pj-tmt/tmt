@@ -1,3 +1,4 @@
+import { publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -8,7 +9,7 @@ import {
   BrowserToggle,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { validPagePrefix } from './short-links.js';
+import { shortPageId, validPagePrefix } from './short-links.js';
 import { ArrowUpRight, LoaderCircle, Moon, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
@@ -220,7 +221,10 @@ function TerminalFailure({ error }: { error: Error }) {
   );
 }
 
-const root = createRootRouteWithContext<{ transport: PageTransport }>()({
+const root = createRootRouteWithContext<{
+  transport: PageTransport;
+  rememberPages?: (pages: readonly { pageId: string; deleted: boolean }[]) => void;
+}>()({
   component: Shell,
   errorComponent: ({ error }) => (
     <>
@@ -269,7 +273,13 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
-  loader: ({ context }) => context.transport.spaceHome(),
+  loader: async ({ context }) => {
+    const home = await context.transport.spaceHome();
+    context.rememberPages?.(
+      home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
+    );
+    return home;
+  },
   component: Home,
 });
 const page = createRoute({
@@ -287,6 +297,7 @@ const shortPage = createRoute({
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
     const known = home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false }));
+    context.rememberPages?.(known);
     const pages = known
       .filter((page) => page.pageId.startsWith(params.prefix))
       .map((row) => ({
@@ -913,6 +924,8 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
+    if (location.pathname.startsWith('/p/'))
+      history.replaceState(history.state, '', `${location.pathname}#t=${ref.id}`);
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -949,6 +962,19 @@ function Page() {
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  const deepThread = useRef<string | null>(null);
+  useEffect(() => {
+    if (state !== 'ready' || !location.pathname.startsWith('/p/')) return;
+    const target = new URLSearchParams(location.hash.slice(1)).get('t');
+    if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
+    const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
+    if (!thread) return;
+    deepThread.current = `${snapshot.id}:${target}`;
+    setActiveThread(`${thread.ref.writer}:${thread.ref.id}`);
+    setPanel('comments');
+    renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
+  }, [state, snapshot.id, view.threads]);
+
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
@@ -1469,12 +1495,29 @@ function Page() {
     </section>
   );
 }
-export function createAppRouter(transport: PageTransport, space?: string) {
+export function createAppRouter(
+  transport: PageTransport,
+  space?: string,
+  pageIds: readonly { pageId: string; deleted: boolean }[] = [],
+) {
+  let knownPages = pageIds;
   const history = space
     ? createBrowserHistory({
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
-          let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+          const prefix = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+          const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
+          const target =
+            matches.length === 1 && !matches[0].deleted
+              ? `/pages/${matches[0].pageId}`
+              : `/short/${prefix}`;
+          let path = publicEntry()
+            ? prefix
+              ? target
+              : '/'
+            : fragment.get('space') === space
+              ? (fragment.get('path') ?? '/')
+              : '/blocked';
           if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
           return {
             href: path,
@@ -1484,14 +1527,34 @@ export function createAppRouter(transport: PageTransport, space?: string) {
             state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
           };
         },
-        createHref: (path) =>
-          `${location.pathname}#space=${space}${path === '/' ? '' : `&path=${encodeURIComponent(path)}`}`,
+        createHref: (path) => {
+          if (path === '/') return '/colab/';
+          const id = path.replace(/^\/(?:pages|short)\//, '');
+          if (!validPagePrefix(id)) return '/colab/';
+          const current = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+          const matches = knownPages.filter((row) => row.pageId.startsWith(current));
+          const target = path.startsWith('/pages/')
+            ? validPagePrefix(current) && matches.length === 1 && matches[0].pageId === id
+              ? current
+              : shortPageId(
+                  id,
+                  knownPages.map((row) => row.pageId),
+                )
+            : id;
+          const thread = target === current && location.hash.startsWith('#t=') ? location.hash : '';
+          return `/p/${target}${thread}`;
+        },
       })
     : createHashHistory();
   const router = createRouter({
     routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
-    context: { transport },
+    context: {
+      transport,
+      rememberPages: (pages) => {
+        knownPages = pages;
+      },
+    },
   });
   router.subscribe('onResolved', () => void buildWatch.check());
   return router;

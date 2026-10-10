@@ -211,22 +211,26 @@ fn closed(socket: &mut UnixStream) -> bool {
 }
 
 #[test]
-fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links() {
+fn public_page_entries_keep_inventory_resolution_behind_admission() {
     let server = Running::start(Tunnels::PRODUCT);
-    let mount = "/r/abcdefghijklmnop/x/colab/";
-    let mount_header = format!("tmt-mount: {mount}\r\n");
-    let admitted = format!("{}\r\n{mount_header}", owner(DEVICE));
-    let get = |path: &str| server.request(&Running::get(path, &admitted));
-    let original = get("/p/00000000");
-    assert!(original.starts_with("HTTP/1.1 302"), "{original}");
-    assert!(original.contains(&format!(
-        "Location: {mount}#space={}&path=%2Fpages%2F{PAGE}\r\n",
-        server.space
-    )));
-    assert!(original.contains("Cache-Control: no-store"));
-    assert!(original.contains("Referrer-Policy: no-referrer"));
-    // The existing independent SQLite oracle adds another UUID sharing the old prefix.
-    // No text is decoded or stored by alias resolution.
+    let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
+    let known = server.request(&Running::get("/p/00000000", mount));
+    assert!(known.starts_with("HTTP/1.1 200"), "{known}");
+    assert!(!known.contains("Location:"));
+    assert!(known.contains("/r/abcdefghijklmnop/x/colab/assets/recovery.js"));
+    assert!(known.contains("Cache-Control: no-store"));
+    assert!(known.contains("Referrer-Policy: no-referrer"));
+    for prefix in ["99999999", "FFFFFFFF", "other-entry"] {
+        assert_eq!(
+            server.request(&Running::get(&format!("/p/{prefix}"), mount)),
+            known
+        );
+    }
+    let admitted = format!("{}\r\n{mount}", owner(DEVICE));
+    assert_eq!(
+        server.request(&Running::get("/p/00000000", &admitted)),
+        known
+    );
     let other = "00000000-1000-4000-8000-000000000002";
     server
         .oracle()
@@ -235,33 +239,27 @@ fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links(
             rusqlite::params![other, "1"],
         )
         .unwrap();
-    let historical = get("/p/00000000");
-    assert!(
-        historical.contains(&format!(
-            "Location: {mount}#space={}&path=%2Fshort%2F00000000\r\n",
-            server.space
-        )),
-        "{historical}"
-    );
-    assert!(!historical.contains(&format!("%2Fpages%2F{other}")));
-    assert!(get("/p/00000000-0").contains(&format!("path=%2Fpages%2F{PAGE}")));
-    assert!(get("/p/99999999").contains("path=%2Fshort%2F99999999"));
-    let anonymous = server.request(&Running::get("/p/00000000", &mount_header));
-    assert!(anonymous.contains(&format!("Location: {mount}#path=%2Fshort%2F00000000")));
-    assert!(!anonymous.contains(&server.space));
-    assert!(!anonymous.contains(PAGE));
-    for path in [
-        "/p/0000000",
-        "/p/FFFFFFFF",
-        "/p/00000000/extra",
-        "/p/00000000-0000-4000-8000-0000000000010",
-    ] {
-        assert!(get(path).starts_with("HTTP/1.1 404"), "{path}");
+    assert_eq!(server.request(&Running::get("/p/00000000", mount)), known);
+    for path in ["/p/abc", "/p/00000000/extra"] {
+        assert!(
+            server
+                .request(&Running::get(path, mount))
+                .starts_with("HTTP/1.1 404"),
+            "{path}"
+        );
+    }
+    for path in ["/p/a%20b", "/p/00000000?x=1"] {
+        assert!(
+            server
+                .request(&Running::get(path, mount))
+                .starts_with("HTTP/1.1 400"),
+            "{path}"
+        );
     }
     assert!(
         server
             .request(&format!(
-                "POST /p/00000000 HTTP/1.1\r\nHost: 127.0.0.1:1\r\n{admitted}\r\n"
+                "POST /p/00000000 HTTP/1.1\r\nHost: 127.0.0.1:1\r\n{mount}\r\n"
             ))
             .starts_with("HTTP/1.1 404")
     );
@@ -274,7 +272,7 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
     let get = |prefix: &str| server.request(&Running::get(&format!("/p/{prefix}"), mount));
     let known = get("00000000");
     let absent = get("99999999");
-    assert!(known.starts_with("HTTP/1.1 302"));
+    assert!(known.starts_with("HTTP/1.1 200"));
     let (known_headers, known_body) = known.split_once("\r\n\r\n").unwrap();
     let (absent_headers, absent_body) = absent.split_once("\r\n\r\n").unwrap();
     assert_eq!(
@@ -282,7 +280,7 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
         absent_headers.replace("99999999", "00000000")
     );
     assert_eq!(known_body, absent_body.replace("99999999", "00000000"));
-    assert_eq!(known_body, "");
+    assert!(known_body.contains("assets/recovery.js"));
     // Use actual admitted lifecycle operations, then compare the same public request.
     // No owner context is forwarded in any alias request, including archived/deleted states.
     for (revision, operation) in [(1, "page.archive"), (2, "page.delete")] {
@@ -336,7 +334,97 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
 }
 
 #[test]
-fn page_alias_redirects_use_remote_mount_for_mounted_and_root_forwarded_entries() {
+fn anonymous_reader_entries_do_not_disclose_active_absent_revoked_or_deleted_links() {
+    let app = tmt_colab::assets::App::selected(None)
+        .unwrap()
+        .expect("built app for public reader proof");
+    let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
+    let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
+    let link = "70000000-0000-4000-8000-000000000001";
+    let absent = "70000000-0000-4000-8000-000000000002";
+    let get = |id: &str| server.request(&Running::get(&format!("/read/{id}"), mount));
+    let apply = |revision: u64, operation: &str, value: Value| {
+        let body = management_body(
+            &server,
+            &format!("90000000-0000-4000-8000-{revision:012}"),
+            revision,
+            operation,
+            value,
+            DEVICE,
+            now(),
+        );
+        let reply = server.event(
+            tmt_colab::management::PATH,
+            &format!("{}\r\n", owner(DEVICE)),
+            &body,
+        );
+        assert!(reply.starts_with("HTTP/1.1 200"), "{operation}: {reply}");
+        let ack: Value = serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        ack["membershipHead"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    };
+    // As in the existing link lifecycle fixture, establish the signed link policy and epoch key.
+    let layout = Layout::existing(&server.root).unwrap().unwrap();
+    let key = Keyring::read(&layout).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    store
+        .owner_transaction(
+            &server.space,
+            &key.owner_public(),
+            tmt_colab::store::owner::Mutation {
+                operation_id: "80000000-0000-4000-8000-000000000001",
+                digest: [19; 32],
+                expected_revision: 1,
+            },
+            |tx| {
+                let payload =
+                    serde_json::to_vec(&json!({"pageId":PAGE,"mode":"link","epoch":"1"}))?;
+                tx.append_statement(&key.sign_statement(tx.head(), "page.share", &payload)?)?;
+                tx.put_epoch_secret(PAGE, 1, &[8; 32])?;
+                Ok(b"fixture link policy".to_vec())
+            },
+        )
+        .unwrap();
+    store.close().unwrap();
+    let revision = 2;
+    let revision = apply(
+        revision,
+        "link.add",
+        json!({"linkId":link,"role":"viewer","pages":[PAGE],"seed":values::encode_binary(&[31;32])}),
+    );
+    let active = get(link);
+    assert!(active.starts_with("HTTP/1.1 200"));
+    assert!(active.contains("/r/abcdefghijklmnop/x/colab/assets/reader.js"));
+    assert!(!active.contains("Location:"));
+    assert_eq!(active, get(absent));
+    let revision = apply(
+        revision,
+        "link.remove",
+        json!({"linkId":link,"pages":[PAGE],"replacement":null}),
+    );
+    assert_eq!(active, get(link), "revoked link");
+    let revision = apply(revision, "page.archive", json!({"pageId":PAGE}));
+    assert_eq!(active, get(link), "archived associated page");
+    apply(revision, "page.delete", json!({"pageId":PAGE}));
+    assert_eq!(active, get(link), "deleted associated page");
+    for private in [
+        PAGE,
+        server.space.as_str(),
+        DEVICE,
+        "Laptop",
+        "seed=",
+        "spaceId",
+        "pageId",
+    ] {
+        assert!(!active.contains(private), "{private}");
+    }
+}
+
+#[test]
+fn public_entries_use_remote_mount_for_mounted_and_root_forwarded_requests() {
     let server = Running::start(Tunnels::PRODUCT);
     for mount in [
         "/r/abcdefghijklmnop/x/colab/",
@@ -360,17 +448,10 @@ fn page_alias_redirects_use_remote_mount_for_mounted_and_root_forwarded_entries(
                     &forwarded,
                     &format!("{context}tmt-mount: {mount}\r\n"),
                 ));
-                assert!(reply.starts_with("HTTP/1.1 302"), "{entry}: {reply}");
-                let fragment = if admitted {
-                    format!("space={}&path=%2Fpages%2F{PAGE}", server.space)
-                } else {
-                    "path=%2Fshort%2F00000000".to_owned()
-                };
-                assert!(
-                    reply.contains(&format!("Location: {mount}#{fragment}\r\n")),
-                    "{entry}: {reply}"
-                );
-                assert!(!reply.contains("Location: ../"));
+                assert!(reply.starts_with("HTTP/1.1 200"), "{entry}: {reply}");
+                assert!(reply.contains(&format!("content=\"{mount}\"")));
+                assert!(reply.contains(&format!("src=\"{mount}assets/recovery.js\"")));
+                assert!(!reply.contains("Location:"));
                 if !admitted {
                     assert!(!reply.contains(&server.space));
                     assert!(!reply.contains(PAGE));
@@ -2680,10 +2761,8 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     assert_eq!(pages["pageIds"], json!([{"pageId":PAGE,"deleted":true}]));
     let alias_header = format!("{header}tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n");
     let alias = server.request(&Running::get(&format!("/p/{PAGE}"), &alias_header));
-    assert!(
-        alias.contains(&format!("path=%2Fshort%2F{PAGE}")),
-        "{alias}"
-    );
+    assert!(alias.starts_with("HTTP/1.1 200"), "{alias}");
+    assert!(!alias.contains("Location:"));
     // Deletion followed by a new page with the same short prefix cannot rebind the old link.
     let later = "00000000-1000-4000-8000-000000000002";
     server
@@ -2691,9 +2770,9 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
         .execute("INSERT INTO pages(page,epoch) VALUES (?, '1')", [later])
         .unwrap();
     let historical = server.request(&Running::get("/p/00000000", &alias_header));
-    assert!(
-        historical.contains("path=%2Fshort%2F00000000"),
-        "{historical}"
+    assert_eq!(
+        historical, alias,
+        "public entry does not resolve the tombstone or collision"
     );
     assert!(!historical.contains(&format!("%2Fpages%2F{later}")));
     let list = server.request(&Running::get("/api/pages", &header));

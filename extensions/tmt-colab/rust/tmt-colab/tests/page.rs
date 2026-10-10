@@ -1004,7 +1004,7 @@ fn agent_status_is_own_stream_causal_fenced_and_shared_with_native_reads() {
     let queried: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(queried["threads"][0]["writer"], DEVICE);
     assert_eq!(queried["threads"][0]["resolved"], false);
-    assert!(queried["path"].as_str().unwrap().contains(PAGE));
+    assert_eq!(queried["path"], format!("/p/{}", &PAGE[..8]));
     let output = f
         .command()
         .args(["threads", "resolve", PAGE, THREAD, "--json"])

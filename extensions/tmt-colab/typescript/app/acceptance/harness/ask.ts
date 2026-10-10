@@ -43,7 +43,7 @@ export function clientId(world: AcceptanceWorld, name: string): string {
 
 export interface CreatedPage {
   pageId: string;
-  /** Relative to the Remote door address: `x/colab/#space=<space>&path=%2Fpages%2F<page>`. */
+  /** Root-relative public page path: `/p/<short-id>`. */
   path: string;
 }
 
@@ -75,7 +75,7 @@ export async function openPage(
   created: CreatedPage,
 ): Promise<Page> {
   const page = await browser.context.newPage();
-  await page.goto(`${door.address}/${created.path}`);
+  await page.goto(new URL(created.path, `${door.address}/`).href);
   return page;
 }
 

@@ -2,7 +2,7 @@ import { expect, test, type Page, type BrowserContext, type Locator } from '@pla
 import { mkdir } from 'node:fs/promises';
 import * as c from '@tmt/colab-client';
 
-const mount = '/r/abcd/x/colab/';
+const mount = '/r/abcdefghijklmnop/x/colab/';
 const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
@@ -73,6 +73,16 @@ async function fixture(
   const g = await genesis.verifyNext(space, ownerKey, null);
   const shared = await signed('page.share', { pageId, mode: 'private', epoch: '1' }, g.head);
   const head = await shared.verifyNext(space, ownerKey, g.head);
+  await page.addInitScript((mount) => {
+    const install = () => {
+      const meta = document.createElement('meta');
+      meta.name = 'tmt-colab-mount';
+      meta.content = mount;
+      document.head.append(meta);
+    };
+    if (document.head) install();
+    else document.addEventListener('readystatechange', install, { once: true });
+  }, mount);
   await page.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
@@ -183,10 +193,10 @@ async function fixture(
 test('mounted owner discovers a pinned space; registration failure stays blocked', async ({
   page,
 }) => {
-  const f = await fixture(page);
+  await fixture(page);
   await page.goto(mount);
   await expect(page.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
+  await expect(page).toHaveURL(/\/colab\/$/);
   await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.route(`**${mount}api/devices/register`, (route) =>
     route.fulfill({ status: 403, json: { code: 'DENIED' } }),
@@ -200,9 +210,9 @@ test('mounted owner discovers a pinned space; registration failure stays blocked
 test('discovery cannot silently replace an existing mount pin or conflicting fragment', async ({
   page,
 }) => {
-  const f = await fixture(page);
+  await fixture(page);
   await page.goto(mount);
-  await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
+  await expect(page).toHaveURL(/\/colab\/$/);
   await page.goto(`${mount}#space=${'a'.repeat(32)}`);
   await expect(page.getByRole('alert')).toContainText('does not match the pinned space');
   await expect(page.locator('iframe')).toHaveCount(0);
@@ -270,7 +280,7 @@ test('a successful HTTP registration with a forged certificate remains blocked',
     await page.evaluate(async () => {
       const path = '/src/storage.ts';
       const { record } = await import(path);
-      return record(`pin:${location.origin}/r/abcd/x/colab/`);
+      return record(`pin:${location.origin}/r/abcdefghijklmnop/x/colab/`);
     }),
   ).toBeUndefined();
 });

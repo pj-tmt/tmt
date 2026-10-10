@@ -2,7 +2,7 @@ import { pageAction } from '../test/page-actions.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { pairBrowser, startDoor } from './harness/browser.js';
+import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, composeChat, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -131,7 +131,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
           }, theme);
           await page.screenshot({
             path: testInfo.outputPath(`link-copy-${phase}-${width}-${theme}.png`),
-            mask: [dialog.getByLabel('Link seed')],
+            mask: [dialog.getByLabel('Share link', { exact: true })],
           });
         }
       }
@@ -141,17 +141,36 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
       });
     };
     await captureCopy('confirm');
-    await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
+    await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Confirm create link' }).click();
-    await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
-    await expect(dialog).toContainText('This dialog does not create a URL to open.');
+    await expect(dialog.getByLabel('Share link', { exact: true })).toBeVisible();
+    const shared = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
+    expect(shared.origin).toBe(door.origin);
+    expect(shared.pathname).toMatch(/^\/read\/[0-9a-f-]{36}$/);
+    const capability = new URLSearchParams(shared.hash.slice(1));
+    expect(capability.get('link')).toBe(shared.pathname.slice(6));
+    expect(capability.get('page')).toBe(first.pageId);
+    expect(capability.get('seed')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(shared.search).toBe('');
+    await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
+    await expect(dialog.getByLabel('Link ID', { exact: true })).toHaveCount(0);
+    const copiedReader = await openReaderLink(world, door, shared.href, 'copied-reader');
+    await expect(copiedReader.page.frameLocator('iframe').locator('#quote')).toHaveText(
+      'Management selection.',
+    );
+    expect(copiedReader.page.url()).toBe(`${shared.origin}${shared.pathname}`);
     await captureCopy('verified');
-    const oldLink = await dialog.getByLabel('Link ID', { exact: true }).inputValue();
+    const oldLink = shared.pathname.slice(6);
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Reset link', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm reset link' }).click();
     await expect(dialog.getByRole('status')).toContainText('Change verified');
-    expect(await dialog.getByLabel('Link ID', { exact: true }).inputValue()).not.toBe(oldLink);
+    const reset = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
+    expect(reset.pathname.slice(6)).not.toBe(oldLink);
+    expect(reset.origin).toBe(door.origin);
+    await expect(
+      copiedReader.page.getByRole('heading', { name: 'Access ended', level: 2 }),
+    ).toBeVisible();
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await choose(dialog, 'Audience', 'Private');
     await expect(dialog).toContainText('links are revoked and affected pages rotate');

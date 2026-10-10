@@ -65,8 +65,8 @@ Use `--file -` for stdin; omit `--file` for an empty page. Returns
 `pageId`, `path`, `link`, `shortLink` and `opened`. With auto-open on and a local
 browser, creation opens the page without a TTY or with `--json`;
 `--no-open` suppresses it. Share `shortLink`, not `link`. If null,
-inspect serving status; do not invent a URL. `path` is relative
-to the Remote door. `paired: false` and `next` mean user-only pairing, never an agent command.
+inspect serving status; do not invent a URL. `path` is root-relative.
+`paired: false` and `next` mean user-only pairing, never an agent command.
 `tmt colab show PAGE --json` shows the page and its link.
 
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.

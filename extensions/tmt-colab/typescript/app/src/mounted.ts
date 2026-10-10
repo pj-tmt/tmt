@@ -20,6 +20,7 @@ import { TitleCache } from './title-cache.js';
 
 export async function mountedTransport(signal?: AbortSignal): Promise<{
   space: string;
+  pageIds: { pageId: string; deleted: boolean }[];
   transport: PageTransport;
   close(): void;
 }> {
@@ -158,6 +159,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
   };
   return {
     space: bootstrap.space,
+    pageIds: bootstrap.pageIds,
     close: () => {
       signal?.removeEventListener('abort', abort);
       lifetime.abort();

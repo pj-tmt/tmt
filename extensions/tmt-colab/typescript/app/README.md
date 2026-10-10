@@ -78,10 +78,17 @@ only after authenticated boot succeeds. An active page blocked by a sync
 disconnect offers Reconnect through the same helper, closing its Live, Ask and
 observer first. Recovery never dispatches or retries an Ask. The app `build`
 script emits the main app, the standalone recovery entry and the read-only reader
-entry (`/read`, fixed-name `assets/reader.*`); other app assets remain owner-gated.
+entry (`/read/<linkId>`, fixed-name `assets/reader.*`); other app assets remain owner-gated.
 
 Browser tests may set `COLAB_APP_TEST_PORT` to isolate their loopback Vite server;
 the default remains 4179. The deterministic Page/Remote doubles live only in
 `test/ask-page-browser.tsx` and `test/ask-browser-attempt.ts` and never enter the
 production build. Chromium tests
 use stable `ask-*` test IDs and `data-operation-id` on each preview and Ask entry.
+
+Short public entries retain `/colab/`, `/p/<id>` or `/read/<linkId>` in the address bar.
+Native bootstrap carries only Remote's validated internal mount. Owner recovery uses
+SDK admission before loading protected app assets in place; APIs, sync and assets remain
+under that mount. Reader authority stays in the fragment, which is cleared before any
+request; the path ID must match its capability. Router history uses the verified page
+catalog and short paths; thread fragments are display targets only.

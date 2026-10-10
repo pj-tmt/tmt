@@ -21,7 +21,7 @@ const ownVector = JSON.parse(
 );
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
-const mount = '/r/abcd/x/colab/';
+const mount = '/r/abcdefghijklmnop/x/colab/';
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
@@ -58,6 +58,16 @@ async function wire(
   );
   let head = await shared.verifyNext(v.space, owner, genesis.head);
   // Public fixture seeds only: prepopulate opaque handles without replacing them on reload.
+  await context.addInitScript((mount) => {
+    const install = () => {
+      const meta = document.createElement('meta');
+      meta.name = 'tmt-colab-mount';
+      meta.content = mount;
+      document.head.append(meta);
+    };
+    if (document.head) install();
+    else document.addEventListener('readystatechange', install, { once: true });
+  }, mount);
   await context.addInitScript(
     ({ seed, recipient, device, pub, enc }) => {
       if (window !== window.top) return;

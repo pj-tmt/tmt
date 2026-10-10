@@ -35,11 +35,15 @@ const port: ManagementPort = {
     operation: selection.operation,
     expiresAt: Date.now() + 60000,
     expectedRevision: '1',
-    artifact: { linkId: '22222222-2222-4222-8222-222222222222', seed: 'a'.repeat(43) },
+    artifact: {
+      linkId: '22222222-2222-4222-8222-222222222222',
+      seed: 'A'.repeat(43),
+      space: 'a'.repeat(32),
+    },
   }),
   send: async () => ({
     operationId: 'operation',
-    membershipHead: { revision: '2', statementHash: 'fixture' },
+    membershipHead: { revision: '2', statementHash: 'A'.repeat(43) },
   }),
   verify: async () => view,
 };

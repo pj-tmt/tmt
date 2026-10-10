@@ -594,8 +594,8 @@ core discovery or storage access.
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
-  from a browser. Remote forwards public short entries without device context; Colab redirects only
-  to validated `tmt-mount`, resolving page prefixes from its verified catalog (ambiguity by parent chrome).
+  from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
+  SDK admission gates owner assets and catalog resolution; reader seeds stay in fragments.
   It stores ciphertext, never decodes Yjs; creation opening ignores TTY/JSON.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser

@@ -97,3 +97,40 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   await expect(page.locator('[aria-disabled="true"]')).toContainText('Deleted page');
   await expect(page.locator('#short-fixture iframe')).toHaveCount(0);
 });
+
+// The public URL stays short while resolution uses the fresh admitted catalog.
+test('public aliases resolve a freshly loaded catalog and disambiguate without a redirect loop', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(
+    async (path) => (await import(path)).mount('12345678', true, false, true),
+    fixture,
+  );
+  await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+  await page.getByRole('link', { name: /Original proposal/ }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Original content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678-0$/);
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+  await page.getByRole('link', { name: /Later proposal/ }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Later content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678-1$/);
+});
+test('a unique public alias resolves after startup without turning the address into a full page route', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(
+    async (path) => (await import(path)).mount('12345678', false, false, true),
+    fixture,
+  );
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Original content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678$/);
+});

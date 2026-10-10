@@ -100,7 +100,7 @@ it('matches independently framed bytes, SHA-256 and Ed25519 over exact frozen UT
     ).toBe(false);
   }
 });
-it('keeps the shipped skill legacy page-ID instructions consistent with retained Ask links', () => {
+it('accepts legacy page-ID inputs but emits a short Ask link', () => {
   const selected = { ...selection(), shortId: undefined, url: 'https://example.test/x/colab/' };
   const message = FrozenAsk.capture(selected, destination()).view.message;
   const link = message.match(/^Link: (.+)$/m)?.[1];
@@ -112,10 +112,15 @@ it('keeps the shipped skill legacy page-ID instructions consistent with retained
   );
   const documentedFragment = skill.match(/`(#space=SPACE&path=%2Fpages%2FPAGE)`/)?.[1];
   expect(documentedFragment).toBeDefined();
-  expect(url.hash).toBe(
+  expect(url.pathname).toBe(`/p/${selected.page}`);
+  expect(url.hash).toBe('');
+  const legacy = new URL(
+    `https://example.test/${documentedFragment!.replace('SPACE', selected.space).replace('PAGE', selected.page)}`,
+  );
+  expect(legacy.hash).toBe(
     documentedFragment!.replace('SPACE', selected.space).replace('PAGE', selected.page),
   );
-  const fragment = new URLSearchParams(url.hash.slice(1));
+  const fragment = new URLSearchParams(legacy.hash.slice(1));
   expect([...fragment.keys()]).toEqual(['space', 'path']);
   expect(fragment.get('path')).toBe(`/pages/${selected.page}`);
   expect(fragment.get('page')).toBeNull();
@@ -248,7 +253,9 @@ it('reservation conflicts preserve immutable metadata', async () => {
   expect([...records.values()]).toEqual(stored);
 });
 
-it('retains the full owner-fragment input for legacy captured asks without a short prefix', () => {
+it('emits the full page ID in a short path when no admitted prefix is supplied', () => {
   const legacy = { ...selection(), shortId: undefined };
-  expect(FrozenAsk.capture(legacy, destination()).view.message).toContain(`Link: ${pageLink()}\n`);
+  expect(FrozenAsk.capture(legacy, destination()).view.message).toContain(
+    `Link: https://example.test/p/${legacy.page}\n`,
+  );
 });

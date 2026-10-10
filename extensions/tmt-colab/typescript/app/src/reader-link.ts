@@ -37,3 +37,20 @@ export function parseReaderFragment(hash: string): ReaderLink {
     seed: binary(get('seed'), 32, 32),
   };
 }
+
+/** One copyable capability: all authority stays in the fragment. */
+export function readerUrl(
+  origin: string,
+  value: {
+    space: string;
+    page: string;
+    link: string;
+    revision: string;
+    statement: string;
+    seed: string;
+  },
+): string {
+  const fragment = `#v=1&space=${value.space}&page=${value.page}&link=${value.link}&rev=${value.revision}&st=${value.statement}&seed=${value.seed}`;
+  parseReaderFragment(fragment);
+  return new URL(`/read/${value.link}${fragment}`, origin).href;
+}

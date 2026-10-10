@@ -58,8 +58,14 @@ export async function startServe(world: AcceptanceWorld): Promise<ServedDoor> {
   if (ready.door !== 'attached' && ready.door !== 'started')
     throw new Error(`Colab found no door: ${String(ready.warning)}`);
   const url = ready.url as string;
-  const address = url.replace(/\/x\/colab\/$/, '');
-  if (address === url) throw new Error(`Unexpected page link ${url}`);
+  const descriptor = JSON.parse(run(world, world.binaries.remote, ['status', '--json'])) as {
+    running: boolean;
+    origin: string;
+    path: string;
+  };
+  if (!descriptor.running) throw new Error('Colab reported a stopped door');
+  const address = `${descriptor.origin}${descriptor.path}`;
+  if (new URL(url).origin !== descriptor.origin) throw new Error(`Unexpected page link ${url}`);
   return {
     state: ready.door,
     status: ready,
@@ -219,6 +225,6 @@ export async function openReaderLink(
     requests.push({ url: request.url(), body: request.postData() }),
   );
   const page = await context.newPage();
-  await page.goto(`${door.address}/${readerPath}`);
+  await page.goto(new URL(readerPath, `${door.address}/`).href);
   return { context, page, requests };
 }

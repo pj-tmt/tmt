@@ -1,8 +1,18 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
 import { discover } from '../src/bootstrap.js';
-vi.mock('../src/storage.js', () => ({ record: async () => undefined }));
-afterEach(() => vi.unstubAllGlobals());
+import { record } from '../src/storage.js';
+const storage = vi.hoisted(() => ({ pin: undefined as unknown }));
+vi.mock('../src/storage.js', () => ({
+  record: vi.fn(async (_key: string, ...values: unknown[]) =>
+    values.length ? undefined : storage.pin,
+  ),
+}));
+afterEach(() => {
+  storage.pin = undefined;
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
 const mount = new URL('https://example.test/r/abcd/x/colab/');
 const metadata = {
   pageId: '10000000-0000-4000-8000-000000000001',
@@ -109,4 +119,60 @@ it('rejects inconsistent or title-bearing tombstone metadata before pinning', as
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ...body, pageIds })));
     await expect(discover(mount)).rejects.toThrow();
   }
+});
+
+it('public page and thread targets do not replace the internal mount or bypass owner verification', async () => {
+  await response([metadata]);
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  vi.stubGlobal('location', { pathname: '/p/10000000', hash: `#t=${metadata.pageId}` });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  const verify = vi.fn(async () => {});
+  const boot = await discover(mount, verify);
+  expect(verify).toHaveBeenCalledWith(boot.space, boot.owner);
+  expect(record).toHaveBeenCalledWith(`pin:${mount.href}`, {
+    space: boot.space,
+    owner: boot.owner,
+  });
+  expect(replaceState).not.toHaveBeenCalled();
+});
+it('public entry refuses unexpected fragments and a mismatched existing pin without re-pinning', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  for (const hash of [
+    '#seed=secret',
+    '#space=wrong',
+    '#t=bad',
+    `#t=${metadata.pageId}&t=${metadata.pageId}`,
+  ]) {
+    await response([metadata]);
+    vi.stubGlobal('location', { pathname: '/p/10000000', hash });
+    await expect(discover(mount)).rejects.toThrow();
+  }
+  storage.pin = { space: 'b'.repeat(32), owner: new Uint8Array(32).fill(9) };
+  await response([metadata]);
+  vi.stubGlobal('location', { pathname: '/p/10000000', hash: '' });
+  await expect(discover(mount)).rejects.toThrow();
+  expect(vi.mocked(record).mock.calls.every((call) => Array.from(call).length === 1)).toBe(true);
+  expect(replaceState).not.toHaveBeenCalled();
+});
+it('an authenticated legacy page entry canonicalizes to a catalog-derived short target', async () => {
+  await response([metadata]);
+  const space = await deriveSpaceId(new Uint8Array(32).fill(9));
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  vi.stubGlobal('location', {
+    pathname: mount.pathname,
+    hash: `#space=${space}&path=%2Fpages%2F${metadata.pageId}`,
+  });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  await discover(mount);
+  expect(replaceState).toHaveBeenCalledWith(null, '', '/p/10000000');
 });

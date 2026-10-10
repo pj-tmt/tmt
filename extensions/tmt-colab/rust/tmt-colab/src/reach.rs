@@ -65,7 +65,11 @@ impl Reach {
     /// The full link, only while a door runs.
     pub fn link(&self, path: &str) -> Option<String> {
         match &self.lookup {
-            Lookup::Running(door) => Some(door.url(path)),
+            Lookup::Running(door) => Some(match self.short_id(path) {
+                Some(id) => format!("{}/p/{id}", door.origin()),
+                None if path.starts_with("/read/") => format!("{}{}", door.origin(), path),
+                None => format!("{}/colab/", door.origin()),
+            }),
             _ => None,
         }
     }
@@ -74,9 +78,15 @@ impl Reach {
         if let Some(id) = self.short_id(path) {
             return self
                 .short_link(path)
-                .unwrap_or_else(|| self.hint(&format!("x/colab/p/{id}")));
+                .unwrap_or_else(|| self.hint(&format!("/p/{id}")));
         }
-        self.hint(path)
+        self.link(path).unwrap_or_else(|| {
+            self.hint(if path.starts_with("/read/") {
+                path
+            } else {
+                "/colab/"
+            })
+        })
     }
     fn hint(&self, path: &str) -> String {
         match self.lookup {
@@ -90,7 +100,11 @@ impl Reach {
     }
     /// Adds `path` (relative) and `link` (full, `null` without a door) to a JSON object.
     pub fn annotate_link(&self, value: &mut Value, path: &str) {
-        value["path"] = json!(path);
+        value["path"] = json!(
+            self.short_id(path)
+                .map(|id| format!("/p/{id}"))
+                .unwrap_or_else(|| "/colab/".to_owned())
+        );
         value["link"] = json!(self.link(path));
         if self.short_id(path).is_some() {
             value["shortLink"] = json!(self.short_link(path));

@@ -125,10 +125,7 @@ export class FrozenAsk {
         !url.pathname.endsWith('/read'),
     );
     url.hash = pageFragment;
-    const pageUrl =
-      selection.shortId === undefined
-        ? url.href
-        : shortPageUrl(url.origin, selection.page, selection.shortId);
+    const pageUrl = shortPageUrl(url.origin, selection.page, selection.shortId ?? selection.page);
     const message = formatAskMessage({ ...selection, url: pageUrl });
     requireValue(Number.isSafeInteger(inputLimit) && inputLimit > 0 && inputLimit <= REQUEST_BYTES);
     this.#final = text(message);

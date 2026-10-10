@@ -477,7 +477,8 @@ struct AcknowledgedHead {
 /// Remote door address, like `page create`'s `path`; everything secret is in the fragment.
 fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -> String {
     format!(
-        "x/colab/read#v=1&space={space}&page={page}&link={}&rev={}&st={}&seed={}",
+        "/read/{}#v=1&space={space}&page={page}&link={}&rev={}&st={}&seed={}",
+        link["linkId"].as_str().unwrap_or_default(),
         link["linkId"].as_str().unwrap_or_default(),
         head.revision,
         head.statement_hash,

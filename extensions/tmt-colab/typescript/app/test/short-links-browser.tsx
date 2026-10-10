@@ -4,14 +4,20 @@ import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { localTransport } from '../src/transport.js';
 let root: Root | undefined;
-export function mount(prefix: string, collision = true, deleted = false) {
+export function mount(prefix: string, collision = true, deleted = false, publicPath = false) {
   root?.unmount();
   document.getElementById('short-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
   const host = document.createElement('div');
   host.id = 'short-fixture';
   document.body.append(host);
-  history.replaceState(null, '', `/#/short/${prefix}`);
+  if (publicPath) {
+    const meta = document.createElement('meta');
+    meta.name = 'tmt-colab-mount';
+    meta.content = '/r/abcdefghijklmnop/x/colab/';
+    document.head.append(meta);
+  }
+  history.replaceState(null, '', publicPath ? `/p/${prefix}` : `/#/short/${prefix}`);
   const pages = [
     {
       id: '12345678-0000-4000-8000-000000000001',
@@ -38,5 +44,7 @@ export function mount(prefix: string, collision = true, deleted = false) {
   const spaceHome = transport.spaceHome;
   transport.spaceHome = async () => ({ ...(await spaceHome()), pageIds });
   root = createRoot(host);
-  root.render(<RouterProvider router={createAppRouter(transport)} />);
+  root.render(
+    <RouterProvider router={createAppRouter(transport, publicPath ? 'a'.repeat(32) : undefined)} />,
+  );
 }
