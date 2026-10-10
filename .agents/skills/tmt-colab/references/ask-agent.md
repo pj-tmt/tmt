@@ -12,7 +12,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **`ask-intent.ts` (`FrozenAsk`).** Built from an `AdmittedSelection` (the trusted parent's
   admitted page/source selection; a renderer message or claimed name never is one) and a
   caller-verified `AskDestination`. It freezes the transport message
-  (`Page:`, `Link:`, `Quote:`, `Comment:`; http(s) URL without credentials) and the preview-only `deliveredMessage`, which prepends Remote's
+  (`Page:`, `Link:`, `Quote:`, `Comment:`, then an `Attachments:` block when the sent message has files: short ID, JSON-quoted name, type and size, never bytes, built by `attachmentBlock` in `thread-store.ts`; http(s) URL without credentials) and the preview-only `deliveredMessage`, which prepends Remote's
   `[remote: <deviceName>]` line. Only the unprefixed `finalBytes` are digested, signed and
   sent. New `Link:` values use the short owner URL from admitted page/catalog composition
   (`short-links.ts`); the full scope stays in the signed record. Source admission still requires

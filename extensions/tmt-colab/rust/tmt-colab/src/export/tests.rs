@@ -513,6 +513,95 @@ fn comments_follow_the_shared_sequence_order_whatever_the_stored_key_order() {
         }
     }
 }
+#[test]
+fn a_live_comment_lists_its_files_by_metadata_and_a_comment_without_files_is_unchanged() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/discussion-v1.json"
+    ))
+    .unwrap();
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../contracts/vectors/attachment-v1.json"
+    ))
+    .unwrap();
+    let case = corpus["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "message-asset")
+        .unwrap();
+    let descriptor: serde_json::Value =
+        serde_json::from_str(case["input"].as_str().unwrap()).unwrap();
+    let (space, page) = (
+        descriptor["space"].as_str().unwrap(),
+        descriptor["page"].as_str().unwrap(),
+    );
+    let writer = descriptor["source"]["writerId"].as_str().unwrap();
+    let message = descriptor["source"]["messageId"].as_str().unwrap();
+    let mut thread = fixture["thread"].clone();
+    thread["senderDevice"] = writer.into();
+    thread["spaceId"] = space.into();
+    thread["pageId"] = page.into();
+    let mut listed = fixture["comment"].clone();
+    listed["senderDevice"] = writer.into();
+    listed["spaceId"] = space.into();
+    listed["pageId"] = page.into();
+    listed["messageId"] = message.into();
+    listed["thread"]["writer"] = writer.into();
+    listed["attachments"] = serde_json::json!([descriptor]);
+    let mut plain = listed.clone();
+    plain["messageId"] = "00000000-0000-4000-8000-0000000000b2".into();
+    plain.as_object_mut().unwrap().remove("attachments");
+    let mut roots = serde_json::json!({"threads":{},"messages":{},"intents":{},"replies":{}});
+    let thread_key = format!("{}:1", thread["threadId"].as_str().unwrap());
+    roots["threads"][thread_key] = thread;
+    roots["messages"][format!("{message}:1")] = listed;
+    let plain_key = format!("{}:1", plain["messageId"].as_str().unwrap());
+    roots["messages"][plain_key] = plain;
+    let own = std::collections::BTreeMap::from([(writer.to_string(), roots)]);
+    let keys = std::collections::BTreeMap::from([(writer.to_string(), [0; 32])]);
+    let scope = conversations::Capture {
+        space_id: space,
+        page_id: page,
+        title: "Files",
+        epoch: "1",
+        head: conversations::Head {
+            revision: "1".into(),
+            statement_hash: "00".repeat(32),
+        },
+    };
+    let result = conversations::threads(&scope, &own, &keys, &Default::default());
+    let comments = &result[0].comments;
+    assert_eq!(comments.len(), 2);
+    let json = serde_json::to_value(comments).unwrap();
+    let with = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == message)
+        .unwrap();
+    assert_eq!(
+        with["attachments"],
+        serde_json::json!([{
+            "id": descriptor["attachmentId"],
+            "name": descriptor["filename"],
+            "mediaType": descriptor["mediaType"],
+            "sizeBytes": descriptor["plaintextBytes"].as_str().unwrap().parse::<u64>().unwrap(),
+        }])
+    );
+    let without = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] != message)
+        .unwrap();
+    assert!(without.get("attachments").is_none());
+    let reading =
+        conversations::Conversations::project(scope, &own, &keys, &Default::default()).markdown();
+    assert!(reading.contains(&format!(
+        "- Attachment: {} ",
+        descriptor["attachmentId"].as_str().unwrap()
+    )));
+}
 fn nested_bundle() -> Bundle {
     let names = [
         "page.html",

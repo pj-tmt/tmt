@@ -1728,6 +1728,32 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
             .unwrap(),
         b"original attachment bytes"
     );
+    // The same page names the attachment by an ID prefix: the exact reference the read takes.
+    let by_prefix = attachments::resolve(
+        &store,
+        &key,
+        PAGE,
+        &ATTACHMENT[..8],
+        &mut decoder,
+        deadline(),
+    )
+    .unwrap();
+    assert_eq!(by_prefix, selector());
+    for refused in [&ATTACHMENT[..7], "zzzzzzzz", "ffffffff"] {
+        let code = attachments::resolve(&store, &key, PAGE, refused, &mut decoder, deadline())
+            .unwrap_err()
+            .downcast_ref::<page::Fault>()
+            .map(page::Fault::code);
+        assert_eq!(
+            code,
+            Some(if refused == "ffffffff" {
+                "COLAB_STATE_MISSING"
+            } else {
+                "COLAB_INPUT_INVALID"
+            }),
+            "{refused}"
+        );
+    }
     let head = store
         .owner_head(&key.space_id, &key.owner_public())
         .unwrap()

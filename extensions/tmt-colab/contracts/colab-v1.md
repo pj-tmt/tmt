@@ -104,8 +104,17 @@ existing `changed` or `unavailable` state.
 The owner browser's shared composer can attach files to a Chat, annotation or reply
 message. Picking, pasting or dropping only adds an inert local chip: nothing is stored,
 sent or prepared, an Ask is never created and the message text is neither read nor
-replaced. The explicit Send is the first effect. A message still needs text; attachments
-are never part of an Ask payload, so a mentioned agent receives the text alone.
+replaced. The explicit Send is the first effect. A message still needs text. Attachment bytes are
+never part of an Ask payload; the frozen message lists their metadata (#2464): after the comment
+text, a blank line and `Attachments:`, then one line per file of the sent message in its own order,
+`- <first 8 hex of the attachment ID> <name as a JSON string> (<media type>, <n> bytes)`, then
+`Read one: tmt colab attachment read <full page ID> <id>`. The name is untrusted text: it is JSON-quoted
+and the invisible and direction-changing characters U+00AD, U+200B-200F, U+2028-202E, U+2060-206F and
+U+FEFF are written as `\uXXXX`, so it cannot open a line or a section. No bytes, keys, seeds or object
+references appear. A message without files, or a deleted one, adds nothing, so its frozen bytes are
+unchanged. Earlier user turns of a Chat conversation list their files the same way, without the `Read
+one` line, inside their `User (...)` block. The block is part of the signed final bytes (see
+`vectors/send-preview-v1.json`, `withAttachments`) and counts against the composed-message cap.
 
 Limits are the consumer limits above: 8 MiB per file, 16 per message, the backend
 `config` payload bound when lower, and filenames shortened to 255 UTF-8 bytes with
@@ -3321,14 +3330,21 @@ Both build the same rows and `manifest.json` bytes (`vectors/export-v1.json`); t
 published is the three page files, the included attachments in row order, then the manifest.
 Archived and deleted pages stay denied as above.
 
-### Attachment read command (#1867)
+### Attachment read command (#1867, #2464)
 
-`tmt colab attachment read <page> --reference <file> [--output <directory>] [--json]` writes one
+`tmt colab attachment read <page> (<attachment> | --reference <file>) [--output <directory>] [--json]` writes one
 attachment into a new private UUID-named subdirectory of `--output` (default: the current
 directory), created the way export creates its directory: `attachment.bin` then
 `manifest.json` last, regular 0600 files in a 0700 directory, no symlinks, no replacement,
 only its own staging cleaned. `--reference` is the exact `reference` of an export manifest row
-(at most 2 KiB). The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
+(at most 2 KiB). `<attachment>` is an attachment ID or a prefix of at least 8 hex characters (an
+Ask lists the first 8; `tmt colab threads --json` the full ID). The CLI resolves it in the verified
+local view to the exact reference, among live message attachments (the latest, undeleted revision of
+the message, in the current epoch or the earlier-epoch window a message read searches) and, in the
+current epoch, the page's document attachments; no match is `COLAB_STATE_MISSING`, a malformed or
+too short prefix or one matching more than one file is `COLAB_INPUT_INVALID`, and it never guesses.
+The read itself is then unchanged, so a revoked or ended access, a moved epoch or a deleted message
+reads as unavailable; the manifest records the resolved reference. The manifest is `{format:"tmt-colab-attachment-read", version:1, pageId,
 reference, file:{name,sizeBytes,sha256}}`; the result lists the directory, files, size and
 digest and never the bytes. Authority is the owner-only socket of this data root, not a
 caller-named agent or device: the serve checks the reference against the current page, access
@@ -3480,11 +3496,16 @@ newline):
  membershipHead:{revision, statementHash},
  threads:[{writer, id, revision, anchor:null|{exact,prefix,suffix}, resolved, deleted,
            deviceName, at,
-           comments:[{writer, id, revision, sequence, deleted, body, deviceName, at}]}],
+           comments:[{writer, id, revision, sequence, deleted, body, deviceName, at[, attachments]}]}],
  asks:[{writer, operationId, deviceName, agentName, agent, machine, thread, messageIds,
         issuedAt, expiresAt, message, state, reason, requestId,
         reply:null|{requestId, agentId, body}}]}
 ```
+
+A live comment with files carries `attachments:[{id, name, mediaType, sizeBytes}]` (full attachment
+ID, the descriptor's label and media type, plaintext size as a JSON integer) in its descriptor order, and
+`conversations.md` lists each as `- Attachment: <id> <name as a code span> (<type>, <n> bytes)` after
+`Revision`; a comment without files has neither, so its bytes are unchanged.
 
 `membershipHead.statementHash` is lowercase hex, like the manifest. `at` is the stored
 decimal string; `issuedAt` and `expiresAt` are JSON integers. A thread with an effective

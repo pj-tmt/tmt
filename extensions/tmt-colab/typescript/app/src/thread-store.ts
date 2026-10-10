@@ -495,8 +495,32 @@ export function commentForAsk(threads: ThreadView[], context: CommentContext) {
     thread: thread.threadId,
     messageIds: [comment.messageId],
     quote: thread.anchor?.exact ?? '',
-    comment: comment.body,
+    comment: `${comment.body}${attachmentBlock(comment, true)}`,
   };
+}
+
+// Invisible and direction-changing characters JSON quoting leaves as they are.
+const INVISIBLE = /[\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g;
+/** What an agent is told about a message's files (#2464): name, type, size and a short ID,
+ * never bytes. A name is untrusted text, so it is JSON-quoted with invisible characters
+ * escaped and cannot open a line or a section. `read` adds the one command that fetches one. */
+export function attachmentBlock(comment: CommentView, read = false) {
+  const files = comment.deleted ? [] : (comment.attachments ?? []);
+  if (!files.length) return '';
+  const rows = files.map((file) => {
+    const name = JSON.stringify(file.filename).replace(
+      INVISIBLE,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    );
+    return `- ${file.attachmentId.slice(0, 8)} ${name} (${file.mediaType}, ${file.plaintextBytes} bytes)`;
+  });
+  return [
+    '',
+    '',
+    'Attachments:',
+    ...rows,
+    ...(read ? [`Read one: tmt colab attachment read ${comment.pageId} <id>`] : []),
+  ].join('\n');
 }
 
 /** Context comes only from the admitted discussion and verified Ask projections.
@@ -557,7 +581,7 @@ export function conversationText(
           ask.reply !== undefined,
       );
       return [
-        `User (${comment.deviceName || comment.ref.writer}):\n${comment.body}`,
+        `User (${comment.deviceName || comment.ref.writer}):\n${comment.body}${attachmentBlock(comment)}`,
         ...replies.map((ask) => `Agent (${ask.agentName}):\n${ask.reply}`),
       ].join('\n\n');
     });

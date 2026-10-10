@@ -27,10 +27,7 @@ def b64(value):
     return base64.urlsafe_b64encode(value).decode().rstrip("=")
 
 
-def vector():
-    # Exact controls/Unicode are intentional fixture data, not repository prose.
-    message = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n"
-               "<script>untrusted()</script>\r\n😀\0\u202e\n\nComment:\nKeep ! and café exact")
+def signed(message):
     final = message.encode("utf-8")
     final_digest = hashlib.sha256(final).digest()
     issued, validity = 1791004000000, 3600000
@@ -40,10 +37,22 @@ def vector():
     canonical = b"".join(lp(value) for value in fields)
     seed = bytes.fromhex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
     key = Ed25519PrivateKey.from_private_bytes(seed)
-    return {"provenance": "Independent Python LP/SHA-256/cryptography Ed25519; RFC 8032 test 1 seed",
-            "seed": seed.hex(), "publicKey": key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex(),
+    return {"seed": seed.hex(), "publicKey": key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex(),
             "issuedAt": issued, "validityMs": validity, "finalBytes": b64(final),
             "finalDigest": b64(final_digest), "input": b64(canonical), "signature": b64(key.sign(canonical))}
+
+
+def vector():
+    # Exact controls/Unicode are intentional fixture data, not repository prose.
+    message = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n"
+               "<script>untrusted()</script>\r\n😀\0\u202e\n\nComment:\nKeep ! and café exact")
+    # #2464: a message with files lists metadata only after its text. The name is quoted text.
+    listed = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n\n\nComment:\n"
+              "Summarize the file\n\nAttachments:\n"
+              "- 12345678 \"plan \\\"v2\\\"\\u202e.txt\" (text/plain, 12 bytes)\n"
+              "Read one: tmt colab attachment read " + uid(1) + " <id>")
+    return {"provenance": "Independent Python LP/SHA-256/cryptography Ed25519; RFC 8032 test 1 seed",
+            **signed(message), "withAttachments": {"message": listed, **signed(listed)}}
 
 
 if __name__ == "__main__":

@@ -391,6 +391,145 @@ fn capture_read(
     admitted.recheck(store, key)?;
     Ok(admitted)
 }
+/// The exact selectors in one view whose attachment ID starts with `prefix` (#2464): live message
+/// attachments at their latest, undeleted revision, and, in the current epoch, the page's
+/// document attachments. This only finds a reference; the read still verifies everything.
+fn matching(
+    own: &std::collections::BTreeMap<String, Value>,
+    meta: &Value,
+    prefix: &str,
+    space: &str,
+    page: &str,
+    epoch: u64,
+    page_revision: Option<&str>,
+) -> Result<Vec<AttachmentSelector>> {
+    let mut found = Vec::new();
+    let hits = |list: &Value| -> Result<Vec<Descriptor>> {
+        let mut out = Vec::new();
+        for value in list.as_array().into_iter().flatten() {
+            let d = Descriptor::from_json(&serde_json::to_vec(value)?)?;
+            if d.attachment_id.starts_with(prefix) && d.space == space && d.page == page {
+                out.push(d);
+            }
+        }
+        Ok(out)
+    };
+    if let (Some(revision), Some(list)) = (page_revision, meta.get("attachments")) {
+        for d in hits(list)? {
+            found.push(AttachmentSelector::DocumentCurrent {
+                attachment_id: d.attachment_id.clone(),
+                descriptor_hash: hex(&d.hash()?),
+                content_revision: revision.to_owned(),
+            });
+        }
+    }
+    let epoch = epoch.to_string();
+    for (writer, roots) in own {
+        let Some(messages) = roots["messages"].as_object() else {
+            continue;
+        };
+        // The latest revision of each message decides whether it is still live.
+        let mut latest: std::collections::BTreeMap<&str, (u64, &Value)> = Default::default();
+        for message in messages.values() {
+            if message["kind"] != "comment" || message["senderDevice"] != *writer {
+                continue;
+            }
+            let (Some(id), Some(rev)) = (
+                message["messageId"].as_str(),
+                message["revision"]
+                    .as_str()
+                    .and_then(|r| values::decimal(r, false).ok()),
+            ) else {
+                continue;
+            };
+            if latest.get(id).is_none_or(|(seen, _)| *seen < rev) {
+                latest.insert(id, (rev, message));
+            }
+        }
+        for (id, (rev, message)) in latest {
+            if message["deleted"] != false
+                || message["spaceId"] != space
+                || message["pageId"] != page
+                || message["epoch"].as_str() != Some(epoch.as_str())
+            {
+                continue;
+            }
+            let Some(list) = message.get("attachments") else {
+                continue;
+            };
+            for d in hits(list)? {
+                found.push(AttachmentSelector::Message {
+                    writer_id: writer.clone(),
+                    message_id: id.to_owned(),
+                    message_revision: rev.to_string(),
+                    attachment_id: d.attachment_id.clone(),
+                    descriptor_hash: hex(&d.hash()?),
+                });
+            }
+        }
+    }
+    Ok(found)
+}
+/// Resolve an attachment ID, or an unambiguous prefix of at least 8 hex characters, against the
+/// current verified page and the same earlier-epoch window `capture_read` searches. The result is
+/// the exact reference `attachment read --reference` takes, so the serve's read, with its access
+/// and epoch checks, is unchanged. No match is `Missing`; more than one is `Invalid`.
+pub fn resolve(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    prefix: &str,
+    decoder: &mut Decoder,
+    deadline: Instant,
+) -> Result<AttachmentSelector> {
+    use page::Fault;
+    if prefix.len() < 8
+        || prefix.len() > 36
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
+    {
+        return Err(Fault::Invalid.into());
+    }
+    remaining(deadline)?;
+    let current = Snapshot::capture_read(store, key, page, None)?;
+    let current_revision = revision(key, page, &current)?;
+    let epoch = current.epoch;
+    let view = current.materialize_until(key, page, decoder, deadline)?;
+    let mut found = matching(
+        &view.own,
+        &view.meta,
+        prefix,
+        &key.space_id,
+        page,
+        epoch,
+        Some(&current_revision),
+    )?;
+    if found.is_empty() {
+        for old in (epoch.saturating_sub(63).max(1)..epoch).rev() {
+            remaining(deadline)?;
+            let snapshot = Snapshot::capture_read(store, key, page, Some(old))?;
+            let view = snapshot.materialize_until(key, page, decoder, deadline)?;
+            found = matching(
+                &view.own,
+                &view.meta,
+                prefix,
+                &key.space_id,
+                page,
+                old,
+                None,
+            )?;
+            if !found.is_empty() {
+                break;
+            }
+        }
+    }
+    match found.len() {
+        0 => Err(Fault::Missing.into()),
+        1 => Ok(found.remove(0)),
+        _ => Err(Fault::Invalid.into()),
+    }
+}
 /// Before object allocation, bind an upload to the actual mounted writer and
 /// the authenticated target base. This admits no receipt or publication: the
 /// complete committed envelope still has to be verified by the consumer.
@@ -521,5 +660,134 @@ pub fn prepare_publication(
 impl Drop for AdmittedAttachmentRead {
     fn drop(&mut self) {
         self.snapshot.secret.fill(0);
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    const WRITER: &str = "00000000-0000-4000-8000-000000000004";
+    fn descriptor() -> Descriptor {
+        let corpus: Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/attachment-v1.json"
+        ))
+        .unwrap();
+        let case = corpus["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "message-asset")
+            .unwrap();
+        Descriptor::from_json(case["input"].as_str().unwrap().as_bytes()).unwrap()
+    }
+    fn message(d: &Descriptor, id: &str, revision: &str, deleted: bool, epoch: &str) -> Value {
+        let mut value = json!({
+            "kind": "comment", "senderDevice": WRITER, "messageId": id, "revision": revision,
+            "deleted": deleted, "spaceId": d.space, "pageId": d.page, "epoch": epoch,
+        });
+        if !deleted {
+            value["attachments"] =
+                json!([serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()]);
+        }
+        value
+    }
+    fn own(messages: Vec<Value>) -> BTreeMap<String, Value> {
+        let map: serde_json::Map<String, Value> = messages
+            .into_iter()
+            .map(|m| {
+                (
+                    format!(
+                        "{}:{}",
+                        m["messageId"].as_str().unwrap(),
+                        m["revision"].as_str().unwrap()
+                    ),
+                    m,
+                )
+            })
+            .collect();
+        BTreeMap::from([(WRITER.to_owned(), json!({ "messages": map }))])
+    }
+    fn find(
+        own: &BTreeMap<String, Value>,
+        d: &Descriptor,
+        prefix: &str,
+    ) -> Vec<AttachmentSelector> {
+        matching(own, &Value::Null, prefix, &d.space, &d.page, 1, None).unwrap()
+    }
+
+    #[test]
+    fn a_prefix_finds_the_exact_reference_of_a_live_message_attachment() {
+        let d = descriptor();
+        let m1 = "00000000-0000-4000-8000-0000000000a1";
+        let found = find(
+            &own(vec![message(&d, m1, "1", false, "1")]),
+            &d,
+            &d.attachment_id[..8],
+        );
+        assert_eq!(
+            found,
+            vec![AttachmentSelector::Message {
+                writer_id: WRITER.into(),
+                message_id: m1.into(),
+                message_revision: "1".into(),
+                attachment_id: d.attachment_id.clone(),
+                descriptor_hash: hex(&d.hash().unwrap()),
+            }]
+        );
+        assert!(find(&own(vec![message(&d, m1, "1", false, "1")]), &d, "ffffffff").is_empty());
+    }
+    #[test]
+    fn a_deleted_message_a_foreign_epoch_and_a_foreign_page_never_resolve() {
+        let d = descriptor();
+        let m1 = "00000000-0000-4000-8000-0000000000a1";
+        let deleted = own(vec![
+            message(&d, m1, "1", false, "1"),
+            message(&d, m1, "2", true, "1"),
+        ]);
+        assert!(find(&deleted, &d, &d.attachment_id[..8]).is_empty());
+        let other_epoch = own(vec![message(&d, m1, "1", false, "2")]);
+        assert!(find(&other_epoch, &d, &d.attachment_id[..8]).is_empty());
+        let live = own(vec![message(&d, m1, "1", false, "1")]);
+        assert!(
+            matching(
+                &live,
+                &Value::Null,
+                &d.attachment_id[..8],
+                &d.space,
+                "00000000-0000-4000-8000-0000000000ff",
+                1,
+                None
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+    #[test]
+    fn two_messages_listing_one_id_are_ambiguous_and_a_document_needs_the_current_revision() {
+        let d = descriptor();
+        let found = find(
+            &own(vec![
+                message(&d, "00000000-0000-4000-8000-0000000000a1", "1", false, "1"),
+                message(&d, "00000000-0000-4000-8000-0000000000a2", "1", false, "1"),
+            ]),
+            &d,
+            &d.attachment_id[..8],
+        );
+        assert_eq!(found.len(), 2);
+        let meta = json!({ "attachments": [serde_json::from_slice::<Value>(&d.to_json().unwrap()).unwrap()] });
+        let none = BTreeMap::new();
+        let id = &d.attachment_id[..8];
+        assert!(
+            matching(&none, &meta, id, &d.space, &d.page, 1, None)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(matches!(
+            matching(&none, &meta, id, &d.space, &d.page, 1, Some("v1:r")).unwrap()[..],
+            [AttachmentSelector::DocumentCurrent { .. }]
+        ));
     }
 }

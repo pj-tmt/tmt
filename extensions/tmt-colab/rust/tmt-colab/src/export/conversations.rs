@@ -24,6 +24,16 @@ pub struct Anchor {
     pub prefix: String,
     pub suffix: String,
 }
+/// What a reader of a conversation needs to name and fetch one attached file (#2464): never bytes.
+/// `id` is the full attachment ID that `attachment read` takes (a prefix of 8 or more also works).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentRow {
+    pub id: String,
+    pub name: String,
+    pub media_type: String,
+    pub size_bytes: u64,
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
@@ -36,6 +46,8 @@ pub struct Comment {
     pub body: String,
     pub device_name: String,
     pub at: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<AttachmentRow>,
 }
 impl Comment {
     /// The one comment order shared with the browser: Lamport sequence, then writer and ID
@@ -129,6 +141,25 @@ fn sequence(value: &Value) -> u64 {
     text(value, "sequence")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0)
+}
+/// The file listing of a live comment's descriptors; a malformed entry is skipped, never guessed.
+fn attachment_rows(record: &Value) -> Vec<AttachmentRow> {
+    if record["deleted"] == true {
+        return Vec::new();
+    }
+    record["attachments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| {
+            Some(AttachmentRow {
+                id: owned(d, "attachmentId")?,
+                name: owned(d, "filename")?,
+                media_type: owned(d, "mediaType")?,
+                size_bytes: text(d, "plaintextBytes")?.parse().ok()?,
+            })
+        })
+        .collect()
 }
 fn pair(value: &Value) -> Option<(&str, &str)> {
     Some((text(value, "writer")?, text(value, "id")?))
@@ -311,6 +342,7 @@ pub(crate) fn threads(
                         body: owned(record, "body").unwrap_or_default(),
                         device_name,
                         at,
+                        attachments: attachment_rows(record),
                     },
                 ));
             }
@@ -631,6 +663,17 @@ impl Conversations {
                         comment.writer
                     ),
                     format!("- Revision: {}", comment.revision),
+                ]);
+                for file in &comment.attachments {
+                    lines.push(format!(
+                        "- Attachment: {} {} ({}, {} bytes)",
+                        file.id,
+                        code_span(&file.name),
+                        file.media_type,
+                        file.size_bytes
+                    ));
+                }
+                lines.extend([
                     String::new(),
                     if comment.deleted {
                         "Deleted.".into()
