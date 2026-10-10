@@ -204,7 +204,7 @@ fn grammar() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .arg(Arg::new("json").long("json").global(true)
-            .action(ArgAction::SetTrue).help("Print one JSON document"))
+            .action(ArgAction::SetTrue).help("Output one JSON document"))
         .subcommand(squad)
         .subcommand(board_switch::grammar())
         .subcommand(
