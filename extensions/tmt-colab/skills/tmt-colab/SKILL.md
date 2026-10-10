@@ -23,12 +23,12 @@ do not bypass it or send a duplicate request.
 
 Do not change provider or TMT configuration to get past a refusal. Give page
 links only to the requested recipient. Read-only sharing links contain a bearer
-seed; do not create or disclose them as a workaround for pairing.
+seed; never create or disclose them to bypass pairing.
 
 ## Set up a page
 
-Check both extensions with `--help`. Explain missing dependencies; install only
-with user consent:
+Check both extensions with `--help`. Explain what is missing; install only with
+consent:
 
 ```sh
 tmt extension install remote --yes
@@ -51,7 +51,7 @@ Stopping Colab stops only its own door; `tmt remote status --json` inspects it.
 
 If pairing is needed, ask the user to run `tmt remote pair`, open its link in the
 browser they intend to use, compare the four words with the terminal and confirm
-there themselves. Wait for their confirmation; never answer that prompt for them.
+there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
 Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file:
@@ -104,8 +104,8 @@ tmt colab page create --title "Weekly plan" --file EXPORTED_DIRECTORY/page.html 
 ```
 
 Use the export directory the first command returns, not its parent.
-Exports are unencrypted and include discussions; keep them private to the task. The new page has a new identity and does not inherit the old
-page's discussions or sharing. Do not delete the original to clear a limit.
+Exports are unencrypted and include discussions; keep them private to the task. The new page has a new identity and inherits no discussions or
+sharing. Do not delete the original to clear a limit.
 
 ## Page look
 
@@ -293,7 +293,7 @@ A request with files ends in an `Attachments:` list (short ID, quoted untrusted
 name, type, size; never bytes). Fetch one with `tmt colab attachment read PAGE ID
 --json` (older messages: IDs in `threads`). It writes an unencrypted copy to a
 private temp directory, never your working directory, and prints its `path`
-(`.png`, `.pdf` or `.bin`, by verified type). Read that file, delete its
+named by its verified type, for example `.png` or `.pdf`; unlisted types use `.bin`. Read that file, delete its
 directory when done, keep it private and never run it.
 
 ## Read and change thread status
