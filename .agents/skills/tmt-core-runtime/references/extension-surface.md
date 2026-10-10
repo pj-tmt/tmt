@@ -28,7 +28,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
 
 - PATH enumeration happens only for root help, root completion and unknown-command
   suggestions; exact dispatch probes one filename. `tmt help <extension>` runs
-  `tmt-<extension> --help`.
+  `tmt-<extension> --help`; `tmt help <extension> <tail...>` forwards `<tail...> --help`.
+  Tail flags, including `--json`, belong to the extension; Core names and aliases stay reserved.
 - Completion v1 (`__complete`) runs through the bounded process owner with a one-second
   deadline and 64 KiB bound; shells quote candidates and never evaluate them.
 

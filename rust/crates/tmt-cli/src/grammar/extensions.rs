@@ -18,12 +18,14 @@ pub fn reserved(definition: &Command) -> BTreeSet<String> {
 pub fn candidate(definition: &Command, argv: &[OsString]) -> Option<Result<Parsed, ParseError>> {
     let names = reserved(definition);
     let first = argv.first()?.to_str()?;
-    let selection = if first == "help" && argv.len() == 2 {
+    let selection = if first == "help" && argv.len() >= 2 {
         let name = argv[1].to_str()?;
         if names.contains(name) || !valid_extension_name(name) {
             return None;
         }
-        (name.to_owned(), vec!["--help".into()], true, vec![])
+        let mut args = argv[2..].to_vec();
+        args.push("--help".into());
+        (name.to_owned(), args, true, vec![])
     } else if names.contains(first) {
         return None;
     } else if valid_extension_name(first) {
@@ -96,6 +98,7 @@ mod tests {
         for name in ["office", "run", "this", "ls", "__complete"] {
             assert!(names.contains(name), "{name}");
             assert!(parse(&[name, "--help"]).is_none());
+            assert!(parse(&["help", name, "child"]).is_none());
         }
     }
 
@@ -144,9 +147,39 @@ mod tests {
     }
 
     #[test]
+    fn external_help_tail_is_opaque_and_appends_help() {
+        let tail = vec![
+            "child".into(),
+            "--json".into(),
+            "--".into(),
+            OsString::from_vec(vec![0xff]),
+            "".into(),
+        ];
+        let words = [OsString::from("help"), "example".into()]
+            .into_iter()
+            .chain(tail.clone())
+            .collect::<Vec<_>>();
+        let mut expected = tail;
+        expected.push("--help".into());
+        assert_eq!(
+            candidate(&crate::grammar::grammar(), &words)
+                .unwrap()
+                .unwrap()
+                .invocation,
+            Invocation::Extension {
+                name: "example".into(),
+                args: expected,
+                help: true,
+                prefix: vec![]
+            }
+        );
+    }
+
+    #[test]
     fn invalid_names_keep_core_errors_and_root_options_are_not_forwarded() {
         for name in ["../x", "Office", "a.b", "-example"] {
             assert!(parse(&[name]).is_none(), "{name}");
+            assert!(parse(&["help", name, "child"]).is_none(), "{name}");
         }
         assert_eq!(
             parse(&["--json", "example", "x"])

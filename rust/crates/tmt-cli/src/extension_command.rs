@@ -37,7 +37,11 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
         return Ok(1);
     }
     let original: Vec<OsString> = if help {
-        vec!["help".into(), name.into()]
+        // The candidate appends --help; restore the user's original help tail.
+        [OsString::from("help"), name.into()]
+            .into_iter()
+            .chain(args.iter().take(args.len().saturating_sub(1)).cloned())
+            .collect()
     } else {
         prefix
             .iter()
