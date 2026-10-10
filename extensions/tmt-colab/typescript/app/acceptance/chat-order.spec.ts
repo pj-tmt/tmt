@@ -50,9 +50,8 @@ test('Chat comments keep one causal order live, after reload, on another device 
       // Submission order is the order of the operations' own message IDs.
       const submitted = sent.map(
         (operationId) =>
-          conversations.asks.find(
-            (ask: { operationId: string }) => ask.operationId === operationId,
-          ).messageIds[0],
+          conversations.asks.find((ask: { operationId: string }) => ask.operationId === operationId)
+            .messageIds[0],
       );
       const [thread] = conversations.threads;
       expect(thread.comments.map((comment: { id: string }) => comment.id)).toEqual(submitted);
