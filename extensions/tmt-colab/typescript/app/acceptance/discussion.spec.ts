@@ -488,9 +488,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await reply2.getByRole('button', { name: 'Message actions', exact: true }).click();
     await reply2.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(t1).toContainText('Comment deleted');
-    await t1.getByRole('button', { name: 'Delete thread', exact: true }).click();
-    await expect(t2).toContainText('Deleted thread');
-    await expect(t2.getByRole('combobox')).toHaveCount(0);
+    await expect(t1.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
+    await expect(t2.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
+    await expect(t2.getByRole('combobox')).toBeVisible();
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first
       .getByRole('combobox', { name: 'Post comment', exact: true })
@@ -499,14 +499,14 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(first.getByTestId('annotation-row')).toHaveCount(2);
     await first.reload();
     await comments(first);
-    await first.getByTestId('annotation-row').filter({ hasText: 'Deleted thread' }).click();
+    await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await expect(first.getByTestId('comment-thread')).toHaveAttribute('data-thread-id', threadId);
     await expect(first.getByTestId('comment-thread')).toContainText('Comment deleted');
     await restartColab(world, door);
     await second.reload();
     await comments(second);
     await expect(second.getByTestId('annotation-row')).toHaveCount(2);
-    await second.getByTestId('annotation-row').filter({ hasText: 'Deleted thread' }).click();
+    await second.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     await expect(second.getByTestId('comment-thread')).toContainText('Comment deleted');
     await expect(
       second.getByTestId('comment-thread').getByTestId('ask-reply').first(),

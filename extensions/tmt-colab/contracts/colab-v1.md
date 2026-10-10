@@ -902,8 +902,9 @@ signed send input, its signature and frozen final bytes. Replies contain the
 operation correlation, ledger state and bounded core-final copy. Deletions are
 writer-owned tombstones; references to another writer's thread do not permit
 changing that thread's ownership or messages. Local v1 allows currently admitted owner devices to comment and reply, but only
-the originating device may edit/delete its messages or resolve, reopen, reattach
-and delete its threads. Cross-writer editor resolution remains planned; it
+the originating device may edit/delete its messages or resolve, reopen and reattach
+its threads. The browser offers no whole-thread deletion; retained thread tombstones
+still read normally. Cross-writer editor resolution remains planned; it
 requires authenticated action provenance and a defined conflict order.
 
 ### Implemented raw own fold (#1264)

@@ -51,7 +51,7 @@ for (const width of [1440, 390])
           ),
         );
       };
-      for (const state of ['open', 'agent', 'person', 'disabled']) {
+      for (const state of ['open', 'agent', 'person', 'disabled', 'chat', 'deleted']) {
         await run(page, 'mountWindow', `capture-${state}`);
         await expect(window).toBeVisible();
         const title = window.locator('.thread-state');
@@ -60,7 +60,9 @@ for (const width of [1440, 390])
             ? 'Resolved by Release coordination assistant'
             : state === 'person'
               ? 'Resolved'
-              : 'Open',
+              : state === 'deleted'
+                ? 'Deleted thread'
+                : 'Open',
         );
         if (!before) {
           const actions = window.locator('.thread-bar-actions');
@@ -70,23 +72,38 @@ for (const width of [1440, 390])
           expect(
             Math.abs(titleRect.y + titleRect.height / 2 - actionRect.y - actionRect.height / 2),
           ).toBeLessThan(2);
-          await expect(actions.locator('button')).toHaveCount(2);
+          await expect(actions.locator('button')).toHaveCount(
+            state === 'chat' || state === 'deleted' ? 1 : 2,
+          );
           for (const button of await actions.locator('button').all())
             await expect(button).toHaveClass(/tmt-ui-icon-action-control/);
           expect(await actions.locator('button[title]').count()).toBe(0);
           await expect(
             window.getByRole('button', { name: 'Delete thread', exact: true }),
-          ).toHaveAttribute('data-variant', 'text');
-          await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute(
-            'data-variant',
-            'primary',
+          ).toHaveCount(0);
+          if (state !== 'deleted')
+            await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveAttribute(
+              'data-variant',
+              'primary',
+            );
+        }
+        if (state === 'deleted') {
+          await expect(window).toContainText(
+            'Keep the conversation beside the selected page text.',
           );
-          const label = window
-            .getByRole('button', { name: 'Delete thread', exact: true })
-            .locator('.tmt-ui-action-label');
-          expect(
-            Math.abs((await label.boundingBox())!.x - (await title.boundingBox())!.x),
-          ).toBeLessThan(1);
+          await expect(window.getByRole('combobox')).toHaveCount(0);
+          await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
+          await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toHaveCount(0);
+          expect(await run(page, 'windowProof')).toEqual({ statusCalls: 0, closes: 0 });
+        } else if (state === 'disabled') {
+          await expect(
+            window.getByRole('button', { name: 'Message actions', exact: true }),
+          ).toBeDisabled();
+        } else {
+          await window.getByTestId('comment-entry').hover();
+          await window.getByRole('button', { name: 'Message actions', exact: true }).click();
+          await expect(window.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+          await page.keyboard.press('Escape');
         }
         await capture(state);
         if (state === 'open') {
@@ -120,7 +137,7 @@ for (const width of [1440, 390])
           await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
           await expect(
             window.getByRole('button', { name: 'Delete thread', exact: true }),
-          ).toBeDisabled();
+          ).toHaveCount(0);
           expect(await run(page, 'windowProof')).toEqual({ statusCalls: 0, closes: 0 });
         }
       }
@@ -152,9 +169,9 @@ for (const width of [1440, 390])
       await expect(
         window.getByRole('button', { name: 'Close thread', exact: true }),
       ).toBeDisabled();
-      await expect(
-        window.getByRole('button', { name: 'Delete thread', exact: true }),
-      ).toBeDisabled();
+      await expect(window.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(
+        0,
+      );
       if (!before)
         await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toHaveAttribute(
           'aria-busy',

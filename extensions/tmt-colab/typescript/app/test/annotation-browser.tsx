@@ -300,11 +300,14 @@ export function mountWindow(mode = 'ready') {
     senderDevice: id(4),
     deviceName: 'Browser',
     revision: '1',
-    deleted: false,
+    deleted: mode === 'capture-deleted',
     at: '1',
-    threadId: id(2),
-    ref: { writer: id(4), id: id(2) },
-    anchor: { exact: 'Frozen original quote', prefix: '', suffix: '' },
+    threadId: mode === 'capture-chat' ? id(4) : id(2),
+    ref: { writer: id(4), id: mode === 'capture-chat' ? id(4) : id(2) },
+    anchor:
+      mode === 'capture-chat' || mode === 'capture-deleted'
+        ? null
+        : { exact: 'Frozen original quote', prefix: '', suffix: '' },
     resolved: mode === 'capture-agent' || mode === 'capture-person',
     comments: [],
   };
@@ -313,6 +316,7 @@ export function mountWindow(mode = 'ready') {
       {
         ...thread,
         kind: 'comment',
+        deleted: false,
         messageId: id(3),
         ref: { writer: id(4), id: id(3) },
         thread: thread.ref,

@@ -570,16 +570,14 @@ for (const width of [1440, 390])
       await expect(input).toHaveAttribute('id', inputId!);
       const firstSend = await windowGeometry(continued);
       const newTurn = (await continued.getByTestId('comment-entry').boundingBox())!;
-      const threadActions = await continued
-        .locator('.conversation-message-content > .comment-actions')
-        .evaluate((node) => {
-          const style = getComputedStyle(node);
-          return (
-            node.getBoundingClientRect().height +
-            parseFloat(style.marginTop) +
-            parseFloat(style.marginBottom)
-          );
-        });
+      // The attached thread has no whole-thread action row: measure the new turn itself.
+      await expect(
+        continued.locator('.conversation-message-content > .comment-actions'),
+      ).toHaveCount(0);
+      const turnSpacing = await continued.getByTestId('comment-entry').evaluate((node) => {
+        const style = getComputedStyle(node);
+        return parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      });
       const replyLabel = (await continued.locator('.annotation-reply-label').boundingBox())!;
       const replySpacing = await continued.locator('.annotation-reply-label').evaluate((node) => {
         const style = getComputedStyle(node);
@@ -630,14 +628,14 @@ for (const width of [1440, 390])
       expect(short.composer.top - short.quote.bottom).toBeLessThanOrEqual(short.quoteSpacing + 1);
       expect(short.history.height).toBeCloseTo(short.quote.height + short.quoteSpacing * 2, 0);
       expect(firstSend.window.height - short.window.height).toBeLessThanOrEqual(
-        newTurn.height + threadActions + replyLabel.height + replySpacing + 1,
+        newTurn.height + turnSpacing + replyLabel.height + replySpacing + 1,
       );
       expect(firstSend.header).toEqual(short.header);
       expect(firstSend.quote).toEqual(short.quote);
       expect(firstSend.field.width).toBe(short.field.width);
       expect(firstSend.field.height).toBe(short.field.height);
       expect(firstSend.composer.top - short.composer.top).toBeLessThanOrEqual(
-        newTurn.height + threadActions + 1,
+        newTurn.height + turnSpacing + 1,
       );
       expect(long.scrollHeight).toBeGreaterThan(long.clientHeight);
       expect(long.window.top).toBeGreaterThanOrEqual(48);

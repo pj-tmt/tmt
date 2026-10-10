@@ -529,9 +529,14 @@ export function ThreadWindow({
           title={title}
         />
       ))}
-      {binding && thread && !thread.proposal && !thread.deleted && owned && (
-        <div className="comment-actions">
-          {tracked && !attached && (
+      {binding &&
+        thread &&
+        !thread.proposal &&
+        !thread.deleted &&
+        owned &&
+        tracked &&
+        !attached && (
+          <div className="comment-actions">
             <BrowserAction
               type="button"
               variant="text"
@@ -541,19 +546,8 @@ export function ThreadWindow({
                 if (event.isTrusted && selection) setReattach(structuredClone(selection));
               }}
             />
-          )}
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={text.threadDelete}
-            disabled={blocked}
-            busy={busy}
-            onActivate={(event) => {
-              if (event.isTrusted) action({ deleted: true });
-            }}
-          />
-        </div>
-      )}
+          </div>
+        )}
       {reattach && thread && !thread.deleted && (
         <section className="comment-compose">
           <blockquote>{reattach.exact}</blockquote>
