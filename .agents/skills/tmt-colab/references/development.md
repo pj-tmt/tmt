@@ -69,6 +69,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Export and attachment read                      | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                           |
 | Object channel and admitted attachments         | `--lib object_channel::tests`, `--test attachments`                                                                                                                  |
 | Native attach                                   | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach` |
+| Firestore declaration command and vector        | `--test deploy_declaration`, `--lib deploy_declaration`, then Remote's `-p tmt-remote --test deploy_vectors` mirror                                                  |
 
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted
   extension outcomes; they do not prove the production Remote backend route. Production
@@ -100,6 +101,38 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
   child address-space limit.
 - The `yrs` 0.28.0 pin brings `smallstr` (RUSTSEC-2026-0215, unmaintained, no fix):
   accepted as maintenance debt with decoder containment and hostile-corpus gates.
+
+## Firestore Rules emulator
+
+The Colab admission Rules (`extensions/tmt-colab/firestore/admission.rules`) are proved against the
+composed golden `contracts/vectors/deploy-declaration-v1.firestore.rules`, never the bare fragment.
+After editing the Rules or declaration: run `contracts/vectors/deploy-declaration-reference.py --write`,
+then regenerate the goldens into a staging directory with Remote's example (from `rust/`):
+
+```sh
+CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_firestore -- ../extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.json /absolute/staging
+```
+
+Review the three outputs, copy them over `deploy-declaration-v1.{firestore.rules,firestore.indexes.json,plan.json}`,
+and run the oracle without `--write`, the Colab suites above and Remote's `deploy_vectors` test.
+
+`tests/emulator/suite.mjs` has no npm dependency and no skip path: it runs only under
+`firebase emulators:exec --only firestore` (firebase-tools 15.29.0, Java 21, pins identical to Remote's). Run it
+locally in Docker in the booked slot: `scripts/dev-disk-check.sh` first (30 GiB free), one image tag per worktree,
+remove the image after the run (DEVELOPMENT's disk section). CI does not run it yet (ci-scope selects Remote's suite only).
+
+```sh
+tag=tmt-colab-rules:$(printf %s "$(basename "$PWD")" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_.-' '-')
+docker build -t "$tag" extensions/tmt-colab/rust/tmt-colab/tests/emulator
+docker run --rm --init --network none -v "$PWD/extensions/tmt-colab:/c:ro" "$tag" firebase emulators:exec --only firestore --project demo-tmt-colab --config /c/rust/tmt-colab/tests/emulator/firebase.json --non-interactive 'node --test /c/rust/tmt-colab/tests/emulator/suite.mjs'
+docker image rm "$tag"
+```
+
+Sensitivity: a negative case must fail for the intended guard only, so each case sits next to a
+positive control that differs in that one condition. After changing a guard, remove it from a copy of the
+composed golden and confirm the suite fails (the suite was checked this way for the epoch fence, open state,
+retention bound, writer role, contiguity, writer-uid binding of streams and objects, ID binding, link secret and role, membership reads, list page
+expiry, space owner and owner-path rules).
 
 ## Run it
 

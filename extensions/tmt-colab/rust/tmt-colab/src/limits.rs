@@ -4,6 +4,11 @@ use std::time::Duration;
 /// Immutable app inventory, below remote's per-reply 16 MiB cap.
 pub use crate::app_inventory::{APP_BYTES, APP_FILES};
 
+/// The largest embedded declaration or admission text: Remote's `DECLARATION_BYTES` and
+/// `DECLARATION_ARTIFACT_BYTES`, which Colab cannot import (Colab does not depend on Remote).
+pub const DECLARATION_TEXT_BYTES: usize = 64 * 1024;
+/// The strict envelope, allowing each text its worst-case sixfold JSON escaping.
+pub const DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_TEXT_BYTES + 4096;
 pub const SOCKETS: usize = 16;
 /// Owned per-generation admission workers; the dispatcher never waits on them.
 pub const OBJECT_CALLBACK_WORKERS: usize = 2;

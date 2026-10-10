@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "extension": "colab",
+  "backend": "firestore",
+  "resources": [
+    {
+      "name": "spaces",
+      "kind": "checkpoint",
+      "path": "spaces",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 1048576, "maxEntries": 256 },
+      "ttlField": null,
+      "indexes": []
+    },
+    {
+      "name": "pages",
+      "kind": "checkpoint",
+      "path": "pages",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "ttlField": null,
+      "indexes": []
+    },
+    {
+      "name": "links",
+      "kind": "checkpoint",
+      "path": "links",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "ttlField": null,
+      "indexes": []
+    },
+    {
+      "name": "members",
+      "kind": "checkpoint",
+      "path": "members",
+      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "ttlField": null,
+      "indexes": []
+    },
+    {
+      "name": "log",
+      "kind": "log",
+      "path": "log",
+      "limits": { "maxObjectBytes": 393216, "maxNamespaceBytes": 67108864, "maxEntries": 1024 },
+      "ttlField": "expiresAt",
+      "indexes": []
+    },
+    {
+      "name": "checkpoints",
+      "kind": "checkpoint",
+      "path": "checkpoints",
+      "limits": { "maxObjectBytes": 65536, "maxNamespaceBytes": 67108864, "maxEntries": 1024 },
+      "ttlField": "expiresAt",
+      "indexes": []
+    }
+  ],
+  "admission": {
+    "artifact": "firestore/admission.rules",
+    "digest": "7f1f2c877caf3689e0e0f87b663622fbe236d1592c9856efd2307b527b1afd4d",
+    "entryPoint": "colabAdmitted"
+  }
+}

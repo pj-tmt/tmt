@@ -2612,6 +2612,97 @@ still emits exactly one JSON document with the short-link fallback.
 `{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a
 damaged file reads as the default with a warning). JSON: `{open,source:"default"|"settings.json"}`.
 
+### Firestore deployment declaration
+
+`tmt colab deploy-declaration --json` is a fixed machine entry: `tmt remote deploy firestore`
+runs it through the installed `tmt`, and no person needs it, so it is hidden from help. It prints
+one line, the six-field envelope of [`remote-channel-v1.md`](../../../contracts/remote-channel-v1.md)
+in this order: `version:1`, `extension:"colab"`, `backend:"firestore"`, `declaration`,
+`declarationDigest`, `artifact`. `declaration` and `artifact` are JSON strings holding the exact
+UTF-8 texts of `extensions/tmt-colab/firestore/declaration.json` and `admission.rules`, compiled
+into the binary so the release checksum and receipt cover them; the digest is SHA-256 of the
+declaration's bytes and the declaration's `admission.digest` is SHA-256 of the Rules bytes. The
+reply is a pure function of the binary: it reads no Colab state, door, network, clock, directory
+or environment, so it works on a machine that never started Colab. A reply that cannot be
+produced (a text over 64 KiB, a digest that disagrees with the Rules, a failed write) is
+`COLAB_UNAVAILABLE`, exit 1, never `COLAB_INPUT_INVALID`: Remote reads that code as "no
+declaration" because an older Colab answers an unknown command with it. Only a malformed
+invocation, which Remote never sends, can still produce it.
+
+`contracts/vectors/deploy-declaration-v1.json` is that line byte for byte, with the composed
+goldens (`deploy-declaration-v1.firestore.rules`, `.firestore.indexes.json`, `.plan.json`) Remote's
+`compose_firestore` example writes from it. `deploy-declaration-reference.py` independently rebuilds
+the line and pins `admission.digest`; run it without `--write` to verify and with `--write` after a
+reviewed edit, then regenerate the goldens into a staging directory, review the diff and copy them.
+Remote's `deploy_vectors` test parses the vector with Remote's own owners, so either grammar
+drifting fails a build. Any change to the Rules or declaration is a visible vector, digest and
+golden change; adding attachments later is a new reviewed declaration, not a silent edit.
+
+**Tenancy.** A Firebase project may serve several homes under the one declared root `x/colab/`.
+Exactly one home deploys, because the live Rules carry that home's marker; the others are tenants.
+Owner separation is Colab's: declared paths are literal collection names, so tenancy lives in the
+document ID and fields. Every document carries `space` (and `page`, `epoch`, `stream` where they
+apply), its ID is those fields joined by `_`, and every condition looks up the admission documents
+of that same space and page. The Rules text is identical for every tenant. An emulator test proves
+that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
+IDs, a missing `space` field and queries that omit a filter.
+
+| Resource (path) | Kind       | Document ID                     | Holds                                                                                                                                              |
+| --------------- | ---------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                         | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                        |
+| `pages`         | checkpoint | `space_page`                    | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page |
+| `links`         | checkpoint | `space_page_link`               | an owner-written enrollment secret and role for a share link; holders cannot read it                                                               |
+| `members`       | checkpoint | `space_page_uid`                | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
+| `log`           | log        | `space_page_epoch_stream_seq`   | one create-only encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                            |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one create-only 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                          |
+
+There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
+cloud attachments are #2165's. The admission collections are declared ordinary resources so the
+owner-approved plan shows everything the Rules read.
+
+**What the Rules do.** Rules have no hash function and cannot verify Ed25519, so they admit
+ciphertext, never authority; clients still verify every statement, chain and envelope.
+
+- _Read_: the uid has a member row for that `space` and `page`, and the page's `expiresAt` is in
+  the future; a `get` also requires the entry's own `expiresAt`. Revoking, archiving writes,
+  advancing the epoch and deleting the page all change the one admission row each request
+  rechecks, so they take effect on the next request. Old-epoch entries stay readable by members.
+- _Append_ (`log`, `checkpoints`): create-only; `space`, `page` and `epoch` equal the page row
+  (`state` is `open`); the writer's member row is not `viewer`; the ID equals the fields it is
+  built from; the entry's `uid` is the writer's own; `seq` is at most 2^53−1 and the previous
+  `seq` of that stream exists and carries the same `uid` (`getAfter`, so a contiguous batch passes
+  and a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
+  chunk 0 of its object to carry the same `uid`; the field set and sizes are exactly those
+  declared; `expiresAt` is in the future and at most the page's `expiresAt`. Sequence zero, an
+  update and a delete are refused: owner cleanup is #2454. Commenters and bridges may write
+  checkpoints because each device seals checkpoints over its own stream (the compaction rules
+  above); the role check keeps viewers out, and clients still verify every checkpoint's signed
+  descriptor against the writer's cut.
+- _Admission rows_ (`pages`, `links`, `members`): written only by the owner uid recorded on the
+  space row. A link holder creates its own `members` row only by equality of `token` with the
+  secret in the link's row, with that link's role (the secret is separate from every content key
+  and never leaves the owner's row). It cannot update, promote or delete the row.
+
+**Stated limits.**
+
+- A space ID is first-writer-wins, so someone who knows an unused ID can squat it: an availability
+  attack, because clients verify the owner signature chain against the space ID.
+- Whoever creates `seq` 1 of a stream (or chunk 0 of an object) owns the rest of it: stream and
+  object IDs are random or content-derived, so an admitted writer can only squat one it already
+  knows before its owner writes it, an availability attack that clients detect by the signed
+  chain and freeze. The uid binds the stream to one Firebase uid; it is not the signing device.
+- A list query is admitted by membership and the page's expiry only: Firestore cannot compare an
+  entry's own `expiresAt` with `request.time` in a query, so a query can return an entry past its
+  own `expiresAt` while its page is live. Clients drop it. Physical TTL is not provisioned
+  (Remote records `not-provisioned`); expiry is enforced in Rules, and removal is cleanup.
+- Remote's current backend ceilings (12 MiB per object, 64 MiB and 1,024 entries per resource)
+  bound the declared limits; Rules cannot count entries, so they are the owner-approved plan's
+  numbers, not enforcement. Per-uid budgets are #2453 and retention policy is #2454.
+
+The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned firebase-tools,
+Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path
+and runs locally; see [references/development.md](../../../.agents/skills/tmt-colab/references/development.md#firestore-rules-emulator).
+
 ### `tmt colab stop` (#1594)
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never
@@ -2639,10 +2730,14 @@ remote's.
 
 Firestore uses Hosting, Anonymous Auth for link holders/bridge connector and
 named Google sign-in for named members, Spark by default. Rules admit uid,
-member projection and immutable link-device enrollment using the join-proof
-hash; enforce create-only scoped sequence, current epoch and expiry. No public
-mode is allowed in cloud v1. Blobs/checkpoints are chunked Firestore documents,
-without Cloud Storage or Functions. A Function may be introduced only for a
+the owner's member projection and link enrollment by equality with an
+owner-written secret (Rules cannot hash a join proof); enforce create-only
+scoped sequence, current epoch and expiry. The
+[declaration subsection](#firestore-deployment-declaration) is the
+implemented subset. No public
+mode is allowed in cloud v1. Checkpoints are chunked Firestore documents,
+without Cloud Storage or Functions; attachments over Firestore are not in the
+first declaration (#2165), so a page's attachments stay local-only. A Function may be introduced only for a
 specifically justified check Rules cannot express. F1 MUST prove concurrent
 budget counters in emulators; per-uid limits remain best effort and anonymous
 UIDs permit Sybil abuse. Owners can disable links/remove devices; App Check is
