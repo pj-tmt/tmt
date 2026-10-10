@@ -587,6 +587,20 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
             .contains("Recorded setup, not a live Firebase check.")
     );
     assert!(page.body.contains("id=\"firestore-content\""));
+    for origin in ["shared", "open", "sessions-per-device"] {
+        assert!(page.body.contains(&format!("data-feedback=\"{origin}\"")));
+    }
+    assert_eq!(
+        page.body
+            .matches(
+                "data-outcome-slot role=\"status\" aria-live=\"polite\" aria-atomic=\"true\"></p>"
+            )
+            .count(),
+        3
+    );
+    assert!(page.body.contains("No changes to save."));
+    assert!(page.body.contains("Check original result"));
+
     assert!(page.body.contains(
         "<p>“This device” identifies a pairing. It does not grant settings authority.</p>"
     ));
@@ -604,6 +618,29 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert_eq!(script.body, include_str!("../assets/settings-v1.js"));
     assert!(script.body.contains("from \"/sdk/remote-v1.js\""));
     assert!(!script.body.contains("class DeviceKey"));
+    assert!(
+        script
+            .body
+            .contains("Another change is still unconfirmed. Check its original result first.")
+    );
+    assert!(
+        !script
+            .body
+            .contains("Check the original result above before making another change.")
+    );
+    assert!(script.body.contains(
+        "Browser change limit reached. Use the local CLI; do not retry or reset storage."
+    ));
+    assert!(
+        !script
+            .body
+            .contains("The original outcome is unknown. Read it before another change.")
+    );
+    assert!(
+        !script
+            .body
+            .contains("Browser management operation limit reached.")
+    );
     assert_eq!(
         get(&h, "/settings", "Origin: http://127.0.0.1:1\r\n").status,
         403

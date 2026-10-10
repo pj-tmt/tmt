@@ -55,10 +55,29 @@
         <p id="read-only">
           Read-only in this browser. Change Remote settings or manage devices with the local CLI.
         </p>
-        <p><code class="tmt-ui-code">tmt remote settings</code> · <code class="tmt-ui-code">tmt remote devices</code></p>
+        <p>
+          <code class="tmt-ui-code">tmt remote settings</code> ·
+          <code class="tmt-ui-code">tmt remote devices</code>
+        </p>
         <p id="warning" class="tmt-ui-field-error" role="alert" hidden></p>
         <p id="controls-reason">Checking current access before changes are available.</p>
+        <button
+          class="tmt-ui-action"
+          aria-describedby="controls-reason"
+          id="refresh"
+          type="button"
+          disabled
+        >
+          <span class="tmt-ui-action-label">Refresh values</span>
+        </button>
       </section>
+      <div class="change-feedback" data-feedback="shared">
+        <p id="outcome" data-outcome-slot role="status" aria-live="polite" aria-atomic="true"></p>
+        <p data-original hidden></p>
+        <button class="tmt-ui-action" data-recover type="button" hidden>
+          <span class="tmt-ui-action-label">Check original result</span>
+        </button>
+      </div>
       <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="opening-title">
         <div class="sheet-body tmt-ui-notice-body">
           <h2 id="opening-title" class="tmt-ui-notice-heading">Browser opening</h2>
@@ -75,6 +94,14 @@
               <span class="tmt-ui-action-label">Save browser opening</span>
             </button>
           </form>
+          <p id="opening-unchanged" class="tmt-ui-field-description" hidden>No changes to save.</p>
+          <div class="change-feedback" data-feedback="open">
+            <p data-outcome-slot role="status" aria-live="polite" aria-atomic="true"></p>
+            <p data-original hidden></p>
+            <button class="tmt-ui-action" data-recover type="button" hidden>
+              <span class="tmt-ui-action-label">Check original result</span>
+            </button>
+          </div>
         </div>
       </section>
       <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="limit-title">
@@ -117,6 +144,14 @@
               <span class="tmt-ui-action-label">Save session limit</span>
             </button>
           </form>
+          <p id="limit-unchanged" class="tmt-ui-field-description" hidden>No changes to save.</p>
+          <div class="change-feedback" data-feedback="sessions-per-device">
+            <p data-outcome-slot role="status" aria-live="polite" aria-atomic="true"></p>
+            <p data-original hidden></p>
+            <button class="tmt-ui-action" data-recover type="button" hidden>
+              <span class="tmt-ui-action-label">Check original result</span>
+            </button>
+          </div>
         </div>
       </section>
       <section class="sheet tmt-ui-notice" data-tone="review" aria-labelledby="firestore-title">
@@ -150,34 +185,6 @@
             <span class="tmt-ui-action-label">Next devices</span>
           </button>
         </div>
-      </section>
-      <section
-        id="outcome-notice"
-        class="outcome tmt-ui-notice"
-        data-tone="review"
-        aria-labelledby="outcome-title"
-      >
-        <h2 id="outcome-title" class="tmt-ui-notice-heading">Last change</h2>
-        <p id="outcome" role="status">No change submitted.</p>
-        <p id="original"></p>
-        <button
-          class="tmt-ui-action"
-          aria-describedby="controls-reason"
-          id="recover"
-          type="button"
-          hidden
-        >
-          <span class="tmt-ui-action-label">Read original outcome</span>
-        </button>
-        <button
-          class="tmt-ui-action"
-          aria-describedby="controls-reason"
-          id="refresh"
-          type="button"
-          disabled
-        >
-          <span class="tmt-ui-action-label">Refresh values</span>
-        </button>
       </section>
     </main>
   </body>

@@ -90,7 +90,14 @@ export class ManagementPage {
     this.outcome = undefined;
     this.freshAttempted = false;
     this.busy = true;
-    this.notice = 'Saving…';
+    this.notice =
+      intent.kind === 'revoke'
+        ? 'Revoking device…'
+        : intent.kind === 'talk'
+          ? intent.input.enabled
+            ? 'Enabling sending…'
+            : 'Disabling sending…'
+          : 'Saving…';
     try {
       const frozen = this.intent;
       this.outcome =
@@ -117,7 +124,7 @@ export class ManagementPage {
         state: 'unknown',
         reason: 'effect_outcome_unconfirmed',
       };
-      this.notice = 'Outcome unknown. Read the original operation; do not submit it again.';
+      this.describeOutcome();
     } finally {
       this.busy = false;
     }
@@ -136,14 +143,11 @@ export class ManagementPage {
         this.outcome = await this.client.operation(this.intent.input.operationId);
         this.describeOutcome();
       } catch {
-        this.notice =
-          'Original outcome unavailable or unconfirmed. Confirm with tmt remote devices or tmt remote settings.';
+        this.describeOutcome();
       }
     } catch (error) {
       this.access = accessRefused(error) ? 'lost' : 'unconfirmed';
-      this.notice = accessRefused(error)
-        ? 'Current access lost. Prior outcome remains unknown unless already acknowledged. Confirm with tmt remote devices.'
-        : 'Current access unconfirmed. Prior outcome remains unknown unless already acknowledged. Confirm with the local CLI.';
+      this.describeOutcome();
     } finally {
       this.busy = false;
     }
@@ -157,20 +161,33 @@ export class ManagementPage {
     );
   }
   private describeOutcome(): void {
-    if (this.outcome?.state === 'committed')
+    if (this.outcome?.state === 'committed') {
+      const intent = this.intent;
       this.notice =
-        this.intent?.kind === 'setting'
-          ? 'Saved. Session limits apply at the next session open.'
-          : 'Device change committed.';
-    else if (this.outcome?.state === 'unknown')
-      this.notice = 'Outcome unknown. Read the original operation; do not submit it again.';
+        intent?.kind === 'setting'
+          ? intent.input.setting === 'open'
+            ? 'Browser opening saved.'
+            : 'Session limit saved. Applies to new sessions.'
+          : intent?.kind === 'rename'
+            ? 'Device renamed.'
+            : intent?.kind === 'talk'
+              ? intent.input.enabled
+                ? 'Sending enabled for this device.'
+                : 'Sending disabled for this device.'
+              : 'Device revoked.';
+      if (this.outcome.sessionEnded)
+        this.notice += ' This session ended. Use the local CLI to continue.';
+    } else if (this.outcome?.state === 'unknown')
+      this.notice = this.freshAttempted
+        ? 'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
+        : 'This change could not be confirmed. Check its original result before making another change.';
     else if (this.outcome?.state === 'refused')
       this.notice =
         this.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-          ? 'Browser management operation limit reached. Use tmt remote settings or tmt remote devices; do not retry or reset storage.'
+          ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
           : this.outcome.reason === 'REMOTE_MANAGEMENT_READ_ONLY'
-            ? 'This browser is read-only. Use the local CLI.'
-            : 'Change refused. Check the admitted values or use the local CLI.';
+            ? 'This browser is read-only. Use the local CLI to make changes.'
+            : 'Change refused. Check the current values or use the local CLI.';
   }
 }
 

@@ -242,7 +242,7 @@ var ManagementPage = class {
 		this.outcome = void 0;
 		this.freshAttempted = false;
 		this.busy = true;
-		this.notice = "Saving…";
+		this.notice = intent.kind === "revoke" ? "Revoking device…" : intent.kind === "talk" ? intent.input.enabled ? "Enabling sending…" : "Disabling sending…" : "Saving…";
 		try {
 			const frozen = this.intent;
 			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : await this.client.revoke(frozen.input);
@@ -256,7 +256,7 @@ var ManagementPage = class {
 				state: "unknown",
 				reason: "effect_outcome_unconfirmed"
 			};
-			this.notice = "Outcome unknown. Read the original operation; do not submit it again.";
+			this.describeOutcome();
 		} finally {
 			this.busy = false;
 		}
@@ -275,11 +275,11 @@ var ManagementPage = class {
 				this.outcome = await this.client.operation(this.intent.input.operationId);
 				this.describeOutcome();
 			} catch {
-				this.notice = "Original outcome unavailable or unconfirmed. Confirm with tmt remote devices or tmt remote settings.";
+				this.describeOutcome();
 			}
 		} catch (error) {
 			this.access = accessRefused(error) ? "lost" : "unconfirmed";
-			this.notice = accessRefused(error) ? "Current access lost. Prior outcome remains unknown unless already acknowledged. Confirm with tmt remote devices." : "Current access unconfirmed. Prior outcome remains unknown unless already acknowledged. Confirm with the local CLI.";
+			this.describeOutcome();
 		} finally {
 			this.busy = false;
 		}
@@ -288,9 +288,12 @@ var ManagementPage = class {
 		return !!this.intent && !this.busy && !this.freshAttempted && (this.outcome?.state === "unknown" || this.access !== "live");
 	}
 	describeOutcome() {
-		if (this.outcome?.state === "committed") this.notice = this.intent?.kind === "setting" ? "Saved. Session limits apply at the next session open." : "Device change committed.";
-		else if (this.outcome?.state === "unknown") this.notice = "Outcome unknown. Read the original operation; do not submit it again.";
-		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser management operation limit reached. Use tmt remote settings or tmt remote devices; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI." : "Change refused. Check the admitted values or use the local CLI.";
+		if (this.outcome?.state === "committed") {
+			const intent = this.intent;
+			this.notice = intent?.kind === "setting" ? intent.input.setting === "open" ? "Browser opening saved." : "Session limit saved. Applies to new sessions." : intent?.kind === "rename" ? "Device renamed." : intent?.kind === "talk" ? intent.input.enabled ? "Sending enabled for this device." : "Sending disabled for this device." : "Device revoked.";
+			if (this.outcome.sessionEnded) this.notice += " This session ended. Use the local CLI to continue.";
+		} else if (this.outcome?.state === "unknown") this.notice = this.freshAttempted ? "The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices." : "This change could not be confirmed. Check its original result before making another change.";
+		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI to make changes." : "Change refused. Check the current values or use the local CLI.";
 	}
 };
 function accessRefused(error) {
@@ -311,7 +314,6 @@ var opening = element("opening");
 var mode = element("limit-mode");
 var custom = element("limit-custom");
 var devices = element("devices");
-var recover = element("recover");
 var refresh = element("refresh");
 var more = element("more");
 var first = element("first");
@@ -328,6 +330,80 @@ function commandNotice(target, text) {
 		target.append(code);
 	} else target.append(document.createTextNode(part));
 }
+function openingChanged() {
+	return !!page.settings && opening.value === "on" !== page.settings.settings.open;
+}
+function limitChanged() {
+	if (!page.settings || mode.value === "default") return false;
+	const admitted = page.settings.settings;
+	const value = mode.value === "off" ? null : custom.value;
+	return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
+}
+function saveState(form, hint, changed, valid) {
+	const button = element(form).querySelector("button[type=submit]");
+	button.disabled = !page.writable || !changed || !valid;
+	element(hint).hidden = !page.writable || changed;
+	const described = button.getAttribute("aria-describedby");
+	if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
+}
+function recoverOriginal() {
+	run(async () => {
+		await page.recover();
+		if (page.access === "live") await refreshView();
+	});
+}
+/** Mount an empty live region before a device can originate a change. Never move it. */
+function deviceFeedback(clientId) {
+	const feedback = document.createElement("div");
+	feedback.className = "change-feedback";
+	feedback.dataset.feedback = clientId;
+	const status = document.createElement("p");
+	status.dataset.outcomeSlot = "";
+	status.setAttribute("role", "status");
+	status.setAttribute("aria-live", "polite");
+	status.setAttribute("aria-atomic", "true");
+	const original = document.createElement("p");
+	original.dataset.original = "";
+	original.hidden = true;
+	const recover = document.createElement("button");
+	recover.type = "button";
+	recover.className = "tmt-ui-action";
+	recover.dataset.recover = "";
+	recover.hidden = true;
+	const label = document.createElement("span");
+	label.className = "tmt-ui-action-label";
+	label.textContent = "Check original result";
+	recover.append(label);
+	recover.addEventListener("click", recoverOriginal);
+	feedback.append(status, original, recover);
+	return feedback;
+}
+function renderOutcome() {
+	const origin = page.intent?.kind === "setting" ? page.intent.input.setting : page.intent?.input.clientId;
+	const active = origin && [...document.querySelectorAll("[data-feedback]")].find((slot) => slot.dataset.feedback === origin) || document.querySelector("[data-feedback=\"shared\"]");
+	for (const slot of document.querySelectorAll("[data-feedback]")) if (slot !== active) {
+		const status = slot.querySelector("[data-outcome-slot]");
+		if (status.textContent) commandNotice(status, "");
+	}
+	for (const slot of document.querySelectorAll("[data-feedback]")) {
+		const status = slot.querySelector("[data-outcome-slot]");
+		const original = slot.querySelector("[data-original]");
+		const recover = slot.querySelector("[data-recover]");
+		const selected = slot === active;
+		status.id = selected ? "outcome" : "";
+		original.id = selected ? "original" : "";
+		recover.id = selected ? "recover" : "";
+		const text = selected ? page.notice : "";
+		if (status.textContent !== text) commandNotice(status, text);
+		status.dataset.state = selected ? page.outcome?.state ?? "pending" : "";
+		slot.dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : "blocked";
+		original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original operation ${page.intent.input.operationId}` : "";
+		original.hidden = !original.textContent;
+		recover.hidden = !selected || !page.canRecover;
+		recover.disabled = page.busy;
+		recover.setAttribute("aria-busy", String(page.busy));
+	}
+}
 function render() {
 	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
 	element("access").textContent = {
@@ -339,8 +415,7 @@ function render() {
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
 	element("read-only").hidden = editable;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	element("outcome-notice").dataset.tone = page.busy ? "waiting" : page.outcome?.state === "committed" ? "working" : page.outcome?.state === "unknown" || page.outcome?.state === "refused" ? "blocked" : "review";
-	const reason = page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "The original outcome is unknown. Read it before another change." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser management operation limit reached. Use the local CLI; do not retry or reset storage." : "";
+	const reason = page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "";
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
@@ -373,14 +448,13 @@ function render() {
 		custom
 	]) field.disabled = !editable || field === custom && mode.value !== "custom";
 	for (const button of document.querySelectorAll("form button")) button.disabled = !page.writable;
+	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
+	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
 	refresh.disabled = page.busy;
-	recover.hidden = !page.canRecover;
 	more.hidden = !page.devices?.nextCursor;
 	more.disabled = page.busy;
 	first.hidden = page.onFirstPage;
 	first.disabled = page.busy;
-	commandNotice(element("outcome"), `${page.outcome?.state && page.outcome.state !== "unknown" ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`);
-	element("original").textContent = page.intent ? `Original operation ${page.intent.input.operationId}` : "";
 	if (page.devices) {
 		const current = new Set(page.devices.devices.map((device) => device.clientId));
 		for (const [id, row] of rows) if (!current.has(id)) {
@@ -474,7 +548,7 @@ function render() {
 				const disabledReason = document.createElement("p");
 				disabledReason.id = `device-reason-${device.clientId}`;
 				disabledReason.className = "tmt-ui-field-description";
-				row.append(summary, form, disabledReason);
+				row.append(summary, form, deviceFeedback(device.clientId), disabledReason);
 				rows.set(device.clientId, row);
 				devices.append(row);
 			}
@@ -485,9 +559,9 @@ function render() {
 			if (editable) name.removeAttribute("aria-describedby");
 			else name.setAttribute("aria-describedby", "read-only");
 			const disabledReason = element(`device-reason-${device.clientId}`);
-			disabledReason.textContent = device.revoked ? "This device is revoked." : reason;
+			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
 			disabledReason.hidden = !disabledReason.textContent;
-			for (const button of row.querySelectorAll("button")) {
+			for (const button of row.querySelectorAll("form button")) {
 				button.disabled = !page.writable || device.revoked;
 				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
 				else button.removeAttribute("aria-describedby");
@@ -495,6 +569,7 @@ function render() {
 			}
 		}
 	}
+	renderOutcome();
 }
 async function run(action) {
 	const pending = action();
@@ -519,7 +594,10 @@ async function change(intent) {
 element("opening-form").addEventListener("submit", (event) => {
 	event.preventDefault();
 	if (!page.writable) return;
-	if (opening.value === "on" === page.settings?.settings.open) return;
+	if (!openingChanged()) {
+		render();
+		return;
+	}
 	change({
 		kind: "setting",
 		input: {
@@ -532,9 +610,12 @@ element("opening-form").addEventListener("submit", (event) => {
 element("limit-form").addEventListener("submit", (event) => {
 	event.preventDefault();
 	if (!page.writable) return;
-	if (mode.value === "default") return;
+	if (!limitChanged()) {
+		render();
+		return;
+	}
+	if (mode.value === "custom" && !custom.checkValidity()) return;
 	const value = mode.value === "off" ? null : custom.value;
-	if (value === page.settings?.settings.sessionsPerDevice && page.settings.settings.sessionsPerDeviceSource === "settings.json") return;
 	change({
 		kind: "setting",
 		input: {
@@ -544,7 +625,14 @@ element("limit-form").addEventListener("submit", (event) => {
 		}
 	});
 });
-mode.addEventListener("change", render);
+for (const field of [
+	opening,
+	mode,
+	custom
+]) {
+	field.addEventListener("input", render);
+	field.addEventListener("change", render);
+}
 refresh.addEventListener("click", () => void run(() => refreshView()));
 function navigate(cursor) {
 	if (page.busy) return;
@@ -561,10 +649,7 @@ function navigate(cursor) {
 }
 more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener("click", () => navigate(null));
-recover.addEventListener("click", () => void run(async () => {
-	await page.recover();
-	if (page.access === "live") await refreshView();
-}));
+for (const button of document.querySelectorAll("[data-recover]")) button.addEventListener("click", recoverOriginal);
 try {
 	let session = await reopenSession();
 	page = new ManagementPage(management(session), async () => {

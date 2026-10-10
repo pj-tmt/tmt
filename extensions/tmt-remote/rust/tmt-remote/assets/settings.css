@@ -48,10 +48,6 @@
 .settings-page .device form {
   margin-top: 8px;
 }
-.settings-page #original {
-  font: 12px/1.5 var(--tmt-ui-font-mono);
-  overflow-wrap: anywhere;
-}
 
 .settings-page .firestore-layer {
   margin: 20px 0;
@@ -65,13 +61,13 @@
 .settings-page #firestore-content code {
   overflow-wrap: anywhere;
 }
-.settings-page .firestore-state[data-tone="working"] {
+.settings-page .firestore-state[data-tone='working'] {
   color: var(--tmt-ui-color-working);
 }
-.settings-page .firestore-state[data-tone="waiting"] {
+.settings-page .firestore-state[data-tone='waiting'] {
   color: var(--tmt-ui-color-waiting);
 }
-.settings-page .firestore-state[data-tone="review"] {
+.settings-page .firestore-state[data-tone='review'] {
   color: var(--tmt-ui-color-review);
 }
 .settings-page #firestore-budget summary:focus-visible {
@@ -91,4 +87,16 @@
   overflow-wrap: anywhere;
   padding: 8px 8px 8px 0;
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+
+.settings-page .change-feedback [data-outcome-slot] {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.settings-page .change-feedback [data-outcome-slot]:empty {
+  margin: 0;
+}
+.settings-page .change-feedback [data-original] {
+  font: 12px/1.5 var(--tmt-ui-font-mono);
+  overflow-wrap: anywhere;
 }

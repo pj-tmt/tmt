@@ -82,6 +82,15 @@ The existing Chromium pairing fixture also exercises the actual settings page: d
 read-only values, exact custom cap/off/default source, role removal, retained drafts/caret,
 explicit sending-scope enable/disable, lost self-change acknowledgments, original-only recovery,
 no resend and process cleanup. Sending controls preserve device-name drafts and other grant policy.
+The single frozen original projects into one pre-mounted empty polite status slot beside its setting
+or device actions; an absent row falls back above the forms. Recovery stays beside the unknown
+result and reads only that original once. Its row omits a duplicate disabled reason; other rows
+say “Another change is still unconfirmed. Check its original result first.” Original IDs appear only for
+unknown or refused outcomes. Capacity uses “Browser change limit reached. Use the local CLI; do not
+retry or reset storage.” Unchanged settings Saves stay disabled with an associated
+no-change hint;
+draft comparison retains unset/default provenance, and submit-time guards allocate no operation.
+
 A >25-device scenario covers later-page drafts through refresh, another committed effect,
 original-receipt recovery and guarded first/next navigation.
 Use `TMT_REMOTE_CAPTURE_DIR` for light/dark 1440/390 settings captures; 320 fit is asserted.
