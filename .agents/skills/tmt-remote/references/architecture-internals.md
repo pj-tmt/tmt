@@ -53,8 +53,9 @@ Rules that are easy to get wrong:
   refuses while an orphaned child lives; unconfirmed cleanup disables writes until
   a fresh lease-owning run. The lease test is a real-process SIGKILL probe in
   `core_tests.rs`.
-- **Pre-auth stays generic.** Refusals before a verified signature or live
-  session are one 404 with no inventory. The `tmt_door` cookie only identifies a
+- **Pre-auth stays generic.** Refusals before a verified signature are one 404
+  with no inventory. A verified fresh open may receive the contract's signed
+  rejected-open envelope without allocating a Session or sequence row. The `tmt_door` cookie only identifies a
   device context on mounted paths; `/r/` refuses cookies. A transport-only
   `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
@@ -70,8 +71,10 @@ Rules that are easy to get wrong:
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
   use the default cap of 8 sessions per device; `off` is unlimited. `session`
-  evicts that device's most idle session without a live transport first; when all
-  are attached, it evicts the most idle attached session.
+  evicts only that device's most idle session without a live transport. When no
+  detached victim can make room, a verified fresh open receives signed
+  `REMOTE_SESSION_LIMIT`; attached sessions survive. The transport-count lock
+  linearizes detached end with attachment; no new lock order or cap is introduced.
 - **Multi-session migration.** The `multi_session` store migration preserves grants
   and copies existing client/server sequence counters into session-ID-keyed rows.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from

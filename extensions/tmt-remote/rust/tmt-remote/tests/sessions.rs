@@ -926,6 +926,9 @@ fn cap_evicted(h: &Harness, client: &str, key: &SigningKey, id: &str, limit: usi
     assert_eq!(value["error"]["code"], "REMOTE_SESSION_EVICTED");
     assert_eq!(value["error"]["limit"], limit);
     assert!(value["error"].get("settingsUrl").is_none());
+    verify_reply(h, &reply);
+}
+fn verify_reply(h: &Harness, reply: &Reply) {
     let wire: Value = serde_json::from_str(&reply.body).unwrap();
     let text = |name: &str| wire[name].as_str().unwrap();
     let bytes = canonical::base64url_decode(text("payload")).unwrap();
@@ -1037,22 +1040,161 @@ fn session_cap_lowered_limit_evicts_most_idle_transportless_sessions_first() {
 }
 
 #[test]
-fn session_cap_all_attached_still_evicts_the_most_idle() {
+fn session_cap_all_attached_refuses_new_open_without_ending_existing_sessions() {
     let (h, now) = cap_door(2);
     let _colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
     let client = paired(&h, &device);
-    let (oldest, cookie, old_state) = cap_session(&h, &client, &device.key);
+    let (_, cookie, old_state) = cap_session(&h, &client, &device.key);
     let mut old_transport = tunnel_for(&h, &cookie, None);
     *now.lock().unwrap() += Duration::from_secs(1);
     let (_, cookie, recent) = cap_session(&h, &client, &device.key);
     let mut recent_transport = tunnel_for(&h, &cookie, None);
-    cap_session(&h, &client, &device.key);
-    cap_evicted(&h, &client, &device.key, &oldest, 2);
-    assert!(old_state.ended());
-    closes(&mut old_transport);
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    let rows = || {
+        oracle
+            .query_row("SELECT count(*) FROM sessions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    let before = rows();
+    let request = Opening::new(&h, &client, &device.key).wire();
+    let refused = open_session(&h, &request);
+    assert_eq!(refused.status, 200);
+    assert_eq!(payload(&refused)["error"]["code"], "REMOTE_SESSION_LIMIT");
+    assert_eq!(payload(&refused)["error"]["limit"], 2);
+    assert_eq!(
+        payload(&refused)["error"]["settingsUrl"],
+        format!("{}/settings", h.origin)
+    );
+    assert!(refused.cookie().is_none());
+    let wire: Value = serde_json::from_str(&refused.body).unwrap();
+    assert_eq!(wire["sessionId"], "new");
+    assert_eq!(wire["sequence"], "1");
+    assert_eq!(wire["correlationId"], request["id"]);
+    verify_reply(&h, &refused);
+    assert_eq!(rows(), before, "refused open allocates no durable counters");
+    assert_eq!(
+        open_session(&h, &request).status,
+        404,
+        "refused nonce cannot replay"
+    );
+    let mut forged = Opening::new(&h, &client, &device.key).wire();
+    forged["signature"] = json!(canonical::base64url(&[0; 64]));
+    assert_eq!(open_session(&h, &forged).status, 404);
+    assert_eq!(rows(), before);
+    assert!(!old_state.ended());
     assert!(!recent.ended());
+    cap_echo(&mut old_transport);
     cap_echo(&mut recent_transport);
+}
+
+#[test]
+fn session_cap_default_accounting_and_sixteen_tunnel_boundary() {
+    for count in [1, 4, 8, 16] {
+        let (h, _) = cap_door(if count == 16 { 16 } else { 8 });
+        if count != 16 {
+            fs::remove_file(h.root.join("remote/settings.json")).unwrap();
+            assert_eq!(
+                tmt_remote::settings::read_or_default(&h.root).sessions_per_device(),
+                Some(8)
+            );
+        }
+        let _colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let mut attached = Vec::new();
+        for _ in 0..count {
+            let (id, cookie, state) = cap_session(&h, &client, &device.key);
+            attached.push((id, cookie.clone(), state, tunnel_for(&h, &cookie, None)));
+        }
+        let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        let active = || {
+            oracle
+                .query_row(
+                    "SELECT count(*) FROM sessions WHERE ended_reason IS NULL",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap()
+        };
+        for _ in 0..2 {
+            // Settings and landing each open a detached observation Session.
+            let reply = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+            if count >= 8 {
+                assert_eq!(payload(&reply)["error"]["code"], "REMOTE_SESSION_LIMIT");
+            } else {
+                assert!(payload(&reply).get("error").is_none());
+            }
+        }
+        assert_eq!(active(), if count < 8 { count + 2 } else { count } as i64);
+        let overlap = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+        if count >= 8 {
+            assert_eq!(payload(&overlap)["error"]["code"], "REMOTE_SESSION_LIMIT");
+            assert_eq!(active(), count as i64);
+        } else {
+            assert!(payload(&overlap).get("error").is_none());
+            assert_eq!(active(), (count + 3) as i64);
+        }
+        for (_, _, state, stream) in &mut attached {
+            assert!(!state.ended());
+            cap_echo(stream);
+        }
+        eprintln!(
+            "accounting: attached={count}, detached checks={}, re-admission overlap={}, live sessions={}",
+            if count < 8 { 2 } else { 0 },
+            if count < 8 { 1 } else { 0 },
+            active()
+        );
+        if count == 16 {
+            let (_, cookie, _, _) = &attached[0];
+            let response = exchange(
+                &h,
+                &format!(
+                    "GET {}/x/colab/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {cookie}\r\n{UPGRADE}\r\n",
+                    h.prefix, h.addr, h.origin
+                ),
+            );
+            assert_eq!(response.status, 503, "{}", response.head);
+            eprintln!("accounting: 16 live tunnels; 17th upgrade=503; all sessions unchanged");
+            for (_, _, state, stream) in &mut attached {
+                assert!(!state.ended());
+                cap_echo(stream);
+            }
+        }
+        let (_, _, state, stream) = attached.remove(0);
+        drop(stream);
+        detached(&state);
+        let replacement = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+        assert!(payload(&replacement).get("error").is_none());
+        for (_, _, state, stream) in &mut attached {
+            assert!(!state.ended());
+            cap_echo(stream);
+        }
+    }
+}
+
+#[test]
+fn lowered_cap_never_evicts_attached_sessions_even_after_detached_room_is_removed() {
+    let (h, _) = cap_door(4);
+    let _colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let mut attached = Vec::new();
+    for _ in 0..3 {
+        let (_, cookie, state) = cap_session(&h, &client, &device.key);
+        attached.push((state, tunnel_for(&h, &cookie, None)));
+    }
+    let (_, _, detached_state) = cap_session(&h, &client, &device.key);
+    tmt_remote::settings::set_sessions_per_device(&h.root, Some(2)).unwrap();
+    let refused = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+    assert_eq!(payload(&refused)["error"]["code"], "REMOTE_SESSION_LIMIT");
+    assert!(detached_state.ended());
+    for (state, stream) in &mut attached {
+        assert!(!state.ended());
+        cap_echo(stream);
+    }
 }
 
 #[test]

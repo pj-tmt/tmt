@@ -855,6 +855,30 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   } finally {
     await app.unroute('**/r/*/append', interruptOpen);
   }
+  // A signed refused open leaves the attached page usable.
+  execFileSync(BINARY, ['settings', 'sessions-per-device', '1', '--json'], { env });
+  const capacity = await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    try {
+      await sdk.reopenSession();
+      throw new Error('Attached capacity unexpectedly admitted another Session.');
+    } catch (error) {
+      if (!(error instanceof sdk.RefusalError)) throw error;
+      return { code: error.code, limit: error.limit, settingsUrl: error.settingsUrl };
+    }
+  });
+  expect(capacity).toEqual({
+    code: 'REMOTE_SESSION_LIMIT',
+    limit: 1,
+    settingsUrl: `${origin}/settings`,
+  });
+  expect(await list(app)).toHaveLength(1);
+  execFileSync(BINARY, ['settings', 'sessions-per-device', '8', '--json'], { env });
+  // Refresh the detached victim's shared cookie before reload; its lifetime gap is #2576.
+  await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    await sdk.reopenSession();
+  });
   await app.reload();
   expect(JSON.parse((await app.locator('#context').textContent())!)).toMatchObject({
     deviceId: device.deviceId,

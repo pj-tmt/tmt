@@ -268,6 +268,16 @@ impl SessionState {
         self.touch();
         Some(SessionTransport(Arc::clone(self)))
     }
+    /// Linearize capacity eviction with attachment without ending an attached session.
+    pub(crate) fn end_if_detached(&self) -> bool {
+        self.transports.lock().is_ok_and(|active| {
+            if *active != 0 {
+                return false;
+            }
+            self.ended.store(true, Ordering::Release);
+            true
+        })
+    }
     pub fn end(&self) {
         self.ended.store(true, Ordering::Release);
     }
@@ -1148,4 +1158,23 @@ fn drain(stream: &mut impl Write, buffer: &mut Vec<u8>) -> io::Result<bool> {
         }
     }
     Ok(wrote)
+}
+
+#[cfg(test)]
+mod session_cap_tests {
+    use super::*;
+
+    #[test]
+    fn capacity_end_and_attach_share_one_transport_fence() {
+        let attached = Arc::new(SessionState::default());
+        let transport = attached.attach().unwrap();
+        assert!(!attached.end_if_detached());
+        assert!(!attached.ended());
+        drop(transport);
+        assert!(attached.end_if_detached());
+        assert!(attached.attach().is_none());
+        let detached = Arc::new(SessionState::default());
+        assert!(detached.end_if_detached());
+        assert!(detached.attach().is_none());
+    }
 }
