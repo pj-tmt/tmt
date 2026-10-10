@@ -52,6 +52,39 @@ test('harness: the leak report detects a process the world did not stop', async 
   }
 });
 
+// #2520: a world is an agent run on a private PATH, so no command may reach the host browser.
+// `colab open` and `page create` without --no-open/--json are the paths that once did.
+test('harness: colab open and page create never invoke a browser opener in a world', async () => {
+  await withWorld(async (world) => {
+    await startDoor(world);
+    world.linkExtensions();
+    const created = await world.tmt(
+      ['colab', 'page', 'create', '--title', 'Opener', '--file', '-'],
+      {
+        stdin: '<p>No browser.</p>',
+      },
+    );
+    expect(created.code, created.stdout + created.stderr).toBe(0);
+    const opened = await world.tmt(['colab', 'open']);
+    expect(opened.code, opened.stdout + opened.stderr).toBe(0);
+    expect(opened.stdout).toContain('http');
+    expect(fs.existsSync(world.openerLog), world.openerLog).toBe(false);
+  });
+});
+
+// Sensitivity of that guard: a call to a stand-in opener is reported at teardown, so a quiet
+// log cannot come from a stand-in nothing would ever write to.
+test('harness: the leak report names a host browser opener call', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld();
+  await world.start();
+  execFileSync('open', ['http://127.0.0.1:1/probe'], { env: world.env() });
+  const leaks = await world.dispose();
+  expect(leaks.filter((leak) => leak.startsWith('host browser opener called'))).toHaveLength(1);
+  expect(leaks.join('\n')).toContain('open http://127.0.0.1:1/probe');
+});
+
 // An assertion failing mid-scenario must still stop every child, the tmux server
 // and the browsers, and must surface the scenario's own error, not a cleanup one.
 test('harness: an injected scenario failure still tears the world down', async () => {

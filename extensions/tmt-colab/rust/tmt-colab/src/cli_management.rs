@@ -853,11 +853,10 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         let mut shown = reach.text(&path);
         let mut warning = None;
-        if running
-            && !args.get_flag("no-open")
-            && let Some(link) = reach.short_link(&path).or_else(|| reach.link(&path))
-        {
-            let outcome = crate::open::open_link(&link, crate::open::Flag::Open, true, false);
+        if running && let Some(link) = reach.short_link(&path).or_else(|| reach.link(&path)) {
+            let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+            let flag = crate::open::explicit_flag(args, agent);
+            let outcome = crate::open::open_link(&link, flag, true, false);
             (shown, warning) = crate::open::describe(&outcome, &link);
         }
         let mut rows = vec![("open", shown)];

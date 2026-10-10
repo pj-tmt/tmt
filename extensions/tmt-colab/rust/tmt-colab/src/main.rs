@@ -129,7 +129,7 @@ fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::HumanAndJson,
-        details: "Omit PAGE for the existing space home. This explicit request opens even without a terminal or with the automatic-open setting off. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
+        details: "Omit PAGE for the existing space home. This explicit request opens even without a terminal or with the automatic-open setting off, but under an agent (TMT_AGENT set) it only prints the link unless --open is passed. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
     };
     const SETTINGS: CommandSpec = CommandSpec {
         name: "settings",

@@ -2558,8 +2558,9 @@ embedded JSON object. `page create` keeps `url`'s role under the name `link`.
 through the same verified catalog and UUID-prefix resolver as `show`. It requires
 running Colab and Remote services and never starts another service, pairs a browser,
 changes access or writes content. Explicit opening ignores the automatic-open setting
-and noninteractive-terminal suppression, using the shared `tmt-invoke` opener;
-`--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
+and noninteractive-terminal suppression, using the shared `tmt-invoke` opener; like every
+browser handoff it only prints the link under an agent (nonempty `TMT_AGENT`) unless
+`--open` is passed. `--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
 before opening. Archived pages still print their link, but the browser does not open an
 archived page in local v1 (follow-up #2298). An unavailable
 service prints the current link/path and next step. Opener failure warns once and

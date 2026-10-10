@@ -99,6 +99,8 @@ export class AcceptanceWorld {
   readonly tmuxName = `acc-${path.basename(this.root).slice(-6)}`;
   readonly binaries: Binaries;
   private readonly wrapperDirectory = path.join(this.root, 'wrap');
+  /** One line per call of a host browser opener; a world must never write here. */
+  readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
   private readonly closers: Closer[] = [];
   private tmuxPath = '';
@@ -138,6 +140,10 @@ export class AcceptanceWorld {
       TMPDIR: this.root,
       LANG: 'C.UTF-8',
       TMT_HOME: this.dataRoot,
+      // A world is an agent run: no command may hand a link to the host browser. The opener
+      // stand-ins in `start()` and BROWSER are the second line if a command ignores this.
+      TMT_AGENT: '1',
+      BROWSER: path.join(this.wrapperDirectory, 'open'),
       TMUX_TMPDIR: this.root,
       TMT_EXECUTABLE: path.join(this.root, 'core'),
       TMT_ACCEPTANCE_REAL_TMT: this.binaries.tmt,
@@ -162,6 +168,14 @@ export class AcceptanceWorld {
       `#!/bin/sh\nexec ${quote(this.tmuxPath)} -f /dev/null -L ${quote(this.tmuxName)} "$@"\n`,
       { mode: 0o700 },
     );
+    // Stand-ins for every host opener the policy can find on PATH. They record the call and do
+    // nothing, so a command that reaches for a browser fails dispose() instead of opening one.
+    for (const opener of ['open', 'xdg-open', 'wslview'])
+      fs.writeFileSync(
+        path.join(this.wrapperDirectory, opener),
+        `#!/bin/sh\necho "${opener} $*" >> ${quote(this.openerLog)}\nexit 0\n`,
+        { mode: 0o700 },
+      );
     fs.writeFileSync(
       path.join(this.root, 'core'),
       `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(harness, 'core-barrier.mjs'))} "$@"\n`,
@@ -461,6 +475,8 @@ export class AcceptanceWorld {
         if (await listening(this.socketPath)) throw new Error('private tmux socket still accepts');
       });
     }
+    if (fs.existsSync(this.openerLog))
+      leaks.push(`host browser opener called:\n${fs.readFileSync(this.openerLog, 'utf8').trim()}`);
     for (const survivor of this.survivors()) leaks.push(`process remains: ${survivor}`);
     for (const socket of this.sockets()) leaks.push(`socket remains: ${socket}`);
     // TMT_ACCEPTANCE_KEEP=1 keeps the root (logs, stderr, counters) for diagnosis.
