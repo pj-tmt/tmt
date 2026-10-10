@@ -186,3 +186,90 @@ fn ordinary_extension_list_is_local_observation_without_update_discovery() {
         "extension list without --check is local-only"
     );
 }
+
+/// Exercise the real installation reader and planner; only published discovery is injected.
+#[test]
+fn stale_and_equal_pointers_leave_installed_extensions_out_of_the_apply_plan() {
+    use std::{
+        fs,
+        os::unix::fs::{PermissionsExt, symlink},
+    };
+    use tmt_core::{content_digest::sha256, native_install::Channel};
+
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let fixture = Fixture(
+        std::env::temp_dir().join(format!("tmt-extension-pointer-plan-{}", std::process::id())),
+    );
+    fs::create_dir(&fixture.0).unwrap();
+    let prefix = fixture.0.canonicalize().unwrap();
+    let product = Product::Ops;
+    let id = "12345678-1234-4234-8234-123456789abc";
+    let root = prefix.join(product.namespace());
+    let release = root.join("releases").join(id);
+    fs::create_dir_all(&release).unwrap();
+    fs::create_dir(prefix.join("bin")).unwrap();
+    let bytes = b"managed planner fixture\n";
+    let mut hashes = serde_json::Map::new();
+    for name in product.files() {
+        fs::write(release.join(name), bytes).unwrap();
+        if name == product.executable() {
+            fs::set_permissions(release.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        hashes.insert(name.into(), json!(sha256(bytes)));
+    }
+    fs::write(
+        release.join("receipt.json"),
+        serde_json::to_vec(&json!({
+            "schema_version": 1, "release_id": id, "prefix": prefix,
+            "version": "0.1.0-alpha.2", "channel": "alpha", "pinned_version": null,
+            "archive": "tmt-ops-0.1.0-alpha.2-aarch64-apple-darwin.tar.gz",
+            "archive_sha256": sha256(b"archive"), "target": "aarch64-apple-darwin",
+            "file_sha256": hashes, "source": "local-archive"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    symlink(format!("releases/{id}"), root.join("current")).unwrap();
+    for name in product.links() {
+        symlink(product.link_target(), prefix.join("bin").join(name)).unwrap();
+    }
+    let receipt_before = fs::read(release.join("receipt.json")).unwrap();
+    for candidate in ["0.1.0-alpha.1", "0.1.0-alpha.2", "0.1.0-alpha.3"] {
+        let calls = Cell::new(0);
+        let plan = plan_with(&prefix, |requested, channel| {
+            calls.set(calls.get() + 1);
+            assert_eq!(requested, product);
+            assert_eq!(channel, Channel::Alpha);
+            Ok(candidate.into())
+        });
+        assert_eq!(calls.get(), 1);
+        if candidate == "0.1.0-alpha.3" {
+            assert!(plan.products.is_empty());
+            assert_eq!(
+                plan.pending,
+                vec![(product, "0.1.0-alpha.2".into(), candidate.into())]
+            );
+        } else {
+            assert!(plan.pending.is_empty());
+            assert_eq!(plan.products, vec![unchanged(product, "0.1.0-alpha.2")]);
+            assert_eq!(
+                without_consent(plan, Ok(true)),
+                vec![unchanged(product, "0.1.0-alpha.2")]
+            );
+        }
+        assert_eq!(
+            fs::read(release.join("receipt.json")).unwrap(),
+            receipt_before
+        );
+        assert_eq!(fs::read(release.join(product.executable())).unwrap(), bytes);
+        assert_eq!(
+            fs::read_link(root.join("current")).unwrap(),
+            Path::new(&format!("releases/{id}"))
+        );
+    }
+}

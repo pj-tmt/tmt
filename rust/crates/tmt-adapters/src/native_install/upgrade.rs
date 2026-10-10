@@ -340,6 +340,26 @@ fn upgrade_product_with_options(
             &mut get,
         )?
     };
+    // Published channel discovery is advisory: its verified-only pointer can lag this installation.
+    // Explicit exact selections and pin/channel transitions keep the version policy owner.
+    if !matches!(channel, Channel::Pr(_))
+        && channel == current.state.channel
+        && selected.is_none()
+        && exact.is_none()
+        && !request.unpin
+        && downloaded.version.cmp_precedence(&current.state.version) == std::cmp::Ordering::Less
+    {
+        return Ok(UpgradeReport {
+            installation: InstallReport {
+                executable: current.executable,
+                active_executable: current.active_executable,
+                version: current.state.version.to_string(),
+                changed: false,
+            },
+            state: current.state,
+            skipped_pinned: false,
+        });
+    }
     downloaded.explicit_channel = request.channel.is_some();
     if matches!(current.state.channel, Channel::Pr(_)) && !matches!(channel, Channel::Pr(_)) {
         let schema = super::manifest_application_schema(product, &downloaded.manifest)?;
