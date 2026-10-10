@@ -2074,6 +2074,265 @@ impl Interposer {
     }
 }
 #[test]
+fn a_revoke_callback_after_cli_capture_changes_membership_without_attachment_rekey() {
+    owner_intent_race("revision");
+}
+// Each control changes the real owner's state after the native CLI has captured its intent.
+fn owner_intent_race(control: &str) {
+    use tmt_colab::{
+        keyring::{Keyring, Layout},
+        store::Store,
+    };
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    pilot.start();
+    let path = pilot.socket();
+    let real = pilot.root.join("selected/colab/real.sock");
+    fs::rename(&path, &real).unwrap();
+    let listener = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let target = real.clone();
+    let data_root = pilot.root.join("selected");
+    let control_owned = control.to_owned();
+    let worker = thread::spawn(move || {
+        let control = control_owned.as_str();
+        let rounds = if control == "once" || control == "twice" {
+            2
+        } else {
+            1
+        };
+        let mut intents = Vec::new();
+        for round in 0..rounds {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut client = loop {
+                match listener.accept() {
+                    Ok((client, _)) => break client,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "intent round {round} never arrived"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(e) => panic!("intent interposer: {e}"),
+                }
+            };
+            client
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            client
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 4096];
+            let body_start = loop {
+                let n = client.read(&mut buffer).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buffer[..n]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let header = String::from_utf8_lossy(&request[..body_start]);
+            let length: usize = header
+                .lines()
+                .find_map(|l| l.strip_prefix("Content-Length: "))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            while request.len() < body_start + length {
+                let n = client.read(&mut buffer).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&buffer[..n]);
+            }
+            let intent: Value = serde_json::from_slice(&request[body_start..]).unwrap();
+            let change = |route: &str, extra: &str, body: Value| {
+                let body = body.to_string();
+                let mut change = UnixStream::connect(&target).unwrap();
+                change
+                    .set_read_timeout(Some(Duration::from_secs(15)))
+                    .unwrap();
+                change
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                write!(change, "POST {route} HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}\r\n{body}", body.len()).unwrap();
+                change.shutdown(std::net::Shutdown::Write).unwrap();
+                let mut reply = String::new();
+                change.read_to_string(&mut reply).unwrap();
+                assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            };
+            let membership_revision = || {
+                let layout = Layout::existing(&data_root).unwrap().unwrap();
+                let key = Keyring::read(&layout).unwrap();
+                let store = Store::read(&layout).unwrap();
+                (
+                    key.space_id.clone(),
+                    store
+                        .owner_head(&key.space_id, &key.owner_public())
+                        .unwrap()
+                        .unwrap()
+                        .revision,
+                )
+            };
+            if (round == 0 && control == "scope") || (round == 1 && control == "twice") {
+                let (space, revision) = membership_revision();
+                let (operation, payload) = match control {
+                    "removed" => ("page.delete", json!({"pageId":PAGE})),
+                    "scope" => ("page.history", json!({"pageId":PAGE,"mode":"current"})),
+                    _ => (
+                        "member.role",
+                        json!({"memberId":MEMBER,"pages":[PAGE],"role":"viewer"}),
+                    ),
+                };
+                change(
+                    "/.tmt/colab/management",
+                    "",
+                    json!({"space":space,"page":PAGE,
+                    "operationId":"40000000-0000-4000-8000-000000000099","expectedRevision":revision.to_string(),
+                    "operation":operation,"payload":tmt_colab_model::values::encode_binary(&serde_json::to_vec(&payload).unwrap())}),
+                );
+            }
+            if round == 0 && control != "unknown" {
+                change(
+                    "/.tmt/remote/device-events",
+                    "tmt-device-event: 1\r\n",
+                    json!({
+                        "type":"device.revoked", "deviceId":"30000000-0000-4000-8000-000000000001", "grantRevision":2
+                    }),
+                );
+                assert!(
+                    membership_revision().1 > 2,
+                    "revoke callback did not advance membership"
+                );
+            }
+            let mut server = UnixStream::connect(&target).unwrap();
+            server
+                .set_read_timeout(Some(Duration::from_secs(15)))
+                .unwrap();
+            server
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            server.write_all(&request).unwrap();
+            server.shutdown(std::net::Shutdown::Write).unwrap();
+            let mut response = Vec::new();
+            server.read_to_end(&mut response).unwrap();
+            if (round == 0 && control != "unknown") || control == "twice" {
+                assert!(
+                    response.ends_with(b"STALE_HEAD"),
+                    "{}",
+                    String::from_utf8_lossy(&response)
+                );
+            } else {
+                assert!(response.starts_with(b"HTTP/1.1 200"));
+            }
+            if control == "unknown" {
+                // The actual effect committed. Restore before EOF so an illicit rebuild
+                // would reach the live server and make the CLI succeed instead of refusing.
+                intents.push(intent);
+                fs::remove_file(&path).unwrap();
+                fs::rename(&target, &path).unwrap();
+                drop(client);
+                return intents;
+            }
+            if control == "removed" {
+                // Removal happens after the verified refusal but before fresh target resolution.
+                let (space, revision) = membership_revision();
+                change(
+                    "/.tmt/colab/management",
+                    "",
+                    json!({"space":space,"page":PAGE,
+                    "operationId":"40000000-0000-4000-8000-000000000099","expectedRevision":revision.to_string(),
+                    "operation":"page.delete","payload":tmt_colab_model::values::encode_binary(&serde_json::to_vec(&json!({"pageId":PAGE})).unwrap())}),
+                );
+            }
+            client.write_all(&response).unwrap();
+            intents.push(intent);
+        }
+        // Any unexpected rebuild uses the real socket, so frozen/error cases fail observably
+        // rather than timing out on an abandoned listener.
+        fs::remove_file(&path).unwrap();
+        fs::rename(&target, &path).unwrap();
+        intents
+    });
+    let mut args = vec!["share", "mode", PAGE, "link", "--yes", "--json"];
+    match control {
+        "revision" => args.extend(["--expected-revision", "2"]),
+        "operation" => args.extend(["--operation-id", "40000000-0000-4000-8000-000000000098"]),
+        _ => {}
+    }
+    let result = if control == "once" {
+        pilot.call(&args)
+    } else {
+        failure(
+            &pilot,
+            &args,
+            match control {
+                "removed" => "COLAB_PAGE_DELETED",
+                "scope" => "COLAB_CONFIRMATION_CHANGED",
+                "unknown" => "COLAB_OUTCOME_UNKNOWN",
+                _ => "COLAB_STALE_HEAD",
+            },
+        )
+    };
+    let intents = worker.join().unwrap();
+    assert_eq!(intents[0]["expectedRevision"], "2");
+    if intents.len() == 2 {
+        assert_ne!(intents[0]["operationId"], intents[1]["operationId"]);
+        assert_ne!(
+            intents[0]["expectedRevision"],
+            intents[1]["expectedRevision"]
+        );
+        assert_eq!(result["operationId"], intents[1]["operationId"]);
+        assert_eq!(result["expectedRevision"], intents[1]["expectedRevision"]);
+    }
+    if control == "unknown" {
+        assert_eq!(result["operationId"], intents[0]["operationId"]);
+        assert_eq!(result["expectedRevision"], intents[0]["expectedRevision"]);
+        assert_eq!(
+            pilot.call(&["show", PAGE, "--json"])["page"]["sharing"],
+            "link"
+        );
+    }
+    if control == "once" {
+        assert_eq!(
+            pilot.call(&["show", PAGE, "--json"])["page"]["sharing"],
+            "link"
+        );
+    }
+    pilot.stop();
+}
+#[test]
+fn owner_intent_rebuilds_once_after_a_verified_pre_effect_stale_head() {
+    owner_intent_race("once");
+}
+#[test]
+fn owner_intent_refuses_a_second_stale_head() {
+    owner_intent_race("twice");
+}
+#[test]
+fn owner_intent_never_rebuilds_an_explicit_revision() {
+    owner_intent_race("revision");
+}
+#[test]
+fn owner_intent_never_rebuilds_an_explicit_operation_id() {
+    owner_intent_race("operation");
+}
+#[test]
+fn owner_intent_revalidates_a_removed_target() {
+    owner_intent_race("removed");
+}
+#[test]
+fn owner_intent_never_rebuilds_an_unknown_committed_outcome() {
+    owner_intent_race("unknown");
+}
+#[test]
+fn owner_intent_refuses_a_changed_confirmation_scope() {
+    owner_intent_race("scope");
+}
+
+#[test]
 fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_operation() {
     let mut pilot = Pilot::new(None);
     pilot.start();
