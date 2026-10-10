@@ -48,8 +48,14 @@ test('a same-request annotation reply recovers from a visible transient read fai
       agent.pane,
     );
     const page = await openPage(door, browser, created);
-    await selectInRenderer(page, '#quote');
-    await page.getByTestId('selection-ask').click();
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    await mode.click();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.frameLocator('iframe').locator('#quote').click();
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
     const input = await inputFor(
       page.getByRole('dialog', { name: 'Annotate selection' }),
       agent.name,
@@ -917,5 +923,43 @@ test('answer blocks publish verified normal annotations and keep changes and age
       mkdirSync(captures, { recursive: true });
       await page.screenshot({ path: `${captures}/question-native-reloaded.png` });
     }
+  });
+});
+
+test('paired comment-only selection creates one durable comment without any Ask dispatch', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'selection-comment-only');
+    const created = createPage(
+      world,
+      'Comment selection',
+      '<p id="quote">Comment without talk.</p>',
+    );
+    const page = await openPage(door, browser, created);
+    const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+    await mode.click();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.frameLocator('iframe').locator('#quote').click();
+    const window = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = window.getByRole('combobox', { name: 'Message', exact: true });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('', { useInnerText: true });
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    await input.fill('A durable selected comment');
+    await window.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(window.getByTestId('comment-entry').locator('.comment-body')).toHaveText(
+      'A durable selected comment',
+    );
+    await page.reload();
+    await comments(page);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Comment without talk.' }).click();
+    await expect(page.getByTestId('comment-entry').locator('.comment-body')).toHaveText(
+      'A durable selected comment',
+    );
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
   });
 });

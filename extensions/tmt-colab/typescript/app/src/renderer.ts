@@ -55,6 +55,7 @@ export async function mountRenderer(
     onState(state: RenderState): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
+    onToggleSelectionMode?(): void;
     onOpenThread?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
@@ -72,6 +73,7 @@ export async function mountRenderer(
     threads: { id: string; selector: QuoteSelector }[],
   ): void;
   scrollAnchor(id: string): void;
+  selectionMode(enabled: boolean): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
   /** Stop the old channel while its frame preserves layout until replacement. */
@@ -248,9 +250,10 @@ export async function mountRenderer(
       ready &&
       Object.keys(value).length === 2 &&
       value.renderId === snapshot.renderId &&
-      value.type === 'colab.render.annotate'
+      (value.type === 'colab.render.annotate' || value.type === 'colab.render.toggle-selection')
     ) {
-      options.onAnnotate?.();
+      if (value.type === 'colab.render.toggle-selection') options.onToggleSelectionMode?.();
+      else options.onAnnotate?.();
       return;
     }
     if (
@@ -631,5 +634,23 @@ export async function mountRenderer(
       height: 20,
     };
   };
-  return { snapshot, highlight, slots, questions, scrollAnchor, anchorRectangle, release, destroy };
+  const selectionMode = (enabled: boolean) => {
+    if (stopped || !ready) return;
+    channel.port1.postMessage({
+      type: 'colab.render.selection-mode',
+      renderId: snapshot.renderId,
+      enabled,
+    });
+  };
+  return {
+    snapshot,
+    highlight,
+    slots,
+    questions,
+    scrollAnchor,
+    selectionMode,
+    anchorRectangle,
+    release,
+    destroy,
+  };
 }

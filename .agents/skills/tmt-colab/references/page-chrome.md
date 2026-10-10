@@ -74,8 +74,13 @@ header; fallback pages instead scroll to the target internally. Neither layout
 nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
 Selection capture waits for pointer/keyboard release; the parent Annotate control follows
-its focus end. C and Alt+Enter request that same view outside text entry and IME;
-these bootstrap shortcuts never publish or send.
+its focus end. With mode off, C annotates a completed selection; otherwise it toggles mode.
+It stays outside text entry, IME, repeats and modifiers;
+Alt+Enter keeps its explicit annotation action. The parent-only bottom-right toggle clears
+open panels and composers spatially, independently of their state. In mode, one outline
+marks the hovered target; text-bearing clicks and completed selections open the retained
+anchored discussion. Textless targets show a temporary hint and create nothing. Readers
+have no toggle. No selection navigation prepares, publishes or sends an Ask.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes

@@ -357,6 +357,7 @@ for (const theme of ['light', 'dark'] as const)
     expect(actionBox.x).toBeGreaterThan(box.x + box.width);
     expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(390);
     await page.screenshot({ path: capturePath(`selection-finished-390-${theme}.png`) });
+    await expect(action).toHaveAttribute('aria-keyshortcuts', 'c Alt+Enter');
     await page.keyboard.press('c');
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();
@@ -366,6 +367,10 @@ for (const theme of ['light', 'dark'] as const)
     // Capture the opened annotation before the separate editing and IME controls type into it.
     await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
     await input.press('c');
+    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await expect(input).toHaveText('c', { useInnerText: true });
     await page.evaluate(() => {
       document.addEventListener(
@@ -391,6 +396,10 @@ for (const theme of ['light', 'dark'] as const)
       await page.evaluate(() => (window as unknown as { composingKey: unknown }).composingKey),
     ).toEqual({ trusted: true, composing: true });
     await expect(input).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await expect(page.locator('.annotation-popover')).toHaveCount(1);
     expect((await run(page, 'proof')).sends).toEqual([]);
     await client.detach();
@@ -481,5 +490,149 @@ test('initial admitted reply history stays silent after loading and reopening', 
   await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
   await (await pageAction(page, 'Chat')).click();
   await expect(live).toHaveText('');
+  expect((await run(page, 'proof')).sends).toEqual([]);
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const) {
+    test(`selection mode retains anchored drafts without dispatch ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      await page.goto('/');
+      await run(page, 'mount');
+      const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c');
+      await page.screenshot({ path: capturePath(`1923-off-${width}-${theme}.png`) });
+      await mode.focus();
+      for (const key of ['Shift+c', 'Alt+c', 'Control+c', 'Meta+c']) await page.keyboard.press(key);
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await page.keyboard.down('c');
+      await page.keyboard.down('c');
+      await page.keyboard.up('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByText(text.selectionModeHint, { exact: true })).toBeVisible();
+      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      // C above is a keyboard guard case. Capture the ordinary pointer activation separately.
+      await expect(mode).toBeFocused();
+      expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+      // Use the preceding hint as a test-only starting point for native Tab navigation.
+      const hint = page.getByText(text.selectionModeHint, { exact: true });
+      await hint.evaluate((node: HTMLElement) => {
+        node.tabIndex = -1;
+        node.focus();
+        node.removeAttribute('tabindex');
+      });
+      await page.keyboard.press('Tab');
+      await expect(mode).toBeFocused();
+      expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
+      // Release this test's forced keyboard focus before exercising the body shortcut.
+      await mode.evaluate((node) => node.blur());
+      await page.keyboard.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await page.keyboard.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+      await mode.click();
+      await expect(mode).toHaveAttribute('aria-pressed', 'false');
+      await mode.click();
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+      await expect(page.locator('.selection-mode .tmt-ui-icon-action-tooltip')).toBeHidden();
+      await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
+      const frame = page.frameLocator('#ask-page-fixture iframe');
+      await frame.locator('#selected').hover();
+      await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+      await page.screenshot({ path: capturePath(`1923-hover-${width}-${theme}.png`) });
+      await frame.locator('#selected').click();
+      const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+      await expect(input).toBeFocused();
+      await expect(page.locator('.annotation-popover blockquote')).toHaveText(
+        'Exact selected text',
+      );
+      await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
+      await input.fill('Retain this selection draft');
+      await input.press('c');
+      await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      const modeBox = (await mode.boundingBox())!;
+      const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
+      const headerBox = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
+      expect(modeBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
+      expect(
+        modeBox.y + modeBox.height <= windowBox.y ||
+          modeBox.y >= windowBox.y + windowBox.height ||
+          modeBox.x + modeBox.width <= windowBox.x ||
+          modeBox.x >= windowBox.x + windowBox.width,
+      ).toBe(true);
+      await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
+      const originalDraft = await input.textContent();
+      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await frame.locator('#selected').click();
+      await expect(input).toHaveText(originalDraft!);
+      expect((await run(page, 'proof')).sends).toEqual([]);
+      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      if (width === 1440) {
+        await (await pageAction(page, 'Source')).click();
+        await expect(page.locator('.page-drawer[open]')).toHaveCount(1);
+        await expect(mode).toHaveAttribute('aria-pressed', 'true');
+        await expect
+          .poll(async () => {
+            const controlBox = (await mode.boundingBox())!;
+            const panelBox = (await page.locator('.page-drawer[open]').boundingBox())!;
+            return controlBox.x + controlBox.width <= panelBox.x - 24;
+          })
+          .toBe(true);
+        await page.screenshot({ path: capturePath(`1923-panel-${width}-${theme}.png`) });
+        await page.getByRole('button', { name: 'Close Source', exact: true }).click();
+      }
+      await run(
+        page,
+        'change',
+        '<p id="selected">Exact selected text</p><div id="empty" style="width:80px;height:80px"></div>',
+      );
+      await expect(frame.locator('#empty')).toBeVisible();
+      await frame.locator('#empty').click();
+      await expect(frame.getByRole('status')).toHaveText('Select some text to comment');
+      await expect(page.locator('.annotation-popover')).toHaveCount(0);
+      await page.screenshot({ path: capturePath(`1923-textless-${width}-${theme}.png`) });
+      expect((await run(page, 'proof')).sends).toEqual([]);
+      await frame.locator('#selected').hover();
+      await expect(frame.getByRole('status')).toHaveCount(0);
+      await frame.locator('#selected').click();
+      await expect(input).toHaveText(originalDraft!);
+    });
+  }
+
+test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { commentOnly: true });
+  const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+  await expect(mode).toHaveAttribute('aria-pressed', 'false');
+  await mode.click();
+  await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
+  const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+  await expect(input).toBeFocused();
+  await input.fill('A comment without Ask authority');
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.evaluate(() => {
+    location.hash = '/pages/notes';
+  });
+  const readonly = page.frameLocator('#ask-page-fixture iframe').locator('#other-page');
+  await expect(readonly).toHaveText('Another fixture page');
+  await expect(mode).toHaveCount(0);
+  await readonly.click();
+  await page.keyboard.press('c');
+  await expect(mode).toHaveCount(0);
+  await expect(page.locator('.annotation-popover')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });

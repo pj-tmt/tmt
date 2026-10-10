@@ -53,6 +53,9 @@ async function mount(page: Page, source: string) {
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
+        onToggleSelectionMode: () => {
+          host.dataset.toggles = String(Number(host.dataset.toggles ?? '0') + 1);
+        },
         onAnnotate: () => {
           host.dataset.annotates = String(Number(host.dataset.annotates ?? '0') + 1);
         },
@@ -893,7 +896,7 @@ for (const backward of [false, true])
     await page.mouse.up();
   });
 
-test('keyboard selection waits for key release; C and Alt+Enter keep the embed key guards', async ({
+test('keyboard selection waits for key release; C annotates a completed selection or toggles mode with editing guards', async ({
   page,
 }) => {
   await page.goto('/');
@@ -925,6 +928,7 @@ test('keyboard selection waits for key release; C and Alt+Enter keep the embed k
   await frame.locator('#quote').evaluate((node) => node.removeAttribute('contenteditable'));
   for (const key of ['Shift+c', 'Alt+c', 'Control+c', 'Meta+c']) await page.keyboard.press(key);
   await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-toggles');
   // A trusted IME confirmation code on a non-editing target isolates that guard.
   await frame.evaluate(() => {
     document.addEventListener(
@@ -951,24 +955,31 @@ test('keyboard selection waits for key release; C and Alt+Enter keep the embed k
     windowsVirtualKeyCode: 229,
   });
   await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-toggles');
   expect(
     await frame.evaluate(() => (window as unknown as { confirmationKey: unknown }).confirmationKey),
   ).toEqual({ trusted: true, code: 'KeyC', keyCode: 229 });
   await client.detach();
   await page.keyboard.press('c');
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
-  await page.keyboard.down('c');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-toggles');
+  await page.keyboard.press('Alt+Enter');
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  await frame.evaluate(() => getSelection()?.removeAllRanges());
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
+  await page.keyboard.press('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '1');
+  await page.keyboard.down('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   await page.keyboard.down('c');
   await page.keyboard.up('c');
-  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
-  await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
+  await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   for (const id of ['edit', 'area', 'editable']) {
     await frame.locator(`#${id}`).focus();
     await page.keyboard.press('c');
     await page.keyboard.press('Alt+Enter');
-    await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '3');
+    await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+    await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   }
 });
 
@@ -1037,4 +1048,54 @@ test('proposal slots admit only bounded current unique geometry and cap converge
   expect(result.clamped).toBe(2000);
   expect(JSON.parse(result.stopped!)[0].top).toBe(30);
   expect(result.detached).toBe('[]');
+});
+
+test('selection mode outlines one target, captures text-bearing clicks and refuses textless targets', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<p id="target">Comment on these words</p><div id="empty" style="width:80px;height:80px"></div><p id="drag" style="display:inline-block">Drag these words</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { selectionMode(enabled: boolean): void } } }
+    ).probe.handle.selectionMode(true);
+  });
+  await frame.locator('#target').hover();
+  await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+  expect(
+    await frame
+      .locator('[data-colab-selection-outline]')
+      .evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).toBe('rgba(0, 0, 0, 0)');
+  await frame.locator('#target').click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Comment on these words');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  const selected = JSON.parse((await page.locator('#probe').getAttribute('data-selector'))!);
+  expect(selected.exact).toBe('Comment on these words');
+  await frame.locator('#empty').click();
+  await expect(frame.getByRole('status')).toHaveText('Select some text to comment');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await frame.locator('#target').hover();
+  await expect(frame.getByRole('status')).toHaveCount(0);
+  const box = (await frame.locator('#drag').boundingBox())!;
+  await page.mouse.move(box.x + 1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await page.mouse.up();
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Drag these words');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { selectionMode(enabled: boolean): void } } }
+    ).probe.handle.selectionMode(false);
+  });
+  await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(0);
+  await frame.locator('#target').click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
 });

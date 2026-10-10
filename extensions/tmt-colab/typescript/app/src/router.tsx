@@ -9,7 +9,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ArrowUpRight, LoaderCircle, Moon, Sun } from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -63,6 +63,101 @@ import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
 import { SaveOutcomeUnknown, saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
+
+/** The control belongs to trusted chrome; only mode is projected into author content. */
+function SelectionMode({
+  host,
+  enabled,
+  discussionOpen,
+  panel,
+  toggle,
+}: {
+  host: HTMLDivElement | null;
+  enabled: boolean;
+  discussionOpen: boolean;
+  panel: PageHeaderAction | null;
+  toggle(): void;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const [placement, setPlacement] = useState<{
+    right: number;
+    bottom: number;
+    visibility: 'visible' | 'hidden';
+  }>({ right: 24, bottom: 24, visibility: 'hidden' });
+  useEffect(() => {
+    button.current?.setAttribute('aria-keyshortcuts', 'c');
+  }, []);
+  useEffect(() => {
+    const place = () => {
+      const box = host?.getBoundingClientRect();
+      if (!box) return;
+      const margin = innerWidth <= 640 ? 16 : 24;
+      // These parent-owned overlays sit outside the renderer host's layout box.
+      // Their actual bounds keep the control clear without altering author geometry.
+      const drawer = document
+        .querySelector<HTMLDialogElement>('.page-drawer[open]')
+        ?.getBoundingClientRect();
+      const right = Math.min(box.right, drawer?.left ?? innerWidth);
+      const composer = document.querySelector('.annotation-popover')?.getBoundingClientRect();
+      const edge = Math.min(innerHeight, box.bottom);
+      const width = button.current?.offsetWidth ?? 40;
+      const obstructed =
+        composer &&
+        composer.right > right - width - margin &&
+        composer.left < right - margin &&
+        composer.bottom > edge - margin - 40 &&
+        composer.top < edge;
+      const bottom = obstructed ? Math.min(edge, composer.top) : edge;
+      setPlacement({
+        right: Math.max(margin, innerWidth - right + margin),
+        bottom: innerHeight - bottom + margin,
+        visibility:
+          right - box.left >= 80 && bottom - margin - 40 >= Math.max(0, box.top)
+            ? 'visible'
+            : 'hidden',
+      });
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (host) observer.observe(host);
+    // Native dialog show/close happens in its own effect. Follow its actual layout,
+    // rather than depending on sibling effect order.
+    for (const drawer of document.querySelectorAll('.page-drawer')) observer.observe(drawer);
+    const composer = document.querySelector('.annotation-popover');
+    if (composer) observer.observe(composer);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place);
+    };
+  }, [host, enabled, panel, discussionOpen]);
+  return (
+    <div ref={element} className="selection-mode" style={placement}>
+      {enabled && !discussionOpen && (
+        <p className="selection-mode-hint">{text.selectionModeHint}</p>
+      )}
+      <BrowserIconAction
+        type="button"
+        variant="primary"
+        label={text.selectionMode}
+        buttonRef={button}
+        pressed={enabled}
+        icon={
+          <>
+            <MousePointer2 />
+            {enabled && <span>{text.selecting}</span>}
+          </>
+        }
+        onActivate={(event) => {
+          if (event.isTrusted) toggle();
+        }}
+      />
+    </div>
+  );
+}
 
 function SelectionAnnotation({
   host,
@@ -820,6 +915,8 @@ function Page() {
     void owner.reconnect();
     return () => owner.stop();
   }, [recoveryRequired, snapshot.binding]);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const toggleSelectionMode = useRef<() => void>(() => {});
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
@@ -862,6 +959,7 @@ function Page() {
     annotationDraft.current = { value: '' };
     annotationBusy.current = statusBusy.current = false;
     setChangingStatus(false);
+    setSelectionMode(false);
     setSelector(null);
     currentSelector.current = null;
     currentRectangle.current = null;
@@ -1022,6 +1120,41 @@ function Page() {
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
+  const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
+  toggleSelectionMode.current = () => {
+    if (canSelect) setSelectionMode((enabled) => !enabled);
+  };
+  useEffect(() => {
+    renderer.current?.selectionMode(canSelect && selectionMode);
+  }, [canSelect, selectionMode]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const target = event.target;
+      const editing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || !!target.closest('input,textarea,select,[role="textbox"]'));
+      if (
+        !event.isTrusted ||
+        event.defaultPrevented ||
+        editing ||
+        event.repeat ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.code !== 'KeyC' ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !canSelect
+      )
+        return;
+      event.preventDefault();
+      if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
+      else toggleSelectionMode.current();
+    };
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
   const questions = useMemo(() => readQuestions(view.source), [view.source]);
   const inlineSlots = useInlineSlots({
@@ -1089,6 +1222,7 @@ function Page() {
         setAnchorsChecked(checked);
       },
       onAnnotate: annotate,
+      onToggleSelectionMode: () => toggleSelectionMode.current(),
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
@@ -1322,8 +1456,18 @@ function Page() {
           )}
         </div>
       </div>
+      {canSelect && (
+        <SelectionMode
+          host={host.current}
+          enabled={selectionMode}
+          discussionOpen={!!annotation}
+          panel={panel}
+          toggle={() => toggleSelectionMode.current()}
+        />
+      )}
       {snapshot.binding?.discussion &&
         (snapshot.binding?.ask || annotation) &&
+        (annotation || !selectionMode) &&
         (annotation || (!liveError && state === 'ready')) && (
           <SelectionAnnotation
             host={host.current}
