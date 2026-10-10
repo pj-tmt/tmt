@@ -2484,8 +2484,8 @@ door, `open` shows the relative path and the reason (the install line, or `brows
 unavailable: see warning`), never a command that `serve` replaces.
 
 Bare `tmt remote pair` grants page access without sending. Sending an Ask or Chat to an
-agent requires `tmt remote pair --talk`, or the owner enabling sending for that device in
-Remote settings. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
+agent requires a yes at the pairing prompt, `tmt remote pair --talk`, or the owner enabling
+sending for that device in Remote settings. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
 scope:"talk"` becomes the retained own-stream reason `TALK_NOT_ENABLED` and the specific
 read-but-cannot-send notice, which also names `tmt remote devices talk <device> on` with the
 row's own device ID; an absent scope or a recipient restriction keeps the generic
