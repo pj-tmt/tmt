@@ -43,6 +43,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
+import { readmittable, ReadmitBudget } from './readmit.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
@@ -657,6 +658,8 @@ function Page() {
     ),
   );
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
+  const router = useRouter();
+  const readmit = useRef(new ReadmitBudget());
   const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
     null,
   );
@@ -712,6 +715,12 @@ function Page() {
         }
       },
       (error) => {
+        // An epoch advance or authority recheck is not a lost grant: reopen the page for the
+        // new epoch without a reload. A refused fresh open, or an exhausted budget, shows the card.
+        if (readmittable(error) && readmit.current.take(Date.now())) {
+          void router.invalidate();
+          return;
+        }
         void buildWatch.check();
         setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
