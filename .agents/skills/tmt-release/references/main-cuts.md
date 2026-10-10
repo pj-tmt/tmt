@@ -323,14 +323,12 @@ installer: the installer names the tag's version, the installed `tmt`
 is the one PATH selects and reports that version, the installed shared skills are the tag's
 `skills/*` (same names, same `SKILL.md`), and `tmt upgrade --channel alpha --to <version> --json`
 verifies the exact published version. Adding its pin may report changed; an existing pin may report
-unchanged. An extension alpha first uses the newest published CLI's `tmt extension install
-<extension> --channel alpha` into a separate prefix, without asserting that channel version.
-Then `tmt extension upgrade <extension> --yes --json --channel alpha --to <version> --prefix P`
-must report the exact product and published version; a newer alpha stays red. The extension list
-and Colab app proof use that exact version, and no CLI link may appear. Exact upgrade selection
-avoids pointer freshness, but initial installation still requires a product pointer: a product
-without one (Digest) needs the Core `extension install --to` follow-up. Other product/version
-and installation failures stay red.
+unchanged. An extension alpha uses the newest published CLI's `tmt extension install <extension>
+--yes --json --channel alpha --to <version> --prefix P` into a separate prefix. The exact release
+record selects the published cut without a channel pointer, including a product's first release.
+Product and version must match that cut exactly; a newer alpha stays red. The extension list and
+Colab app proof use that exact version, and no CLI link may appear. Other product/version and
+installation failures stay red.
 A Herdr driver alpha downloads its exact tag’s
 `dist-manifest.json` and matching standalone archive through public versioned URLs,
 checks the bounded manifest, digest and inventory, verifies the bootstrapped CLI with
