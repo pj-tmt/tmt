@@ -55,6 +55,11 @@ struct PageInput {
     limit: usize,
 }
 
+#[derive(Debug, PartialEq)]
+enum CommittedChange {
+    Name,
+    Authority(String),
+}
 enum Mutation {
     Setting { key: &'static str, value: Value },
     Rename { client: String, name: String },
@@ -340,7 +345,7 @@ impl Store {
         operation: &str,
         digest: &[u8],
         mutation: Mutation,
-    ) -> Result<(Value, Option<String>)> {
+    ) -> Result<(Value, Option<CommittedChange>)> {
         self.management_effect_observed(grant, id, operation, digest, mutation, |_| {})
     }
     // Observers run under the existing effect locks; never reacquire live/Store/settings.
@@ -352,7 +357,7 @@ impl Store {
         digest: &[u8],
         mutation: Mutation,
         mut observe: impl FnMut(EffectStage),
-    ) -> Result<(Value, Option<String>)> {
+    ) -> Result<(Value, Option<CommittedChange>)> {
         let root = self.data_root.clone();
         let (tx, now) = self.authorized_at(grant, now_ms)?;
         require_writable(&tx, grant)?;
@@ -385,10 +390,10 @@ impl Store {
                 let before = grant_in(&tx, &client)?;
                 match rename_in(&tx, &client, &name) {
                     Ok(Some(target)) => {
-                        let changed = before.is_some_and(|g| g.revision != target.revision);
+                        let changed = before.is_some_and(|g| g.name != target.name);
                         (
-                            json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":changed && client==grant.client_id}),
-                            changed.then_some(client),
+                            json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":false}),
+                            changed.then_some(CommittedChange::Name),
                         )
                     }
                     Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
@@ -410,7 +415,7 @@ impl Store {
                         let changed = before.is_some_and(|g| g.revision != target.revision);
                         (
                             json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":changed && client==grant.client_id}),
-                            changed.then_some(client),
+                            changed.then_some(CommittedChange::Authority(client)),
                         )
                     }
                     Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
@@ -423,7 +428,7 @@ impl Store {
             Mutation::Revoke { client } => match revoke_in(&tx, &client) {
                 Ok(Some(target)) => (
                     json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":client==grant.client_id}),
-                    Some(client),
+                    Some(CommittedChange::Authority(client)),
                 ),
                 Ok(None) => (refused(id, "REMOTE_DEVICE_NOT_FOUND"), None),
                 Err(error) => return Err(error),
@@ -598,8 +603,10 @@ pub(crate) fn append(
             store.management_effect(&permit.grant, &id, operation, &digest, mutation)
         }) {
             Ok((outcome, changed)) => {
-                if let Some(client) = changed {
-                    devices.committed_change(&client);
+                match changed {
+                    Some(CommittedChange::Name) => devices.wake(),
+                    Some(CommittedChange::Authority(client)) => devices.committed_change(&client),
+                    None => {}
                 }
                 outcome
             }

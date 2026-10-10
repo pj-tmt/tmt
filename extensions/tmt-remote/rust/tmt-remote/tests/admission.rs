@@ -706,16 +706,18 @@ fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
                 .store
                 .lock()
                 .unwrap()
-                .rename(&owner.grant.client_id, "New name")
+                .talk(&owner.grant.client_id, false)
                 .unwrap();
         }
         *clock.lock().unwrap() += Duration::from_secs(1);
         owner.sessions.maintain().unwrap();
-        assert_eq!(first_permit.revalidate().unwrap_err().code, "REMOTE_CLOSED");
-        assert_eq!(
-            second_permit.revalidate().unwrap_err().code,
+        let expected = if expire {
             "REMOTE_CLOSED"
-        );
+        } else {
+            "REMOTE_GRANT_CHANGED"
+        };
+        assert_eq!(first_permit.revalidate().unwrap_err().code, expected);
+        assert_eq!(second_permit.revalidate().unwrap_err().code, expected);
     }
 }
 

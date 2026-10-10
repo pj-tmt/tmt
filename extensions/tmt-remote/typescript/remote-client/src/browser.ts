@@ -527,12 +527,9 @@ export async function landingPage(): Promise<void> {
           (error.code === 'REMOTE_SESSION_ENDED' ||
             (reused && error.code === 'REMOTE_SESSION_EVICTED'))
         ) &&
-        [
-          'REMOTE_CLOSED',
-          'REMOTE_SESSION_ENDED',
-          'REMOTE_SESSION_EVICTED',
-          'REMOTE_DEVICE_REVOKED',
-        ].includes(error.code);
+        ['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED', 'REMOTE_DEVICE_REVOKED'].includes(
+          error.code,
+        );
       session = undefined;
       render(verifiedRefusal ? 'refused' : 'unconfirmed');
     } finally {

@@ -136,6 +136,8 @@ async function fixture(mode = 'success') {
     if (mode === 'signing') return new Response('', { status: 404 });
     if (mode === 'refused' || mode === 'stale') return new Response('', { status: 404 });
     door.tamper.signature = mode === 'unverified';
+    if (['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'].includes(mode))
+      door.error = { code: mode, message: 'ended' };
     if (mode === 'signed-refusal')
       door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'ended', limit: 4 };
     return door.fetch(url, init);
@@ -347,6 +349,9 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
     'unverified',
     'other-machine',
     'signed-refusal',
+    'REMOTE_CLOSED',
+    'REMOTE_GRANT_CHANGED',
+    'REMOTE_SERVE_STOPPED',
   ]) {
     const f = await fixture(mode);
     try {

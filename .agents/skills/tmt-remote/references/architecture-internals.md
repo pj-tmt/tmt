@@ -72,7 +72,10 @@ Rules that are easy to get wrong:
   the cap until expiry. Live-transport and no-transport idle limits belong to `limits`;
   the door maintenance loop persists expiry cleanup. `session` owns
   per-session replay and device-wide authority loss. Held work belongs to the grant and
-  survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
+  survives session end; only stop/revoke/expiry/revision change cancels it. Rename changes presentation
+  without a revision bump or cleanup. Private `session::EndReason` owns wire end codes; revision
+  changes and orderly shutdown have distinct bounded notices, never revocation proof. The journal/ack
+  remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
   use the default cap of 8 sessions per device; `off` is unlimited. `session`
   evicts only that device's most idle session without a live transport. When no

@@ -462,12 +462,12 @@ fn durable_device_events_retry_rename_revoke_and_replay_after_restarts() {
         devices.rename(&original.client_id, "Travel").unwrap();
         assert_eq!(
             received(&events),
-            serde_json::json!({"type":"device.renamed","deviceId":original.client_id,"grantRevision":2,"name":"Travel"})
+            serde_json::json!({"type":"device.renamed","deviceId":original.client_id,"grantRevision":1,"name":"Travel"})
         );
         devices.revoke(&original.client_id).unwrap();
-        let revoked = serde_json::json!({"type":"device.revoked","deviceId":original.client_id,"grantRevision":3});
+        let revoked = serde_json::json!({"type":"device.revoked","deviceId":original.client_id,"grantRevision":2});
         assert_eq!(received(&events), revoked);
-        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 3);
+        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 2);
         assert_eq!(received(&events), revoked);
         drop(worker);
         drop(extension);
@@ -538,9 +538,9 @@ fn an_unresponsive_extension_cannot_block_mutation_or_worker_shutdown() {
                 .rename(&original.client_id, "Travel")
                 .unwrap()
                 .revision,
-            2
+            1
         );
-        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 3);
+        assert_eq!(devices.revoke(&original.client_id).unwrap().revision, 2);
         assert!(devices.list().unwrap()[0].disabled);
         let began = Instant::now();
         drop(worker);

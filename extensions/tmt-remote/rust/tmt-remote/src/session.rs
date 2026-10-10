@@ -38,6 +38,47 @@ const CURRENT_WAIT: Duration = Duration::from_millis(250);
 /// Bound on remembered `session.open` nonces; beyond it opens refuse.
 const NONCES: usize = 4096;
 
+/// Private end policy: wire codes have one owner, including legacy ambiguous notices.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EndReason {
+    Idle,
+    Evicted,
+    GrantChanged,
+    ServeStopped,
+    Closed,
+}
+impl EndReason {
+    const ALL: [Self; 5] = [
+        Self::Idle,
+        Self::Evicted,
+        Self::GrantChanged,
+        Self::ServeStopped,
+        Self::Closed,
+    ];
+    fn code(self) -> &'static str {
+        match self {
+            Self::Idle => "REMOTE_SESSION_ENDED",
+            Self::Evicted => "REMOTE_SESSION_EVICTED",
+            Self::GrantChanged => "REMOTE_GRANT_CHANGED",
+            Self::ServeStopped => "REMOTE_SERVE_STOPPED",
+            Self::Closed => "REMOTE_CLOSED",
+        }
+    }
+    fn stored(code: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|reason| reason.code() == code)
+            .unwrap_or(Self::Closed)
+    }
+    fn authority(grant: Option<&Grant>, revision: u64, now: u64) -> Option<Self> {
+        match grant {
+            Some(grant) if grant.live_at(now) && grant.revision == revision => None,
+            Some(grant) if grant.live_at(now) => Some(Self::GrantChanged),
+            _ => Some(Self::Closed),
+        }
+    }
+}
+
 pub struct DoorSessions {
     machine_id: String,
     window_id: String,
@@ -202,7 +243,7 @@ impl DoorSessions {
                     continue;
                 }
                 let oldest = oldest.id.clone();
-                self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED", limit)
+                self.remove(&mut live, &oldest, EndReason::Evicted, limit)
                     .ok()?;
             }
             let token = (control.grant.kind == "browser")
@@ -309,7 +350,21 @@ impl DoorSessions {
                 .map(|s| s.id.clone())
                 .collect::<Vec<_>>();
             for id in ids {
-                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED", None);
+                let reason = live
+                    .by_session
+                    .get(&id)
+                    .and_then(|session| {
+                        self.store.lock().ok().and_then(|store| {
+                            let grant = store.grant(client_id).ok().flatten();
+                            EndReason::authority(
+                                grant.as_ref(),
+                                session.grant_revision,
+                                now_ms().ok()?,
+                            )
+                        })
+                    })
+                    .unwrap_or(EndReason::Closed);
+                let _ = self.remove(&mut live, &id, reason, None);
             }
             live.generation = live.generation.wrapping_add(1);
             self.ready.notify_all();
@@ -407,28 +462,42 @@ impl DoorSessions {
                         admission::refusal_with_limit(
                             self,
                             &message,
-                            &code,
+                            EndReason::stored(&code).code(),
                             "Session ended; reopen to continue.",
                             limit,
                         )
                     }),
                 );
             };
-            if live.stopped
-                || session.client_id != grant.client_id
-                || session.grant_revision != grant.revision
-            {
+            if session.client_id != grant.client_id {
                 return Err(MessageRefusal::Unauthenticated);
             }
-            if self.expired(session) {
+            if live.stopped || session.grant_revision != grant.revision {
+                let reason = if live.stopped {
+                    EndReason::ServeStopped
+                } else {
+                    EndReason::GrantChanged
+                };
                 let id = session.id.clone();
-                self.remove(&mut live, &id, "REMOTE_SESSION_ENDED", None)
+                self.remove(&mut live, &id, reason, None)
                     .map_err(|_| MessageRefusal::Unauthenticated)?;
                 drop(live);
                 return Err(admission::refusal(
                     self,
                     &message,
-                    "REMOTE_SESSION_ENDED",
+                    reason.code(),
+                    "Session ended; reopen to continue.",
+                ));
+            }
+            if self.expired(session) {
+                let id = session.id.clone();
+                self.remove(&mut live, &id, EndReason::Idle, None)
+                    .map_err(|_| MessageRefusal::Unauthenticated)?;
+                drop(live);
+                return Err(admission::refusal(
+                    self,
+                    &message,
+                    EndReason::Idle.code(),
                     "Session ended; reopen to continue.",
                 ));
             }
@@ -551,19 +620,34 @@ impl DoorSessions {
                         .ok()
                         .flatten()
                 })
-                .unwrap_or_else(|| ("REMOTE_SESSION_ENDED".into(), None));
-            let mut error = RemoteError::new(&code.0, "Device session ended; reopen to continue.");
+                .unwrap_or_else(|| {
+                    (
+                        if live.stopped {
+                            EndReason::ServeStopped
+                        } else {
+                            EndReason::Idle
+                        }
+                        .code()
+                        .into(),
+                        None,
+                    )
+                });
+            let mut error = RemoteError::new(
+                EndReason::stored(&code.0).code(),
+                "Device session ended; reopen to continue.",
+            );
             error.limit = code.1;
             return Err(error);
         }
         let mut store = self.store.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable.")
         })?;
-        if !store
-            .grant(&expected.client_id)?
-            .is_some_and(|grant| grant.revision == expected.revision && grant.live_at(now))
-        {
-            return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
+        let grant = store.grant(&expected.client_id)?;
+        if let Some(reason) = EndReason::authority(grant.as_ref(), expected.revision, now) {
+            return Err(RemoteError::new(
+                reason.code(),
+                "Device authority changed or ended.",
+            ));
         }
         Ok((action(&mut store)?, live.generation))
     }
@@ -573,7 +657,10 @@ impl DoorSessions {
     ) -> Result<T, RemoteError> {
         let live = self.live.lock().map_err(crate::store::database)?;
         if live.stopped {
-            return Err(RemoteError::new("REMOTE_CLOSED", "Door stopped."));
+            return Err(RemoteError::new(
+                EndReason::ServeStopped.code(),
+                "Door stopped.",
+            ));
         }
         // claim_held and effect recheck the live grant under the durable authority fence.
         let mut store = self.store.lock().map_err(crate::store::database)?;
@@ -600,7 +687,10 @@ impl DoorSessions {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
             })?;
         if live.stopped {
-            return Err(RemoteError::new("REMOTE_CLOSED", "Door stopped."));
+            return Err(RemoteError::new(
+                EndReason::ServeStopped.code(),
+                "Door stopped.",
+            ));
         }
         Ok(())
     }
@@ -612,7 +702,7 @@ impl DoorSessions {
             }
             let ids = live.by_session.keys().cloned().collect::<Vec<_>>();
             for id in ids {
-                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED", None);
+                let _ = self.remove(&mut live, &id, EndReason::ServeStopped, None);
             }
             live.by_token.clear();
             live.latest_token.clear();
@@ -747,7 +837,7 @@ impl DoorSessions {
         &self,
         live: &mut Live,
         id: &str,
-        reason: &str,
+        reason: EndReason,
         limit: Option<usize>,
     ) -> Result<(), RemoteError> {
         if let Some(session) = live.by_session.get(id) {
@@ -756,7 +846,7 @@ impl DoorSessions {
             self.store
                 .lock()
                 .map_err(crate::store::database)?
-                .end_session(&session.client_id, id, reason, limit, now_ms()?)?;
+                .end_session(&session.client_id, id, reason.code(), limit, now_ms()?)?;
         }
         if let Some(session) = live.by_session.remove(id) {
             session.state.end();
@@ -767,7 +857,7 @@ impl DoorSessions {
                 .ok()
                 .and_then(|store| store.grant(&session.client_id).ok().flatten());
             let valid = !live.stopped
-                && reason != "REMOTE_CLOSED"
+                && matches!(reason, EndReason::Idle | EndReason::Evicted)
                 && now_ms().ok().is_some_and(|now| {
                     grant.is_some_and(|grant| {
                         grant.live_at(now) && grant.revision == session.grant_revision
@@ -819,18 +909,12 @@ impl DoorSessions {
         {
             let store = self.store.lock().map_err(crate::store::database)?;
             for session in live.by_session.values() {
-                let valid = store
-                    .grant(&session.client_id)?
-                    .is_some_and(|g| g.live_at(now) && g.revision == session.grant_revision);
-                if !valid || self.expired(session) {
-                    ended.push((
-                        session.id.clone(),
-                        if valid {
-                            "REMOTE_SESSION_ENDED"
-                        } else {
-                            "REMOTE_CLOSED"
-                        },
-                    ));
+                let grant = store.grant(&session.client_id)?;
+                if let Some(reason) =
+                    EndReason::authority(grant.as_ref(), session.grant_revision, now)
+                        .or_else(|| self.expired(session).then_some(EndReason::Idle))
+                {
+                    ended.push((session.id.clone(), reason));
                 }
             }
         }

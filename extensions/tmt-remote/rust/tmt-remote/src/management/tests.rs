@@ -690,7 +690,14 @@ fn process_crashes_preserve_original_management_identity_and_durable_boundaries(
         );
         assert_eq!(outcome["operationId"], id);
         let target = f.store.grant(&f.grant.client_id).unwrap().unwrap();
-        assert_eq!(target.revision, if committed { 2 } else { 1 });
+        assert_eq!(
+            target.revision,
+            if committed && !phase.contains("rename") {
+                2
+            } else {
+                1
+            }
+        );
         assert_eq!(target.disabled, phase == "committed-revoke");
         assert_eq!(
             target.name,
@@ -796,7 +803,10 @@ fn talk_toggle_commits_only_the_scope_and_revision_with_an_immutable_receipt() {
     assert_eq!(outcome["state"], "committed");
     assert_eq!(outcome["result"]["device"]["talkEnabled"], false);
     assert_eq!(outcome["sessionEnded"], true);
-    assert_eq!(changed, Some(f.grant.client_id.clone()));
+    assert_eq!(
+        changed,
+        Some(CommittedChange::Authority(f.grant.client_id.clone()))
+    );
     assert_eq!(
         receipt(
             &f.store.connection,

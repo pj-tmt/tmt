@@ -292,6 +292,13 @@ sessions-per-device <n>`. The SDK normalizes the URL and requires the door's ori
 idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
 grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
 afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
+A real grant revision change uses `REMOTE_GRANT_CHANGED`; orderly serve shutdown uses
+`REMOTE_SERVE_STOPPED`. Both close attached transports; the close itself carries no signed reason.
+A still-reachable originating run can answer a verified request with its stored notice within the
+same 60-second bound. A restarted run never answers the previous run's notice. An unreachable run,
+expired notice, generic 404 or legacy `REMOTE_CLOSED` is unconfirmed, never proof of revocation.
+Neither new code proves an effect was refused: retain its original identity and observe it after
+re-admission without resending. Old SDK bundles treat these unknown signed codes as unconfirmed.
 The served SDK's `reopenSession(previous, {retry:"bounded", signal})` performs only re-admission:
 one coalesced series per previous verified Session, at most four opens within 20 seconds, each
 attempt bounded to four seconds, with 250/500/1000 ms delays plus bounded jitter. The calling
@@ -567,8 +574,8 @@ browser actions to change those settings, rename or revoke a paired device. Read
 cookies, session tokens or core inventory. Settings use the CLI's existing store, validation and
 locking; absent/default session cap 8 and `off`/unlimited semantics remain unchanged. Device
 mutations reuse Remote's grant-revision, session cleanup and device-event behavior. Explicit
-trusted UI actions authorize writes; presentation state does not. A self-rename/revoke can end the
-caller Session after a committed effect; lost acknowledgment must not be reported as no effect.
+trusted UI actions authorize writes; presentation state does not. A self-talk change or revoke can
+end the caller Session after a committed effect; lost acknowledgment must not be reported as no effect.
 Freeze each mutation's identity/input and recover unknown outcomes read-only without automatic
 resend or a replacement operation ID.
 
@@ -653,8 +660,9 @@ A management outcome is one of:
 
 A setting result contains settings; device mutations contain only the target summary.
 `sessionEnded` means the caller's old Session lost authority through a revision/revoke change,
-not proof that a physical TCP socket has closed. Exact-repeat rename preserves the revision and
-returns false; exact-repeat talk toggles do likewise, and revoked grants cannot be enabled.
+not proof that a physical TCP socket has closed. Rename preserves the revision, live Sessions,
+cookies and held work, and returns false; exact-repeat talk toggles do likewise, and revoked
+grants cannot be enabled.
 Repeated local revoke preserves the existing revoked revision. Device effects and
 committed receipts share one immediate SQLite transaction; post-commit cleanup/events reuse the
 existing device and Session owners after releasing live/Store locks. A cleanup, signing or transport
@@ -707,7 +715,7 @@ Local owner commands `tmt remote devices designate <client-id>` and
 `tmt remote devices undesignate` select/remove the persisted machine/device/key designation
 through the existing control socket or stopped serve lock. Designation validates a live browser
 and exact current/remembered door origin. It is never automatic or remotely callable. Revoke or
-same-key re-pair clears it; rename retains identity while ending old-revision Sessions. The
+same-key re-pair clears it; rename retains identity and live Sessions. The
 optional pairing-confirmation choice is not implemented; later local designation
 is available without another browser ceremony.
 
@@ -716,9 +724,8 @@ The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `t
 nothing and never resends a mutation or creates a replacement mutation ID after unknown outcome.
 Freeze the original input/ID independently of subsequent form editing.
 
-After self-rename, a still-live grant may explicitly open a fresh verified Session and read only
-its original receipt by ID, without replay. After a lost self-revoke acknowledgment, make one
-read-only fresh-admission attempt with the same paired identity and the current trusted door
+After self-rename, the same live Session can read its original receipt by ID, without replay. After
+a lost self-revoke acknowledgment, make one read-only fresh-admission attempt with the same paired identity and the current trusted door
 descriptor. If admitted, read the original operation. If refused, show loss of current access
 separately from an accurate unknown outcome and the local `tmt remote devices` confirmation path;
 do not assert committed revoke, mint an ID, resend or offer a mutation retry. Transport error,
@@ -1129,7 +1136,8 @@ cannot-write/over-capacity fails closed before effects.
 
 Message errors are signed `{error:{code,message},operationId?}` responses after authentication.
 `REMOTE_INPUT_INVALID`, `REMOTE_SCOPE_DENIED`, `REMOTE_REPLAY`, `REMOTE_INTENT_CONFLICT`,
-`REMOTE_CLOSED`, `REMOTE_INPUT_TOO_LARGE`, `REMOTE_RATE_LIMITED` (optional retryAfterMs),
+`REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED`, `REMOTE_SERVE_STOPPED`, `REMOTE_INPUT_TOO_LARGE`,
+`REMOTE_RATE_LIMITED` (optional retryAfterMs),
 `REMOTE_CURSOR_EXPIRED`, `REMOTE_CORE_UNAVAILABLE` and `REMOTE_STATE_UNAVAILABLE` have the rules
 above. Unsupported operation/profile/binding is REMOTE_INPUT_INVALID. Preserve permitted core
 resource/errors, not a conflicting exchange engine. Pre-auth rejection is generic and cannot
@@ -1200,18 +1208,18 @@ connection failure, timeout or malformed response retries current durable state 
 backoff (1, 2, 4, 8, 16, then at most 30 seconds); a committed mutation wakes that wait too.
 An extension acknowledges only after applying or durably recording the event. Lost replies and
 successful periodic replay can duplicate events. Extension consumers therefore apply revisions
-idempotently per `deviceId`: an equal revision causes no repeated effects, and an older event
-never undoes a newer one. A revoke at revision N wins over any rename at a lower revision.
+idempotently per `deviceId`: an equal revision causes no repeated authority effects; a name
+snapshot may update presentation at the same revision. An older authority event never undoes a
+newer one. A revoke at revision N wins over any rename at a lower revision.
 Consumers retain the applied revision with device-bound state; they must not rotate epochs again
 for a replayed revoke. Delivery is asynchronous: remote revokes authority and ends sessions before
 acknowledging the local command, while extension cleanup may still be awaiting recovery. A rename
 of a revoked device refuses, so its tombstone cannot become a name event.
 
 `tmt remote devices rename <clientId> <name>` changes presentation only, preserving the device ID,
-key and authority. A changed name advances the grant revision and ends old-revision sessions and
-tunnels; the device silently reopens with signed `session.open`. Repeating the current name is a
-no-op with the same revision. Both rename and revoke work through serve's control socket when
-running, or directly under the serve lock when stopped.
+key, authority revision, Sessions, cookies and held work. A changed name wakes the device-event
+worker without ending transports; repeating the current name is a no-op. Both rename and revoke
+work through serve's control socket when running, or directly under the serve lock when stopped.
 
 **Route mounting.** The door mounts each enabled, owner-installed extension under
 `/r/<prefix>/x/<extension>/`, inside the machine's route prefix, forwarding HTTP requests, static

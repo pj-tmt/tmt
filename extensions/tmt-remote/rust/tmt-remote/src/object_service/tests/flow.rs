@@ -1331,7 +1331,7 @@ fn original_observation_revoke_during_acquire_disclose_or_actual_io_suppresses_d
         if phase == 3 {
             Store::open(&env.serving)
                 .unwrap()
-                .rename(&world.device.client_id, "Changed binding")
+                .talk(&world.device.client_id, false)
                 .unwrap();
         }
         talk.decide(&acquire, Decision::Allow);
@@ -1582,7 +1582,7 @@ fn original_upload_revoke_or_binding_change_before_effect_allocates_nothing() {
         if phase == 2 {
             Store::open(&env.serving)
                 .unwrap()
-                .rename(&world.device.client_id, "Changed binding")
+                .talk(&world.device.client_id, false)
                 .unwrap();
         } else {
             world.device.sessions.end_device(&world.device.client_id);
@@ -1643,7 +1643,7 @@ fn original_upload_revoke_during_mutation_or_disclose_is_unknown_and_charged() {
             } else {
                 Store::open(&env.serving)
                     .unwrap()
-                    .rename(&world.device.client_id, "Changed binding")
+                    .talk(&world.device.client_id, false)
                     .unwrap();
             }
             talk.decide(&disclose, Decision::Allow);
