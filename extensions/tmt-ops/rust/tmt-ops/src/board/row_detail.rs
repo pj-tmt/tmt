@@ -60,7 +60,7 @@ impl State {
 
 #[derive(Clone)]
 pub(super) struct Field {
-    pub label: &'static str,
+    pub label: String,
     pub text: String,
     pub role: Role,
 }
@@ -104,17 +104,18 @@ pub(super) fn uncut(text: &str, width: usize, flow: tmt_tui::style::TextFlow) ->
 }
 
 impl Detail {
-    fn add(&mut self, label: &'static str, text: Option<&str>, role: Role) {
+    fn add(&mut self, label: &str, text: Option<&str>, role: Role) {
         if let Some(text) = text.filter(|text| !text.is_empty()) {
             self.fields.push(Field {
-                label,
+                label: label.to_owned(),
                 text: super::notes::sanitize(text),
                 role,
             });
         }
     }
     pub fn additional(mut self, visible: &[&str]) -> Self {
-        self.fields.retain(|field| !visible.contains(&field.label));
+        self.fields
+            .retain(|field| !visible.contains(&field.label.as_str()));
         self
     }
     /// Cache keys contain exactly the presentation inputs; request identities stay
@@ -219,12 +220,10 @@ impl App {
             }
         }
         let now = crate::status::now_ms();
-        if !visible.contains(&"digest") {
-            detail.add(
-                "digest",
-                crate::digest::detail(row, now).as_deref(),
-                Role::Muted,
-            );
+        if !visible.contains(&"chips") {
+            for (label, text) in crate::board::row_chips::detail(&self.labels, row, now) {
+                detail.add(&label, Some(&text), Role::Muted);
+            }
         }
         let (squad, id) = match target {
             RowTarget::Home(target) => (&target.squad, target.member.as_deref()?),

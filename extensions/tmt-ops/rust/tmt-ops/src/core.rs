@@ -182,7 +182,23 @@ impl Core {
         self.call(&["api".into()], request.to_string().as_bytes())
     }
 
+    /// Like [`Core::json`], bounded by `timeout` instead of the usual limit.
+    pub fn json_within(&self, args: &[&str], timeout: Duration) -> Result<Value, SquadError> {
+        let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
+        argv.push("--json".into());
+        self.call_within(&argv, b"", timeout)
+    }
+
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {
+        self.call_within(argv, input, TIMEOUT)
+    }
+
+    fn finish(
+        &self,
+        argv: &[OsString],
+        input: &[u8],
+        timeout: Duration,
+    ) -> Result<runner::Finished, SquadError> {
         let result = match self.deadline {
             Some(deadline) => {
                 runner::run_inherited(&self.executable, argv, input, deadline, OUTPUT_LIMIT)
@@ -191,12 +207,12 @@ impl Core {
                 &self.executable,
                 argv,
                 input,
-                TIMEOUT,
+                timeout,
                 OUTPUT_LIMIT,
                 self.cancellation.as_ref(),
             ),
         };
-        let finished = result.map_err(|error| {
+        result.map_err(|error| {
             let cancelled = error == RunError::Cancelled;
             let mut failure = unavailable(match error {
                 RunError::Spawn => "Could not start tmt.",
@@ -207,7 +223,16 @@ impl Core {
             });
             failure.cancelled = cancelled;
             failure
-        })?;
+        })
+    }
+
+    fn call_within(
+        &self,
+        argv: &[OsString],
+        input: &[u8],
+        timeout: Duration,
+    ) -> Result<Value, SquadError> {
+        let finished = self.finish(argv, input, timeout)?;
         let document: Value = serde_json::from_slice(&finished.stdout)
             .map_err(|_| unavailable("tmt returned no JSON document."))?;
         if finished.success {

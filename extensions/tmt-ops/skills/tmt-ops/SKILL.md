@@ -141,6 +141,18 @@ cell).
   windows have zero remaining time. Failed/older Core reads omit it. The board shows
   `digest 30m · 2 held`, rounding remaining minutes up (then `1h20m`); zero held is
   omitted. Narrow rows keep `digest`; expand with `e` for remaining time and held count.
+- Extensions can label member rows. The board asks each extension in `[labels] sources`
+  in `ops.toml` (default `["digest"]`; `[]` turns it off) for `tmt <name> status --json`,
+  in the background every few seconds, and shows the labels it supplies after the
+  member's name, led by the extension's name in `muted` and in the roles the extension
+  chose, such as `digest Auto · 3 held · Due now`. A member with supplied labels shows
+  them instead of the `digest …` chip, never both. Nothing waits for it: an absent,
+  slow, failing or malformed extension changes nothing, and labels from one that stops
+  answering disappear after 30 seconds. Labels give way to the member's name and the
+  whole state word: narrow rows drop trailing labels first, show the extension's name
+  only with its first label, and show no chip when those do not fit. `e` lists all
+  labels under the extension's name.
+  The sources are read when the board starts; restart it after changing them.
 - A row has the optional `colors` key only when a cell has a color:
   `{field: theme token}`. `colors.state` holds the resolved state token; other
   keys come from the user's column thresholds or a field provider's suggestion.
