@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const LIMIT: usize = 256;
+/// The word that names the policy chip.
+pub const WORD: &str = "digest";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
     pub identity_id: String,
@@ -178,7 +180,7 @@ pub fn label(row: &Value, now: u64) -> Option<String> {
         } else {
             format!(" · {held} held")
         };
-        format!("digest {}{suffix}", minutes(ms))
+        format!("{WORD} {}{suffix}", minutes(ms))
     })
 }
 pub fn detail(row: &Value, now: u64) -> Option<String> {
@@ -192,44 +194,9 @@ pub fn detail(row: &Value, now: u64) -> Option<String> {
     })
 }
 
-/// Fitting keeps the digest word whole; expansion carries omitted details.
-pub fn fitted(row: &Value, now: u64, budget: usize) -> (String, String, bool) {
-    let Some(label) = label(row, now) else {
-        return (String::new(), String::new(), false);
-    };
-    if budget < "digest".len() {
-        return (String::new(), String::new(), false);
-    }
-    if unicode_width::UnicodeWidthStr::width(label.as_str()) <= budget {
-        ("digest".into(), label["digest".len()..].into(), true)
-    } else {
-        ("digest".into(), String::new(), false)
-    }
-}
-
-/// Shared heading data for boxed and HOME row templates.
-pub fn pieces(row: &Value, now: u64, budget: usize) -> Value {
-    let (word, suffix, _) = fitted(row, now, budget);
-    if word.is_empty() {
-        json!([])
-    } else {
-        json!([{"word":word,"suffix":suffix}])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn narrow_labels_keep_the_whole_digest_word_and_complete_suffix() {
-        let row = json!({"digest":{"active":true,"digestUntilMs":60_000,"heldCount":2}});
-        assert_eq!(fitted(&row, 0, 5), (String::new(), String::new(), false));
-        assert_eq!(fitted(&row, 0, 6), ("digest".into(), String::new(), false));
-        assert_eq!(
-            fitted(&row, 0, 40),
-            ("digest".into(), " 1m · 2 held".into(), true)
-        );
-    }
     #[test]
     fn clock_rounds_minutes_and_hides_expired_or_inactive_policies() {
         let mut row = json!({"digest":{"active":true,"digestUntilMs":4_801_001,"heldCount":2}});

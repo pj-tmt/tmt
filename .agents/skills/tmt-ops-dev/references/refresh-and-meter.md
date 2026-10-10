@@ -36,6 +36,17 @@
   refuses a new send while one is in flight so no text is lost. Picker and overlay
   saves are bounded local file writes through the compare-and-set config writer and stay
   on the session thread; they start no command.
+- <a id="extension-labels"></a>Extension labels: a dedicated `labels::Reader` thread, started by the
+  board next to the refresh worker (never inside it, so a slow extension cannot hold up a
+  reload), asks each `[labels] sources` entry `tmt <name> status --json` through `Core` with
+  a 5 s limit, one read in flight, every 5 s. A document that is not version 1, has no
+  member list or has a malformed row leaves that source or row unavailable; unknown additive
+  fields are ignored and actions are not read here. A failing source backs off to 60 s; its
+  last good rows stand in for 30 s, then drop. The reader sends `BoardEvent::Labels` only
+  when the combined result changed, `App` replaces `labels` wholesale, and painters read
+  it through `board/row_chips.rs`. Supplied text never depends on the clock, so only the
+  digest policy chip feeds `header::time_marks`. Dropping the reader cancels the read in
+  flight and joins the thread.
 - Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
   reads. It applies the digest rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one

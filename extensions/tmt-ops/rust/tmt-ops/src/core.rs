@@ -198,8 +198,15 @@ impl Core {
         self.call(&["api".into()], request.to_string().as_bytes())
     }
 
+    /// Like [`Core::json`], bounded by `timeout` instead of the usual limit.
+    pub fn json_within(&self, args: &[&str], timeout: Duration) -> Result<Value, SquadError> {
+        let mut argv: Vec<OsString> = args.iter().map(OsString::from).collect();
+        argv.push("--json".into());
+        self.call_within(&argv, b"", timeout)
+    }
+
     fn call(&self, argv: &[OsString], input: &[u8]) -> Result<Value, SquadError> {
-        self.call_with_environment(argv, input, tmt_invoke::EnvironmentPolicy::Inherit)
+        self.call_within(argv, input, TIMEOUT)
     }
 
     fn call_with_environment(
@@ -208,6 +215,25 @@ impl Core {
         input: &[u8],
         environment: tmt_invoke::EnvironmentPolicy<'_>,
     ) -> Result<Value, SquadError> {
+        document(self.finish(argv, input, TIMEOUT, environment)?)
+    }
+
+    fn call_within(
+        &self,
+        argv: &[OsString],
+        input: &[u8],
+        timeout: Duration,
+    ) -> Result<Value, SquadError> {
+        document(self.finish(argv, input, timeout, tmt_invoke::EnvironmentPolicy::Inherit)?)
+    }
+
+    fn finish(
+        &self,
+        argv: &[OsString],
+        input: &[u8],
+        timeout: Duration,
+        environment: tmt_invoke::EnvironmentPolicy<'_>,
+    ) -> Result<runner::Finished, SquadError> {
         let result = match self.deadline {
             Some(deadline) => runner::run_inherited(
                 &self.executable,
@@ -221,13 +247,13 @@ impl Core {
                 &self.executable,
                 argv,
                 input,
-                TIMEOUT,
+                timeout,
                 OUTPUT_LIMIT,
                 self.cancellation.as_ref(),
                 environment,
             ),
         };
-        let finished = result.map_err(|error| {
+        result.map_err(|error| {
             let cancelled = error == RunError::Cancelled;
             let mut failure = unavailable(match error {
                 RunError::Spawn => "Could not start tmt.",
@@ -238,22 +264,7 @@ impl Core {
             });
             failure.cancelled = cancelled;
             failure
-        })?;
-        let document: Value = serde_json::from_slice(&finished.stdout)
-            .map_err(|_| unavailable("tmt returned no JSON document."))?;
-        if finished.success {
-            return Ok(document);
-        }
-        let error = &document["error"];
-        match (error["code"].as_str(), error["message"].as_str()) {
-            (Some(code), Some(message)) => {
-                let mut failure = SquadError::new(code, message);
-                failure.current = error.get("current").cloned().map(Box::new);
-                failure.request = document["requestId"].as_str().map(str::to_owned);
-                Err(failure)
-            }
-            _ => Err(unavailable("tmt failed without a structured error.")),
-        }
+        })
     }
 
     /// A write explicitly attributes its originator, including anonymous clocks.
@@ -270,6 +281,25 @@ impl Core {
             request["originator"] = json!("anonymous");
         }
         self.call(&["api".into()], request.to_string().as_bytes())
+    }
+}
+
+/// The JSON document a finished call printed, or the structured error it carried.
+fn document(finished: runner::Finished) -> Result<Value, SquadError> {
+    let document: Value = serde_json::from_slice(&finished.stdout)
+        .map_err(|_| unavailable("tmt returned no JSON document."))?;
+    if finished.success {
+        return Ok(document);
+    }
+    let error = &document["error"];
+    match (error["code"].as_str(), error["message"].as_str()) {
+        (Some(code), Some(message)) => {
+            let mut failure = SquadError::new(code, message);
+            failure.current = error.get("current").cloned().map(Box::new);
+            failure.request = document["requestId"].as_str().map(str::to_owned);
+            Err(failure)
+        }
+        _ => Err(unavailable("tmt failed without a structured error.")),
     }
 }
 

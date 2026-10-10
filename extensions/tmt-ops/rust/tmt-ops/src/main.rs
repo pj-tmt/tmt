@@ -24,6 +24,7 @@ mod filter;
 mod hook_protocol;
 mod hotkeys;
 mod id;
+mod labels;
 mod layout;
 mod links;
 mod look;

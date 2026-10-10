@@ -87,6 +87,7 @@ fn prepare(
         .map_err(|error| format!("Row values: {error}"))?;
     // Visibility is per occurrence: a surviving track may still cut this row's
     // text. Mirror the painter's request-age reservation and bounded wrapping.
+    let room = super::row_paint::heading_room(rows, &layout, usize::from(area.width));
     let mut painted_extras = extras.clone();
     for (index, (extra, (_, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
         let mut visible = Vec::new();
@@ -107,12 +108,12 @@ fn prepare(
                 } else {
                     node.text.as_deref()
                 };
-                let (width, flow) = if line == 0 && extra.digest.is_some() {
+                let (width, flow) = if line == 0 && !extra.chips.is_empty() {
                     let heading = super::row_paint::heading_labels(
                         ages[index].clone(),
                         extra.next.clone(),
-                        extra.digest.as_deref(),
-                        usize::from(area.width),
+                        &extra.chips,
+                        room,
                     );
                     let end = usize::from(area.width)
                         .saturating_sub(heading.first().map_or(0, |label| label.width() + GAP));
@@ -177,12 +178,14 @@ fn prepare(
                 visible.push("pending");
             }
         }
-        if extra
-            .digest
-            .as_ref()
-            .is_some_and(|text| text.width() <= available / 2)
-        {
-            visible.push("digest");
+        let heading = super::row_paint::heading_labels(
+            ages[index].clone(),
+            extra.next.clone(),
+            &extra.chips,
+            room,
+        );
+        if heading.first().map_or(0, |label| label.chips.len()) == extra.chips.len() {
+            visible.push("chips");
         }
         extra.detail = app.detail_value(index, &visible);
     }
@@ -237,7 +240,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
-                digest: crate::digest::label(row, request_now),
+                chips: crate::board::row_chips::of(&app.labels, row, request_now),
                 detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()

@@ -185,10 +185,10 @@ fn upcoming(view: &JobView, now_ms: i64) -> Vec<String> {
 pub(in crate::board) fn detail(view: &JobView, now_ms: i64) -> crate::board::row_detail::Detail {
     use crate::board::row_detail::{Detail, Field};
     let mut fields = Vec::new();
-    let mut add = |label, text: String, role| {
+    let mut add = |label: &str, text: String, role| {
         if !text.is_empty() {
             fields.push(Field {
-                label,
+                label: label.to_owned(),
                 text: crate::board::notes::sanitize(&text),
                 role,
             });

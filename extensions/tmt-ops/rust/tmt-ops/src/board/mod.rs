@@ -24,6 +24,7 @@ mod rate;
 mod refresh;
 mod reload;
 mod resume;
+mod row_chips;
 mod row_detail;
 mod scroll;
 mod settings;
@@ -131,6 +132,8 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         read: home_leads::Read,
     },
+    /// The labels the configured sources now supply; no generation, it is not a load.
+    Labels(crate::labels::Supplied),
     HomeUsage {
         cancellation: crate::runner::Cancellation,
         input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
@@ -559,6 +562,11 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::Labels(supplied)) => {
+                dirty |= app.labels != supplied;
+                app.labels = supplied;
+                Effect::None
+            }
             Ok(BoardEvent::Attention {
                 cancellation,
                 attention,
@@ -939,6 +947,17 @@ pub fn run(
         ),
         None => (picks, squad),
     };
+    // The labels read in the background; nothing waits for it, and a source that
+    // does not answer simply never shows. Dropping it ends the thread.
+    let labels = crate::labels::Reader::spawn(
+        &core,
+        config.label_sources()?,
+        crate::labels::Timing::default(),
+        {
+            let events = events.clone();
+            move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
+        },
+    );
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;
@@ -1004,6 +1023,7 @@ pub fn run(
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
     lane.finish();
+    drop(labels);
     let stopped = clock.stop();
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
@@ -1894,6 +1914,60 @@ mod tests {
         assert_eq!(session.join().unwrap(), Some(signal_hook::consts::SIGHUP));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
+    #[test]
+    fn supplied_labels_arrive_as_an_event_and_replace_what_was_shown() {
+        use tmt_cli_style::Role;
+        let labels = |text: &str| {
+            crate::labels::Supplied::from_rows(vec![(
+                "digest".into(),
+                [(
+                    "m".to_owned(),
+                    vec![crate::labels::Label {
+                        text: text.into(),
+                        role: Role::Text,
+                    }],
+                )]
+                .into(),
+            )])
+        };
+        let (events, input) = channel();
+        let mut app = App::new(Some("product".into()));
+        events.send(BoardEvent::Labels(labels("Auto"))).unwrap();
+        events.send(BoardEvent::Labels(labels("Every 5m"))).unwrap();
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        assert_eq!(
+            session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_io,
+                |_| Ok(())
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(app.labels, labels("Every 5m"));
+        // A source going away is an empty event: the policy chip shows again.
+        let (events, input) = channel();
+        events.send(BoardEvent::Labels(Default::default())).unwrap();
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |_| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(app.labels, Default::default());
+    }
+
     #[test]
     fn already_queued_cancelled_snapshots_and_attention_cannot_replace_current_data() {
         let generation = crate::runner::Cancellation::default();

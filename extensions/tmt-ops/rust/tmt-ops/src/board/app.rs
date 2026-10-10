@@ -637,6 +637,8 @@ pub struct App {
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
+    /// What the configured label sources last supplied for member rows.
+    pub(super) labels: crate::labels::Supplied,
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
