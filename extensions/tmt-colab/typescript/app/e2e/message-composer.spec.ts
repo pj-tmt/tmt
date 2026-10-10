@@ -333,6 +333,11 @@ for (const width of [1440, 390]) {
       if (!process.env.COLAB_INTERACTION_BASELINE) {
         await page.keyboard.press('Escape');
         await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
+        await expect(chat).not.toBeVisible();
+        await expect(
+          page.locator('#ask-page-fixture').getByRole('button', { name: /^Discussion \(/ }),
+        ).toBeFocused();
+        await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
         await expect(chat).toBeVisible();
       }
       await run('block');

@@ -213,6 +213,7 @@ for (const width of [1440, 390])
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
     await expect(discussion).toBeFocused();
+    await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
     const frame = page.locator('#ask-page-fixture iframe');
     const render = await frame.getAttribute('data-render-id');
     await (await pageAction(page, 'Theme: Dark')).click();

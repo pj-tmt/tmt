@@ -156,7 +156,9 @@ The tooltip is a manual native popover, below the button and bounded by the visu
 viewport. Hover and keyboard `:focus-visible` show it immediately. Its transparent
 top padding bridges the button-to-label gap, so moving into the tooltip retains
 it. Pointer/focus departure closes it; Escape dismisses it without consuming the
-host's key event, so a containing menu or dialog closes in the same activation. No transition or polling is used. Placement observers and
+host's key event, so a containing menu or dialog closes in the same activation.
+Focus restored by that Escape does not open a replacement tooltip; a one-frame
+guard ends early on the next non-Escape key. No transition or polling is used. Placement observers and
 resize/scroll/Escape listeners exist only while shown and are removed on close/unmount.
 Long copy wraps within the viewport; remaining vertical space bounds scrolling.
 The host's visible disabled reason remains outside the tooltip.

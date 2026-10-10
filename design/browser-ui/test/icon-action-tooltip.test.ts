@@ -47,7 +47,9 @@ it('uses the visual viewport offset and bounds the remaining space without flipp
 it('dismisses an open tooltip without consuming the host Escape and releases its listener', () => {
   const events = new EventTarget();
   // Node's EventTarget removal ignores boolean capture options; adapt the DOM signature.
+  const frames: (() => void)[] = [];
   const document = {
+    defaultView: { requestAnimationFrame: (frame: () => void) => frames.push(frame) },
     addEventListener(type: string, listener: EventListener, capture: boolean) {
       events.addEventListener(type, listener, { capture });
     },
@@ -89,6 +91,7 @@ it('dismisses an open tooltip without consuming the host Escape and releases its
     expect(escape.defaultPrevented).toBe(false);
     expect(stop).not.toHaveBeenCalled();
     expect(dismiss).toHaveBeenCalledWith(true);
+    expect(visible).toBe(false); // Native dismissal happens before the host handles Escape.
     // A tooltip can be hidden by native popover handling before React cleans up its effect.
     visible = false;
     const next = Object.assign(new Event('keydown', { cancelable: true }), { key: 'Escape' });
@@ -97,6 +100,7 @@ it('dismisses an open tooltip without consuming the host Escape and releases its
     expect(next.defaultPrevented).toBe(false);
     expect(nextStop).not.toHaveBeenCalled();
     expect(dismiss).toHaveBeenCalledOnce();
+    frames.splice(0).forEach((frame) => frame());
     visible = true;
     dispose();
     expect(visible).toBe(false);
