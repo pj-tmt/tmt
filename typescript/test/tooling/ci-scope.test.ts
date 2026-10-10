@@ -758,6 +758,8 @@ describe('component map', () => {
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       'typescript/test/tooling/guide-budget.test.ts':
         'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
+      'typescript/test/tooling/pr-agent-check.test.ts':
+        'reads the preset table of native-release.md; Code quality runs it on every change',
       '.github/components.json': 'the map names the prose in its own rules',
       '.github/repository-layout.json':
         'top-level names only; the layout guard never reads listed prose',
@@ -2863,4 +2865,28 @@ it('keeps native E2E archive consumers restore-only and the sole writer main-onl
   expect(seed).toContain("- '**/Cargo.toml'");
   expect(seed).toContain('- rust/Cargo.lock');
   expect(seed).toContain('node typescript/scripts/e2e-dependency-cache.mjs stamp');
+});
+
+it('enforces current PR Agent attribution and initially observes merge groups in Code quality', () => {
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  expect(quality.indexOf('Check current PR Agent attribution')).toBeGreaterThan(
+    quality.indexOf('Check conventional PR titles')
+  );
+  expect(quality).toContain(`if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            node typescript/scripts/pr-agent-check.mjs --report-only
+          else
+            node typescript/scripts/pr-agent-check.mjs
+          fi`);
+  const feedback = readFileSync(
+    new URL('../../../.github/workflows/pr-title.yml', import.meta.url),
+    'utf8'
+  );
+  expect(feedback).toContain('types: [opened, edited, reopened, synchronize]');
+  expect(feedback).toContain('name: Conventional PR title');
+  expect(feedback).toContain('run: node typescript/scripts/pr-agent-check.mjs');
+  expect(feedback).not.toContain('--report-only');
+  expect(feedback).toContain('contents: read');
+  expect(feedback).toContain('pull-requests: read');
+  expect(ci).not.toContain('pull-requests: write');
 });
