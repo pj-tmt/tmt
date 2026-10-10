@@ -148,8 +148,8 @@ the `Terminal` they build rather than configuring the process.
 Each mark has one meaning everywhere (`mark::Mark` for command-line marks; the
 fold and meter marks below are board-only). `Mark::description` owns the canonical meaning;
 a test checks every shared mark's symbol and description against the design
-tokens. Additional marks stay labelled board only. A row's leading state mark is
-`●`, `○` or `◌`:
+tokens. Additional marks stay labelled board only. Presence marks are `●`, `○`
+or `◌`; `◆` leads a decision row when the reader must act:
 
 | Mark       | Meaning                                                                                   |
 | ---------- | ----------------------------------------------------------------------------------------- |

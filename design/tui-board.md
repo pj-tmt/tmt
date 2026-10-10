@@ -120,11 +120,14 @@ the overflow switcher remain discoverable at narrow widths. An authored label
 creates neither membership nor a new send audience.
 
 Keep the factory views and user-authored pane trees. Their fold thresholds are
-layout behavior, not new styling breakpoints.
+layout behavior, not new styling breakpoints. A pane with no usable inner row
+transiently auto-folds to its clickable strip and reopens when space returns. The
+[composition owner](../.agents/skills/tmt-ops-dev/references/board.md#composition-folds-and-scrolling)
+owns transient folds separately from configured and session folds.
 
 | View    | Composition                                               | Width/fold behavior                                    |
 | ------- | --------------------------------------------------------- | ------------------------------------------------------ |
-| HOME    | Overview, blocked, grouped leads, audience, squads, cron  | One stream; full-width squad table at every width      |
+| HOME    | Overview, attention, leads, squads, cron                  | One stream; full-width squad table at every width      |
 | leads   | Grouped lead headings and admitted preview/read bands     | Existing stream and clipped row hits                   |
 | members | Lead, members rule and member/task list; lead notes below | Default grouped list; notes can be hidden/shown        |
 | team    | Rows with detail/replies beside them and notes below      | Detail/replies fold below 100 cells                    |
@@ -235,8 +238,9 @@ Review identical inputs at 80/100/160/actual 180+ cells and ordinary/low heights
 in light/dark/terminal16/NO_COLOR. Include wrapped selected rows, selected but
 unfocused panes, duplicate occurrences, a middle-row composer, covered hits,
 all panes folded, scroll/list end, disabled/error states and retained drafts.
-Include HOME usage omission, measured zero, partial data and the 100/140-cell
-thresholds, plus settings preview/cancel/conflict and Checklist/cron authority.
+Include HOME usage omission, measured zero, partial data at 60/80/100/160
+cells and their width boundaries, plus settings preview/cancel/conflict and
+Checklist/cron authority.
 
 The reader must be able to identify the shown scope, item needing a response,
 next key's destination, selected occurrence, draft recipient and usage absence
