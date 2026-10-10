@@ -70,17 +70,36 @@ impl Heading {
     }
 }
 
-/// Chips share the heading tail; narrow headings keep the leading chips that fit,
-/// and a heading where none fit keeps the plain tails.
+/// Columns the row-end label may take: what lies past the cells that stay whole
+/// (the member and its state), and never more than half the row.
+pub(in crate::board) fn heading_room(rows: &Rows, layout: &markup::Grid, width: usize) -> usize {
+    let mut x = 2;
+    let mut position = 0;
+    let mut whole = 0;
+    for cell in rows.lines.first().into_iter().flatten() {
+        let range = position..position + cell.span;
+        position += cell.span;
+        let Some(cells) = layout.span(range) else {
+            continue;
+        };
+        if matches!(cell.field.as_deref(), Some("member" | "state")) {
+            whole = x + cells.visible;
+        }
+        x += cells.visible + GAP;
+    }
+    (width.saturating_sub(2) / 2).min(width.saturating_sub(whole + GAP))
+}
+
+/// Chips share the heading tail; narrow headings keep the leading chips that fit
+/// `room`, and a heading where none fit keeps the plain tails.
 pub(in crate::board) fn heading_labels(
     age: Option<String>,
     next: Option<String>,
     chips: &[Chip],
-    width: usize,
+    room: usize,
 ) -> Vec<Heading> {
     let tails = row_end(age, next);
-    let budget = width.saturating_sub(2) / 2;
-    let shown = crate::board::row_chips::prefix(chips, budget);
+    let shown = crate::board::row_chips::prefix(chips, room);
     if shown == 0 {
         return tails
             .into_iter()
@@ -102,7 +121,7 @@ pub(in crate::board) fn heading_labels(
         chips: chips.to_vec(),
         tail: String::new(),
     });
-    labels.retain(|label| label.width() <= budget);
+    labels.retain(|label| label.width() <= room);
     labels
 }
 
@@ -314,7 +333,12 @@ impl RowPaint {
         let age = crate::staleness::label(&row["staleness"]);
         self.stale.push(age.is_some());
         let waits = crate::attention::waits_on_you(row);
-        let labels = heading_labels(age, extra.next.clone(), &extra.chips, width);
+        let labels = heading_labels(
+            age,
+            extra.next.clone(),
+            &extra.chips,
+            heading_room(rows, layout, width),
+        );
         let mut identity = admitted.clone();
         identity.children.clear();
         let root = self.add(identity, (0, y, width, 1), None);
