@@ -158,7 +158,7 @@ new consumers/dependencies go to tmt-lead. See the [`tmt-tui` skill](.agents/ski
 
 `rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
 capture and the shared browser-opening policy, discovery and launch. It takes plain
-inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation. Run/resume mark child commands `TMT_AGENT=1` for this policy.
+inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation.
 
 `rust/crates/tmt-cli/tests/architecture.rs` owns the syntactic module/dependency guard;
 [Development](DEVELOPMENT.md#architecture-guard) owns its checks. It supplements behavior review.
