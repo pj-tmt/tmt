@@ -338,7 +338,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         await ready(f, plain);
         expect(events(plain, 'thread-resume')).toEqual([]);
         expect(events(plain, 'started')[0].args).toEqual(
-          expect.arrayContaining(['resume', original, '--model', 'fixture-model'])
+          expect.arrayContaining(['resume', original, '-m', 'fixture-model'])
         );
         const trace = installTmuxTrace(f);
         expect((await talk(f, 'Restart', 'resumed paste')).code).toBe(0);
