@@ -53,6 +53,18 @@ describe('visible Agent grammar', () => {
     ]);
     expect(Object.isFrozen(AGENT_PRESETS)).toBe(true);
   });
+  it('keeps the owning guide preset table equal to the parser policy', () => {
+    const guide = readFileSync(
+      new URL('../../../.agents/skills/tmt-release/references/native-release.md', import.meta.url),
+      'utf8'
+    );
+    const section = guide.split('## PR Agent attribution\n')[1]?.split('\n## ')[0];
+    expect(section).toBeDefined();
+    const presets = [...(section ?? '').matchAll(/^\| ([a-z][a-z0-9-]*)\s+\|/gm)].map(
+      (row) => row[1]
+    );
+    expect(presets).toEqual(AGENT_PRESETS);
+  });
   it.each([
     ...AGENT_PRESETS.map((p) => `Agent: infra-1 ${p}`),
     'Agent: ben',
