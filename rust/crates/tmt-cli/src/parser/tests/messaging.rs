@@ -208,6 +208,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
         Invocation::Check {
             target: "peer".into(),
             lines: Some(0),
+            capture_only: false,
         }
     );
     assert_eq!(
@@ -215,6 +216,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
         Invocation::Check {
             target: "peer".into(),
             lines: Some(2_147_483_647),
+            capture_only: false,
         }
     );
     assert_eq!(
@@ -256,9 +258,44 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
         parsed(&["--lines", "12", "check", "peer", "0"]).invocation,
         Invocation::Check {
             target: "peer".into(),
-            lines: Some(0)
+            lines: Some(0),
+            capture_only: false,
         }
     );
+}
+
+#[test]
+fn capture_only_is_an_opt_in_flag_that_composes_with_the_line_count() {
+    for argv in [
+        &["check", "peer", "--capture-only"][..],
+        &["read", "peer", "--capture-only"][..],
+    ] {
+        assert_eq!(
+            parsed(argv).invocation,
+            Invocation::Check {
+                target: "peer".into(),
+                lines: None,
+                capture_only: true,
+            },
+            "arguments: {argv:?}"
+        );
+    }
+    assert_eq!(
+        parsed(&["check", "peer", "40", "--capture-only"]).invocation,
+        Invocation::Check {
+            target: "peer".into(),
+            lines: Some(40),
+            capture_only: true,
+        }
+    );
+    // Only `check` owns the flag; it is not a global option.
+    for argv in [
+        &["--capture-only", "check", "peer"][..],
+        &["talk", "peer", "hi", "--capture-only"][..],
+        &["check", "peer", "--capture-only=1"][..],
+    ] {
+        assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
+    }
 }
 
 #[test]

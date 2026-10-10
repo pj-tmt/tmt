@@ -366,6 +366,7 @@ fn option(id: &'static str) -> Arg {
         "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
+        "capture-only" => flag("Capture the pane without delivering a retained Focus checklist"),
         "skill" => Arg::new(id)
             .long(id)
             .help("Print an exact bundled skill (default: tmt)")

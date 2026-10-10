@@ -1039,7 +1039,8 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             active: false,
             heldCount: 2,
           });
-          expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          const plain = await fixture.runJsonCli(['check', name]);
+          expect(plain.code).toBe(0);
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
           expect(
@@ -1051,6 +1052,23 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           // check owns the one delivery attempt through the ordinary driver.
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
+          // A capture-only read of the same verified-idle session is a pure
+          // read: it keeps every item held and delivers nothing.
+          const captured = await fixture.runJsonCli(['check', name, '--capture-only']);
+          expect(captured.code).toBe(0);
+          expect(Object.keys(captured.json!)).toEqual(Object.keys(plain.json!));
+          expect(named(worker, 'channel')).toEqual([]);
+          expect(named(worker, 'paste')).toEqual([]);
+          expect(
+            sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
+          ).toEqual({ count: 0 });
+          expect(
+            sql(fixture, (db) =>
+              db
+                .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
+                .get()
+            )
+          ).toEqual({ count: 2 });
           expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
           if (!nativeParent) {
             // A delegated mock MCP parent differs from the native provider

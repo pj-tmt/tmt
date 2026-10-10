@@ -347,9 +347,13 @@ No shipped public API operation grants a positive input-readiness lease or fence
 a later dispatch. `tmt ls --json` presence, `session.activity`, self-reported
 `identities.status`, elapsed time and `changes.cursor` are descriptive observations,
 not permission to inject input. Diagnostic `tmt check --json` capture is not a
-readiness test. Extensions invoke the supplied `TMT_EXECUTABLE` through documented
-API operations and ordinary JSON commands; they do not import core host adapters,
-inspect private driver records or scrape pane buffers to decide readiness.
+readiness test. Plain `check` may hand one retained Focus checklist to an idle
+pane, so a tool that reads pane text only for display data, such as a provider
+statusline, uses `tmt check --capture-only --json`, which captures with no
+side effect and is still not a readiness test. Extensions invoke the supplied
+`TMT_EXECUTABLE` through documented API operations and ordinary JSON commands; they
+do not import core host adapters, inspect private driver records or scrape pane
+buffers to decide readiness.
 
 Core owns fresh binding/runtime verification and native generation checks during
 the send. A preceding observation can become stale before those checks or before
