@@ -1696,6 +1696,21 @@ which also covers each declaration's own digest, the target backend and whether 
 is an additive variant and never changes the bytes or digest of a sharing plan. An enabled extension with no
 declaration for the target is listed as unavailable there and does not fail the rest of the plan.
 
+The shipped Firestore fragment parser permits field/index postfix access on allow-listed roots,
+including `request.auth.token.firebase.sign_in_provider`, and `+` expressions for string-ID
+composition; it does not type-check those expressions. Nested match wildcards can compare document
+fields and enclosing wildcards. `request.resource.id`, `request.query` and unbound or reserved
+wildcards are refused; `matches` requires a literal pattern. Composition does not prove runtime
+membership or declared-collection coverage: extensions verify those semantics in their emulator.
+
+The developer-only `compose_firestore` Cargo example validates the exact declaration reply and
+composes Rules, indexes and a plan through the same pure owners as deployment. Its `plan.json`
+includes the plan digest and both exact input digests. Colab owns
+`extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.json` and its composed golden trio;
+Remote's mirror reads those files and requires every golden when the vector exists. Until Colab
+supplies that vector, the mirror reports pending and only Remote-authored fixtures qualify the
+entry; those fixtures are not Colab declaration or routed acceptance evidence.
+
 ### Proposal: authorized deploy
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations

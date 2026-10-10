@@ -584,3 +584,24 @@ fn a_ttl_only_field_is_an_index_config_only_where_the_target_provisions_ttl() {
     );
     assert!(plan(false).is_ok());
 }
+
+#[test]
+fn colab_sign_in_provider_string_ids_and_nested_wildcards_are_composable() {
+    accepts("request.auth.token.firebase.sign_in_provider == 'anonymous'");
+    accepts("request.auth.token.firebase.sign_in_provider == 'google.com'");
+    let source = b"match /spaces/{spaceId} { match /log/{docId} { allow create: if request.auth != null && docId == spaceId + '_' + request.resource.data.page + '_' + string(request.resource.data.seq) && request.resource.data.space == spaceId; } }";
+    let composed = compose_one(source).unwrap();
+    assert!(composed.contains("match /x/colab"));
+    assert!(composed.contains("docId == spaceId + '_' + request.resource.data.page + '_' + string(request.resource.data.seq)"));
+    assert!(composed.contains("request.resource.data.space == spaceId"));
+    assert!(compose_one(b"match /spaces/{spaceId} { match /log/{docId} { allow create: if request.auth != null && docId == missingId; } }").is_err());
+    assert!(
+        compose_one(b"match /spaces/{request} { allow read: if request.auth != null; }").is_err()
+    );
+    refuses("request.resource.id == 'id'", RulesReason::Identifier);
+    refuses("request.query.limit == 1", RulesReason::Identifier);
+    refuses(
+        "resource.data.id.matches(resource.data.pattern)",
+        RulesReason::Call,
+    );
+}
