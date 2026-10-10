@@ -1182,7 +1182,16 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         2
     );
     assert!(preview.human.contains("Replace the live Hosting release"));
-    assert!(preview.human.contains("Hosting publication is unavailable"));
+    assert!(
+        preview
+            .human
+            .contains("Create site: no\nCreate web app: no\n")
+    );
+    assert!(
+        preview.human.contains(
+            "Hosting publishing is not available in this release. This plan is read-only."
+        )
+    );
     assert!(!preview.human.contains("To deploy this plan"));
     let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
     let saved = fs::read(root.remote().join("deploy.json")).unwrap();

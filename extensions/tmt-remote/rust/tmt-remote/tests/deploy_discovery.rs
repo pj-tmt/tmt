@@ -318,3 +318,105 @@ fn absent_or_failed_bundle_never_becomes_an_empty_site_or_discloses_child_errors
     ));
     assert!(!root.remote().exists());
 }
+
+#[test]
+fn serving_config_boundary_is_checked_before_provider_setup() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use tmt_remote::hosting::{self, HostingBundle, HostingManifest, HostingRefusal};
+    struct Captured(Value, Value);
+    impl DeclarationSource for Captured {
+        fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+            Ok(Some(serde_json::to_vec(&self.0).unwrap()))
+        }
+        fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+            Ok(serde_json::to_vec(&self.1).unwrap())
+        }
+    }
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    let raw_digest = hash(b"hello");
+    let mut files: Vec<Value> = (0..39)
+        .map(|i| {
+            json!({"path":format!("/f{i:02}.txt"),
+        "sha256":raw_digest,"length":5,"contentType":"text/plain","csp":"x"})
+        })
+        .collect();
+    files.push(json!({"path":"/index.html","sha256":raw_digest,"length":5,
+        "contentType":"text/html","csp":"x"}));
+    let make_bundle = |files: &[Value]| {
+        let manifest = HostingManifest::parse(&json!({"version":1,"files":files})).unwrap();
+        let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":files.iter()
+            .map(|f| json!({"path":f["path"],"bytesBase64":STANDARD.encode(b"hello")})).collect::<Vec<_>>()});
+        (
+            manifest.clone(),
+            reply.clone(),
+            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+        )
+    };
+    let (_, _, small) = make_bundle(&files);
+    let base = serde_json::to_vec(hosting::compose(&[small]).unwrap().unwrap().config())
+        .unwrap()
+        .len();
+    let limit = tmt_remote::limits::HOSTING_CONFIG_BYTES;
+    let mut remaining = limit - 1 - base;
+    for file in files.iter_mut().take(39) {
+        let added = remaining.min(tmt_remote::limits::HOSTING_CSP_BYTES - 1);
+        file["csp"] = json!("x".repeat(added + 1));
+        remaining -= added;
+    }
+    assert_eq!(remaining, 0);
+    let (manifest, bundle, captured) = make_bundle(&files);
+    let composition = hosting::compose(&[captured]).unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_vec(composition.config()).unwrap().len(),
+        limit - 1
+    );
+    let mut declared = envelope();
+    let mut declaration: Value =
+        serde_json::from_str(declared["declaration"].as_str().unwrap()).unwrap();
+    declaration["hosting"] = serde_json::to_value(manifest).unwrap();
+    let set_declaration = |declared: &mut Value, declaration: &Value| {
+        let bytes = serde_json::to_string(declaration).unwrap();
+        declared["declarationDigest"] = json!(hash(bytes.as_bytes()));
+        declared["declaration"] = json!(bytes);
+    };
+    set_declaration(&mut declared, &declaration);
+    assert!(
+        deploy_discovery::discover(&mut Captured(declared.clone(), bundle), &["colab"]).is_ok()
+    );
+    // A non-shell file contributes once, so adding two bytes crosses the exact boundary.
+    let last = &mut files[38];
+    last["csp"] = json!(format!("{}xx", last["csp"].as_str().unwrap()));
+    let (manifest, bundle, captured) = make_bundle(&files);
+    assert!(matches!(
+        hosting::compose(&[captured]),
+        Err(HostingRefusal::Bounds)
+    ));
+    declaration["hosting"] = serde_json::to_value(manifest).unwrap();
+    set_declaration(&mut declared, &declaration);
+    let args = tmt_remote::deploy_cli::FirestoreArgs {
+        project: "demo-remote-1".into(),
+        region: "asia-east1".into(),
+        sign_in: vec![tmt_remote::deploy_run::SignInProvider::Anonymous],
+        authorize: None,
+        json: true,
+    };
+    let result = tmt_remote::deploy_cli::execute::<tmt_remote::deploy_firestore::DeployFirestore<'_>>(
+        &args,
+        &mut Captured(declared, bundle),
+        &["colab"],
+        || panic!("provider factory must remain untouched"),
+        || panic!("layout must remain untouched"),
+        || panic!("clock must remain untouched"),
+    );
+    assert!(matches!(
+        result,
+        Err(tmt_remote::deploy_cli::DeployCliError::Discovery(
+            DiscoveryRefusal::Hosting(HostingRefusal::Bounds)
+        ))
+    ));
+}

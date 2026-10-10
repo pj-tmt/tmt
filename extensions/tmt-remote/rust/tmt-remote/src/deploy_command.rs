@@ -136,7 +136,10 @@ pub fn execute_with_hosting(
         writeln!(
             human,
             "Hosting: {}\nPublic URL: {}\nCreate site: {}\nCreate web app: {}\nPublic files:",
-            hosting.site, hosting.public_url, hosting.create_site, hosting.create_web_app
+            hosting.site,
+            hosting.public_url,
+            if hosting.create_site { "yes" } else { "no" },
+            if hosting.create_web_app { "yes" } else { "no" }
         )
         .expect("String write");
         for file in hosting.content["files"]
@@ -156,7 +159,7 @@ pub fn execute_with_hosting(
             writeln!(human, "DESTRUCTIVE: Replace the live Hosting release for project {}. This replaces public content for every tenant.\nExisting Hosting fingerprint: {}", input.project, &fingerprint[..12]).expect("String write");
         }
         human.push_str(
-            "Hosting publication is unavailable in this release; this is a read-only plan.\n",
+            "Hosting publishing is not available in this release. This plan is read-only.\n",
         );
     }
     for item in plan.view().destructive.iter().filter(|item| {

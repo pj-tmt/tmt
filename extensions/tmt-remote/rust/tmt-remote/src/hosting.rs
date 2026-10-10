@@ -317,6 +317,13 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
         .collect();
     // Only public shell routes; reserved Firebase configuration is never rewritten.
     let config = json!({"headers":headers,"rewrites":rewrites});
+    if serde_json::to_vec(&config)
+        .expect("config serializes")
+        .len()
+        > limits::HOSTING_CONFIG_BYTES
+    {
+        return Err(HostingRefusal::Bounds);
+    }
     let digest = sha256_hex(
         &serde_json::to_vec(&json!({"files":transport,"config":config}))
             .expect("composition serializes"),
