@@ -155,6 +155,66 @@ pub struct Status {
     pub reference: Reference,
     pub depth: usize,
 }
+
+/// A final proposal decision, independent of resolve/reopen actions.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Decision {
+    pub version: u8,
+    pub kind: String,
+    pub space_id: String,
+    pub page_id: String,
+    pub epoch: String,
+    pub sender_device: String,
+    pub revision: String,
+    pub deleted: bool,
+    pub device_name: String,
+    pub at: String,
+    pub action_id: String,
+    pub thread: Reference,
+    pub previous: Option<Reference>,
+    pub decision: String,
+}
+pub(super) fn validate_decision(root: &str, key: &str, value: &Value) -> Result<()> {
+    let action: Decision = serde_json::from_value(value.clone()).map_err(|_| Invalid)?;
+    require(
+        value
+            .as_object()
+            .is_some_and(|v| v.contains_key("previous")),
+    )?;
+    scope(
+        action.version,
+        &action.space_id,
+        &action.page_id,
+        &action.epoch,
+        &action.sender_device,
+        &action.revision,
+        &action.device_name,
+    )?;
+    timestamp(&action.at)?;
+    values::generated_id(&action.action_id)?;
+    action.thread.validate()?;
+    if let Some(previous) = &action.previous {
+        previous.validate()?;
+    }
+    require(
+        root == "messages"
+            && key == format!("{}:proposal-decision", action.action_id)
+            && action.kind == "proposal-decision"
+            && action.revision == "1"
+            && !action.deleted
+            && matches!(action.decision.as_str(), "approved" | "declined"),
+    )
+}
+/// Root decisions precede their causal descendants. Concurrent roots use stable
+/// writer/action IDs; labels and wall-clock time cannot choose the winner.
+pub fn fold_decision(thread: &Reference, actions: &[Decision]) -> Option<Decision> {
+    actions
+        .iter()
+        .filter(|a| a.thread == *thread && a.previous.is_none())
+        .min_by_key(|a| (&a.sender_device, &a.action_id))
+        .cloned()
+}
 /// The same causal fold as browser thread-status.ts, pinned by shared vectors.
 /// Invalid parents/cycles are never reached from a root. Only the already verified
 /// and scope-bound actions supplied by the caller can become presentation state.
@@ -196,6 +256,35 @@ pub fn fold(thread: &Reference, deleted: bool, chat: bool, actions: &[Action]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn proposal_decisions_match_browser_causal_vectors() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../contracts/vectors/discussion-v1.json"
+        ))
+        .unwrap();
+        let thread = &fixture["proposal"];
+        let reference = Reference {
+            writer: thread["senderDevice"].as_str().unwrap().into(),
+            id: thread["threadId"].as_str().unwrap().into(),
+        };
+        for row in fixture["decisionCases"].as_array().unwrap() {
+            let actions: Vec<Decision> = serde_json::from_value(row["actions"].clone()).unwrap();
+            for action in &actions {
+                validate_decision(
+                    "messages",
+                    &format!("{}:proposal-decision", action.action_id),
+                    &serde_json::to_value(action).unwrap(),
+                )
+                .unwrap();
+            }
+            for values in [actions.clone(), actions.into_iter().rev().collect()] {
+                assert_eq!(
+                    fold_decision(&reference, &values).map(|v| v.action_id),
+                    row["winner"].as_str().map(str::to_owned)
+                );
+            }
+        }
+    }
     #[test]
     fn literal_causal_vectors_match_browser_without_clock_or_input_order_authority() {
         let fixture: Value = serde_json::from_str(include_str!(

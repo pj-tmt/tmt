@@ -923,6 +923,60 @@ as edited; device IDs remain available in a tooltip.
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
+**Proposal records and agent CLI (#1773, slice 1)**
+
+A proposal is a null-anchor discussion thread whose immutable head metadata includes
+`proposal:{proposalId,title,body,proposer:{machineId,agentId,label}}`. Its proposal ID
+is the thread ID; it cannot be the writer's reserved Chat ID. Proposal metadata
+remains identical in subsequent thread revisions, including a tombstone. Title and
+label are nonempty text bounded to 200 and 64 Unicode code points respectively;
+body is nonempty text bounded to 4096 UTF-8 bytes. Proposal and machine IDs are
+canonical UUIDv4; agent IDs use the existing canonical Core UUID grammar. These
+asserted labels and IDs do not authenticate an agent or grant publication authority.
+At most 200 distinct writer/proposal pairs may be retained per page, counting
+revisions and deleted proposals once, alongside the existing thread-entry limit.
+
+`messages[actionId+":proposal-decision"]` is an immutable status action containing
+all common discussion fields, `actionId`, `thread:{writer,id}`, `previous:null` or
+`{writer,id}`, and `decision:"approved"|"declined"`. Revision is `"1"` and deleted is
+false. Only the same authenticated owner-device provenance as resolution actions
+contributes a decision. The first causal decision is final: roots precede all their
+descendants, and concurrent roots choose the smallest ASCII `(writer,actionId)`
+pair. Later decisions are refused by the native preparation and browser discussion
+writer; descendants, orphans and cycles cannot replace a root in the fold. Clocks
+and labels never choose a winner. Decision and resolution are independent; Resolve
+and Reopen keep the recorded decision. Without a decision action the decision is
+open. A deleted proposal ignores decision actions.
+
+`proposal add PAGE --title TITLE --body BODY [--id UUID]` publishes the complete
+record first through the existing own publication, then reads the page and appends
+`<tmt-proposal data-id="<proposalId>"></tmt-proposal>` through the existing
+expected-revision, lock-or-serve source publication. These are two recoverable
+publications, not one transaction. New records require the public caller's canonical
+agent ID and the existing `tmt remote status --machine --json` machine observation.
+No Remote private state is read. A stopped or unavailable provenance lookup refuses
+new record creation; recovery of an existing local-writer record uses its retained
+metadata. Source placement is append only; `--after` is deferred.
+
+The JSON result includes `proposalId` and `placed:true|false`. A failure after an ID
+is allocated retains it in the error result; `placed:false` means placement was not
+confirmed. After uncertainty, read `proposal ls PAGE --json` and `page read PAGE
+--json`, then retry with the same `--id`, title and body. Recovery never changes
+retained metadata or mints a replacement ID. It publishes only a missing record or
+placeholder step, and a stale page base refuses placement. One exact generated
+placeholder confirms placement; multiple copies stay detached and are left alone.
+HTML is untrusted position data, never record, destination or activation authority.
+A missing or duplicate placeholder leaves the authenticated proposal detached;
+a placeholder without a record supplies no proposal. Trusted card rendering and
+decision dispatch are later #1773 slices; this slice adds data, queries and CLI only.
+
+`proposal ls PAGE` reads authenticated proposal threads, their retained decision and
+independent resolved state. `proposal resolve PAGE ID` uses the existing owner-device
+resolution action, sends no notifications and is a no-op when already resolved.
+Resolve refuses missing, ambiguous or deleted proposals. The generic thread Reopen
+operation retains the proposal and decision. Proposal dispatch does not run from
+CLI, render, sync or recovery.
+
 No unknown fields are accepted. A value claiming a typed kind rejects if its
 root, key or field grammar is invalid in the browser or native decoder. Other
 bounded raw values remain inert. Bodies are exact plain text: nonempty and at most

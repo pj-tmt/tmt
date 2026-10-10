@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
-import type { JsonValue, OwnRecord, OwnState } from '../src/fold-protocol.js';
+import {
+  validateOwn,
+  type JsonValue,
+  type OwnRecord,
+  type OwnState,
+} from '../src/fold-protocol.js';
+import { foldProposalDecision, type ProposalDecisionRecord } from '../src/thread-status.js';
 import { relativeTime } from '../src/display-time.js';
 import { attachment, strictJson, text as bytesOf } from '@tmt/colab-client';
 import corpus from '../../../contracts/vectors/attachment-v1.json';
@@ -26,6 +32,44 @@ function put(own: OwnState, record: ThreadRecord | CommentRecord, writer = recor
     structuredClone(record) as unknown as JsonValue;
 }
 afterEach(() => vi.unstubAllGlobals());
+it('shares proposal bounds and final causal decisions with native vectors', () => {
+  const proposal = fixture.proposal as ThreadRecord;
+  expect(() =>
+    validateDiscussionRecord('threads', discussionKey(proposal), proposal),
+  ).not.toThrow();
+  for (const [field, value] of [
+    ['title', '🐈'.repeat(201)],
+    ['body', 'é'.repeat(2049)],
+    ['proposer', { ...proposal.proposal!.proposer, label: '🐈'.repeat(65) }],
+  ] as const)
+    expect(() =>
+      validateDiscussionRecord('threads', discussionKey(proposal), {
+        ...proposal,
+        proposal: { ...proposal.proposal, [field]: value },
+      }),
+    ).toThrow();
+  for (const row of fixture.decisionCases) {
+    const actions = row.actions as ProposalDecisionRecord[];
+    for (const action of actions)
+      expect(() =>
+        validateDiscussionRecord('messages', discussionKey(action), action),
+      ).not.toThrow();
+    for (const values of [actions, [...actions].reverse()])
+      expect(
+        foldProposalDecision({ writer: proposal.senderDevice, id: proposal.threadId }, values)
+          ?.actionId ?? null,
+      ).toBe(row.winner);
+  }
+  const own: OwnState = {};
+  for (let i = 1; i <= 200; i++) {
+    const id = `10000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+    put(own, { ...proposal, threadId: id, proposal: { ...proposal.proposal!, proposalId: id } });
+  }
+  expect(() => validateOwn(own)).not.toThrow();
+  const id = '10000000-0000-4000-8000-000000000201';
+  put(own, { ...proposal, threadId: id, proposal: { ...proposal.proposal!, proposalId: id } });
+  expect(() => validateOwn(own)).toThrow();
+});
 it('browser admits the same literal grammar and rejects fields, keys, tombstone text and Unicode overflows', () => {
   for (const record of [fixture.thread, fixture.comment]) {
     const root = record.kind === 'thread' ? 'threads' : 'messages',
@@ -585,4 +629,36 @@ it('never carries a reference into an edit, and deletion drops the references', 
   const deleted = f.own[a].messages[`${messageId}:2`] as unknown as CommentRecord;
   expect(deleted.deleted).toBe(true);
   expect(deleted.attachments).toBeUndefined();
+});
+
+it('refuses second proposal decisions under the admitted writer lock and preserves them on reopen', async () => {
+  const f = storeFixture();
+  put(f.own, fixture.proposal);
+  const thread = { writer: a, id: fixture.proposal.threadId };
+  const results = await Promise.allSettled([
+    f.store.decideProposal(thread, 'approved'),
+    f.store.decideProposal(thread, 'declined'),
+  ]);
+  expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected']);
+  expect(f.batches).toHaveLength(1);
+  expect(f.batches[0][0].value).toMatchObject({
+    kind: 'proposal-decision',
+    decision: 'approved',
+    previous: null,
+  });
+  const resolved = await f.store.setStatus(thread, null, true);
+  expect(resolved.changed).toBe(true);
+  if (!resolved.changed) throw new Error('Expected status');
+  await f.store.setStatus(thread, resolved.status.ref, false);
+  expect(
+    readThreads(
+      f.own,
+      fixture.scope,
+      () => new Uint8Array(32),
+      () => true,
+    )[0],
+  ).toMatchObject({ resolved: false, decision: { decision: 'approved' } });
+  f.deny();
+  await expect(f.store.decideProposal(thread, 'approved')).rejects.toThrow();
+  expect(f.batches).toHaveLength(3);
 });

@@ -792,6 +792,7 @@ impl MaterializationInput {
             .into());
         }
         let mut threads = 0;
+        let mut proposals = std::collections::BTreeSet::new();
         let mut own_views = BTreeMap::new();
         let mut local_own_update = None;
         for (writer, own) in own_updates {
@@ -823,6 +824,20 @@ impl MaterializationInput {
                 .ok_or(OwnerFault::Invalid)?
                 .len();
             if threads > 1000 {
+                return Err(OwnerFault::Capacity.into());
+            }
+            for record in decoded.projection["threads"]
+                .as_object()
+                .ok_or(OwnerFault::Invalid)?
+                .values()
+            {
+                if record["kind"] == "thread"
+                    && let Some(id) = record["proposal"]["proposalId"].as_str()
+                {
+                    proposals.insert((writer.clone(), id.to_owned()));
+                }
+            }
+            if proposals.len() > crate::limits::PAGE_PROPOSALS {
                 return Err(OwnerFault::Capacity.into());
             }
             if writer == local_writer {

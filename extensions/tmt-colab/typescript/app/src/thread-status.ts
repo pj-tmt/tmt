@@ -17,6 +17,41 @@ export interface ThreadStatusRecord extends DiscussionRecordScope {
   agentName: string | null;
   recipients: ThreadRecipient[];
 }
+export interface ProposalDecisionRecord extends DiscussionRecordScope {
+  kind: 'proposal-decision';
+  actionId: string;
+  thread: DiscussionRef;
+  previous: DiscussionRef | null;
+  decision: 'approved' | 'declined';
+}
+export function validateDecision(value: Record<string, unknown>) {
+  exactKeys(value, [...fields, 'actionId', 'thread', 'previous', 'decision']);
+  requireValue(value.revision === '1' && value.deleted === false);
+  generatedId(value.actionId as string);
+  ref(value.thread);
+  if (value.previous !== null) ref(value.previous);
+  requireValue(value.decision === 'approved' || value.decision === 'declined');
+}
+export function foldProposalDecision(
+  thread: DiscussionRef,
+  actions: readonly ProposalDecisionRecord[],
+) {
+  return [...actions]
+    .filter(
+      (a) => a.thread.writer === thread.writer && a.thread.id === thread.id && a.previous === null,
+    )
+    .sort((a, b) =>
+      a.senderDevice === b.senderDevice
+        ? a.actionId < b.actionId
+          ? -1
+          : a.actionId > b.actionId
+            ? 1
+            : 0
+        : a.senderDevice < b.senderDevice
+          ? -1
+          : 1,
+    )[0];
+}
 export interface ThreadStatusView extends ThreadStatusRecord {
   ref: DiscussionRef;
   depth: number;

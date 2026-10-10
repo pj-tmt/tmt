@@ -97,6 +97,7 @@ export function validateOwn(value: unknown): asserts value is OwnState {
     }
   }
   let threads = 0;
+  const proposals = new Set<string>();
   const entries = Object.entries(value);
   requireValue(entries.length <= 256);
   for (const [writer, roots] of entries) {
@@ -120,14 +121,30 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           record &&
           typeof record === 'object' &&
           !Array.isArray(record) &&
-          ['thread', 'comment', 'thread-status', 'thread-notification'].includes(
-            String((record as Record<string, unknown>).kind),
-          )
+          [
+            'thread',
+            'comment',
+            'thread-status',
+            'thread-notification',
+            'proposal-decision',
+          ].includes(String((record as Record<string, unknown>).kind))
         )
           validateDiscussionRecord(root, key, record);
       }
     }
     threads += Object.keys(projection.threads).length;
+    for (const record of Object.values(projection.threads)) {
+      if (
+        record &&
+        typeof record === 'object' &&
+        !Array.isArray(record) &&
+        record.kind === 'thread' &&
+        record.proposal &&
+        typeof record.proposal === 'object' &&
+        !Array.isArray(record.proposal)
+      )
+        proposals.add(`${writer}:${record.proposal.proposalId}`);
+    }
     for (const message of Object.values(projection.messages)) {
       if (message !== null && typeof message === 'object' && Object.hasOwn(message, 'body')) {
         const body = (message as Record<string, unknown>).body;
@@ -136,6 +153,7 @@ export function validateOwn(value: unknown): asserts value is OwnState {
     }
   }
   requireValue(threads <= 1000);
+  requireValue(proposals.size <= 200);
 }
 export interface FoldResult extends Projection {
   own: OwnState;

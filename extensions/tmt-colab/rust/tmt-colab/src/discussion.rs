@@ -19,7 +19,12 @@ pub struct View {
     #[serde(flatten)]
     pub conversations: Conversations,
 }
-fn project(key: &Keyring, page: &str, snapshot: &Snapshot, folded: &Folded) -> Conversations {
+pub(crate) fn project(
+    key: &Keyring,
+    page: &str,
+    snapshot: &Snapshot,
+    folded: &Folded,
+) -> Conversations {
     Conversations::project(
         conversations::Capture {
             space_id: &key.space_id,
@@ -41,6 +46,62 @@ fn project(key: &Keyring, page: &str, snapshot: &Snapshot, folded: &Folded) -> C
         &folded.signing_keys,
         &folded.status_writers,
     )
+}
+
+/// A complete proposal is published before its optional source placement. Retrying
+/// the same ID compares authenticated metadata instead of creating another thread.
+pub fn prepare_proposal(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    proposal: &crate::threads::Proposal,
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<Option<page::FrozenPublication>> {
+    proposal.validate()?;
+    let snapshot = page::snapshot(store, key, page, true)?;
+    let (writer, _, _) = key.local_writer()?;
+    if snapshot.authority.revoked_devices.contains(&writer) {
+        return Err(Fault::Denied.into());
+    }
+    let folded = snapshot.materialize(key, page, decoder)?;
+    let view = project(key, page, &snapshot, &folded);
+    let existing: Vec<_> = view
+        .threads
+        .iter()
+        .filter(|row| {
+            row.proposal
+                .as_ref()
+                .is_some_and(|p| p.proposal_id == proposal.proposal_id)
+        })
+        .collect();
+    if !existing.is_empty() {
+        if existing.len() == 1
+            && existing[0].writer == writer
+            && !existing[0].deleted
+            && existing[0].proposal.as_ref() == Some(proposal)
+        {
+            return Ok(None);
+        }
+        return Err(Fault::Invalid.into());
+    }
+    if proposal.proposal_id == writer {
+        return Err(Fault::Invalid.into());
+    }
+    let record = serde_json::json!({
+        "version":1,"kind":"thread","spaceId":key.space_id,"pageId":page,
+        "epoch":snapshot.epoch.to_string(),"senderDevice":writer,"revision":"1",
+        "deleted":false,"deviceName":"Local CLI","at":now.to_string(),
+        "threadId":proposal.proposal_id,"anchor":null,"resolved":false,"proposal":proposal
+    });
+    let records = [OwnRecord {
+        root: "threads".into(),
+        key: format!("{}:1", proposal.proposal_id),
+        value: record,
+    }];
+    Ok(Some(page::freeze_own_records(
+        key, page, &snapshot, &folded, &records, decoder, now,
+    )?))
 }
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
     let snapshot = page::snapshot(store, key, page, false)?;

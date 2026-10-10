@@ -46,6 +46,12 @@ owns record fields, limits, revision semantics and trust boundaries.
   `kind:"own"` publication that `main.rs::publish_write` sends through the offline lock or
   the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
   and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
+  `cli_proposal.rs` adapts `proposal add/ls/resolve`; `discussion::prepare_proposal`
+  admits or verifies a retained local-writer record, then CLI placement uses the
+  ordinary page expected-revision path. `page::freeze_own_records` owns native
+  cross-writer proposal bounds and decision-finality preparation checks. Proposal
+  fields, causal ordering and recovery live in the contract above; no extra root,
+  store or dispatcher exists. Trusted proposal UI is a later #1773 slice.
   Actor labels and clocks remain display assertions.
 - Recipient Ask again: `CommentExchange` supplies the original own comment and
   preceding conversation to the shared `ask-again.tsx` action; `AnnotationInput`

@@ -107,6 +107,10 @@ pub const COMMENT_CONTEXT_POINTS: usize = 32;
 pub const OWN_RECORDS: usize = 32;
 /// Frozen status recipients, bounded independently from comment text.
 pub const STATUS_RECIPIENTS: usize = 1000;
+pub const PROPOSAL_TITLE_POINTS: usize = 200;
+pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
+pub const PROPOSAL_LABEL_POINTS: usize = 64;
+pub const PAGE_PROPOSALS: usize = 200;
 #[cfg(test)]
 mod tests {
     use super::*;

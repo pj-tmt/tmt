@@ -26,6 +26,7 @@ import {
   type ThreadStatusRecord,
   type ThreadStatusView,
   type ThreadNotificationRecord,
+  type ProposalDecisionRecord,
 } from './thread-status.js';
 
 /** Committed originals for one message. The caller allocates `messageId` before sealing
@@ -154,6 +155,7 @@ export class ThreadStore implements ThreadBinding {
       | Omit<CommentRecord, 'at'>
       | Omit<ThreadStatusRecord, 'at'>
       | Omit<ThreadNotificationRecord, 'at'>
+      | Omit<ProposalDecisionRecord, 'at'>
     )[],
     prefix: readonly OwnRecord[] = [],
   ) {
@@ -386,6 +388,26 @@ export class ThreadStore implements ThreadBinding {
       result = await this.#status(view, resolved, captured.recipients);
     });
     return result;
+  }
+  /** Record-only final decision. Dispatch belongs to the later trusted UI action. */
+  async decideProposal(thread: DiscussionRef, decision: 'approved' | 'declined') {
+    const captured = structuredClone(thread);
+    await this.#exclusive(async (c) => {
+      const view = this.#thread(c, captured);
+      requireValue(view.proposal !== undefined && view.decision === undefined);
+      await this.#write([
+        {
+          ...this.#scope(),
+          kind: 'proposal-decision',
+          revision: '1',
+          deleted: false,
+          actionId: crypto.randomUUID(),
+          thread: captured,
+          previous: null,
+          decision,
+        },
+      ]);
+    });
   }
   async notificationFailed(
     status: ThreadStatusView,

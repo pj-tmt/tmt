@@ -321,6 +321,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
               'comment',
               'thread-status',
               'thread-notification',
+              'proposal-decision',
               'attachment-publication',
             ].includes(value?.kind)
           )

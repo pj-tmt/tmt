@@ -1,8 +1,12 @@
 import { requireValue } from '@tmt/colab-client';
 import { readAskRecords } from './ask-records.js';
 import type { OwnState } from './fold-protocol.js';
-import { readThreads } from './thread-records.js';
-import type { ThreadNotificationRecord, ThreadStatusView } from './thread-status.js';
+import { readThreads, type Proposal } from './thread-records.js';
+import type {
+  ThreadNotificationRecord,
+  ThreadStatusView,
+  ProposalDecisionRecord,
+} from './thread-status.js';
 
 /** The authorized discussion view of one captured page snapshot: verified threads,
  * comments and Ask conversations, as plain data. Native `export/conversations.rs`
@@ -28,6 +32,8 @@ export interface ConversationThread {
   deviceName: string;
   at: string;
   comments: ConversationComment[];
+  proposal?: Proposal;
+  decision?: ProposalDecisionRecord;
   status?: ThreadStatusView;
   notifications?: ThreadNotificationRecord[];
 }
@@ -153,6 +159,42 @@ export async function projectConversations(input: ConversationsInput): Promise<C
           at: comment.at,
         }))
         .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id))),
+      ...(thread.proposal
+        ? {
+            proposal: {
+              proposalId: thread.proposal.proposalId,
+              title: thread.proposal.title,
+              body: thread.proposal.body,
+              proposer: {
+                machineId: thread.proposal.proposer.machineId,
+                agentId: thread.proposal.proposer.agentId,
+                label: thread.proposal.proposer.label,
+              },
+            },
+          }
+        : {}),
+      ...(thread.decision
+        ? {
+            decision: {
+              version: thread.decision.version,
+              kind: thread.decision.kind,
+              spaceId: thread.decision.spaceId,
+              pageId: thread.decision.pageId,
+              epoch: thread.decision.epoch,
+              senderDevice: thread.decision.senderDevice,
+              revision: thread.decision.revision,
+              deleted: thread.decision.deleted,
+              deviceName: thread.decision.deviceName,
+              at: thread.decision.at,
+              actionId: thread.decision.actionId,
+              thread: { writer: thread.decision.thread.writer, id: thread.decision.thread.id },
+              previous: thread.decision.previous
+                ? { writer: thread.decision.previous.writer, id: thread.decision.previous.id }
+                : null,
+              decision: thread.decision.decision,
+            },
+          }
+        : {}),
       ...(thread.status ? { status: captureStatus(thread.status) } : {}),
       ...(thread.notifications?.some(
         (value) =>
@@ -318,6 +360,16 @@ export function renderConversationsMarkdown(conversations: Conversations): strin
       for (const notification of thread.notifications ?? [])
         lines.push(`- Notification ${notification.operationId}: ${notification.reason}`, '');
     }
+    if (thread.proposal)
+      lines.push(
+        `- Proposal ID: ${thread.proposal.proposalId}`,
+        `- Proposal title: ${codeSpan(thread.proposal.title)}`,
+        `- Proposer: ${codeSpan(thread.proposal.proposer.label)} (${thread.proposal.proposer.machineId}:${thread.proposal.proposer.agentId})`,
+        `- Decision: ${thread.decision?.decision ?? 'open'}`,
+        '',
+        fence(thread.proposal.body),
+        '',
+      );
     if (thread.anchor) lines.push('Quoted text:', '', fence(thread.anchor.exact), '');
     else lines.push('Quoted text: none', '');
     const comments = [...thread.comments].sort(
