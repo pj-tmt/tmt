@@ -1099,3 +1099,141 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await frame.locator('#target').click();
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
 });
+
+test('highlight clicks choose the shortest known quote while drag selection and scroll stay native', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<div style="height:1200px"></div><p style="font:20px monospace">Outer <span id="inner">words</span> tail</p><div style="height:1200px"></div>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    const handle = (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle;
+    handle.highlight([
+      { id: 'outer', selector: { exact: 'Outer words tail', prefix: '', suffix: '' } },
+      { id: 'inner-z', selector: { exact: 'words', prefix: 'Outer ', suffix: ' tail' } },
+      { id: 'inner-a', selector: { exact: 'words', prefix: 'Outer ', suffix: ' tail' } },
+    ]);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute(
+    'data-resolved',
+    '["outer","inner-z","inner-a"]',
+  );
+  const frame = page.frameLocator('#probe iframe');
+  const quote = frame.locator('#inner');
+  await quote.scrollIntoViewIfNeeded();
+  await expect
+    .poll(async () => (await page.locator('#probe iframe').boundingBox())!.height)
+    .toBeGreaterThan(2400);
+  await quote.hover();
+  await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(1);
+  const scroll = await page.evaluate(() => scrollY);
+  const click = (await quote.boundingBox())!;
+  await page.mouse.click(click.x + click.width / 2, click.y + click.height / 2);
+  await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'inner-a');
+  expect(await page.evaluate(() => scrollY)).toBe(scroll);
+  await page.evaluate(() => {
+    delete document.querySelector<HTMLElement>('#probe')!.dataset.opened;
+    (
+      window as unknown as { probe: { handle: { selectionMode(value: boolean): void } } }
+    ).probe.handle.selectionMode(true);
+  });
+  await quote.click({ modifiers: ['Control'] });
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+  await page.clock.install();
+  const hold = (await quote.boundingBox())!;
+  await page.mouse.move(hold.x + hold.width / 2, hold.y + hold.height / 2);
+  await page.mouse.down();
+  await page.clock.fastForward(600);
+  await page.mouse.up();
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+  await quote.evaluate((node) => node.ownerDocument.getSelection()?.removeAllRanges());
+  await quote.click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'inner-a');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates', /.+/);
+  await page.evaluate(() => {
+    delete document.querySelector<HTMLElement>('#probe')!.dataset.opened;
+  });
+  const box = (await quote.boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', /word/);
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+  await quote.evaluate((node) => {
+    node.ownerDocument.getSelection()?.removeAllRanges();
+    const rect = node.getBoundingClientRect();
+    node.dispatchEvent(
+      new MouseEvent('click', {
+        bubbles: true,
+        clientX: rect.left + 2,
+        clientY: rect.top + 2,
+        detail: 1,
+      }),
+    );
+  });
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+  await page.evaluate(() => {
+    const handle = (
+      window as unknown as {
+        probe: {
+          handle: { highlight(value: unknown[]): void; selectionMode(value: boolean): void };
+        };
+      }
+    ).probe.handle;
+    handle.selectionMode(false);
+    handle.highlight([]);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(0);
+  await quote.click();
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+});
+
+test.describe('touch highlight opening', () => {
+  test.use({ hasTouch: true });
+  test('a plain tap opens the existing known discussion', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await mount(page, '<p id="quote">Tap this existing highlight</p>');
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    await page.evaluate(() => {
+      (
+        window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+      ).probe.handle.highlight([
+        {
+          id: 'touch-thread',
+          selector: { exact: 'Tap this existing highlight', prefix: '', suffix: '' },
+        },
+      ]);
+    });
+    await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["touch-thread"]');
+    await page.locator('#probe iframe').evaluate((node) => {
+      window.scrollTo({
+        top: node.getBoundingClientRect().top + scrollY - 120,
+        behavior: 'instant',
+      });
+    });
+    const point = await page
+      .frameLocator('#probe iframe')
+      .locator('#quote')
+      .evaluate((node) => {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        const box = range.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      });
+    const iframe = (await page.locator('#probe iframe').boundingBox())!;
+    expect(iframe.y + point.y).toBeGreaterThan(56);
+    expect(iframe.y + point.y).toBeLessThan(844);
+    await page.touchscreen.tap(iframe.x + point.x, iframe.y + point.y);
+    await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'touch-thread');
+    await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates', /.+/);
+  });
+});

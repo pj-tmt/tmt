@@ -1858,6 +1858,14 @@ renderId. Highlight requests/results use that bound port; selections use the
 bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
 messages. Allow only bounded selection/rectangle/anchor-result inbound,
 known-thread view actions and narrow highlight/scroll/theme outbound. No secrets, signing/send capabilities or bridge actions cross it.
+A trusted plain click or tap inside a current resolved highlight requests the same
+known-thread view action as its keyboard-reachable marker. The shortest matching quote
+wins, with stable thread-ID ordering for equal lengths. Hover uses a pointer-inert outline.
+Drag/text selection, long presses, modified or synthetic clicks and editing targets do not
+open a thread. Selection mode gives an existing highlight precedence over creating a new
+annotation. Replacement clears resolved geometry; the parent still checks the current
+render/request and known thread ID. Neither highlighting nor opening publishes or sends.
+
 Interactive page scripts can intercept the port and forge a schema-valid quote;
 port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently

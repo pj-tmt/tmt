@@ -97,7 +97,10 @@ Source revisions replace only the author renderer, not parent chrome. `router.ts
 keeps the mounted annotation input and frozen quote/rectangle during loading;
 page-ID changes reset page-local selection, panels and in-memory drafts; saved drafts
 return with their own page. Existing
-thread highlights are projected again when the new render is ready. `renderer.ts`
+thread highlights are projected again when the new render is ready. A plain click or tap
+on a resolved highlight opens its existing discussion, including in selection mode; native
+drag selection stays available. The bounded resolver chooses the shortest quote with a
+stable ID tie-break, and the parent admits only current known-thread view actions. `renderer.ts`
 checks the frozen composer quote through the same bounded cosmetic resolver: the
 reserved empty anchor ID resolves without painting a highlight or creating a
 marker/action. Only an admitted resolution response marks the check complete;
