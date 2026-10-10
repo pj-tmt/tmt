@@ -1238,3 +1238,72 @@ test.describe('touch highlight opening', () => {
     await expect(page.locator('#probe')).not.toHaveAttribute('data-annotates', /.+/);
   });
 });
+
+test('highlight hover coalesces trusted pointer bursts and cancels pending geometry', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, '<p id="quote" style="font:20px monospace">One highlighted passage</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle.highlight([
+      { id: 'one', selector: { exact: 'One highlighted passage', prefix: '', suffix: '' } },
+    ]);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["one"]');
+  const frame = page.frameLocator('#probe iframe');
+  const quote = frame.locator('#quote');
+  await quote.scrollIntoViewIfNeeded();
+  const box = (await quote.boundingBox())!;
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await quote.evaluate(() => {
+    const original = Range.prototype.getClientRects;
+    let count = 0;
+    Range.prototype.getClientRects = function () {
+      if (this.toString() === 'One highlighted passage') count++;
+      return original.call(this);
+    };
+    Object.assign(window, { hoverGeometryCount: () => count });
+  });
+  const reads = () =>
+    quote.evaluate(() =>
+      (window as unknown as { hoverGeometryCount(): number }).hoverGeometryCount(),
+    );
+  for (let offset = 0; offset < 12; offset++)
+    await page.mouse.move(box.x + 10 + offset, box.y + box.height / 2);
+  expect(await reads()).toBe(0);
+  await expect(frame.locator('[data-colab-thread-outline]')).toHaveCount(0);
+  await page.clock.runFor(20);
+  expect(await reads()).toBe(1);
+  await expect(frame.locator('[data-colab-thread-outline]')).toHaveAttribute(
+    'data-colab-thread-outline',
+    'one',
+  );
+  // The last point wins, even when the burst started on the highlighted text.
+  await page.mouse.move(box.x + 12, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+  await page.clock.runFor(20);
+  expect(await reads()).toBe(2);
+  await expect(frame.locator('[data-colab-thread-outline]')).toHaveCount(0);
+  // A move out and back within the frozen frame must remain a drag, never a click.
+  await page.mouse.move(box.x + 10, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 100, box.y + box.height / 2);
+  await page.mouse.move(box.x + 10, box.y + box.height / 2);
+  await page.mouse.up();
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-opened', /.+/);
+  await page.clock.runFor(20);
+  expect(await reads()).toBe(3);
+  await page.mouse.move(box.x + 11, box.y + box.height / 2);
+  await quote.evaluate(() => dispatchEvent(new Event('scroll')));
+  await page.clock.runFor(20);
+  expect(await reads()).toBe(3);
+  await expect(frame.locator('[data-colab-thread-outline]')).toHaveCount(0);
+  await page.mouse.move(box.x + 12, box.y + box.height / 2);
+  await quote.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide')));
+  await page.clock.runFor(20);
+  expect(await reads()).toBe(3);
+});

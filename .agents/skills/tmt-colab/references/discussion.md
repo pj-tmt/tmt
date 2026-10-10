@@ -201,7 +201,9 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   only parent views. Highlight messages contain only IDs and quote selectors, never
   comment bodies or display labels; marker tooltips use quoted text and comment
   first-line labels stay in parent chrome. Selection rectangles and anchor offsets are bounded cosmetic
-  claims; normal anchor navigation scrolls the window. Ports/observers clear on teardown.
+  claims; normal anchor navigation scrolls the window. Highlight hover geometry uses the latest
+  trusted pointer position once per animation frame; gesture movement stays synchronous.
+  Clearing a target cancels pending hover work. Ports/observers clear on teardown.
 
 Verification: `test/questions.test.ts` checks answer bounds and verified Lamport selection;
 `e2e/questions.spec.ts` checks kinds, normal anchors, changes, recipient isolation,
