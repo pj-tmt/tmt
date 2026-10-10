@@ -19,6 +19,7 @@ pub mod channel;
 pub mod consumption;
 pub mod driver_state;
 pub(crate) mod evidence;
+pub mod hook_notices;
 pub mod hook_protocol;
 pub mod launch_preset;
 pub mod lifecycle;

@@ -692,13 +692,15 @@ describe('Claude channel delivery', { concurrent: false }, () => {
   );
 
   it.each([
-    { channel: true, setup: false, resume: false },
-    { channel: false, setup: false, resume: true },
-    { channel: true, setup: true, resume: true },
-    { channel: false, setup: true, resume: false },
+    { channel: true, setup: false, resume: false, legacy: false, quietNotice: false },
+    { channel: false, setup: false, resume: true, legacy: false, quietNotice: false },
+    { channel: true, setup: true, resume: true, legacy: false, quietNotice: false },
+    { channel: false, setup: true, resume: false, legacy: false, quietNotice: false },
+    { channel: false, setup: false, resume: false, legacy: true, quietNotice: false },
+    { channel: false, setup: false, resume: false, legacy: true, quietNotice: true },
   ])(
-    'Digest launch hooks channel=$channel setup=$setup resume=$resume deliver one Stop continuation',
-    async ({ channel, setup, resume }) => {
+    'Digest launch hooks channel=$channel setup=$setup resume=$resume legacy=$legacy quietNotice=$quietNotice deliver one Stop continuation',
+    async ({ channel, setup, resume, legacy, quietNotice }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'BoundaryClaude';
         const sessionId = randomUUID();
@@ -740,6 +742,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           env: {
             MOCK_SESSION_ID: sessionId,
             MOCK_LAUNCH_HOOKS: '1',
+            MOCK_LEGACY_HOOKS: legacy ? '1' : '0',
             MOCK_AUTOREPLY: '0',
             TMT_TEST_CLAUDE_MOCK: mock,
             TMT_TEST_CLAUDE_NODE: process.execPath,
@@ -765,6 +768,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         await withCompletedSession(fixture, worker, async () => {
           await waitForEvent(fixture, worker, 'prompt-recorded');
           if (channel) await waitForReady(fixture, 1);
+          const noticeText =
+            'tmt: This session was started by an older tmt. Restart it to use the current hooks.';
+          const notices = () =>
+            named(worker, 'installed-hook')
+              .filter((entry) => entry.stdout)
+              .map((entry) => JSON.parse(String(entry.stdout)))
+              .filter((value) => value.systemMessage);
+          if (quietNotice) {
+            await digestStep('quiet-notice-stop');
+            expect(notices()).toEqual([{ systemMessage: noticeText }]);
+          }
           const id = identityId(fixture, name);
           const created = await fixture.runJsonCli<{ identity: { id: string } }>([
             'identity',
@@ -849,6 +863,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           await digestStep('already-continuing-stop', { active: true });
           expect(batches()).toEqual([]);
           expect(named(worker, 'digest-continuation')).toEqual([]);
+          expect(notices()).toHaveLength(quietNotice ? 1 : 0);
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
           // Both bypasses remain ordinary transport while Digest is active.
@@ -895,6 +910,9 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           await waitForEvent(fixture, worker, 'recursive-stop');
           const feedback = named(worker, 'digest-continuation');
           expect(feedback).toHaveLength(1);
+          expect(notices()).toHaveLength(legacy ? 1 : 0);
+          if (legacy) expect(notices()[0].systemMessage).toBe(noticeText);
+          if (legacy && !quietNotice) expect(notices()[0].decision).toBe('block');
           const reason = String(feedback[0].reason);
           expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
           for (const request of requests)
@@ -918,7 +936,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             (entry) => entry.hookEvent === 'Stop' && String(entry.command).includes('__hook ')
           );
           // stale, recursion guard, ordinary boundary, provider continuation.
-          expect(stops).toHaveLength(rejectsOutput ? 5 : 4);
+          expect(stops).toHaveLength((rejectsOutput ? 5 : 4) + Number(quietNotice));
           expect(stops.every((entry) => String(entry.command).includes('--activity-only'))).toBe(
             !setup
           );
@@ -937,6 +955,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             }))
           );
           await digestStep('empty-stop');
+          expect(notices()).toHaveLength(legacy ? 1 : 0);
           expect(named(worker, 'digest-continuation')).toHaveLength(1);
           expect(batches()).toHaveLength(rejectsOutput ? 2 : 1);
         });

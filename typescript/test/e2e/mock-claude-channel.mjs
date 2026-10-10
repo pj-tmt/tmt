@@ -128,7 +128,11 @@ async function emitInstalledHooks(
   const commands = new Set(
     [global, inline].flatMap((settings) =>
       (settings.hooks?.[payload.hook_event_name] ?? []).flatMap((entry) =>
-        entry.hooks.map((hook) => hook.command)
+        entry.hooks.map((hook) =>
+          process.env.MOCK_LEGACY_HOOKS === '1'
+            ? hook.command.replace(' __digest-hook ', ' __focus-hook ')
+            : hook.command
+        )
       )
     )
   );

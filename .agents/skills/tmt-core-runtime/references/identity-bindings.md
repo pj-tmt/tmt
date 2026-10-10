@@ -268,6 +268,20 @@ or edited/duplicated sources, and disabled/managed-only policy use the same orig
 command fallback. Other invocation config remains intact; explicit invocation hook
 entries are retained in the composed session table.
 
+Names and argv written into provider launches, host options or installed shell
+scripts remain accepted through at least the next stable release after a rename;
+Core reviews renames and removal of the corresponding pinned legacy argv entries.
+The hidden `__focus-hook` alias forwards to the same typed `__digest-hook` handler.
+A verified legacy main-session Stop may show one best-effort user-visible restart
+advisory through the provider's `systemMessage`, alone or merged into its existing
+JSON decision. Unsupported output, current names, recursive/auxiliary and unverified
+callbacks stay quiet. `ConfigPaths::hook_notice_directory()` owns private 0700
+`<global_dir>/hook-notices`; one empty 0600 `<provider>-<sha256(session)[:32]>` marker
+is created exclusively before output to elect its writer. Publication failure may
+lose the notice for that session; markers grant no authority or delivery evidence.
+A successful creation best-effort removes owned empty markers older than 30 days.
+No provider settings, SQL, exit status or stderr changes accompany the advisory.
+
 The separate `__digest-hook` accepts only an unrecursive main-agent Stop and emits
 both providers' documented `decision: "block"` plus `reason` continuation. It does not use
 `additionalContext` alone. Unsupported events, including StopFailure and SubagentStop,

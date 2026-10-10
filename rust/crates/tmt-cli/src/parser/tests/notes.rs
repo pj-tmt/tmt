@@ -5,6 +5,7 @@ fn notes_path_has_one_typed_identity_selector_and_json_mode() {
     assert_eq!(
         parsed(&["notes", "path", "--identity", "Research & QA", "--json"]),
         Parsed {
+            legacy_hook: false,
             invocation: Invocation::NotesPath {
                 identity: Some("Research & QA".into()),
             },

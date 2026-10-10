@@ -22,6 +22,11 @@ impl ConfigPaths {
             .join(tmt_core::content_digest::sha256(socket.as_bytes()))
     }
 
+    /// Disposable, private per-provider session restart advisory markers.
+    pub fn hook_notice_directory(&self) -> PathBuf {
+        self.global_dir.join("hook-notices")
+    }
+
     pub fn office_directory(&self) -> PathBuf {
         self.global_dir.join("office")
     }

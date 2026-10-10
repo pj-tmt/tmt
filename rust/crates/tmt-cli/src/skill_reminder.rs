@@ -312,6 +312,7 @@ mod tests {
     #[test]
     fn machine_setup_and_transition_owners_skip_passive_inspection() {
         let mut parsed = Parsed {
+            legacy_hook: false,
             invocation: Invocation::Whoami,
             mode: OutputMode::default(),
         };
@@ -383,6 +384,7 @@ mod tests {
     #[test]
     fn the_driver_hint_skips_machine_and_driver_commands() {
         let mut parsed = Parsed {
+            legacy_hook: false,
             invocation: Invocation::Whoami,
             mode: OutputMode::default(),
         };

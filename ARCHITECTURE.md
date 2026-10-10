@@ -266,7 +266,7 @@ a working directory, active pane or sole identity.
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
 - Lifecycle hooks observe existing bindings; they never create or move identities.
-  Bounded callbacks exit zero; `tmt run` composes Claude/Codex Digest hooks with stable definitions. Persistent
+  Bounded callbacks exit zero; launch hooks retain reviewed externalized-name compatibility. Persistent
   provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.

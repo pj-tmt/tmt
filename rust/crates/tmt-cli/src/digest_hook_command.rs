@@ -28,6 +28,7 @@ pub fn execute(
     scope: Option<&str>,
     worker: bool,
     work_budget_ms: Option<u64>,
+    legacy_name: bool,
 ) -> io::Result<u8> {
     let deadline = Instant::now()
         + work_budget_ms
@@ -134,6 +135,29 @@ pub fn execute(
             return Err(());
         }
         if output.stdout.is_empty() {
+            if legacy_name {
+                let supplied = scope
+                    .map(serde_json::from_str::<HookLaunch>)
+                    .transpose()
+                    .map_err(|_| ())?;
+                let (_, paths, _) = crate::provider_hook_command::verified_digest_launch(
+                    provider,
+                    lifecycle,
+                    supplied.as_ref(),
+                    &session,
+                    deadline,
+                    UnixCommandRunner,
+                )?;
+                if let Some(notice) =
+                    restart_notice(lifecycle, &paths, &harness, &session, None, deadline)
+                {
+                    let _ = handoff::write_before(
+                        &tmt_cli_style::stream::stdout(true).into_inner(),
+                        notice.as_bytes(),
+                        deadline,
+                    );
+                }
+            }
             return Ok(());
         }
         let prepared: DigestHandoff = serde_json::from_slice(&output.stdout).map_err(|_| ())?;
@@ -177,6 +201,19 @@ pub fn execute(
                 }) {
                     return Ok(());
                 }
+                let notice = legacy_name
+                    .then(|| {
+                        restart_notice(
+                            lifecycle,
+                            &paths,
+                            &harness,
+                            &session,
+                            Some(&payload),
+                            deadline,
+                        )
+                    })
+                    .flatten();
+                let payload = notice.as_deref().unwrap_or(&payload);
                 publication_state(handoff::write_before(
                     &tmt_cli_style::stream::stdout(true).into_inner(),
                     payload.as_bytes(),
@@ -203,6 +240,27 @@ pub fn execute(
     Ok(u8::from(worker && result.is_err()))
 }
 
+const RESTART_NOTICE: &str =
+    "tmt: This session was started by an older tmt. Restart it to use the current hooks.";
+
+fn restart_notice(
+    lifecycle: &dyn tmt_adapters::runtime::lifecycle::RuntimeLifecycle,
+    paths: &tmt_adapters::config::ConfigPaths,
+    provider: &HarnessId,
+    session: &tmt_core::binding::session::ProviderSessionId,
+    decision: Option<&str>,
+    deadline: Instant,
+) -> Option<String> {
+    let output = lifecycle.encode_hook_notice(RESTART_NOTICE, decision)?;
+    tmt_adapters::runtime::hook_notices::claim(
+        &paths.hook_notice_directory(),
+        provider,
+        session,
+        deadline,
+    )
+    .then_some(output)
+}
+
 fn publication_state(result: Result<(), handoff::HandoffFailure>) -> DigestState {
     match result {
         Ok(()) => DigestState::Delivered,
@@ -225,5 +283,72 @@ mod tests {
             publication_state(Err(handoff::HandoffFailure { written: 1 })),
             DigestState::Uncertain
         );
+    }
+    #[test]
+    fn provider_notice_election_is_separate_from_handoff_and_lost_output_is_not_retried() {
+        use std::fs;
+        let root = std::env::temp_dir().join(format!(
+            "tmt-hook-advisory-{}",
+            tmt_core::operation::new_operation_id()
+        ));
+        let paths = tmt_adapters::config::ConfigPaths::resolve(&root, &root, Some(&root), None);
+        let registry = RuntimeRegistry::first_party();
+        for provider in ["claude", "codex"] {
+            let harness = HarnessId::new(provider).unwrap();
+            let lifecycle = registry.lifecycle(&harness).unwrap();
+            let session =
+                tmt_core::binding::session::ProviderSessionId::new("verified-session").unwrap();
+            let decision = r#"{"decision":"block","reason":"held"}"#;
+            let output = restart_notice(
+                lifecycle,
+                &paths,
+                &harness,
+                &session,
+                Some(decision),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap();
+            let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(value["decision"], "block");
+            assert_eq!(value["reason"], "held");
+            assert_eq!(value["systemMessage"], RESTART_NOTICE);
+            let (_read, write) = nix::unistd::pipe().unwrap();
+            assert_eq!(
+                publication_state(handoff::write_before(
+                    &write,
+                    output.as_bytes(),
+                    Instant::now()
+                )),
+                DigestState::Unsent
+            );
+            assert!(
+                restart_notice(
+                    lifecycle,
+                    &paths,
+                    &harness,
+                    &session,
+                    None,
+                    Instant::now() + Duration::from_secs(1)
+                )
+                .is_none()
+            );
+            let other =
+                tmt_core::binding::session::ProviderSessionId::new("quiet-session").unwrap();
+            let quiet = restart_notice(
+                lifecycle,
+                &paths,
+                &harness,
+                &other,
+                None,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&quiet).unwrap(),
+                serde_json::json!({"systemMessage":RESTART_NOTICE})
+            );
+        }
+        assert!(!paths.database.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }

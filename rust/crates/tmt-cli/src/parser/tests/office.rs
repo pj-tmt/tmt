@@ -687,6 +687,7 @@ fn office_profile_commands_are_local_typed_and_revision_bounded() {
         ]))
         .unwrap(),
         Parsed {
+            legacy_hook: false,
             invocation: Invocation::Office {
                 operation: OfficeOperation::Profile {
                     identity: Some("Alice".into()),
