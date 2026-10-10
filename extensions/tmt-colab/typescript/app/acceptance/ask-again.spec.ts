@@ -37,7 +37,7 @@ for (const surface of ['chat', 'thread'])
         '<p id="quote">One original comment, two recipients.</p>',
         alpha.pane,
       );
-      const browser = await pairBrowser(world, 'again-author');
+      const browser = await pairBrowser(world, 'again-author', { talk: true });
       const page = await openPage(door, browser, created);
       if (surface === 'chat') await openChat(page);
       else {

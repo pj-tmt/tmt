@@ -181,7 +181,7 @@ impl Status<'_> {
                 self.pairing
                     .as_ref()
                     .and_then(Pairing::step)
-                    .unwrap_or("if this browser is new: tmt remote pair")
+                    .unwrap_or("if this browser is new, pair for page access: tmt remote pair")
                     .into(),
             ));
         }

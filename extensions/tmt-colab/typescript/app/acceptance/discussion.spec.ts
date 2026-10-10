@@ -40,7 +40,7 @@ test('a same-request annotation reply recovers from a visible transient read fai
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('late-annotation-agent', { gated: true });
-    const browser = await pairBrowser(world, 'late-annotation-author');
+    const browser = await pairBrowser(world, 'late-annotation-author', { talk: true });
     const created = createPage(
       world,
       'Delayed annotation',
@@ -149,8 +149,8 @@ test('paired writers retain anchored annotation conversations, direct exact send
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('discussion-agent');
-    const a = await pairBrowser(world, 'discussion-author');
-    const b = await pairBrowser(world, 'discussion-replier');
+    const a = await pairBrowser(world, 'discussion-author', { talk: true });
+    const b = await pairBrowser(world, 'discussion-replier', { talk: true });
     const paragraphs = Array.from(
       { length: 40 },
       (_, index) =>
@@ -524,7 +524,7 @@ test('composer records plain annotations and replies without a recipient, then s
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('composer-agent', { gated: true });
-    const browser = await pairBrowser(world, 'composer-author');
+    const browser = await pairBrowser(world, 'composer-author', { talk: true });
     await composerTrace(world, browser, door.address, 'composer-owner');
     const operations: string[] = [];
     browser.context.on('request', (request) => {

@@ -127,7 +127,7 @@ test('object channel: upload original recovers, commits and publishes through re
       world.linkExtensions();
       const door = await startDoor(world);
       const created = createPage(world, 'Storage upload', '<p>Original upload source</p>');
-      const browser = await pairBrowser(world, 'storage-upload-owner');
+      const browser = await pairBrowser(world, 'storage-upload-owner', { talk: true });
       const call = await storageClient(browser.page, `${door.mounts}colab/`, fixtureRoot);
       const ledger = () =>
         execFileSync(
@@ -209,7 +209,7 @@ test('object channel: upload original recovers, commits and publishes through re
       );
       expect(ownUpdateBytes).toBeGreaterThan(0);
       expect(ownUpdateBytes).toBeLessThan(32768);
-      const other = await pairBrowser(world, 'storage-read-owner');
+      const other = await pairBrowser(world, 'storage-read-owner', { talk: true });
       const otherCall = await storageClient(other.page, `${door.mounts}colab/`, fixtureRoot);
       const binding = await call('binding');
       await otherCall('connect', `${door.mounts}colab/`, created.pageId);
@@ -278,6 +278,9 @@ test('object channel: upload original recovers, commits and publishes through re
   }
 });
 
+// These fixture clients drive the object channel from a bare mount document. A grant change after
+// pairing (the read-only toggle) makes the door reload that document once, which destroys the
+// client's page context, so they pair with sending and leave the grant unchanged.
 async function storageClient(page: Page, mount: string, fixtureRoot: string) {
   const moduleUrl = `${mount}__storage-proof/storage-proof.js`;
   await page.route(`${mount}__storage-proof/**`, async (route) => {

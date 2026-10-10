@@ -19,7 +19,7 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
       alpha.pane,
     );
     world.tmux(['kill-pane', '-t', offline.pane]);
-    const browser = await pairBrowser(world, 'mention-author');
+    const browser = await pairBrowser(world, 'mention-author', { talk: true });
     const page = await openPage(door, browser, created);
     await openChat(page);
     const panel = page.getByTestId('chat-panel');

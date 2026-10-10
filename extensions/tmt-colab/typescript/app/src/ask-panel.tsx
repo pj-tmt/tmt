@@ -4,7 +4,12 @@ import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
-import { ReadRefusedError, REMOTE_REFUSAL_CODES, provablyUnsent } from './ask-remote.js';
+import {
+  ReadRefusedError,
+  REMOTE_REFUSAL_CODES,
+  TALK_NOT_ENABLED,
+  provablyUnsent,
+} from './ask-remote.js';
 import { AskAgainAction, type AskAgainInput } from './ask-again.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
@@ -161,7 +166,9 @@ export function AskPanel({
       now >= record.issuedAt + ASK_OBSERVATION_MS;
     const stateCopy =
       record.state === 'refused'
-        ? (refusals[record.reason ?? ''] ?? states.refused)
+        ? record.reason === TALK_NOT_ENABLED
+          ? text.askTalkNotEnabled(record.writer)
+          : (refusals[record.reason ?? ''] ?? states.refused)
         : record.state === 'accepted' && (record.reply !== undefined || record.resultUnavailable)
           ? text.askDeliveryAccepted
           : states[record.state];

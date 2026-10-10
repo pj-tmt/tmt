@@ -93,7 +93,7 @@ fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::HumanAndJson,
-        details: "Human output starts in the background and returns once the space and the Remote door are ready; use tmt colab stop to end it.\n--foreground keeps the serve owned by this command until Ctrl-C or SIGTERM. Bare --json remains foreground; use --background --json to detach.\nRunning it again while it serves shows the running page and opens it per your settings; --json reports COLAB_ALREADY_SERVING.\nListens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing stays explicit: tmt remote pair).\nStopping closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
+        details: "Human output starts in the background and returns once the space and the Remote door are ready; use tmt colab stop to end it.\n--foreground keeps the serve owned by this command until Ctrl-C or SIGTERM. Bare --json remains foreground; use --background --json to detach.\nRunning it again while it serves shows the running page and opens it per your settings; --json reports COLAB_ALREADY_SERVING.\nListens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing for page access stays explicit: tmt remote pair; sending to agents requires tmt remote pair --talk or enabling sending in Remote settings).\nStopping closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
     };
     const STOP: CommandSpec = CommandSpec {
         name: "stop",

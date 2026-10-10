@@ -2448,10 +2448,19 @@ first page's full link, or its relative path without a door), `shortLink` (its s
 needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
-`pair` (`pair this browser once: tmt remote pair`, or `if this browser is new: ...` when
+`pair` (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...` when
 pairing is unknown), shown before `open` because the link needs a paired browser. Without a
 door, `open` shows the relative path and the reason (the install line, or `browser access
 unavailable: see warning`), never a command that `serve` replaces.
+
+The bare pairing next step above is for page access. Sending an Ask or Chat to an agent
+needs sending enabled for the device: `tmt remote pair --talk`, or the owner enabling it for
+that device in Remote settings. Until Remote changes its default, ordinary pairing still
+includes sending. Only a refusal the SDK verifies as `reason:"REMOTE_SCOPE_DENIED",
+scope:"talk"` becomes the retained own-stream reason `TALK_NOT_ENABLED` and the specific
+read-but-cannot-send notice, which also names `tmt remote devices talk <device> on` with the
+row's own device ID; an absent scope or a recipient restriction keeps the generic
+permission copy. No Ask identity, record shape or retry rule changes.
 
 ### Page links and opening the browser (#1614)
 
@@ -2467,7 +2476,7 @@ reason: the install line when Remote gave no answer; Remote's own message for an
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
-as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
+as `serve` follows (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...`).
 
 `--json` results that name a page carry `path` (relative), `link` (full, `null` without a
 door), `shortLink` (short owner link, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries

@@ -26,8 +26,8 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     fs.mkdirSync(captureDirectory, { recursive: true });
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('chat-agent', { gated: true });
-    const firstBrowser = await pairBrowser(world, 'chat-author');
-    const secondBrowser = await pairBrowser(world, 'chat-viewer');
+    const firstBrowser = await pairBrowser(world, 'chat-author', { talk: true });
+    const secondBrowser = await pairBrowser(world, 'chat-viewer', { talk: true });
     await composerTrace(world, firstBrowser, door.address, 'chat-owner');
     await composerTrace(world, secondBrowser, door.address, 'chat-viewer');
     const source =

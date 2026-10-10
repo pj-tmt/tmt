@@ -30,7 +30,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('popover-agent');
-    const browser = await pairBrowser(world, 'popover-reader');
+    const browser = await pairBrowser(world, 'popover-reader', { talk: true });
     const html =
       '<style>body{margin:0;padding:24px;font:16px/1.6 sans-serif}</style><h1>Popover page</h1><p id="quote">A quote to annotate.</p><p id="other">Another sentence.</p>';
     const page = await openPage(door, browser, createPage(world, 'Popover page', html, agent.pane));
