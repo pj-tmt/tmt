@@ -702,13 +702,7 @@ export function releaseCommit({ release, commitOfTag }) {
 }
 
 /** Downloads one immutable release asset by id; only acquisition failures get bounded retries. */
-export function ghAssetDownloader({
-  repository,
-  env = process.env,
-  spawn = spawnSync,
-  sleep = (milliseconds) =>
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
-}) {
+export function ghAssetDownloader({ repository, env = process.env, spawn = spawnSync, sleep }) {
   return (asset, file) => {
     const bytes = retryReleaseRead(
       () => {
