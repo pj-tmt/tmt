@@ -357,8 +357,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
             return profile_command::execute(request, parsed.mode);
         }
-        Invocation::Check { target, lines } => {
-            return check_command::execute(target, lines, parsed.mode);
+        Invocation::Check {
+            target,
+            lines,
+            capture_only,
+        } => {
+            return check_command::execute(target, lines, capture_only, parsed.mode);
         }
         Invocation::Focus { target } => {
             return focus_command::execute(target, parsed.mode);

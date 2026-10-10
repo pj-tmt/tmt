@@ -645,7 +645,8 @@ Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
 
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
 reading. `check` captures pane diagnostics and may deliver a due
-[Focus checklist](#focus-delivery-windows) at verified idle. Timeout and interruption
+[Focus checklist](#focus-delivery-windows) at verified idle; `check --capture-only`
+captures with no handoff or other side effect. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
 180-second default remains current behavior. Explicit `talk --inbox` queues for
 one existing non-retired local identity, and bounded `x listen` observes local

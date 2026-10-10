@@ -102,6 +102,7 @@ pub enum Invocation {
     Check {
         target: String,
         lines: Option<u64>,
+        capture_only: bool,
     },
     /// An identity name, or a pane target (for example a previous `from`).
     Focus {

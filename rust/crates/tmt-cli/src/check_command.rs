@@ -22,7 +22,7 @@ struct Report {
     output: String,
 }
 
-fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
+fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report, Failure> {
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
     let settings = ConfigFiles {
         paths: paths.clone(),
@@ -43,7 +43,9 @@ fn run(target: String, lines: Option<u64>) -> Result<Report, Failure> {
         )
     })?;
     let pending = target::resolve(&mut storage, &host, &target).and_then(|observed| {
-        if let Some(identity) = &observed.identity {
+        // A capture-only read is for display data and may be repeated by a tool,
+        // so it never hands a retained checklist to the pane.
+        if let Some(identity) = observed.identity.as_ref().filter(|_| !capture_only) {
             tmt_adapters::focus::flush_idle(&mut storage,&identity.id,std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms/1000.0)).map_err(|e|Failure::new("FOCUS_DELIVERY_ERROR","Could not confirm Focus checklist delivery; inspect the retained checklist before retrying.",1).caused_by(e))?;
         }
         let endpoint = RequestEndpoint {
@@ -83,8 +85,13 @@ fn write_captured(output: &mut impl Write, text: &str) -> io::Result<()> {
     writeln!(output, "{text}")
 }
 
-pub fn execute(target: String, lines: Option<u64>, mode: OutputMode) -> io::Result<u8> {
-    let report = match run(target, lines) {
+pub fn execute(
+    target: String,
+    lines: Option<u64>,
+    capture_only: bool,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    let report = match run(target, lines, capture_only) {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };

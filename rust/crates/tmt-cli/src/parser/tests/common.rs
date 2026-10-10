@@ -55,6 +55,7 @@ fn command_aliases_preserve_typed_invocations() {
             Invocation::Check {
                 target: "peer".into(),
                 lines: Some(0),
+                capture_only: false,
             },
         ),
     ];

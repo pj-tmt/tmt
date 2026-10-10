@@ -471,6 +471,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::Check {
                 target: required(m, "target"),
                 lines: positional.or(flagged),
+                capture_only: flag(m, "capture-only"),
             }
         }
         ["extension", "hooks", "enable"] => {
