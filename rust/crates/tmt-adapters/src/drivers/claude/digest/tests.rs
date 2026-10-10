@@ -53,7 +53,8 @@ fn settings(command: &RuntimeCommand) -> Value {
 #[test]
 fn launch_options_precede_the_literal_prompt_boundary() {
     let (_directory, command) = fixture(&["--", "--settings", "literal prompt"], None);
-    assert_eq!(command.args[0], "--settings");
+    assert_eq!(command.args[0], "--plugin-dir");
+    assert_eq!(command.args[2], "--settings");
     assert_eq!(
         &command.args[4..],
         &["--", "--settings", "literal prompt"].map(std::ffi::OsString::from)
@@ -91,7 +92,7 @@ fn explicit_regular_file_is_read_without_rewriting_it() {
     );
     assert_eq!(settings(&prepared)["model"], "kept");
     assert!(
-        prepared.args[1]
+        prepared.args[3]
             .to_str()
             .unwrap()
             .contains("123456789012345678901234567890")
@@ -129,7 +130,7 @@ fn existing_setup_hooks_are_the_only_observers_and_user_hooks_remain() {
     let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Stop":[observer]}}).to_string();
     let inline = r#"{"permissions":{"allow":["Read"]},"unknown":123456789012345678901234567890,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#;
     let (_directory, command) = fixture(&["--settings", inline], Some(&global));
-    let raw = command.args[1].to_str().unwrap();
+    let raw = command.args[3].to_str().unwrap();
     assert!(raw.contains("123456789012345678901234567890"));
     let settings: Value = serde_json::from_str(raw).unwrap();
     assert_eq!(settings["permissions"]["allow"][0], "Read");
@@ -297,6 +298,7 @@ fn fresh_and_resume_launches_compose_the_picker_and_preserve_user_plugins() {
         assert_eq!(plugins[0], Path::new("/user/plugin"));
         assert!(plugins[1].starts_with(&directory.path));
         assert!(plugins[1].join("hooks/register.mjs").is_file());
+        assert_eq!(command.args[command.args.len() - 2], "--settings");
         assert!(settings(&command)["hooks"]["Stop"].is_array());
         assert_eq!(
             fs::read_to_string(directory.path.join(".claude/settings.json")).unwrap(),
