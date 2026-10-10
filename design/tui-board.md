@@ -88,15 +88,17 @@ pulse is needed; loading and observed-meter animation retain their own lifecycle
 
 A supplied label group replaces the Core policy chip, never accompanies it. Its
 muted source name leads the labels (`digest Auto · 3 held`); separate labels with
-`  ·  ` and never show the source alone. Keep the name, whole state word, source
-plus first label, count, timing, then task, in that priority order. Drop trailing
-labels whole; show no chip when the source plus first label does not fit. The
+`  ·  ` and never show the source alone. Keep the name and the whole state word
+first. Then show the source with its first label and as many further labels as
+fit, dropping trailing labels whole in the supplier's order; in grid headings the
+row-end age and `cron next` drop before any label. Show no chip when the source
+plus first label does not fit. The
 [Digest label contract](../extensions/tmt-digest/contracts/digest-v1.md#labels)
 owns wording, units, states and supplier option order; Ops renders them rather
 than recalculating them.
 
-`▾` after the mode identifies its clickable choice. Click it or press `i` to open
-the centered `<member> digest` menu.
+`▾` after the mode identifies its clickable choice. Click it or use the digest key
+(`i` by default) to open the centered `<member> digest` menu.
 Mark the current option with `(current)`, retain supplier order and put `Custom…`
 last. Custom opens `<member> digest · Enter sets, Esc cancels` with the hint
 `A duration such as 20s, 10m or 1h; empty goes back to the default.`
