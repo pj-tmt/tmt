@@ -1074,6 +1074,57 @@ impl Config {
         Ok(keys)
     }
 
+    /// `[labels] sources`: the tmt extensions asked for member-row labels, in
+    /// order. Each answers `tmt <name> status --json`; the default is one source
+    /// and an empty array turns the labels off.
+    pub fn label_sources(&self) -> Result<Vec<String>, SquadError> {
+        const MAX_SOURCES: usize = 8;
+        let invalid_sources = || {
+            invalid(format!(
+                "`labels.sources` must list up to {MAX_SOURCES} distinct extension names such as \"digest\"."
+            ))
+        };
+        let Some(item) = self.document.get("labels") else {
+            return Ok(vec!["digest".into()]);
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid("`labels` must be a table."))?;
+        if let Some(unknown) = table
+            .iter()
+            .map(|(key, _)| key)
+            .find(|key| *key != "sources")
+        {
+            return Err(invalid(format!(
+                "`labels.{unknown}` is not a setting; use sources."
+            )));
+        }
+        let Some(sources) = table.get("sources") else {
+            return Ok(vec!["digest".into()]);
+        };
+        let names = sources
+            .as_array()
+            .ok_or_else(invalid_sources)?
+            .iter()
+            .map(|name| name.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(invalid_sources)?;
+        let plain = |name: &str| {
+            name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        };
+        // `ops` is this extension; asking it for labels would only ask itself.
+        if names.len() > MAX_SOURCES
+            || names.iter().any(|name| !plain(name) || name == "ops")
+            || (1..names.len()).any(|index| names[..index].contains(&names[index]))
+        {
+            return Err(invalid_sources());
+        }
+        Ok(names)
+    }
+
     /// Top-level `me`: the saved identity that is the user. Never guessed.
     pub fn me(&self) -> Result<Option<&str>, SquadError> {
         match self.document.get("me") {
@@ -3083,6 +3134,44 @@ sort = ["state", "-name"]
             fs::write(&path, body).unwrap();
             let error = Config::read(path.clone())
                 .and_then(|config| config.program("opener"))
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn label_sources_default_to_one_extension_and_an_empty_list_turns_labels_off() {
+        let path = temp("label-sources");
+        for (body, expected) in [
+            ("", vec!["digest"]),
+            ("[labels]\n", vec!["digest"]),
+            ("[labels]\nsources = []\n", vec![]),
+            (
+                "[labels]\nsources = [\"digest\", \"tuning-2\"]\n",
+                vec!["digest", "tuning-2"],
+            ),
+        ] {
+            fs::write(&path, body).unwrap();
+            let sources = Config::read(path.clone()).unwrap().label_sources().unwrap();
+            assert_eq!(sources, expected, "{body}");
+        }
+        for body in [
+            "labels = 1\n",
+            "[labels]\nsource = [\"digest\"]\n",
+            "[labels]\nsources = \"digest\"\n",
+            "[labels]\nsources = [1]\n",
+            "[labels]\nsources = [\"digest\", \"digest\"]\n",
+            "[labels]\nsources = [\"--version\"]\n",
+            "[labels]\nsources = [\"Digest\"]\n",
+            "[labels]\nsources = [\"\"]\n",
+            "[labels]\nsources = [\"ops\"]\n",
+            "[labels]\nsources = [\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]\n",
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone())
+                .unwrap()
+                .label_sources()
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
         }

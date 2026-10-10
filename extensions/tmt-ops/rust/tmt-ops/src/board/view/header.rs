@@ -56,13 +56,15 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
                 home.sections
                     .iter()
                     .flat_map(|section| &section.rows)
-                    .filter_map(|row| crate::digest::label(&row.member, now)),
+                    .filter_map(|row| {
+                        crate::board::row_chips::clock(&app.labels, &row.member, now)
+                    }),
             )
             .chain(
                 app.home_leads
                     .leads
                     .iter()
-                    .filter_map(|lead| crate::digest::label(&lead.row, now)),
+                    .filter_map(|lead| crate::board::row_chips::clock(&app.labels, &lead.row, now)),
             )
             .chain(app.home_leads.leads.iter().filter_map(|lead| {
                 lead.exchange
@@ -87,7 +89,7 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
     marks.extend(
         app.rows()
             .into_iter()
-            .filter_map(|(_, row)| crate::digest::label(row, now)),
+            .filter_map(|(_, row)| crate::board::row_chips::clock(&app.labels, row, now)),
     );
     if board.members {
         marks.extend(app.rows().into_iter().filter_map(|(_, row)| {

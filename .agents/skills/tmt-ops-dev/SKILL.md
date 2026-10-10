@@ -75,6 +75,15 @@ and the existing row cache keys include labels. Shared row detail shows clipped 
 information. Use the native row-shape/management cases, focused parser/projection
 and injected-clock renderer checks alongside unchanged cron tests.
 
+## Row labels
+
+`labels.rs` owns what extensions supply for member rows: the status-document reader
+(contract: the supplier's own, `extensions/<name>/contracts`), its validation, and the
+background `Reader`. It names no extension; `[labels] sources` is data. `board/row_chips.rs`
+is the only place that decides what a row's chips are (supplied labels, else the digest
+policy chip) and how many fit; every surface asks it and paints roles, never sources.
+Details of the reader thread: [refresh-and-meter.md](references/refresh-and-meter.md#extension-labels).
+
 ## References
 
 - [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.

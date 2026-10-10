@@ -1,7 +1,7 @@
 //! The rows pane scene: admitted cells and solved boxes, painted by `tmt-tui`.
 //! `App` owns selection and actions, `Scrolls` the position; this adapter turns
 //! them into buffer cells and clipped row hits.
-use crate::board::app::Hit;
+use crate::board::{app::Hit, row_chips::Chip};
 use crate::display_rows::Item;
 use crate::{look::Look, markup, rows::Rows};
 use ratatui::{
@@ -37,7 +37,8 @@ pub(in crate::board) struct Extra {
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
     pub detail: Value,
-    pub digest: Option<String>,
+    /// The row's chips in full; the heading keeps the leading ones that fit.
+    pub chips: Vec<Chip>,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -51,27 +52,57 @@ pub(in crate::board) fn row_end(age: Option<String>, next: Option<String>) -> Ve
     }
 }
 
-/// Digest uses the existing heading tail; narrow headings retain the word.
+/// A row-end label: the row's chips, then its age mark or `cron next`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::board) struct Heading {
+    pub chips: Vec<Chip>,
+    pub tail: String,
+}
+
+impl Heading {
+    pub fn width(&self) -> usize {
+        let chips = crate::board::row_chips::width(&self.chips);
+        match (chips, self.tail.is_empty()) {
+            (0, _) => self.tail.width(),
+            (chips, true) => chips,
+            (chips, false) => chips + 2 + self.tail.width(),
+        }
+    }
+}
+
+/// Chips share the heading tail; narrow headings keep the leading chips that fit,
+/// and a heading where none fit keeps the plain tails.
 pub(in crate::board) fn heading_labels(
     age: Option<String>,
     next: Option<String>,
-    digest: Option<&str>,
+    chips: &[Chip],
     width: usize,
-) -> Vec<String> {
-    let mut labels = row_end(age, next);
-    if let Some(digest) = digest {
-        let digest = if digest.width() <= width.saturating_sub(2) / 2 {
-            digest
-        } else {
-            "digest"
-        };
-        labels = labels
+) -> Vec<Heading> {
+    let tails = row_end(age, next);
+    let budget = width.saturating_sub(2) / 2;
+    let shown = crate::board::row_chips::prefix(chips, budget);
+    if shown == 0 {
+        return tails
             .into_iter()
-            .map(|label| format!("{digest}  {label}"))
+            .map(|tail| Heading {
+                chips: vec![],
+                tail,
+            })
             .collect();
-        labels.push(digest.into());
-        labels.retain(|label| label.width() <= width.saturating_sub(2) / 2);
     }
+    let chips = &chips[..shown];
+    let mut labels: Vec<_> = tails
+        .into_iter()
+        .map(|tail| Heading {
+            chips: chips.to_vec(),
+            tail,
+        })
+        .collect();
+    labels.push(Heading {
+        chips: chips.to_vec(),
+        tail: String::new(),
+    });
+    labels.retain(|label| label.width() <= budget);
     labels
 }
 
@@ -283,7 +314,7 @@ impl RowPaint {
         let age = crate::staleness::label(&row["staleness"]);
         self.stale.push(age.is_some());
         let waits = crate::attention::waits_on_you(row);
-        let labels = heading_labels(age, extra.next.clone(), extra.digest.as_deref(), width);
+        let labels = heading_labels(age, extra.next.clone(), &extra.chips, width);
         let mut identity = admitted.clone();
         identity.children.clear();
         let root = self.add(identity, (0, y, width, 1), None);
@@ -441,7 +472,11 @@ impl RowPaint {
                 );
                 self.parts[index].emphasize = true;
                 if let Some(age) = &extra.request_age {
-                    self.row_end(root, std::slice::from_ref(age), 4 + room, y, width);
+                    let age = Heading {
+                        chips: vec![],
+                        tail: age.clone(),
+                    };
+                    self.row_end(root, std::slice::from_ref(&age), 4 + room, y, width);
                 }
                 y += 1;
             }
@@ -526,12 +561,12 @@ impl RowPaint {
         );
     }
 
-    /// Digest may clip heading cells while keeping their continuation geometry;
+    /// Chips may clip heading cells while keeping their continuation geometry;
     /// other labels still need unused space after the cells.
-    fn row_end(&mut self, root: usize, labels: &[String], used: usize, y: usize, width: usize) {
+    fn row_end(&mut self, root: usize, labels: &[Heading], used: usize, y: usize, width: usize) {
         let Some(label) = labels
             .iter()
-            .find(|label| label.starts_with("digest") || used + GAP + label.width() <= width)
+            .find(|label| !label.chips.is_empty() || used + GAP + label.width() <= width)
         else {
             return;
         };
@@ -545,37 +580,23 @@ impl RowPaint {
             TextFlow::Clip,
             Some(root),
         );
-        if label.starts_with("digest") {
-            let (digest, tail) = label
-                .split_once("  ")
-                .map_or((label.as_str(), ""), |(digest, tail)| (digest, tail));
+        let mut x = at;
+        for chip in &label.chips {
+            let cells = chip.text.width();
             self.label(
-                Some("digest".into()),
-                (at, y, "digest".len(), 1),
-                Some(Role::Text),
+                Some(chip.text.clone()),
+                (x, y, cells, 1),
+                Some(chip.role),
                 TextFlow::Clip,
                 Some(root),
             );
+            x += cells;
+        }
+        if !label.tail.is_empty() {
+            let gap = if label.chips.is_empty() { 0 } else { 2 };
             self.label(
-                Some(digest["digest".len()..].into()),
-                (at + "digest".len(), y, digest.width() - "digest".len(), 1),
-                Some(Role::Muted),
-                TextFlow::Clip,
-                Some(root),
-            );
-            if !tail.is_empty() {
-                self.label(
-                    Some(tail.into()),
-                    (at + digest.width() + 2, y, tail.width(), 1),
-                    Some(Role::Dim),
-                    TextFlow::Clip,
-                    Some(root),
-                );
-            }
-        } else {
-            self.label(
-                Some(label.clone()),
-                (at, y, label.width(), 1),
+                Some(label.tail.clone()),
+                (x + gap, y, label.tail.width(), 1),
                 Some(Role::Dim),
                 TextFlow::Clip,
                 Some(root),

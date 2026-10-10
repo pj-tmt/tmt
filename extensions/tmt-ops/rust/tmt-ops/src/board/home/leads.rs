@@ -4,6 +4,7 @@ use crate::{
     board::{
         app::{App, RowTarget},
         home_leads::{Kind, Lead},
+        row_chips,
         view::{
             fit,
             member_list::{self, Block, id},
@@ -25,7 +26,7 @@ pub(super) struct Section<'a> {
     pub leads: &'a [&'a Lead],
 }
 
-fn heading(lead: &Lead, width: u16, now: u64) -> Value {
+fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) -> Value {
     let (mark, role) = match lead.exchange.as_ref().map(|exchange| exchange.kind) {
         Some(Kind::Question) => ("◆", Role::Waiting),
         Some(Kind::Asked) => ("…", Role::Dim),
@@ -47,13 +48,8 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
     let available = inner.saturating_sub(3 + if age_cells == 0 { 0 } else { age_cells + 1 });
     // The name takes at most half the heading, so a digest always has room beside it.
     let name_width = (available / 2).min(24);
-    let digest = crate::digest::pieces(&lead.row, now, available / 2);
-    let digest_width = digest.as_array().unwrap().first().map_or(0, |piece| {
-        unicode_width::UnicodeWidthStr::width(piece["word"].as_str().unwrap())
-            + unicode_width::UnicodeWidthStr::width(piece["suffix"].as_str().unwrap())
-            + 2
-    });
-    let room = available.saturating_sub(digest_width);
+    let chips = row_chips::padded(row_chips::pieces(labels, &lead.row, now, available / 2));
+    let room = available.saturating_sub(row_chips::pieces_width(&chips));
     // Whether the squad column shows at all is the `md` step of the markup;
     // whether any room is left for it is a fit.
     let squad = if room > name_width + 3 {
@@ -65,8 +61,8 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         String::new()
     };
     json!({
-        "digest": digest,
-        "digest_visible": crate::digest::fitted(&lead.row, now, available / 2).2,
+        "chips": chips,
+        "chips_visible": row_chips::fitted(labels, &lead.row, now, available / 2).1,
         "mark": format!(" {mark} "),
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
@@ -113,7 +109,7 @@ pub(super) fn paint(
                     |line| json!({"id": format!("reserve-{line}"), "text": null, "role": null}),
                 ),
             );
-            let mut row = heading(lead, area.width, now);
+            let mut row = heading(&app.labels, lead, area.width, now);
             row["id"] = json!(id(local));
             row["before"] = json!([]);
             for field in ["tag", "state", "model"] {
@@ -123,8 +119,8 @@ pub(super) fn paint(
             row["state_role"] = json!("text");
             row["separator"] = json!([]);
             row["after"] = json!(after);
-            let visible = if row["digest_visible"] == true {
-                vec!["digest"]
+            let visible = if row["chips_visible"] == true {
+                vec!["chips"]
             } else {
                 vec![]
             };

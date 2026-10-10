@@ -5109,6 +5109,129 @@ fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::loo
     app
 }
 
+/// Where `needle` starts on the screen, by cell.
+fn find_cells(buffer: &ratatui::buffer::Buffer, needle: &str) -> Vec<(u16, u16)> {
+    let width = usize::from(buffer.area.width);
+    (0..buffer.area.height)
+        .flat_map(|y| {
+            let line: Vec<&str> = (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            (0..width)
+                .filter(|from| line[*from..].concat().starts_with(needle))
+                .map(|from| (from as u16, y))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn supplied_chips(ids: &[&str]) -> crate::labels::Supplied {
+    use crate::labels::Label;
+    use tmt_cli_style::Role;
+    let labels = vec![
+        Label {
+            text: "Auto".into(),
+            role: Role::Text,
+        },
+        Label {
+            text: "3 held".into(),
+            role: Role::Muted,
+        },
+        Label {
+            text: "Due now".into(),
+            role: Role::Waiting,
+        },
+    ];
+    crate::labels::Supplied::from_rows(vec![(
+        "digest".into(),
+        ids.iter()
+            .map(|id| ((*id).to_owned(), labels.clone()))
+            .collect(),
+    )])
+}
+
+#[test]
+fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
+    use tmt_cli_style::Role;
+    let look = crate::look::Look {
+        theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse("tmt").unwrap()),
+        depth: tmt_cli_style::Depth::TrueColor,
+    };
+    for (members, home) in [(false, false), (true, false), (false, true)] {
+        for width in [80, 160] {
+            crate::status::with_now_ms(1_000, || {
+                let mut app = digest_app(members, home, 2, 1_801_000, look);
+                if !home {
+                    // A second row, so one is unselected and keeps its roles.
+                    let view = app.view.as_mut().unwrap();
+                    let mut other = view.document["sections"][0]["rows"][0].clone();
+                    other["id"] = json!("other");
+                    other["name"] = json!("other");
+                    view.document["sections"][0]["rows"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(other);
+                }
+                app.labels = supplied_chips(&["worker", "lead", "other"]);
+                let buffer = board_buffer(&app, width, 20);
+                let screen = detail_text(&buffer).join("\n");
+                let shown = screen.matches("Auto · 3 held · Due now").count();
+                assert_eq!(shown, 2, "{members} {home} {width}: {screen}");
+                assert!(
+                    !screen.contains("digest 30m"),
+                    "both chips stacked: {screen}"
+                );
+                let color = |needle: &str| {
+                    find_cells(&buffer, needle)
+                        .into_iter()
+                        .map(|(x, y)| buffer[(x, y)].fg)
+                        .collect::<Vec<_>>()
+                };
+                let (waiting, muted) = (color("Due now"), color("3 held"));
+                assert!(
+                    waiting.contains(&look.role(Role::Waiting).fg.unwrap()),
+                    "{members} {home} {width}: {waiting:?}"
+                );
+                assert!(muted.contains(&look.role(Role::Muted).fg.unwrap()));
+                assert_ne!(look.role(Role::Waiting).fg, look.role(Role::Muted).fg);
+                // Supplied text moves only when its source answers, never with the clock.
+                assert!(
+                    !super::header::time_marks(&app, 1_000)
+                        .iter()
+                        .any(|label| label.contains("digest"))
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn narrow_headings_keep_leading_labels_whole_and_detail_carries_all_of_them() {
+    crate::status::with_now_ms(1_000, || {
+        for (members, home) in [(false, false), (true, false), (false, true)] {
+            let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
+            app.labels = supplied_chips(&["worker", "lead"]);
+            let target = app.row_target(0).unwrap();
+            app.row_details
+                .toggle(crate::board::row_detail::Target::Row(target));
+            let narrow = detail_text(&board_buffer(&app, 22, 30)).join("\n");
+            assert!(
+                !narrow.contains("Due now ·"),
+                "a label was cut mid-way: {narrow}"
+            );
+            // The detail wraps its value; the label column is as narrow as the pane.
+            let flat: String = narrow
+                .chars()
+                .filter(|c| !c.is_whitespace() && *c != '│')
+                .collect();
+            assert!(
+                flat.contains("Auto·3held·Duenow"),
+                "{members} {home}: {narrow}"
+            );
+        }
+    });
+}
+
 #[test]
 fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
     for (members, home) in [(false, false), (true, false), (false, true)] {
