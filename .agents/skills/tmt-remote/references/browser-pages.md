@@ -20,7 +20,8 @@ browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
 [shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Its four static templates carry the approved
-inline aperture mark from the leaf’s static-host contract (#2207), pinned by a Remote-owned literal
+inline TMT mark (one even-odd path in a 96 × 96 viewBox, currentColor fill) from the
+leaf’s static-host contract (#2608), pinned by a Remote-owned literal
 test; Cargo does not read the leaf’s React source or fetch the mark at runtime.
 
 Static markup uses shared class/slot and native accessibility contracts.
