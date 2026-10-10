@@ -2899,7 +2899,11 @@ name = "tmt-digest"
 version = "0.1.0-dev"
 dependencies = [
  "clap",
+ "nix",
+ "serde_json",
  "tmt-cli-style",
+ "tmt-invoke",
+ "toml_edit",
 ]
 
 [[package]]
