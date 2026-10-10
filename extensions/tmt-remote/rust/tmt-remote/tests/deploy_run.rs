@@ -1082,6 +1082,8 @@ fn hosted_plan() -> DeployPlan {
         DEPLOYMENT,
         &HostingInventory {
             site_exists: false,
+            site_app_id: None,
+            site_app_config: None,
             web_apps: vec![],
             live: None,
         },
@@ -1146,7 +1148,7 @@ impl tmt_remote::deploy_run::DeployPort for HostedFake {
             let cp = self.checkpoint.as_mut().unwrap();
             cp.app_id = Some("mine".into());
             cp.version = Some(format!("sites/{PROJECT}/versions/one"));
-            cp.publication=Some(serde_json::from_value(serde_json::json!({"project":PROJECT,"region":LOCATION,"deploymentId":DEPLOYMENT,"planDigest":p.digest(),"appId":"mine","publicConfig":{"apiKey":"public-key","authDomain":format!("{PROJECT}.firebaseapp.com"),"projectId":PROJECT,"appId":"mine"},"entryUrl":format!("https://{PROJECT}.web.app"),"version":cp.version,"release":format!("sites/{PROJECT}/releases/one"),"rulesDigest":p.view().rules.digest,"contentDigest":p.view().hosting.as_ref().unwrap().content["digest"]})).unwrap());
+            cp.publication=Some(serde_json::from_value(serde_json::json!({"project":PROJECT,"region":LOCATION,"deploymentId":DEPLOYMENT,"planDigest":p.digest(),"appId":"mine","siteAppId":"mine","publicConfig":{"apiKey":"public-key","authDomain":format!("{PROJECT}.firebaseapp.com"),"projectId":PROJECT,"appId":"mine"},"entryUrl":format!("https://{PROJECT}.web.app"),"version":cp.version,"release":format!("sites/{PROJECT}/releases/one"),"rulesDigest":p.view().rules.digest,"contentDigest":p.view().hosting.as_ref().unwrap().content["digest"]})).unwrap());
         }
         Ok(result)
     }
@@ -1163,7 +1165,14 @@ fn hosted_order_is_executable_and_only_joint_verification_publishes() {
     let plan = hosted_plan();
     let ids = ids(&plan);
     assert_eq!(ids, plan.view().steps);
-    assert_eq!(&ids[..2], &["web-app:create", "hosting-site:create"]);
+    assert_eq!(
+        &ids[..3],
+        &[
+            "web-app:create",
+            "hosting-site:create",
+            "hosting-site:configure"
+        ]
+    );
     let at = |id: &str| ids.iter().position(|s| s == id).unwrap();
     assert!(at("hosting:stage:create") < at("hosting:stage:populate"));
     assert!(at("hosting:stage:finalize") < at("rules"));
@@ -1380,5 +1389,73 @@ fn hosting_checkpoint_survives_every_save_interruption_without_duplicate_effects
                 step.id
             );
         }
+    }
+}
+
+#[test]
+fn pre_call_unknown_blocks_only_the_two_non_idempotent_creates() {
+    let plan = hosted_plan();
+    let mut baseline = Mem::default();
+    run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut HostedFake::new(),
+        &mut baseline,
+        1000,
+    )
+    .unwrap();
+    for (index, step) in plan
+        .steps()
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| matches!(s.kind, tmt_remote::deploy_run::StepKind::Hosting(_)))
+    {
+        let original = baseline
+            .saved
+            .iter()
+            .find(|r| r.run.as_ref().unwrap().steps[index].state == StepState::Unknown)
+            .unwrap()
+            .clone();
+        let mut fake = HostedFake::new();
+        for prior in &plan.steps()[..index] {
+            fake.inner.present.insert(prior.id.clone());
+            if prior.kind == tmt_remote::deploy_run::StepKind::Rules {
+                fake.inner.rules = Some(plan.deployed_rules().to_vec());
+            }
+        }
+        let mut sink = Mem::default();
+        let result = run(
+            &plan,
+            &authorized(&plan),
+            original,
+            &mut fake,
+            &mut sink,
+            2000,
+        )
+        .unwrap();
+        let blocked = matches!(
+            step.kind,
+            tmt_remote::deploy_run::StepKind::Hosting(
+                tmt_remote::deploy_run::HostingStep::WebAppCreate
+                    | tmt_remote::deploy_run::HostingStep::VersionCreate
+            )
+        );
+        assert_eq!(
+            fake.inner.effects_of(&step.id),
+            u32::from(!blocked),
+            "{}",
+            step.id
+        );
+        assert_eq!(
+            result.run.unwrap().state,
+            if blocked {
+                RunState::Partial
+            } else {
+                RunState::Complete
+            },
+            "{}",
+            step.id
+        );
     }
 }

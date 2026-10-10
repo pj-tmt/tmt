@@ -466,8 +466,13 @@ function hostedFixture() {
   ];
   const state = { apps: [], site: null, versions: [], files: [], live: null, source, fail: null };
   const calls = [];
+  let clock = Date.now();
   const f = {
-    deadline: Date.now() + 30000,
+    deadline: clock + 30000,
+    now: () => clock,
+    wait: async (ms) => {
+      clock += ms;
+    },
     credential: async () => ({ account: ACCOUNT, token: CANARY }),
     http: async (url, options) => {
       const { method } = options;
@@ -485,15 +490,18 @@ function hostedFixture() {
       const route = new URL(url).pathname;
       if (route === `/v1beta1/projects/${PROJECT}/webApps`) {
         if (method === 'GET') return ok({ apps: state.apps });
-        state.apps.push({
-          appId: '1:123:web:mine',
-          name: `projects/${PROJECT}/webApps/1:123:web:mine`,
-          projectId: PROJECT,
-          state: 'ACTIVE',
-          displayName: payload.displayName,
-        });
+        if (!state.pendingApp)
+          state.apps.push({
+            appId: '1:123:web:mine',
+            name: `projects/${PROJECT}/webApps/1:123:web:mine`,
+            projectId: PROJECT,
+            state: 'ACTIVE',
+            displayName: payload.displayName,
+          });
         return ok({ name: 'operations/app-one', done: false });
       }
+      if (route === '/v1beta1/operations/app-one')
+        return state.pendingApp ? ok({ done: false }) : missing();
       if (route.endsWith('/config'))
         return ok({
           apiKey: 'public-key',
@@ -502,11 +510,18 @@ function hostedFixture() {
           appId: '1:123:web:mine',
           extra: 'never disclosed',
         });
-      if (route === `/v1beta1/projects/${PROJECT}/sites/${PROJECT}`)
+      if (route === `/v1beta1/projects/${PROJECT}/sites/${PROJECT}`) {
+        if (method === 'PATCH') {
+          assert.equal(new URL(url).searchParams.get('updateMask'), 'appId');
+          assert.deepEqual(Object.keys(payload), ['appId']);
+          assert.ok(!state.site.appId);
+          state.site.appId = payload.appId;
+        }
         return state.site ? ok(state.site) : missing();
+      }
       if (route === `/v1beta1/projects/${PROJECT}/sites` && method === 'POST') {
         assert.equal(new URL(url).searchParams.get('siteId'), PROJECT);
-        assert.deepEqual(payload, {}); // No Site.appId read/assignment.
+        assert.deepEqual(payload, {}); // Association has one separate plan-listed step.
         state.site = {
           name: `projects/${PROJECT}/sites/${PROJECT}`,
           defaultUrl: `https://${PROJECT}.web.app`,
@@ -569,6 +584,8 @@ function hostedFixture() {
       site: PROJECT,
       publicUrl: `https://${PROJECT}.web.app`,
       createSite: true,
+      configureSite: true,
+      siteAppId: null,
       createWebApp: true,
       webApp: null,
       content: { version: 1, files, config: { headers: [], rewrites: [] }, digest: 'b'.repeat(64) },
@@ -599,13 +616,16 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
-test('Hosting stages before live switches, reads the selected app config, and never sets Site.appId', async () => {
+test('Hosting associates the selected app before staging and verifies that same association', async () => {
   const { state, calls, call } = hostedFixture();
   assert.equal((await call('observe-hosting', 'web-app')).state, 'absent');
-  assert.equal((await call('apply-hosting', 'web-app')).state, 'building');
+  assert.equal((await call('apply-hosting', 'web-app')).state, 'done');
   assert.equal((await call('observe-hosting', 'web-app')).state, 'satisfied');
   await call('apply-hosting', 'site');
+  await call('apply-hosting', 'configure');
   await call('apply-hosting', 'create');
+  assert.equal(state.versions[0].labels['tmt-content'].length, 32);
+  assert.ok(Object.values(state.versions[0].labels).every((value) => value.length <= 63));
   await call('apply-hosting', 'populate');
   await call('apply-hosting', 'upload', {
     hash: hash('gzip-fixture'),
@@ -615,6 +635,10 @@ test('Hosting stages before live switches, reads the selected app config, and ne
   await call('apply-hosting', 'finalize');
   await call('apply-hosting', 'release');
   const result = await call('verify-hosting', 'verify');
+  assert.equal(result.siteAppId, state.site.appId);
+  state.site.appId = 'different-app';
+  await failure(() => call('verify-hosting', 'verify'), 'unknown');
+  state.site.appId = result.siteAppId;
   assert.deepEqual(result.publicConfig, {
     apiKey: 'public-key',
     authDomain: `${PROJECT}.firebaseapp.com`,
@@ -631,6 +655,7 @@ test('ambiguous stage creation reconciles the same version; wrong files and expi
   await x.call('apply-hosting', 'web-app');
   await x.call('observe-hosting', 'web-app');
   await x.call('apply-hosting', 'site');
+  await x.call('apply-hosting', 'configure');
   await x.call('apply-hosting', 'create');
   x.input.checkpoint.version = null;
   x.input.checkpoint.versionCreatedMs = null;
@@ -646,6 +671,7 @@ test('upload faults, cross-host URL, and joint read-back mismatch stay unknown w
   await x.call('apply-hosting', 'web-app');
   await x.call('observe-hosting', 'web-app');
   await x.call('apply-hosting', 'site');
+  await x.call('apply-hosting', 'configure');
   await x.call('apply-hosting', 'create');
   await x.call('apply-hosting', 'populate');
   x.state.fail = (url) => url.startsWith('https://upload-');
@@ -675,6 +701,7 @@ test('provider-directed upload URL cannot send a credential to another host', as
   await x.call('apply-hosting', 'web-app');
   await x.call('observe-hosting', 'web-app');
   await x.call('apply-hosting', 'site');
+  await x.call('apply-hosting', 'configure');
   await x.call('apply-hosting', 'create');
   x.state.uploadUrl = 'https://evil.invalid/upload';
   await failure(() => x.call('apply-hosting', 'populate'), 'unknown');
@@ -683,4 +710,45 @@ test('provider-directed upload URL cannot send a credential to another host', as
     false
   );
   assert.equal(x.state.live, null);
+});
+
+test('pending web app is observed within a separate bounded clock budget before Building', async () => {
+  const x = hostedFixture();
+  x.state.pendingApp = true;
+  const start = x.f.now();
+  const result = await x.call('apply-hosting', 'web-app');
+  assert.equal(result.state, 'building');
+  assert.equal(result.checkpoint.operation, 'operations/app-one');
+  assert.equal(x.f.now() - start, 15000);
+  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/webApps')).length, 1);
+  assert.equal(x.state.site, null);
+  x.state.pendingApp = false;
+  x.state.apps.push({
+    name: `projects/${PROJECT}/webApps/1:123:web:mine`,
+    appId: '1:123:web:mine',
+    projectId: PROJECT,
+    displayName: `tmt Remote (${ID})`,
+    state: 'ACTIVE',
+  });
+  assert.equal((await x.call('observe-hosting', 'web-app')).state, 'satisfied');
+  assert.equal(x.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/webApps')).length, 1);
+});
+
+test('existing unassociated site is configured once and nonempty drift never repoints it', async () => {
+  const x = hostedFixture();
+  await x.call('apply-hosting', 'web-app');
+  x.state.site = {
+    name: `projects/${PROJECT}/sites/${PROJECT}`,
+    defaultUrl: `https://${PROJECT}.web.app`,
+  };
+  assert.equal((await x.call('observe-hosting', 'configure')).state, 'absent');
+  assert.equal((await x.call('apply-hosting', 'configure')).state, 'done');
+  assert.equal((await x.call('apply-hosting', 'configure')).state, 'done');
+  assert.equal(x.state.site.appId, x.input.checkpoint.appId);
+  const mutationsBefore = x.calls.filter((c) => c.method === 'PATCH').length;
+  assert.equal(mutationsBefore, 1);
+  x.state.site.appId = 'foreign-app';
+  await failure(() => x.call('apply-hosting', 'configure'), 'unknown');
+  assert.equal(x.calls.filter((c) => c.method === 'PATCH').length, mutationsBefore);
+  assert.equal(x.state.site.appId, 'foreign-app');
 });

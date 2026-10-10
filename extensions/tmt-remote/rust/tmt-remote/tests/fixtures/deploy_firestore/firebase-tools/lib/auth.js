@@ -62,8 +62,20 @@ global.fetch = async (url, options) => {
         apiKey: 'public-api-key',
       };
     else if (route === `/v1beta1/projects/${value.project}/sites/${value.project}`) {
+      if (options.method === 'PATCH') {
+        if (
+          new URL(url).searchParams.get('updateMask') !== 'appId' ||
+          Object.keys(body).join() !== 'appId' ||
+          h.site.appId
+        )
+          throw Error('TOKEN_CANARY_SITE_REPOINT');
+        h.site.appId = body.appId;
+      }
       result = h.site ?? {};
       if (!h.site) status = 404;
+    } else if (route === '/v1beta1/operations/app-one') {
+      result = {};
+      status = 404;
     } else if (route === `/v1beta1/projects/${value.project}/sites`) {
       if (Object.keys(body).length) throw Error('TOKEN_CANARY_SITE_ASSOCIATION');
       h.site = {

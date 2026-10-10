@@ -164,8 +164,12 @@ deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read
 blind repeat of an effect.
 
 For an extension declaring Hosting, deployment stages and finalizes its frozen bundle before
-switching Rules and releasing Hosting. A pending app creation needs an explicit rerun; recovery
-reads the saved original and never duplicates an uncertain create. Partial/unknown may include
+switching Rules and releasing Hosting, with an explicit appId-only association step for an
+unassociated site. App creation observes provisioning within its apply budget; if still pending,
+rerun the same command. Recovery reads the saved original and never duplicates an uncertain
+web-app or Version create. If that original remains unconfirmed, inspect the project, remove this
+home's `deploy.json` and run without `--authorize` to read a fresh plan. Existing Firebase resources
+stay; authorizing a fresh plan may create another resource. Partial/unknown may include
 applied changes and never claims rollback or a usable joint publication. Complete records the
 verified public app config and same-project web.app entry; it does not yet print a remote link
 or prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.

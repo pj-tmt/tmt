@@ -383,22 +383,12 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
             .lines()
             .all(|line| serde_json::from_str::<Value>(line).unwrap()["method"] == "GET")
     );
-    let partial = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
-    assert_eq!(partial["record"]["run"]["state"], "partial");
-    assert_eq!(partial["record"]["run"]["steps"][0]["state"], "building");
-    assert!(partial["record"]["binding"].is_null());
-    assert!(
-        tmt_remote::deploy_record::read(&root.layout())
-            .unwrap()
-            .unwrap()
-            .verified_publication()
-            .is_none()
-    );
     let complete = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
     assert_eq!(complete["planDigest"], preview["planDigest"]);
     assert_eq!(complete["record"]["run"]["state"], "complete");
     let publication = &complete["record"]["run"]["hosting"]["publication"];
     assert_eq!(publication["entryUrl"], "https://demo-remote-1.web.app");
+    assert_eq!(publication["siteAppId"], publication["appId"]);
     assert_eq!(
         publication["publicConfig"],
         json!({"apiKey":"public-api-key","authDomain":"demo-remote-1.firebaseapp.com","projectId":"demo-remote-1","appId":"1:123:web:mine"})
@@ -445,10 +435,16 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         .unwrap();
     assert!(stage < rules && rules < live);
     // Checkpoint data is validated on read, never converted or silently repaired.
-    for corrupt in ["extra-envelope-key", "foreign-public-config"] {
+    for corrupt in [
+        "extra-envelope-key",
+        "foreign-public-config",
+        "foreign-site-association",
+    ] {
         let mut damaged = document.clone();
         if corrupt == "extra-envelope-key" {
             damaged["record"]["run"]["hosting"]["envelope"]["extra"] = json!(true);
+        } else if corrupt == "foreign-site-association" {
+            damaged["record"]["run"]["hosting"]["publication"]["siteAppId"] = json!("another-app");
         } else {
             damaged["record"]["run"]["hosting"]["publication"]["publicConfig"]["projectId"] =
                 json!("another-project");

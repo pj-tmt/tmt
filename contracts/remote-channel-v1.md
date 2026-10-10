@@ -1728,7 +1728,7 @@ pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referre
 and emits its declared CSP verbatim as `Content-Security-Policy`. Remote appends `; charset=utf-8`
 to HTML, CSS, JavaScript, JSON and plain-text headers (both JavaScript MIME types), not SVG/binary;
 declarations keep bare types and the config digest covers these headers. Only `/colab`, `/colab/`,
-`/p/<id>` and `/read/<id>` rewrite to that shell; IDs use the public short-route grammar. Header
+`/p/<id>`, `/read/<id>` and `/pair` rewrite to that shell; IDs use the public short-route grammar. Header
 rules for these routes and `/` (directory index, no rewrite) copy the shell's exact set because
 Firebase matches headers against the original
 request path, as documented by the [REST schema](https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions)
@@ -1738,31 +1738,40 @@ configuration confer no device authority.
 
 The Hosting plan names the same-project default site and `web.app` entry, any site/web-app
 creation, exact content/config digests and a captured foreign-release fingerprint. Remote selects
-its recorded ACTIVE same-project app ID; disappearance refuses. Otherwise exactly one ACTIVE
-app named `tmt Remote (<deployment UUID>)` is used, or creation is planned; duplicate names
-refuse. Remote never reuses a foreign app or reads/sets `Site.appId`; the display name is a lookup
-aid, not ownership proof. Public Firebase configuration is explicit, not reserved init.json.
+its recorded ACTIVE same-project app ID; disappearance or a nonempty conflicting Site association
+refuses. Otherwise a nonempty `Site.appId` selects its ACTIVE same-project app only when its public
+`getConfig` agrees, including among several apps. Without that association, exactly one ACTIVE
+app named `tmt Remote (<deployment UUID>)` is used, or creation is planned; duplicate names refuse.
+An unassociated site (fresh or existing) gets an explicit `hosting-site:configure` step after app/site
+creation: an appId-only PATCH, never a repoint of a nonempty association. Display name is a lookup
+aid, not ownership proof; an arbitrary sole foreign app is never selected. The Site association
+supports same-origin Firebase SDK configuration; reserved `/__/` paths remain unrewritten.
 Ownership requires Remote's deployment/plan labels and full observed gzip-file/config identity;
 labels alone cannot adopt a release. The whole plan digest covers foreign Rules and Hosting
 replacement fingerprints; changed foreign state invalidates consent.
 
 Declared Hosting refuses before login when the lazy provider factory does not support the
-complete lifecycle. Executable steps create only the named app/site, finish database/sign-in/index
-prerequisites, stage a Version (create, populate, required-hash uploads, finalize), switch Rules,
-release Hosting, then verify both. Pending app/stage work blocks subsequent steps. Rules and
+complete lifecycle. Executable steps create only the named app/site, associate the site when listed,
+finish database/sign-in/index prerequisites, stage a Version (create, populate, required-hash uploads,
+finalize), switch Rules, release Hosting, then verify both. Pending app/stage work blocks subsequent steps. Rules and
 Hosting publication are not atomic: a single writer is required, switches re-read captured state,
 and ambiguity stays partial/unknown without rollback or a usable binding. Provider-generated
 resource handles and the original authorized envelope are retained in the versioned deployment
 checkpoint; v1/v2 readers remain and reads never convert them. Recovery observes the original
-before any further effect; uncertain absence cannot justify a duplicate create. An unfinalized
-Version retained for at least 12 hours requires a newly displayed and explicitly authorized plan.
+before any further effect; uncertain absence cannot justify a duplicate web-app or Version create.
+Other Hosting steps reapply only after observation proves their idempotent work absent. App
+creation observes its Operation within the apply budget; if still pending, the owner reruns the same
+command. If a create remains unconfirmed, the owner inspects the project, removes this home's
+`deploy.json` and reads a fresh plan without authorization. Existing Firebase resources stay; a
+newly authorized plan may create another resource. An unfinalized Version retained for at least
+12 hours requires a newly displayed and explicitly authorized plan.
 
 Only final joint read-back produces a typed verified publication, saved atomically with Complete:
-exact Rules, live Hosting Version/files/config and same-project app/config and `web.app` entry.
-Its public config currently contains `apiKey`, `authDomain`, `projectId` and `appId` (the field list
-is pending Colab confirmation). It contains no credentials and is the output consumed by the
-separate remote-link descriptor producer. Verification here is control-plane evidence, not
-live-project/browser acceptance. Rules and declarations change additively first: client N−1
+exact Rules, live Hosting Version/files/config, Site.appId equal to the selected same-project app,
+its public config and the `web.app` entry.
+Its public config contains exactly `apiKey`, `authDomain`, `projectId` and `appId`. It contains no
+credentials and is the output consumed by the separate remote-link descriptor producer. Verification
+here is control-plane evidence, not live-project/browser acceptance. Rules and declarations change additively first: client N−1
 works with Rules N. Tightening waits until the client no longer needing the old shape has been
 the deployed bundle for one release. Colab owns the whole hosted bundle, including an
 unmodified, digest-checked copy of Remote's built SDK; Remote adds no hosted pages.

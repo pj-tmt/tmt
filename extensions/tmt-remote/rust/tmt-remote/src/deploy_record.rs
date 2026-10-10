@@ -204,6 +204,9 @@ pub struct DeployRecordStore<'a> {
     target: Option<DeployTarget>,
 }
 impl<'a> DeployRecordStore<'a> {
+    pub(crate) fn record_path(&self) -> PathBuf {
+        self.layout.directory.join(FILE)
+    }
     pub fn open(layout: &'a Layout) -> Result<Self, RemoteError> {
         Self::open_checked(layout, None)
     }

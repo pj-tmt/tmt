@@ -477,6 +477,7 @@ impl DeployFirestore<'_> {
         let (action, hash, bytes) = match &step.kind {
             StepKind::Hosting(HostingStep::WebAppCreate) => ("web-app", None, None),
             StepKind::Hosting(HostingStep::SiteCreate) => ("site", None, None),
+            StepKind::Hosting(HostingStep::SiteConfigure) => ("configure", None, None),
             StepKind::Hosting(HostingStep::VersionCreate) => ("create", None, None),
             StepKind::Hosting(HostingStep::Populate) => ("populate", None, None),
             StepKind::Hosting(HostingStep::Upload { path, hash }) => (

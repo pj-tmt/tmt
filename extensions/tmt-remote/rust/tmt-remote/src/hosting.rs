@@ -155,7 +155,7 @@ fn response_headers(file: &HostingFile) -> Value {
     }
     headers
 }
-const SHORT_ROUTES: [&str; 2] = ["^/colab/?$", "^/(p|read)/[A-Za-z0-9_-]{4,64}$"];
+const SHORT_ROUTES: [&str; 3] = ["^/colab/?$", "^/(p|read)/[A-Za-z0-9_-]{4,64}$", "^/pair$"];
 
 /// One captured extension reply, checked against the declaration before provider setup.
 pub struct HostingBundle {
@@ -341,6 +341,8 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostingInventory {
     pub site_exists: bool,
+    pub site_app_id: Option<String>,
+    pub site_app_config: Option<Value>,
     pub web_apps: Vec<HostingWebApp>,
     pub live: Option<HostingLiveRelease>,
 }
@@ -360,6 +362,8 @@ pub struct HostingDeploymentView {
     pub site: String,
     pub public_url: String,
     pub create_site: bool,
+    pub configure_site: bool,
+    pub site_app_id: Option<String>,
     pub web_app: Option<String>,
     pub create_web_app: bool,
     pub content: Value,
@@ -401,19 +405,31 @@ pub fn deployment_view_for_app(
     {
         return Err(HostingRefusal::Inventory);
     }
+    let associated = inventory.site_app_id.as_deref();
+    if associated.is_some_and(|id| id.is_empty() || !inventory.site_exists)
+        || recorded_app
+            .zip(associated)
+            .is_some_and(|(recorded, site)| recorded != site)
+        || associated
+            .is_some_and(|id| !public_config_ok(inventory.site_app_config.as_ref(), project, id))
+        || (associated.is_none() && inventory.site_app_config.is_some())
+    {
+        return Err(HostingRefusal::WebAppSelection);
+    }
+    let selected_id = recorded_app.or(associated);
     let matching: Vec<_> = inventory
         .web_apps
         .iter()
         .filter(|app| {
             app.state == "ACTIVE"
-                && recorded_app.map_or_else(
+                && selected_id.map_or_else(
                     || app.display_name == app_name(deployment_id),
                     |id| app.id == id,
                 )
         })
         .collect();
     let web_app = match matching.as_slice() {
-        [] if recorded_app.is_none() => None,
+        [] if selected_id.is_none() => None,
         [only] => Some(only.id.clone()),
         _ => return Err(HostingRefusal::WebAppSelection),
     };
@@ -444,7 +460,7 @@ pub fn deployment_view_for_app(
         let content = json!({"files":&files,"config":live.config});
         let digest = sha256_hex(&serde_json::to_vec(&content).expect("content serializes"));
         let own = live.deployment_id.as_deref() == Some(deployment_id)
-            && live.content_digest.as_deref() == Some(&digest)
+            && live.content_digest.as_deref() == Some(&digest[..32])
             && live.plan_digest_prefix.as_deref().is_some_and(|p| {
                 p.len() == 12 && p.bytes().all(|b| matches!(b,b'0'..=b'9'|b'a'..=b'f'))
             });
@@ -468,6 +484,8 @@ pub fn deployment_view_for_app(
         site: project.into(),
         public_url: format!("https://{project}.web.app"),
         create_site: !inventory.site_exists,
+        configure_site: associated.is_none(),
+        site_app_id: inventory.site_app_id.clone(),
         create_web_app: web_app.is_none(),
         web_app,
         content: composition.view(),
@@ -477,7 +495,19 @@ pub fn deployment_view_for_app(
     })
 }
 
-/// Management API app projection; Site.appId is deliberately never consulted.
+/// Fixed public Firebase config only; no provider/credential metadata is admitted.
+pub(crate) fn public_config_ok(value: Option<&Value>, project: &str, app: &str) -> bool {
+    value.is_some_and(|c| {
+        c.as_object().is_some_and(|o| o.len() == 4)
+            && c["projectId"] == project
+            && c["appId"] == app
+            && c["authDomain"] == format!("{project}.firebaseapp.com")
+            && c["apiKey"].as_str().is_some_and(|s| {
+                !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control)
+            })
+    })
+}
+/// Same-project Management API app projection, including the site's associated app.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostingWebApp {

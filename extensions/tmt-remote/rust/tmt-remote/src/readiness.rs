@@ -315,7 +315,7 @@ pub fn from_record(record: &DeployRecord) -> Option<FirestoreEvidence> {
     if sign_in.iter().all(|s| finished(&s.state)) {
         evidence.sign_in = Observed::Enabled;
     }
-    evidence.rules = if run.rules_attempted && run.state != RunState::Complete {
+    evidence.rules = if run.publication_may_have_changed() && run.state != RunState::Complete {
         Observed::Off(FirestoreReason::Partial)
     } else if record.usable_binding().is_some() {
         Observed::Enabled

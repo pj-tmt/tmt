@@ -786,8 +786,10 @@ fn advance(
         }
         DeployObserved::Absent | DeployObserved::Rules(_) => {}
     }
-    if matches!(step.kind, StepKind::Hosting(_))
-        && record.run.as_ref().expect("begun").steps[index].state == StepState::Unknown
+    if matches!(
+        step.kind,
+        StepKind::Hosting(HostingStep::WebAppCreate | HostingStep::VersionCreate)
+    ) && record.run.as_ref().expect("begun").steps[index].state == StepState::Unknown
     {
         // Absence after an ambiguous mutation is not proof it did not happen.
         return Ok(false);
@@ -870,6 +872,7 @@ fn finish(
 pub enum HostingStep {
     WebAppCreate,
     SiteCreate,
+    SiteConfigure,
     VersionCreate,
     Populate,
     Upload { path: String, hash: String },
@@ -891,6 +894,12 @@ fn hosting_steps(
         prefix.push(step(
             "hosting-site:create",
             StepKind::Hosting(HostingStep::SiteCreate),
+        ));
+    }
+    if hosting.configure_site {
+        prefix.push(step(
+            "hosting-site:configure",
+            StepKind::Hosting(HostingStep::SiteConfigure),
         ));
     }
     prefix.append(&mut steps);
@@ -964,6 +973,7 @@ pub struct VerifiedHostingPublication {
     deployment_id: String,
     plan_digest: String,
     app_id: String,
+    site_app_id: String,
     public_config: serde_json::Value,
     entry_url: String,
     version: String,
@@ -989,7 +999,8 @@ impl VerifiedHostingPublication {
         let app_id = checkpoint.app_id.as_ref()?;
         let version = checkpoint.version.as_ref()?;
         let config = &value["publicConfig"];
-        if config.as_object()?.len() != 4
+        if value["siteAppId"] != *app_id
+            || config.as_object()?.len() != 4
             || config["projectId"] != *project
             || config["appId"] != *app_id
             || !config["apiKey"].as_str().is_some_and(|s| {
@@ -1009,6 +1020,7 @@ impl VerifiedHostingPublication {
             deployment_id: plan.deployment_id().into(),
             plan_digest: plan.digest().into(),
             app_id: app_id.clone(),
+            site_app_id: app_id.clone(),
             public_config: config.clone(),
             entry_url: format!("https://{project}.web.app"),
             version: version.clone(),
@@ -1030,6 +1042,7 @@ impl VerifiedHostingPublication {
             && self.region == view.database.location
             && self.deployment_id == view.deployment_id
             && self.plan_digest == digest
+            && self.site_app_id == self.app_id
             && Some(&self.app_id) == checkpoint.app_id.as_ref()
             && Some(&self.version) == checkpoint.version.as_ref()
             && self.entry_url == format!("https://{}.web.app", view.project)
@@ -1119,7 +1132,7 @@ pub fn retain_hosting_plan(
 }
 
 impl Run {
-    fn publication_may_have_changed(&self) -> bool {
+    pub(crate) fn publication_may_have_changed(&self) -> bool {
         self.rules_attempted
             || self
                 .steps

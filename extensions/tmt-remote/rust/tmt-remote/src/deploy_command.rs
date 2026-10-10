@@ -144,6 +144,12 @@ pub fn execute_with_hosting(
             if hosting.create_web_app { "yes" } else { "no" }
         )
         .expect("String write");
+        writeln!(
+            human,
+            "Associate Hosting site with selected web app: {}",
+            if hosting.configure_site { "yes" } else { "no" }
+        )
+        .expect("String write");
         for file in hosting.content["files"]
             .as_array()
             .expect("validated content files")
@@ -214,7 +220,7 @@ pub fn execute_with_hosting(
         .expect("String write");
     }
     if authorized {
-        describe_record(&mut human, &record);
+        describe_record(&mut human, &record, &store.record_path());
     } else {
         writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
     }
@@ -234,7 +240,7 @@ fn readable_bytes(bytes: u64) -> String {
         format!("{:.2} {unit}", bytes as f64 / divisor as f64)
     }
 }
-fn describe_record(text: &mut String, record: &DeployRecord) {
+fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::path::Path) {
     let run = record.run.as_ref().expect("authorized run");
     writeln!(
         text,
@@ -247,6 +253,7 @@ fn describe_record(text: &mut String, record: &DeployRecord) {
         record.usable_binding().is_some()
     )
     .expect("String write");
+    let mut uploads = std::collections::BTreeMap::new();
     for step in &run.steps {
         let state = match step.state {
             deploy_run::StepState::Pending => "pending",
@@ -257,9 +264,91 @@ fn describe_record(text: &mut String, record: &DeployRecord) {
             deploy_run::StepState::Failed(fault) => fault.code(),
             deploy_run::StepState::OwnerAction(action) => action.code(),
         };
+        if step.id.starts_with("hosting:stage:upload:") {
+            *uploads.entry(state).or_insert(0usize) += 1;
+            continue;
+        }
         writeln!(text, "{}: {}", step.id, state).expect("String write");
+        if step.id == "web-app:create" && step.state == deploy_run::StepState::Building {
+            text.push_str(
+                "Firebase is still creating the web app. Rerun the same command to check it.\n",
+            );
+        }
+        if matches!(step.id.as_str(), "web-app:create" | "hosting:stage:create")
+            && step.state == deploy_run::StepState::Unknown
+        {
+            writeln!(text, "The original creation could not be confirmed; it will not be repeated. Rerun the same command to check its original result. If it remains unconfirmed, inspect the Firebase project, remove '{}' and run without --authorize to read a fresh plan. Existing Firebase resources stay; a newly authorized plan may create another resource.", record_path.display()).expect("String write");
+        }
         if let deploy_run::StepState::OwnerAction(action) = step.state {
             writeln!(text, "{}: {}", action.code(), action.instruction()).expect("String write");
         }
+    }
+    if !uploads.is_empty() {
+        let summary = uploads
+            .into_iter()
+            .map(|(state, n)| format!("{n} {state}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(text, "Hosting file uploads: {summary}.").expect("String write");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deploy_run::{Run, RunState, StepRecord, StepState};
+    #[test]
+    fn human_progress_collapses_uploads_and_names_the_original_create_exit() {
+        let mut record = DeployRecord::new("fixture");
+        record.run = Some(Run {
+            plan_digest: "a".repeat(64),
+            account: "fixture".into(),
+            authorized_at_ms: 0,
+            state: RunState::Partial,
+            rules_attempted: false,
+            hosting: None,
+            steps: vec![
+                StepRecord {
+                    id: "web-app:create".into(),
+                    state: StepState::Unknown,
+                },
+                StepRecord {
+                    id: "hosting:stage:create".into(),
+                    state: StepState::Unknown,
+                },
+                StepRecord {
+                    id: format!("hosting:stage:upload:{}", "a".repeat(64)),
+                    state: StepState::Done,
+                },
+                StepRecord {
+                    id: format!("hosting:stage:upload:{}", "b".repeat(64)),
+                    state: StepState::Unknown,
+                },
+            ],
+        });
+        let mut text = String::new();
+        describe_record(
+            &mut text,
+            &record,
+            std::path::Path::new("/fixture/remote/deploy.json"),
+        );
+        assert!(text.contains("Hosting file uploads: 1 done, 1 unknown."));
+        assert!(!text.contains("hosting:stage:upload:"));
+        assert_eq!(
+            text.matches("The original creation could not be confirmed; it will not be repeated.")
+                .count(),
+            2
+        );
+        assert!(text.contains("remove '/fixture/remote/deploy.json' and run without --authorize"));
+        record.run.as_mut().unwrap().steps[0].state = StepState::Building;
+        let mut pending = String::new();
+        describe_record(
+            &mut pending,
+            &record,
+            std::path::Path::new("/fixture/remote/deploy.json"),
+        );
+        assert!(pending.contains(
+            "Firebase is still creating the web app. Rerun the same command to check it."
+        ));
     }
 }

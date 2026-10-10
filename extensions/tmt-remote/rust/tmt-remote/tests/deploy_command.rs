@@ -1189,6 +1189,8 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         .unwrap();
     let mut inventory = HostingInventory {
         site_exists: true,
+        site_app_id: None,
+        site_app_config: None,
         web_apps: vec![tmt_remote::hosting::HostingWebApp {
             id: "1:123:web:abc".into(),
             display_name: format!("tmt Remote ({ID})"),

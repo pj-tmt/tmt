@@ -6,6 +6,8 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+const APP_OBSERVE_MS = 15000;
+const APP_POLL_MS = 250;
 const UPLOAD_BYTES = Math.ceil((4 * 1024 * 1024 + 65536) / 3) * 4 + 256 * 1024;
 const FAULTS = new Set([
   'unsupported-tool',
@@ -122,6 +124,7 @@ function validate(request) {
       ![
         'web-app',
         'site',
+        'configure',
         'create',
         'populate',
         'upload',
@@ -255,6 +258,8 @@ async function execute(request, deps) {
   if (r.operation === 'compatibility')
     return { versions: SUPPORTED, maxBytes: BYTES, maxPages: PAGES };
   const deadline = deps.deadline;
+  const now = deps.now ?? Date.now;
+  const wait = deps.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   let effect = false;
   async function identity() {
     const credential = await deps.credential();
@@ -283,7 +288,14 @@ async function execute(request, deps) {
     rules: 'https://firebaserules.googleapis.com/v1',
     hosting: 'https://firebasehosting.googleapis.com/v1beta1',
   };
-  async function api(service, route, method = 'GET', body, absent = false) {
+  async function api(
+    service,
+    route,
+    method = 'GET',
+    body,
+    absent = false,
+    callDeadline = deadline
+  ) {
     const earlierEffect = effect;
     if (method !== 'GET') {
       credential = await identity();
@@ -299,7 +311,7 @@ async function execute(request, deps) {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       },
-      deadline
+      callDeadline
     );
     if (absent && reply.status === 404) return null;
     if (reply.status < 200 || reply.status >= 300) {
@@ -368,6 +380,23 @@ async function execute(request, deps) {
       return { id: a.appId, displayName: a.displayName, state: a.state };
     });
   }
+  async function publicConfig(appId) {
+    const config = await api(
+      'firebase',
+      `projects/${project}/webApps/${encodeURIComponent(appId)}/config`
+    );
+    if (
+      config.projectId !== project ||
+      config.appId !== appId ||
+      config.authDomain !== `${project}.firebaseapp.com` ||
+      typeof config.apiKey !== 'string' ||
+      !config.apiKey ||
+      config.apiKey.length > 256 ||
+      /[\x00-\x1f\x7f]/.test(config.apiKey)
+    )
+      fail('unknown');
+    return { apiKey: config.apiKey, authDomain: config.authDomain, projectId: project, appId };
+  }
   async function liveHosting() {
     const site = await api(
       'hosting',
@@ -376,7 +405,14 @@ async function execute(request, deps) {
       undefined,
       true
     );
-    if (site === null) return { siteExists: false, webApps: await apps(), live: null };
+    if (site === null)
+      return {
+        siteExists: false,
+        siteAppId: null,
+        siteAppConfig: null,
+        webApps: await apps(),
+        live: null,
+      };
     if (
       site.name !== `projects/${project}/sites/${project}` ||
       site.defaultUrl !== `https://${project}.web.app`
@@ -410,7 +446,18 @@ async function execute(request, deps) {
         config,
       };
     }
-    return { siteExists: true, webApps: await apps(), live };
+    const siteAppId = site.appId || null;
+    const listed = await apps();
+    let siteAppConfig = null;
+    if (siteAppId !== null) {
+      if (
+        typeof siteAppId !== 'string' ||
+        listed.filter((a) => a.id === siteAppId && a.state === 'ACTIVE').length !== 1
+      )
+        fail('unknown');
+      siteAppConfig = await publicConfig(siteAppId);
+    }
+    return { siteExists: true, siteAppId, siteAppConfig, webApps: listed, live };
   }
   if (r.operation === 'hosting-inventory') return liveHosting();
   async function hosting() {
@@ -425,23 +472,35 @@ async function execute(request, deps) {
     const labels = {
       'tmt-deployment': i.deployment,
       'tmt-plan': i.planDigest.slice(0, 12),
-      'tmt-content': contentDigest,
+      'tmt-content': contentDigest.slice(0, 32),
     };
     const reply = (state) => ({ state, checkpoint: cp });
     const applying = r.operation === 'apply-hosting';
+    async function checkedApp(app) {
+      const site = await api(
+        'hosting',
+        `projects/${project}/sites/${project}`,
+        'GET',
+        undefined,
+        true
+      );
+      if (site?.appId && site.appId !== app.id) fail('unknown');
+      await publicConfig(app.id);
+      return app;
+    }
     async function selectedApp() {
       const listed = await apps();
       if (cp.appId !== null) {
         const matches = listed.filter((a) => a.id === cp.appId && a.state === 'ACTIVE');
         if (matches.length !== 1) fail('unknown');
-        return matches[0];
+        return checkedApp(matches[0]);
       }
       const matches = listed.filter((a) => a.state === 'ACTIVE' && a.displayName === appName());
       if (matches.length > 1) fail('unknown');
       if (matches.length === 1) {
         cp.appId = matches[0].id;
         cp.operation = null;
-        return matches[0];
+        return checkedApp(matches[0]);
       }
       return null;
     }
@@ -497,7 +556,7 @@ async function execute(request, deps) {
         stable(live.config) === stable(h.content.config) &&
         live.deploymentId === i.deployment &&
         live.planDigestPrefix === i.planDigest.slice(0, 12) &&
-        live.contentDigest === contentDigest
+        live.contentDigest === contentDigest.slice(0, 32)
       );
     }
     if (i.action === 'web-app') {
@@ -505,8 +564,7 @@ async function execute(request, deps) {
       if (cp.operation !== null) {
         resource(cp.operation, 'operations/');
         const op = await api('firebase', cp.operation, 'GET', undefined, true);
-        if (op?.error) fail('unknown');
-        if (op === null) fail('unknown');
+        if (op?.error || op === null) fail('unknown');
         if (!op.done) return reply('building');
         if (!(await selectedApp())) fail('unknown');
         return reply(applying ? 'done' : 'satisfied');
@@ -517,6 +575,20 @@ async function execute(request, deps) {
         displayName: appName(),
       });
       cp.operation = resource(operation.name, 'operations/');
+      // Bound read-only provisioning observation within the existing apply budget.
+      const pollDeadline = Math.min(deadline, now() + APP_OBSERVE_MS);
+      while (now() < pollDeadline) {
+        const op = await api('firebase', cp.operation, 'GET', undefined, true, pollDeadline);
+        if (op?.error) fail('unknown');
+        // Completed operations are deleted. The named ACTIVE app is the durable evidence.
+        if (op === null || op.done) {
+          if (await selectedApp()) return reply('done');
+          fail('unknown');
+        }
+        if (await selectedApp()) return reply('done');
+        const remaining = pollDeadline - now();
+        if (remaining > 0) await wait(Math.min(APP_POLL_MS, remaining));
+      }
       return reply('building');
     }
     if (i.action === 'site') {
@@ -535,6 +607,21 @@ async function execute(request, deps) {
       if (!applying) return reply('absent');
       if (!h.createSite) fail('provider-rejected');
       await api('hosting', `projects/${project}/sites?siteId=${project}`, 'POST', {});
+      return reply('done');
+    }
+    if (i.action === 'configure') {
+      if (!(await selectedApp())) fail('unknown');
+      const route = `projects/${project}/sites/${project}`;
+      const site = await api('hosting', route);
+      if (site.name !== route || site.defaultUrl !== h.publicUrl) fail('unknown');
+      if (site.appId === cp.appId) return reply(applying ? 'done' : 'satisfied');
+      if (site.appId) fail('provider-rejected');
+      if (!applying) return reply('absent');
+      if (!h.configureSite) fail('provider-rejected');
+      const latest = await api('hosting', route);
+      if (stable(latest) !== stable(site)) fail('unknown');
+      await api('hosting', `${route}?updateMask=appId`, 'PATCH', { appId: cp.appId });
+      if ((await api('hosting', route)).appId !== cp.appId) fail('unknown');
       return reply('done');
     }
     if (i.action === 'create') {
@@ -643,10 +730,7 @@ async function execute(request, deps) {
         (await liveRules()) !== i.source
       )
         fail('unknown');
-      const config = await api(
-        'firebase',
-        `projects/${project}/webApps/${encodeURIComponent(cp.appId)}/config`
-      );
+      const config = await publicConfig(cp.appId);
       if (
         config.projectId !== project ||
         config.appId !== cp.appId ||
@@ -654,14 +738,18 @@ async function execute(request, deps) {
         typeof config.apiKey !== 'string'
       )
         fail('unknown');
+      const site = await api('hosting', `projects/${project}/sites/${project}`);
+      if (site.appId !== cp.appId) fail('unknown');
       const release = (await api('hosting', `sites/${project}/channels/live`)).release;
       if (
         release.version?.name !== cp.version ||
         !(await exactLive()) ||
-        (await liveRules()) !== i.source
+        (await liveRules()) !== i.source ||
+        (await api('hosting', `projects/${project}/sites/${project}`)).appId !== cp.appId
       )
         fail('unknown');
       return {
+        siteAppId: cp.appId,
         publicConfig: {
           apiKey: config.apiKey,
           authDomain: config.authDomain,

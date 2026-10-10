@@ -39,6 +39,16 @@
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff"
       }
+    },
+    {
+      "regex": "^/pair$",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'",
+        "Content-Type": "text/html; charset=utf-8",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      }
     }
   ],
   "rewrites": [
@@ -48,6 +58,10 @@
     },
     {
       "regex": "^/(p|read)/[A-Za-z0-9_-]{4,64}$",
+      "path": "/index.html"
+    },
+    {
+      "regex": "^/pair$",
       "path": "/index.html"
     }
   ]

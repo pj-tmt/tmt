@@ -158,11 +158,15 @@ The real port inventories Hosting and executes the frozen steps through the same
 Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
 substeps save resource handles and the frozen envelope in the versioned checkpoint; v1/v2 records
 remain readable without conversion. Unknown creates are reconciled by bounded identity lookup,
-never retried on uncertain absence. App/stage Building blocks later effects. Expired unfinalized
-stages require a fresh explicit plan. Joint read-back alone saves a verified public configuration
+never repeated on uncertain absence for web-app/Version creates; other absent idempotent work
+can reapply. App creation observes its Operation within the apply budget; pending work blocks
+later effects and needs the same command rerun. Expired unfinalized stages require a fresh explicit
+plan. Joint read-back alone saves a verified public configuration
 and same-project web.app entry with Complete; the remote-link producer consumes that type later.
-Site.appId is never read/set. The contract owns app selection, partial availability and the
-single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
+Site.appId selects a validated public app config after any recorded app identity. Fresh/existing
+unassociated sites use the same explicit appId-only configure step; nonempty associations are never
+repointed. Joint verification binds that association. The contract owns app selection, partial
+availability and the single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
 For offline declaration-vector regeneration, run from `rust/`:
 
