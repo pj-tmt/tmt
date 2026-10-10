@@ -356,11 +356,14 @@ fn shipped_local_hung_setup_is_bounded_without_releasing_the_fixture() {
         );
         peer.join().unwrap().unwrap();
         assert_eq!(ready["state"], "ready");
+        let warning = fs::read_to_string(pilot.root.join("serve.stderr")).unwrap();
         assert!(
-            fs::read_to_string(pilot.root.join("serve.stderr"))
-                .unwrap()
-                .contains("Object channel unavailable for colab:")
+            warning.contains(
+                "attachments are unavailable: Colab couldn't connect to Remote's file transfer"
+            ),
+            "{warning}"
         );
+        assert!(!warning.contains("Channel(Timeout(Head))"), "{warning}");
         empty_objects(&pilot);
         assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
         wait_stopped(pilot.child.as_mut().unwrap());
