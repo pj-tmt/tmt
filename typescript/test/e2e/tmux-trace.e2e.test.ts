@@ -12,13 +12,25 @@ describe('tmux invocation trace', { concurrent: false }, () => {
         [`-S${foreignSocket}`],
         ['-L', 'foreign-server'],
         ['-Lforeign-server'],
+        ['-c', 'true', '-S', foreignSocket],
+        ['-T', 'RGB', '-S', foreignSocket],
+        ['-ctrue', '-S', foreignSocket],
+        ['-TRGB', '-S', foreignSocket],
       ]) {
         expect(() =>
           fixture.tmux([...prefix, 'set-option', '-p', '-t', fixture.pane, '@tmt.agent', 'foreign'])
         ).toThrow('E2E fixture refuses a foreign tmux socket');
         expect(fixture.paneMetadata()).toBe('');
       }
+      for (const option of ['-uS', '-uT']) {
+        expect(() => fixture.tmux([option, foreignSocket])).toThrow(
+          'E2E fixture refuses combined tmux socket options'
+        );
+      }
+      expect(() => fixture.tmux(['-S'])).toThrow('E2E fixture requires a tmux option value');
       fixture.tmux([
+        '-T',
+        'RGB',
         '-S',
         fixture.socketPath,
         'set-option',

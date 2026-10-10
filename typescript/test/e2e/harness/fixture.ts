@@ -133,7 +133,7 @@ for arg in "${'$'}@"; do
     case "${'$'}socket_option" in
       -S) expected=${shellQuote(this.expectedSocketPath)} ;;
       -L) expected=${shellQuote(this.socket)} ;;
-      -f) socket_option=""; continue ;;
+      -c|-f|-T) socket_option=""; continue ;;
     esac
     if [ "${'$'}arg" != "${'$'}expected" ]; then
       echo "E2E fixture refuses a foreign tmux socket" >&2
@@ -143,15 +143,15 @@ for arg in "${'$'}@"; do
     continue
   fi
   case "${'$'}arg" in
-    -S|-L|-f) socket_option="${'$'}arg" ;;
+    -c|-f|-L|-S|-T) socket_option="${'$'}arg" ;;
     -S*)
       [ "${'$'}{arg#-S}" = ${shellQuote(this.expectedSocketPath)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
       ;;
     -L*)
       [ "${'$'}{arg#-L}" = ${shellQuote(this.socket)} ] || { echo "E2E fixture refuses a foreign tmux socket" >&2; exit 97; }
       ;;
-    -f*) ;;
-    -*[SL]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
+    -c*|-f*|-T*) ;;
+    -*[cfSLT]*) echo "E2E fixture refuses combined tmux socket options" >&2; exit 97 ;;
     -*) ;;
     *) break ;;
   esac
