@@ -139,3 +139,13 @@ pub const DEPLOY_TOOL_METADATA_BYTES: usize = 64 * 1024;
 pub const DEPLOY_DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_BYTES + 4096;
 /// One static declaration read allows cold installed-binary launch, never a provider effect.
 pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(10);
+
+// Release-embedded Firebase Hosting static inventory, not free-plan quota allowances.
+pub const HOSTING_FILES: usize = 256;
+pub const HOSTING_FILE_BYTES: usize = 4 * 1024 * 1024;
+pub const HOSTING_TOTAL_BYTES: usize = 16 * 1024 * 1024;
+pub const HOSTING_REPLY_BYTES: usize = 24 * 1024 * 1024;
+pub const HOSTING_PATH_BYTES: usize = 1024;
+pub const HOSTING_BUNDLE_CALL: Duration = Duration::from_secs(30);
+pub const HOSTING_WEB_APPS: usize = 256;
+pub const HOSTING_CONFIG_BYTES: usize = 64 * 1024;

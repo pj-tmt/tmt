@@ -1,8 +1,12 @@
 //! Strict version-1 extension backend declarations (contract: Backends and deploy,
 //! "extension backend declarations"). Pure parsing: no I/O, no clock, no storage.
 //! A declaration names resources an extension needs; it grants nothing and carries
-//! no command, role or route.
-use crate::{canonical, limits, mount, routes, wire};
+//! no executable command or authority.
+use crate::{
+    canonical,
+    hosting::{HostingManifest, HostingRefusal},
+    limits, mount, routes, wire,
+};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
@@ -59,6 +63,7 @@ pub struct Declaration {
     pub backend: Backend,
     pub resources: Vec<Resource>,
     pub admission: Admission,
+    pub hosting: Option<HostingManifest>,
 }
 
 /// Why a declaration was refused. Codes are fixed words; no declared text is echoed.
@@ -86,6 +91,7 @@ pub enum Reason {
     ArtifactPath,
     Digest,
     EntryPoint,
+    Hosting(HostingRefusal),
 }
 impl Reason {
     pub fn code(self) -> &'static str {
@@ -112,6 +118,7 @@ impl Reason {
             Self::ArtifactPath => "artifact-path",
             Self::Digest => "digest",
             Self::EntryPoint => "entry-point",
+            Self::Hosting(_) => "hosting",
         }
     }
 }
@@ -144,10 +151,26 @@ pub fn parse(bytes: &[u8]) -> Result<Declaration> {
     let Some(value) = wire::strict_json(bytes) else {
         return refuse(Reason::NotStrictJson);
     };
-    let top = members(
-        &value,
-        &["version", "extension", "backend", "resources", "admission"],
-    )?;
+    let top = value.as_object().ok_or(DeclarationError {
+        resource: None,
+        reason: Reason::Shape,
+    })?;
+    let keys = ["version", "extension", "backend", "resources", "admission"];
+    if !keys.iter().all(|key| top.contains_key(*key))
+        || top
+            .keys()
+            .any(|key| !keys.contains(&key.as_str()) && key != "hosting")
+    {
+        return refuse(Reason::Shape);
+    }
+    let hosting = top
+        .get("hosting")
+        .map(HostingManifest::parse)
+        .transpose()
+        .map_err(|reason| DeclarationError {
+            resource: None,
+            reason: Reason::Hosting(reason),
+        })?;
     if top["version"].as_u64() != Some(1) {
         return refuse(Reason::Version);
     }
@@ -161,6 +184,9 @@ pub fn parse(bytes: &[u8]) -> Result<Declaration> {
         "cloudflare" => Backend::Cloudflare,
         _ => return refuse(Reason::Backend),
     };
+    if hosting.is_some() && backend != Backend::Firestore {
+        return refuse(Reason::Backend);
+    }
     let Some(listed) = top["resources"].as_array() else {
         return refuse(Reason::Shape);
     };
@@ -181,6 +207,7 @@ pub fn parse(bytes: &[u8]) -> Result<Declaration> {
         backend,
         resources,
         admission: admission(&top["admission"])?,
+        hosting,
     })
 }
 

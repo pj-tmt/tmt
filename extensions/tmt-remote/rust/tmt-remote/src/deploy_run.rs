@@ -50,6 +50,7 @@ pub enum DeployRefusal {
     AuthorizationStale,
     AccountChanged,
     AccountUnreadable,
+    HostingUnavailable,
 }
 impl DeployRefusal {
     pub fn code(self) -> &'static str {
@@ -61,6 +62,7 @@ impl DeployRefusal {
             Self::AuthorizationStale => "REMOTE_DEPLOY_AUTHORIZATION_STALE",
             Self::AccountChanged => "REMOTE_DEPLOY_ACCOUNT_CHANGED",
             Self::AccountUnreadable => "REMOTE_DEPLOY_ACCOUNT_UNREADABLE",
+            Self::HostingUnavailable => "REMOTE_DEPLOY_HOSTING_UNAVAILABLE",
         }
     }
 }
@@ -128,6 +130,8 @@ pub struct DeployView {
     /// Digest of the extension plan (declarations, resources, limits, indexes, TTL).
     pub extension_plan_digest: String,
     pub destructive: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hosting: Option<crate::hosting::HostingDeploymentView>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,6 +247,24 @@ pub(crate) fn location_ok(value: &str) -> bool {
 
 /// Compose the envelope the owner authorizes. No provider effect happens here.
 pub fn prepare(plan: &Plan, input: &DeployInput<'_>) -> Result<DeployPlan, DeployRefusal> {
+    prepare_with_hosting(plan, input, None)
+}
+
+/// Include the exact read-only Hosting inventory in the one authorization envelope.
+pub fn prepare_with_hosting(
+    plan: &Plan,
+    input: &DeployInput<'_>,
+    hosting: Option<&crate::hosting::HostingDeploymentView>,
+) -> Result<DeployPlan, DeployRefusal> {
+    if plan
+        .view()
+        .extensions
+        .iter()
+        .any(|extension| extension.hosting.is_some())
+        != hosting.is_some()
+    {
+        return Err(DeployRefusal::HostingUnavailable);
+    }
     if !project_ok(input.project) {
         return Err(DeployRefusal::InvalidProject);
     }
@@ -297,7 +319,7 @@ pub fn prepare(plan: &Plan, input: &DeployInput<'_>) -> Result<DeployPlan, Deplo
             vec![format!("replaces-rules:{digest}")],
         ),
     };
-    let view = DeployView {
+    let mut view = DeployView {
         version: 1,
         backend: "firestore",
         profile: "sharing",
@@ -319,7 +341,32 @@ pub fn prepare(plan: &Plan, input: &DeployInput<'_>) -> Result<DeployPlan, Deplo
         steps: steps.iter().map(|step| step.id.clone()).collect(),
         extension_plan_digest: plan.digest().to_owned(),
         destructive,
+        hosting: hosting.cloned(),
     };
+    if let Some(hosting) = hosting {
+        if hosting.site != input.project
+            || hosting.public_url != format!("https://{}.web.app", input.project)
+        {
+            return Err(DeployRefusal::HostingUnavailable);
+        }
+        if hosting.create_site {
+            view.steps.insert(0, "hosting-site:create".into());
+        }
+        if hosting.create_web_app {
+            view.steps.insert(0, "web-app:create".into());
+        }
+        let rules = view
+            .steps
+            .iter()
+            .position(|id| id == "rules")
+            .expect("Rules step");
+        view.steps.insert(rules, "hosting:stage".into());
+        view.steps.insert(rules + 2, "hosting:release".into());
+        if let Some(fingerprint) = &hosting.replaced_fingerprint {
+            view.destructive
+                .push(format!("replaces-hosting:{fingerprint}"));
+        }
+    }
     let bytes = serde_json::to_vec(&view).expect("a deploy view serializes");
     let digest = sha256_hex(&bytes);
     Ok(DeployPlan {
@@ -560,6 +607,11 @@ pub fn run(
     sink: &mut dyn DeploySink,
     now_ms: u64,
 ) -> Result<DeployRecord, DeployError> {
+    // This slice freezes Hosting plans only. Never apply Rules alone for that plan.
+    // The provider lifecycle and joint verification are a separate, reviewed owner change.
+    if plan.view.hosting.is_some() {
+        return Err(DeployError::Refused(DeployRefusal::HostingUnavailable));
+    }
     if authorization.plan_digest != plan.digest || record.deployment_id != plan.deployment_id() {
         return Err(DeployError::Refused(DeployRefusal::AuthorizationStale));
     }

@@ -1,7 +1,7 @@
 # Remote architecture internals
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
-`transport`, `declaration`, `deploy_plan`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
+`transport`, `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
 
 | Module                                           | Owns                                                                                                                                                                                                                  |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,7 +15,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `pairing`, `control`, `devices`                  | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename and explicit sending-scope toggles                                                                              |
 | `mount`, `pages`                                 | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                                        | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
-| `declaration`, `deploy_plan`, `rules`            | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes composition (bytes in; installed discovery belongs to `deploy_discovery`)                                        |
+| `declaration`, `deploy_plan`, `hosting`, `rules` | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (bytes in; installed discovery belongs to `deploy_discovery`)                     |
 | `deploy_command`, `deploy_record`                | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
@@ -138,7 +138,7 @@ Real account/project provisioning remains separately authorized acceptance, not 
 
 The deployment owner defaults to a plan and saves one local draft identity,
 without a provider effect. Explicit digest authorization names the whole envelope; foreign
-Rules replacement needs its own digest. Sign-in providers are explicit inputs. Command
+Rules replacement is covered by the whole plan digest. Sign-in providers are explicit inputs. Command
 registration wires factories into `deploy_cli`, the single declaration/setup/login/record
 sequencing owner; fixtures drive that same owner and the shipped binary.
 `deploy_discovery` enumerates trusted enabled mounts and invokes their fixed public
@@ -149,6 +149,14 @@ schema, byte bounds, digest rules and no-declaration codes. Discovery captures
 and validates exact UTF-8 declaration/artifact bytes and both digests once, then uses the pure
 plan/Rules owners. No installed-root/receipt parser or artifact-path read exists in Remote.
 An old unsupported command means no declaration; malformed/failed replies are unavailable.
+Optional Hosting capture uses the fixed `hosting-bundle --json` command after declaration
+validation and before provider setup, with a separate bounded stream and waited child cleanup.
+`hosting` validates the complete raw inventory, composes deterministic gzip/ServingConfig and
+names captured site/web-app creation and foreign replacement in the same frozen envelope.
+The contract owns its schema, bounds, route allow-list and non-atomic publication order.
+This slice supplies composition only: the real port has no Hosting inventory/publication yet,
+and every authorized Hosting plan refuses before target binding, record save or provider effects.
+A fixture inventory can produce a read-only plan; it is not installed or provider acceptance.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
 For offline declaration-vector regeneration, run from `rust/`:
 

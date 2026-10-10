@@ -289,6 +289,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-remote" => &[
+            // Deterministic gzip of authorized Firebase Hosting bytes (#2486).
+            "flate2",
             // Strict unpadded base64url for contract binary fields (#1039).
             "base64",
             "ed25519-dalek",
