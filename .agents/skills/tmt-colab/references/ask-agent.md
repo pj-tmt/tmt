@@ -172,5 +172,6 @@ page/binding, admission and new-operation changes, ignores obsolete settlements,
 and supplies the shared Chat/thread `AskPanel` through `AgentPresentation`.
 Loading, failures and missing fields are neutral; the current observation updates
 existing turns without remounting them. No polling, Ask admission, persistence or
-recovery is added. The optional local SDK seam stays neutral until Remote's decoder
-exposes the field; fixture observations do not prove that served boundary.
+recovery is added. Remote's served SDK exposes the whitelisted field. Real-door
+Ask acceptance verifies present/absent treatment using Core-admitted provider hooks
+and ordinary recipients; fixture observations alone do not prove that boundary.

@@ -17,6 +17,7 @@ import {
   sendChat,
 } from './harness/ask.js';
 import { until } from './harness/process.js';
+import { captureResponsive } from './harness/captures.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import type { AcceptanceWorld } from './harness/world.js';
 
@@ -104,6 +105,60 @@ const askerName = 'asker-browser';
 
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
+
+  for (const driver of ['claude', 'codex', undefined] as const) {
+    test(`verified driver crosses the served Remote boundary: ${driver ?? 'absent'}`, async () => {
+      await withWorld(async (world) => {
+        const door = await startDoor(world, await freePort());
+        const recipient = await world.startAgent(
+          driver ? `${driver}-recipient` : 'claude-codex-content',
+          { driver },
+        );
+        // Core provenance: real launch and installed provider hook, not a stored claim.
+        const listing = await world.tmt(['ls', '--json']);
+        expect(listing.code).toBe(0);
+        const rows = listing.json?.identities as Array<{ id: string; runningDriver?: string }>;
+        const row = rows.find((value) => value.id === recipient.id);
+        expect(row).toBeDefined();
+        if (driver) expect(row?.runningDriver).toBe(driver);
+        else expect(row).not.toHaveProperty('runningDriver');
+        const browser = await pairBrowser(world, 'driver-viewer', { talk: true });
+        const created = createPage(world, 'Verified driver', '<h1>Verified driver</h1>');
+        const page = await openPage(door, browser, created);
+        // Production mounted app and SDK, without interception or directory/store seams.
+        const draft = await composeChat(page, recipient, 'claude codex data-running-driver=codex');
+        const ask = await sendChat(page, draft);
+        await until(() => recipient.received().length === 1, 'one real recipient delivery');
+        const entry = askEntry(page, ask.operationId);
+        await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(ask.delivered()));
+        const turn = entry.locator('.conversation-turn[data-turn-role="agent"]');
+        if (driver) {
+          await expect(turn).toHaveAttribute('data-running-driver', driver);
+          await expect(turn.locator('.conversation-driver')).toHaveText(driver);
+          await expect(turn.locator('.conversation-avatar')).toHaveCount(1);
+        } else {
+          await expect(turn).not.toHaveAttribute('data-running-driver');
+          await expect(turn.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+        }
+        await captureResponsive(page, `real-driver-${driver ?? 'absent'}`);
+        await page.reload();
+        await openChat(page);
+        await expect(askEntry(page, ask.operationId).getByTestId('ask-reply')).toHaveText(
+          replyBody(ask.delivered()),
+        );
+        if (driver)
+          await expect(
+            askEntry(page, ask.operationId).locator('.conversation-turn[data-turn-role="agent"]'),
+          ).toHaveAttribute('data-running-driver', driver);
+        else
+          await expect(
+            askEntry(page, ask.operationId).locator('.conversation-driver, .conversation-avatar'),
+          ).toHaveCount(0);
+        expect(recipient.received()).toHaveLength(1);
+        expect(dispatches(world)).toHaveLength(1);
+      });
+    });
+  }
 
   test(`direct Chat send: the turn reaches the recipient exactly once and the reply shows in a second viewer`, async () => {
     await withWorld(async (world) => {

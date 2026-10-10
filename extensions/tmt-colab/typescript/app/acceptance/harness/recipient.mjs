@@ -6,14 +6,17 @@
 // from these rows, never from terminal echo, so a duplicate wake is visible as
 // a second `received` row for the same request.
 //
-// Usage: recipient.mjs <tmt-executable> <log-path> [gate-dir]
+// Usage: recipient.mjs <tmt-executable> <log-path> [gate-dir|-] [claude|codex]
+// The optional provider fixture executes the installed hook in an isolated world.
 // A gate directory parks the reply until `<gate>/<requestId>.release` exists.
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import path from 'node:path';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
-const [tmt, logPath, gateDirectory] = process.argv.slice(2);
+const [tmt, logPath, gateArgument, driver] = process.argv.slice(2);
+const gateDirectory = gateArgument === '-' ? undefined : gateArgument;
 if (!tmt || !logPath) {
   console.error('usage: recipient.mjs <tmt> <log> [gate-dir]');
   process.exit(2);
@@ -102,6 +105,38 @@ async function handleWake(requestId, identityId) {
   await answer('wake', requestId, identityId, find(document, 'receipt'), message, { document });
 }
 
+// Only the provider fixture uses this path. Execute the installed SessionStart
+// command as a provider would, under the real `tmt run` owner in this private pane.
+// The generated hook admits session metadata; it never fabricates agents.list.
+if (driver) {
+  const settings = path.join(
+    process.env.HOME,
+    driver === 'claude' ? '.claude/settings.json' : '.codex/hooks.json',
+  );
+  const document = JSON.parse(fs.readFileSync(settings, 'utf8'));
+  const commands = document.hooks.SessionStart.flatMap((entry) => entry.hooks).filter(
+    (hook) => hook.type === 'command',
+  );
+  if (commands.length !== 1) throw new Error('Expected one installed SessionStart hook');
+  const hook = spawn('/bin/sh', ['-c', commands[0].command], { stdio: ['pipe', 'pipe', 'pipe'] });
+  hook.stdin.end(
+    JSON.stringify({
+      hook_event_name: 'SessionStart',
+      source: 'startup',
+      session_id: randomUUID(),
+      cwd: process.cwd(),
+    }),
+  );
+  let stderr = '';
+  hook.stderr.on('data', (chunk) => (stderr += chunk));
+  hook.stdout.resume();
+  const code = await new Promise((resolve, reject) => {
+    hook.once('error', reject);
+    hook.once('close', resolve);
+  });
+  if (code !== 0) throw new Error(`Installed SessionStart hook failed: ${stderr}`);
+  log({ event: 'provider-started', driver });
+}
 log({ event: 'ready', pid: process.pid });
 // Deliveries are serialized so the counter order is the delivery order.
 let chain = Promise.resolve();
