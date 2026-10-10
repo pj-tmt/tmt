@@ -7,6 +7,8 @@ use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 const SEPARATOR: &str = " · ";
+/// Ends the chip of a label that offers a choice.
+const CHOICE: &str = "▾";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Chip {
@@ -29,6 +31,11 @@ pub fn of(supplied: &Supplied, row: &Value, now: u64) -> Vec<Chip> {
     {
         // Hidden bidi and format characters never reach the terminal.
         let text = super::notes::sanitize(&label.text);
+        let text = if label.action.is_some() {
+            format!("{text} {CHOICE}")
+        } else {
+            text
+        };
         if source == Some(name) {
             chips.push(Chip {
                 text: format!("{SEPARATOR}{text}"),
@@ -54,6 +61,21 @@ pub fn of(supplied: &Supplied, row: &Value, now: u64) -> Vec<Chip> {
         return policy(row, now);
     }
     chips
+}
+
+/// Whether a chip is the one that offers a choice.
+pub fn offers_choice(text: &str) -> bool {
+    text.ends_with(CHOICE)
+}
+
+/// The id of the heading piece that offers a choice, among `shown`'s pieces.
+pub fn choice_piece(pieces: &Value) -> Option<String> {
+    pieces
+        .as_array()?
+        .iter()
+        .find(|piece| piece["text"].as_str().is_some_and(offers_choice))
+        .and_then(|piece| piece["id"].as_str())
+        .map(str::to_owned)
 }
 
 /// Core's digest policy: the word, then what remains of it.

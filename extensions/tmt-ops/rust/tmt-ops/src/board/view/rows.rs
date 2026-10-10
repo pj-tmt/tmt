@@ -283,6 +283,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             .reveal_range(Pane::Rows, selected, area, scene.height);
     }
     let mut hits = Vec::new();
+    let mut choices = Vec::new();
     let (offset, viewport) = app.scrolls.show_paint(
         frame,
         Pane::Rows,
@@ -291,10 +292,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         look,
         |frame, body, offset| {
             hits = scene.paint(frame.buffer_mut(), body, offset, app.selected, look);
+            choices = scene.choices(body, offset);
         },
     );
     super::waiting::place_input(app, scene.input.clone(), area, offset, viewport);
     app.hits.borrow_mut().extend(hits);
+    app.chip_hits.borrow_mut().extend(choices);
     for (row, start, data) in &scene.details {
         crate::board::row_detail::more_hit(
             app, *row, data, area.width, 2, *start, area, offset, viewport,

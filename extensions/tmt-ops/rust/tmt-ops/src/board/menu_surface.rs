@@ -3,7 +3,11 @@
 //! menu rather than once per process; its entries never change while it is open.
 use super::{app::MenuEntry, picker_surface};
 use crate::look::Look;
-use ratatui::{Frame, layout::Rect};
+use ratatui::{
+    Frame,
+    crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
+};
 use tmt_cli_style::table::escape;
 use tmt_tui::components::{ListRow, surface};
 use unicode_width::UnicodeWidthStr;
@@ -17,6 +21,15 @@ pub(in crate::board) struct MenuSurface {
     template: surface::Template<()>,
     rows: Vec<ListRow>,
     state: picker_surface::State,
+}
+
+/// What the pointer asked of the menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) enum Pointer {
+    /// A click on an entry runs it, as Enter would.
+    Choose(usize),
+    /// The wheel moves the highlight by this many entries.
+    Wheel(isize),
 }
 
 fn row_id(index: usize) -> String {
@@ -59,6 +72,28 @@ impl MenuSurface {
             ),
             state: picker_surface::State::new(None, rows.clone(), None),
             rows,
+        }
+    }
+
+    /// Reads a mouse event against what was last painted; a click outside the
+    /// entries, and anything before the first paint, asks nothing.
+    pub fn pointer(&self, mouse: MouseEvent) -> Option<Pointer> {
+        let list = self.state.frame.as_ref()?.list.as_ref()?;
+        let at = (mouse.column, mouse.row).into();
+        if !list.viewport.contains(at) {
+            return None;
+        }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => list
+                .geometry
+                .iter()
+                .rev()
+                .find(|row| row.visible.contains(at))
+                .and_then(|row| row.id.strip_prefix("entry-")?.parse().ok())
+                .map(Pointer::Choose),
+            MouseEventKind::ScrollUp => Some(Pointer::Wheel(-1)),
+            MouseEventKind::ScrollDown => Some(Pointer::Wheel(1)),
+            _ => None,
         }
     }
 

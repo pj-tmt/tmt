@@ -139,6 +139,8 @@ struct Part {
     marker: bool,
     emphasize: bool,
     align: Align,
+    /// The chip that offers a choice: a click on it opens the choice.
+    choice: bool,
 }
 
 pub(in crate::board) struct RowPaint {
@@ -189,6 +191,7 @@ impl RowPaint {
             marker: false,
             emphasize: false,
             align: Align::Left,
+            choice: false,
         });
         self.parts.len() - 1
     }
@@ -607,13 +610,14 @@ impl RowPaint {
         let mut x = at;
         for chip in &label.chips {
             let cells = chip.text.width();
-            self.label(
+            let part = self.label(
                 Some(chip.text.clone()),
                 (x, y, cells, 1),
                 Some(chip.role),
                 TextFlow::Clip,
                 Some(root),
             );
+            self.parts[part].choice = crate::board::row_chips::offers_choice(&chip.text);
             x += cells;
         }
         if !label.tail.is_empty() {
@@ -626,6 +630,27 @@ impl RowPaint {
                 Some(root),
             );
         }
+    }
+
+    /// Where each row's choice chip is in `body`, `offset` lines down the scene.
+    pub fn choices(&self, body: Rect, offset: usize) -> Vec<(Rect, usize)> {
+        self.parts
+            .iter()
+            .filter(|part| part.choice)
+            .filter_map(|part| {
+                let (x, y) = (part.rect.x, part.rect.y - offset as i32);
+                let inside = (0..i32::from(body.height)).contains(&y)
+                    && (0..i32::from(body.width)).contains(&x);
+                let width = part
+                    .rect
+                    .width
+                    .min((i32::from(body.width) - x).max(0) as u32);
+                inside.then_some((
+                    Rect::new(body.x + x as u16, body.y + y as u16, width as u16, 1),
+                    part.row?,
+                ))
+            })
+            .collect()
     }
 
     /// Paint into `body`, `offset` lines down the scene, and return one hit per

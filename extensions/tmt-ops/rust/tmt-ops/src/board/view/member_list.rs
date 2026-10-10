@@ -259,6 +259,8 @@ pub(in crate::board) struct LeadSpan {
     pub start: usize,
     /// The heading and the preview under it: the lead's hits.
     pub hit: Range<usize>,
+    /// The chip that offers a choice, when the heading shows one.
+    pub chip: Option<scene::Spot>,
     /// Everything the lead owns through its reserved lines.
     pub end: usize,
     pub reserve: Option<Range<usize>>,
@@ -368,6 +370,8 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                 local,
                 start: head.start,
                 hit: head.start..preview.map_or(head.end, |preview| preview.end),
+                chip: row_chips::choice_piece(&key.data["leads"][local]["chips"])
+                    .and_then(|piece| painted.spot(&[&id(local), "head", &piece])),
                 end: lead.end,
                 reserve: (reserving[local] > 0).then(|| lead.end - reserving[local]..lead.end),
             }
@@ -379,6 +383,9 @@ pub(in crate::board) fn build(key: &Key) -> Block {
         row.start += shift;
         row.hit.start += shift;
         row.hit.end += shift;
+        if let Some(chip) = &mut row.chip {
+            chip.line += shift;
+        }
         row.end += shift;
         if let Some(range) = &mut row.reserve {
             range.start += shift;
@@ -611,6 +618,20 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             offset,
             viewport,
         );
+        if let Some(chip) = row
+            .chip
+            .filter(|chip| (offset..offset + viewport).contains(&chip.line))
+        {
+            app.chip_hits.borrow_mut().push((
+                Rect::new(
+                    area.x.saturating_add(chip.x),
+                    area.y + (chip.line - offset) as u16,
+                    chip.width.min(area.width.saturating_sub(chip.x)),
+                    1,
+                ),
+                row.local,
+            ));
+        }
         for line in row.hit.start.max(offset)..row.hit.end.min(offset + viewport) {
             if inner.width > 0 {
                 app.hits.borrow_mut().push(crate::board::app::Hit {
