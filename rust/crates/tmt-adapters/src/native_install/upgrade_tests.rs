@@ -66,7 +66,7 @@ fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
         UpgradeRequest {
             executable: &executable,
             channel: None,
-            exact: Some("1.2.4"),
+            exact: None,
             unpin: false,
         },
         || {
@@ -97,7 +97,7 @@ fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
         UpgradeRequest {
             executable: &activated.installation.active_executable,
             channel: None,
-            exact: Some("1.2.4"),
+            exact: None,
             unpin: false,
         },
         || Ok(()),
@@ -549,7 +549,7 @@ fn rate_limit_failure_preserves_active_executable_receipt_and_has_no_staging() {
 }
 
 #[test]
-fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
+fn published_pointer_below_noops_equal_repairs_and_above_installs() {
     use crate::native_install::{Product, publication::Layout};
     for product in [Product::Cli, Product::Ops] {
         for (current, lower, higher, channel) in [
@@ -575,7 +575,6 @@ fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
                 installed.channel = channel;
                 let receipt = Receipt::new(&old, installed);
                 publish(&layout, &old, &receipt);
-                let executable = prefix.join("bin").join(product.executable());
                 let sentinel = prefix.join("application-state");
                 fs::write(&sentinel, b"untouched").unwrap();
                 let active = layout.root.join("releases").join(receipt.id.to_string());
@@ -583,6 +582,15 @@ fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
                     fs::read(active.join(product.executable())).unwrap(),
                     fs::read(active.join("receipt.json")).unwrap(),
                 );
+                let executable = if candidate == current {
+                    // An ordinary equal-pointer retry must repair missing command links.
+                    for name in product.links() {
+                        fs::remove_file(prefix.join("bin").join(name)).unwrap();
+                    }
+                    active.join(product.executable())
+                } else {
+                    prefix.join("bin").join(product.executable())
+                };
                 let (release, manifest, archive, _) =
                     release::product_fixture(product, candidate, target, 42);
                 let mut installed_cli = false;
@@ -600,10 +608,7 @@ fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
                     release::indexed_download(release, manifest, archive),
                     |current, downloaded, channel, pin, checkpoint| {
                         installed_cli = true;
-                        assert_eq!(
-                            candidate, higher,
-                            "stale/equal pointer must not invoke installer"
-                        );
+                        assert_ne!(candidate, lower, "stale pointer must not invoke installer");
                         crate::native_install::test_support::install_downloaded(
                             current, downloaded, channel, pin, checkpoint,
                         )
@@ -616,7 +621,11 @@ fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
                 } else {
                     assert!(!report.installation.changed);
                     assert!(!report.skipped_pinned);
-                    assert!(!installed_cli);
+                    assert_eq!(
+                        installed_cli,
+                        product == Product::Cli && candidate == current
+                    );
+                    assert_eq!(report.installation.version, current);
                     assert_eq!(report.state.version.to_string(), current);
                     assert_eq!(layout.current().unwrap().unwrap().id, receipt.id);
                     assert_eq!(
@@ -629,6 +638,12 @@ fn published_pointer_at_or_below_installed_is_unchanged_before_installation() {
                     assert_eq!(
                         fs::read_dir(layout.root.join("releases")).unwrap().count(),
                         1
+                    );
+                }
+                for name in product.links() {
+                    assert_eq!(
+                        fs::read_link(prefix.join("bin").join(name)).unwrap(),
+                        Path::new(&product.link_target())
                     );
                 }
                 assert_eq!(fs::read(sentinel).unwrap(), b"untouched");

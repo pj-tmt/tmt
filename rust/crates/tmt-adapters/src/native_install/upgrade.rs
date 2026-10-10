@@ -347,7 +347,7 @@ fn upgrade_product_with_options(
         && selected.is_none()
         && exact.is_none()
         && !request.unpin
-        && downloaded.version.cmp_precedence(&current.state.version) != std::cmp::Ordering::Greater
+        && downloaded.version.cmp_precedence(&current.state.version) == std::cmp::Ordering::Less
     {
         return Ok(UpgradeReport {
             installation: InstallReport {

@@ -218,10 +218,11 @@ second step completes; no install/setup or skill-refresh pane effects are added.
 Remove this paragraph once rename B has shipped.
 
 `tmt upgrade [--channel stable|alpha] [--to <version> | --unpin] [--json]` and `tmt update`
-share one grammar. A normal channel pointer at or below the installed version reports unchanged
+share one grammar. A normal channel pointer below the installed version reports unchanged
 without activation; explicit `--to` below it still refuses. Use task-owned managed prefixes; an
-unmanaged checkout binary fails before networking. Production has no test endpoint or TLS bypass: API fixtures inject only the
-adapter's acquisition boundary and local TLS fixtures use test-only trust. Verify channel
+unmanaged checkout binary fails before networking. Equal versions retain integrity checks and
+ordinary retry repairs. Production has no test endpoint or TLS bypass: API fixtures inject only
+the adapter's acquisition boundary and local TLS fixtures use test-only trust. Verify channel
 discovery with injected responses only (more than 1,000 refs without a Link, complete
 pagination, numeric alpha ordering, stable/alpha/beta/rc separation, tags without releases,
 malformed or cross-endpoint pagination, page/byte/request exhaustion) and assert the

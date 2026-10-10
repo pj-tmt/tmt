@@ -39,7 +39,7 @@ fn plan_with(
             let latest = discovered
                 .parse()
                 .map_err(|error| failure("EXTENSION_UPGRADE_FAILED", io::Error::other(error)))?;
-            if current.state.version.cmp_precedence(&latest) != std::cmp::Ordering::Less {
+            if current.state.version.cmp(&latest) != std::cmp::Ordering::Less {
                 return Ok(Some(unchanged(product, &version)));
             }
             pending.push((product, version, latest.to_string()));
