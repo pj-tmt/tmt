@@ -56,7 +56,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   fences live decisions, publishes the final decision first, then the ordinary
   decision comment and existing explicit Ask. Failed notification never rolls back
   or resumes on reload. `renderer.ts` owns bounded cosmetic slot admission on the
-  existing channel; the iframe owns spacers only. Parent measurement reserves card
+  existing channel; the iframe owns spacers only, with no record text or action
+  capability. Parent measurement reserves card
   height, and vanished/duplicate slots or inner-scroll fallback detach to Comments.
   Explicit trusted Send, Approve or Decline may dispatch; render/sync/recovery never do.
   Proposal creation requires canonical caller and machine provenance through bounded public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.

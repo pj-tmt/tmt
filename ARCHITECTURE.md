@@ -607,7 +607,7 @@ core discovery or storage access.
   name is publisher-asserted display metadata, never a creator binding or routing authority.
   The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
-  [Colab proposal provenance](.agents/skills/tmt-colab/references/discussion.md) defines creation and retained-ID recovery.
+  [Colab proposals](.agents/skills/tmt-colab/references/discussion.md) defines provenance, retained-ID recovery and trusted card ownership.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration. The read-only Agents view
@@ -635,13 +635,6 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
-- **Proposal cards.** Authenticated discussion records supply parent-only cards.
-  The existing opaque renderer channel exchanges IDs/heights and cosmetic slot tops;
-  the iframe owns no record text or action capability. Parent trusted Approve/Decline
-  commits a final decision before the ordinary comment and existing browser-direct
-  Ask. Failed notification never rolls back or resumes automatically. The
-  [proposal contract](extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
-  owns bounds, finality and detached fallback; no new store or Remote operation.
 - **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
