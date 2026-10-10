@@ -325,7 +325,12 @@ pub fn help_command(path: &[String]) -> Result<Command, String> {
         selected = selected
             .find_subcommand(name)
             .filter(|command| !command.is_hide_set())
-            .ok_or_else(|| format!("Unknown command '{name}' after {}.", names.join(" ")))?;
+            .ok_or_else(|| {
+                let parent = names.join(" ");
+                let path = parent.strip_prefix("tmt").expect("help starts at the root");
+                let hint = format!("Run tmt help{path} to see its commands.");
+                format!("Unknown command '{name}' after {parent}.\n{hint}")
+            })?;
         names.push(selected.get_name().to_owned());
     }
     Ok(public_grammar(selected, path.is_empty()).bin_name(names.join(" ")))
