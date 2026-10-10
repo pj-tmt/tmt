@@ -49,6 +49,17 @@ impl Picks {
         Ok(Self(Some(picked)))
     }
 
+    /// The admitted tabs, or `None` while every tab is.
+    pub fn keys(&self) -> Option<Vec<String>> {
+        self.0
+            .as_ref()
+            .map(|picked| picked.iter().cloned().collect())
+    }
+
+    pub fn from_keys(keys: Option<Vec<String>>) -> Self {
+        Self(keys.map(|keys| keys.into_iter().collect()))
+    }
+
     pub fn contains(&self, key: &str) -> bool {
         self.0.as_ref().is_none_or(|picked| picked.contains(key))
     }

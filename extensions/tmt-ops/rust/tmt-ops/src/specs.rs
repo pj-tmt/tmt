@@ -247,6 +247,7 @@ pub const UI: &CommandSpec = spec!(
     [
         "Open the board in this terminal" => "tmt ops ui",
         "Close after a successful jump, for a tmux popup" => "tmt ops ui --popup",
+        "Reload every open board once it is idle, after an upgrade" => "tmt ops ui --reload-all",
     ]
 );
 

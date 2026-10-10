@@ -166,6 +166,17 @@ A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that row for you to act on. Answer it with `tmt reply` as usual; the
 user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
+## Reloading open boards
+
+An open board reloads itself in place, keeping its pid, tab, selection, scroll,
+expanded details, folds, search and picked tabs, when the `tmt-ops` it was started
+from is replaced (for example by `tmt extension upgrade ops` or `tmt upgrade`) or
+when `tmt ops ui --reload-all` asks every open board to. The board waits until it
+has been idle for a second and nothing is open: a composer, search, overlay, reader,
+pending request or loading view holds the reload, and the footer adds a dim
+`reload waiting`. After the reload the footer says `Board reloaded · tmt-ops X`.
+Boards started before this behavior shipped need one manual restart.
+
 ## Board appearance
 
 Member and HOME lead groups, outlined panes and inline input/read bands use horizontal

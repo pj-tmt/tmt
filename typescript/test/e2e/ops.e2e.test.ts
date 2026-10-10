@@ -641,4 +641,120 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture((screen) => !screen.includes('MEMBER'), shell.pane);
     });
   });
+  it('reloads an open board in place when its installed binary is replaced or a reload is requested', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      const docs = fixture
+        .tmux(['new-window', '-d', '-t', 'crew', '-P', '-F', '#{pane_id}', 'cat'])
+        .trim();
+      expectJsonResult(await fixture.runJsonCli(['add', docs, 'docs-fix']));
+      expectJsonResult(await squadCli(fixture, ['add', 'docs-fix']));
+
+      // A managed-looking install: PATH link -> current -> release. Each release records
+      // its launch, then runs the built board under the PATH name, as the real one is run.
+      const built = fs.realpathSync(path.join(fixture.wrapperDir, 'tmt-ops'));
+      const install = path.join(fixture.workspace, 'reload-install');
+      const cache = path.join(fixture.workspace, 'reload-cache');
+      const launches = path.join(install, 'launches.log');
+      for (const release of ['one', 'two']) {
+        fs.mkdirSync(path.join(install, release), { recursive: true });
+        const script = path.join(install, release, 'tmt-ops');
+        fs.writeFileSync(
+          script,
+          `#!/bin/bash\necho ${release} >> '${launches}'\nexec -a "$0" '${built}' "$@"\n`
+        );
+        fs.chmodSync(script, 0o755);
+      }
+      const install_release = (release: string): void => {
+        const staged = path.join(install, 'current.new');
+        fs.rmSync(staged, { force: true });
+        fs.symlinkSync(release, staged);
+        fs.renameSync(staged, path.join(install, 'current'));
+      };
+      install_release('one');
+      fs.rmSync(path.join(fixture.wrapperDir, 'tmt-ops'));
+      fs.symlinkSync(
+        path.join(install, 'current', 'tmt-ops'),
+        path.join(fixture.wrapperDir, 'tmt-ops')
+      );
+      const launched = (): string =>
+        fs.existsSync(launches)
+          ? fs.readFileSync(launches, 'utf8').trim().split('\n').join(',')
+          : '';
+      const screen = (pane: string): string => fixture.capture(40, pane);
+
+      const shell = fixture.createShellPane('board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        `export XDG_CACHE_HOME='${cache}'; tmt ops ui --squad product; echo BOARD_EXIT=$?`,
+        'Enter',
+      ]);
+      await fixture.waitFor(
+        () => screen(shell.pane).includes('auth-fix') && screen(shell.pane).includes('docs-fix'),
+        10_000,
+        'both members on the board'
+      );
+      // A filter is the place the reload must bring back.
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'docs', 'Enter']);
+      await fixture.waitFor(
+        () => screen(shell.pane).includes('docs-fix') && !screen(shell.pane).includes('auth-fix'),
+        10_000,
+        'filtered board'
+      );
+      expect(launched()).toBe('one');
+
+      // The installed binary is replaced: the idle board restarts itself in its pane.
+      install_release('two');
+      await fixture.waitFor(() => launched() === 'one,two', 15_000, 'second release launched');
+      await fixture.waitFor(
+        () => {
+          const now = screen(shell.pane);
+          return (
+            now.includes('Board reloaded · tmt-ops') &&
+            now.includes('docs-fix') &&
+            !now.includes('auth-fix')
+          );
+        },
+        15_000,
+        'the reloaded board keeps its filter'
+      );
+      expect(screen(shell.pane)).not.toContain('BOARD_EXIT');
+
+      // A search being typed defers the reload; finishing it lets the reload through.
+      fixture.tmux(['send-keys', '-t', shell.pane, '/']);
+      install_release('one');
+      await new Promise((resolve) => setTimeout(resolve, 3_500));
+      expect(launched()).toBe('one,two');
+      expect(screen(shell.pane)).toContain('reload waiting');
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitFor(() => launched() === 'one,two,one', 15_000, 'reload after the search');
+
+      // One command asks every open board; boards started after it are unaffected.
+      await fixture.waitFor(
+        () => screen(shell.pane).includes('Board reloaded · tmt-ops'),
+        15_000,
+        'board back after the replacement'
+      );
+      const asker = fixture.createShellPane('ask');
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        asker.pane,
+        `XDG_CACHE_HOME='${cache}' tmt ops ui --reload-all; echo ASK_EXIT=$?`,
+        'Enter',
+      ]);
+      await fixture.waitForCapture((text) => text.includes('ASK_EXIT=0'), asker.pane);
+      await fixture.waitFor(() => launched() === 'one,two,one,one', 15_000, 'reload on request');
+      await fixture.waitFor(
+        () => screen(shell.pane).includes('docs-fix') && !screen(shell.pane).includes('auth-fix'),
+        15_000,
+        'the filter survives every reload'
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((text) => text.includes('BOARD_EXIT=0'), shell.pane);
+    });
+  }, 120_000);
 });

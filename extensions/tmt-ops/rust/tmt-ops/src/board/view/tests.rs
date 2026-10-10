@@ -248,6 +248,25 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
 }
 
 #[test]
+fn a_due_reload_is_named_beside_the_open_prompt_and_only_then() {
+    let mut app = board(json!([{"title": null, "rows": [row("a", "working", "", json!({}))]}]));
+    let footer = |app: &App| draw(app, 100, 24).last().unwrap().trim_end().to_owned();
+    app.searching = true;
+    assert_eq!(footer(&app), "/▏");
+    app.reload = crate::board::reload::Watch::due();
+    assert_eq!(
+        footer(&app),
+        "/▏  reload waiting",
+        "a search being typed holds it back"
+    );
+    app.searching = false;
+    assert!(
+        !footer(&app).contains("reload waiting"),
+        "nothing is open: the reload runs, so there is nothing to wait on"
+    );
+}
+
+#[test]
 fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));

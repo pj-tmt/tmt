@@ -21,6 +21,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod carry;
+
 /// What the refresh worker loaded for one squad.
 pub struct RateView {
     pub settings: crate::config::TokenRate,
@@ -702,6 +704,12 @@ pub struct App {
     pub follow: bool,
     /// Opened as a tmux popup: a successful jump closes the board.
     pub popup: bool,
+    /// Notices a replaced binary or a reload request; inert unless `run` starts it.
+    pub(super) reload: super::reload::Watch,
+    /// Set when the session ends to reload: the state the next process resumes.
+    pub(super) restart: Option<super::resume::Resume>,
+    /// State a reload carried in, applied once to the first view of its tab.
+    pending_resume: Option<super::resume::Resume>,
     /// Views of squads already visited, so switching back is instant while
     /// the worker refreshes them.
     cache: BTreeMap<String, View>,
@@ -1607,6 +1615,7 @@ impl App {
                 }
                 if changed {
                     self.shown_changed();
+                    self.restore_pending();
                 } else {
                     self.reconcile_folds();
                     if let Some(anchor) = anchor {
@@ -1616,6 +1625,8 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
+                // A reload's state belongs to a view that did not arrive.
+                self.pending_resume = None;
                 self.home_counters.get_mut().clear();
                 if self.current.as_deref() == Some(super::ALL) {
                     for meter in self.meters.values_mut() {

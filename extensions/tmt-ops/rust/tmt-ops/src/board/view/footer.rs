@@ -356,5 +356,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
+    // A prompt or overlay is holding a due reload back; say so beside it.
+    if app.reload_waiting() {
+        footer_line.spans.push(Span::styled(
+            crate::board::reload::WAITING,
+            look.role(Role::Dim),
+        ));
+    }
     strip::paint_left(frame.buffer_mut(), footer, footer_line);
 }
