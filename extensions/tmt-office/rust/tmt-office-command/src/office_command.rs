@@ -177,9 +177,12 @@ fn install(
             } else {
                 native_install::install_release(
                     Product::Office,
-                    prefix,
-                    target,
-                    channel,
+                    native_install::ReleaseInstallRequest {
+                        prefix,
+                        target,
+                        channel,
+                        exact: None,
+                    },
                     Some(&crate::verify_release),
                     checkpoint,
                 )

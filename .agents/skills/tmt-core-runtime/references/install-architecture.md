@@ -33,6 +33,11 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 
 ## Native installation
 
+`tmt extension install --to <version>` selects and pins the exact release through the
+same fixed release-record acquisition as upgrade, without reading a channel pointer.
+It retains install consent, rejects local archive/repair combinations, and uses the
+existing exact-upgrade policy (including downgrade refusal) when already installed.
+
 [Release-index v1](../../../../contracts/release-index-v1.md) owns the publication-side
 record contract and the fixed-origin API-free native resolver.
 

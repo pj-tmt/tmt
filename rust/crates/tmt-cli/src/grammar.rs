@@ -357,8 +357,8 @@ fn option(id: &'static str) -> Arg {
         "json" => flag("Output one JSON document"),
         "yes" => flag("Approve without a prompt"),
         "prefix" => value("The extension installation prefix (default: ~/.local)"),
-        "to" => value("Install and pin an exact version").conflicts_with("unpin"),
-        "unpin" => flag("Remove the version pin and resume channel updates"),
+        "to" => value("Install and pin an exact version"),
+        "unpin" => flag("Remove the version pin and resume channel updates").conflicts_with("to"),
         "force" => {
             flag("Authorize the command's documented protected replacement or removal").short('f')
         }

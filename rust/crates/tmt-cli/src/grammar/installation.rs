@@ -68,6 +68,7 @@ pub(in crate::grammar) fn extension() -> Command {
             ]
         )))
         .arg(channel_option())
+        .arg(option("to").conflicts_with_all(["archive", "manifest", "repair"]))
         .arg(
             Arg::new("repair")
                 .long("repair")

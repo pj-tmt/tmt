@@ -296,6 +296,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             name,
             prefix: selected,
             channel,
+            to,
             archive,
             manifest,
             yes,
@@ -327,6 +328,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
                     product,
                     &prefix,
                     channel,
+                    to.as_deref(),
                     archive.as_deref(),
                     manifest.as_deref(),
                 )?
@@ -530,6 +532,30 @@ fn extension_list(rows: &[ExtensionListRow], home: Option<&Path>) -> Human {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn exact_install_still_requires_consent_before_creating_a_prefix() {
+        let prefix = std::env::temp_dir().join(format!("tmt-exact-consent-{}", std::process::id()));
+        assert!(!prefix.exists());
+        let failure = run(
+            ExtensionInstallRequest::Install {
+                name: "digest".into(),
+                prefix: Some(prefix.to_string_lossy().into()),
+                channel: Some(tmt_core::native_install::Channel::Alpha),
+                to: Some("0.1.0-alpha.1".into()),
+                archive: None,
+                manifest: None,
+                yes: false,
+                repair: false,
+                skills: false,
+            },
+            OutputMode { json: true },
+        )
+        .err()
+        .unwrap();
+        assert_eq!(failure.code, CONSENT);
+        assert!(!prefix.exists());
+    }
 
     #[test]
     fn only_official_extensions_are_named_and_the_cli_is_not_one() {

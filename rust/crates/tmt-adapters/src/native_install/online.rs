@@ -9,7 +9,14 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
-use tmt_core::native_install::{Channel, PinAction};
+use tmt_core::native_install::{Channel, PinAction, VersionError};
+
+pub struct ReleaseInstallRequest<'a> {
+    pub prefix: &'a Path,
+    pub target: &'a str,
+    pub channel: Channel,
+    pub exact: Option<&'a str>,
+}
 
 pub fn default_install_prefix() -> io::Result<PathBuf> {
     std::env::home_dir()
@@ -19,12 +26,11 @@ pub fn default_install_prefix() -> io::Result<PathBuf> {
 
 pub fn install_release(
     product: Product,
-    prefix: &Path,
-    target: &str,
-    channel: Channel,
+    request: ReleaseInstallRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
+    let channel = request.channel;
     let deadline = Instant::now() + Duration::from_secs(60);
     let client = if matches!(channel, Channel::Pr(_)) {
         crate::release_http::Https::authenticated()?
@@ -33,9 +39,7 @@ pub fn install_release(
     };
     install_release_with(
         product,
-        prefix,
-        target,
-        channel,
+        request,
         verifier,
         checkpoint,
         |url, accept, limit, request_deadline| {
@@ -69,13 +73,29 @@ pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<
 
 fn install_release_with(
     product: Product,
-    prefix: &Path,
-    target: &str,
-    channel: Channel,
+    request: ReleaseInstallRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<InstallReport> {
+    let ReleaseInstallRequest {
+        prefix,
+        target,
+        channel,
+        exact,
+    } = request;
+    let exact = exact
+        .map(|version| {
+            version
+                .parse::<Version>()
+                .map_err(|_| io::Error::other(VersionError::InvalidSelection))
+        })
+        .transpose()?;
+    if let Some(version) = &exact
+        && !channel.accepts(version)
+    {
+        return Err(io::Error::other(VersionError::WrongChannel));
+    }
     checkpoint()?;
     let deadline = Instant::now() + Duration::from_secs(60);
     let downloaded = if let Channel::Pr(pr) = channel {
@@ -83,7 +103,7 @@ fn install_release_with(
             super::pr_resolver::Request {
                 product,
                 pr,
-                exact: None,
+                exact: exact.as_ref(),
                 target,
                 opt_in: false,
                 deadline,
@@ -91,7 +111,7 @@ fn install_release_with(
             get,
         )?
     } else {
-        release::download_product(product, channel, None, target, deadline, get)?
+        release::download_product(product, channel, exact.as_ref(), target, deadline, get)?
     };
     checkpoint()?;
     let artifact = artifact::acquire_bytes(
@@ -106,7 +126,11 @@ fn install_release_with(
             product,
             prefix,
             channel,
-            pin: PinAction::Preserve,
+            pin: if exact.is_some() {
+                PinAction::PinCandidate
+            } else {
+                PinAction::Preserve
+            },
             expected: None,
             provenance: Some(downloaded.provenance),
             verifier,
@@ -122,6 +146,152 @@ fn install_release_with(
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn exact_first_install_ignores_missing_or_stale_pointers_and_pins_verified_bytes() {
+        for product in [Product::Remote, Product::Digest] {
+            for pointer in [None, Some("0.1.0-alpha.1"), Some("0.1.0-alpha.3")] {
+                let directory = TestDirectory::new();
+                let prefix = directory.path.join("prefix");
+                let version = "0.1.0-alpha.2";
+                let (release, manifest, archive, _) =
+                    release::product_fixture(product, version, "aarch64-apple-darwin", 42);
+                let mut routes = release::indexed_routes(&release, &manifest, &archive);
+                let pointer_url = format!(
+                    "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/{}/alpha.json",
+                    product.as_str()
+                );
+                match pointer {
+                    None => {
+                        routes.remove(&pointer_url);
+                    }
+                    Some(version) => {
+                        routes.insert(
+                            pointer_url,
+                            serde_json::to_vec(&serde_json::json!({"version": version})).unwrap(),
+                        );
+                    }
+                }
+                let mut calls = Vec::new();
+                let mut acquire = || {
+                    install_release_with(
+                        product,
+                        ReleaseInstallRequest {
+                            prefix: &prefix,
+                            target: "aarch64-apple-darwin",
+                            channel: Channel::Alpha,
+                            exact: Some(version),
+                        },
+                        None,
+                        || Ok(()),
+                        |url, _, _, _| {
+                            assert!(
+                                url.starts_with("https://github.com/pj-tmt/tmt/releases/download/"),
+                                "{url}"
+                            );
+                            calls.push(url.to_owned());
+                            Ok(routes.get(url).expect("exact release asset").clone().into())
+                        },
+                    )
+                };
+                let report = acquire().unwrap();
+                assert!(report.changed);
+                let installed = super::super::inspect_product_prefix(product, &prefix).unwrap();
+                assert_eq!(installed.state.version.to_string(), version);
+                assert_eq!(
+                    installed.state.pinned_version,
+                    Some(version.parse().unwrap())
+                );
+                let executable = std::fs::read(&installed.active_executable).unwrap();
+                let repeated = acquire().unwrap();
+                assert!(!repeated.changed);
+                assert_eq!(
+                    std::fs::read(&installed.active_executable).unwrap(),
+                    executable
+                );
+                assert_eq!(calls.len(), 6);
+                assert!(calls[0].ends_with("/tmt-release-record.json"));
+                assert_eq!(&calls[..3], &calls[3..]);
+                assert!(!prefix.join("bin/tmt").exists());
+            }
+        }
+    }
+
+    #[test]
+    fn exact_first_install_failure_preserves_the_prefix_and_never_falls_back() {
+        for defect in [
+            "record missing",
+            "product",
+            "version",
+            "tag",
+            "manifest",
+            "archive",
+        ] {
+            let directory = TestDirectory::new();
+            let prefix = directory.path.join("prefix");
+            std::fs::create_dir(&prefix).unwrap();
+            let sentinel = prefix.join("user-file");
+            std::fs::write(&sentinel, b"unchanged").unwrap();
+            let (release, manifest, archive, _) = release::product_fixture(
+                Product::Digest,
+                "0.1.0-alpha.2",
+                "aarch64-apple-darwin",
+                42,
+            );
+            let mut routes = release::indexed_routes(&release, &manifest, &archive);
+            let record_url = routes
+                .keys()
+                .find(|url| url.ends_with("/tmt-release-record.json"))
+                .unwrap()
+                .clone();
+            if matches!(defect, "product" | "version" | "tag") {
+                let mut record: serde_json::Value =
+                    serde_json::from_slice(&routes[&record_url]).unwrap();
+                record[defect] = serde_json::json!(match defect {
+                    "product" => "remote",
+                    "version" => "0.1.0-alpha.3",
+                    _ => "digest-v0.1.0-alpha.3",
+                });
+                routes.insert(record_url.clone(), serde_json::to_vec(&record).unwrap());
+            }
+            let mut calls = Vec::new();
+            let error = install_release_with(
+                Product::Digest,
+                ReleaseInstallRequest {
+                    prefix: &prefix,
+                    target: "aarch64-apple-darwin",
+                    channel: Channel::Alpha,
+                    exact: Some("0.1.0-alpha.2"),
+                },
+                None,
+                || Ok(()),
+                |url, _, _, _| {
+                    assert!(
+                        url.starts_with("https://github.com/pj-tmt/tmt/releases/download/"),
+                        "{url}"
+                    );
+                    calls.push(url.to_owned());
+                    if defect == "record missing" && url == record_url {
+                        return Err(io::Error::new(io::ErrorKind::NotFound, "record absent"));
+                    }
+                    let mut bytes = routes.get(url).expect("exact release asset").clone();
+                    if (defect == "manifest" && url.ends_with("/dist-manifest.json"))
+                        || (defect == "archive" && url.ends_with(".tar.gz"))
+                    {
+                        bytes[0] ^= 1;
+                    }
+                    Ok(bytes.into())
+                },
+            )
+            .unwrap_err();
+            if defect == "record missing" {
+                assert!(error.to_string().contains("cannot be installed directly"));
+                assert_eq!(calls.len(), 1);
+            }
+            assert_eq!(std::fs::read(&sentinel).unwrap(), b"unchanged");
+            assert_eq!(std::fs::read_dir(&prefix).unwrap().count(), 1);
+        }
+    }
 
     #[test]
     fn public_first_install_uses_only_published_hosts_in_both_channels() {
@@ -141,9 +311,12 @@ mod tests {
                     let network = release::PublishedNetwork::default();
                     let result = install_release_with(
                         product,
-                        &prefix,
-                        "aarch64-apple-darwin",
-                        channel,
+                        ReleaseInstallRequest {
+                            prefix: &prefix,
+                            target: "aarch64-apple-darwin",
+                            channel,
+                            exact: None,
+                        },
                         None,
                         || Ok(()),
                         |url, _, _, _| {
@@ -201,9 +374,12 @@ mod tests {
         let mut calls = Vec::new();
         let error = install_release_with(
             Product::Cli,
-            &prefix,
-            "aarch64-apple-darwin",
-            channel,
+            ReleaseInstallRequest {
+                prefix: &prefix,
+                target: "aarch64-apple-darwin",
+                channel,
+                exact: None,
+            },
             None,
             || Ok(()),
             |url, _, _, _| {
@@ -231,9 +407,7 @@ mod tests {
         let mut calls = 0;
         let error = install_release_with(
             Product::Office,
-            &prefix,
-            "aarch64-apple-darwin",
-            Channel::Alpha,
+            ReleaseInstallRequest { prefix: &prefix, target: "aarch64-apple-darwin", channel: Channel::Alpha, exact: None },
             Some(&|_: &Path, _: &semver::Version| Ok(())),
             || Ok(()),
             |url, _, _, _| {
@@ -257,7 +431,7 @@ mod tests {
             let directory = TestDirectory::new();
             let prefix = directory.path.join("prefix");
             let mut calls = Vec::new();
-            let error = install_release_with(product,&prefix,"aarch64-apple-darwin",Channel::Alpha,None,||Ok(()),
+            let error = install_release_with(product,ReleaseInstallRequest { prefix: &prefix, target: "aarch64-apple-darwin", channel: Channel::Alpha, exact: None },None,||Ok(()),
                 |url,_,_,_| {calls.push(url.to_owned()); assert_eq!(url,format!("https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/{}/alpha.json",product.as_str()));
                     Err(io::Error::new(io::ErrorKind::NotFound,"pointer missing"))}).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::NotFound);
@@ -279,9 +453,12 @@ mod tests {
         let prefix = directory.path.join("prefix");
         let error = install_release_with(
             Product::Office,
-            &prefix,
-            "aarch64-apple-darwin",
-            Channel::Alpha,
+            ReleaseInstallRequest {
+                prefix: &prefix,
+                target: "aarch64-apple-darwin",
+                channel: Channel::Alpha,
+                exact: None,
+            },
             Some(&|_: &Path, _: &semver::Version| Ok(())),
             || Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
             |_, _, _, _| panic!("cancelled installation must not download"),

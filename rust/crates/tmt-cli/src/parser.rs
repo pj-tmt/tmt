@@ -502,6 +502,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 name: required(m, "name"),
                 prefix: text(m, "prefix"),
                 channel: channel(m),
+                to: text(m, "to"),
                 archive: text(m, "archive"),
                 manifest: text(m, "manifest"),
                 yes: flag(m, "yes"),

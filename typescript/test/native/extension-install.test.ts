@@ -407,6 +407,67 @@ describe('Remote replacement notices after partial completion', () => {
 });
 
 describe('tmt extension install surface', () => {
+  it('keeps exact published selection consented and refuses a downgrade before changing an installed release', async () => {
+    await withSandbox(async (sandbox) => {
+      sandbox.env.TMT_AGENT = '1';
+      sandbox.env.BROWSER = '/usr/bin/true';
+      const prefix = path.join(sandbox.root, 'exact remote prefix');
+      const exact = [
+        'extension',
+        'install',
+        'remote',
+        '--to',
+        '0.1.0-alpha.1',
+        '--channel',
+        'alpha',
+        '--prefix',
+        prefix,
+        '--json',
+      ];
+      expectError(await runCli(sandbox, exact), 'EXTENSION_CONSENT_REQUIRED');
+      expect(existsSync(prefix)).toBe(false);
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'remote');
+      const installed = await runCli(
+        sandbox,
+        [
+          'extension',
+          'install',
+          'remote',
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+          '--prefix',
+          prefix,
+          '--yes',
+          '--json',
+        ],
+        { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+      );
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      const current = path.join(prefix, 'lib/tmt-remote/current');
+      const before = {
+        link: readlinkSync(current),
+        receipt: readFileSync(path.join(current, 'receipt.json')),
+        executable: readFileSync(path.join(current, 'tmt-remote')),
+      };
+      const refused = await runCli(sandbox, [...exact, '--yes']);
+      expect(refused.status).toBe(1);
+      expect(expectError(refused, 'EXTENSION_INSTALL_FAILED')).toMatchObject({
+        error: { message: expect.stringContaining('does not permit a version downgrade') },
+      });
+      expect(readlinkSync(current)).toBe(before.link);
+      expect(readFileSync(path.join(current, 'receipt.json')).equals(before.receipt)).toBe(true);
+      expect(readFileSync(path.join(current, 'tmt-remote')).equals(before.executable)).toBe(true);
+      expect(existsSync(path.join(prefix, 'bin/tmt'))).toBe(false);
+      const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
+      expect(parseWholeStdout(listed).extensions).toContainEqual(
+        expect.objectContaining({ name: 'remote', version: '0.1.0-alpha.2' })
+      );
+    });
+  });
+
   it('offers every registered official extension independently of release activation', async () => {
     await withSandbox(async (sandbox) => {
       const result = await runCli(sandbox, [
