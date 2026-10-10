@@ -729,7 +729,7 @@ function Page() {
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot]);
+  }, [snapshot, router]);
   async function save() {
     if (!snapshot.binding || saving) return;
     setSaving(true);
