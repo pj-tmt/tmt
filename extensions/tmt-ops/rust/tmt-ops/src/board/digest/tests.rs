@@ -32,9 +32,15 @@ fn choose(current: &str) -> Choose {
     Choose::parse(
         "digest",
         &json!({"kind":"choose","options":[
-            {"label":"Auto","value":"default"},
-            {"label":"Every 5 minutes","value":"5m"},
-            {"label":"Every hour","value":"1h"}],
+            {"label":"Default (Auto)","value":"default"},
+            {"label":"Auto","value":"auto"},
+            {"label":"1m","value":"1m"},
+            {"label":"5m","value":"5m"},
+            {"label":"10m","value":"10m"},
+            {"label":"30m","value":"30m"},
+            {"label":"1h","value":"1h"},
+            {"label":"20s (custom)","value":"20s"},
+            {"label":"Off","value":"off"}],
             "current":current,
             "argv":["digest","auth-fix","--squad","product","{value}"]}),
     )
@@ -99,6 +105,22 @@ fn menu_labels(app: &App) -> Vec<&str> {
         .iter()
         .map(|entry| entry.label.as_str())
         .collect()
+}
+
+/// Moves the dropdown's highlight to the entry whose label starts with `label`.
+fn highlight(app: &mut App, label: &str) {
+    let target = menu_labels(app)
+        .iter()
+        .position(|entry| entry.starts_with(label))
+        .unwrap_or_else(|| panic!("no entry {label}"));
+    while app.menu.as_ref().unwrap().selected != target {
+        let key = if app.menu.as_ref().unwrap().selected < target {
+            KeyCode::Down
+        } else {
+            KeyCode::Up
+        };
+        press(app, key);
+    }
 }
 
 #[test]
@@ -181,14 +203,20 @@ fn the_dropdown_lists_the_choices_marks_the_current_one_and_ends_with_custom() {
     assert_eq!(
         menu_labels(&app),
         [
+            "Default (Auto)",
             "Auto",
-            "Every 5 minutes  (current)",
-            "Every hour",
+            "1m",
+            "5m  (current)",
+            "10m",
+            "30m",
+            "1h",
+            "20s (custom)",
+            "Off",
             "Custom…"
         ]
     );
     assert_eq!(
-        menu.selected, 1,
+        menu.selected, 3,
         "the highlight starts on the current choice"
     );
 }
@@ -205,7 +233,7 @@ fn an_answer_that_arrives_after_something_else_opened_does_not_replace_it() {
     app.open_digest(granted("default"));
     assert_eq!(
         app.menu.as_ref().unwrap().selected,
-        1,
+        3,
         "the open menu stays"
     );
 }
@@ -214,10 +242,10 @@ fn an_answer_that_arrives_after_something_else_opened_does_not_replace_it() {
 fn keyboard_choose_applies_the_value_as_one_argument_and_esc_changes_nothing() {
     let mut app = app();
     app.open_digest(granted("5m"));
-    press(&mut app, KeyCode::Down);
+    highlight(&mut app, "1h");
     let set = digest_request(press(&mut app, KeyCode::Enter));
     assert_eq!(set.argv, ["digest", "auth-fix", "--squad", "product", "1h"]);
-    assert_eq!(set.shown, "Every hour");
+    assert_eq!(set.shown, "1h");
     assert!(app.menu.is_none());
 
     app.open_digest(granted("5m"));
@@ -229,9 +257,7 @@ fn keyboard_choose_applies_the_value_as_one_argument_and_esc_changes_nothing() {
 fn custom_takes_a_duration_and_an_empty_one_goes_back_to_default() {
     let mut app = app();
     app.open_digest(granted("default"));
-    for _ in 0..3 {
-        press(&mut app, KeyCode::Down);
-    }
+    highlight(&mut app, "Custom…");
     assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     let input = app.input.as_ref().unwrap();
     assert_eq!(input.prompt, "auth-fix digest · Enter sets, Esc cancels");
@@ -243,9 +269,7 @@ fn custom_takes_a_duration_and_an_empty_one_goes_back_to_default() {
 
     // Whatever is typed stays one argument; nothing is split or interpreted.
     app.open_digest(granted("default"));
-    (0..3).for_each(|_| {
-        press(&mut app, KeyCode::Down);
-    });
+    highlight(&mut app, "Custom…");
     press(&mut app, KeyCode::Enter);
     type_in(&mut app, "5m --squad other");
     let set = digest_request(press(&mut app, KeyCode::Enter));
@@ -254,9 +278,7 @@ fn custom_takes_a_duration_and_an_empty_one_goes_back_to_default() {
 
     // Empty clears the member's own value.
     app.open_digest(granted("5m"));
-    (0..2).for_each(|_| {
-        press(&mut app, KeyCode::Down);
-    });
+    highlight(&mut app, "Custom…");
     press(&mut app, KeyCode::Enter);
     let set = digest_request(press(&mut app, KeyCode::Enter));
     assert_eq!(
@@ -266,13 +288,12 @@ fn custom_takes_a_duration_and_an_empty_one_goes_back_to_default() {
 
     // Esc in the input cancels without a request.
     app.open_digest(granted("5m"));
-    (0..2).for_each(|_| {
-        press(&mut app, KeyCode::Down);
-    });
+    highlight(&mut app, "Custom…");
     press(&mut app, KeyCode::Enter);
     type_in(&mut app, "1h");
     assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
     assert!(app.input.is_none() && app.menu.is_none());
+    assert_eq!(app.notice.as_deref(), Some("Digest not changed."));
 }
 
 /// Where `text` is on the drawn board, as a click position.
@@ -306,7 +327,7 @@ fn mouse(kind: MouseEventKind, (column, row): (u16, u16)) -> MouseEvent {
 fn the_mouse_chooses_an_entry_scrolls_the_highlight_and_ignores_the_outside() {
     let mut app = app();
     app.open_digest(granted("5m"));
-    let hour = find(&app, "Every hour");
+    let hour = find(&app, "1h");
     // A click outside the entries keeps the dropdown open.
     assert_eq!(
         app.mouse(
@@ -318,13 +339,13 @@ fn the_mouse_chooses_an_entry_scrolls_the_highlight_and_ignores_the_outside() {
     assert!(app.menu.is_some());
     // The wheel moves the highlight, one entry per notch, within the list.
     app.mouse(mouse(MouseEventKind::ScrollDown, hour), Instant::now());
-    assert_eq!(app.menu.as_ref().unwrap().selected, 2);
-    app.mouse(mouse(MouseEventKind::ScrollUp, hour), Instant::now());
-    app.mouse(mouse(MouseEventKind::ScrollUp, hour), Instant::now());
-    app.mouse(mouse(MouseEventKind::ScrollUp, hour), Instant::now());
+    assert_eq!(app.menu.as_ref().unwrap().selected, 4);
+    for _ in 0..5 {
+        app.mouse(mouse(MouseEventKind::ScrollUp, hour), Instant::now());
+    }
     assert_eq!(app.menu.as_ref().unwrap().selected, 0);
     // A click on an entry runs it.
-    let hour = find(&app, "Every hour");
+    let hour = find(&app, "1h");
     let set = digest_request(app.mouse(
         mouse(MouseEventKind::Down(MouseButton::Left), hour),
         Instant::now(),
@@ -436,7 +457,7 @@ fn access_is_checked_again_when_the_choice_is_applied() {
     f.change_model(|m| m["caller"] = json!(LEAD));
     let set = grant(&core, ask("worker"))
         .unwrap()
-        .set("1h", "Every hour")
+        .set("1h", "1h")
         .unwrap();
     // The squad's lead changes between opening the dropdown and choosing.
     f.change_model(|m| {
@@ -471,7 +492,7 @@ fn a_successful_change_asks_the_reader_to_read_again_and_a_refused_one_does_not(
     let refresh = reader.refresher();
     let set = grant(&core, ask("worker"))
         .unwrap()
-        .set("1h", "Every hour")
+        .set("1h", "1h")
         .unwrap();
 
     fs::write(f.directory.join("fail"), "").unwrap();
