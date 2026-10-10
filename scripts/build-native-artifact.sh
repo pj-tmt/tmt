@@ -15,6 +15,8 @@ target=$1
 product=${2:-cli}
 case "$product" in cli|office|ops|driver-herdr|remote|colab) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
+# Native releases do not inherit a developer-hosted Colab inventory.
+unset TMT_COLAB_HOSTING_DIR
 if [ "$product" = office ] && [ "$frontend_notices" = true ]; then
   cd "$repo/typescript"
   corepack pnpm office:build:local 1>&2

@@ -1456,6 +1456,19 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
         "the generated asset allowance must remain module-specific"
     );
 
+    let colab_hosting = FixtureDirectory::new();
+    colab_hosting.write(
+        "hosting.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\"));\n",
+    );
+    assert!(source::collect("tmt-colab", &colab_hosting.root().join("hosting.rs")).is_ok());
+    assert!(source::collect("fixture", &colab_hosting.root().join("hosting.rs")).is_err());
+    colab_hosting.write(
+        "lib.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/colab_hosting.rs\"));\n",
+    );
+    assert!(source::collect("tmt-colab", &colab_hosting.root().join("lib.rs")).is_err());
+
     let verbatim = FixtureDirectory::new();
     verbatim.write("lib.rs", "pub fn declaration_only();\n");
     let error = source::collect("fixture", &verbatim.root().join("lib.rs"))

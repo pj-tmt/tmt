@@ -16,10 +16,10 @@ pub const DEFAULT_DIRECTORY: &str =
 pub const BUILD_HINT: &str =
     "Build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build";
 /// Trusted chrome admits only build-owned scripts and styles.
-pub const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+pub use crate::browser_policy::POLICY;
 
 /// The renderer is opaque even when opened directly rather than in an iframe.
-pub const RENDERER_POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts";
+pub use crate::browser_policy::RENDERER_POLICY;
 
 /// Public static bytes an unpaired browser may fetch: the read-only reader entry (served at
 /// `/read`, which keeps the entry's relative `./assets/` references under the mount), the files it

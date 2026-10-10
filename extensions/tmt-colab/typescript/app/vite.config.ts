@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
       configureServer(server) {
         // Use the native policy owner, avoiding a second dev-only policy copy.
         const source = readFileSync(
-          new URL('../../rust/tmt-colab/src/assets.rs', import.meta.url),
+          new URL('../../rust/tmt-colab/src/browser_policy.rs', import.meta.url),
           'utf8',
         );
         const policy = source.match(/pub const RENDERER_POLICY: &str = "([^"]+)";/)?.[1];
