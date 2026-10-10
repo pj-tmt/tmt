@@ -106,6 +106,7 @@ pub(super) fn discover_latest(
     deadline: Instant,
     get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<(ReleaseRecord, Version)> {
+    let mut missing_pointer = false;
     let mut resolve = || {
         if !Channel::ALL.contains(&channel) {
             return Err(invalid("Published release channel required."));
@@ -119,7 +120,10 @@ pub(super) fn discover_latest(
             "application/json",
             POINTER_LIMIT,
             deadline,
-        )?;
+        )
+        .inspect_err(|error| {
+            missing_pointer = error.kind() == io::ErrorKind::NotFound;
+        })?;
         let pointer: Value = super::pr_json::parse(&pointer.body, POINTER_LIMIT)?;
         let version = identity(&pointer, product, channel)?;
         if pointer["channel"] != channel.as_str().as_ref() {
@@ -139,7 +143,18 @@ pub(super) fn discover_latest(
         let record = parse_record(&bytes, product, channel, Some(&version))?;
         Ok((record, version))
     };
-    resolve().map_err(|error: io::Error| io::Error::new(error.kind(), format!("Could not check for {} updates on raw.githubusercontent.com: {error}. Nothing was changed.", product.as_str())))
+    resolve().map_err(|error: io::Error| {
+        let message = if missing_pointer {
+            format!(
+                "No published {} release in the {} channel yet. Nothing was changed.",
+                product.as_str(),
+                channel.as_str()
+            )
+        } else {
+            format!("Could not check for {} updates on raw.githubusercontent.com: {error}. Nothing was changed.", product.as_str())
+        };
+        io::Error::new(error.kind(), message)
+    })
 }
 
 fn canonical_version(text: &str) -> io::Result<Version> {

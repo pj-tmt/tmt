@@ -376,17 +376,88 @@ fn exact_version_reads_its_record_without_a_pointer() {
 
 #[test]
 fn missing_pointer_refuses_instead_of_reporting_current_or_trying_api() {
-    let mut fixture = Fixture::new(Product::Cli, "1.2.4");
-    fixture.routes.clear();
-    let error = fixture
-        .run(Product::Cli, Channel::Stable, None)
+    for (product, version, channel) in [
+        (Product::Cli, "1.2.4", Channel::Stable),
+        (Product::Digest, "1.2.4-alpha.2", Channel::Alpha),
+    ] {
+        let mut fixture = Fixture::new(product, version);
+        let pointer = fixture.pointer();
+        fixture.routes.remove(&pointer);
+        let error = fixture.run(product, channel, None).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "No published {} release in the {} channel yet. Nothing was changed.",
+                product.as_str(),
+                channel.as_str()
+            )
+        );
+        assert_eq!(fixture.calls, [pointer]);
+    }
+}
+
+#[test]
+fn other_discovery_failures_preserve_the_original_cause() {
+    for (at_pointer, kind, cause) in [
+        (
+            false,
+            io::ErrorKind::NotFound,
+            "HTTPS resource was not found",
+        ),
+        (
+            true,
+            io::ErrorKind::Other,
+            "HTTPS request failed: http status: 403",
+        ),
+        (
+            true,
+            io::ErrorKind::Other,
+            "HTTPS request failed: http status: 500",
+        ),
+        (true, io::ErrorKind::TimedOut, "HTTPS request timed out"),
+    ] {
+        let mut fixture = Fixture::new(Product::Cli, "1.2.4");
+        let pointer = fixture.pointer();
+        let record = fixture.record();
+        let error = super::download_product(
+            Product::Cli,
+            Channel::Stable,
+            None,
+            TARGET,
+            deadline(),
+            |url, accept, maximum, deadline| {
+                if url == if at_pointer { &pointer } else { &record } {
+                    fixture.calls.push(url.to_owned());
+                    Err(io::Error::new(kind, cause))
+                } else {
+                    fixture.get(url, accept, maximum, deadline)
+                }
+            },
+        )
         .err()
         .unwrap();
-    assert_eq!(
-        error.to_string(),
-        "Could not check for cli updates on raw.githubusercontent.com: fixture response missing. Nothing was changed."
-    );
-    assert_eq!(fixture.calls.len(), 1);
+        assert_eq!(error.kind(), kind);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "Could not check for cli updates on raw.githubusercontent.com: {}{cause}. Nothing was changed.",
+                if at_pointer {
+                    ""
+                } else {
+                    "Could not download release bytes from github.com: "
+                }
+            )
+        );
+        assert_eq!(
+            fixture.calls,
+            if at_pointer {
+                vec![pointer]
+            } else {
+                vec![pointer, record]
+            }
+        );
+    }
 }
 
 #[test]

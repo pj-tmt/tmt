@@ -440,10 +440,80 @@ mod tests {
             assert_eq!(
                 error.to_string(),
                 format!(
-                    "Could not check for {} updates on raw.githubusercontent.com: pointer missing. Nothing was changed.",
+                    "No published {} release in the alpha channel yet. Nothing was changed.",
                     product.as_str()
                 )
             );
+        }
+    }
+
+    #[test]
+    fn missing_pointer_or_record_preserves_installation_and_application_state() {
+        for (product, version, channel) in [
+            (Product::Cli, "1.2.4", Channel::Stable),
+            (Product::Digest, "1.2.4-alpha.2", Channel::Alpha),
+        ] {
+            for at_pointer in [true, false] {
+                let directory = TestDirectory::new();
+                let prefix = directory.path.join("prefix");
+                let sentinel = directory.path.join("application-state");
+                std::fs::write(&sentinel, b"untouched").unwrap();
+                let (release, manifest, archive, _) =
+                    release::product_fixture(product, version, "aarch64-apple-darwin", 42);
+                let routes = release::indexed_routes(&release, &manifest, &archive);
+                let mut calls = Vec::new();
+                let error = install_release_with(
+                    product,
+                    ReleaseInstallRequest {
+                        prefix: &prefix,
+                        target: "aarch64-apple-darwin",
+                        channel,
+                        exact: None,
+                    },
+                    None,
+                    || Ok(()),
+                    |url, _, _, _| {
+                        calls.push(url.to_owned());
+                        if (at_pointer && url.contains("/channels/"))
+                            || (!at_pointer && url.ends_with("tmt-release-record.json"))
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::NotFound,
+                                "HTTPS resource was not found",
+                            ));
+                        }
+                        Ok(routes
+                            .get(url)
+                            .expect("canonical metadata URL")
+                            .clone()
+                            .into())
+                    },
+                )
+                .unwrap_err();
+                assert_eq!(error.kind(), io::ErrorKind::NotFound);
+                assert_eq!(
+                    error.to_string(),
+                    if at_pointer {
+                        format!(
+                            "No published {} release in the {} channel yet. Nothing was changed.",
+                            product.as_str(),
+                            channel.as_str()
+                        )
+                    } else {
+                        format!(
+                            "Could not check for {} updates on raw.githubusercontent.com: Could not download release bytes from github.com: HTTPS resource was not found. Nothing was changed.",
+                            product.as_str()
+                        )
+                    }
+                );
+                assert_eq!(calls.len(), if at_pointer { 1 } else { 2 });
+                assert!(
+                    calls.iter().all(|url| url.contains("/channels/")
+                        || url.ends_with("tmt-release-record.json"))
+                );
+                assert!(!prefix.exists());
+                assert_eq!(std::fs::read(sentinel).unwrap(), b"untouched");
+            }
         }
     }
 
