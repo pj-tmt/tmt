@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "product": "cli",
+  "channel": "alpha",
+  "version": "5.0.0-alpha.170",
+  "tag": "v5.0.0-alpha.170",
+  "record": {
+    "url": "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.170/tmt-release-record.json",
+    "size": 1511,
+    "sha256": "7fcd4ee82b1ab286d88aad8657be38173d73872546cf493405a3e7026b194838"
+  }
+}
