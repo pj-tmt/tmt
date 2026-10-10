@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { expect, test, type BrowserContext } from '@playwright/test';
 
 const execute = promisify(execFile);
-const mount = '/r/abcd/x/colab/';
+const mount = '/r/abcdefghijklmnop/x/colab/';
 const app = fileURLToPath(new URL('../dist/', import.meta.url));
 const binary = process.env.COLAB_SERVE_EXECUTABLE;
 const producer = process.env.COLAB_PAGE_FIXTURE_EXECUTABLE;
@@ -204,7 +204,11 @@ async function native() {
           socketPath,
           path: below,
           method: incoming.method,
-          headers: { ...incoming.headers, 'tmt-device-context': fixture.context },
+          headers: {
+            ...incoming.headers,
+            'tmt-device-context': fixture.context,
+            'tmt-mount': mount,
+          },
         },
         (reply) => {
           outgoing.writeHead(reply.statusCode!, reply.headers);
@@ -226,7 +230,11 @@ async function native() {
       }
       upstream.on('connect', () => {
         const path = '/' + incoming.url!.slice(mount.length);
-        const headers = { ...incoming.headers, 'tmt-device-context': fixture.context };
+        const headers = {
+          ...incoming.headers,
+          'tmt-device-context': fixture.context,
+          'tmt-mount': mount,
+        };
         upstream.write(
           `GET ${path} HTTP/1.1\r\n${Object.entries(headers)
             .map(([key, value]) => `${key}: ${value}\r\n`)
