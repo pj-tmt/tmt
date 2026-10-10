@@ -30,6 +30,9 @@ fn main() {
     });
     fs::write(&proof,json!({"pid":std::process::id(),"args":arguments,"cwd":std::env::current_dir().unwrap(),"pane":std::env::var("TMUX_PANE").ok()}).to_string()).unwrap();
     println!("Former board fixture ready");
+    // Tests that alter the lease wait for two finished ticks after the change: a
+    // renewal already in flight is the only thing that can still publish over it.
+    let mut ticks = 0u64;
     while !stop.load(Ordering::Acquire) {
         if let Some(lease) = lease.as_mut() {
             match lease.renew(now()) {
@@ -40,6 +43,10 @@ fn main() {
                 Err(error) => panic!("old clock renew failed: {error}"),
             }
         }
+        ticks += 1;
+        let counted = proof.with_extension("ticks.tmp");
+        fs::write(&counted, ticks.to_string()).unwrap();
+        fs::rename(counted, proof.with_extension("ticks")).unwrap();
         thread::sleep(Duration::from_millis(50));
     }
     if let Some(lease) = lease {
