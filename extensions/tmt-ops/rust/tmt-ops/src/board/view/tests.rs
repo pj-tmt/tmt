@@ -5158,7 +5158,7 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
         depth: tmt_cli_style::Depth::TrueColor,
     };
     for (members, home) in [(false, false), (true, false), (false, true)] {
-        for width in [80, 160] {
+        for width in [100, 160] {
             crate::status::with_now_ms(1_000, || {
                 let mut app = digest_app(members, home, 2, 1_801_000, look);
                 if !home {
@@ -5299,7 +5299,8 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
             let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");
-            assert!(narrow.contains("digest"), "{narrow}");
+            // The state keeps the heading; the expanded detail carries the rest.
+            assert!(narrow.contains("dige"), "{narrow}");
             assert!(narrow.contains("1h20m"), "{narrow}");
             assert!(narrow.contains("left"), "{narrow}");
         });
@@ -5328,11 +5329,13 @@ fn digest_heading_keeps_row_height_hits_and_selected_background() {
                     before,
                     "digest adds no row lines or hit regions"
                 );
+                // Below this width the state keeps the whole heading.
                 if let Some(hit) = focused
                     .hits
                     .borrow()
                     .iter()
                     .find(|hit| hit.row() == Some(0))
+                    .filter(|_| width >= 80)
                 {
                     let line = (0..width)
                         .map(|x| buffer[(x, hit.y)].symbol())
@@ -5472,6 +5475,91 @@ fn migration_notice_survives_keys_and_refresh_until_promotion_in_all_themes() {
                     .unwrap()
                     .contains("migration pending")
             );
+        }
+    }
+}
+#[test]
+fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_labels_first() {
+    use crate::labels::Label;
+    use tmt_cli_style::Role;
+    let sets: [&[(&str, Role)]; 3] = [
+        &[("Auto", Role::Text), ("No held messages", Role::Muted)],
+        &[
+            ("Every 20s", Role::Text),
+            ("3 held", Role::Muted),
+            ("In 20s", Role::Muted),
+        ],
+        &[
+            ("Every 5m", Role::Text),
+            ("4 held", Role::Muted),
+            ("Due now", Role::Waiting),
+        ],
+    ];
+    let source = crate::labels::Supplied::from_rows(vec![(
+        "digest".into(),
+        sets.iter()
+            .enumerate()
+            .map(|(n, set)| {
+                let labels = set
+                    .iter()
+                    .map(|(text, role)| Label {
+                        text: (*text).into(),
+                        role: *role,
+                    })
+                    .collect();
+                (format!("member-m{}", n + 1), labels)
+            })
+            .collect(),
+    )]);
+    for members in [false, true] {
+        for width in [100u16, 60, 36] {
+            let rows: Vec<Value> = (1..=3)
+                .map(|n| {
+                    let id = format!("member-m{n}");
+                    row(
+                        &id,
+                        "working",
+                        "implementation",
+                        json!({"id": id, "state": "working"}),
+                    )
+                })
+                .collect();
+            let mut app = board(json!([{"title": null, "rows": rows}]));
+            app.view.as_mut().unwrap().board.members = members;
+            app.labels = source.clone();
+            let lines = detail_text(&board_buffer(&app, width, 24));
+            let screen = lines.join("\n");
+            let context = format!("{members} {width}:\n{screen}");
+            assert_eq!(
+                lines.iter().filter(|line| line.contains("working")).count(),
+                3,
+                "the state stays whole: {context}"
+            );
+            for line in lines.iter().filter(|line| line.contains("digest")) {
+                assert!(
+                    !line.contains('…'),
+                    "a label is shown whole or not at all: {context}"
+                );
+                assert!(
+                    !line.trim_end().ends_with("digest"),
+                    "the source name never stands alone: {context}"
+                );
+            }
+            if width == 100 {
+                for text in [
+                    "digest Auto · No held messages",
+                    "digest Every 20s · 3 held · In 20s",
+                    "digest Every 5m · 4 held · Due now",
+                ] {
+                    assert!(screen.contains(text), "{text}: {context}");
+                }
+            }
+            if width == 36 {
+                assert!(
+                    !screen.contains("Due now") && !screen.contains("In 20s"),
+                    "{context}"
+                );
+            }
         }
     }
 }

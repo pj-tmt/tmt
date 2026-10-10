@@ -500,8 +500,6 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             }
         };
         let reading = &readings[index];
-        let chips = row_chips::padded(row_chips::pieces(&app.labels, row, now, available / 2));
-        let chips_width = row_chips::pieces_width(&chips);
         let tag = if origin == RowOrigin::Lead {
             "  lead"
         } else {
@@ -518,7 +516,12 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             .min(26)
             .min(available / 2);
         let name = fit(&escape(row["name"].as_str().unwrap_or("–")), name_width);
-        let state_width = available.saturating_sub(chips_width + name_width + tag.len() + 2);
+        // The name and the whole state come first; the chips take what is left.
+        let room = available
+            .saturating_sub(name_width + tag.len() + 2 + escape(&state).width())
+            .min(available / 2);
+        let chips = row_chips::shown(&app.labels, row, now, room, true);
+        let state_width = available.saturating_sub(chips.width + name_width + tag.len() + 2);
         let mut after = vec![
             json!({"id":"task","text":format!("   {}",fit(&super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default()),width.saturating_sub(3)).trim_end()),"role":"text"}),
         ];
@@ -546,10 +549,10 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         if reading.model_visible {
             visible.push("model");
         }
-        if row_chips::fitted(&app.labels, row, now, available / 2).1 {
+        if chips.all {
             visible.push("chips");
         }
-        rows.push(json!({"chips": chips, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
+        rows.push(json!({"chips": chips.pieces, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
             "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(&state), state_width).trim_end()) },
             "state_role": if waits { "waiting" } else if observed { Role::Dim.name() } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },

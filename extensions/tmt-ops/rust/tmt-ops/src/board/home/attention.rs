@@ -144,9 +144,10 @@ pub(super) fn paint(
             let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
             let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
             let available = width.saturating_sub(4 + age_width);
-            let chips = row_chips::pieces(&app.labels, entry.row, now, available / 2);
-            let chips_width = row_chips::pieces_width(&chips);
-            let name_width = (available.saturating_sub(chips_width) / 2).min(24);
+            // The name keeps its half before the chips take theirs.
+            let name_width = (available / 2).min(24);
+            let chips = row_chips::shown(&app.labels, entry.row, now, available / 2, false);
+            let chips_width = chips.width;
             let sent = app.sent.as_ref().and_then(|feedback| {
                 feedback.line(&crate::board::app::RowTarget::Home(entry.target.clone()))
             });
@@ -159,14 +160,9 @@ pub(super) fn paint(
             {
                 after.push(json!({"id": format!("reserve-{line}"), "text": null, "role": null}));
             }
-            let budget = available / 2;
-            let visible = if row_chips::fitted(&app.labels, entry.row, now, budget).1 {
-                vec!["chips"]
-            } else {
-                vec![]
-            };
+            let visible = if chips.all { vec!["chips"] } else { vec![] };
             json!({
-                "chips": chips,
+                "chips": chips.pieces,
                 "id": id(local),
                 "mark": " ✗ ",
                 "mark_role": Role::Blocked.name(),

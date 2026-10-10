@@ -87,6 +87,7 @@ fn prepare(
         .map_err(|error| format!("Row values: {error}"))?;
     // Visibility is per occurrence: a surviving track may still cut this row's
     // text. Mirror the painter's request-age reservation and bounded wrapping.
+    let room = super::row_paint::heading_room(rows, &layout, usize::from(area.width));
     let mut painted_extras = extras.clone();
     for (index, (extra, (_, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
         let mut visible = Vec::new();
@@ -112,7 +113,7 @@ fn prepare(
                         ages[index].clone(),
                         extra.next.clone(),
                         &extra.chips,
-                        usize::from(area.width),
+                        room,
                     );
                     let end = usize::from(area.width)
                         .saturating_sub(heading.first().map_or(0, |label| label.width() + GAP));
@@ -177,7 +178,13 @@ fn prepare(
                 visible.push("pending");
             }
         }
-        if crate::board::row_chips::prefix(&extra.chips, available / 2) == extra.chips.len() {
+        let heading = super::row_paint::heading_labels(
+            ages[index].clone(),
+            extra.next.clone(),
+            &extra.chips,
+            room,
+        );
+        if heading.first().map_or(0, |label| label.chips.len()) == extra.chips.len() {
             visible.push("chips");
         }
         extra.detail = app.detail_value(index, &visible);

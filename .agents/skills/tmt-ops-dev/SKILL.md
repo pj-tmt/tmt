@@ -81,7 +81,8 @@ and injected-clock renderer checks alongside unchanged cron tests.
 (contract: the supplier's own, `extensions/<name>/contracts`), its validation, and the
 background `Reader`. It names no extension; `[labels] sources` is data. `board/row_chips.rs`
 is the only place that decides what a row's chips are (supplied labels, else the digest
-policy chip) and how many fit; every surface asks it and paints roles, never sources.
+policy chip) and how many fit; every surface asks it for the room left after the member's
+name and whole state, and paints roles, never sources.
 Details of the reader thread: [refresh-and-meter.md](references/refresh-and-meter.md#extension-labels).
 
 ## References

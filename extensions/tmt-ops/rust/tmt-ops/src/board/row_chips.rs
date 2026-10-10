@@ -12,35 +12,48 @@ const SEPARATOR: &str = " · ";
 pub struct Chip {
     pub text: String,
     pub role: Role,
+    /// A source's name: it shows only together with the label that follows it.
+    pub head: bool,
 }
 
-/// A row's chips in full. Supplied labels replace the policy chip; later chips
-/// carry their own separator so a prefix of the list always reads whole.
+/// A row's chips in full. Each source's labels follow its name and replace the
+/// policy chip; later chips carry their own separator so a prefix of the list
+/// always reads whole.
 pub fn of(supplied: &Supplied, row: &Value, now: u64) -> Vec<Chip> {
-    let labels: Vec<_> = row["id"]
+    let mut chips = Vec::new();
+    let mut source = None;
+    for (name, label) in row["id"]
         .as_str()
         .into_iter()
         .flat_map(|id| supplied.of(id))
-        .collect();
-    if labels.is_empty() {
+    {
+        // Hidden bidi and format characters never reach the terminal.
+        let text = super::notes::sanitize(&label.text);
+        if source == Some(name) {
+            chips.push(Chip {
+                text: format!("{SEPARATOR}{text}"),
+                role: label.role,
+                head: false,
+            });
+            continue;
+        }
+        source = Some(name);
+        let separator = if chips.is_empty() { "" } else { SEPARATOR };
+        chips.push(Chip {
+            text: format!("{separator}{} ", super::notes::sanitize(name)),
+            role: Role::Muted,
+            head: true,
+        });
+        chips.push(Chip {
+            text,
+            role: label.role,
+            head: false,
+        });
+    }
+    if chips.is_empty() {
         return policy(row, now);
     }
-    labels
-        .into_iter()
-        .enumerate()
-        .map(|(index, (_, label))| {
-            // Hidden bidi and format characters never reach the terminal.
-            let text = super::notes::sanitize(&label.text);
-            Chip {
-                text: if index == 0 {
-                    text
-                } else {
-                    format!("{SEPARATOR}{text}")
-                },
-                role: label.role,
-            }
-        })
-        .collect()
+    chips
 }
 
 /// Core's digest policy: the word, then what remains of it.
@@ -52,11 +65,13 @@ fn policy(row: &Value, now: u64) -> Vec<Chip> {
     let mut chips = vec![Chip {
         text: word.into(),
         role: Role::Text,
+        head: false,
     }];
     if !rest.is_empty() {
         chips.push(Chip {
             text: rest.into(),
             role: Role::Muted,
+            head: false,
         });
     }
     chips
@@ -66,62 +81,61 @@ pub fn width(chips: &[Chip]) -> usize {
     chips.iter().map(|chip| chip.text.width()).sum()
 }
 
-/// How many leading chips fit `budget` columns. The first chip is never cut:
-/// when it does not fit, none shows.
+/// How many leading chips fit `budget` columns. A source's name goes with its
+/// first label, and the first of them is never cut: when it does not fit, none
+/// shows.
 pub fn prefix(chips: &[Chip], budget: usize) -> usize {
     let mut used = 0;
-    chips
-        .iter()
-        .take_while(|chip| {
-            used += chip.text.width();
-            used <= budget
-        })
-        .count()
-}
-
-/// The leading chips that fit `budget` columns, and whether that is all of them.
-pub fn fitted(supplied: &Supplied, row: &Value, now: u64, budget: usize) -> (Vec<Chip>, bool) {
-    let mut chips = of(supplied, row, now);
-    let shown = prefix(&chips, budget);
-    let all = shown == chips.len();
-    chips.truncate(shown);
-    (chips, all)
-}
-
-/// Template data for a row's heading: the chips that fit, the first led by the
-/// one-column gap that separates them from the name.
-pub fn pieces(supplied: &Supplied, row: &Value, now: u64, budget: usize) -> Value {
-    json!(
-        fitted(supplied, row, now, budget)
-            .0
-            .into_iter()
-            .enumerate()
-            .map(|(index, chip)| {
-                let gap = if index == 0 { " " } else { "" };
-                json!({"id": format!("chip-{index}"), "text": format!("{gap}{}", chip.text), "role": chip.role.name()})
-            })
-            .collect::<Vec<_>>()
-    )
-}
-
-/// `pieces` closed by a one-column gap, for headings whose next cell follows directly.
-pub fn padded(mut pieces: Value) -> Value {
-    if let Some(pieces) = pieces.as_array_mut().filter(|pieces| !pieces.is_empty()) {
-        let id = format!("chip-{}", pieces.len());
-        pieces.push(json!({"id": id, "text": " ", "role": Role::Text.name()}));
+    let mut shown = 0;
+    while shown < chips.len() {
+        let unit = if chips[shown].head { 2 } else { 1 }.min(chips.len() - shown);
+        used += width(&chips[shown..shown + unit]);
+        if used > budget {
+            break;
+        }
+        shown += unit;
     }
-    pieces
+    shown
 }
 
-/// Columns the template data takes.
-pub fn pieces_width(pieces: &Value) -> usize {
-    pieces
-        .as_array()
-        .into_iter()
-        .flatten()
+/// A heading's chips as template data.
+pub struct Shown {
+    pub pieces: Value,
+    /// Columns the pieces take, gaps included.
+    pub width: usize,
+    /// Whether the heading had room for every chip.
+    pub all: bool,
+}
+
+/// The chips that fit `room` columns, the first led by the one-column gap that
+/// separates them from the name; `closed` ends them with another gap, for
+/// headings whose next cell follows directly. Trailing labels drop whole.
+pub fn shown(supplied: &Supplied, row: &Value, now: u64, room: usize, closed: bool) -> Shown {
+    let mut chips = of(supplied, row, now);
+    let count = prefix(&chips, room.saturating_sub(1 + usize::from(closed)));
+    let all = count == chips.len();
+    chips.truncate(count);
+    let mut pieces: Vec<_> = chips
+        .iter()
+        .enumerate()
+        .map(|(index, chip)| {
+            let gap = if index == 0 { " " } else { "" };
+            json!({"id": format!("chip-{index}"), "text": format!("{gap}{}", chip.text), "role": chip.role.name()})
+        })
+        .collect();
+    if closed && !pieces.is_empty() {
+        pieces.push(json!({"id": format!("chip-{count}"), "text": " ", "role": Role::Text.name()}));
+    }
+    let width = pieces
+        .iter()
         .filter_map(|piece| piece["text"].as_str())
         .map(UnicodeWidthStr::width)
-        .sum()
+        .sum();
+    Shown {
+        pieces: json!(pieces),
+        width,
+        all,
+    }
 }
 
 /// The fields row detail adds when the heading could not show every chip.
