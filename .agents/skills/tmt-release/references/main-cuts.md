@@ -215,7 +215,8 @@ run builds the selected main commit without a draft and publishes nothing.
 
 The draft's `release-publication.json` marks a complete bundle: archives, the final
 manifest and CLI installers are uploaded first, their digests compared with local
-bytes, then `tmt-release-record.json` uploaded and read back before the marker is uploaded last after every final verifier passes. A draft
+bytes, then `tmt-release-record.json` uploaded and read back before the marker is
+uploaded last after every final verifier passes. A draft
 with `verification-failed.json` stays unpublished. After diagnosis, an owner may
 dispatch that exact tag with `retry=<tag>` and `prepare` off. A cancelled run
 records no failure marker; an owner-authorized dispatch of the same tag retries it.
@@ -362,7 +363,9 @@ with an empty download directory outside the checkout:
 node typescript/scripts/release-publish.mjs verify --product <product> --tag <tag> --directory <empty-directory>
 ```
 
-The full verifier requires `tmt-release-record.json`; pre-record tags fail distinctly, and historical bootstrap needs separate owner-authorized verification without mutating old assets.
+The full verifier requires `tmt-release-record.json`; pre-record tags fail distinctly,
+and historical bootstrap needs separate owner-authorized verification without mutating
+old assets.
 
 It verifies public immutable state, the exact tag commit, product flags, latest
 CLI selection, the completeness marker, release attestation and every downloaded
