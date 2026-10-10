@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { createContext, useEffect, useState } from 'react';
 import { ReadRefusedError, SessionEndedError } from './ask-remote.js';
-import type { AgentDestination } from './live-ask.js';
+import type { AgentDestination, AgentDirectoryObservation } from './live-ask.js';
+import type { RunningDriver } from './ask-remote.js';
 
 /** What a composer knows about the agents it can ask. `ready` with no agents is a real answer;
  * `loading` and `failed` are not, and the composer must not offer an Ask for either. A failure
@@ -49,4 +50,63 @@ export function useAgentDirectory(
       ? settled.directory
       : LOADING;
   return { directory: current, retry: () => setAttempt((n) => n + 1) };
+}
+
+/** Read-only presentation scope, distinct from the composer's destination admission. */
+export const AgentPresentation = createContext<readonly AgentDestination[]>([]);
+
+export function runningDriverFor(
+  rows: readonly AgentDestination[],
+  machine: string,
+  agent: string,
+): RunningDriver | undefined {
+  const matches = rows.filter((row) => row.machine === machine && row.agent === agent);
+  const value = matches.length === 1 ? matches[0]!.runningDriver : undefined;
+  return value === 'claude' || value === 'codex' ? value : undefined;
+}
+
+/** Page/binding, admission and new-operation changes invalidate the previous read immediately.
+ * No polling, retained driver history, recovery or Ask admission occurs here. */
+export function useAgentPresentation(
+  binding: { observeDestinations?(): Promise<AgentDirectoryObservation> } | undefined,
+  page: string,
+  admitted: boolean,
+  operations: string,
+): readonly AgentDestination[] {
+  const [settled, setSettled] = useState<{
+    binding: unknown;
+    page: string;
+    operations: string;
+    agents: AgentDestination[];
+  }>();
+  // Discard a replaced scope, even when the same binding or operation set later returns.
+  if (
+    settled &&
+    (!admitted ||
+      settled.binding !== binding ||
+      settled.page !== page ||
+      settled.operations !== operations)
+  )
+    setSettled(undefined);
+  useEffect(() => {
+    if (!admitted || !binding?.observeDestinations) return;
+    let active = true;
+    const settle = (agents: AgentDestination[]) => {
+      if (active) setSettled({ binding, page, operations, agents });
+    };
+    void binding.observeDestinations().then(
+      (observation) => settle(observation.kind === 'ready' ? observation.destinations : []),
+      () => settle([]),
+    );
+    return () => {
+      active = false;
+    };
+  }, [binding, page, admitted, operations]);
+  return admitted &&
+    settled &&
+    settled.binding === binding &&
+    settled.page === page &&
+    settled.operations === operations
+    ? settled.agents
+    : [];
 }

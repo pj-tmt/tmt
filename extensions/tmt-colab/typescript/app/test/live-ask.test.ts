@@ -530,3 +530,30 @@ it('a local retry sends no effect when the original comment changes while its de
   expect(f.own).toEqual({});
   f.ask.close();
 });
+
+it.each(['claude', 'codex', undefined] as const)(
+  'projects admitted runningDriver %s without admitting or publishing an Ask',
+  async (runningDriver) => {
+    const f = await fixture();
+    vi.spyOn(f.remote, 'listAgents').mockResolvedValue([
+      {
+        id: id(6),
+        name: 'claude codex',
+        presence: 'active',
+        ...(runningDriver ? { runningDriver } : {}),
+      },
+    ]);
+    const observed = await f.ask.observeDestinations();
+    expect(observed.kind).toBe('ready');
+    if (observed.kind !== 'ready') throw new Error('Expected ready');
+    const row = observed.destinations[0]!;
+    expect(row.machine).toBe(id(5));
+    expect(row.agent).toBe(id(6));
+    expect(row.runningDriver).toBe(runningDriver);
+    if (!runningDriver) expect(row).not.toHaveProperty('runningDriver');
+    await expect(f.ask.prepare(f.input)).rejects.toThrow();
+    expect(f.own).toEqual({});
+    expect(f.remote.sends).toEqual([]);
+    f.ask.close();
+  },
+);

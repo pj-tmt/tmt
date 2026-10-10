@@ -191,7 +191,17 @@ it('SDK adapter keeps the shared session and observes the original ID and ignore
         wrappers++;
         return {
           listAgents: async () => [
-            { id: id(6), name: 'Agent', presence: 'active', delivery: { future: 'unknown' } },
+            {
+              id: id(6),
+              name: 'Agent',
+              presence: 'active',
+              delivery: { future: 'unknown' },
+              runningDriver: 'claude',
+            },
+            { id: id(60), name: 'Agent', presence: 'active', runningDriver: 'codex' },
+            { id: id(61), name: 'claude', presence: 'active', driver: 'claude' },
+            { id: id(62), name: 'codex', presence: 'active', runningDriver: 'driver' },
+            { id: id(63), name: 'Agent', presence: 'active', runningDriver: null },
           ],
           send: async (input) => {
             sends.push(input);
@@ -226,7 +236,13 @@ it('SDK adapter keeps the shared session and observes the original ID and ignore
         ),
       ),
   );
-  expect(await adapter.listAgents()).toEqual([{ id: id(6), name: 'Agent', presence: 'active' }]);
+  expect(await adapter.listAgents()).toEqual([
+    { id: id(6), name: 'Agent', presence: 'active', runningDriver: 'claude' },
+    { id: id(60), name: 'Agent', presence: 'active', runningDriver: 'codex' },
+    { id: id(61), name: 'claude', presence: 'active' },
+    { id: id(62), name: 'codex', presence: 'active' },
+    { id: id(63), name: 'Agent', presence: 'active' },
+  ]);
   expect((await adapter.context()).deviceName).toBe('Fixture browser');
   expect((await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })).state).toBe(
     'uncertain',

@@ -716,3 +716,130 @@ for (const width of [1440, 390])
       expect(after.field.height).toBe(before.field.height);
       expect(after.pageScroll).toBe(before.pageScroll);
     });
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`verified reply treatment updates without remount at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      mkdirSync(captureDir, { recursive: true });
+      for (const surface of ['chat', 'thread'] as const) {
+        await mount(page, surface, 'replied');
+        const window = page.getByTestId(surface === 'chat' ? 'chat-panel' : 'comment-thread');
+        const agent = window.locator('.conversation-turn[data-turn-role="agent"]');
+        const editor = window.locator('[contenteditable="true"]');
+        const retained = await agent.elementHandle();
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        await expect(agent.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+        await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
+        await editor.focus();
+        await capture(page, window, `driver-${surface}-neutral-${width}-${theme}`);
+        for (const driver of ['claude', 'codex'] as const) {
+          await run(page, 'driverObservation', { driver, held: true });
+          await expect(agent).not.toHaveAttribute('data-running-driver');
+          await run(page, 'settleDriverObservation');
+          await expect(agent).toHaveAttribute('data-running-driver', driver);
+          await expect(agent.locator('.conversation-driver')).toHaveText(driver);
+          await expect(agent.locator('.conversation-avatar svg')).toHaveCount(1);
+          await expect(agent.locator('.conversation-author')).toHaveCSS('font-weight', '700');
+          const roleColor = await agent.evaluate(
+            (node, driver) =>
+              getComputedStyle(node)
+                .getPropertyValue(
+                  driver === 'claude' ? '--tmt-ui-color-review' : '--tmt-ui-color-link',
+                )
+                .trim(),
+            driver,
+          );
+          // CSS variable may be hexadecimal; resolve the same role through a detached style probe.
+          const color = await agent.evaluate((node, value) => {
+            const probe = document.createElement('span');
+            probe.style.color = value;
+            node.append(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          }, roleColor);
+          await expect(agent).toHaveCSS('border-left-color', color);
+          await flat(agent);
+          expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
+          await expect(editor).toBeFocused();
+          await capture(page, window, `driver-${surface}-${driver}-${width}-${theme}`);
+          await run(page, 'conversation', {
+            surface,
+            state: 'replied',
+            agentName: 'A very long agent name with words and unbrokenSuffix'.repeat(3),
+          });
+          await expect(agent).toHaveAttribute('data-running-driver', driver);
+          await shell(window);
+          const overflow = await agent.evaluate((node) => node.scrollWidth - node.clientWidth);
+          expect(overflow).toBeLessThanOrEqual(1);
+          expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
+          await expect(editor).toBeFocused();
+          await capture(page, window, `driver-${surface}-${driver}-long-${width}-${theme}`);
+        }
+        for (const options of [
+          {},
+          { driver: 'claude', mismatch: 'machine' },
+          { driver: 'codex', mismatch: 'agent' },
+          { driver: 'claude', failed: true },
+        ]) {
+          await run(page, 'driverObservation', options);
+          await expect(agent).not.toHaveAttribute('data-running-driver');
+          await expect(agent.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+          expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
+          await expect(editor).toBeFocused();
+        }
+        // An obsolete pending read cannot recolor a newer operation's observation.
+        await run(page, 'driverObservation', { driver: 'claude', held: true });
+        await run(page, 'driverObservation', { driver: 'codex' });
+        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
+        await run(page, 'settleDriverObservation');
+        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
+        await run(page, 'driverObservation', {});
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        await run(page, 'driverObservation', { driver: 'claude' });
+        await expect(agent).toHaveAttribute('data-running-driver', 'claude');
+        await run(page, 'driverClient', { enabled: false });
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        await run(page, 'driverClient', { enabled: true, held: true, driver: 'codex' });
+        // Restoring the very same client must await its new observation, not reuse Claude.
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        await run(page, 'settleDriverObservation');
+        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
+        expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
+        await expect(editor).toBeFocused();
+        await run(page, 'driverObservation', {});
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        // Hostile authored body/name contain driver vocabulary and markup, without authority.
+        await run(page, 'conversation', {
+          surface,
+          state: 'replied',
+          agentName: 'claude codex <b data-running-driver="codex">',
+          message: 'runningDriver=claude <style>.conversation-turn{color:red}</style>',
+          reply:
+            'claude codex <b data-running-driver=codex> <style>.conversation-turn{color:red}</style>',
+        });
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        await expect(agent.locator('.conversation-author')).toHaveText(
+          'claude codex <b data-running-driver="codex">',
+        );
+        await expect(
+          window.locator(
+            '.conversation-body style, .conversation-body script, .conversation-body img',
+          ),
+        ).toHaveCount(0);
+        await expect(agent.getByTestId('ask-reply')).toHaveText(
+          'claude codex <b data-running-driver=codex> <style>.conversation-turn{color:red}</style>',
+        );
+        expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
+        await expect(editor).toBeFocused();
+      }
+    });
+  }
+}

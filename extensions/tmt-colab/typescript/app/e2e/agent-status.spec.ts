@@ -49,7 +49,14 @@ for (const width of [1440, 390])
       await expect(
         page.frameLocator('iframe').getByRole('heading', { name: 'Storage discussion' }),
       ).toBeVisible();
-      expect((await proof(page)).checks).toBe(0);
+      // The page observes driver metadata once; the closed drawer adds no reads or effects.
+      expect(await proof(page)).toEqual({
+        checks: 1,
+        prepares: 0,
+        writes: 0,
+        ledgerActions: 0,
+        destinationReads: 0,
+      });
       const before = await page.locator('iframe').boundingBox();
       const panel = await openStatus(page);
       await expect(panel).toBeVisible();
@@ -75,7 +82,7 @@ for (const width of [1440, 390])
       await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(1);
       if (captures) await page.screenshot({ path: `${captures}/${width}-${theme}-stale.png` });
       expect(await proof(page)).toEqual({
-        checks: 2,
+        checks: 3,
         prepares: 0,
         writes: 0,
         ledgerActions: 0,
@@ -114,7 +121,7 @@ test('empty successful directory and unavailable page are distinct', async ({ pa
   await command(page, 'failPage');
   await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
-  expect((await proof(page)).checks).toBe(1);
+  expect((await proof(page)).checks).toBe(2);
 });
 
 test('same-client admission restoration cannot resurrect cached rows or late results', async ({
@@ -144,7 +151,8 @@ test('same-client admission restoration cannot resurrect cached rows or late res
   await expect(panel.getByText('No successful directory read yet.')).toBeVisible();
   await expect(input).toHaveText('Keep the draft through admission loss', { useInnerText: true });
   const effects = await proof(page);
-  expect(effects.checks).toBe(3);
+  // One initial page presentation read, then the probe’s three explicit status reads.
+  expect(effects.checks).toBe(4);
   expect(effects.prepares + effects.writes + effects.ledgerActions).toBe(0);
 });
 test('replaced binding drops the old pending directory and retains a Chat draft', async ({
@@ -174,13 +182,15 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
   expect(state.prepares + state.writes + state.ledgerActions).toBe(0);
 });
 
-test('an unavailable Ask client leaves the page usable and performs no status reads', async ({
+test('disabling the Ask client leaves the page usable and performs no further status reads', async ({
   page,
 }) => {
   await page.goto(fixture);
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Storage discussion' }),
   ).toBeVisible();
+  const before = await proof(page);
+  expect(before.checks).toBe(1);
   await command(page, 'disableClient');
   const panel = await openStatus(page);
   await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
@@ -189,7 +199,7 @@ test('an unavailable Ask client leaves the page usable and performs no status re
     page.frameLocator('iframe').getByRole('heading', { name: 'Storage discussion' }),
   ).toBeVisible();
   expect(await proof(page)).toEqual({
-    checks: 0,
+    checks: before.checks,
     prepares: 0,
     writes: 0,
     ledgerActions: 0,

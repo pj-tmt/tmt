@@ -117,6 +117,12 @@ so native creator provenance resolves through the real core.
 `discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
 contracts and focused cases are described in [discussion.md](discussion.md).
 
+`ask.spec.ts` also proves verified treatment across served Remote: provider fixtures
+execute public setup's installed SessionStart hook under real `tmt run`; Core
+admits live claude/codex sessions. Ordinary recipients omit the field. Real replies
+and reload keep the expected treatment with one dispatch. No directory or SDK
+response is patched for this proof.
+
 `ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser staying live at once. They

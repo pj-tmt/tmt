@@ -2,10 +2,12 @@ import { coreId, decimal, exactKeys, generatedId, requireValue, time } from '@tm
 import { requestId } from './ask-records.js';
 import { remoteSdk, jsonResponse } from './registration.js';
 
+export type RunningDriver = 'claude' | 'codex';
 export interface RemoteAgent {
   id: string;
   name: string;
   presence?: 'active' | 'offline' | 'unknown';
+  runningDriver?: RunningDriver;
 }
 export interface SendInput {
   operationId: string;
@@ -143,7 +145,14 @@ export interface OperationsSdk {
       | { state: 'unavailable'; requestId?: string; reason?: string }
     >;
     listAgents(): Promise<
-      { id: string; name: string; presence: 'active' | 'offline' | 'unknown'; delivery?: unknown }[]
+      {
+        id: string;
+        name: string;
+        presence: 'active' | 'offline' | 'unknown';
+        delivery?: unknown;
+        /** Additive verified SDK field; absent until Remote ships it. */
+        runningDriver?: unknown;
+      }[]
     >;
   };
 }
@@ -285,7 +294,12 @@ export async function createRemoteClient(
           typeof row.name === 'string' && ['active', 'offline', 'unknown'].includes(row.presence),
         );
       }
-      return rows.map(({ id, name, presence }) => ({ id, name, presence }));
+      return rows.map(({ id, name, presence, runningDriver }) => ({
+        id,
+        name,
+        presence,
+        ...(runningDriver === 'claude' || runningDriver === 'codex' ? { runningDriver } : {}),
+      }));
     },
     send: async (input) => {
       generatedId(input.operationId);
