@@ -1087,3 +1087,175 @@ fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_ow
     );
     assert_ne!(provider.rules.as_ref().unwrap(), &live);
 }
+
+#[test]
+fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_alone() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use tmt_remote::hosting::{
+        self, HostingBundle, HostingInventory, HostingLiveRelease, HostingManifest,
+    };
+    let root = Root::new();
+    let layout = root.layout();
+    let mut store = DeployRecordStore::open(&layout).unwrap();
+    store.persist(&DeployRecord::new(ID)).unwrap();
+    let mut declaration: serde_json::Value =
+        serde_json::from_slice(&fixture("declarations", "colab-firestore.json")).unwrap();
+    let artifact = fixture("declarations", "rules/colab-admission.rules");
+    let hash = |bytes: &[u8]| {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let manifest=HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+    declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
+    let bytes = serde_json::to_vec(&declaration).unwrap();
+    let plan = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name: "colab",
+            supplied: Some(Supplied {
+                declaration: &bytes,
+                artifact: &artifact,
+            }),
+        }],
+    )
+    .unwrap();
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
+    let content =
+        hosting::compose(&[
+            HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap(),
+        ])
+        .unwrap()
+        .unwrap();
+    let mut inventory = HostingInventory {
+        site_exists: true,
+        web_apps: vec!["1:123:web:abc".into()],
+        live: Some(HostingLiveRelease {
+            version: "version-1".into(),
+            deployment_id: None,
+            plan_digest_prefix: None,
+            content_digest: None,
+            files: content.files().to_vec(),
+            config: content.config().clone(),
+        }),
+    };
+    let body = fixture("deploy_run", "rules-body.rules");
+    let mut request = input(&plan, &body);
+    request.live_rules = Some(b"foreign rules");
+    let mut port = Fake::new(ACCOUNT);
+    let view = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
+    let preview = tmt_remote::deploy_command::execute_with_hosting(
+        &request,
+        &DeployCommandOptions::default(),
+        &mut store,
+        &mut port,
+        1,
+        Some(&view),
+    )
+    .unwrap();
+    assert_eq!(
+        preview.json["plan"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>(),
+        vec![
+            &json!("verify"),
+            &json!("hosting:release"),
+            &json!("rules"),
+            &json!("hosting:stage")
+        ]
+    );
+    assert_eq!(
+        preview.json["plan"]["destructive"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(preview.human.contains("Replace the live Hosting release"));
+    assert!(
+        preview
+            .human
+            .contains("Create site: no\nCreate web app: no\n")
+    );
+    assert!(
+        preview.human.contains(
+            "Hosting publishing is not available in this release. This plan is read-only."
+        )
+    );
+    assert!(!preview.human.contains("To deploy this plan"));
+    let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
+    let saved = fs::read(root.remote().join("deploy.json")).unwrap();
+    inventory.live.as_mut().unwrap().version = "version-2".into();
+    let changed = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
+    assert!(matches!(
+        tmt_remote::deploy_command::execute_with_hosting(
+            &request,
+            &DeployCommandOptions {
+                authorize: Some(prefix)
+            },
+            &mut store,
+            &mut port,
+            2,
+            Some(&changed)
+        ),
+        Err(DeployCommandError::Refused(
+            DeployRefusal::AuthorizationStale
+        ))
+    ));
+    assert!(matches!(
+        tmt_remote::deploy_command::execute_with_hosting(
+            &request,
+            &DeployCommandOptions {
+                authorize: Some(prefix)
+            },
+            &mut store,
+            &mut port,
+            2,
+            Some(&view)
+        ),
+        Err(DeployCommandError::Refused(
+            DeployRefusal::HostingUnavailable
+        ))
+    ));
+    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), saved);
+    assert!(port.calls.is_empty() && port.effects.is_empty());
+    // The engine boundary also refuses this future step set before any save or call.
+    let prepared = deploy_run::prepare_with_hosting(
+        &plan,
+        &DeployInput {
+            account: ACCOUNT,
+            project: request.project,
+            deployment_id: ID,
+            location: request.location,
+            sign_in: &BOTH,
+            rules_body: &body,
+            live_rules: request.live_rules,
+        },
+        Some(&view),
+    )
+    .unwrap();
+    let authorization = deploy_run::authorize(&prepared, prefix).unwrap();
+    assert!(matches!(
+        deploy_run::run(
+            &prepared,
+            &authorization,
+            DeployRecord::new(ID),
+            &mut port,
+            &mut store,
+            3
+        ),
+        Err(DeployError::Refused(DeployRefusal::HostingUnavailable))
+    ));
+    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), saved);
+    assert!(port.calls.is_empty() && port.effects.is_empty());
+}

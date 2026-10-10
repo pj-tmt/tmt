@@ -36,6 +36,13 @@ pub trait FirestoreCommandPort: DeployPort {
         plan: &crate::deploy_plan::Plan,
     ) -> Result<(), DeployProviderError>;
     fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError>;
+    /// Unsupported until the Hosting provider lifecycle is delivered; never assume empty.
+    fn hosting_inventory(
+        &mut self,
+        _project: &str,
+    ) -> Result<crate::hosting::HostingInventory, crate::deploy_run::DeployRefusal> {
+        Err(crate::deploy_run::DeployRefusal::HostingUnavailable)
+    }
 }
 impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError> {
@@ -160,7 +167,36 @@ fn execute_prepared(
     let live_rules = provider
         .live_rules(&args.project)
         .map_err(DeployCliError::Provider)?;
-    deploy_command::execute(
+    let hosting = discovered
+        .hosting
+        .as_ref()
+        .map(|composition| {
+            let inventory = provider
+                .hosting_inventory(&args.project)
+                .map_err(|reason| {
+                    DeployCliError::Command(
+                        deploy_command::DeployCommandError::Refused(reason),
+                        record_path.to_path_buf(),
+                    )
+                })?;
+            let record = store.load_or_draft().map_err(DeployCliError::Local)?;
+            crate::hosting::deployment_view(
+                composition,
+                &args.project,
+                &record.deployment_id,
+                &inventory,
+            )
+            .map_err(|_| {
+                DeployCliError::Command(
+                    deploy_command::DeployCommandError::Refused(
+                        crate::deploy_run::DeployRefusal::HostingUnavailable,
+                    ),
+                    record_path.to_path_buf(),
+                )
+            })
+        })
+        .transpose()?;
+    deploy_command::execute_with_hosting(
         &DeployCommandInput {
             extensions: &discovered.extensions,
             project: &args.project,
@@ -175,6 +211,7 @@ fn execute_prepared(
         store,
         provider,
         now_ms,
+        hosting.as_ref(),
     )
     .map_err(|error| DeployCliError::Command(error, record_path.to_path_buf()))
 }

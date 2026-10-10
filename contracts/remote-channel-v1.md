@@ -1672,8 +1672,8 @@ visible; content secrecy is not metadata secrecy or protection from a compromise
 ### Proposal: extension backend declarations
 
 An enabled owner-installed extension supplies a strict version-1 declaration per backend:
-`{version,extension,backend,resources,admission}`. Extension uses the existing mounted-name
-grammar; backend is `local`, `firestore` or `cloudflare`. A declaration has at most 64 resources
+`{version,extension,backend,resources,admission}` with optional `hosting` for Firestore. Extension
+uses the existing mounted-name grammar; backend is `local`, `firestore` or `cloudflare`. A declaration has at most 64 resources
 and 64 KiB of UTF-8 JSON. Remote reads only installed, owner-approved artifacts, never downloads or
 executes a declaration-carried command.
 
@@ -1702,6 +1702,54 @@ whole plan before provisioning; a target without a physical expiry (TTL) policy 
 `not-provisioned`, with expiry left to Rules, and does not fail the plan. On Firestore a resource path names a collection: an odd number of segments, at most 7, since `x/<extension>` is a document. Routes/assets may be mounted only through the declared namespace,
 never an extension-selected public operation URL. Extensions requiring changes submit a new
 declaration, not a second backend/sign-in/deploy owner.
+
+A Hosting declaration is `{version:1,files}` with a nonempty, strictly path-sorted inventory of
+`{path,sha256,length,contentType}` with optional `csp` last. CSP is 1 to 2048 bytes of printable
+ASCII (0x20–0x7e), without CR/LF, and is omitted when absent. Paths are absolute, case-sensitive
+ASCII file paths with no empty, dot or hidden segment, escape, query or fragment; `/__` and its
+descendants are reserved.
+The inventory has at most 256 files, 4 MiB per raw file and 16 MiB total; each digest is lowercase
+SHA-256 of the exact raw bytes. Content types are `text/html`, `text/plain`, `text/css`,
+`text/javascript`,
+`application/javascript`, `application/json`, `image/svg+xml`, `image/png`, `image/jpeg`,
+`image/webp`, `image/x-icon`, `font/woff` or `font/woff2`. The declaration digest covers this inventory.
+
+For a declared inventory, Remote captures the fixed public `<extension> hosting-bundle --json`
+command once, with no digest argument, in the same neutral cwd and environment as declaration
+capture. The strict reply is exactly `{version:1,manifestDigest,files}`: `manifestDigest` is SHA-256
+of compact JSON with keys ordered `version,files` and file keys `path,sha256,length,contentType,csp`
+(the last omitted when absent). Each reply file is `{path,bytesBase64}` in inventory order, with
+canonical padded Base64. All paths, raw lengths and raw digests must match
+before provider setup; missing release-embedded bytes are unavailable, never an empty site or
+fixture substitute. The reply is bounded to 24 MiB and the invocation to 30 s, with waited cleanup.
+Remote composes disjoint inventories, requires `/index.html` as the HTML shell, and freezes gzip
+bytes (level 6, timestamp zero, OS 255) with separate raw and transport digests. Its ServingConfig
+pins content types, `nosniff`, `no-cache` and fixed `Referrer-Policy: no-referrer` on every file,
+and emits its declared CSP verbatim as `Content-Security-Policy`. Remote appends `; charset=utf-8`
+to HTML, CSS, JavaScript, JSON and plain-text headers (both JavaScript MIME types), not SVG/binary;
+declarations keep bare types and the config digest covers these headers. Only `/colab`, `/colab/`,
+`/p/<id>` and `/read/<id>` rewrite to that shell; IDs use the public short-route grammar. Header
+rules for these routes and `/` (directory index, no rewrite) copy the shell's exact set because
+Firebase matches headers against the original
+request path, as documented by the [REST schema](https://firebase.google.com/docs/reference/hosting/rest/v1beta1/sites.versions)
+and [Hosting header guide](https://firebase.google.com/docs/hosting/full-config#headers), not
+verified live-project acceptance. Reserved Firebase paths are never rewritten. Public bytes and
+configuration confer no device authority.
+
+The Hosting plan names the same-project default site and `web.app` entry, any site/web-app
+creation, exact content/config digests and a captured foreign-release fingerprint. Zero web apps
+requires creation; one is reused; more than one is refused until the publication lifecycle defines
+how Remote identifies its own app. Ownership requires both
+Remote's deployment/plan labels and exact full content/config identity; labels alone cannot adopt
+a release. The whole plan digest covers both foreign Rules and Hosting replacement fingerprints;
+changed foreign state invalidates consent. Rules and Hosting publication are not atomic: the
+publication lifecycle must stage Hosting, switch Rules, then release Hosting and read back both
+before Complete. Ambiguity stays partial/unknown without rollback or a usable binding. Rules and
+declarations change additively first: client N−1 works with Rules N. Tightening waits until the
+client no longer needing the old shape has been the deployed bundle for one release. Colab owns
+the whole hosted bundle, including an unmodified, digest-checked copy of Remote's built SDK;
+Remote adds no hosted pages. Current composition freezes these inputs and steps only;
+Hosting execution remains unavailable until that publication lifecycle is delivered.
 
 The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,
 which also covers each declaration's own digest, the target backend and whether physical TTL is provisioned. Its
@@ -1784,7 +1832,7 @@ Records carry fixed reason codes, never provider text, and Remote fixes the owne
 
 - Refusals before any effect: `REMOTE_DEPLOY_PROJECT_INVALID`, `_LOCATION_INVALID`,
   `_DEPLOYMENT_INVALID`, `_SIGN_IN_MISSING`, `_AUTHORIZATION_STALE`, `_ACCOUNT_CHANGED`,
-  `_ACCOUNT_UNREADABLE`, `_PROJECT_CONFLICT`.
+  `_ACCOUNT_UNREADABLE`, `_PROJECT_CONFLICT`, `_HOSTING_UNAVAILABLE`.
 - Step faults: `REMOTE_DEPLOY_PERMISSION_DENIED`, `_API_DISABLED`, `_QUOTA_EXCEEDED`,
   `_PROVIDER_REJECTED`, `_DATABASE_MISMATCH`, `_RULES_FOREIGN`, `_VERIFY_FAILED`.
 - Owner steps: `REMOTE_DEPLOY_OWNER_INITIALIZE_AUTH`, `_ENABLE_GOOGLE_SIGN_IN`.

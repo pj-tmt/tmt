@@ -128,6 +128,8 @@ pub struct ExtensionPlan {
     pub declaration_digest: String,
     pub admission: AdmissionPlan,
     pub resources: Vec<ResourcePlan>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hosting: Option<crate::hosting::HostingManifest>,
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -337,6 +339,7 @@ fn extension(target: Target, name: &str, supplied: Supplied<'_>) -> Result<Plann
                 entry_point: parsed.admission.entry_point,
             },
             resources,
+            hosting: parsed.hosting,
         },
         positions,
     ))

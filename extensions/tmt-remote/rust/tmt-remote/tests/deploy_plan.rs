@@ -650,3 +650,28 @@ fn on_firestore_a_resource_path_names_a_collection() {
         compose(target, &[colab(&cloudflare, &artifact)]).expect(path);
     }
 }
+
+#[test]
+fn optional_hosting_manifest_is_covered_by_the_exact_declaration_digest() {
+    // Remote-authored data, not Colab release bytes or hosted acceptance.
+    let declaration = edit("colab-firestore.json", |value| {
+        value["hosting"] = json!({"version":1,"files":[
+            {"path":"/index.html","sha256":"a".repeat(64),"length":5,"contentType":"text/html"}
+        ]});
+    });
+    declaration::parse(&declaration).expect("the optional versioned manifest is valid");
+    let artifact = colab_artifact();
+    let plan = compose(FIRESTORE, &[colab(&declaration, &artifact)]).unwrap();
+    let old = fixture("colab-firestore.json");
+    let old_plan = compose(FIRESTORE, &[colab(&old, &artifact)]).unwrap();
+    assert_ne!(plan.digest(), old_plan.digest());
+    let mut with_csp: Value = serde_json::from_slice(&declaration).unwrap();
+    with_csp["hosting"]["files"][0]["csp"] = json!("default-src 'self'");
+    let csp_bytes = bytes(&with_csp);
+    let csp_plan = compose(FIRESTORE, &[colab(&csp_bytes, &artifact)]).unwrap();
+    assert_ne!(plan.digest(), csp_plan.digest());
+    assert_ne!(
+        plan.view().extensions[0].declaration_digest,
+        csp_plan.view().extensions[0].declaration_digest
+    );
+}

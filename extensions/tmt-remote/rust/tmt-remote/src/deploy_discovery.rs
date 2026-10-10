@@ -3,6 +3,7 @@
 use crate::{
     canonical, declaration,
     deploy_plan::{self, CloudBackend, Enabled, Supplied, Target},
+    hosting::{self, HostingBundle, HostingComposition, HostingRefusal},
     limits, rules, wire,
 };
 use serde_json::Value;
@@ -17,10 +18,15 @@ pub enum DiscoveryRefusal {
     Digest,
     Plan(deploy_plan::PlanError),
     Rules(rules::RulesError),
+    Hosting(HostingRefusal),
 }
 /// One bounded reply from a trusted enabled extension's public command.
 pub trait DeclarationSource {
     fn declaration(&mut self, extension: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal>;
+    /// Only called when the validated declaration includes a Hosting manifest.
+    fn hosting_bundle(&mut self, _extension: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+        Err(DiscoveryRefusal::Unavailable)
+    }
 }
 /// Same public TMT_EXECUTABLE dispatch edge as Colab's door discovery.
 pub struct InstalledDeclarations<'a> {
@@ -41,12 +47,18 @@ impl<'a> InstalledDeclarations<'a> {
         Ok(Self { executable, stop })
     }
 }
-impl DeclarationSource for InstalledDeclarations<'_> {
-    fn declaration(&mut self, extension: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+impl InstalledDeclarations<'_> {
+    fn public_command(
+        &self,
+        extension: &str,
+        command: &str,
+        deadline: std::time::Duration,
+        max_stream_bytes: usize,
+    ) -> Result<tmt_invoke::Output, DiscoveryRefusal> {
         if !canonical::extension_name(extension) {
             return Err(DiscoveryRefusal::Envelope);
         }
-        let args = [extension, "deploy-declaration", "--json"].map(OsString::from);
+        let args = [extension, command, "--json"].map(OsString::from);
         let environment = [
             "HOME",
             "PATH",
@@ -57,13 +69,13 @@ impl DeclarationSource for InstalledDeclarations<'_> {
             "TMT_HOME",
         ]
         .map(OsString::from);
-        let output = tmt_invoke::invoke(
+        tmt_invoke::invoke(
             Request {
                 program: &self.executable,
                 args: &args,
                 input: &[],
-                deadline: Instant::now() + limits::DEPLOY_DECLARATION_CALL,
-                max_stream_bytes: limits::DEPLOY_DECLARATION_REPLY_BYTES,
+                deadline: Instant::now() + deadline,
+                max_stream_bytes,
                 launch: LaunchOptions {
                     current_dir: Some(PathBuf::from("/")),
                     environment: EnvironmentPolicy::ClearAllowlist(&environment),
@@ -72,7 +84,17 @@ impl DeclarationSource for InstalledDeclarations<'_> {
             },
             Some(self.stop),
         )
-        .map_err(|_| DiscoveryRefusal::Unavailable)?;
+        .map_err(|_| DiscoveryRefusal::Unavailable)
+    }
+}
+impl DeclarationSource for InstalledDeclarations<'_> {
+    fn declaration(&mut self, extension: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+        let output = self.public_command(
+            extension,
+            "deploy-declaration",
+            limits::DEPLOY_DECLARATION_CALL,
+            limits::DEPLOY_DECLARATION_REPLY_BYTES,
+        )?;
         if !output.status.success() {
             // An old installed command does not provide a declaration. All other failures
             // remain unavailable; stderr and raw exception text are never surfaced.
@@ -85,6 +107,18 @@ impl DeclarationSource for InstalledDeclarations<'_> {
         }
         Ok(Some(output.stdout))
     }
+    fn hosting_bundle(&mut self, extension: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+        let output = self.public_command(
+            extension,
+            "hosting-bundle",
+            limits::HOSTING_BUNDLE_CALL,
+            limits::HOSTING_REPLY_BYTES,
+        )?;
+        if !output.status.success() {
+            return Err(DiscoveryRefusal::Unavailable);
+        }
+        Ok(output.stdout)
+    }
 }
 struct Bytes {
     name: String,
@@ -95,6 +129,7 @@ struct Bytes {
 pub struct DiscoveredPlan {
     pub extensions: deploy_plan::Plan,
     pub artifacts: rules::Composed,
+    pub hosting: Option<HostingComposition>,
 }
 pub fn discover(
     source: &mut dyn DeclarationSource,
@@ -141,9 +176,19 @@ pub fn discover(
         })
         .collect();
     let artifacts = rules::compose(&extensions, &fragments).map_err(DiscoveryRefusal::Rules)?;
+    let mut bundles = Vec::new();
+    for extension in &extensions.view().extensions {
+        if let Some(manifest) = &extension.hosting {
+            let reply = source.hosting_bundle(&extension.name)?;
+            bundles
+                .push(HostingBundle::parse(manifest, &reply).map_err(DiscoveryRefusal::Hosting)?);
+        }
+    }
+    let hosting = hosting::compose(&bundles).map_err(DiscoveryRefusal::Hosting)?;
     Ok(DiscoveredPlan {
         extensions,
         artifacts,
+        hosting,
     })
 }
 fn parse(name: &str, bytes: &[u8]) -> Result<Bytes, DiscoveryRefusal> {
