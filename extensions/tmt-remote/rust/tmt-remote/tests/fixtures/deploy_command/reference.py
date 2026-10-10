@@ -26,7 +26,7 @@ def project(view, digest):
         "Deployment: " + view["deploymentId"],
         f'Database: (default) (standard), {view["database"]["location"]}',
         "Sign-in: " + ", ".join(view["signIn"]),
-        f'Rules: {view["rules"]["digest"][:12]} ({"no existing Rules" if view["rules"]["replaces"] == "none" else view["rules"]["replaces"]})',
+        f'Rules: {view["rules"]["digest"][:12]} ({"no existing Rules" if view["rules"]["replaces"] == "none" else "replaces the live Rules" if view["rules"]["replaces"] == "foreign" else view["rules"]["replaces"]})',
         "Index configs: " + str(view["indexConfigs"]), "Roles: none created", "TTL: not set up",
         "Plan digest: " + digest[:12],
     ]
@@ -34,10 +34,10 @@ def project(view, digest):
     if replaced:
         lines.extend([
             f'DESTRUCTIVE: Replace the live Rules for project {view["project"]}. This affects every tenant using its Rules.',
-            f"Existing Rules fingerprint: {replaced}",
+            f"Existing Rules fingerprint: {replaced[:12]}",
             f"Authorizing plan {digest[:12]} allows this replacement.",
         ])
-    lines.extend("Destructive change: " + item for item in view["destructive"])
+    lines.extend("Destructive change: " + item for item in view["destructive"] if not item.startswith("replaces-rules:"))
     lines.append("Extensions and resources:")
     for extension in extensions["extensions"]:
         lines.append(f'{extension["name"]} (declaration {extension["declarationDigest"][:12]})')
@@ -49,7 +49,7 @@ def project(view, digest):
             lines.append(f'  {resource["name"]}: {resource["kind"]} at {resource["path"]}; object {readable_bytes(limits["maxObjectBytes"])}, namespace {readable_bytes(limits["maxNamespaceBytes"])}, entries {limits["maxEntries"]}, TTL: {ttl}')
             lines.extend(f'    Index: {index["field"]} {index["direction"]}' for index in resource["indexes"])
     lines.extend(f'{extension["name"]}: unavailable ({extension["reason"]})' for extension in extensions["unavailable"])
-    lines.extend(["Not authorized; nothing changed in your Firebase project.", f"To deploy this plan, run the same command with --authorize {digest[:12]}"])
+    lines.extend(["Not authorized; nothing changed in your Firebase project.", f'To deploy this plan{" and replace the live Rules" if replaced else ""}, run the same command with --authorize {digest[:12]}'])
     return json.dumps(projection, separators=(",", ":")), "\n".join(lines) + "\n"
 
 

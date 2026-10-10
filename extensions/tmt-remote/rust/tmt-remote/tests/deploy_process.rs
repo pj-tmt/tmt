@@ -266,7 +266,13 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
         let message = reply["error"]["message"].as_str().unwrap();
         assert!(message.contains(&root.remote().join("deploy.json").display().to_string()));
         assert!(message.contains("nothing else is deleted"));
-        assert!(message.contains("Rules stay and need a newly authorized takeover plan"));
+        assert_eq!(
+            message,
+            format!(
+                "This Remote home deploys to demo-remote-1 (asia-east1), not {project} ({region}). To move it, remove '{}'; nothing else is deleted. The old project's Rules stay until a new plan, authorized from any home, replaces them.",
+                root.layout().directory.join("deploy.json").display()
+            )
+        );
         assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
         assert_eq!(
             fs::read_to_string(package.join("calls.jsonl")).unwrap(),

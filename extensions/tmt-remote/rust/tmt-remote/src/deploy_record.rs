@@ -225,15 +225,19 @@ impl<'a> DeployRecordStore<'a> {
     }
     /// No provider call is needed to reject a different project or region.
     pub fn check_target(&self, project: &str, region: &str) -> Result<(), RemoteError> {
-        if self
+        if let Some(target) = self
             .target
             .as_ref()
-            .is_some_and(|target| target.project != project || target.region != region)
+            .filter(|target| target.project != project || target.region != region)
         {
             return Err(RemoteError::new(
                 "REMOTE_DEPLOY_PROJECT_CONFLICT",
                 &format!(
-                    "This Remote home is bound to another Firebase project or region. To move it, remove '{}'; nothing else is deleted. The old project's Rules stay and need a newly authorized takeover plan from any home.",
+                    "This Remote home deploys to {} ({}), not {} ({}). To move it, remove '{}'; nothing else is deleted. The old project's Rules stay until a new plan, authorized from any home, replaces them.",
+                    target.project,
+                    target.region,
+                    project,
+                    region,
                     self.layout.directory.join("deploy.json").display()
                 ),
             ));

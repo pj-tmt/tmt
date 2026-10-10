@@ -252,10 +252,26 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
         .as_str()
         .unwrap();
     assert_eq!(replaced.len(), 64);
+    assert_eq!(
+        preview.json["plan"]["destructive"],
+        serde_json::json!([format!("replaces-rules:{replaced}")])
+    );
+    assert!(!preview.human.contains(replaced));
+    assert!(
+        !preview
+            .human
+            .contains("Destructive change: replaces-rules:")
+    );
+    assert!(preview.human.contains("(replaces the live Rules)"));
+    assert!(preview.human.contains(&format!(
+        "To deploy this plan and replace the live Rules, run the same command with --authorize {}",
+        &preview.json["planDigest"].as_str().unwrap()[..12]
+    )));
+
     assert!(
         preview
             .human
-            .contains(&format!("Existing Rules fingerprint: {replaced}"))
+            .contains(&format!("Existing Rules fingerprint: {}", &replaced[..12]))
     );
     assert!(
         preview
