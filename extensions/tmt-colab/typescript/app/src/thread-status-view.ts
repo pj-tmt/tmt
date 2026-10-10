@@ -7,7 +7,12 @@ export function isStatusThread(thread: ThreadView) {
   return !thread.deleted && !(thread.anchor === null && thread.ref.id === thread.ref.writer);
 }
 export function openThreadCount(threads: readonly ThreadView[]) {
-  return threads.filter((thread) => isStatusThread(thread) && !thread.resolved).length;
+  // A proposal's final decision removes it from pending independently of resolution.
+  // Proposal-linked threads contribute once here, never to an annotation subtotal.
+  return threads.filter(
+    (thread) =>
+      isStatusThread(thread) && !thread.resolved && (!thread.proposal || !thread.decision),
+  ).length;
 }
 
 /** Browser-local attention, not authority or a synced read receipt. Only an

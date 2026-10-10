@@ -29,7 +29,7 @@ asks the person to update Colab to open the page, preserving space/sign-in detai
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
 About overlay. `page-header-actions.tsx` owns the five visible icon entry points:
-Discussion (open-thread count) opens Chat or Comments; Agents and Files (file count)
+Discussion (combined pending count) opens Chat or Comments; Agents and Files (file count)
 open their panels; Source and export opens Source or Export page; More opens Manage
 page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
@@ -182,5 +182,9 @@ primary Action; Decline uses the bordered Action, Follow up the text Action, and
 Resolve/Reopen muted text at the right end. Follow up opens the shared composer
 inside the card below its history; Send, Escape and Cancel close it. Proposal
 cards have no anchored window or Delete thread action. Missing, duplicate or
-vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds the card;
-Reopen retains the final decision. No new token or surface variant is introduced.
+vanished slots and inner-scroll fallback show the admitted proposal in Comments. Resolve folds a proposal
+to one title/state/Reopen row; Reopen restores its body and history while retaining
+the final decision. Comments offers Proposals only alongside the mixed list. The
+single header count uses `openThreadCount` for undecided unresolved proposals plus
+unresolved ordinary annotations, excluding Chat/deleted records and decided
+proposals; filtering does not change it. No new token or surface variant is introduced.

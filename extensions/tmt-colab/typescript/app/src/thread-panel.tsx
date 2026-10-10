@@ -1,6 +1,6 @@
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
-import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
@@ -23,7 +23,7 @@ import {
 } from './thread-status-presentation.js';
 
 /** Only an agent's resolution names its actor; a person's stays the plain state. */
-function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
+export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
   return status?.actor === 'agent' && status.actorName
     ? text.threadResolvedBy(status.actorName)
     : text.threadResolved;
@@ -632,6 +632,8 @@ export function ThreadPanel({
   renderProposal?(thread: ThreadView): ReactNode;
 }) {
   const [compose, setCompose] = useState(false);
+  const [proposalsOnly, setProposalsOnly] = useState(false);
+  const visibleThreads = threads.filter((thread) => !proposalsOnly || !!thread.proposal);
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [threads, asks]);
   return (
@@ -642,15 +644,26 @@ export function ThreadPanel({
           <span>{threads.filter((value) => !value.deleted).length}</span>
         </header>
       )}
-      <BrowserAction
-        type="button"
-        variant="text"
-        label={`+ ${text.commentPage}`}
-        disabled={!binding || blocked || compose}
-        onActivate={(event) => {
-          if (event.isTrusted) setCompose(true);
-        }}
-      />
+      <div className="comments-controls">
+        {renderProposal && (
+          <BrowserToggle
+            label={text.proposalsOnly}
+            pressed={proposalsOnly}
+            onActivate={(event) => {
+              if (event.isTrusted) setProposalsOnly((previous) => !previous);
+            }}
+          />
+        )}
+        <BrowserAction
+          type="button"
+          variant="text"
+          label={`+ ${text.commentPage}`}
+          disabled={!binding || blocked || compose}
+          onActivate={(event) => {
+            if (event.isTrusted) setCompose(true);
+          }}
+        />
+      </div>
       {compose && binding && (
         <Composer
           label={text.commentPost}
@@ -662,9 +675,11 @@ export function ThreadPanel({
           blocked={blocked}
         />
       )}
-      {!threads.length && <p className="comment-status">{text.commentEmpty}</p>}
+      {!visibleThreads.length && (
+        <p className="comment-status">{proposalsOnly ? text.proposalsEmpty : text.commentEmpty}</p>
+      )}
       <div className="annotation-list">
-        {threads.map((thread) => {
+        {visibleThreads.map((thread) => {
           const id = `${thread.ref.writer}:${thread.threadId}`;
           const participants = [
             ...new Set([
@@ -678,6 +693,12 @@ export function ThreadPanel({
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
           const status = presentationOf(presentations, thread.ref)?.status;
+          if (thread.proposal && thread.resolved && renderProposal)
+            return (
+              <section className="annotation-list-item" key={id}>
+                {renderProposal(thread)}
+              </section>
+            );
           return (
             <section className="annotation-list-item" key={id}>
               <button
@@ -708,8 +729,24 @@ export function ThreadPanel({
                   <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
                 </span>
                 <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
-                  {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
-                  {thread.resolved ? resolvedLabel(status) : text.threadOpen}
+                  {thread.resolved ? (
+                    <CircleCheck aria-hidden />
+                  ) : thread.proposal && thread.decision ? (
+                    thread.decision.decision === 'approved' ? (
+                      <Check aria-hidden />
+                    ) : (
+                      <X aria-hidden />
+                    )
+                  ) : (
+                    <CircleDot aria-hidden />
+                  )}
+                  {thread.resolved
+                    ? resolvedLabel(status)
+                    : thread.proposal && thread.decision
+                      ? thread.decision.decision === 'approved'
+                        ? text.proposalApproved
+                        : text.proposalDeclined
+                      : text.threadOpen}
                   {status?.unseen ? ` · ${text.threadUnseen}` : ''}
                   {thread.anchor && !thread.resolved && !resolved.includes(id)
                     ? ` · ${text.commentDetached}`

@@ -64,6 +64,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   renderer confirms a vanished/duplicate slot; inner-scroll fallback detaches to Comments.
   Explicit trusted Send, Approve or Decline may dispatch; render/sync/recovery never do.
   Proposal creation requires canonical caller and machine provenance through bounded public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
+  `thread-status-view.ts` owns the one combined pending predicate; Comments filters
+  presentation only. Resolved proposal cards fold to a title/state/Reopen row;
+  reopening restores retained metadata/history without changing a final decision.
   Actor labels and clocks remain display assertions.
 - Recipient Ask again: `CommentExchange` supplies the original own comment and
   preceding conversation to the shared `ask-again.tsx` action; `AnnotationInput`

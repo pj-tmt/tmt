@@ -997,7 +997,19 @@ pair; Send remains explicit. Send, Escape and Cancel close that composer without
 opening an anchored thread window. The card retains any unrecorded delivery
 failure for explicit recovery after the composer closes; signed Ask outcomes own
 recovery once admitted. Proposals expose no Delete thread action.
-Resolve folds the card; Reopen retains the decision. Combined pending count/filter and `--after` placement remain later slices.
+Resolve folds the proposal to one line with its title, retained decision/resolved
+mark and Reopen action; body, author and conversation history return on Reopen.
+In Comments, opening the folded title discloses that retained history without
+reopening the proposal or changing the pending count. This explicit opening
+acknowledges a locally unseen resolution; rendering or filtering does not.
+Comments mixes proposals with ordinary annotations and offers a Proposals only
+filter. Filtering never changes status, sends a request or changes the header
+count. The one header pending count is computed by `openThreadCount`: unresolved
+proposals without a final decision plus unresolved ordinary annotations. Approved
+or declined proposals are not pending even before resolution; proposal-linked
+threads contribute once, and Chat/deleted threads never contribute. Reopening an
+undecided proposal adds it back; reopening a decided proposal keeps its decision
+and does not add a pending item. `--after` placement remains deferred.
 
 `proposal ls PAGE` reads authenticated proposal threads, their retained decision and
 independent resolved state. Human rows print the shortest unique UUID prefix (at least

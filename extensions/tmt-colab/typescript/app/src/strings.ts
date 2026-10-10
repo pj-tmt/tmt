@@ -17,6 +17,8 @@ const reconnectCommand = 'tmt remote pair';
 
 export const text = {
   proposalOpen: 'Proposal',
+  proposalsOnly: 'Proposals only',
+  proposalsEmpty: 'No proposals yet.',
   proposalApproved: 'Approved',
   proposalDeclined: 'Declined',
   proposalApprove: 'Approve',

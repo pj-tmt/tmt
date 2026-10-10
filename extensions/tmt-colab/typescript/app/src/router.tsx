@@ -965,6 +965,8 @@ function Page() {
     closeAnnotation: () => closeRef.current(false),
     draft: (key) => drafts.current.get(key),
     keepDraft,
+    activeThread,
+    setActiveThread,
   });
   useEffect(() => {
     const controller = new AbortController();
