@@ -54,7 +54,7 @@ fn help_routes_agree_without_core_or_state() {
     let help = String::from_utf8(expected.stdout).unwrap();
     assert!(help.contains("Usage: tmt digest"));
     assert!(help.contains("default to remove it"));
-    assert!(help.contains("Run tick once a minute"));
+    assert!(help.contains("Run tmt digest tick once a minute"));
     assert!(help.contains("Examples:"));
     for words in [&[][..], &["-h"][..], &["help"][..]] {
         let result = sandbox.run(words);
