@@ -35,12 +35,24 @@ const TICK: CommandSpec = CommandSpec {
     details: "If another tick is already running, this one exits at once. Each run stays up to one minute to deliver digests as they fall due, then exits. With an interval, held messages are delivered once the oldest has waited that long, or sooner when the flush count is reached. auto and off currently deliver messages normally.",
 };
 
+const SKILL: CommandSpec = CommandSpec {
+    name: "skill",
+    summary: "Print the bundled Digest skill",
+    examples: &[Example {
+        command: "tmt digest skill",
+        note: "Read the bundled instructions",
+    }],
+    outputs: OutputModes::Human,
+    details: "Prints the exact bundled skill without Core discovery or storage access.",
+};
+
 pub fn command() -> Command {
     tmt_cli_style::command(&ROOT)
         .bin_name("tmt digest")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_negates_reqs(true)
         .subcommand(tmt_cli_style::command(&TICK))
+        .subcommand(tmt_cli_style::command(&SKILL))
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .arg(
             Arg::new("member")

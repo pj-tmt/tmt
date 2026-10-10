@@ -66,6 +66,27 @@ fn help_routes_agree_without_core_or_state() {
 }
 
 #[test]
+fn skill_is_exact_bundled_content_without_core_or_state() {
+    let sandbox = Sandbox::new();
+    let result = sandbox.run(&["skill"]);
+    assert!(result.status.success());
+    assert!(result.stderr.is_empty());
+    assert_eq!(
+        result.stdout,
+        include_bytes!("../../../skills/tmt-digest/SKILL.md")
+    );
+    let help = sandbox.run(&["skill", "--help"]);
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    assert!(
+        String::from_utf8(help.stdout)
+            .unwrap()
+            .contains("without Core discovery")
+    );
+    sandbox.assert_untouched();
+}
+
+#[test]
 fn version_is_source_version_and_behavior_is_refused_without_state() {
     let sandbox = Sandbox::new();
     for words in [&["--version"][..], &["-V"][..]] {
