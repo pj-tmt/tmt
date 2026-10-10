@@ -67,7 +67,7 @@ function start(
   const status = `${log}.status`;
   const executable = path.join(f.wrapperDir, 'codex');
   if (!fs.existsSync(executable)) {
-    if (extra.MOCK_HOOK_MODEL || extra.MOCK_EAGER_HOOK_MODEL || extra.MOCK_FOCUS_HOOKS) {
+    if (extra.MOCK_HOOK_MODEL || extra.MOCK_EAGER_HOOK_MODEL || extra.MOCK_DIGEST_HOOKS) {
       // This scenario needs real Codex-named app-server ancestry for its hooks.
       writeExecutable(executable, fs.readFileSync(mock));
     } else {
@@ -76,10 +76,10 @@ function start(
   }
   const home = path.join(f.root, `home-${name}-${run}`);
   fs.mkdirSync(home);
-  if (extra.MOCK_FOCUS_INLINE_HOOKS === '1') {
+  if (extra.MOCK_DIGEST_INLINE_HOOKS === '1') {
     fs.writeFileSync(path.join(home, 'config.toml'), inlineHookConfig);
   }
-  if (extra.MOCK_FOCUS_SETUP === '1') {
+  if (extra.MOCK_DIGEST_SETUP === '1') {
     const observer = {
       hooks: [
         {
@@ -134,8 +134,8 @@ function events(s: Session, name: string): Event[] {
         .filter((e) => e.event === name)
     : [];
 }
-function publishFocusStep(s: Session, step: Record<string, unknown>): void {
-  const destination = `${s.log}.focus-step`;
+function publishDigestStep(s: Session, step: Record<string, unknown>): void {
+  const destination = `${s.log}.digest-step`;
   const staged = `${destination}.${randomUUID()}.tmp`;
   try {
     // The peer removes the watched file before parsing it. Publish only complete
@@ -494,7 +494,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
       expect(events(worker, 'attached')).toEqual([]);
       expect(events(worker, 'started')[0].args).toEqual([
         '-c',
-        expect.stringContaining(' __focus-hook codex --discover-launch'),
+        expect.stringContaining(' __digest-hook codex --discover-launch'),
       ]);
       expect(f.capture(200, worker.pane)).not.toContain('uses paste delivery:');
       const trace = installTmuxTrace(f);
@@ -628,7 +628,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           expect(events(resumed, 'started')[0].args).toEqual([
             'resume',
             '-c',
-            expect.stringContaining(' __focus-hook codex --discover-launch'),
+            expect.stringContaining(' __digest-hook codex --discover-launch'),
             original,
             '--no-daemon',
           ]);
@@ -684,7 +684,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         expect(events(plain, 'started')[0].args).toEqual([
           'resume',
           '-c',
-          expect.stringContaining(' __focus-hook codex --discover-launch'),
+          expect.stringContaining(' __digest-hook codex --discover-launch'),
           original,
           '--no-daemon',
         ]);
@@ -805,13 +805,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
 
   for (const channel of [false, true])
     for (const setup of [false, true]) {
-      it(`Focus Codex channel=${channel} setup=${setup} fresh/resume hands one Stop checklist without double observations`, async () => {
+      it(`Digest Codex channel=${channel} setup=${setup} fresh/resume hands one Stop checklist without double observations`, async () => {
         await withE2EFixture(async (f) => {
           const name = 'FocusedCodex';
           const created = await f.runJsonCli<{ identity: { id: string } }>([
             'identity',
             'create',
-            'FocusOwner',
+            'DigestOwner',
           ]);
           expect(created.code).toBe(0);
           const owner = created.json!.identity.id;
@@ -824,9 +824,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               name,
               channel,
               {
-                MOCK_FOCUS_HOOKS: '1',
+                MOCK_DIGEST_HOOKS: '1',
                 MOCK_TRUST_HOOKS: '1',
-                MOCK_FOCUS_SETUP: setup ? '1' : '0',
+                MOCK_DIGEST_SETUP: setup ? '1' : '0',
                 MOCK_AUTOREPLY: '0',
               },
               prior?.pane,
@@ -834,18 +834,18 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             );
             await ready(f, s);
             await f.waitFor(
-              () => events(s, 'focus-definitions').length === 1,
+              () => events(s, 'digest-definitions').length === 1,
               5000,
               'provider read actual launch hook definitions'
             );
-            const composed = events(s, 'focus-definitions')[0].hooks;
+            const composed = events(s, 'digest-definitions')[0].hooks;
             if (resume) expect(composed).toEqual(definitions);
             else definitions = composed;
             const step = async (name: string, more: Record<string, unknown> = {}) => {
-              publishFocusStep(s, { name, ...more });
+              publishDigestStep(s, { name, ...more });
               try {
                 await f.waitFor(
-                  () => events(s, 'focus-step-done').some((e) => e.step === name),
+                  () => events(s, 'digest-step-done').some((e) => e.step === name),
                   10000,
                   `owned hook step ${name}`
                 );
@@ -861,12 +861,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               hookEvent: 'SessionStart',
               source: resume ? 'resume' : 'startup',
             });
-            const session = events(s, 'focus-step-done')[0].session as string;
+            const session = events(s, 'digest-step-done')[0].session as string;
             if (resume) expect(session).toBe(remembered);
             else remembered = session;
             await step('prompt', { hookEvent: 'UserPromptSubmit' });
-            expect(events(s, 'focus-handler').filter((e) => e.step === 'start')).toHaveLength(1);
-            expect(events(s, 'focus-handler').filter((e) => e.step === 'prompt')).toHaveLength(1);
+            expect(events(s, 'digest-handler').filter((e) => e.step === 'start')).toHaveLength(1);
+            expect(events(s, 'digest-handler').filter((e) => e.step === 'prompt')).toHaveLength(1);
             const identity = sql(f, (db) =>
               db.prepare('SELECT id FROM identities WHERE name=?').get(name)
             ) as { id: string };
@@ -886,7 +886,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               expectedRevision: resume ? 2 : 0,
             };
             expect(
-              api('focus.policy.set', { ...policy, untilMs: Date.now() + 600000 })
+              api('digest.policy.set', { ...policy, untilMs: Date.now() + 600000 })
             ).toMatchObject({ active: true });
             const requests: string[] = [];
             for (const text of ['First ordered decision', 'Second ordered review']) {
@@ -898,7 +898,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                 text.startsWith('First') ? 'decision' : 'review',
                 '--detach',
               ]);
-              expect(result.json).toMatchObject({ status: 'queued', focus: true });
+              expect(result.json).toMatchObject({ status: 'queued', digest: true });
               requests.push(result.json!.requestId as string);
             }
             const batch = () =>
@@ -914,7 +914,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             await step('recursive', { active: true });
             await step('subagent', { hookEvent: 'SubagentStop' });
             expect(batch()).toHaveLength(before);
-            expect(events(s, 'focus-continuation')).toEqual([]);
+            expect(events(s, 'digest-continuation')).toEqual([]);
             // An ordinary Stop observer is still allowed to record idle. Start
             // the next turn before testing bypasses, keeping verified-idle delivery separate.
             await step('working-again', { hookEvent: 'UserPromptSubmit' });
@@ -926,7 +926,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               '--detach',
             ]);
             expect(bypass.code).toBe(0);
-            expect(bypass.json!.focus).toBeUndefined();
+            expect(bypass.json!.digest).toBeUndefined();
             const own = await f.runJsonCli<Record<string, unknown>>([
               'talk',
               name,
@@ -936,12 +936,12 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
               '--detach',
             ]);
             expect(own.code).toBe(0);
-            expect(own.json!.focus).toBeUndefined();
+            expect(own.json!.digest).toBeUndefined();
             await step('boundary');
-            const continuations = events(s, 'focus-continuation');
+            const continuations = events(s, 'digest-continuation');
             expect(continuations).toHaveLength(1);
             const reason = continuations[0].reason as string;
-            expect(reason.match(/TMT Focus checklist/g)).toHaveLength(1);
+            expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
             expect(reason.indexOf(requests[0])).toBeLessThan(reason.indexOf(requests[1]));
             expect(reason).toContain('First ordered decision');
             expect(reason).toContain('Second ordered review');
@@ -955,7 +955,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                   .get(...requests)
               )
             ).toEqual({ count: 0 });
-            const stops = events(s, 'focus-handler').filter((e) => e.step === 'boundary');
+            const stops = events(s, 'digest-handler').filter((e) => e.step === 'boundary');
             expect(stops).toHaveLength(2);
             expect(stops.every((e) => e.ok === true && e.stderr === '')).toBe(true);
             const saved = sql(f, (db) =>
@@ -967,9 +967,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             ) as { driver_state: string };
             if (!setup) expect(JSON.parse(saved.driver_state).consumption).toBeUndefined();
             await step('empty');
-            expect(events(s, 'focus-continuation')).toHaveLength(1);
+            expect(events(s, 'digest-continuation')).toHaveLength(1);
             expect(
-              api('focus.policy.clear', {
+              api('digest.policy.clear', {
                 ...policy,
                 expectedRevision: policy.expectedRevision + 1,
               })
@@ -988,13 +988,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     { args: ['-c', 'hooks.Stop=[]', '-c', 'hooks.Stop=[]'] },
     { args: [], inlineHooks: true },
   ]) {
-    it(`Focus composition refusal preserves Codex launch argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
+    it(`Digest composition refusal preserves Codex launch argv ${inlineHooks ? 'with config.toml hooks' : args.join(' ')}`, async () => {
       await withE2EFixture(async (f) => {
         const s = start(
           f,
-          'FallbackFocus',
+          'FallbackDigest',
           false,
-          inlineHooks ? { MOCK_FOCUS_INLINE_HOOKS: '1' } : {},
+          inlineHooks ? { MOCK_DIGEST_INLINE_HOOKS: '1' } : {},
           undefined,
           false,
           args
@@ -1005,13 +1005,13 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           f
             .capture(200, s.pane)
             .split('\n')
-            .filter((line) => line.includes('session-only Focus hooks unavailable'))
+            .filter((line) => line.includes('session-only Digest hooks unavailable'))
         ).toHaveLength(1);
         expect(
           sql(f, (db) =>
             db
               .prepare(
-                "SELECT COUNT(*) AS count FROM bindings b JOIN identities i ON i.id=b.identity_id WHERE i.name='FallbackFocus' AND i.retired_at_ms IS NULL"
+                "SELECT COUNT(*) AS count FROM bindings b JOIN identities i ON i.id=b.identity_id WHERE i.name='FallbackDigest' AND i.retired_at_ms IS NULL"
               )
               .get()
           )
@@ -1024,18 +1024,21 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     }, 60000);
   }
 
-  it('untrusted Focus hooks remain skipped without claiming or approving trust', async () => {
+  it('untrusted Digest hooks remain skipped without claiming or approving trust', async () => {
     await withE2EFixture(async (f) => {
-      const s = start(f, 'UntrustedFocus', false, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
+      const s = start(f, 'UntrustedDigest', false, {
+        MOCK_DIGEST_HOOKS: '1',
+        MOCK_TRUST_HOOKS: '0',
+      });
       await ready(f, s);
-      publishFocusStep(s, { name: 'skipped' });
+      publishDigestStep(s, { name: 'skipped' });
       await f.waitFor(
-        () => events(s, 'focus-step-done').length === 1,
+        () => events(s, 'digest-step-done').length === 1,
         5000,
         'fake provider skipped untrusted hooks'
       );
-      expect(events(s, 'focus-skipped')).toHaveLength(1);
-      expect(events(s, 'focus-handler')).toEqual([]);
+      expect(events(s, 'digest-skipped')).toHaveLength(1);
+      expect(events(s, 'digest-handler')).toEqual([]);
       expect(
         sql(f, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
       ).toEqual({ count: 0 });
@@ -1045,11 +1048,11 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
     });
   }, 60000);
 
-  it('publishes a Focus step only after its private preparation is complete', async () => {
+  it('publishes a Digest step only after its private preparation is complete', async () => {
     await withE2EFixture(async (f) => {
-      const s = start(f, 'AtomicFocus', true, { MOCK_FOCUS_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
+      const s = start(f, 'AtomicDigest', true, { MOCK_DIGEST_HOOKS: '1', MOCK_TRUST_HOOKS: '0' });
       await ready(f, s);
-      const destination = `${s.log}.focus-step`;
+      const destination = `${s.log}.digest-step`;
       const write = fs.writeFileSync.bind(fs);
       let preparations = 0;
       try {
@@ -1063,19 +1066,19 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           preparations += 1;
         });
         try {
-          publishFocusStep(s, { name: 'atomic-publication' });
+          publishDigestStep(s, { name: 'atomic-publication' });
         } finally {
           writer.mockRestore();
         }
         expect(preparations).toBe(1);
         await f.waitFor(
-          () => events(s, 'focus-step-done').length === 1,
+          () => events(s, 'digest-step-done').length === 1,
           5000,
           'native peer consumed complete atomic step'
         );
-        expect(events(s, 'focus-step-done')[0].step).toBe('atomic-publication');
-        expect(events(s, 'focus-skipped')).toHaveLength(1);
-        expect(events(s, 'focus-handler')).toEqual([]);
+        expect(events(s, 'digest-step-done')[0].step).toBe('atomic-publication');
+        expect(events(s, 'digest-skipped')).toHaveLength(1);
+        expect(events(s, 'digest-handler')).toEqual([]);
         expect(fs.existsSync(destination)).toBe(false);
       } finally {
         await quit(s);

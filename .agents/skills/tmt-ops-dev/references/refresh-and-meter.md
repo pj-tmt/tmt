@@ -36,11 +36,11 @@
   refuses a new send while one is in flight so no text is lost. Picker and overlay
   saves are bounded local file writes through the compare-and-set config writer and stay
   on the session thread; they start no command.
-- Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
-  reads. It applies the focus rows and bodies this worker already read (`Known`), so a
+- Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
+  reads. It applies the digest rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
-  `focus.policy.show` read and the missing `requests.show` reads, and sends `Enriched`.
-  `App::apply_enriched` sets focus exactly as read (a failed read removes it, as before)
+  `digest.policy.show` read and the missing `requests.show` reads, and sends `Enriched`.
+  `App::apply_enriched` sets digest exactly as read (a failed read removes it, as before)
   and fills only replies still without a body. It acts only on the shown, settled squad.
   A fully enriched view equals the former synchronous load; a body-read failure no
   longer fails the view.

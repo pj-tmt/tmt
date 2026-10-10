@@ -493,7 +493,7 @@ fn home_usage(
 }
 
 /// A pane's recent output for the provider-limits footer. `--capture-only` never
-/// hands the pane a retained Focus checklist, so a periodic read is not input;
+/// hands the pane a retained Digest checklist, so a periodic read is not input;
 /// a Core without the flag rejects the command and the provider reads as unknown.
 fn capture_footer(reader: &Core, name: &str) -> Option<String> {
     reader
@@ -562,11 +562,11 @@ struct Kept {
 struct Known {
     /// Reply bodies never change once submitted.
     bodies: BTreeMap<String, String>,
-    /// The last focus row read per identity; the deferred read corrects it.
-    focus: BTreeMap<String, Value>,
+    /// The last digest row read per identity; the deferred read corrects it.
+    digest: BTreeMap<String, Value>,
 }
 
-/// Reads the shown squad still lacks after its first publication: focus policy
+/// Reads the shown squad still lacks after its first publication: digest policy
 /// and reply bodies. A fully enriched view equals the former synchronous one.
 struct EnrichJob {
     squad: String,
@@ -576,9 +576,9 @@ struct EnrichJob {
 
 impl EnrichJob {
     fn complete(self, core: &Core, known: &mut Known) -> (String, Enrichment) {
-        let focus = crate::focus::rows(core, &self.ids);
-        if let Some(rows) = &focus {
-            known.focus.extend(rows.clone());
+        let digest = crate::digest::rows(core, &self.ids);
+        if let Some(rows) = &digest {
+            known.digest.extend(rows.clone());
         }
         let replies = self.replies.and_then(|mut replies| {
             requests::bodies(
@@ -589,13 +589,13 @@ impl EnrichJob {
             .ok()
             .map(|()| replies)
         });
-        (self.squad, Enrichment { focus, replies })
+        (self.squad, Enrichment { digest, replies })
     }
 }
 
-/// The deferred reads' results; `focus: None` is a failed optional read.
+/// The deferred reads' results; `digest: None` is a failed optional read.
 pub(crate) struct Enrichment {
-    pub focus: Option<BTreeMap<String, Value>>,
+    pub digest: Option<BTreeMap<String, Value>>,
     pub replies: Option<Vec<Value>>,
 }
 
@@ -1113,15 +1113,15 @@ fn squad_view(
             },
         )
     })?;
-    // Publish with what earlier reads learned; the focus read and missing reply
+    // Publish with what earlier reads learned; the digest read and missing reply
     // bodies follow as one deferred job on this worker (`EnrichJob`).
-    let ids = crate::focus::eligible([&document], &active_ids);
+    let ids = crate::digest::eligible([&document], &active_ids);
     let mut known = kept.known.borrow_mut();
-    let focus = ids
+    let digest = ids
         .iter()
-        .filter_map(|id| known.focus.get(id).map(|row| (id.clone(), row.clone())))
+        .filter_map(|id| known.digest.get(id).map(|row| (id.clone(), row.clone())))
         .collect();
-    crate::focus::set(&mut document, Some(&focus));
+    crate::digest::set(&mut document, Some(&digest));
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
@@ -2016,7 +2016,7 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
     }
 
     #[test]
-    fn each_refresh_branch_reads_focus_once_including_deferred_attention() {
+    fn each_refresh_branch_reads_digest_once_including_deferred_attention() {
         use crate::cron_service::test_support::{Fixture, LEAD, USER, WORKER};
         let f = Fixture::new();
         std::fs::write(
@@ -2027,17 +2027,17 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
         f.change_model(|model| {
             model["members"][2]["metadata"]["squad.product.state"] = json!("blocked")
         });
-        let executable = f.directory.join("focus-refresh-core");
-        let script = f.directory.join("focus-refresh.py");
+        let executable = f.directory.join("digest-refresh-core");
+        let script = f.directory.join("digest-refresh.py");
         std::fs::write(&script, r#"import json,sys,pathlib,subprocess
 root=pathlib.Path(__file__).parent
 args=sys.argv[1:]
 body=sys.stdin.buffer.read() if args[0]=='api' else None
 if body:
  request=json.loads(body)
- if request['operation']=='focus.policy.show':
-  with open(root/'focus-calls','a') as log: log.write(json.dumps(request)+chr(10))
-  print(json.dumps({'policies':[{'identityId':id,'revision':1,'active':True,'focusUntilMs':9000000000000,'remainingMs':1000,'heldCount':2} for id in request['input']['identities']]})); sys.exit(0)
+ if request['operation']=='digest.policy.show':
+  with open(root/'digest-calls','a') as log: log.write(json.dumps(request)+chr(10))
+  print(json.dumps({'policies':[{'identityId':id,'revision':1,'active':True,'digestUntilMs':9000000000000,'remainingMs':1000,'heldCount':2} for id in request['input']['identities']]})); sys.exit(0)
  if request['operation']=='requests.list':
   print(json.dumps({'items':[],'nextBefore':None})); sys.exit(0)
  if request['operation']=='notes.read':
@@ -2066,7 +2066,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
             ALL.to_owned(),
             tabs::user_key("active"),
         ] {
-            let calls = f.directory.join("focus-calls");
+            let calls = f.directory.join("digest-calls");
             let _ = std::fs::remove_file(&calls);
             let loaded = load(
                 &core,
@@ -2083,12 +2083,12 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 .snapshot
                 .view
                 .unwrap_or_else(|error| panic!("{key}: {error}"));
-            // A squad tab publishes before any focus read; its deferred job reads
+            // A squad tab publishes before any digest read; its deferred job reads
             // once and the board applies the result.
             if let Some(job) = loaded.enrich {
-                assert!(!calls.exists(), "{key}: published before the focus read");
+                assert!(!calls.exists(), "{key}: published before the digest read");
                 let (_, enrichment) = job.complete(&core, &mut kept.known.borrow_mut());
-                crate::focus::set(&mut view.document, enrichment.focus.as_ref());
+                crate::digest::set(&mut view.document, enrichment.digest.as_ref());
             }
             if let Some(job) = loaded.attention {
                 job.complete(&core);
@@ -2112,7 +2112,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                         .flat_map(|section| &section.rows)
                         .find(|row| row.member["id"] == WORKER)
                         .unwrap()
-                        .member["focus"]["heldCount"],
+                        .member["digest"]["heldCount"],
                     2
                 );
             } else {
@@ -2122,8 +2122,8 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 );
             }
         }
-        // A reload publishes the focus it already read, so labels never blink off.
-        let calls = f.directory.join("focus-calls");
+        // A reload publishes the digest it already read, so labels never blink off.
+        let calls = f.directory.join("digest-calls");
         let _ = std::fs::remove_file(&calls);
         let loaded = load(
             &core,
@@ -2145,7 +2145,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 .document
                 .to_string()
                 .contains("heldCount"),
-            "known focus published at once"
+            "known digest published at once"
         );
         assert!(
             loaded.enrich.is_some(),

@@ -116,9 +116,9 @@ fn absent_setup_installs_one_observation_per_event_without_usage_consent() {
             .unwrap()
             .ends_with("__hook claude --activity-only")
     );
-    let focus = stops[1]["hooks"][0]["command"].as_str().unwrap();
-    assert!(focus.starts_with("'/a b/tm'\\''t' __focus-hook claude --launch '"));
-    assert!(focus.contains("start'\\'' token"));
+    let digest = stops[1]["hooks"][0]["command"].as_str().unwrap();
+    assert!(digest.starts_with("'/a b/tm'\\''t' __digest-hook claude --launch '"));
+    assert!(digest.contains("start'\\'' token"));
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn existing_setup_hooks_are_the_only_observers_and_user_hooks_remain() {
         stops[1]["hooks"][0]["command"]
             .as_str()
             .unwrap()
-            .contains("__focus-hook")
+            .contains("__digest-hook")
     );
 }
 

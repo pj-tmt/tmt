@@ -46,7 +46,7 @@ fn run(target: String, lines: Option<u64>, capture_only: bool) -> Result<Report,
         // A capture-only read is for display data and may be repeated by a tool,
         // so it never hands a retained checklist to the pane.
         if let Some(identity) = observed.identity.as_ref().filter(|_| !capture_only) {
-            tmt_adapters::focus::flush_idle(&mut storage,&identity.id,std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms/1000.0)).map_err(|e|Failure::new("FOCUS_DELIVERY_ERROR","Could not confirm Focus checklist delivery; inspect the retained checklist before retrying.",1).caused_by(e))?;
+            tmt_adapters::digest::flush_idle(&mut storage,&identity.id,std::time::Duration::from_secs_f64(settings.paste_enter_delay_ms/1000.0)).map_err(|e|Failure::new("DIGEST_DELIVERY_ERROR","Could not confirm Digest checklist delivery; inspect the retained checklist before retrying.",1).caused_by(e))?;
         }
         let endpoint = RequestEndpoint {
             server: observed.server.clone(),

@@ -645,7 +645,7 @@ Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
 
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
 reading. `check` captures pane diagnostics and may deliver a due
-[Focus checklist](#focus-delivery-windows) at verified idle; `check --capture-only`
+[Digest checklist](#digest-delivery-windows) at verified idle; `check --capture-only`
 captures with no handoff or other side effect. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
 180-second default remains current behavior. Explicit `talk --inbox` queues for
@@ -723,23 +723,23 @@ honest headers while metadata is retained. Reads use an observation snapshot,
 never acknowledge, renew retention, run request housekeeping, or claim successful
 notification. Exact retained body text remains available through detail/result.
 
-## Focus delivery windows
+## Digest delivery windows
 
-Focus is an identity-UUID delivery policy with a revision and absolute `untilMs`.
+Digest is an identity-UUID delivery policy with a revision and absolute `untilMs`.
 Squad admits recorded-user/current-lead writes and supplies the pinned owner UUID;
 core validates active UUIDs and compare-and-set revisions through the
-[local API](extension-api.md#focus-policy-and-checklist).
-There is no cadence, rotation, timer, daemon or detached Focus worker.
+[local API](extension-api.md#digest-policy-and-checklist).
+There is no cadence, rotation, timer, daemon or detached Digest worker.
 
 Normal automatic identity requests are prepared, registered for detached result
 notices, published as queued, and held under one IMMEDIATE transaction. They own
 no live waiter and attempt no channel write or paste. Text reports remaining
-seconds and UTC epoch expiry; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`,
-`notification:"held"`, `waitingFor:"focus_checklist"` to ordinary queued correlation.
+seconds and UTC epoch expiry; JSON adds `digest:true`, `digestUntilMs`, `remainingMs`,
+`notification:"held"`, `waitingFor:"digest_checklist"` to ordinary queued correlation.
 This decision does not imply offline status. Explicit `--inbox` retains pull-only
 behavior and acquires no automatic wake or checklist membership.
 
-`talk --urgent` bypasses Focus only; `urgent` remains visible in X and request
+`talk --urgent` bypasses Digest only; `urgent` remains visible in X and request
 history. A resolved sender UUID equal to the policy's owner bypasses automatically;
 name reuse, anonymous sends and metadata do not establish owner authority.
 Result notices use the responding recipient UUID for this comparison, not the
@@ -747,10 +747,10 @@ originator. `talk --kind decision|review|fyi` records purpose without text guess
 (default `fyi`); finals use `result`, timeout notices use `fyi`. Classification is
 separate from request/announcement kind. Existing delivery, approval, enrollment,
 receipt and response-acceptance guards remain mandatory. An already claimed
-external attempt cannot be recalled by a later Focus write.
+external attempt cannot be recalled by a later Digest write.
 
 Held references point to canonical request/final records and never renew retention.
-An admitted adapter turn boundary may claim one checklist during Focus; normal
+An admitted adapter turn boundary may claim one checklist during Digest; normal
 transport may claim only after expiry/off and fresh verification that the exact
 live session/incarnation is idle. A talk/check invocation touching the target is
 an opportunity, not a scheduled job. Without hooks or traffic, delivery remains

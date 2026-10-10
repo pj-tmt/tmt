@@ -60,7 +60,7 @@ impl<T> FinalState<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exchange<T = ()> {
-    pub delivery_policy: super::focus::DeliveryPolicy,
+    pub delivery_policy: super::digest::DeliveryPolicy,
     pub request_id: String,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,

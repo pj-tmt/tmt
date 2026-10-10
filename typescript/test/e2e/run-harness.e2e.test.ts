@@ -131,10 +131,10 @@ function identityId(fixture: E2EFixture, name: string): string {
 function userArgsWithLaunchHooks(argv: string[]): string[] {
   expect(argv.at(-2)).toBe('--settings');
   const settings = JSON.parse(argv.at(-1)!);
-  const focus = settings.hooks.Stop.flatMap((entry: { hooks: { command: string }[] }) =>
-    entry.hooks.filter((hook) => hook.command.includes(' __focus-hook claude --launch '))
+  const digest = settings.hooks.Stop.flatMap((entry: { hooks: { command: string }[] }) =>
+    entry.hooks.filter((hook) => hook.command.includes(' __digest-hook claude --launch '))
   );
-  expect(focus).toHaveLength(1);
+  expect(digest).toHaveLength(1);
   return argv.slice(0, -2);
 }
 

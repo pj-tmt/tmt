@@ -37,7 +37,7 @@ pub(in crate::board) struct Extra {
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
     pub detail: Value,
-    pub focus: Option<String>,
+    pub digest: Option<String>,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -51,25 +51,25 @@ pub(in crate::board) fn row_end(age: Option<String>, next: Option<String>) -> Ve
     }
 }
 
-/// Focus uses the existing heading tail; narrow headings retain the word.
+/// Digest uses the existing heading tail; narrow headings retain the word.
 pub(in crate::board) fn heading_labels(
     age: Option<String>,
     next: Option<String>,
-    focus: Option<&str>,
+    digest: Option<&str>,
     width: usize,
 ) -> Vec<String> {
     let mut labels = row_end(age, next);
-    if let Some(focus) = focus {
-        let focus = if focus.width() <= width.saturating_sub(2) / 2 {
-            focus
+    if let Some(digest) = digest {
+        let digest = if digest.width() <= width.saturating_sub(2) / 2 {
+            digest
         } else {
-            "focus"
+            "digest"
         };
         labels = labels
             .into_iter()
-            .map(|label| format!("{focus}  {label}"))
+            .map(|label| format!("{digest}  {label}"))
             .collect();
-        labels.push(focus.into());
+        labels.push(digest.into());
         labels.retain(|label| label.width() <= width.saturating_sub(2) / 2);
     }
     labels
@@ -283,7 +283,7 @@ impl RowPaint {
         let age = crate::staleness::label(&row["staleness"]);
         self.stale.push(age.is_some());
         let waits = crate::attention::waits_on_you(row);
-        let labels = heading_labels(age, extra.next.clone(), extra.focus.as_deref(), width);
+        let labels = heading_labels(age, extra.next.clone(), extra.digest.as_deref(), width);
         let mut identity = admitted.clone();
         identity.children.clear();
         let root = self.add(identity, (0, y, width, 1), None);
@@ -526,12 +526,12 @@ impl RowPaint {
         );
     }
 
-    /// Focus may clip heading cells while keeping their continuation geometry;
+    /// Digest may clip heading cells while keeping their continuation geometry;
     /// other labels still need unused space after the cells.
     fn row_end(&mut self, root: usize, labels: &[String], used: usize, y: usize, width: usize) {
         let Some(label) = labels
             .iter()
-            .find(|label| label.starts_with("focus") || used + GAP + label.width() <= width)
+            .find(|label| label.starts_with("digest") || used + GAP + label.width() <= width)
         else {
             return;
         };
@@ -545,20 +545,20 @@ impl RowPaint {
             TextFlow::Clip,
             Some(root),
         );
-        if label.starts_with("focus") {
-            let (focus, tail) = label
+        if label.starts_with("digest") {
+            let (digest, tail) = label
                 .split_once("  ")
-                .map_or((label.as_str(), ""), |(focus, tail)| (focus, tail));
+                .map_or((label.as_str(), ""), |(digest, tail)| (digest, tail));
             self.label(
-                Some("focus".into()),
-                (at, y, 5, 1),
+                Some("digest".into()),
+                (at, y, "digest".len(), 1),
                 Some(Role::Text),
                 TextFlow::Clip,
                 Some(root),
             );
             self.label(
-                Some(focus[5..].into()),
-                (at + 5, y, focus.width() - 5, 1),
+                Some(digest["digest".len()..].into()),
+                (at + "digest".len(), y, digest.width() - "digest".len(), 1),
                 Some(Role::Muted),
                 TextFlow::Clip,
                 Some(root),
@@ -566,7 +566,7 @@ impl RowPaint {
             if !tail.is_empty() {
                 self.label(
                     Some(tail.into()),
-                    (at + focus.width() + 2, y, tail.width(), 1),
+                    (at + digest.width() + 2, y, tail.width(), 1),
                     Some(Role::Dim),
                     TextFlow::Clip,
                     Some(root),

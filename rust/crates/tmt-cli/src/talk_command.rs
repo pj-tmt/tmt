@@ -51,7 +51,7 @@ struct Correlation {
     /// The message reached a one-way channel that gives no receipt: it is
     /// neither confirmed nor safe to resend, and every later failure says so.
     delivery_uncertain: bool,
-    focus_until_ms: Option<u64>,
+    digest_until_ms: Option<u64>,
 }
 struct Prepared {
     correlation: Correlation,
@@ -231,7 +231,7 @@ fn deliver(
     interrupt: Option<&Interrupt>,
 ) -> Result<Option<FinalResponse>, Failure> {
     let correlation = &mut prepared.correlation;
-    if correlation.focus_until_ms.is_some() {
+    if correlation.digest_until_ms.is_some() {
         return Ok(None);
     }
     let wait = prepared.wait;
@@ -335,8 +335,8 @@ fn deliver(
                 .map_err(|error| correlation.state_error(error, false))?;
             if !claim.claimed {
                 correlation.inbox = true;
-                correlation.focus_until_ms = claim.focus_until_ms;
-                if correlation.focus_until_ms.is_some() {
+                correlation.digest_until_ms = claim.digest_until_ms;
+                if correlation.digest_until_ms.is_some() {
                     correlation.offline = false;
                     correlation.unbound = false;
                 }

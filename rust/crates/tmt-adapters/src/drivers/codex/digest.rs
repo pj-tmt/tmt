@@ -67,8 +67,8 @@ fn compose(
     }
     // The trust hash covers this definition. Never embed identity, binding,
     // process start, session, environment values, or an ephemeral file path.
-    let focus = json!({"hooks":[{"type":"command", "command":format!("'{}' __focus-hook {} --discover-launch", launcher.replace('\'', "'\\''"), super::NAME), "timeout":HOOK_TIMEOUT_SECONDS}]});
-    append(&mut hooks, "Stop", focus)?;
+    let digest = json!({"hooks":[{"type":"command", "command":format!("'{}' __digest-hook {} --discover-launch", launcher.replace('\'', "'\\''"), super::NAME), "timeout":HOOK_TIMEOUT_SECONDS}]});
+    append(&mut hooks, "Stop", digest)?;
     let value = settings::toml(&hooks)?;
     if value.len() > setup::SETTINGS_LIMIT {
         return Err(unavailable());

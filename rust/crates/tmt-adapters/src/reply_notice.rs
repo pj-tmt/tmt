@@ -53,7 +53,7 @@ fn channel_or_unknown(entry: &BindingEntry) -> bool {
 
 /// A preparation failure affects only the advisory hint, never durable acceptance.
 pub fn prepare(storage: &mut Storage, hint: &OriginatorHint) -> Result<Prepared, StorageError> {
-    if crate::focus::hold_notice(storage, &hint.request_id, hint.kind)? {
+    if crate::digest::hold_notice(storage, &hint.request_id, hint.kind)? {
         return Ok(Prepared::Immediate(WakeState::Unavailable));
     }
     if hint.kind != HintKind::Reply {

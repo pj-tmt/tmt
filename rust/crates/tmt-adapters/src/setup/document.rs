@@ -71,7 +71,7 @@ pub(crate) fn compose_launch_hooks(
     text: &str,
     global: &str,
     observations: &[(String, Value)],
-    focus: &Value,
+    digest: &Value,
 ) -> Result<String, PlanError> {
     for document in [text, global] {
         let root = object(document)?;
@@ -97,7 +97,7 @@ pub(crate) fn compose_launch_hooks(
             hooks = append_event(&hooks, event, entry)?;
         }
     }
-    hooks = append_event(&hooks, "Stop", focus)?;
+    hooks = append_event(&hooks, "Stop", digest)?;
     let result = set(text, "hooks", &hooks)?;
     if result.len() > SETTINGS_LIMIT {
         return Err(PlanError::TooLarge);

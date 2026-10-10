@@ -5,7 +5,7 @@
 //! held.
 
 mod attention;
-mod focus;
+mod digest;
 mod history;
 mod notification;
 mod reply_batch;
@@ -158,93 +158,93 @@ fn checked_now(value: u64, label: &str) -> Result<i64, StorageError> {
 impl RequestRecords for RequestRows<'_> {
     type Error = StorageError;
 
-    fn focus_policy(
+    fn digest_policy(
         &self,
         id: &str,
-    ) -> Result<Option<tmt_core::request::focus::FocusPolicy>, Self::Error> {
-        focus::policy(self.0, id)
+    ) -> Result<Option<tmt_core::request::digest::DigestPolicy>, Self::Error> {
+        digest::policy(self.0, id)
     }
-    fn write_focus_policy(
+    fn write_digest_policy(
         &mut self,
-        p: &tmt_core::request::focus::FocusPolicy,
+        p: &tmt_core::request::digest::DigestPolicy,
     ) -> Result<(), Self::Error> {
-        focus::write_policy(self.0, p)
+        digest::write_policy(self.0, p)
     }
     fn delivery_policy(
         &self,
         id: &str,
-    ) -> Result<tmt_core::request::focus::DeliveryPolicy, Self::Error> {
-        focus::delivery_policy(self.0, id)
+    ) -> Result<tmt_core::request::digest::DeliveryPolicy, Self::Error> {
+        digest::delivery_policy(self.0, id)
     }
     fn write_delivery_policy(
         &mut self,
         id: &str,
-        p: &tmt_core::request::focus::DeliveryPolicy,
+        p: &tmt_core::request::digest::DeliveryPolicy,
     ) -> Result<(), Self::Error> {
-        focus::write_delivery_policy(self.0, id, p)
+        digest::write_delivery_policy(self.0, id, p)
     }
-    fn hold_focus_item(
+    fn hold_digest_item(
         &mut self,
         id: &str,
         request: &str,
-        kind: tmt_core::request::focus::FocusKind,
-        source: tmt_core::request::focus::FocusSource,
+        kind: tmt_core::request::digest::DigestKind,
+        source: tmt_core::request::digest::DigestSource,
         now: u64,
     ) -> Result<(), Self::Error> {
-        focus::hold(self.0, id, request, kind, source, now)
+        digest::hold(self.0, id, request, kind, source, now)
     }
-    fn has_focus_item(
+    fn has_digest_item(
         &self,
         id: &str,
         request: &str,
-        source: tmt_core::request::focus::FocusSource,
+        source: tmt_core::request::digest::DigestSource,
     ) -> Result<bool, Self::Error> {
-        focus::has_item(self.0, id, request, source)
+        digest::has_item(self.0, id, request, source)
     }
-    fn focus_inventory(
+    fn digest_inventory(
         &self,
         id: &str,
         batch: Option<&str>,
         after: u64,
         now: u64,
     ) -> Result<(u64, u64), Self::Error> {
-        focus::inventory(self.0, id, batch, after, now)
+        digest::inventory(self.0, id, batch, after, now)
     }
-    fn focus_items(
+    fn digest_items(
         &self,
         id: &str,
         batch: Option<&str>,
         after: u64,
         limit: u64,
         now: u64,
-    ) -> Result<Vec<tmt_core::request::focus::FocusItem>, Self::Error> {
-        focus::items(self.0, id, batch, after, limit, now)
+    ) -> Result<Vec<tmt_core::request::digest::DigestItem>, Self::Error> {
+        digest::items(self.0, id, batch, after, limit, now)
     }
-    fn focus_checklist(
+    fn digest_checklist(
         &self,
         id: &str,
-    ) -> Result<Option<tmt_core::request::focus::FocusChecklist>, Self::Error> {
-        focus::checklist(self.0, id)
+    ) -> Result<Option<tmt_core::request::digest::DigestChecklist>, Self::Error> {
+        digest::checklist(self.0, id)
     }
-    fn active_focus_checklist(
+    fn active_digest_checklist(
         &self,
         id: &str,
-    ) -> Result<Option<tmt_core::request::focus::FocusChecklist>, Self::Error> {
-        focus::active(self.0, id)
+    ) -> Result<Option<tmt_core::request::digest::DigestChecklist>, Self::Error> {
+        digest::active(self.0, id)
     }
-    fn create_focus_checklist(
+    fn create_digest_checklist(
         &mut self,
-        b: &tmt_core::request::focus::FocusChecklist,
+        b: &tmt_core::request::digest::DigestChecklist,
         now: u64,
     ) -> Result<(), Self::Error> {
-        focus::create_checklist(self.0, b, now)
+        digest::create_checklist(self.0, b, now)
     }
-    fn settle_focus_checklist(
+    fn settle_digest_checklist(
         &mut self,
-        b: &tmt_core::request::focus::FocusChecklist,
-        state: tmt_core::request::focus::FocusState,
+        b: &tmt_core::request::digest::DigestChecklist,
+        state: tmt_core::request::digest::DigestState,
     ) -> Result<(), Self::Error> {
-        focus::settle(self.0, b, state)
+        digest::settle(self.0, b, state)
     }
 
     fn notification(
@@ -1094,7 +1094,7 @@ impl RequestRecords for RequestRows<'_> {
                 params![settled_cutoff, now, now, checked_limit(limit)?],
             )
             .map_err(|error| classify(error, "Delete retained requests"))?;
-        focus::prune_settled(self.0, settled_cutoff_ms, limit)?;
+        digest::prune_settled(self.0, settled_cutoff_ms, limit)?;
         Ok(())
     }
 }

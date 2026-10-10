@@ -63,7 +63,7 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::Install { .. }
                 | Invocation::Setup { .. }
                 | Invocation::ProviderHook { .. }
-                | Invocation::FocusHook { .. }
+                | Invocation::DigestHook { .. }
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeInstallHandoff { .. }
@@ -100,7 +100,7 @@ pub fn eligible_for_driver_hint(parsed: &Parsed) -> bool {
                 | Invocation::Complete(_)
                 | Invocation::Driver(_)
                 | Invocation::ProviderHook { .. }
-                | Invocation::FocusHook { .. }
+                | Invocation::DigestHook { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeInstallHandoff { .. }
                 | Invocation::NativeSchema { .. }

@@ -7,17 +7,17 @@ use tmt_core::{
     binding::BindingRecords,
     request::{
         RequestError, RequestService,
-        focus::{FocusChecklist, FocusOpportunity},
+        digest::{DigestChecklist, DigestOpportunity},
     },
 };
 
 impl Storage {
-    pub fn claim_focus_for_launch(
+    pub fn claim_digest_for_launch(
         &mut self,
         expected: &IdentityContextSnapshot,
         id: String,
         token: String,
-    ) -> Result<Option<FocusChecklist>, RequestError<StorageError>> {
+    ) -> Result<Option<DigestChecklist>, RequestError<StorageError>> {
         with_immediate_transaction(self, "launch checklist", |transaction| {
             let rows = BindingRows(transaction);
             let identity = &expected.entry.identity.id;
@@ -40,7 +40,7 @@ impl Storage {
             }
             let mut requests = TransactionRequests(transaction);
             RequestService::new(&mut requests, crate::request_runtime::wall_time_ms)
-                .claim_focus_checklist(identity, id, token, FocusOpportunity::TurnBoundary)
+                .claim_digest_checklist(identity, id, token, DigestOpportunity::TurnBoundary)
         })
     }
 }
@@ -53,7 +53,7 @@ mod tests {
 
     fn fixture() -> (TestDirectory, std::path::PathBuf, String) {
         let directory = TestDirectory::new();
-        let path = directory.path.join("focus.db");
+        let path = directory.path.join("digest.db");
         let mut storage = Storage::open(&path).unwrap();
         let id = create_or_resolve(&mut storage, "Focused", Lifetime::Saved)
             .unwrap()
@@ -71,9 +71,9 @@ mod tests {
         (directory, path, id)
     }
 
-    fn claim(storage: &mut Storage, expected: &IdentityContextSnapshot) -> Option<FocusChecklist> {
+    fn claim(storage: &mut Storage, expected: &IdentityContextSnapshot) -> Option<DigestChecklist> {
         storage
-            .claim_focus_for_launch(
+            .claim_digest_for_launch(
                 expected,
                 tmt_core::operation::new_operation_id(),
                 tmt_core::operation::new_operation_id(),
@@ -141,7 +141,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             Box::new(move |storage: &mut Storage| claim(storage, &expected))
-                as super::super::test_support::Operation<Option<FocusChecklist>>
+                as super::super::test_support::Operation<Option<DigestChecklist>>
         });
         let results = super::super::test_support::concurrent_pair(&path, operations);
         assert_eq!(results.iter().filter(|value| value.is_some()).count(), 1);

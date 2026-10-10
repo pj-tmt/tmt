@@ -338,7 +338,7 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
             .iter()
             .map(|input| input["operation"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["rooms.roster", "rooms.roster", "focus.policy.show"]
+        ["rooms.roster", "rooms.roster", "digest.policy.show"]
     );
     assert_eq!(inputs[2]["input"]["identities"], json!(["id-a", "id-b"]));
     assert_eq!(rates.len(), squads.len());

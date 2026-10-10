@@ -163,7 +163,7 @@ pub enum Invocation {
         usage: tmt_core::driver::descriptor::UsageHook,
         yes: bool,
     },
-    FocusHook {
+    DigestHook {
         provider: String,
         launch: Option<String>,
         worker: bool,
@@ -253,7 +253,7 @@ pub use crate::office_facade::invocation::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
     pub urgent: bool,
-    pub focus_kind: tmt_core::request::focus::FocusKind,
+    pub digest_kind: tmt_core::request::digest::DigestKind,
     pub room: Option<String>,
     pub inbox: bool,
     pub force: bool,

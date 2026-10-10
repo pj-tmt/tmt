@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn focus_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
+fn digest_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
     let argv = [
-        "__focus-hook",
+        "__digest-hook",
         "claude",
         "--launch",
         "{}",
@@ -13,7 +13,7 @@ fn focus_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
     ];
     assert_eq!(
         parsed(&argv).invocation,
-        Invocation::FocusHook {
+        Invocation::DigestHook {
             provider: "claude".into(),
             launch: Some("{}".into()),
             worker: true,
@@ -23,14 +23,14 @@ fn focus_callback_is_hidden_and_does_not_enter_human_output_or_drift() {
     assert!(!crate::skill_reminder::eligible_for_drift(&parsed(&argv)));
     assert!(
         crate::grammar::grammar()
-            .find_subcommand("__focus-hook")
+            .find_subcommand("__digest-hook")
             .unwrap()
             .is_hide_set()
     );
-    assert!(parse(&args(&["__focus-hook", "claude"])).is_err());
+    assert!(parse(&args(&["__digest-hook", "claude"])).is_err());
     assert!(
         parse(&args(&[
-            "__focus-hook",
+            "__digest-hook",
             "claude",
             "--launch",
             "{}",
@@ -192,10 +192,10 @@ fn private_hook_worker_budget_is_typed_bounded_and_requires_worker() {
 }
 
 #[test]
-fn stable_focus_callback_discovers_launch_without_coordinates() {
+fn stable_digest_callback_discovers_launch_without_coordinates() {
     assert_eq!(
-        parsed(&["__focus-hook", "codex", "--discover-launch"]).invocation,
-        Invocation::FocusHook {
+        parsed(&["__digest-hook", "codex", "--discover-launch"]).invocation,
+        Invocation::DigestHook {
             provider: "codex".into(),
             launch: None,
             worker: false,
@@ -204,7 +204,7 @@ fn stable_focus_callback_discovers_launch_without_coordinates() {
     );
     assert!(
         parse(&args(&[
-            "__focus-hook",
+            "__digest-hook",
             "codex",
             "--discover-launch",
             "--launch",

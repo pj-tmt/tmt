@@ -219,10 +219,10 @@ impl App {
             }
         }
         let now = crate::status::now_ms();
-        if !visible.contains(&"focus") {
+        if !visible.contains(&"digest") {
             detail.add(
-                "focus",
-                crate::focus::detail(row, now).as_deref(),
+                "digest",
+                crate::digest::detail(row, now).as_deref(),
                 Role::Muted,
             );
         }

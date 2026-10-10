@@ -360,7 +360,7 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
 
 /// Discover or verify this exact foreground launch in one native admission pass.
 /// Supplied argv and discovered coordinates are locators, never authority.
-pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
+pub(crate) fn verified_digest_launch<R: CommandRunner + Clone>(
     provider: &str,
     lifecycle: &dyn RuntimeLifecycle,
     launch: Option<&tmt_adapters::runtime::hook_protocol::HookLaunch>,
@@ -409,7 +409,7 @@ pub(crate) fn verified_focus_launch<R: CommandRunner + Clone>(
     }
     let owner = launch.owner().ok_or(())?;
     let process = lifecycle
-        .focus_process(&binding.session, &bound.process, session, host, deadline)
+        .digest_process(&binding.session, &bound.process, session, host, deadline)
         .ok_or(())?;
     let expected = binding.id == launch.binding_id
         && binding.identity_id == launch.identity_id

@@ -211,7 +211,7 @@ impl Storage {
     ) -> Result<bool, StorageError> {
         with_immediate_transaction(self, "reply frame attempt", |db| {
             let owned:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM reply_notices n JOIN reply_notice_batches b ON b.id=n.batch_id WHERE n.batch_id=? AND n.request_id=? AND n.attempted=0 AND b.sending=1 AND b.worker_pid=? AND b.worker_start=?)",params![id,request_id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()],|r|r.get(0)).map_err(|e|classify(e,"Verify unattempted reply frame owner"))?;
-            if !owned || focus_hold(db, request_id)? {
+            if !owned || digest_hold(db, request_id)? {
                 return Ok(false);
             }
             let changed=db.execute("UPDATE reply_notices SET attempted=1 WHERE batch_id=? AND request_id=? AND attempted=0 AND EXISTS (SELECT 1 FROM reply_notice_batches WHERE id=? AND sending=1 AND worker_pid=? AND worker_start=?)",params![id,request_id,id,checked_now(worker.pid(),"Reply worker PID")?,worker.start_identity()])
@@ -244,7 +244,7 @@ impl Storage {
                 };
                 let mut held = false;
                 for request in ids {
-                    held |= focus_hold(db, &request)?;
+                    held |= digest_hold(db, &request)?;
                 }
                 if held {
                     return Ok(false);
@@ -335,12 +335,12 @@ fn validate_outcome(outcome: WakeState) -> Result<(), StorageError> {
     }
 }
 
-fn focus_hold(db: &Connection, request_id: &str) -> Result<bool, StorageError> {
+fn digest_hold(db: &Connection, request_id: &str) -> Result<bool, StorageError> {
     let mut records = super::RequestRows(db);
     let Some(attempt) = records.find_request(request_id)? else {
         return Ok(false);
     };
-    tmt_core::request::focus::hold_originator_notice(
+    tmt_core::request::digest::hold_originator_notice(
         &mut records,
         &attempt,
         tmt_core::request::notification::HintKind::Reply,
@@ -348,6 +348,6 @@ fn focus_hold(db: &Connection, request_id: &str) -> Result<bool, StorageError> {
     )
     .map_err(|error| match error {
         tmt_core::request::RequestError::Repository(error) => error,
-        _ => StorageError::new(StorageErrorCode::Unknown, "Focus notice admission failed"),
+        _ => StorageError::new(StorageErrorCode::Unknown, "Digest notice admission failed"),
     })
 }

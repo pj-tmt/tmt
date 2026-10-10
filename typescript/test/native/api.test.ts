@@ -81,15 +81,15 @@ describe('public local extension API', () => {
     });
   });
 
-  it('discovers capabilities through a non-Office extension without creating state', async () => {
+  it('discovers capabilities through the external digest root command without creating state', async () => {
     await withSandbox(async (sandbox) => {
       const bin = path.join(sandbox.root, 'bin');
       mkdirSync(bin);
-      const extension = path.join(bin, 'tmt-teamchat');
+      const extension = path.join(bin, 'tmt-digest');
       writeExecutable(extension, '#!/bin/sh\nexec "$TMT_EXECUTABLE" api\n', 0o700);
       sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH ?? ''}`;
       const request = JSON.stringify({ version: 1, operation: 'capabilities', input: {} });
-      const result = await runCli(sandbox, ['teamchat'], { stdin: request });
+      const result = await runCli(sandbox, ['digest'], { stdin: request });
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(JSON.parse(result.stdout)).toMatchObject({

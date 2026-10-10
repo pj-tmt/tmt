@@ -226,7 +226,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
         },
         ["__consumption-sample"] => Invocation::ConsumptionSample,
-        ["__focus-hook"] => Invocation::FocusHook {
+        ["__digest-hook"] => Invocation::DigestHook {
             provider: text(m, "provider").expect("required provider"),
             launch: text(m, "launch"),
             worker: flag(m, "worker"),
@@ -446,7 +446,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 originator: text(m, "identity"),
                 options: TalkOptions {
                     urgent: flag(m, "urgent"),
-                    focus_kind: tmt_core::request::focus::FocusKind::parse(&required(m, "kind"))
+                    digest_kind: tmt_core::request::digest::DigestKind::parse(&required(m, "kind"))
                         .expect("validated purpose"),
                     room: text(m, "room"),
                     inbox: flag(m, "inbox"),

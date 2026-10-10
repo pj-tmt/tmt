@@ -1,22 +1,22 @@
-use super::super::focus::{
-    self, FocusChecklist, FocusOpportunity, FocusPolicy, FocusPolicyView, FocusPolicyWrite,
-    FocusRejection, FocusState,
+use super::super::digest::{
+    self, DigestChecklist, DigestOpportunity, DigestPolicy, DigestPolicyView, DigestPolicyWrite,
+    DigestRejection, DigestState,
 };
 use super::*;
 
-fn focus_error<E>(reason: FocusRejection) -> RequestError<E> {
-    RequestError::Focus(reason)
+fn digest_error<E>(reason: DigestRejection) -> RequestError<E> {
+    RequestError::Digest(reason)
 }
 
-fn focus_identity<E>(
+fn digest_identity<E>(
     records: &dyn RequestRecords<Error = E>,
     id: &str,
 ) -> Result<(), RequestError<E>> {
     if !crate::dispatch::canonical_id(id) {
-        return Err(focus_error(FocusRejection::Invalid));
+        return Err(digest_error(DigestRejection::Invalid));
     }
     if !records.identity_is_active(id)? {
-        return Err(focus_error(FocusRejection::IdentityUnavailable));
+        return Err(digest_error(DigestRejection::IdentityUnavailable));
     }
     Ok(())
 }
@@ -24,7 +24,7 @@ fn focus_identity<E>(
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     /// Uses the same first-final eligibility as reply admission, without renewing
     /// retention or acknowledging attention.
-    pub fn focus_reply_context(
+    pub fn digest_reply_context(
         &mut self,
         id: &str,
     ) -> Result<Option<(RequestContext, bool)>, RequestError<R::Error>> {
@@ -38,7 +38,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
-    pub fn focus_result_context(
+    pub fn digest_result_context(
         &mut self,
         id: &str,
     ) -> Result<Option<FinalResponse>, RequestError<R::Error>> {
@@ -50,165 +50,165 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 .filter(|r| now < r.response_expires_at_ms))
         })
     }
-    pub fn write_focus(
+    pub fn write_digest(
         &mut self,
-        input: FocusPolicyWrite,
-    ) -> Result<FocusPolicyView, RequestError<R::Error>> {
+        input: DigestPolicyWrite,
+    ) -> Result<DigestPolicyView, RequestError<R::Error>> {
         let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
             let now = positive(clock())?;
-            focus_identity(records, &input.identity_id)?;
-            focus_identity(records, &input.owner_identity_id)?;
-            focus_identity(records, &input.setter_identity_id)?;
+            digest_identity(records, &input.identity_id)?;
+            digest_identity(records, &input.owner_identity_id)?;
+            digest_identity(records, &input.setter_identity_id)?;
             if input.until_ms > MAX_JS_SAFE_INTEGER
                 || (input.until_ms != 0 && input.until_ms <= now)
             {
-                return Err(focus_error(FocusRejection::Invalid));
+                return Err(digest_error(DigestRejection::Invalid));
             }
-            let old = records.focus_policy(&input.identity_id)?;
+            let old = records.digest_policy(&input.identity_id)?;
             let revision = old.as_ref().map_or(0, |p| p.revision);
             if revision != input.expected_revision {
-                return Err(focus_error(FocusRejection::Conflict));
+                return Err(digest_error(DigestRejection::Conflict));
             }
             if revision >= MAX_JS_SAFE_INTEGER {
                 return Err(RequestError::RevisionExhausted);
             }
-            let policy = FocusPolicy {
+            let policy = DigestPolicy {
                 identity_id: input.identity_id,
                 revision: revision + 1,
                 until_ms: input.until_ms,
                 owner_identity_id: input.owner_identity_id,
                 setter_identity_id: input.setter_identity_id,
             };
-            records.write_focus_policy(&policy)?;
+            records.write_digest_policy(&policy)?;
             policy_view(records, &policy.identity_id.clone(), Some(policy), now)
         })
     }
 
-    pub fn focus_policies(
+    pub fn digest_policies(
         &mut self,
         ids: &[String],
-    ) -> Result<Vec<FocusPolicyView>, RequestError<R::Error>> {
+    ) -> Result<Vec<DigestPolicyView>, RequestError<R::Error>> {
         if ids.is_empty() || ids.len() > 256 {
-            return Err(focus_error(FocusRejection::Invalid));
+            return Err(digest_error(DigestRejection::Invalid));
         }
         let clock = &self.clock;
         self.repository.with_request_observation(|records| {
             let now = positive(clock())?;
             ids.iter()
                 .map(|id| {
-                    focus_identity(records, id)?;
-                    let policy = records.focus_policy(id)?;
+                    digest_identity(records, id)?;
+                    let policy = records.digest_policy(id)?;
                     policy_view(records, id, policy, now)
                 })
                 .collect()
         })
     }
 
-    pub fn focus_checklist_items(
+    pub fn digest_checklist_items(
         &mut self,
         identity: &str,
         checklist: Option<&str>,
         after: u64,
         limit: u64,
-    ) -> Result<(Vec<focus::FocusItem>, u64), RequestError<R::Error>> {
+    ) -> Result<(Vec<digest::DigestItem>, u64), RequestError<R::Error>> {
         if after > MAX_JS_SAFE_INTEGER || !(1..=128).contains(&limit) {
-            return Err(focus_error(FocusRejection::Invalid));
+            return Err(digest_error(DigestRejection::Invalid));
         }
         let clock = &self.clock;
         self.repository.with_request_observation(|records| {
             let now = positive(clock())?;
-            focus_identity(records, identity)?;
+            digest_identity(records, identity)?;
             if let Some(id) = checklist {
                 let batch = records
-                    .focus_checklist(id)?
-                    .ok_or_else(|| focus_error(FocusRejection::StateInvalid))?;
+                    .digest_checklist(id)?
+                    .ok_or_else(|| digest_error(DigestRejection::StateInvalid))?;
                 if batch.identity_id != identity {
-                    return Err(focus_error(FocusRejection::AttemptMismatch));
+                    return Err(digest_error(DigestRejection::AttemptMismatch));
                 }
             }
-            let (count, _) = records.focus_inventory(identity, checklist, after, now)?;
-            let items = records.focus_items(identity, checklist, after, limit, now)?;
+            let (count, _) = records.digest_inventory(identity, checklist, after, now)?;
+            let items = records.digest_items(identity, checklist, after, limit, now)?;
             Ok((items, count))
         })
     }
 
     /// The caller admits an opportunity; policy and sealed membership are rechecked
     /// in the writer transaction. A claimed record is never a replay lease.
-    pub fn claim_focus_checklist(
+    pub fn claim_digest_checklist(
         &mut self,
         identity: &str,
         id: String,
         token: String,
-        opportunity: FocusOpportunity,
-    ) -> Result<Option<FocusChecklist>, RequestError<R::Error>> {
+        opportunity: DigestOpportunity,
+    ) -> Result<Option<DigestChecklist>, RequestError<R::Error>> {
         if !crate::dispatch::canonical_id(&id) || !crate::dispatch::canonical_id(&token) {
-            return Err(focus_error(FocusRejection::Invalid));
+            return Err(digest_error(DigestRejection::Invalid));
         }
         let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
             let now = positive(clock())?;
-            focus_identity(records, identity)?;
-            if let Some(existing) = records.focus_checklist(&id)? {
+            digest_identity(records, identity)?;
+            if let Some(existing) = records.digest_checklist(&id)? {
                 if existing.identity_id != identity || existing.attempt_token != token {
-                    return Err(focus_error(FocusRejection::AttemptMismatch));
+                    return Err(digest_error(DigestRejection::AttemptMismatch));
                 }
                 // Repeated claims return no transport permission, including a
                 // crash whose external effect cannot be established.
                 return Ok(None);
             }
-            if records.active_focus_checklist(identity)?.is_some() {
+            if records.active_digest_checklist(identity)?.is_some() {
                 return Ok(None);
             }
-            if opportunity == FocusOpportunity::Idle
+            if opportunity == DigestOpportunity::Idle
                 && records
-                    .focus_policy(identity)?
+                    .digest_policy(identity)?
                     .is_some_and(|p| p.active(now))
             {
                 return Ok(None);
             }
-            let (count, through_sequence) = records.focus_inventory(identity, None, 0, now)?;
+            let (count, through_sequence) = records.digest_inventory(identity, None, 0, now)?;
             if count == 0 {
                 return Ok(None);
             }
-            let checklist = FocusChecklist {
+            let checklist = DigestChecklist {
                 id,
                 identity_id: identity.into(),
                 attempt_token: token,
                 through_sequence,
-                state: FocusState::Claimed,
+                state: DigestState::Claimed,
                 created_at_ms: now,
             };
-            records.create_focus_checklist(&checklist, now)?;
+            records.create_digest_checklist(&checklist, now)?;
             Ok(Some(checklist))
         })
     }
 
-    pub fn settle_focus_checklist(
+    pub fn settle_digest_checklist(
         &mut self,
         identity: &str,
         id: &str,
         token: &str,
-        state: FocusState,
+        state: DigestState,
     ) -> Result<bool, RequestError<R::Error>> {
-        if state == FocusState::Claimed {
-            return Err(focus_error(FocusRejection::Invalid));
+        if state == DigestState::Claimed {
+            return Err(digest_error(DigestRejection::Invalid));
         }
         self.repository.with_request_transaction(|records| {
-            focus_identity(records, identity)?;
+            digest_identity(records, identity)?;
             let batch = records
-                .focus_checklist(id)?
-                .ok_or_else(|| focus_error(FocusRejection::StateInvalid))?;
+                .digest_checklist(id)?
+                .ok_or_else(|| digest_error(DigestRejection::StateInvalid))?;
             if batch.identity_id != identity || batch.attempt_token != token {
-                return Err(focus_error(FocusRejection::AttemptMismatch));
+                return Err(digest_error(DigestRejection::AttemptMismatch));
             }
             if batch.state == state {
                 return Ok(false);
             }
-            if batch.state != FocusState::Claimed {
-                return Err(focus_error(FocusRejection::StateInvalid));
+            if batch.state != DigestState::Claimed {
+                return Err(digest_error(DigestRejection::StateInvalid));
             }
-            records.settle_focus_checklist(&batch, state)?;
+            records.settle_digest_checklist(&batch, state)?;
             Ok(true)
         })
     }
@@ -216,7 +216,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     pub fn request_delivery_policy(
         &mut self,
         id: &str,
-    ) -> Result<focus::DeliveryPolicy, RequestError<R::Error>> {
+    ) -> Result<digest::DeliveryPolicy, RequestError<R::Error>> {
         self.repository
             .with_request_observation(|records| records.delivery_policy(id).map_err(Into::into))
     }
@@ -236,7 +236,7 @@ pub(super) fn held_until<E>(
         return Ok(None);
     }
     Ok(records
-        .focus_policy(id)?
+        .digest_policy(id)?
         .filter(|p| p.holds(sender, urgent, now))
         .map(|p| p.until_ms))
 }
@@ -260,11 +260,11 @@ pub(super) fn hold_incoming<E>(
     if until.is_some()
         && let Some(identity) = &attempt.recipient_identity_id
     {
-        records.hold_focus_item(
+        records.hold_digest_item(
             identity,
             &attempt.request_id,
             policy.kind,
-            focus::FocusSource::Incoming,
+            digest::DigestSource::Incoming,
             now,
         )?;
     }
@@ -274,17 +274,17 @@ pub(super) fn hold_incoming<E>(
 fn policy_view<E>(
     records: &dyn RequestRecords<Error = E>,
     identity: &str,
-    policy: Option<FocusPolicy>,
+    policy: Option<DigestPolicy>,
     now: u64,
-) -> Result<FocusPolicyView, RequestError<E>> {
-    let (mut held_count, _) = records.focus_inventory(identity, None, 0, now)?;
-    let active_checklist = records.active_focus_checklist(identity)?;
+) -> Result<DigestPolicyView, RequestError<E>> {
+    let (mut held_count, _) = records.digest_inventory(identity, None, 0, now)?;
+    let active_checklist = records.active_digest_checklist(identity)?;
     if let Some(batch) = &active_checklist {
         held_count += records
-            .focus_inventory(identity, Some(&batch.id), 0, now)?
+            .digest_inventory(identity, Some(&batch.id), 0, now)?
             .0;
     }
-    Ok(FocusPolicyView {
+    Ok(DigestPolicyView {
         policy,
         active_checklist,
         held_count,

@@ -86,7 +86,7 @@ fn fresh_and_resume_different_identities_have_byte_identical_definitions() {
     assert_eq!(definitions["Stop"].as_array().unwrap().len(), 2);
     assert_eq!(
         definitions["Stop"][1]["hooks"][0]["command"],
-        "'/a b/tm'\\''t' __focus-hook codex --discover-launch"
+        "'/a b/tm'\\''t' __digest-hook codex --discover-launch"
     );
     assert!(!hook_setting(&first).contains("--launch"));
     assert!(!hook_setting(&first).contains(&next.identity_id));

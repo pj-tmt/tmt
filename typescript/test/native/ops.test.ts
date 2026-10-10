@@ -1805,20 +1805,20 @@ o = "run touch ${marker}"
         .filter((field) => !['active', 'offline', 'unknown'].includes(field));
       expect(documentedFields.sort()).toEqual(
         Object.keys(rows[0])
-          .filter((key) => !['colors', 'focus'].includes(key))
+          .filter((key) => !['colors', 'digest'].includes(key))
           .sort()
       );
       expect(skill).toContain('- A row has the optional `colors` key');
-      expect(skill).toContain('- A row has the optional `focus` object');
-      expect(Object.keys(rows[0].focus).sort()).toEqual([
+      expect(skill).toContain('- A row has the optional `digest` object');
+      expect(Object.keys(rows[0].digest).sort()).toEqual([
         'active',
-        'focusUntilMs',
+        'digestUntilMs',
         'heldCount',
         'remainingMs',
       ]);
-      expect(rows[0].focus).toEqual({
+      expect(rows[0].digest).toEqual({
         active: false,
-        focusUntilMs: 0,
+        digestUntilMs: 0,
         remainingMs: 0,
         heldCount: 0,
       });
@@ -3826,7 +3826,7 @@ describe('Squad checklist native commands', () => {
   }, 60_000);
 });
 
-describe('Squad focus policies', () => {
+describe('Squad digest policies', () => {
   it('admits owner and lead, refuses other callers, preserves CAS and projects shared row policies', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -3839,10 +3839,10 @@ describe('Squad focus policies', () => {
         (await runCli(sandbox, ['room', 'join', 'squad-product', '--identity', 'worker', '--json']))
           .status
       ).toBe(0);
-      const shim = path.join(sandbox.root, 'focus-core');
-      const callerFile = path.join(sandbox.root, 'focus-caller.json');
-      const callsFile = path.join(sandbox.root, 'focus-calls.jsonl');
-      const modeFile = path.join(sandbox.root, 'focus-mode');
+      const shim = path.join(sandbox.root, 'digest-core');
+      const callerFile = path.join(sandbox.root, 'digest-caller.json');
+      const callsFile = path.join(sandbox.root, 'digest-calls.jsonl');
+      const modeFile = path.join(sandbox.root, 'digest-mode');
       // Only caller evidence and injected Core refusals are synthetic. All ordinary
       // API operations reach the sandbox native CLI and its real policy transaction.
       await writeExecutable(
@@ -3852,16 +3852,16 @@ import json,sys,subprocess,pathlib
 root=pathlib.Path(__file__).parent
 args=sys.argv[1:]
 if args[0]=='whoami':
- value=json.loads((root/'focus-caller.json').read_text())
+ value=json.loads((root/'digest-caller.json').read_text())
  print(json.dumps(value)); sys.exit(1 if 'error' in value else 0)
 body=sys.stdin.buffer.read() if args[0]=='api' else None
 if body:
  q=json.loads(body)
- if q['operation'].startswith('focus.policy.'):
-  with open(root/'focus-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
-  mode=(root/'focus-mode').read_text()
-  if mode=='old' or (mode=='conflict' and q['operation']!='focus.policy.show'):
-   code='API_INPUT_INVALID' if mode=='old' else 'FOCUS_REVISION_CONFLICT'
+ if q['operation'].startswith('digest.policy.'):
+  with open(root/'digest-calls.jsonl','a') as f: f.write(json.dumps(q)+chr(10))
+  mode=(root/'digest-mode').read_text()
+  if mode=='old' or (mode=='conflict' and q['operation']!='digest.policy.show'):
+   code='API_INPUT_INVALID' if mode=='old' else 'DIGEST_REVISION_CONFLICT'
    print(json.dumps({'error':{'code':code,'message':'injected refusal'}})); sys.exit(1)
 result=subprocess.run([${JSON.stringify(sandbox.cli.executable)}]+args,input=body)
 sys.exit(result.returncode)
@@ -3873,7 +3873,7 @@ sys.exit(result.returncode)
           callerFile,
           JSON.stringify(id ? { bound: true, id, name, lifetime: 'saved' } : { bound: false })
         );
-      const focus = async (args: string[]) => {
+      const digest = async (args: string[]) => {
         const result = await runCli(
           {
             ...sandbox,
@@ -3901,7 +3901,7 @@ sys.exit(result.returncode)
       expect(forwarded.status, forwarded.stderr).toBe(0);
       expect(JSON.parse(forwarded.stdout)).toHaveProperty('resolved');
       asCaller(owner, 'Owner');
-      const set = await focus(['focus', 'worker', '1h30m', '--squad', 'product']);
+      const set = await digest(['digest', 'worker', '1h30m', '--squad', 'product']);
       expect(set).toMatchObject({
         status: 0,
         stderr: '',
@@ -3927,13 +3927,13 @@ sys.exit(result.returncode)
       } finally {
         db.close();
       }
-      expect((await focus(['focus', 'worker'])).body).toMatchObject({
+      expect((await digest(['digest', 'worker'])).body).toMatchObject({
         revision: 1,
         active: true,
         heldCount: 0,
       });
       asCaller(lead, 'Lead');
-      const replaced = await focus(['focus', 'worker', '30m']);
+      const replaced = await digest(['digest', 'worker', '30m']);
       expect(replaced.body).toMatchObject({
         revision: 2,
         ownerIdentityId: owner,
@@ -3942,60 +3942,60 @@ sys.exit(result.returncode)
       const request = calls().at(-1);
       expect(request).toEqual({
         version: 1,
-        operation: 'focus.policy.set',
+        operation: 'digest.policy.set',
         input: {
           identityId: worker,
           ownerIdentityId: owner,
           setterIdentityId: lead,
           expectedRevision: 1,
-          untilMs: replaced.body.focusUntilMs,
+          untilMs: replaced.body.digestUntilMs,
         },
       });
       asCaller(worker, 'worker');
       const before = calls().length;
-      expect((await focus(['focus', 'worker', '30m'])).body.error.code).toBe(
-        'SQUAD_FOCUS_PERMISSION_DENIED'
+      expect((await digest(['digest', 'worker', '30m'])).body.error.code).toBe(
+        'SQUAD_DIGEST_PERMISSION_DENIED'
       );
       expect(calls().length).toBe(before);
       writeFileSync(
         callerFile,
         JSON.stringify({ error: { code: 'CALLER_IDENTITY_AMBIGUOUS', message: 'ambiguous' } })
       );
-      expect((await focus(['focus', 'worker', 'off'])).body.error.code).toBe(
-        'SQUAD_FOCUS_PERMISSION_DENIED'
+      expect((await digest(['digest', 'worker', 'off'])).body.error.code).toBe(
+        'SQUAD_DIGEST_PERMISSION_DENIED'
       );
       const retired = await identity(sandbox, 'Retired');
       expect((await runCli(sandbox, ['rm', 'Retired', '--force', '--json'])).status).toBe(0);
       asCaller(retired, 'Retired');
-      expect((await focus(['focus', 'worker', '30m'])).body.error.code).toBe(
-        'SQUAD_FOCUS_PERMISSION_DENIED'
+      expect((await digest(['digest', 'worker', '30m'])).body.error.code).toBe(
+        'SQUAD_DIGEST_PERMISSION_DENIED'
       );
       asCaller(owner, 'Owner');
       writeFileSync(modeFile, 'conflict');
-      const conflict = await focus(['focus', 'worker', 'off']);
-      expect(conflict.body.error.code).toBe('FOCUS_REVISION_CONFLICT');
+      const conflict = await digest(['digest', 'worker', 'off']);
+      expect(conflict.body.error.code).toBe('DIGEST_REVISION_CONFLICT');
       expect(conflict.body.error.message).toContain('Reload and retry');
       expect(
         calls()
           .slice(-2)
           .map((call) => call.operation)
-      ).toEqual(['focus.policy.show', 'focus.policy.clear']);
+      ).toEqual(['digest.policy.show', 'digest.policy.clear']);
       writeFileSync(modeFile, 'normal');
       const held = await runCli(sandbox, [
         'talk',
         'worker',
-        'Review after focus',
+        'Review after digest',
         '--identity',
         'Lead',
         '--detach',
         '--json',
       ]);
       expect(held.status).toBe(0);
-      expect(JSON.parse(held.stdout)).toMatchObject({ focus: true, notification: 'held' });
+      expect(JSON.parse(held.stdout)).toMatchObject({ digest: true, notification: 'held' });
       const inventory = await runCli(sandbox, ['api'], {
         stdin: JSON.stringify({
           version: 1,
-          operation: 'focus.checklist.read',
+          operation: 'digest.checklist.read',
           input: { identityId: worker },
         }),
       });
@@ -4008,29 +4008,29 @@ sys.exit(result.returncode)
           .status
       ).toBe(0);
       const readStart = calls().length;
-      const listed = await focus(['ls']);
+      const listed = await digest(['ls']);
       expect(listed).toMatchObject({ status: 0, stderr: '' });
       expect(calls().slice(readStart)).toHaveLength(1);
       expect(new Set(calls().at(-1).input.identities).size).toBe(
         calls().at(-1).input.identities.length
       );
       const active = listed.body.squads
-        .flatMap((doc: { sections: { rows: { id: string; focus?: unknown }[] }[] }) =>
+        .flatMap((doc: { sections: { rows: { id: string; digest?: unknown }[] }[] }) =>
           doc.sections.flatMap((section) => section.rows)
         )
         .filter((row: { id: string }) => row.id === worker);
       expect(active).toHaveLength(2);
-      expect(active[0].focus).toEqual(active[1].focus);
-      expect(active[0].focus).toMatchObject({
+      expect(active[0].digest).toEqual(active[1].digest);
+      expect(active[0].digest).toMatchObject({
         active: true,
-        focusUntilMs: replaced.body.focusUntilMs,
+        digestUntilMs: replaced.body.digestUntilMs,
         heldCount: 1,
       });
-      const cleared = await focus(['focus', 'worker', 'off', '--squad', 'product']);
+      const cleared = await digest(['digest', 'worker', 'off', '--squad', 'product']);
       expect(cleared.body).toMatchObject({
         revision: 3,
         active: false,
-        focusUntilMs: 0,
+        digestUntilMs: 0,
         remainingMs: 0,
       });
       const human = await runCli(
@@ -4039,12 +4039,12 @@ sys.exit(result.returncode)
           cli: { executable: squadExecutable, args: [] },
           env: { ...sandbox.env, TMT_EXECUTABLE: shim },
         },
-        ['squad', 'focus', worker, '--squad', 'product']
+        ['squad', 'digest', worker, '--squad', 'product']
       );
       expect(human.status, human.stderr).toBe(0);
-      expect(human.stdout).toContain('worker: focus off');
+      expect(human.stdout).toContain('worker: digest off');
       expect(human.stdout).not.toContain(worker);
-      const lastSet = await focus(['focus', 'worker', '1s', '--squad', 'product']);
+      const lastSet = await digest(['digest', 'worker', '1s', '--squad', 'product']);
       expect(lastSet.body.revision).toBe(4);
       // Seed an already expired persisted window to prove native observation,
       // without a wall-clock sleep. Renderer expiry uses an injected clock below.
@@ -4054,24 +4054,24 @@ sys.exit(result.returncode)
       } finally {
         writable.close();
       }
-      expect((await focus(['focus', 'worker', '--squad', 'product'])).body).toMatchObject({
+      expect((await digest(['digest', 'worker', '--squad', 'product'])).body).toMatchObject({
         revision: 4,
         active: false,
         remainingMs: 0,
       });
       writeFileSync(modeFile, 'old');
-      expect((await focus(['focus', 'worker', '30m', '--squad', 'product'])).body.error.code).toBe(
-        'API_INPUT_INVALID'
-      );
-      const degraded = await focus(['ls', '--squad', 'product']);
+      expect(
+        (await digest(['digest', 'worker', '30m', '--squad', 'product'])).body.error.code
+      ).toBe('API_INPUT_INVALID');
+      const degraded = await digest(['ls', '--squad', 'product']);
       expect(degraded).toMatchObject({ status: 0, stderr: '' });
-      expect(degraded.body.sections[0].rows[0].focus).toBeUndefined();
+      expect(degraded.body.sections[0].rows[0].digest).toBeUndefined();
       for (const duration of ['0s', '-1m', '24h1s']) {
         expect(
-          (await focus(['focus', 'worker', duration, '--squad', 'product'])).body.error.code
-        ).toBe('SQUAD_FOCUS_DURATION_INVALID');
+          (await digest(['digest', 'worker', duration, '--squad', 'product'])).body.error.code
+        ).toBe('SQUAD_DIGEST_DURATION_INVALID');
       }
-      const help = await runCli(sandbox, ['ops', 'sq', 'focus', '--help']);
+      const help = await runCli(sandbox, ['ops', 'sq', 'digest', '--help']);
       expect(help.status).toBe(0);
       expect(help.stdout).toContain('24h');
       expect(help.stdout).toContain('Showing, setting and clearing');

@@ -36,7 +36,7 @@ pub struct LaunchHooks<'a> {
 /// Internal worker result, never provider output or evidence of delivery.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FocusHandoff {
+pub struct DigestHandoff {
     pub launch: HookLaunch,
     pub checklist_id: String,
     pub attempt_token: String,

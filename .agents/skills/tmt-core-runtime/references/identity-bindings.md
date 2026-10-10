@@ -232,7 +232,7 @@ in `contracts/`.
   first; anything differing from what TMT wrote is kept and reported; a failed step stops and a
   rerun resumes. Product removal order derives from `Product::ALL`.
 
-## Provider launch Focus hooks
+## Provider launch Digest hooks
 
 `RuntimeLifecycle::prepare_launch_hooks` is an optional driver-owned launch boundary.
 Claude composes one inline `--settings` object before channel enrollment for fresh
@@ -264,7 +264,7 @@ or edited/duplicated sources, and disabled/managed-only policy use the same orig
 command fallback. Other invocation config remains intact; explicit invocation hook
 entries are retained in the composed session table.
 
-The separate `__focus-hook` accepts only an unrecursive main-agent Stop and emits
+The separate `__digest-hook` accepts only an unrecursive main-agent Stop and emits
 both providers' documented `decision: "block"` plus `reason` continuation. It does not use
 `additionalContext` alone. Unsupported events, including StopFailure and SubagentStop,
 and `stop_hook_active: true` never claim. Exact identity/binding, fresh host marker,
@@ -282,7 +282,7 @@ Complete raw stdout publication has no userspace buffer left to flush and settle
 `delivered`; zero bytes settles `definitely_unsent`, partial publication `uncertain`.
 A lost worker response, supervisor crash or failed settlement leaves a discoverable
 claim and never grants automatic replay. This is hook handoff, not model consumption
-or X acknowledgment. There is no Focus timer, polling worker or settings installation.
+or X acknowledgment. There is no Digest timer, polling worker or settings installation.
 
 ## Foreground launch
 

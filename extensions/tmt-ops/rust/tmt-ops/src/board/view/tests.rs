@@ -5064,12 +5064,12 @@ fn switcher_cursor_moves_without_changing_picks_attention_or_query() {
     }
 }
 
-fn focus_app(members: bool, home: bool, held: u64, until: u64, look: crate::look::Look) -> App {
+fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::look::Look) -> App {
     let focused = row(
         "worker",
         "working",
         "implementation",
-        json!({"id":"worker", "state":"working", "focus":{"active":true,"focusUntilMs":until,"remainingMs":until-1000,"heldCount":held}}),
+        json!({"id":"worker", "state":"working", "digest":{"active":true,"digestUntilMs":until,"remainingMs":until-1000,"heldCount":held}}),
     );
     let mut app = board(json!([{"title":null,"rows":[focused]}]));
     app.view.as_mut().unwrap().board.members = members;
@@ -5110,7 +5110,7 @@ fn focus_app(members: bool, home: bool, held: u64, until: u64, look: crate::look
 }
 
 #[test]
-fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
+fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
     for (members, home) in [(false, false), (true, false), (false, true)] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -5119,7 +5119,7 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
         ] {
             for width in [80, 160] {
                 crate::status::with_now_ms(1_000, || {
-                    let app = focus_app(
+                    let app = digest_app(
                         members,
                         home,
                         2,
@@ -5133,36 +5133,36 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
                     );
                     let buffer = board_buffer(&app, width, 20);
                     let lines = detail_text(&buffer);
-                    for line in lines.iter().filter(|line| line.contains("focus 30m")) {
+                    for line in lines.iter().filter(|line| line.contains("digest 30m")) {
                         assert!(
                             line.contains("worker") || line.contains("lead"),
-                            "focus must stay on the heading: {line}"
+                            "digest must stay on the heading: {line}"
                         );
                     }
                     let screen = lines.join("\n");
                     assert_eq!(
-                        screen.matches("focus 30m · 2 held").count(),
+                        screen.matches("digest 30m · 2 held").count(),
                         if home { 2 } else { 1 }
                     );
                     assert!(
-                        screen.contains("focus 30m · 2 held"),
+                        screen.contains("digest 30m · 2 held"),
                         "{members} {home} {base} {width}: {screen}"
                     );
                     assert!(
                         super::header::time_marks(&app, 1_000)
                             .iter()
-                            .any(|label| label == "focus 30m · 2 held")
+                            .any(|label| label == "digest 30m · 2 held")
                     );
                     assert!(
                         !super::header::time_marks(&app, 1_801_000)
                             .iter()
-                            .any(|label| label.contains("focus"))
+                            .any(|label| label.contains("digest"))
                     );
                     crate::status::with_now_ms(1_801_000, || {
                         assert!(
                             !detail_text(&board_buffer(&app, width, 20))
                                 .join("\n")
-                                .contains("focus")
+                                .contains("digest")
                         )
                     });
                 });
@@ -5171,12 +5171,12 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
     }
     for (members, home) in [(false, false), (true, false), (false, true)] {
         crate::status::with_now_ms(1_000, || {
-            let mut app = focus_app(members, home, 999999, 4_801_000, Default::default());
+            let mut app = digest_app(members, home, 999999, 4_801_000, Default::default());
             let target = app.row_target(0).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
             let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");
-            assert!(narrow.contains("focus"), "{narrow}");
+            assert!(narrow.contains("digest"), "{narrow}");
             assert!(narrow.contains("1h20m"), "{narrow}");
             assert!(narrow.contains("left"), "{narrow}");
         });
@@ -5184,12 +5184,12 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
 }
 
 #[test]
-fn focus_heading_keeps_row_height_hits_and_selected_background() {
+fn digest_heading_keeps_row_height_hits_and_selected_background() {
     crate::status::with_now_ms(1_000, || {
         for (members, home) in [(false, false), (true, false), (false, true)] {
             for width in [20, 80, 160] {
-                let focused = focus_app(members, home, 2, 4_801_000, Default::default());
-                let plain = focus_app(members, home, 2, 1_000, Default::default());
+                let focused = digest_app(members, home, 2, 4_801_000, Default::default());
+                let plain = digest_app(members, home, 2, 1_000, Default::default());
                 board_buffer(&plain, width, 30);
                 let hits = |app: &App| {
                     app.hits
@@ -5203,7 +5203,7 @@ fn focus_heading_keeps_row_height_hits_and_selected_background() {
                 assert_eq!(
                     hits(&focused),
                     before,
-                    "focus adds no row lines or hit regions"
+                    "digest adds no row lines or hit regions"
                 );
                 if let Some(hit) = focused
                     .hits
@@ -5214,16 +5214,16 @@ fn focus_heading_keeps_row_height_hits_and_selected_background() {
                     let line = (0..width)
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect::<String>();
-                    assert!(line.contains("focus"), "{line}");
-                    let from = (0..width.saturating_sub(4))
+                    assert!(line.contains("digest"), "{line}");
+                    let from = (0..width.saturating_sub("digest".len() as u16 - 1))
                         .find(|x| {
-                            (*x..*x + 5)
+                            (*x..*x + "digest".len() as u16)
                                 .map(|at| buffer[(at, hit.y)].symbol())
                                 .collect::<String>()
-                                == "focus"
+                                == "digest"
                         })
                         .unwrap();
-                    for x in from..from + 5 {
+                    for x in from..from + "digest".len() as u16 {
                         assert_eq!(
                             buffer[(x, hit.y)].bg,
                             focused.look().selection().bg.unwrap()
@@ -5233,8 +5233,8 @@ fn focus_heading_keeps_row_height_hits_and_selected_background() {
             }
         }
         // Wrapped first-line cells retain their original continuation geometry.
-        let mut focused = focus_app(false, false, 2, 4_801_000, Default::default());
-        let mut plain = focus_app(false, false, 2, 1_000, Default::default());
+        let mut focused = digest_app(false, false, 2, 4_801_000, Default::default());
+        let mut plain = digest_app(false, false, 2, 1_000, Default::default());
         for app in [&mut focused, &mut plain] {
             let view = app.view.as_mut().unwrap();
             view.rows = rows_from(
@@ -5267,9 +5267,9 @@ columns = [{name = "member", width = "30%"}, {name = "task", width = "70%", over
 }
 
 #[test]
-#[ignore = "explicit focus-window renderer evidence capture"]
-fn capture_focus_window_rows() {
-    let output = std::env::var("TMT_FOCUS_OUTPUT").expect("task-owned output path");
+#[ignore = "explicit digest-window renderer evidence capture"]
+fn capture_digest_window_rows() {
+    let output = std::env::var("TMT_DIGEST_OUTPUT").expect("task-owned output path");
     let mut cases = Vec::new();
     crate::status::with_now_ms(1_000, || {
         for (members, home) in [(false, false), (true, false), (false, true)] {
@@ -5282,7 +5282,7 @@ fn capture_focus_window_rows() {
                     for held in [0, 2] {
                         for expanded in [false, true] {
                             for selected in [false, true] {
-                                let mut app = focus_app(
+                                let mut app = digest_app(
                                     members,
                                     home,
                                     held,

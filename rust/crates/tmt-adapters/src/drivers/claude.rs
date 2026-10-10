@@ -7,7 +7,7 @@ pub use crate::runtime::hook_protocol::{
 use serde::Deserialize;
 mod caller_session;
 pub mod channel;
-mod focus;
+mod digest;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,
@@ -385,13 +385,13 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         &self,
         plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,
     ) -> std::io::Result<Option<crate::runtime::RuntimeCommand>> {
-        focus::prepare(plan).map(Some)
+        digest::prepare(plan).map(Some)
     }
-    fn decode_focus_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
-        focus::decode(payload)
+    fn decode_digest_turn(&self, payload: &[u8]) -> Option<ProviderSessionId> {
+        digest::decode(payload)
     }
-    fn encode_focus_turn(&self, digest: &str) -> Option<String> {
-        focus::encode(digest)
+    fn encode_digest_turn(&self, digest: &str) -> Option<String> {
+        digest::encode(digest)
     }
     fn reads_state(&self, version: u16) -> bool {
         crate::runtime::driver_state::reads(version)

@@ -16,11 +16,11 @@ mod core;
 pub(crate) mod cron_clock;
 mod cron_command;
 pub mod cron_service;
+mod digest;
+mod digest_command;
 mod display_rows;
 mod effects;
 mod filter;
-mod focus;
-mod focus_command;
 mod hook_protocol;
 mod hotkeys;
 mod id;
@@ -196,7 +196,7 @@ fn grammar() -> Command {
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
         .subcommand(cron_command::grammar())
-        .subcommand(focus_command::grammar())
+        .subcommand(digest_command::grammar())
         .subcommand(checklist_command::grammar());
     build(specs::ROOT)
         .bin_name("tmt ops")
@@ -514,7 +514,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "cron" => cron_command::text(document, terminal),
-        "focus" => focus_command::text(document, terminal),
+        "digest" => digest_command::text(document, terminal),
         "checklist" => checklist_command::text_output(document, terminal),
         "jump" => {
             let mut output = done(
@@ -821,8 +821,8 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
-    if command == "focus" {
-        return focus_command::run(&core, &config, matches).map(Outcome::from);
+    if command == "digest" {
+        return digest_command::run(&core, &config, matches).map(Outcome::from);
     }
     if command == "cron" {
         return cron_command::run(&core, &config, matches).map(|document| Outcome {
@@ -1026,7 +1026,7 @@ fn ls_document(
         (_, Ok([one])) => json!({"squads": [one]}),
         (_, Err(all)) => json!({"squads": all}),
     };
-    focus::enrich(core, &mut [&mut document], &active_ids);
+    digest::enrich(core, &mut [&mut document], &active_ids);
     document["you"] = you.map_or(
         Value::Null,
         |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),

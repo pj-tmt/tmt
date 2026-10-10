@@ -38,12 +38,12 @@ pub(super) fn json_document(
         if correlation.offline {
             value["suggestion"] = correlation.recipient_recovery().into();
         }
-        if let Some(until) = correlation.focus_until_ms {
-            value["focus"] = true.into();
-            value["focusUntilMs"] = until.into();
+        if let Some(until) = correlation.digest_until_ms {
+            value["digest"] = true.into();
+            value["digestUntilMs"] = until.into();
             value["remainingMs"] = until.saturating_sub(wall_time_ms()).into();
             value["notification"] = "held".into();
-            value["waitingFor"] = "focus_checklist".into();
+            value["waitingFor"] = "digest_checklist".into();
         }
     }
     if correlation.delivery_uncertain {
@@ -91,10 +91,10 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             }
             // The responder's exact text, never styled or escaped.
             writeln!(stdout, "{}", response.body)?;
-        } else if let Some(until) = correlation.focus_until_ms {
+        } else if let Some(until) = correlation.digest_until_ms {
             writeln!(
                 stdout,
-                "Queued {}: {} is in focus for {} seconds (until UTC epoch {} ms); delivery is in its next checklist.",
+                "Queued {}: {} is in digest for {} seconds (until UTC epoch {} ms); delivery is in its next checklist.",
                 correlation.request_id,
                 correlation.target,
                 until.saturating_sub(wall_time_ms()).div_ceil(1000),

@@ -38,7 +38,7 @@ fn command_aliases_preserve_typed_invocations() {
                 originator: None,
                 options: TalkOptions {
                     urgent: false,
-                    focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                    digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                     room: None,
                     inbox: false,
                     force: false,
@@ -133,7 +133,7 @@ fn literal_option_words_remain_data_when_the_grammar_requires_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -176,7 +176,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                 originator: None,
                 options: TalkOptions {
                     urgent: false,
-                    focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                    digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                     room: None,
                     inbox: false,
                     force: false,
@@ -197,7 +197,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -230,7 +230,7 @@ fn removed_output_flags_are_rejected_but_remain_literal_payload_data() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,

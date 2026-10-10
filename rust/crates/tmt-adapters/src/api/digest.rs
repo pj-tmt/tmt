@@ -2,7 +2,7 @@
 //! adapters admit their own launch's turn boundary before requesting a claim.
 use super::{Fault, Request, invalid};
 use crate::{
-    focus,
+    digest,
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
 };
@@ -12,12 +12,12 @@ use tmt_core::{
     limits::MAX_JS_SAFE_INTEGER,
     request::{
         RequestError, RequestService,
-        focus::{FocusOpportunity, FocusPolicyView, FocusPolicyWrite, FocusState},
+        digest::{DigestOpportunity, DigestPolicyView, DigestPolicyWrite, DigestState},
     },
 };
 
 pub enum Operation {
-    Write(FocusPolicyWrite),
+    Write(DigestPolicyWrite),
     Show(Vec<String>),
     Read {
         identity: String,
@@ -27,13 +27,13 @@ pub enum Operation {
     },
     Claim {
         identity: String,
-        opportunity: FocusOpportunity,
+        opportunity: DigestOpportunity,
     },
     Settle {
         identity: String,
         checklist: String,
         token: String,
-        state: FocusState,
+        state: DigestState,
     },
 }
 
@@ -90,7 +90,7 @@ fn uuid(id: &str) -> Result<(), Fault> {
 
 pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
     let op = match operation {
-        "focus.policy.set" | "focus.policy.clear" => {
+        "digest.policy.set" | "digest.policy.clear" => {
             let v: Write = serde_json::from_slice(input).map_err(|_| invalid())?;
             for id in [&v.identity_id, &v.owner_identity_id, &v.setter_identity_id] {
                 uuid(id)?;
@@ -108,7 +108,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                     .filter(|n| *n > 0 && *n <= MAX_JS_SAFE_INTEGER)
                     .ok_or_else(invalid)?
             };
-            Operation::Write(FocusPolicyWrite {
+            Operation::Write(DigestPolicyWrite {
                 identity_id: v.identity_id,
                 owner_identity_id: v.owner_identity_id,
                 setter_identity_id: v.setter_identity_id,
@@ -116,7 +116,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 until_ms: until,
             })
         }
-        "focus.policy.show" => {
+        "digest.policy.show" => {
             let v: Show = serde_json::from_slice(input).map_err(|_| invalid())?;
             if v.identities.is_empty() || v.identities.len() > 256 {
                 return Err(invalid());
@@ -126,7 +126,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
             }
             Operation::Show(v.identities)
         }
-        "focus.checklist.read" => {
+        "digest.checklist.read" => {
             let v: Read = serde_json::from_slice(input).map_err(|_| invalid())?;
             uuid(&v.identity_id)?;
             if let Some(id) = &v.checklist_id {
@@ -142,12 +142,12 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 limit: v.limit,
             }
         }
-        "focus.checklist.claim" => {
+        "digest.checklist.claim" => {
             let v: Claim = serde_json::from_slice(input).map_err(|_| invalid())?;
             uuid(&v.identity_id)?;
             let opportunity = match v.opportunity.as_str() {
-                "turn_boundary" => FocusOpportunity::TurnBoundary,
-                "idle" => FocusOpportunity::Idle,
+                "turn_boundary" => DigestOpportunity::TurnBoundary,
+                "idle" => DigestOpportunity::Idle,
                 _ => return Err(invalid()),
             };
             Operation::Claim {
@@ -155,13 +155,13 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 opportunity,
             }
         }
-        "focus.checklist.settle" => {
+        "digest.checklist.settle" => {
             let v: Settle = serde_json::from_slice(input).map_err(|_| invalid())?;
             for id in [&v.identity_id, &v.checklist_id, &v.attempt_token] {
                 uuid(id)?;
             }
-            let state = FocusState::parse(&v.outcome)
-                .filter(|s| *s != FocusState::Claimed)
+            let state = DigestState::parse(&v.outcome)
+                .filter(|s| *s != DigestState::Claimed)
                 .ok_or_else(invalid)?;
             Operation::Settle {
                 identity: v.identity_id,
@@ -172,22 +172,22 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
         }
         _ => return Err(invalid()),
     };
-    Ok(Request::Focus(Box::new(op)))
+    Ok(Request::Digest(Box::new(op)))
 }
-fn view(value: &FocusPolicyView) -> Value {
+fn view(value: &DigestPolicyView) -> Value {
     let policy = value.policy.as_ref();
-    json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"focusUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(focus::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str())})
+    json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"digestUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(digest::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str())})
 }
 pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec<u8>, Fault> {
     let document = match operation {
         Operation::Write(input) => view(
             &RequestService::new(&mut *storage, wall_time_ms)
-                .write_focus(input)
+                .write_digest(input)
                 .map_err(error)?,
         ),
         Operation::Show(ids) => {
             let views = RequestService::new(&mut *storage, wall_time_ms)
-                .focus_policies(&ids)
+                .digest_policies(&ids)
                 .map_err(error)?;
             json!({"policies":views.iter().zip(ids).map(|(v,id)|{let mut v=view(v);v["identityId"]=json!(id);v}).collect::<Vec<_>>()})
         }
@@ -196,20 +196,20 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
             checklist,
             after,
             limit,
-        } => focus::read(storage, &identity, checklist.as_deref(), after, limit).map_err(error)?,
+        } => digest::read(storage, &identity, checklist.as_deref(), after, limit).map_err(error)?,
         Operation::Claim {
             identity,
             opportunity,
         } => {
-            if opportunity == FocusOpportunity::Idle
-                && focus::idle_entry(storage, &identity)
+            if opportunity == DigestOpportunity::Idle
+                && digest::idle_entry(storage, &identity)
                     .map_err(|_| Fault::unavailable())?
                     .is_none()
             {
                 return encode(json!({"claimed":false}));
             }
             let batch = RequestService::new(&mut *storage, wall_time_ms)
-                .claim_focus_checklist(
+                .claim_digest_checklist(
                     &identity,
                     tmt_core::operation::new_operation_id(),
                     tmt_core::operation::new_operation_id(),
@@ -219,21 +219,21 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
             match batch {
                 None => json!({"claimed":false}),
                 Some(batch) => {
-                    let page = match focus::read(storage, &identity, Some(&batch.id), 0, 128) {
+                    let page = match digest::read(storage, &identity, Some(&batch.id), 0, 128) {
                         Ok(p) => p,
                         Err(e) => {
                             RequestService::new(&mut *storage, wall_time_ms)
-                                .settle_focus_checklist(
+                                .settle_digest_checklist(
                                     &identity,
                                     &batch.id,
                                     &batch.attempt_token,
-                                    FocusState::Unsent,
+                                    DigestState::Unsent,
                                 )
                                 .map_err(error)?;
                             return Err(error(e));
                         }
                     };
-                    json!({"claimed":true,"checklist":focus::checklist_value(&batch),"page":page,"text":focus::digest(&page,&batch)})
+                    json!({"claimed":true,"checklist":digest::checklist_value(&batch),"page":page,"text":digest::digest(&page,&batch)})
                 }
             }
         }
@@ -243,7 +243,7 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
             token,
             state,
         } => {
-            json!({"changed":RequestService::new(storage,wall_time_ms).settle_focus_checklist(&identity,&checklist,&token,state).map_err(error)?,"state":state.as_str()})
+            json!({"changed":RequestService::new(storage,wall_time_ms).settle_digest_checklist(&identity,&checklist,&token,state).map_err(error)?,"state":state.as_str()})
         }
     };
     encode(document)
@@ -253,9 +253,9 @@ fn encode(value: Value) -> Result<Vec<u8>, Fault> {
 }
 fn error(error: RequestError<StorageError>) -> Fault {
     match error {
-        RequestError::Focus(reason) => Fault::new(
+        RequestError::Digest(reason) => Fault::new(
             reason.code(),
-            "Focus operation refused; inspect the current policy or checklist before retrying.",
+            "Digest operation refused; inspect the current policy or checklist before retrying.",
         ),
         RequestError::Invalid(_) => invalid(),
         _ => Fault::unavailable(),

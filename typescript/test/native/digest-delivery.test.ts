@@ -20,7 +20,32 @@ async function identity(sandbox: Sandbox, name: string) {
   return JSON.parse(result.stdout).identity.id as string;
 }
 
-describe('native Focus held delivery and checklist seam', () => {
+describe('native Digest held delivery and checklist seam', () => {
+  it('advertises only digest operations and rejects the retired feature names without creating state', async () => {
+    await withSandbox(async (sandbox) => {
+      const suffixes = [
+        'policy.set',
+        'policy.clear',
+        'policy.show',
+        'checklist.read',
+        'checklist.claim',
+        'checklist.settle',
+      ];
+      const discovery = await api(sandbox, 'capabilities', {});
+      expect(discovery.status).toBe(0);
+      const operations = discovery.body.operations as string[];
+      expect(operations.filter((op) => op.startsWith('digest.')).sort()).toEqual(
+        suffixes.map((suffix) => `digest.${suffix}`).sort()
+      );
+      expect(operations.some((op) => op.startsWith('focus.'))).toBe(false);
+      for (const suffix of suffixes) {
+        const rejected = await api(sandbox, `focus.${suffix}`, {});
+        expect(rejected.status).toBe(1);
+        expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
   it('launch callbacks refuse malformed, recursive and unbound evidence without initializing storage', async () => {
     await withSandbox(async (sandbox) => {
       const launch = JSON.stringify({
@@ -38,7 +63,7 @@ describe('native Focus held delivery and checklist seam', () => {
         ],
         ['{}', { hook_event_name: 'Stop', session_id: 'session', stop_hook_active: false }],
       ] as const) {
-        const result = await runCli(sandbox, ['__focus-hook', 'claude', '--launch', scope], {
+        const result = await runCli(sandbox, ['__digest-hook', 'claude', '--launch', scope], {
           stdin: JSON.stringify(input),
         });
         expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
@@ -61,7 +86,7 @@ describe('native Focus held delivery and checklist seam', () => {
         { ...good, stop_hook_active: true },
         { ...good, hook_event_name: 'SubagentStop' },
       ]) {
-        const result = await runCli(sandbox, ['__focus-hook', 'codex', '--discover-launch'], {
+        const result = await runCli(sandbox, ['__digest-hook', 'codex', '--discover-launch'], {
           stdin: JSON.stringify(input),
         });
         expect(result).toMatchObject({ status: 0, stdout: '', stderr: '' });
@@ -96,7 +121,7 @@ describe('native Focus held delivery and checklist seam', () => {
         '--json',
       ]);
       expect(result.status).toBe(0);
-      expect(result.stderr).toContain(`Could not flush Focus checklist for ${target}`);
+      expect(result.stderr).toContain(`Could not flush Digest checklist for ${target}`);
       const queued = JSON.parse(result.stdout);
       expect(queued).toMatchObject({ status: 'queued', notification: 'not_attempted' });
       const oracle = new Database(sandbox.database, { readonly: true });
@@ -123,7 +148,7 @@ describe('native Focus held delivery and checklist seam', () => {
       const owner = await identity(sandbox, 'Owner');
       expect(
         (
-          await api(sandbox, 'focus.policy.set', {
+          await api(sandbox, 'digest.policy.set', {
             identityId: original,
             ownerIdentityId: owner,
             setterIdentityId: owner,
@@ -133,18 +158,18 @@ describe('native Focus held delivery and checklist seam', () => {
         ).status
       ).toBe(0);
       const held = await runCli(sandbox, ['talk', 'Worker', 'Original backlog', '--json']);
-      expect(JSON.parse(held.stdout)).toMatchObject({ focus: true });
+      expect(JSON.parse(held.stdout)).toMatchObject({ digest: true });
       expect((await runCli(sandbox, ['rm', 'Worker', '--force', '--json'])).status).toBe(0);
       const replacement = await identity(sandbox, 'Worker');
       expect(replacement).not.toBe(original);
       expect(
-        (await api(sandbox, 'focus.policy.show', { identities: [replacement] })).body.policies
+        (await api(sandbox, 'digest.policy.show', { identities: [replacement] })).body.policies
       ).toMatchObject([{ identityId: replacement, revision: 0, active: false, heldCount: 0 }]);
       expect(
-        (await api(sandbox, 'focus.checklist.read', { identityId: original })).body.error.code
-      ).toBe('FOCUS_IDENTITY_UNAVAILABLE');
+        (await api(sandbox, 'digest.checklist.read', { identityId: original })).body.error.code
+      ).toBe('DIGEST_IDENTITY_UNAVAILABLE');
       expect(
-        (await api(sandbox, 'focus.checklist.read', { identityId: replacement })).body.items
+        (await api(sandbox, 'digest.checklist.read', { identityId: replacement })).body.items
       ).toEqual([]);
     });
   });
@@ -163,7 +188,7 @@ describe('native Focus held delivery and checklist seam', () => {
         expectedRevision: 0,
         untilMs,
       };
-      expect((await api(sandbox, 'focus.policy.set', set)).body).toMatchObject({
+      expect((await api(sandbox, 'digest.policy.set', set)).body).toMatchObject({
         revision: 1,
         active: true,
         heldCount: 0,
@@ -186,13 +211,15 @@ describe('native Focus held delivery and checklist seam', () => {
       const queued = JSON.parse(result.stdout);
       expect(queued).toMatchObject({
         status: 'queued',
-        focus: true,
+        digest: true,
         recipientIdentityId: target,
-        focusUntilMs: untilMs,
+        digestUntilMs: untilMs,
         notification: 'held',
-        waitingFor: 'focus_checklist',
+        waitingFor: 'digest_checklist',
       });
       expect(queued.offline).toBeUndefined();
+      expect(queued).not.toHaveProperty('focus');
+      expect(queued).not.toHaveProperty('focusUntilMs');
       expect(queued.remainingMs).toBeGreaterThan(0);
       expect(queued.remainingMs).toBeLessThanOrEqual(600_000);
       const db = new Database(sandbox.database, { readonly: true });
@@ -212,7 +239,7 @@ describe('native Focus held delivery and checklist seam', () => {
       } finally {
         db.close();
       }
-      const pending = (await api(sandbox, 'focus.checklist.read', { identityId: target })).body;
+      const pending = (await api(sandbox, 'digest.checklist.read', { identityId: target })).body;
       expect(pending.total).toBe(1);
       expect(pending.items[0]).toMatchObject({
         requestId: queued.requestId,
@@ -232,13 +259,13 @@ describe('native Focus held delivery and checklist seam', () => {
       ]);
       expect(JSON.parse(original.stdout).exchange.reply.receipt).toBe(receipt);
       expect(
-        (await api(sandbox, 'focus.policy.set', { ...set, expectedRevision: 0 })).body.error.code
-      ).toBe('FOCUS_REVISION_CONFLICT');
+        (await api(sandbox, 'digest.policy.set', { ...set, expectedRevision: 0 })).body.error.code
+      ).toBe('DIGEST_REVISION_CONFLICT');
       expect(
-        (await api(sandbox, 'focus.policy.set', { ...set, expectedRevision: 1, everyMs: 1000 }))
+        (await api(sandbox, 'digest.policy.set', { ...set, expectedRevision: 1, everyMs: 1000 }))
           .body.error.code
       ).toBe('API_INPUT_INVALID');
-      expect((await api(sandbox, 'focus.policy.set', { ...set, identityId: sender })).status).toBe(
+      expect((await api(sandbox, 'digest.policy.set', { ...set, identityId: sender })).status).toBe(
         0
       );
       const reply = await runCli(sandbox, [
@@ -254,7 +281,7 @@ describe('native Focus held delivery and checklist seam', () => {
       const final = await runCli(sandbox, ['result', queued.requestId, '--json']);
       expect(final.status).toBe(0);
       expect(JSON.parse(final.stdout).response).toBe('Exact final\nSecond line');
-      const results = (await api(sandbox, 'focus.checklist.read', { identityId: sender })).body;
+      const results = (await api(sandbox, 'digest.checklist.read', { identityId: sender })).body;
       expect(results.total).toBe(1);
       expect(results.items[0]).toMatchObject({
         kind: 'result',
@@ -263,7 +290,7 @@ describe('native Focus held delivery and checklist seam', () => {
       });
       expect(results.items[0].replyCommand).toBeUndefined();
       expect(
-        (await api(sandbox, 'focus.checklist.read', { identityId: target })).body.items[0]
+        (await api(sandbox, 'digest.checklist.read', { identityId: target })).body.items[0]
           .replyCommand
       ).toBeUndefined();
       expect(readFileSync(log, 'utf8')).toBe('\n');
@@ -277,7 +304,7 @@ describe('native Focus held delivery and checklist seam', () => {
       const untilMs = Date.now() + 600_000;
       expect(
         (
-          await api(sandbox, 'focus.policy.set', {
+          await api(sandbox, 'digest.policy.set', {
             identityId: target,
             ownerIdentityId: owner,
             setterIdentityId: owner,
@@ -293,12 +320,12 @@ describe('native Focus held delivery and checklist seam', () => {
         ids.push(JSON.parse(talk.stdout).requestId);
       }
       expect(
-        (await api(sandbox, 'focus.checklist.claim', { identityId: target, opportunity: 'idle' }))
+        (await api(sandbox, 'digest.checklist.claim', { identityId: target, opportunity: 'idle' }))
           .body
       ).toEqual({ claimed: false });
       const claims = await Promise.all(
         [0, 1].map(() =>
-          api(sandbox, 'focus.checklist.claim', {
+          api(sandbox, 'digest.checklist.claim', {
             identityId: target,
             opportunity: 'turn_boundary',
           })
@@ -308,11 +335,11 @@ describe('native Focus held delivery and checklist seam', () => {
       expect(claims.filter((c) => c.body.claimed)).toHaveLength(1);
       const claim = claims.find((c) => c.body.claimed)!.body;
       expect(claim.page.items.map((i: { requestId: string }) => i.requestId)).toEqual(ids);
-      expect(claim.text.match(/^TMT Focus checklist/g)).toHaveLength(1);
+      expect(claim.text.match(/^TMT Digest checklist/g)).toHaveLength(1);
       const later = await runCli(sandbox, ['talk', 'Worker', 'Later arrival', '--json']);
       expect(later.status).toBe(0);
       const sealed = (
-        await api(sandbox, 'focus.checklist.read', {
+        await api(sandbox, 'digest.checklist.read', {
           identityId: target,
           checklistId: claim.checklist.checklistId,
           limit: 1,
@@ -321,7 +348,7 @@ describe('native Focus held delivery and checklist seam', () => {
       expect(sealed.items[0].requestId).toBe(ids[0]);
       expect(sealed.remaining).toBe(1);
       const rest = (
-        await api(sandbox, 'focus.checklist.read', {
+        await api(sandbox, 'digest.checklist.read', {
           identityId: target,
           checklistId: claim.checklist.checklistId,
           after: sealed.nextAfter,
@@ -336,24 +363,24 @@ describe('native Focus held delivery and checklist seam', () => {
       };
       expect(
         (
-          await api(sandbox, 'focus.checklist.settle', {
+          await api(sandbox, 'digest.checklist.settle', {
             ...settlement,
             attemptToken: randomUUID(),
           })
         ).body.error.code
-      ).toBe('FOCUS_ATTEMPT_MISMATCH');
-      expect((await api(sandbox, 'focus.checklist.settle', settlement)).body.changed).toBe(true);
-      expect((await api(sandbox, 'focus.checklist.settle', settlement)).body.changed).toBe(false);
+      ).toBe('DIGEST_ATTEMPT_MISMATCH');
+      expect((await api(sandbox, 'digest.checklist.settle', settlement)).body.changed).toBe(true);
+      expect((await api(sandbox, 'digest.checklist.settle', settlement)).body.changed).toBe(false);
       expect(
         (
-          await api(sandbox, 'focus.checklist.settle', {
+          await api(sandbox, 'digest.checklist.settle', {
             ...settlement,
             outcome: 'definitely_unsent',
           })
         ).body.error.code
-      ).toBe('FOCUS_STATE_INVALID');
+      ).toBe('DIGEST_STATE_INVALID');
       const next = (
-        await api(sandbox, 'focus.checklist.claim', {
+        await api(sandbox, 'digest.checklist.claim', {
           identityId: target,
           opportunity: 'turn_boundary',
         })
@@ -363,7 +390,7 @@ describe('native Focus held delivery and checklist seam', () => {
       ]);
       expect(
         (
-          await api(sandbox, 'focus.checklist.settle', {
+          await api(sandbox, 'digest.checklist.settle', {
             identityId: target,
             checklistId: next.checklist.checklistId,
             attemptToken: next.checklist.attemptToken,
@@ -373,7 +400,7 @@ describe('native Focus held delivery and checklist seam', () => {
       ).toBe(0);
       expect(
         (
-          await api(sandbox, 'focus.checklist.claim', {
+          await api(sandbox, 'digest.checklist.claim', {
             identityId: target,
             opportunity: 'turn_boundary',
           })
@@ -382,13 +409,13 @@ describe('native Focus held delivery and checklist seam', () => {
     });
   });
 
-  it('prints remaining time; owner and urgent bypass only Focus, while explicit inbox remains pull-only', async () => {
+  it('prints remaining time; owner and urgent bypass only Digest, while explicit inbox remains pull-only', async () => {
     await withSandbox(async (sandbox) => {
       const target = await identity(sandbox, 'Worker');
       const owner = await identity(sandbox, 'Owner');
       expect(
         (
-          await api(sandbox, 'focus.policy.set', {
+          await api(sandbox, 'digest.policy.set', {
             identityId: target,
             ownerIdentityId: owner,
             setterIdentityId: owner,
@@ -399,7 +426,7 @@ describe('native Focus held delivery and checklist seam', () => {
       ).toBe(0);
       const human = await runCli(sandbox, ['talk', 'Worker', 'Held text']);
       expect(human.status).toBe(0);
-      expect(human.stdout).toContain('is in focus for');
+      expect(human.stdout).toContain('is in digest for');
       expect(human.stdout).toContain('delivery is in its next checklist');
       for (const flags of [['--urgent'], ['--identity', 'Owner']]) {
         const talk = await runCli(sandbox, [
@@ -412,7 +439,7 @@ describe('native Focus held delivery and checklist seam', () => {
         ]);
         expect(talk.status).toBe(0);
         const result = JSON.parse(talk.stdout);
-        expect(result.focus).toBeUndefined();
+        expect(result.digest).toBeUndefined();
         expect(result.status).toBe('queued');
         if (flags[0] === '--urgent') {
           const history = await runCli(sandbox, [
@@ -440,7 +467,7 @@ describe('native Focus held delivery and checklist seam', () => {
         notification: 'not_attempted',
         waitingFor: 'recipient_inbox_pull',
       });
-      const clear = await api(sandbox, 'focus.policy.clear', {
+      const clear = await api(sandbox, 'digest.policy.clear', {
         identityId: target,
         ownerIdentityId: owner,
         setterIdentityId: owner,
@@ -453,11 +480,11 @@ describe('native Focus held delivery and checklist seam', () => {
         heldCount: 1,
       });
       expect(
-        (await api(sandbox, 'focus.checklist.claim', { identityId: target, opportunity: 'idle' }))
+        (await api(sandbox, 'digest.checklist.claim', { identityId: target, opportunity: 'idle' }))
           .body.claimed
       ).toBe(false);
       expect(
-        (await api(sandbox, 'focus.policy.show', { identities: [target] })).body.policies[0]
+        (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
           .heldCount
       ).toBe(1);
     });

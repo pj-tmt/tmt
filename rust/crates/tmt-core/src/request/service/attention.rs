@@ -82,7 +82,7 @@ pub(super) fn final_state<T, E>(
 fn exchange<T>(
     record: AttentionRecord,
     final_state: FinalState<T>,
-    delivery_policy: super::super::focus::DeliveryPolicy,
+    delivery_policy: super::super::digest::DeliveryPolicy,
 ) -> Exchange<T> {
     let acknowledged = record.acknowledged_revision >= record.revision
         || record.acknowledged_through >= record.revision;

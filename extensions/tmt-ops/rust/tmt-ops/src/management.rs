@@ -19,11 +19,11 @@ pub const CRON: Rules = Rules {
     denial: "Only the recorded user or this squad's lead can change jobs.",
     reference: "Core returned an incomplete cron reference.",
 };
-pub const FOCUS: Rules = Rules {
-    unavailable: "SQUAD_FOCUS_PERMISSION_DENIED",
-    denied: "SQUAD_FOCUS_PERMISSION_DENIED",
-    denial: "Only the recorded user or this squad's lead can manage focus.",
-    reference: "Core returned an incomplete focus reference.",
+pub const DIGEST: Rules = Rules {
+    unavailable: "SQUAD_DIGEST_PERMISSION_DENIED",
+    denied: "SQUAD_DIGEST_PERMISSION_DENIED",
+    denial: "Only the recorded user or this squad's lead can manage digest.",
+    reference: "Core returned an incomplete digest reference.",
 };
 fn failure(code: &str, message: &str) -> SquadError {
     SquadError::new(code, message)
@@ -123,17 +123,17 @@ mod tests {
         for id in [USER, LEAD] {
             let actor = member(&f.core, id, &CRON).unwrap();
             assert!(admit(&f.core, &f.config, &squad, &actor, &CRON).is_ok());
-            assert!(admit(&f.core, &f.config, &squad, &actor, &FOCUS).is_ok());
+            assert!(admit(&f.core, &f.config, &squad, &actor, &DIGEST).is_ok());
         }
         let worker = member(&f.core, WORKER, &CRON).unwrap();
         let refused = admit(&f.core, &f.config, &squad, &worker, &CRON).unwrap_err();
         assert_eq!(refused.code, "SQUAD_CRON_PERMISSION_DENIED");
         assert_eq!(refused.message, CRON.denial);
         assert_eq!(
-            admit(&f.core, &f.config, &squad, &worker, &FOCUS)
+            admit(&f.core, &f.config, &squad, &worker, &DIGEST)
                 .unwrap_err()
                 .code,
-            FOCUS.denied
+            DIGEST.denied
         );
         f.change_model(|m| m["retired"] = serde_json::json!([LEAD]));
         let lead = ManagementActor {
@@ -147,10 +147,10 @@ mod tests {
             CRON.unavailable
         );
         assert_eq!(
-            admit(&f.core, &f.config, &squad, &lead, &FOCUS)
+            admit(&f.core, &f.config, &squad, &lead, &DIGEST)
                 .unwrap_err()
                 .code,
-            FOCUS.denied
+            DIGEST.denied
         );
         f.change_model(|m| m["caller"] = serde_json::json!("ambiguous"));
         assert_eq!(

@@ -54,11 +54,11 @@ fn server(args: &[String]) {
     eprintln!("listening on: ws://{}", listener.local_addr().unwrap());
     event("server-started");
     let state = Arc::new(Mutex::new(None::<LoadedThread>));
-    if env::var_os("MOCK_FOCUS_HOOKS").is_some() {
+    if env::var_os("MOCK_DIGEST_HOOKS").is_some() {
         let state = state.clone();
         let args = args.to_vec();
         thread::spawn(move || {
-            focus_steps(&args, || {
+            digest_steps(&args, || {
                 state.lock().unwrap().as_ref().map(|s| s.id.clone())
             })
         });
@@ -298,7 +298,7 @@ fn foreground(args: &[String]) {
         None
     };
     log(json!({"event":"started","pid":std::process::id(),"args":args}));
-    if env::var_os("MOCK_FOCUS_HOOKS").is_some() && !args.iter().any(|a| a == "--remote") {
+    if env::var_os("MOCK_DIGEST_HOOKS").is_some() && !args.iter().any(|a| a == "--remote") {
         let session = if args.first().is_some_and(|a| a == "resume") {
             args.iter()
                 .find(|a| uuid::Uuid::parse_str(a).is_ok())
@@ -308,7 +308,7 @@ fn foreground(args: &[String]) {
             uuid::Uuid::new_v4().to_string()
         };
         let args = args.to_vec();
-        thread::spawn(move || focus_steps(&args, || Some(session.clone())));
+        thread::spawn(move || digest_steps(&args, || Some(session.clone())));
     }
     thread::spawn(|| {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
@@ -368,7 +368,7 @@ fn foreground(args: &[String]) {
 
 // Model-free hook interpreter: consume the actual composed invocation and its
 // isolated user hooks, with explicit fixture-only trust. No host provider runs.
-fn focus_steps(args: &[String], session: impl Fn() -> Option<String>) {
+fn digest_steps(args: &[String], session: impl Fn() -> Option<String>) {
     let path = env::var("MOCK_CHANNEL_LOG").unwrap();
     let mut definitions = serde_json::Map::new();
     let home = std::path::PathBuf::from(env::var_os("CODEX_HOME").unwrap());
@@ -405,17 +405,17 @@ fn focus_steps(args: &[String], session: impl Fn() -> Option<String>) {
             .unwrap()
             .extend(handlers.as_array().unwrap().iter().cloned());
     }
-    log(json!({"event":"focus-definitions","hooks":definitions}));
+    log(json!({"event":"digest-definitions","hooks":definitions}));
     while !std::path::Path::new(&format!("{path}.quit")).exists() {
-        let step = format!("{path}.focus-step");
+        let step = format!("{path}.digest-step");
         if let Ok(bytes) = fs::read(&step) {
             fs::remove_file(&step).unwrap();
             let step: Value = serde_json::from_slice(&bytes).unwrap();
             let current = session().unwrap();
-            let payload = json!({"hook_event_name":step["hookEvent"].as_str().unwrap_or("Stop"),"source":step["source"].as_str().unwrap_or("startup"),"session_id":step["session"].as_str().unwrap_or(&current),"turn_id":step["turn"].as_str().unwrap_or("fixture-turn"),"stop_hook_active":step["active"].as_bool().unwrap_or(false),"transcript_path":null,"model":"fixture-focus-model","prompt":"fixture prompt"});
+            let payload = json!({"hook_event_name":step["hookEvent"].as_str().unwrap_or("Stop"),"source":step["source"].as_str().unwrap_or("startup"),"session_id":step["session"].as_str().unwrap_or(&current),"turn_id":step["turn"].as_str().unwrap_or("fixture-turn"),"stop_hook_active":step["active"].as_bool().unwrap_or(false),"transcript_path":null,"model":"fixture-digest-model","prompt":"fixture prompt"});
             let event = payload["hook_event_name"].as_str().unwrap();
             if env::var("MOCK_TRUST_HOOKS").as_deref() != Ok("1") {
-                log(json!({"event":"focus-skipped","step":step["name"]}));
+                log(json!({"event":"digest-skipped","step":step["name"]}));
             } else if let Some(groups) = definitions.get(event).and_then(Value::as_array) {
                 for group in groups {
                     for handler in group["hooks"].as_array().unwrap() {
@@ -437,18 +437,18 @@ fn focus_steps(args: &[String], session: impl Fn() -> Option<String>) {
                         let text = String::from_utf8(output.stdout).unwrap();
                         let parsed = serde_json::from_str::<Value>(&text).ok();
                         log(
-                            json!({"event":"focus-handler","step":step["name"],"command":command,"ok":output.status.success(),"stdout":text,"stderr":String::from_utf8_lossy(&output.stderr)}),
+                            json!({"event":"digest-handler","step":step["name"],"command":command,"ok":output.status.success(),"stdout":text,"stderr":String::from_utf8_lossy(&output.stderr)}),
                         );
                         if parsed.as_ref().is_some_and(|v| v["decision"] == "block") {
                             let reason = parsed.unwrap()["reason"].as_str().unwrap().to_owned();
                             log(
-                                json!({"event":"focus-continuation","step":step["name"],"reason":reason}),
+                                json!({"event":"digest-continuation","step":step["name"],"reason":reason}),
                             );
                         }
                     }
                 }
             }
-            log(json!({"event":"focus-step-done","step":step["name"],"session":current}));
+            log(json!({"event":"digest-step-done","step":step["name"],"session":current}));
         }
         thread::sleep(Duration::from_millis(10));
     }

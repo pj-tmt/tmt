@@ -123,9 +123,9 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
         (event.to_owned(), entry)
     });
     let scope = serde_json::to_string(plan.launch).map_err(io::Error::other)?;
-    let focus = json!({"hooks":[{"type":"command", "command":format!("{} __focus-hook {} --launch {}", quote(launcher), super::NAME, quote(&scope)), "timeout":HOOK_TIMEOUT_SECONDS}]});
+    let digest = json!({"hooks":[{"type":"command", "command":format!("{} __digest-hook {} --launch {}", quote(launcher), super::NAME, quote(&scope)), "timeout":HOOK_TIMEOUT_SECONDS}]});
     let settings =
-        setup::compose_launch_hooks(&super::DRIVER, &input, &global, &observations, &focus)
+        setup::compose_launch_hooks(&super::DRIVER, &input, &global, &observations, &digest)
             .map_err(io::Error::other)?;
     match selected {
         Some((index, count, _)) => {

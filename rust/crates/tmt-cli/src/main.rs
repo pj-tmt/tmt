@@ -41,7 +41,7 @@ mod office_facade;
 mod output;
 use tmt_adapters::pane_badge;
 mod consumption_sample_command;
-mod focus_hook_command;
+mod digest_hook_command;
 mod parser;
 mod profile_command;
 mod provider_hook_command;
@@ -141,7 +141,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help(_)
             | Invocation::Version
             | Invocation::ProviderHook { .. }
-            | Invocation::FocusHook { .. }
+            | Invocation::DigestHook { .. }
             | Invocation::ReplyNoticeWorker { .. }
             | Invocation::RequestObserver { .. }
             | Invocation::Mcp { .. }
@@ -307,13 +307,13 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             return setup_command::execute(provider, status, remove, usage, yes, parsed.mode);
         }
         Invocation::ConsumptionSample => return consumption_sample_command::execute(),
-        Invocation::FocusHook {
+        Invocation::DigestHook {
             provider,
             launch,
             worker,
             work_budget_ms,
         } => {
-            return focus_hook_command::execute(
+            return digest_hook_command::execute(
                 &provider,
                 launch.as_deref(),
                 worker,

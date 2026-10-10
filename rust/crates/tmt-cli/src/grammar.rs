@@ -143,7 +143,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(requests::answer())
     .subcommand(installation::install(names))
     .subcommand(installation::setup(hooked.clone()))
-    .subcommand(installation::focus_hook(hooked.clone()))
+    .subcommand(installation::digest_hook(hooked.clone()))
     .subcommand(installation::hook(hooked))
     .subcommand(
         internal(
@@ -366,7 +366,7 @@ fn option(id: &'static str) -> Arg {
         "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
-        "capture-only" => flag("Capture the pane without delivering a retained Focus checklist"),
+        "capture-only" => flag("Capture the pane without delivering a retained Digest checklist"),
         "skill" => Arg::new(id)
             .long(id)
             .help("Print an exact bundled skill (default: tmt)")
