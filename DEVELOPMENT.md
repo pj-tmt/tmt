@@ -269,20 +269,15 @@ Ops executable and sit outside this bundle (see
 
 ## Project tracking
 
-Progress is read from the `pj-tmt` project
-(<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:epic`. Each epic
-has one tracker issue titled `Epic: <name>` with the `epic` label; the project's
-Sub-issues progress counts only direct sub-issues, so the tracker is the only
-parent that matters. Each issue serving a tracker is its direct sub-issue;
-umbrella or findings-log issues stay outside the tracker. Tracking uses only
-native parent/sub-issue links.
+Read progress in [pj-tmt project 1](https://github.com/orgs/pj-tmt/projects/1), filtered
+to `label:epic`. Trackers use `Epic: <name>` and label `epic`; only native direct
+sub-issues count. Umbrella/findings-log issues stay outside. Never set, clear
+or wait for the retired Project `Epic` field.
 
-The Project `Epic` field is retired. Leave it empty on new items and leave
-existing values alone; never set, clear or wait for this field.
-
-Every issue carries these Project fields:
+Project fields:
 
 - `Squad`: the squad whose lead owns the issue.
+- `Owner`: reserved; leave empty.
 - `Status`: `Todo` (not started); `In Progress` (implementation started, including
   draft or stacked PRs); `In Review` (a PR is ready or queued; in a stacked chain
   while any PR is queued); `Merged` (the last required PR is on `main` and a
@@ -294,33 +289,35 @@ Every issue carries these Project fields:
 - `Agents`: comma-separated agents actively building or coordinating it now, lead
   first; reviewers who build nothing are not listed. Removing a member from
   `Agents` is part of its retirement checklist.
+- `Priority`: `urgent`, `xhigh`, `high`, `med`, `low`; squads take work in this order.
+  The maintainer ranks epics; empty means parked/unranked on epics.
+  PM/leads triage other issues. The maintainer sets `urgent` for meteor feedback:
+  a broken main flow, data loss or a regression in a fresh release.
+- `Released in`: release automation records the containing product tags.
 
 Tracker rules:
 
-- One owning lead per tracker, recorded in `Squad`. On a shared tracker the owner
-  writes its Status and body; each child keeps the Status and Agents of the lead
-  whose member works on it.
-- The body keeps a three-to-six-line `Now / Next / Blocked` section, outcome first
-  with issue numbers in parentheses, plus one `Try it` command when something is
-  runnable. Update it on merge, member start or retirement, or a blocker. Logs and
-  evidence stay in child issues and PRs.
-- Tracker Status is `In Progress` while any child is active, `Todo` when nothing
-  has started or the feature is parked (say "parked" in `Now`), `Merged` when all
-  required delivery is on `main`, and `Released` once that delivery is in use and
-  any acceptance or dogfood gate has passed: published for product work, operating
-  on `main` for CI, tooling and release machinery that has no product tag. Release
-  automation skips trackers, so the owning lead sets their Status. Keep pending
-  gates under `Blocked`; optional future children must not reopen a delivered
-  milestone.
-- A tracker is a product item the maintainer set: a lead may propose one through
-  tmt-lead and no agent creates one on its own. Below a tracker, leads and the
-  project manager open child issues freely: one outcome with acceptance criteria
-  and normally one reviewable PR; split a child that hides progress across PRs or
-  squads.
-- The project manager runs one batched pass per hour
-  ([PM procedure](.agents/skills/tmt-pm/SKILL.md)); leads add event-driven updates.
-  Batch Project edits, never poll, and keep to about 200 GraphQL calls per lead
-  per day: the GraphQL limit is shared by every agent on the maintainer's account.
+- One lead per tracker, recorded in `Squad`. That lead writes its Status
+  and body; each child keeps the Status and Agents of the lead doing the work.
+- Keep a three-to-six-line `Now / Next / Blocked` body, outcome first with issue
+  numbers, plus `Try it` when runnable. Update on merge, member start or
+  retirement, or a blocker; keep logs and evidence in child issues/PRs.
+- Tracker Status is `In Progress` while a child is active, `Todo` if nothing has
+  started or it is parked (say so in `Now`), `Merged` when all required delivery
+  is on `main`, and `Released` when it is in use and acceptance/dogfood gates pass:
+  published for products, operating on `main` for CI/tooling/release machinery.
+  Automation skips trackers; their lead sets Status, keeps gates under `Blocked`,
+  and never reopens a delivered milestone for optional future children.
+- New epics require the maintainer's approval; leads propose them through tmt-lead.
+  No agent creates one on its own. Epic work requires his explicit go; until
+  then its issues stay `Todo`. Leads/PM freely open children below approved epics:
+  one outcome, acceptance criteria and normally one PR; split work hiding progress.
+- PM checks at :05 hourly (usage, idle seats, green unarmed PRs) and updates Project
+  status at :35 (progress, releases, seats, usage, epics and owner decisions).
+  The first tick after 08:00 JST also posts daily usage on #1518. Leads add
+  event-driven updates; [PM procedure](.agents/skills/tmt-pm/SKILL.md) owns the steps.
+  Batch edits, never poll; stay near 200 GraphQL calls per lead per day:
+  one account-wide GraphQL limit is shared.
 
 ## Review and evidence
 
