@@ -1,6 +1,8 @@
-//! Help-only entry for the unpublished Digest extension.
+//! Digest member settings through the public Core boundary.
 
+mod core;
 mod grammar;
+mod settings;
 
 use clap::error::ErrorKind;
 use std::{ffi::OsString, io::Write, process::ExitCode};
@@ -21,7 +23,35 @@ fn main() -> ExitCode {
                 Err(_) => ExitCode::FAILURE,
             }
         }
-        Ok(_) => print_help(&grammar::command().render_help()),
+        Ok(matches) => {
+            let Some(member) = matches.get_one::<String>("member") else {
+                return print_help(&grammar::command().render_help());
+            };
+            let value = matches.get_one::<String>("value").expect("paired operands");
+            match save(member, value) {
+                Ok(message) => {
+                    let mut output = tmt_cli_style::stream::stdout(false);
+                    let terminal = output.terminal();
+                    match tmt_cli_style::message::success(&mut output, terminal, &message)
+                        .and_then(|()| output.flush())
+                    {
+                        Ok(()) => ExitCode::SUCCESS,
+                        Err(_) => ExitCode::FAILURE,
+                    }
+                }
+                Err(error) => {
+                    let mut output = tmt_cli_style::stream::stderr();
+                    let terminal = output.terminal();
+                    let _ = tmt_cli_style::message::error(
+                        &mut output,
+                        terminal,
+                        &format!("{} ({})", error.message, error.code),
+                        None,
+                    );
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
 }
 
@@ -35,4 +65,34 @@ fn print_help(help: &clap::builder::StyledStr) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }
+}
+
+fn save(member: &str, value: &str) -> Result<String, core::Error> {
+    let setting = settings::MemberSetting::parse(value)?;
+    let core = core::Core::discover()?;
+    let (id, name) = core.member(member)?;
+    let setter = core.setter()?;
+    let path = core.settings_path()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| core::Error::new("DIGEST_CLOCK_INVALID", error.to_string()))?
+        .as_millis();
+    let now = i64::try_from(now)
+        .map_err(|_| core::Error::new("DIGEST_CLOCK_INVALID", "Write timestamp overflow"))?;
+    let (effective, flush_count) = settings::set(&path, &id, &setting, setter.as_deref(), now)?;
+    let value = match &effective {
+        settings::Mode::Interval { text, .. } => format!("every {text}"),
+        _ => effective.text().to_owned(),
+    };
+    let mut message = if setting == settings::MemberSetting::Default {
+        format!("{name} now uses the default digest: {value}")
+    } else {
+        format!("Saved {name}'s digest: {value} (member setting)")
+    };
+    if matches!(effective, settings::Mode::Interval { .. }) {
+        message.push_str(&format!(
+            ". Sends early once {flush_count} messages are held"
+        ));
+    }
+    Ok(message)
 }

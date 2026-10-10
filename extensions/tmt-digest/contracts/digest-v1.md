@@ -26,7 +26,8 @@ setAtMs = 1791629000000
 ```
 
 `default` and member `mode` accept `auto`, `off` or a positive duration. Durations
-use ms/s/m/h/d, or bare seconds; decimals must resolve exactly to at least one
+use ms/s/m/h/d, or bare seconds; decimals have at most nine fractional digits and
+must resolve exactly to at least one
 millisecond and at most 9,007,199,254,740,991 milliseconds. `flushCount` is a positive
 integer (zero is invalid), defaults to 10, and applies only to interval mode.
 Member keys and setter IDs are canonical identity UUIDs.
