@@ -261,7 +261,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     });
     await expect(reader.page.getByTestId('file-row')).toHaveCount(0);
     // Removing the link advanced the epoch: the owner's open page re-admits on its own (#2557)
-    // and, without a reload, still reads the file sealed under the earlier epoch.
+    // and, without a reload, reads the file again once its new-epoch reference is published.
     await expect(first.locator('.status.live .status-label')).toHaveText('Live', {
       timeout: 60_000,
     });
@@ -269,8 +269,45 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     // The Files panel opened earlier stays open across the re-admission.
     await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
-    // One click must use the current admitted scope without a user retry.
+    // Live means the page re-admitted, not that the background reference swap finished.
+    // Observe the completed slot in this isolated world, then its exact ID in the browser.
+    // Clicking during the swap correctly refuses a replaced read rather than replaying it.
+    const { epoch } = colab(['page', 'read', created.pageId]);
+    expect(epoch).toMatch(/^\d+$/);
+    const slotDirectories = fs
+      .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
+      .filter((entry) => entry.endsWith('attach-slots'));
+    expect(slotDirectories).toHaveLength(1);
+    const slots = path.join(world.dataRoot, slotDirectories[0]!);
+    type Slot = {
+      doneMs?: number;
+      replaces?: string;
+      sealed?: { descriptor: { epoch: string; attachmentId: string } };
+    };
+    let attachmentId: string | undefined;
+    await expect
+      .poll(
+        () => {
+          const completed = fs
+            .readdirSync(slots)
+            .map(
+              (name) =>
+                JSON.parse(fs.readFileSync(path.join(slots, name, 'slot.json'), 'utf8')) as Slot,
+            );
+          attachmentId = completed.find(
+            (slot) => slot.doneMs && slot.replaces && slot.sealed?.descriptor.epoch === epoch,
+          )?.sealed?.descriptor.attachmentId;
+          return attachmentId;
+        },
+        { timeout: 60_000 },
+      )
+      .toMatch(/^[a-f0-9-]{36}$/);
     const row = rowsOf(first).first();
+    await expect(row).toHaveAttribute('data-attachment-id', attachmentId!, {
+      timeout: 30_000,
+    });
+    await expect(row).not.toContainText(text.filesResealing);
+    // One click must use this current admitted reference without a user retry.
     const pending = first.waitForEvent('download');
     await row.getByRole('button', { name: text.attachmentDownload }).click();
     const saved = await pending;

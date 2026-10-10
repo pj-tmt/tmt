@@ -403,8 +403,14 @@ test('files added to the page reach another device and a read-only link byte-ide
       timeout: 30_000,
     });
 
-    // Ending the link while a preview is shown disposes it: nothing of the read stays on screen.
-    // The earlier check left the preview shown.
+    // Removing a reference ended the earlier display lifetime. Read the remaining picture
+    // under the new reference before testing that ending the link disposes its preview.
+    await expect(reader.page.getByTestId('file-preview')).toHaveCount(0);
+    await reader.page
+      .getByTestId('file-row')
+      .filter({ hasText: 'dot.png' })
+      .getByRole('button', { name: text.attachmentPreview })
+      .click();
     await expect(reader.page.getByTestId('file-preview').locator('img')).toBeVisible();
     colab(['share', 'link', 'reset', created.pageId, added.linkId as string, '--yes']);
     await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({

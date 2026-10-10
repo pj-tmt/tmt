@@ -63,6 +63,7 @@ export function FilesList({
           <Fragment key={d.attachmentId}>
             <BrowserListRow
               data-testid="file-row"
+              data-attachment-id={d.attachmentId}
               data-previewed={image ? '' : undefined}
               title={<span className="attachment-name">{d.filename}</span>}
               metadata={text.attachmentSize(Number(d.plaintextBytes))}
