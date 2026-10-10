@@ -435,7 +435,7 @@ fn serve(
         // Native root-local admitted read through this serve's established object channel. The
         // authority is this owned private socket; it never activates storage, opens a backend
         // or answers a browser, and the plaintext reaches only this local caller.
-        let result = (|| -> Result<Vec<u8>> {
+        let result = (|| -> Result<(Vec<u8>, String)> {
             if local_denied(&request) {
                 return Err(crate::page::Fault::Denied.into());
             }
@@ -454,12 +454,14 @@ fn serve(
             )
         })();
         match result {
-            Ok(bytes) => {
+            // The type is the verified descriptor's own label (lowercase `type/subtype`, so safe
+            // in a header); the caller only ever looks it up in an allow-list.
+            Ok((bytes, media_type)) => {
                 let _ = write_response(
                     &mut socket,
                     200,
                     &bytes,
-                    "application/octet-stream",
+                    &media_type,
                     POLICY,
                     "",
                     limits::ATTACHMENT_RESPONSE,

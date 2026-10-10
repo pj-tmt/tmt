@@ -4,7 +4,10 @@
 //! answer is simply unanswered.
 use crate::{Result, keyring::Layout, limits, page::Fault, page::ipc::WriteError};
 use serde::{Deserialize, Serialize};
-use tmt_colab_model::{attachment::AttachmentSelector, values};
+use tmt_colab_model::{
+    attachment::{AttachmentSelector, validate_labels},
+    values,
+};
 
 pub const PATH: &str = "/.tmt/colab/local/attachment-read";
 const VERSION: u8 = 1;
@@ -27,9 +30,15 @@ pub(crate) fn parse(body: &[u8]) -> Result<(String, AttachmentSelector)> {
     request.selector.validate().map_err(|_| Fault::Invalid)?;
     Ok((request.page, request.selector))
 }
+/// The verified plaintext of one attachment and the media type its verified descriptor names.
+/// A serve that names none (an older build) leaves `application/octet-stream`.
+pub struct Verified {
+    pub bytes: Vec<u8>,
+    pub media_type: String,
+}
 /// Ask the serve for the verified plaintext of one exact reference. Every refusal carries its
 /// code; an answer this build cannot read is `Unavailable`.
-pub fn read(layout: &Layout, page: &str, selector: &AttachmentSelector) -> Result<Vec<u8>> {
+pub fn read(layout: &Layout, page: &str, selector: &AttachmentSelector) -> Result<Verified> {
     let body = serde_json::to_vec(&Request {
         version: VERSION,
         page: page.to_owned(),
@@ -41,16 +50,25 @@ pub fn read(layout: &Layout, page: &str, selector: &AttachmentSelector) -> Resul
         Some(early) => refusal(early.code, &early.body),
         None => Fault::Unavailable.into(),
     })?;
-    let (code, response) = crate::ipc::receive_up_to(
+    let reply = crate::ipc::receive_up_to(
         socket,
         limits::ATTACHMENT_READ_REPLY,
         limits::ATTACHMENT_READ_BYTES,
     )
     .map_err(|_| Fault::Unavailable)?;
-    if code == 200 {
-        Ok(response)
+    if reply.code == 200 {
+        // The label is inert and only ever looked up in an allow-list; one that is not a
+        // well-formed `type/subtype` reads as no type.
+        let media_type = reply
+            .content_type
+            .filter(|kind| validate_labels("-", kind).is_ok())
+            .unwrap_or_else(|| "application/octet-stream".into());
+        Ok(Verified {
+            bytes: reply.body,
+            media_type,
+        })
     } else {
-        Err(refusal(code, &response))
+        Err(refusal(reply.code, &reply.body))
     }
 }
 /// The serve's typed refusal, or the plain answer of a server that does not have this route.

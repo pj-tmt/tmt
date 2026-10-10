@@ -42,7 +42,7 @@ pub(crate) fn send(layout: &Layout, path: &str, body: &[u8]) -> Result<UnixStrea
         // refusal is then already waiting; without it the failure is only a failed send.
         return Err(
             match read_reply(socket, limits::RESPONSE, limits::HTTP_BODY_BYTES) {
-                Ok((code, body)) => EarlyReply { code, body }.into(),
+                Ok(Reply { code, body, .. }) => EarlyReply { code, body }.into(),
                 Err(_) => error.into(),
             },
         );
@@ -69,14 +69,21 @@ impl std::error::Error for EarlyReply {}
 /// Finish the request and read one framed reply within `wait`. Any error here leaves the
 /// outcome in doubt.
 pub(crate) fn receive(socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
-    receive_up_to(socket, wait, limits::HTTP_BODY_BYTES)
+    let Reply { code, body, .. } = receive_up_to(socket, wait, limits::HTTP_BODY_BYTES)?;
+    Ok((code, body))
+}
+/// One framed reply: its status, its body and the `Content-Type` the server named, if any.
+pub(crate) struct Reply {
+    pub code: u16,
+    pub body: Vec<u8>,
+    pub content_type: Option<String>,
 }
 /// `receive` for a route whose reply body may reach `body_cap` bytes.
 pub(crate) fn receive_up_to(
     socket: UnixStream,
     wait: std::time::Duration,
     body_cap: usize,
-) -> Result<(u16, Vec<u8>)> {
+) -> Result<Reply> {
     match socket.shutdown(std::net::Shutdown::Write) {
         Ok(()) => {}
         // A server that already answered and closed leaves nothing to half-close (macOS says
@@ -86,11 +93,7 @@ pub(crate) fn receive_up_to(
     }
     read_reply(socket, wait, body_cap)
 }
-fn read_reply(
-    mut socket: UnixStream,
-    wait: std::time::Duration,
-    body_cap: usize,
-) -> Result<(u16, Vec<u8>)> {
+fn read_reply(mut socket: UnixStream, wait: std::time::Duration, body_cap: usize) -> Result<Reply> {
     let deadline = Instant::now() + wait;
     let mut response = Vec::new();
     let mut chunk = [0; 4096];
@@ -132,9 +135,13 @@ fn read_reply(
         return Err(Fault::Unavailable.into());
     };
     let mut size = None;
+    let mut content_type = None;
     for header in parsed.headers.iter() {
         if header.name.eq_ignore_ascii_case("transfer-encoding") {
             return Err(Fault::Unavailable.into());
+        }
+        if header.name.eq_ignore_ascii_case("content-type") {
+            content_type = Some(std::str::from_utf8(header.value)?.to_owned());
         }
         if header.name.eq_ignore_ascii_case("content-length") {
             if size.is_some() {
@@ -147,7 +154,11 @@ fn read_reply(
         return Err(Fault::Unavailable.into());
     }
     let code = parsed.code.ok_or(Fault::Unavailable)?;
-    Ok((code, response[end..].to_vec()))
+    Ok(Reply {
+        code,
+        body: response[end..].to_vec(),
+        content_type,
+    })
 }
 
 #[cfg(test)]
@@ -168,6 +179,27 @@ mod tests {
         assert_eq!((code, body.as_slice()), (413, b"TOO LARGE".as_slice()));
     }
 
+    /// The reply's `Content-Type` is handed to the caller, which is how a read learns the
+    /// verified media type; a reply that names none leaves `None`.
+    #[test]
+    fn a_reply_reports_the_content_type_it_names() {
+        for (head, expected) in [
+            ("Content-Type: image/png\r\n", Some("image/png")),
+            ("", None),
+        ] {
+            let (client, mut server) = UnixStream::pair().unwrap();
+            server
+                .write_all(
+                    format!("HTTP/1.1 200 OK\r\n{head}Content-Length: 2\r\n\r\nhi").as_bytes(),
+                )
+                .unwrap();
+            drop(server);
+            let reply = receive_up_to(client, Duration::from_secs(5), 16).unwrap();
+            assert_eq!(reply.content_type.as_deref(), expected);
+            assert_eq!(reply.body, b"hi");
+        }
+    }
+
     /// The server refuses a request it did not read to the end: closing with request bytes
     /// unread resets the connection on Linux, and the reset used to turn the reply it had sent
     /// into a failed read.
@@ -177,7 +209,7 @@ mod tests {
         client.write_all(&[7; 4096]).unwrap();
         server.write_all(REPLY).unwrap();
         drop(server);
-        let (code, body) =
+        let Reply { code, body, .. } =
             read_reply(client, Duration::from_secs(5), limits::HTTP_BODY_BYTES).unwrap();
         assert_eq!((code, body.as_slice()), (413, b"TOO LARGE".as_slice()));
     }

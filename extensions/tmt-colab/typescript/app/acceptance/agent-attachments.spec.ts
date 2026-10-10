@@ -85,7 +85,7 @@ test('an agent sees the files of a Chat message in its request and reads them by
       const shortIds = listed.map((line) => line.split(' ')[1]);
       const read = (id: string) => {
         const result = colab(['attachment', 'read', created.pageId, id, '--output', out]);
-        return fs.readFileSync(path.join(result.directory as string, 'attachment.bin'));
+        return fs.readFileSync(result.path as string);
       };
       expect(sha(read(shortIds[0]))).toBe(sha(notes));
       expect(sha(read(shortIds[1]))).toBe(sha(PNG));

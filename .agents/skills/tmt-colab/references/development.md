@@ -164,7 +164,7 @@ without an offline fallback. Export needs an existing parent, creates a new UUID
 directory with `page.html`, `conversations.json`, `conversations.md`, `manifest.json` and an
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,
-so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> --output <dir>`
+so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> [--output <dir>]`
 and the attachments of `export` need `tmt colab serve`; without it each is unavailable. `tmt colab attachment attach <page-uuid> <file>` also needs an established object channel (open the page once in a browser through `tmt remote`).
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in

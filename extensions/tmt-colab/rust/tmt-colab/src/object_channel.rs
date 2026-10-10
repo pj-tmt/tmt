@@ -446,7 +446,7 @@ impl ChannelOwner {
         selector: &tmt_colab_model::attachment::AttachmentSelector,
         source: crate::page::save::SourceOpener,
         deadline: Instant,
-    ) -> crate::Result<Vec<u8>> {
+    ) -> crate::Result<(Vec<u8>, String)> {
         let client = self.client().ok_or(crate::page::Fault::Unavailable)?;
         let mut view = source()?;
         let capture = Arc::new(crate::attachments::capture_root_local(
@@ -481,7 +481,11 @@ impl ChannelOwner {
         };
         // Root-local plaintext stays in this native caller; no HTTP/WS route
         // returns it. Full bytes/crypto and both captured cuts recheck here.
-        capture.disclose(&view.store, &view.keyring, &reader)
+        let media_type = capture.descriptor().media_type.clone();
+        Ok((
+            capture.disclose(&view.store, &view.keyring, &reader)?,
+            media_type,
+        ))
     }
     pub(crate) fn peer(
         &self,
