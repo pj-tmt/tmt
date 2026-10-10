@@ -653,6 +653,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   expect(result.exports).toEqual([
     'ClientError',
     'RefusalError',
+    'ReopenSessionError',
     'budget',
     'certifyKey',
     'landingPage',
@@ -805,6 +806,55 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   expect(await readFile(join(root, 'dispatched-message.txt'), 'utf8')).toBe(
     `[remote: E2E browser]\n${asked.input.message}`,
   );
+  // Real-door continuity: one opaque admission is retried, never the original send.
+  await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    (
+      globalThis as unknown as { continuitySession: import('../src/device.js').Session }
+    ).continuitySession = await sdk.reopenSession();
+  });
+  let refusedOpen = false;
+  let continuityOpens = 0;
+  const interruptOpen = async (route: import('@playwright/test').Route) => {
+    if (JSON.parse(route.request().postData()!).operation === 'session.open') {
+      continuityOpens++;
+      if (!refusedOpen) {
+        refusedOpen = true;
+        await route.fulfill({ status: 404, body: '' });
+        return;
+      }
+    }
+    await route.continue();
+  };
+  await app.route('**/r/*/append', interruptOpen);
+  try {
+    const continued = await app.evaluate(async (id) => {
+      const sdk = (await import(
+        '/sdk/remote-v1.js' as string
+      )) as typeof import('../src/browser.js');
+      const previous = (
+        globalThis as unknown as { continuitySession: import('../src/device.js').Session }
+      ).continuitySession;
+      const replacement = await sdk.reopenSession(previous, { retry: 'bounded' });
+      const remote = sdk.operations(replacement);
+      return {
+        differentSession: previous.sessionId !== replacement.sessionId,
+        agents: await remote.listAgents(),
+        original: await remote.operation(id),
+      };
+    }, asked.input.operationId);
+    expect(continued.differentSession).toBe(true);
+    expect(continued.agents).toEqual(asked.agents);
+    expect(continued.original).toEqual(asked.sent);
+    expect(continuityOpens).toBe(2);
+    const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { operation: string });
+    expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(1);
+  } finally {
+    await app.unroute('**/r/*/append', interruptOpen);
+  }
   await app.reload();
   expect(JSON.parse((await app.locator('#context').textContent())!)).toMatchObject({
     deviceId: device.deviceId,

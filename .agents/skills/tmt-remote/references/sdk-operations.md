@@ -55,3 +55,12 @@ node extensions/tmt-remote/rust/tmt-remote/tests/fixtures/webcrypto.mjs
 Use the repository Node 22 and repeat the WebCrypto command on Node 24; `--write`
 regenerates the public-test-key fixture. The Python oracle imports no product code.
 None of this proves real Chrome key persistence across MV3 worker restarts.
+
+## Session continuity
+
+The SDK README owns `reopenSession`'s opt-in bounded policy and typed outcomes. Test the
+same-origin/key fence, deadline/cancellation and single-flight series independently of
+Colab's connection state owner. Keep an opaque admission refusal non-terminal; until the
+verified authority-proof seam ships it cannot distinguish revoked/expired from transient.
+After admission, original-outcome observation must prove one core send total even when
+its original acknowledgment was lost. Never make helper recovery silently resend.

@@ -320,3 +320,21 @@ remain unconfirmed and keep the pairing unchanged. Details contains the short ma
 viewer-local checked time, protocol address, trust pin and administration note. Commands are
 copyable and run on the machine running Remote. The owner ceremony is unchanged: open the full
 code-bearing link in this browser, compare its words with the terminal and confirm there.
+
+## Bounded browser re-admission
+
+`reopenSession(previous, { retry: 'bounded', signal })` extends the same trusted admission
+owner as the unchanged one-shot `reopenSession(previous)`. It coalesces callers for that
+previous verified Session, attempts at most four opens within 20 seconds (four seconds per
+attempt), and backs off 250/500/1000 ms plus bounded jitter. The connection owner's signal
+cancels the joined series. Colab owns reconnecting/connected/ended, reattaches the returned
+Session, and retains drafts, threads and original operation IDs. The SDK never retries a send.
+A lost reply is recovered by observing the original ID after admission, not a new effect.
+
+`ReopenSessionError.reason` is typed: `unreachable`, `unconfirmed` and `transient` remain
+non-terminal; `mismatch` fails closed on changed identity or pins; `unpaired` means the stored
+pairing is absent, not unreadable. `revoked` and `expired` are reserved for verified fresh-open
+answers: until that seam ships, an opaque 404 returns `unconfirmed`, never either terminal reason.
+The error's `detail` is fixed/sanitized; an aborted owner is `transient`/`cancelled`.
+Same machine, browser origin and stored key pins are required; no fallback or new pairing occurs.
+Re-admission of the existing paired key needs no new gesture and never widens its grant.

@@ -275,6 +275,17 @@ sessions-per-device <n>`. The SDK normalizes the URL and requires the door's ori
 idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
 grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
 afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
+The served SDK's `reopenSession(previous, {retry:"bounded", signal})` performs only re-admission:
+one coalesced series per previous verified Session, at most four opens within 20 seconds, each
+attempt bounded to four seconds, with 250/500/1000 ms delays plus bounded jitter. The calling
+connection owner controls cancellation, retrying another series and reattaching; the SDK owns no
+second connection state machine. Same machine, origin, device identity and key pins are required;
+no key, pairing or uncertain effect is recreated. Typed exhaustion is `unreachable`, `unconfirmed`
+or `transient`; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`, and unreadable
+storage is not absence. Until verified fresh-open authority refusals ship, revoked/expired grants
+can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
+never infers `revoked` or `expired`. Those two reasons are reserved for verified authority evidence.
+An uncertain effect retains its original ID and is observed after admission, never resent.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
 with no owner step or new pairing. The caller reattaches its transport using the new session; no
 send is retried.
@@ -1057,7 +1068,9 @@ captures as inert plain text, not HTML. Core preserves stored message and applie
 size/`!` transport protection; explain that adaptation, do not silently rewrite the reviewed
 message. Refuse credentialed URLs rather than secretly dropping fields from the preview.
 
-Signing is allowed only from trusted UI after an explicit gesture. That action may authorize bounded
+Effect signing is allowed only from trusted UI after an explicit gesture. An existing paired key
+may sign bounded `session.open` re-admission without another gesture, from the same trusted
+same-origin chrome; this cannot authorize an effect or widen a grant. The explicit gesture may authorize bounded
 own-state/reply observation while its UI remains active; closing observation never cancels
 recipient work. The add-on has no externally_connectable, page-message signing, external message
 handler, remote scripts, content-script credentials or broad page scraping. Shell permissions are
@@ -1076,8 +1089,8 @@ same-origin trusted extension code: `/sdk/remote-v1.js` loads only into trusted 
 and sandboxed opaque-origin renderer frames never load it or reach the device key. The SDK signs a
 new certificate on every call, using the same device key and the current `issuedAtMs`; certificates
 are not cached. Each certificate carries `issuedAtMs`, and verifiers enforce their own freshness
-policy. The exception never covers operations or `session.open`, whose gesture and signing rules
-are unchanged.
+policy. The certificate exception never authorizes operations; paired-key `session.open` re-admission
+follows the bounded same-origin rule above.
 
 Remote keeps files only in its own subtree of the data root reported by `tmt api` operation
 `storage.root`, with owner-only directories, 0600 secret/state files, no-follow bounded
