@@ -777,19 +777,23 @@ export function ThreadPanel({
                       : ''}
                   </span>
                 </button>
-                {thread.proposal && thread.resolved && status?.controllable && reopenProposal && (
-                  <span className="proposal-row-reopen">
-                    <BrowserAction
-                      type="button"
-                      variant="text"
-                      label={text.threadReopen}
-                      disabled={blocked}
-                      onActivate={(event) => {
-                        if (event.isTrusted) reopenProposal(thread);
-                      }}
-                    />
-                  </span>
-                )}
+                {!archived &&
+                  thread.proposal &&
+                  thread.resolved &&
+                  status?.controllable &&
+                  reopenProposal && (
+                    <span className="proposal-row-reopen">
+                      <BrowserAction
+                        type="button"
+                        variant="text"
+                        label={text.threadReopen}
+                        disabled={blocked}
+                        onActivate={(event) => {
+                          if (event.isTrusted) reopenProposal(thread);
+                        }}
+                      />
+                    </span>
+                  )}
               </div>
               {active === id &&
                 (thread.proposal ? (

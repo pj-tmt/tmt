@@ -1644,6 +1644,7 @@ function Page() {
         close={() => setPanel(null)}
       >
         <SavedDrafts
+          archived={archived}
           drafts={savedDrafts(drafts.current, view.threads)}
           discard={(key) => keepDraft(key, null)}
         />

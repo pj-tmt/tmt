@@ -18,6 +18,7 @@ import type { CommentContext } from '../thread-store.js';
 import type { PageAsk, AskBinding } from '../ask-panel.js';
 import type { ThreadBinding } from '../thread-store.js';
 import type { QuoteSelector, ThreadView } from '../thread-records.js';
+import { ArchivedDraft } from '../annotation-input.js';
 import { MessageComposer } from './message-composer.js';
 import type { ComposerEdit } from './message-composer-edit.js';
 import { text } from '../strings.js';
@@ -179,6 +180,7 @@ export function QuestionCard({
           )}
         </>
       )}
+      {readOnly && compose && body && <ArchivedDraft value={body} />}
       {!readOnly && compose && (
         <>
           {(question.kind === 'single' || question.kind === 'multiple') && (

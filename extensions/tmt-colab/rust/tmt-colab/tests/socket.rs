@@ -2793,11 +2793,31 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     );
     let archived = server.event(path, &header, &archive);
     management_response(&server, &archived, "5");
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "RESYNC_REQUIRED"),
+        other => panic!("archive did not invalidate the old page view: {other:?}"),
+    }
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    // Replaying the archive does not invalidate the fresh read connection.
     assert_eq!(server.event(path, &header, &archive), archived);
     peer.send(Message::Ping(vec![4].into())).unwrap();
     assert!(
         matches!(peer.read().unwrap(), Message::Pong(_)),
         "archive preserves read access"
+    );
+    let mut writer = server.peer(OTHER);
+    hello(&server, &mut writer, OTHER);
+    let (append, _, _) = server.append(OTHER, 1, [0; 32]);
+    send(&mut writer, append);
+    assert_eq!(receive(&mut writer)["code"], "DENIED");
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM receipts", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
     );
     let page_list = server.request(&Running::get("/api/pages", &header));
     let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
