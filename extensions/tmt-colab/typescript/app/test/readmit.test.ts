@@ -1,5 +1,11 @@
-import { expect, it } from 'vite-plus/test';
-import { ReadmitBudget, readmittable, reopenWithBackoff, retryableReopen } from '../src/readmit.js';
+import { expect, it, vi } from 'vite-plus/test';
+import {
+  PageReopener,
+  ReadmitBudget,
+  readmittable,
+  reopenWithBackoff,
+  retryableReopen,
+} from '../src/readmit.js';
 import { FAILURE_CAUSES } from '../src/terminal-failure.js';
 
 it.each(['STALE_EPOCH', 'DENIED', 'EXPIRED'])('%s on an open page is re-admittable', (code) => {
@@ -81,4 +87,70 @@ it('does not open again once aborted', async () => {
     },
   );
   expect(calls).toBe(1);
+});
+
+const noWait = async () => {};
+
+it('a reset closes the reopened binding and a late result never lands', async () => {
+  const reopener = new PageReopener<string>();
+  const signals: AbortSignal[] = [];
+  const done: unknown[] = [];
+  let finish: (value: string) => void = () => {};
+  reopener.start(
+    (signal) => {
+      signals.push(signal);
+      return new Promise((resolve) => (finish = resolve));
+    },
+    { retryable, wait: noWait, done: (result) => done.push(result) },
+  );
+  expect(reopener.busy).toBe(true);
+  // The route loads a newer binding while the reopen is still in flight.
+  reopener.reset();
+  expect(signals[0]?.aborted).toBe(true);
+  finish('late');
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(done).toEqual([]);
+  expect(reopener.busy).toBe(false);
+});
+
+it('a reset closes a binding that an earlier reopen produced and frees the next reopen', async () => {
+  const reopener = new PageReopener<string>();
+  const signals: AbortSignal[] = [];
+  const done: unknown[] = [];
+  const run = () =>
+    reopener.start(
+      async (signal) => {
+        signals.push(signal);
+        return 'binding';
+      },
+      { retryable, wait: noWait, done: (result) => done.push(result) },
+    );
+  run();
+  await vi.waitFor(() => expect(done).toHaveLength(1));
+  expect(signals[0]?.aborted).toBe(false);
+  reopener.reset();
+  expect(signals[0]?.aborted).toBe(true);
+  run();
+  await vi.waitFor(() => expect(done).toHaveLength(2));
+  expect(signals[1]?.aborted).toBe(false);
+});
+
+it('a second successful reopen closes the binding of the first', async () => {
+  const reopener = new PageReopener<string>();
+  const signals: AbortSignal[] = [];
+  let count = 0;
+  const run = () =>
+    reopener.start(
+      async (signal) => {
+        signals.push(signal);
+        return 'binding';
+      },
+      { retryable, wait: noWait, done: () => (count += 1) },
+    );
+  run();
+  await vi.waitFor(() => expect(count).toBe(1));
+  run();
+  await vi.waitFor(() => expect(count).toBe(2));
+  expect(signals.map((signal) => signal.aborted)).toEqual([true, false]);
 });
