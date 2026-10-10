@@ -22,6 +22,7 @@ pub enum Flag {
 pub struct Env {
     pub terminal: bool,
     pub ci: bool,
+    pub agent: bool,
     pub ssh: bool,
     pub linux: bool,
     pub wsl: bool,
@@ -34,6 +35,7 @@ impl Env {
         Self {
             terminal: interactive,
             ci: set("CI"),
+            agent: set("TMT_AGENT"),
             ssh: set("SSH_CONNECTION") || set("SSH_CLIENT") || set("SSH_TTY"),
             linux: cfg!(target_os = "linux"),
             wsl: set("WSL_DISTRO_NAME") || set("WSL_INTEROP"),
@@ -49,7 +51,7 @@ pub enum Decision {
     Skip(&'static str),
 }
 
-/// `--no-open` and `--json` always win. `--open` overrides the setting and the terminal, CI and
+/// `--no-open` and `--json` always win. `--open` overrides the setting and the terminal, CI, agent and
 /// SSH/display checks; it never overrides a missing opener (checked at launch).
 pub fn decide(flag: Flag, setting: bool, json: bool, env: &Env) -> Decision {
     if flag == Flag::NoOpen {
@@ -69,6 +71,9 @@ pub fn decide(flag: Flag, setting: bool, json: bool, env: &Env) -> Decision {
     }
     if env.ci {
         return Decision::Skip("CI");
+    }
+    if env.agent {
+        return Decision::Skip("TMT_AGENT");
     }
     // WSL reaches the Windows browser without a Linux display server.
     if env.linux && !env.wsl && !env.display {
@@ -160,6 +165,7 @@ mod tests {
         Env {
             terminal,
             ci,
+            agent: false,
             ssh,
             linux,
             wsl: false,
@@ -200,6 +206,14 @@ mod tests {
         };
         assert_eq!(decide(Flag::Unset, true, false, &ci), Skip("CI"));
         assert_eq!(decide(Flag::Open, true, false, &ci), Open);
+        let agent = Env {
+            agent: true,
+            ..env(true, false, false, false, true)
+        };
+        assert_eq!(decide(Flag::Unset, true, false, &agent), Skip("TMT_AGENT"));
+        assert_eq!(decide(Flag::Open, true, false, &agent), Open);
+        assert_eq!(decide(Flag::Open, true, true, &agent), Skip("--json"));
+        assert_eq!(decide(Flag::NoOpen, true, false, &agent), Skip("--no-open"));
         let ssh = env(true, false, true, false, false);
         assert_eq!(
             decide(Flag::Unset, true, false, &ssh),

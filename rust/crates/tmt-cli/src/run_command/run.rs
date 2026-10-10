@@ -420,6 +420,7 @@ pub(super) fn run_bound(
         .iter()
         .cloned()
         .chain(lease.environment().iter().cloned())
+        .chain(std::iter::once(("TMT_AGENT".into(), "1".into())))
         .collect::<Vec<_>>();
     let captured_preset = (launch.resumed.is_none())
         .then(|| {
