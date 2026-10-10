@@ -532,6 +532,16 @@ for (const width of [1440, 390])
       await input.fill('Retain this selection draft');
       await input.press('c');
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
+      const modeBox = (await mode.boundingBox())!;
+      const windowBox = (await page.locator('.annotation-popover').boundingBox())!;
+      const headerBox = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
+      expect(modeBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height);
+      expect(
+        modeBox.y + modeBox.height <= windowBox.y ||
+          modeBox.y >= windowBox.y + windowBox.height ||
+          modeBox.x + modeBox.width <= windowBox.x ||
+          modeBox.x >= windowBox.x + windowBox.width,
+      ).toBe(true);
       await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
       const originalDraft = await input.textContent();
       await page.getByRole('button', { name: 'Close annotation', exact: true }).click();

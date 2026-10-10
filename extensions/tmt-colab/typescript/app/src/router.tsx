@@ -98,14 +98,22 @@ function SelectionMode({
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
       const composer = document.querySelector('.annotation-popover')?.getBoundingClientRect();
-      const bottom =
-        composer && composer.right > right - (enabled ? 140 : 40) - margin
-          ? Math.min(innerHeight, composer.top)
-          : innerHeight;
+      const edge = Math.min(innerHeight, box.bottom);
+      const width = button.current?.offsetWidth ?? 40;
+      const obstructed =
+        composer &&
+        composer.right > right - width - margin &&
+        composer.left < right - margin &&
+        composer.bottom > edge - margin - 40 &&
+        composer.top < edge;
+      const bottom = obstructed ? Math.min(edge, composer.top) : edge;
       setPlacement({
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
-        visibility: right - box.left >= 80 ? 'visible' : 'hidden',
+        visibility:
+          right - box.left >= 80 && bottom - margin - 40 >= Math.max(0, box.top)
+            ? 'visible'
+            : 'hidden',
       });
     };
     place();
