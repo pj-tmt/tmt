@@ -1,4 +1,4 @@
-//! The needs-you and blocked sections: a rule, then one line per member.
+//! The blocked section: a gap, a rule, then one line per member.
 use super::{
     controller::HomeEntry,
     paint::age_label,
@@ -106,23 +106,17 @@ pub(super) struct RowSpan {
 pub(super) struct Section<'a> {
     pub first: usize,
     pub entries: &'a [HomeEntry<'a>],
-    /// A blank, then this rule; or the rule alone when `blank` is false.
-    pub title: String,
-    pub role: Role,
-    pub blank: bool,
 }
 
 fn head(section: &Section<'_>, width: usize) -> Vec<Value> {
-    let mut head = Vec::new();
-    if section.blank {
-        head.push(json!({"id": "gap", "text": null, "role": null}));
-    }
-    head.push(json!({
-        "id": "rule",
-        "text": rule(&section.title, width),
-        "role": section.role.name(),
-    }));
-    head
+    vec![
+        json!({"id": "gap", "text": null, "role": null}),
+        json!({
+            "id": "rule",
+            "text": rule(&format!("✗ blocked · {}", section.entries.len()), width),
+            "role": Role::Blocked.name(),
+        }),
+    ]
 }
 
 /// Block identity is private to one frame; entry names may hold anything, so the
@@ -147,7 +141,6 @@ pub(super) fn paint(
         .enumerate()
         .map(|(local, entry)| {
             let index = section.first + local;
-            let waiting = entry.target.section == "needs-you";
             let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
             let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
             let available = width.saturating_sub(4 + age_width);
@@ -177,8 +170,8 @@ pub(super) fn paint(
             json!({
                 "focus":focus,
                 "id": id(local),
-                "mark": format!(" {} ", if waiting { "◆" } else { "✗" }),
-                "mark_role": if waiting { Role::Waiting } else { Role::Blocked }.name(),
+                "mark": " ✗ ",
+                "mark_role": Role::Blocked.name(),
                 "name": fit(&escape(entry.row["name"].as_str().unwrap_or_default()), name_width),
                 "squad": if focus_width == 0 {
                     fit(&escape(&entry.target.squad), available.saturating_sub(name_width))

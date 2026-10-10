@@ -48,14 +48,16 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|lower| crate::board::composition::halves(area, lower).ok());
     match jobs {
         Some((members, jobs)) => {
-            render_members(frame, app, members);
+            render_members(frame, app, members, true);
             crate::board::cronboard::render_half(frame, app, jobs);
         }
-        None => render_members(frame, app, area),
+        None => render_members(frame, app, area, false),
     }
 }
 
-fn render_members(frame: &mut Frame, app: &App, area: Rect) {
+/// `rule_below` says the jobs half's rule is drawn on the row under `area`: a
+/// framed pane resting on it ends its frame there, so the boundary has one rule.
+fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
     let look = app.look();
     let Some(view) = &app.view else {
         render_rows(frame, app, area);
@@ -127,7 +129,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
         BoardMode::Split if board.panes.len() == 1 && app.collapsed_panes().is_empty() => {
             render_pane(frame, app, board.panes[0], slots[0].1)
         }
-        BoardMode::Split => render_split(frame, app, &slots, &pane_block),
+        BoardMode::Split => render_split(frame, app, &slots, &pane_block, rule_below),
         BoardMode::Tabs => {
             let focused = app.focused();
             let bar = slots[0].1;
@@ -143,10 +145,19 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 return;
             }
             let outline = pane_block(focused);
-            let inner = outline.inner(rest);
-            outline.paint_flat(rest, frame.buffer_mut());
+            let framed = if rule_below { reach_rule(rest) } else { rest };
+            let inner = outline.inner(framed);
+            outline.paint_flat(framed, frame.buffer_mut());
             render_pane(frame, app, focused, inner);
         }
+    }
+}
+
+/// The slot extended over the row below it, where the jobs half's rule is painted.
+fn reach_rule(area: Rect) -> Rect {
+    Rect {
+        height: area.height + 1,
+        ..area
     }
 }
 
@@ -156,8 +167,10 @@ fn render_split(
     app: &App,
     slots: &[(Vec<String>, Rect)],
     pane_block: &dyn Fn(Pane) -> Outline<'static>,
+    rule_below: bool,
 ) {
     let collapsed = app.collapsed_panes();
+    let bottom = slots.iter().map(|(_, area)| area.bottom()).max();
     for (id, area) in slots {
         let pane = Pane::parse(id.last().expect("named pane")).expect("validated pane slot");
         let area = *area;
@@ -192,8 +205,13 @@ fn render_split(
             render_pane(frame, app, pane, area);
         } else {
             let outline = pane_block(pane);
-            let inner = outline.inner(area);
-            outline.paint_flat(area, frame.buffer_mut());
+            let framed = if rule_below && Some(area.bottom()) == bottom {
+                reach_rule(area)
+            } else {
+                area
+            };
+            let inner = outline.inner(framed);
+            outline.paint_flat(framed, frame.buffer_mut());
             if !inner.is_empty() {
                 render_pane(frame, app, pane, inner);
             }

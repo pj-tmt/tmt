@@ -61,9 +61,10 @@ fn model_cell(model: &str, cells: usize) -> String {
 
 /// A boxed line is its two border cells around the content, with a filler that
 /// carries the line's base style. The squad column of a heading is the `md` step.
+/// The top edge is drawn only for a section whose `head` has no rule of its own.
 const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-repeat each="$.head" as="line"><tmt-text id-bind="line.id" bind="line.text" token-bind="line.role" class="w-full h-1"/></tmt-repeat>
-<tmt-text id="top" bind="$.top" class="w-full h-1"/>
+<tmt-repeat each="$.top" as="edge"><tmt-text id="top" bind="edge.text" class="w-full h-1"/></tmt-repeat>
 <tmt-repeat each="$.leads" as="lead"><tmt-col id-bind="lead.id" class="w-full">
 <tmt-repeat each="lead.before" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token="dim" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
 <tmt-repeat each="lead.separator" as="sep"><tmt-row id="separator" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
@@ -107,7 +108,13 @@ fn schema() -> Schema {
     object(vec![
         ("head", list(line())),
         ("tail", list(line())),
-        ("top", Schema::Scalar),
+        (
+            "top",
+            list(object(vec![
+                ("id", Schema::StableId),
+                ("text", Schema::Scalar),
+            ])),
+        ),
         ("bottom", Schema::Scalar),
         ("left", Schema::Scalar),
         ("right", Schema::Scalar),
@@ -282,7 +289,15 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             row["focus"] = json!([]);
         }
     }
-    data["top"] = json!(chrome.top);
+    // A section whose head carries its own rule is already bounded above.
+    let headed = key.data["head"]
+        .as_array()
+        .is_some_and(|head| !head.is_empty());
+    data["top"] = if headed {
+        json!([])
+    } else {
+        json!([{"id": "top", "text": chrome.top}])
+    };
     data["bottom"] = json!(chrome.bottom);
     data["left"] = json!(chrome.left);
     data["right"] = json!(chrome.right);

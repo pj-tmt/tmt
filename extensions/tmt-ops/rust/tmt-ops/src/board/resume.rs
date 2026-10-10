@@ -232,7 +232,7 @@ mod tests {
                 }),
                 DetailTarget::Job("c1".into()),
                 DetailTarget::Row(RowTarget::Home(HomeTarget {
-                    section: "needs-you".into(),
+                    section: "blocked".into(),
                     squad: "infra".into(),
                     member: None,
                 })),

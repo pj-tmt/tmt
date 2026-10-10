@@ -808,3 +808,38 @@ fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
     let shown = draw(&app, 160, 40).join("\n");
     assert!(!shown.contains("E edit"), "{shown}");
 }
+
+#[test]
+fn a_framed_pane_above_the_cron_rule_ends_on_it_instead_of_stacking_a_second_rule() {
+    use crate::config::{Direction, Pane};
+    for (direction, panes) in [
+        (Direction::TopBottom, vec![Pane::Rows, Pane::Notes]),
+        (Direction::LeftRight, vec![Pane::Rows, Pane::Notes]),
+    ] {
+        let mut app = super::paned(
+            super::split(direction, panes, vec![50, 50]),
+            crate::board::app::Notes::Text("ship it".into()),
+        );
+        app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
+        let mut job = test_view("someone", "job", Some(TEST_NOW + 3_600_000));
+        job.job.squad = "product".into();
+        job.job.room_id = "room".into();
+        app.cron
+            .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
+        let lines = draw(&app, 100, 30);
+        let rule = lines
+            .iter()
+            .position(|line| line.starts_with("── cron · 1"))
+            .unwrap_or_else(|| panic!("no cron rule in {lines:#?}"));
+        assert!(
+            !lines[rule - 1].starts_with('─') && !lines[rule - 1].starts_with(" ─"),
+            "{direction:?}: a second rule stacks above the cron heading: {:?}",
+            lines[rule - 1]
+        );
+        assert_eq!(
+            lines.iter().filter(|line| line.contains("cron ·")).count(),
+            1,
+            "{direction:?}"
+        );
+    }
+}

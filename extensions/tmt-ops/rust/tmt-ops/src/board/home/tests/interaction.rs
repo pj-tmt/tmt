@@ -94,8 +94,6 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
         Effect::Act(Request::Jump("worker".into()))
     );
     assert_eq!(press(&mut app, Char('j')), Effect::None);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
-    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
     assert_eq!(
         press(&mut app, Enter),
@@ -130,7 +128,7 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
             .any(|entry| entry.keys == "↑↓ / j k" && entry.description.contains("cron"))
     );
     press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
     press(&mut app, Up);
     assert_eq!(app.home_target, selected);
     assert_eq!(
@@ -166,11 +164,20 @@ fn opening_section(doc: Value) -> String {
 
 #[test]
 fn home_opens_on_the_first_row_from_the_top() {
-    // A needs-you row wins over a blocked one, a blocked row over a lead.
-    assert_eq!(opening_section(waiting()), "needs-you");
+    // A blocked row wins over a lead, whether or not it also waits on the user.
+    assert_eq!(opening_section(waiting()), "blocked");
     let mut blocked = waiting();
     blocked["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
     assert_eq!(opening_section(blocked), "blocked");
+    // A member that only waits on the user has no section of its own: the
+    // counts row and the tab marks carry it.
+    let mut asking = document(
+        "a",
+        row("L", "lead-a", "working"),
+        vec![row("W", "worker", "working")],
+    );
+    asking["sections"][0]["rows"][0]["waitingOnYou"] = json!([{"requestId":"q","preparedAtMs":20}]);
+    assert_eq!(opening_section(asking), "leads");
     // Nothing needs attention: the first lead, not the squad tile below it.
     let quiet = document(
         "a",
@@ -254,12 +261,12 @@ fn switching_back_to_home_returns_to_the_row_that_was_left() {
         .unwrap()
         .push(row("Z", "zebra", "working"));
     let mut app = board(&[("a", doc)]);
-    keys(&mut app, &[Down, Down]);
+    keys(&mut app, &[Down]);
     let left = app.home_target.clone();
     assert_eq!(left.as_ref().unwrap().section, "leads");
     leave_and_return(&mut app);
     assert_eq!(app.home_target, left, "restored from the cached view");
-    assert_eq!(app.selected, 2);
+    assert_eq!(app.selected, 1);
     // A second round trip keeps the new position, and so does a refresh.
     press(&mut app, Down);
     let left = app.home_target.clone();
@@ -280,8 +287,7 @@ fn leaving_home_for_a_squad_that_has_not_loaded_and_coming_back_keeps_the_cursor
 #[test]
 fn refresh_and_search_reconcile_the_stable_target() {
     let mut doc = waiting();
-    let mut second = row("Z", "zebra", "working");
-    second["pending"] = json!("note");
+    let second = row("Z", "zebra", "blocked");
     doc["sections"][0]["rows"]
         .as_array_mut()
         .unwrap()
@@ -289,8 +295,7 @@ fn refresh_and_search_reconcile_the_stable_target() {
     let mut app = board(&[("a", doc.clone())]);
     press(&mut app, Down);
     let target = app.home_target.clone();
-    let mut first = row("A", "aardvark", "working");
-    first["pending"] = json!("note");
+    let first = row("A", "aardvark", "blocked");
     doc["sections"][0]["rows"]
         .as_array_mut()
         .unwrap()
@@ -504,7 +509,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             ("tmt", tmt_cli_style::Depth::None),
         ] {
             let members = (0..5).map(|index| {
-                let mut member = row(&format!("W{index}"), &format!("worker-{index}"), "working");
+                let mut member = row(&format!("W{index}"), &format!("worker-{index}"), "blocked");
                 member["waitingOnYou"] = json!([{"requestId":format!("q{index}"), "preview":"Should this decision proceed?", "preparedAtMs":20}]);
                 member
             }).collect::<Vec<_>>();
@@ -589,9 +594,8 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             assert!(text.contains("✓ sent"));
             press(&mut app, Char('x'));
             assert!(app.sent.is_none());
-            assert!(!app.home_entries().iter().any(
-                |entry| entry.row["name"] == "worker-2" && entry.target.section == "needs-you"
-            ));
+            // Answering clears the question; the row stays in its blocked section.
+            assert_eq!(app.selected_row().unwrap()["waitingOnYou"], json!([]));
         }
     }
 }
@@ -1338,7 +1342,7 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
                 .map(|cell| cell.symbol())
                 .collect::<String>();
             assert!(
-                text.contains("needs you") && text.contains("squads"),
+                text.contains("blocked") && text.contains("squads"),
                 "{squad:?}/{width}"
             );
             assert!(!text.contains('\n') && !text.contains('\t'));

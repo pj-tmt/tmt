@@ -135,21 +135,16 @@ fn a_selection_move_repaints_only_the_sections_it_touches() {
             .position(|entry| entry.target.section == section)
             .unwrap()
     };
-    let (needs, blocked, leads, squads) = (
-        at("needs-you"),
-        at("blocked"),
-        at(super::super::LEADS),
-        at("squads"),
-    );
+    let (blocked, leads, squads) = (at("blocked"), at(super::super::LEADS), at("squads"));
     drop(entries);
-    app.select(needs);
+    app.select(blocked);
     capture(&app, 160);
     let before = builds(&app);
-    app.select(needs + 1);
+    app.select(blocked + 1);
     capture(&app, 160);
     assert_eq!(builds(&app) - before, 1, "within one section");
     let before = builds(&app);
-    app.select(blocked);
+    app.select(leads);
     capture(&app, 160);
     assert_eq!(
         builds(&app) - before,
@@ -157,9 +152,9 @@ fn a_selection_move_repaints_only_the_sections_it_touches() {
         "into the next section: the one left and the one entered"
     );
     let before = builds(&app);
-    app.select(leads);
-    capture(&app, 160);
     app.select(squads);
+    capture(&app, 160);
+    app.select(blocked);
     capture(&app, 160);
     assert_eq!(
         builds(&app) - before,

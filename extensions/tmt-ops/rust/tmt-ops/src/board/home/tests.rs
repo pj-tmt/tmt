@@ -163,9 +163,8 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     let f = Fixture::new("");
     let empty = model(&[], &f.acquired(&[]), 100);
     assert_eq!(empty.summary.members, 0);
-    assert_eq!(empty.sections.len(), 2);
-    assert_eq!(empty.sections[0].key, "needs-you");
-    assert_eq!(empty.sections[1].key, "blocked");
+    assert_eq!(empty.sections.len(), 1);
+    assert_eq!(empty.sections[0].key, "blocked");
     assert!(empty.squads.is_empty());
     assert!(!empty.incomplete);
     let acquired = f.acquired(&[
@@ -216,7 +215,7 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
 }
 
 #[test]
-fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships() {
+fn the_blocked_section_deduplicates_within_a_squad_and_keeps_cross_squad_memberships() {
     let f = Fixture::new("");
     let mut waiting = row("A", "asker", "blocked");
     waiting["waitingOnYou"] = json!([{"requestId":"q-new","preparedAtMs":90,"preview":"private question"}, {"requestId":"q-old","preparedAtMs":20}]);
@@ -238,37 +237,19 @@ fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships()
     assert_eq!(home.summary.members, 4);
     assert_eq!(home.summary.waiting, 3);
     assert_eq!(home.summary.blocked, 3);
-    let needs = &home.sections[0].rows;
-    assert_eq!(needs.len(), 3);
-    assert_eq!(needs[0].member["name"], "asker");
-    assert_eq!(
-        needs[0].age,
-        Some(Age {
-            source: AgeSource::Request,
-            since_ms: 20
-        })
-    );
-    assert_eq!(needs[0].lead.as_deref().unwrap(), "pending-lead");
-    assert_eq!(
-        needs[0].member["waitingOnYou"][0]["preview"],
-        "private question"
-    );
-    assert_eq!(needs[1].member["name"], "pending-lead");
-    assert_eq!(needs[1].age, None, "pending text cannot establish age");
-    assert_eq!(needs[2].squad, "b");
+    // Requests and pending text no longer have a section of their own: only
+    // blocked members do, and the counts row carries who waits on the user.
+    assert_eq!(home.sections.len(), 1);
     // Shared user sections retain overlapping matches; a waiting blocked
     // member appears in both while squad summary counts it once per state.
-    let blocked = &home.sections[1].rows;
+    let blocked = &home.sections[0].rows;
     assert_eq!(blocked.len(), 3);
     assert_eq!(blocked[0].member["id"], "A");
+    assert_eq!(blocked[0].lead.as_deref().unwrap(), "pending-lead");
+    assert_eq!(blocked[0].age, Some(Age { since_ms: 10 }));
     assert_eq!(blocked[1].member["id"], "B");
-    assert_eq!(
-        blocked[1].age,
-        Some(Age {
-            source: AgeSource::Observed,
-            since_ms: 30
-        })
-    );
+    assert_eq!(blocked[1].age, Some(Age { since_ms: 30 }));
+    assert_eq!(blocked[2].squad, "b");
     assert_eq!(home.squads[0].members.members, 2);
     assert_eq!(home.squads[0].members.waiting, 1);
     assert_eq!(home.squads[0].members.blocked, 1);
@@ -277,15 +258,12 @@ fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships()
 #[test]
 fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
     let f = Fixture::new("");
-    let mut request = row("R", "request", "working");
-    request["waitingOnYou"] =
-        json!([{"preparedAtMs":101},{"preparedAtMs":"20"},{"requestId":"missing-time"}]);
     let mut blocked = row("B", "blocked", "blocked");
     blocked["staleness"] = json!({"unchangedSinceMs":101});
     let mut doc = document(
         "a",
         Value::Null,
-        vec![request, blocked, row("U", "unknown-age", "blocked")],
+        vec![blocked, row("U", "unknown-age", "blocked")],
     );
     doc["olderRequestsNotShown"] = json!(true);
     let mut acquired = f.acquired(&[("a", doc)]);
@@ -397,15 +375,8 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     assert_eq!(home.summary.blocked, 2);
     assert_eq!(home.summary.waiting, 1);
     assert!(home.incomplete);
-    assert_eq!(
-        home.sections[0].rows[0].age,
-        Some(Age {
-            source: AgeSource::Request,
-            since_ms: 20
-        })
-    );
-    assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
-    assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
+    assert_eq!(home.sections[0].rows[0].member["name"], "worker-a");
+    assert!(home.sections[0].rows.iter().all(|row| row.age.is_none()));
 }
 
 #[test]
@@ -556,17 +527,6 @@ fn home_ages_use_registered_relative_time_and_identify_observed_provenance() {
         assert_eq!(
             paint::age_label(
                 &Age {
-                    source: AgeSource::Request,
-                    since_ms: now - elapsed
-                },
-                now
-            ),
-            expected
-        );
-        assert_eq!(
-            paint::age_label(
-                &Age {
-                    source: AgeSource::Observed,
                     since_ms: now - elapsed
                 },
                 now

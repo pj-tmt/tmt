@@ -162,15 +162,12 @@ fn home_keeps_only_painted_counts_names_and_age_evidence() {
         },
         windows: crate::config::TokenWindow::DEFAULTS,
         sections: vec![home::MemberSection {
-            key: "needs-you".into(),
+            key: "blocked".into(),
             rows: vec![home::MemberRow {
                 squad: "product".into(),
                 member: json!({"name": "alice", "id": "FORBIDDEN-id", "pending": "FORBIDDEN-pending"}),
                 lead: Some("FORBIDDEN-lead-id".into()),
-                age: Some(home::Age {
-                    source: home::AgeSource::Request,
-                    since_ms: 100,
-                }),
+                age: Some(home::Age { since_ms: 100 }),
             }],
         }],
         squads: vec![home::SquadLine {
@@ -196,7 +193,7 @@ fn home_keeps_only_painted_counts_names_and_age_evidence() {
     assert_eq!(loaded.0["view"]["sections"], json!([]));
     assert_eq!(
         loaded.0["view"]["home"]["sections"][0]["rows"][0],
-        json!({"name":"alice", "squad":"product", "age":{"source":"request", "sinceMs":100}})
+        json!({"name":"alice", "squad":"product", "age":{"sinceMs":100}})
     );
     assert!(!loaded.0.to_string().contains("FORBIDDEN"));
 }

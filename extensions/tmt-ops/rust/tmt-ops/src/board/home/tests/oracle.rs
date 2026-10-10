@@ -184,10 +184,10 @@ const STATES: &[&str] = &[
     "replies-hidden",
     "cron-selected",
     "all-leads-selected",
-    "composer-needs-you",
+    "composer-blocked",
     "composer-lead",
     "composer-squad",
-    "sent-needs-you",
+    "sent-blocked",
     "sent-lead",
     "sent-squad",
     "read-lead",
@@ -240,8 +240,8 @@ fn state(name: &str) -> App {
                 .unwrap();
             app.select(index);
         }
-        "composer-needs-you" => {
-            select(&mut app, "needs-you", "alpha");
+        "composer-blocked" => {
+            select(&mut app, "blocked", "alpha");
             press(&mut app, Char('a'));
         }
         "composer-lead" => {
@@ -252,7 +252,7 @@ fn state(name: &str) -> App {
             select(&mut app, "squads", "beta");
             press(&mut app, Char('a'));
         }
-        "sent-needs-you" => sent_on(&mut app, "needs-you", "alpha"),
+        "sent-blocked" => sent_on(&mut app, "blocked", "alpha"),
         "sent-lead" => sent_on(&mut app, "leads", "beta"),
         "sent-squad" => sent_on(&mut app, "squads", "gamma"),
         "read-lead" => {

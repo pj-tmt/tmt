@@ -13,7 +13,7 @@
 //! runs from one machine and one build.
 use super::*;
 use crate::board::{
-    home::{Age, AgeSource, Counts, Home, MemberRow, MemberSection, SquadLine},
+    home::{Age, Counts, Home, MemberRow, MemberSection, SquadLine},
     meter::Meter,
     rate::tests::input,
 };
@@ -181,7 +181,7 @@ fn member_board(layout: Layout) -> App {
     app
 }
 
-/// Four squads, a needs-you and a blocked section, and squad tiles.
+/// Four squads, a blocked section, and squad tiles.
 fn home_board() -> App {
     let names = ["product", "reviews", "infra", "colab"];
     let member = |squad: &str, n: usize, state: &str| {
@@ -189,7 +189,7 @@ fn home_board() -> App {
             "state": state, "pending": null, "fields": {"state": state}, "waitingOnYou": [],
             "staleness": {}})
     };
-    let section = |key: &str, state: &str, per_squad: usize, request: bool| MemberSection {
+    let section = |key: &str, state: &str, per_squad: usize| MemberSection {
         key: key.into(),
         rows: names
             .iter()
@@ -199,11 +199,6 @@ fn home_board() -> App {
                     member: member(squad, n, state),
                     lead: Some(format!("{squad}-lead")),
                     age: Some(Age {
-                        source: if request {
-                            AgeSource::Request
-                        } else {
-                            AgeSource::Observed
-                        },
                         since_ms: crate::status::now_ms().saturating_sub(720_000 * (n as u64 + 1)),
                     }),
                 })
@@ -221,10 +216,7 @@ fn home_board() -> App {
     let home = Home {
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: counts(names.len() * 8),
-        sections: vec![
-            section("needs-you", "working", 2, true),
-            section("blocked", "blocked", 1, false),
-        ],
+        sections: vec![section("blocked", "blocked", 2)],
         squads: names
             .iter()
             .map(|squad| SquadLine {
@@ -247,7 +239,7 @@ fn home_board() -> App {
     app
 }
 
-/// Every HOME section: needs-you and blocked attention, the leads list with its
+/// Every HOME section: blocked attention, the leads list with its
 /// exchanges, the audience line, cron and the squads table (the HOME oracle's
 /// model). It is the all-squads tab, which has no meter strips.
 fn home_full_board() -> App {
@@ -559,7 +551,7 @@ fn render_replica_matches_render() {
     for (app, sentinel, metered) in [
         (member_board(Layout::Crew), "member-05", true),
         (member_board(Layout::Team), "member-05", true),
-        (home_board(), "needs you", true),
+        (home_board(), "blocked", true),
         (home_full_board(), "squads", false),
     ] {
         let mut expected = terminal();

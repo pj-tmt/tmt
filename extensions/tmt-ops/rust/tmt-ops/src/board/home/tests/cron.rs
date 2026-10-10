@@ -61,17 +61,8 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
     };
     assert_eq!(
         sections(&app),
-        [
-            "needs-you",
-            "blocked",
-            "leads",
-            "all-leads",
-            "cron",
-            "squads"
-        ]
+        ["blocked", "leads", "all-leads", "cron", "squads"]
     );
-    press(&mut app, Down);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
     press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
     press(&mut app, Down);
@@ -138,7 +129,6 @@ fn a_failed_read_is_a_selectable_line_and_the_list_says_why() {
             .any(|line| line.contains("cron · ✗ jobs unavailable: storage unreachable")),
         "{lines:#?}"
     );
-    press(&mut app, Down);
     press(&mut app, Down);
     press(&mut app, Down);
     press(&mut app, Down);

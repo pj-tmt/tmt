@@ -151,7 +151,7 @@ fn a_refresh_keeps_the_cursor_on_the_same_member_when_rows_reorder() {
 }
 
 #[test]
-fn home_lines_show_squad_counts_and_who_needs_you() {
+fn home_lines_show_squad_counts_and_blocked_members() {
     let counts = |waiting: u64, blocked: u64| json!({"members": 3, "waiting": waiting, "blocked": blocked, "review": 0, "working": 1, "idle": 1});
     let view = json!({
         "lead": null,
@@ -163,7 +163,6 @@ fn home_lines_show_squad_counts_and_who_needs_you() {
                 {"squad": "product", "lead": null, "counts": counts(0, 1), "members": counts(0, 1)},
             ],
             "sections": [
-                {"key": "needs-you", "rows": [{"name": "alice", "squad": "infra", "age": null}]},
                 {"key": "blocked", "rows": [{"name": "bob", "squad": "product", "age": null}]},
             ],
         },
@@ -177,9 +176,6 @@ fn home_lines_show_squad_counts_and_who_needs_you() {
         [
             " infra    ◆ 1  ✗ 0  ● 1  ◌ 1  lead ivy",
             " product  ◆ 0  ✗ 1  ● 1  ◌ 1  ",
-            "",
-            " Needs you",
-            " ◆ alice · infra",
             "",
             " Blocked",
             " ✗ bob · product",
@@ -212,12 +208,12 @@ fn home_opens_from_its_stored_display() {
         "pinned": 0, "attention": {},
         "view": {"lead": null, "sections": [], "home": {
             "summary": counts, "squads": [{"squad": "infra", "lead": "ivy", "counts": counts, "members": counts}],
-            "sections": [{"key": "needs-you", "rows": [{"name": "alice", "squad": "infra", "age": null}]}],
+            "sections": [{"key": "blocked", "rows": [{"name": "alice", "squad": "infra", "age": null}]}],
         }},
     }));
     assert!(app.adopt_cached(display));
     let screen = draw(&app, 60, 8).join("\n");
     assert!(screen.contains("all · cached 1h ago"), "{screen}");
     assert!(screen.contains("infra  ◆ 1"), "{screen}");
-    assert!(screen.contains("◆ alice · infra"), "{screen}");
+    assert!(screen.contains("✗ alice · infra"), "{screen}");
 }

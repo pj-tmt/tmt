@@ -4498,13 +4498,12 @@ columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "
                         },
                         windows: crate::config::TokenWindow::DEFAULTS,
                         sections: vec![MemberSection {
-                            key: "needs-you".into(),
+                            key: "blocked".into(),
                             rows: vec![MemberRow {
                                 squad: "ux-demo".into(),
                                 member: members[1].clone(),
                                 lead: Some("ux-demo-lead".into()),
                                 age: Some(crate::board::home::Age {
-                                    source: crate::board::home::AgeSource::Request,
                                     since_ms: packet["clock"]["requestCreatedAtMs"]
                                         .as_u64()
                                         .unwrap(),
@@ -5042,7 +5041,7 @@ fn focus_app(members: bool, home: bool, held: u64, until: u64, look: crate::look
             summary: Default::default(),
             windows: crate::config::TokenWindow::DEFAULTS,
             sections: vec![crate::board::home::MemberSection {
-                key: "needs-you".into(),
+                key: "blocked".into(),
                 rows: vec![crate::board::home::MemberRow {
                     squad: "product".into(),
                     member,

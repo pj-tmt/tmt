@@ -7,11 +7,14 @@ use crate::board::{
 use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyCode::*};
 
 fn fixture() -> App {
+    fixture_with(vec![])
+}
+fn fixture_with(members: Vec<Value>) -> App {
     let mut question = row("A", "lead-a", "working");
     question["waitingOnYou"] =
         json!([{"requestId":"question","preparedAtMs":20,"preview":"Approve this change?"}]);
     let mut app = board(&[
-        ("a", document("a", question, vec![])),
+        ("a", document("a", question, members)),
         ("b", document("b", row("B", "lead-b", "working"), vec![])),
     ]);
     let view = app.view.as_mut().unwrap();
@@ -85,7 +88,7 @@ fn home_leads_collapse_by_default_and_expand_without_an_exchange() {
 #[test]
 fn home_lead_and_member_use_the_same_reply_renderer_and_v_reader() {
     use crate::board::row_detail::Target;
-    let mut app = fixture();
+    let mut app = fixture_with(vec![row("M", "member-a", "blocked")]);
     select(&mut app, "leads", "b");
     press(&mut app, Char('e'));
     let lead_target = app.row_target(app.selected).unwrap();
@@ -97,9 +100,9 @@ fn home_lead_and_member_use_the_same_reply_renderer_and_v_reader() {
     press(&mut app, Char('v'));
     assert!(app.row_details.reader.is_some());
     press(&mut app, Esc);
-    select(&mut app, "needs-you", "a");
+    select(&mut app, "blocked", "a");
     app.home_leads.replies =
-        vec![json!({"recipientId":"A","requestId":"member-reply","submittedAtMs":10})];
+        vec![json!({"recipientId":"M","requestId":"member-reply","submittedAtMs":10})];
     press(&mut app, Char('e'));
     let member_target = app.row_target(app.selected).unwrap();
     let key = app.detail_read().unwrap();
@@ -160,7 +163,7 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                 (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
                 (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
             ] {
-                let mut app = fixture();
+                let mut app = fixture_with(vec![row("M", "member-a", "blocked")]);
                 app.view.as_mut().unwrap().look = crate::look::Look {
                     theme: tmt_cli_style::Theme::new(base),
                     depth,
@@ -178,7 +181,7 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                     .y;
                 assert_eq!(selected[(1, heading)].symbol(), " ");
                 assert_eq!(selected[(2, heading)].symbol(), "◆");
-                select(&mut app, "needs-you", "a");
+                select(&mut app, "blocked", "a");
                 let attention = draw(&app, width, 40);
                 assert_eq!(format!("{:?}", app.hits.borrow()), hits);
                 assert_eq!(*app.row_starts.borrow(), starts);
@@ -190,7 +193,7 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                     .unwrap()
                     .y;
                 assert_eq!(attention[(0, y)].symbol(), " ");
-                assert_eq!(attention[(1, y)].symbol(), "◆");
+                assert_eq!(attention[(1, y)].symbol(), "✗");
                 assert_eq!(
                     attention[(0, y)].bg,
                     app.look().selection().bg.unwrap_or_default()
@@ -271,4 +274,33 @@ fn a_lead_heading_keeps_its_cells_whether_the_age_is_missing_short_or_long() {
             );
         }
     });
+}
+
+#[test]
+fn home_draws_one_rule_under_the_leads_heading_and_has_no_needs_you_or_exchange_notice() {
+    for width in [80, 100, 160] {
+        let mut blocked = row("B", "stuck", "blocked");
+        blocked["waitingOnYou"] =
+            json!([{"requestId":"q","preparedAtMs":20,"preview":"Approve this change?"}]);
+        let app = fixture_with(vec![blocked]);
+        let shown = lines(&draw(&app, width, 40));
+        let heading = shown
+            .iter()
+            .position(|line| line.contains("── leads"))
+            .unwrap_or_else(|| panic!("no leads heading at {width}: {shown:#?}"));
+        assert!(
+            !shown[heading + 1].contains("──"),
+            "{width}: a second rule under the heading: {:?}",
+            shown[heading + 1]
+        );
+        let text = shown.join("\n");
+        assert!(
+            !text.contains("needs you") && !text.contains("lead exchanges not shown"),
+            "{width}: {text}"
+        );
+        assert!(
+            text.contains("blocked ·"),
+            "{width}: the blocked section stays"
+        );
+    }
 }
