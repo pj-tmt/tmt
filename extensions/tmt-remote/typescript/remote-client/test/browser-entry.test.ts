@@ -108,6 +108,18 @@ async function fixture(mode = 'success') {
     const operation = JSON.parse(init!.body as string).operation;
     if (operation === 'session.open') {
       admissions++;
+      if (mode === 'revoked-proof' || mode === 'expired-proof') {
+        door.mutate = (reply) => {
+          reply.sessionId = 'new';
+          reply.sequence = '1';
+        };
+        return door.response(JSON.parse(init!.body as string), {
+          error: {
+            code: mode === 'revoked-proof' ? 'REMOTE_DEVICE_REVOKED' : 'REMOTE_GRANT_EXPIRED',
+            message: 'Authority ended.',
+          },
+        });
+      }
       if (mode === 'expired-reopen-refused' && admissions === 2)
         return new Response('', { status: 404 });
     }
@@ -571,6 +583,21 @@ for (const ownsFocus of [true, false]) {
       assert.equal(doc.activeElement, ownsFocus ? status : other);
     } finally {
       key.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
+for (const mode of ['revoked-proof', 'expired-proof']) {
+  test(`entry ${mode} reuses the existing refused copy without an operation call`, async () => {
+    const f = await fixture(mode);
+    try {
+      await landingPage();
+      assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
+      assert.equal(f.nodes.get('steps-refused')!.hidden, false);
+      assert.deepEqual(f.counts(), { mounts: 1, admissions: 1 });
+      assert.equal(f.door.calls.length, 0);
+    } finally {
       vi.unstubAllGlobals();
     }
   });

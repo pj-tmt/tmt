@@ -194,6 +194,11 @@ export class ManagementPage {
 function accessRefused(error: unknown): boolean {
   return (
     error instanceof RefusalError &&
-    ['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
+    [
+      'REMOTE_SESSION_ENDED',
+      'REMOTE_SESSION_EVICTED',
+      'REMOTE_DEVICE_REVOKED',
+      'REMOTE_GRANT_EXPIRED',
+    ].includes(error.code)
   );
 }

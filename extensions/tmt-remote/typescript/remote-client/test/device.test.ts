@@ -226,3 +226,41 @@ test('a rejected fresh open verifies its new-session envelope before exposing th
     );
   }
 });
+
+for (const code of ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED']) {
+  test(`fresh-open ${code} proof is pinned to the exact current request and run`, async () => {
+    const door = new Door();
+    const { key, result } = await paired(door);
+    const failure = { error: { code, message: 'Authority ended.' } };
+    door.mutate = (reply) => {
+      reply.sessionId = 'new';
+      reply.sequence = '1';
+    };
+    let saved: Response | undefined;
+    const refusal: typeof fetch = async (_url, init) => {
+      const reply = await door.response(JSON.parse(init!.body as string), failure);
+      saved = reply.clone();
+      return reply;
+    };
+    await assert.rejects(
+      openSession(result, key, door.descriptor.windowId, refusal),
+      (error) => error instanceof RefusalError && error.code === code,
+    );
+    await assert.rejects(
+      openSession(result, key, door.descriptor.windowId, async () => saved!.clone()),
+      (error) => !(error instanceof RefusalError),
+    );
+    for (const field of ['signature', 'window', 'session', 'sequence']) {
+      door.tamper = { signature: field === 'signature' };
+      door.mutate = (reply) => {
+        reply.sessionId = field === 'session' ? crypto.randomUUID() : 'new';
+        reply.sequence = field === 'sequence' ? '2' : '1';
+        if (field === 'window') reply.windowId = crypto.randomUUID();
+      };
+      await assert.rejects(
+        openSession(result, key, door.descriptor.windowId, refusal),
+        (error) => !(error instanceof RefusalError),
+      );
+    }
+  });
+}

@@ -599,6 +599,7 @@ function remoteError(value, address) {
 		"REMOTE_CORE_UNAVAILABLE",
 		"REMOTE_MANAGEMENT_READ_ONLY",
 		"REMOTE_MANAGEMENT_UNAVAILABLE",
+		"REMOTE_GRANT_EXPIRED",
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_DEVICE_NOT_FOUND",
 		"REMOTE_SETTINGS_UNAVAILABLE",
@@ -1816,7 +1817,10 @@ async function reopenOnce(previous, signal) {
 		active(signal);
 		if (signal) {
 			if (error instanceof ReopenSessionError) throw error;
-			if (error instanceof RefusalError && error.code === "REMOTE_SESSION_LIMIT") throw new ReopenSessionError("capacity", "admission-refused", error);
+			if (error instanceof RefusalError) {
+				if (error.code === "REMOTE_SESSION_LIMIT") throw new ReopenSessionError("capacity", "admission-refused", error);
+				if (error.code === "REMOTE_DEVICE_REVOKED" || error.code === "REMOTE_GRANT_EXPIRED") throw new ReopenSessionError(error.code === "REMOTE_DEVICE_REVOKED" ? "revoked" : "expired", "admission-refused", error);
+			}
 			throw new ReopenSessionError("transient", "unverifiable-response");
 		}
 		if (!refused || !previous) throw error;
@@ -2034,7 +2038,8 @@ async function landingPage() {
 			const verifiedRefusal = !opaque && error instanceof RefusalError && !(step.phase === "capabilities" && (error.code === "REMOTE_SESSION_ENDED" || reused && error.code === "REMOTE_SESSION_EVICTED")) && [
 				"REMOTE_SESSION_ENDED",
 				"REMOTE_SESSION_EVICTED",
-				"REMOTE_DEVICE_REVOKED"
+				"REMOTE_DEVICE_REVOKED",
+				"REMOTE_GRANT_EXPIRED"
 			].includes(error.code);
 			session = void 0;
 			render(verifiedRefusal ? "refused" : "unconfirmed");

@@ -220,8 +220,16 @@ async function reopenOnce(previous?: Session, signal?: AbortSignal): Promise<Ses
     active(signal);
     if (signal) {
       if (error instanceof ReopenSessionError) throw error;
-      if (error instanceof RefusalError && error.code === 'REMOTE_SESSION_LIMIT')
-        throw new ReopenSessionError('capacity', 'admission-refused', error);
+      if (error instanceof RefusalError) {
+        if (error.code === 'REMOTE_SESSION_LIMIT')
+          throw new ReopenSessionError('capacity', 'admission-refused', error);
+        if (error.code === 'REMOTE_DEVICE_REVOKED' || error.code === 'REMOTE_GRANT_EXPIRED')
+          throw new ReopenSessionError(
+            error.code === 'REMOTE_DEVICE_REVOKED' ? 'revoked' : 'expired',
+            'admission-refused',
+            error,
+          );
+      }
       throw new ReopenSessionError('transient', 'unverifiable-response');
     }
     if (!refused || !previous) throw error;
@@ -527,9 +535,12 @@ export async function landingPage(): Promise<void> {
           (error.code === 'REMOTE_SESSION_ENDED' ||
             (reused && error.code === 'REMOTE_SESSION_EVICTED'))
         ) &&
-        ['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED', 'REMOTE_DEVICE_REVOKED'].includes(
-          error.code,
-        );
+        [
+          'REMOTE_SESSION_ENDED',
+          'REMOTE_SESSION_EVICTED',
+          'REMOTE_DEVICE_REVOKED',
+          'REMOTE_GRANT_EXPIRED',
+        ].includes(error.code);
       session = undefined;
       render(verifiedRefusal ? 'refused' : 'unconfirmed');
     } finally {

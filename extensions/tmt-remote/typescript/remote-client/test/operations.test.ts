@@ -770,7 +770,7 @@ test('recipient scope denial does not claim the talk scope is missing', async ()
   );
 });
 
-for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED']) {
+for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED', 'REMOTE_GRANT_EXPIRED']) {
   test(`${code} cannot prove an effect was refused and never resends its original`, async () => {
     const { door, client } = await ready();
     door.error = { code, message: 'Session ended.' };

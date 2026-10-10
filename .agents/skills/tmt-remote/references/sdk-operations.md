@@ -60,7 +60,8 @@ None of this proves real Chrome key persistence across MV3 worker restarts.
 
 The SDK README owns `reopenSession`'s opt-in bounded policy and typed outcomes. Test the
 same-origin/key fence, deadline/cancellation and single-flight series independently of
-Colab's connection state owner. Keep an opaque admission refusal non-terminal; until the
-verified authority-proof seam ships it cannot distinguish revoked/expired from transient.
+Colab's connection state owner. Only a verified fresh-open retained-grant proof ends admission
+as revoked/expired; opaque or unverifiable admission stays non-terminal. Pin terminal no-retry,
+nonce/request/run correlation, prior-bundle uncertainty and no publication after abort.
 After admission, original-outcome observation must prove one core send total even when
 its original acknowledgment was lost. Never make helper recovery silently resend.

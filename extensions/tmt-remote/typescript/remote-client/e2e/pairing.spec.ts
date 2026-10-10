@@ -952,17 +952,21 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   await app.reload();
   await expect(app.locator('#context')).toHaveText('none');
   const refused = await app.evaluate(async () => {
-    const sdk = (await import('/sdk/remote-v1.js' as string)) as {
-      reopenSession(): Promise<unknown>;
-    };
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
     try {
-      await sdk.reopenSession();
-      return 'opened';
+      await sdk.reopenSession(undefined, { retry: 'bounded' });
+      return { reason: 'opened' };
     } catch (error) {
-      return error instanceof Error ? error.message : String(error);
+      if (!(error instanceof sdk.ReopenSessionError) || !(error.cause instanceof sdk.RefusalError))
+        throw error;
+      return { reason: error.reason, detail: error.detail, code: error.cause.code };
     }
   });
-  expect(refused).toBe('The session was refused.');
+  expect(refused).toEqual({
+    reason: 'revoked',
+    detail: 'admission-refused',
+    code: 'REMOTE_DEVICE_REVOKED',
+  });
   await app.reload();
   await expect(app.locator('#context')).toHaveText('none');
   // Revocation changes grant admission, not the mathematics of a retained signature.
@@ -1584,8 +1588,9 @@ test('the native entry checks once and presents all seven evidenced states witho
   expect(revoke.exitCode).toBe(0);
   reset();
   await page.goto(origin);
-  await expect(page.locator('#state-label')).toHaveText("Can't reach Remote");
-  expect(counts()).toEqual({ mounts: 2, admissions: 1, observations: 0 });
+  // The retained key now receives a verified fresh-open revocation proof, not opaque 404.
+  await expect(page.locator('#state-label')).toHaveText('Not accepted');
+  expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 0 });
   await context.close();
   const unavailable = await browser.newContext();
   await unavailable.addInitScript(() => {

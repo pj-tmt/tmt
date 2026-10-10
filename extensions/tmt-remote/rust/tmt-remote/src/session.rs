@@ -194,12 +194,7 @@ impl DoorSessions {
     /// are opaque; a verified fresh control can receive a signed rejected-open reply.
     pub fn open(&self, request_origin: Option<&str>, body: &[u8]) -> Option<Opened> {
         let now = now_ms().ok()?;
-        let control = self.control(request_origin, body, now)?;
-        self.store
-            .lock()
-            .ok()?
-            .charge_call(&control.grant.client_id, now)
-            .ok()?;
+        let mut control = self.control(request_origin, body, now)?;
         let root = self.store.lock().ok()?.data_root.clone();
         let limit = crate::settings::read_or_default(&root).sessions_per_device();
         let (token, response) = {
@@ -214,7 +209,36 @@ impl DoorSessions {
             if live.nonces.contains_key(&key) || live.nonces.len() >= NONCES {
                 return None;
             }
-            live.nonces.insert(key, now + validity);
+            {
+                // Recheck under the existing live -> Store lock order before disclosure.
+                // A key/identity replacement cannot inherit the verified signature.
+                let mut store = self.store.lock().ok()?;
+                let current = store.grant(&control.grant.client_id).ok()??;
+                if current.public_key != control.grant.public_key
+                    || current.kind != control.grant.kind
+                    || current.origin != control.grant.origin
+                    || current.authority().is_err()
+                {
+                    return None;
+                }
+                store.charge_call(&current.client_id, now).ok()?;
+                live.nonces.insert(key, now + validity);
+                let code = if current.disabled {
+                    Some("REMOTE_DEVICE_REVOKED")
+                } else if current.expires_at_ms.is_some_and(|expiry| now >= expiry) {
+                    Some("REMOTE_GRANT_EXPIRED")
+                } else {
+                    None
+                };
+                if let Some(code) = code {
+                    return self.rejected_open(
+                        &control.message,
+                        &json!({"error":{"code":code,"message":"Device authority ended; pair again."}}),
+                        now,
+                    ).ok();
+                }
+                control.grant = current;
+            }
             // A configured limit is enforced at open, including a lowered limit.
             while limit.is_some_and(|limit| {
                 live.by_session
@@ -370,15 +394,15 @@ impl DoorSessions {
             self.ready.notify_all();
         }
     }
-    /// Strict envelope admission against the live grant. The signature is
-    /// checked last over the exact canonical bytes; nothing is recorded here.
+    /// Strict fresh-open admission under a retained valid grant's key, even after
+    /// revocation/expiry. Nothing is recorded or disclosed before its signature verifies.
     fn control(&self, request_origin: Option<&str>, body: &[u8], now: u64) -> Option<Control> {
         let message = SignedMessage::decode(body, crate::limits::PAIR_BODY_BYTES)?;
         let envelope = message.envelope();
         if envelope.kind != "control" || envelope.operation != "session.open" {
             return None;
         }
-        let grant = self.authenticate(request_origin, &message, now)?;
+        let grant = self.authenticate_key(request_origin, &message, now)?;
         let nonce = client_nonce(&message.input)?;
         Some(Control {
             message,
@@ -394,6 +418,17 @@ impl DoorSessions {
         message: &SignedMessage,
         now: u64,
     ) -> Option<Grant> {
+        self.authenticate_key(request_origin, message, now)
+            .filter(|grant| grant.live_at(now))
+    }
+    /// Stored-key proof alone grants no operation authority. Only fresh opens may
+    /// classify retained revoked/expired authority after nonce and budget admission.
+    fn authenticate_key(
+        &self,
+        request_origin: Option<&str>,
+        message: &SignedMessage,
+        now: u64,
+    ) -> Option<Grant> {
         let envelope = message.envelope();
         if envelope.machine_id != self.machine_id
             || envelope.window_id != self.window_id
@@ -402,7 +437,7 @@ impl DoorSessions {
             return None;
         }
         let grant = self.store.lock().ok()?.grant(envelope.client_id).ok()??;
-        if !grant.live_at(now) || envelope.origin != grant.origin {
+        if grant.authority().is_err() || envelope.origin != grant.origin {
             return None;
         }
         let origin_matches = match grant.kind.as_str() {

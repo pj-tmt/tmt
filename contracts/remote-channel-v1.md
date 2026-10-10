@@ -259,8 +259,16 @@ A rejected fresh open uses the existing machine-signed correlated response envel
 sequence row. The fresh nonce is remembered within the existing bounded replay window;
 unauthenticated or replayed controls still receive the opaque 404. The SDK verifies the
 signature, correlation and rejected-open envelope before exposing `RefusalError` and its
-signed limit/settings action. This response model is also the owner for later verified
-fresh-open authority refusals; ordinary sessionless operations remain opaque.
+signed limit/settings action. A fresh `session.open` with a valid stored-key signature,
+current window/timestamp/origin and nonce can also prove only its own retained grant:
+disabled yields `REMOTE_DEVICE_REVOKED` (even if expired), otherwise expiry yields
+`REMOTE_GRANT_EXPIRED`. Stored policy/key validity and current identity are rechecked before
+disclosure. Terminal replies reserve the nonce and charge the authenticated Call budget,
+but allocate no Session, cookie, journal or operation. Unknown/wrong-key, malformed,
+stale/replayed, budget-exhausted and deleted/corrupt identities stay opaque 404; ordinary
+operations still require a live grant and never use this proof seam. No tombstones or
+migration are added. After restart only a new current-window open can obtain this proof;
+a same-key re-pair has a new identity and inherits no terminal result.
 Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
 themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
@@ -308,9 +316,12 @@ no key, pairing or uncertain effect is recreated. Typed exhaustion is `unreachab
 or `transient`. A verified session-limit refusal returns non-terminal `capacity`, is not
 retried inside the series, and carries the verified `RefusalError` as `cause` with its limit
 and optional settings action; identity/pin mismatch is `mismatch`, absent pairing is `unpaired`,
-and unreadable storage is not absence. Until verified fresh-open authority refusals ship,
-revoked/expired grants can produce the same opaque 404 as transient admission failure: this API returns `unconfirmed`,
-never infers `revoked` or `expired`. Those two reasons are reserved for verified authority evidence.
+and unreadable storage is not absence. Verified fresh-open authority refusals return terminal
+`revoked` or `expired`, detail `admission-refused`, with the verified `RefusalError` as `cause`;
+neither is retried inside the series. The connection owner surfaces re-pair. An opaque 404
+or unverifiable/unknown signed answer stays unconfirmed, never proof of revocation or expiry.
+Cancellation cannot publish a Session. Previous SDK bundles leave an unknown expired code
+unconfirmed, retaining any original operation ID.
 An uncertain effect retains its original ID and is observed after admission, never resent.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
 with no owner step or new pairing. The caller reattaches its transport using the new session; no
@@ -1021,7 +1032,9 @@ Verified pre-effect refusals on send/operation return
 `{state:"refused",operationId,reason}`, with the signed code `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`, `REMOTE_CLOSED`,
 `REMOTE_SESSION_ENDED` or `REMOTE_SESSION_EVICTED`; a rejected fresh open exposes
-`REMOTE_SESSION_LIMIT` with its signed limit/settings action.
+`REMOTE_SESSION_LIMIT` with its signed limit/settings action, or `REMOTE_DEVICE_REVOKED` /
+`REMOTE_GRANT_EXPIRED` as the authenticated retained-grant proof above. The expiry code is
+not pre-effect evidence for an original operation.
 The generic pre-admission HTTP 404 maps to `REMOTE_SESSION_ENDED`; this is a session-ended
 signal, not a signed response. The exported `RemoteRefusalCode` union contains those codes
 plus `REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.
@@ -1136,7 +1149,8 @@ cannot-write/over-capacity fails closed before effects.
 
 Message errors are signed `{error:{code,message},operationId?}` responses after authentication.
 `REMOTE_INPUT_INVALID`, `REMOTE_SCOPE_DENIED`, `REMOTE_REPLAY`, `REMOTE_INTENT_CONFLICT`,
-`REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED`, `REMOTE_SERVE_STOPPED`, `REMOTE_INPUT_TOO_LARGE`,
+`REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED`, `REMOTE_SERVE_STOPPED`, `REMOTE_GRANT_EXPIRED`,
+`REMOTE_INPUT_TOO_LARGE`,
 `REMOTE_RATE_LIMITED` (optional retryAfterMs),
 `REMOTE_CURSOR_EXPIRED`, `REMOTE_CORE_UNAVAILABLE` and `REMOTE_STATE_UNAVAILABLE` have the rules
 above. Unsupported operation/profile/binding is REMOTE_INPUT_INVALID. Preserve permitted core
