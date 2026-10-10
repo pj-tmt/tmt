@@ -173,9 +173,11 @@ also bypasses. All channel, host and pending-approval guards still apply.
 Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
 
 There is no core timer, worker or periodic flush. An admitted provider turn
-boundary may hand off one checklist during Digest. After expiry or off, the next
-ordinary talk/check touching a verified idle recipient may hand off one backlog
-checklist. Without hooks or traffic it remains pending; an optional Squad cron
+boundary may hand off one checklist during Digest. After expiry or off, or when
+an extension marks the current held range due through the API, the next ordinary
+talk/check touching a verified idle recipient may hand off one eligible
+checklist. Later arrivals stay held on the due-now idle path. Without hooks or
+traffic it remains pending; an optional Squad cron
 reminder is outside core. A checklist contains original receipt-bound reply
 commands for eligible requests and result inspection commands for finals.
 Use the printed sealed-checklist API read/cursor for overflow; an uncertain

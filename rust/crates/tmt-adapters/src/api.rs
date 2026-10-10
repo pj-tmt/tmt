@@ -32,6 +32,9 @@ const OPS: &[&str] = &[
     "digest.policy.set",
     "digest.policy.clear",
     "digest.policy.show",
+    "digest.checklist.dueNow",
+    "digest.checklist.flush",
+    "digest.stats.show",
     "digest.checklist.read",
     "digest.checklist.claim",
     "digest.checklist.settle",
@@ -367,14 +370,16 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             crate::native_install::default_install_prefix().map_err(|_| Fault::unavailable())?;
         return extensions::uses(&prefix, &extension, &feature);
     }
-    // Only dispatch uses settings; read operations do not depend on unrelated config.
-    let settings = if matches!(request, Request::Dispatch { .. }) {
+    // Delivery uses configured input delay; reads do not depend on unrelated config.
+    let settings = if matches!(request, Request::Dispatch { .. })
+        || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush(_)))
+    {
         Some(
             ConfigFiles {
                 paths: paths.clone(),
             }
             .load()
-            .map_err(|_| Fault::new("CONFIG_ERROR", "Could not load dispatch settings."))?
+            .map_err(|_| Fault::new("CONFIG_ERROR", "Could not load delivery settings."))?
             .settings,
         )
     } else {
@@ -394,7 +399,15 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             windows,
             max_buckets,
         } => consumption::history(&mut storage, identities, windows, max_buckets),
-        Request::Digest(operation) => digest::execute(&mut storage, *operation),
+        Request::Digest(operation) => digest::execute(
+            &mut storage,
+            *operation,
+            std::time::Duration::from_secs_f64(
+                settings
+                    .as_ref()
+                    .map_or(0.0, |settings| settings.paste_enter_delay_ms / 1000.0),
+            ),
+        ),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {

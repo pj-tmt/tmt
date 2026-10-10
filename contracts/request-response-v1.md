@@ -754,8 +754,11 @@ external attempt cannot be recalled by a later Digest write.
 
 Held references point to canonical request/final records and never renew retention.
 An admitted adapter turn boundary may claim one checklist during Digest; normal
-transport may claim only after expiry/off and fresh verification that the exact
-live session/incarnation is idle. A talk/check invocation touching the target is
+transport may claim after expiry/off, or for the range made due through the
+[local Digest API](extension-api.md#digest-policy-and-checklist), with fresh
+verification that the exact live session/incarnation is idle. Due-now adds idle
+eligibility without restricting admitted turn boundaries or changing the policy.
+The local API owns the arrival-context and statistics contract. A talk/check invocation touching the target is
 an opportunity, not a scheduled job. Without hooks or traffic, delivery remains
 pending; optional Squad cron reminders belong outside core. Newly arriving work
 cannot join a sealed checklist. Expiry/off immediately restores normal routing

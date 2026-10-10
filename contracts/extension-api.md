@@ -730,6 +730,9 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 | `digest.policy.set`       | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
 | `digest.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
 | `digest.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
+| `digest.checklist.dueNow` | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
+| `digest.checklist.flush`  | `identityId`                                                                                          | `identityId`, `state`                                          |
+| `digest.stats.show`       | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
 | `digest.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
 | `digest.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
 | `digest.checklist.settle` | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
@@ -746,7 +749,11 @@ A read without a checklist ID shows unclaimed references. A sealed read includes
 its retained membership regardless of settlement; later arrivals stay outside it.
 Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
 UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
-and a bounded `resultPreview` for finals. Page fields are `identityId`,
+and a bounded `resultPreview` for finals. Optional `contextTokensAtArrival` and
+`contextObservedAtMs` preserve the receiver's latest recorded, readable driver
+usage when the reference first entered hold. They are absent when evidence is
+unknown, stale, pending resume, unsupported or from a future observation. The
+snapshot does not refresh the provider or change on retry. Page fields are `identityId`,
 `checklistId`, `activeChecklist`, `items`, `total` (remaining from this cursor),
 `remaining`, `nextAfter` (null at the end). Continue with the same scope and the
 returned sequence cursor. Canonical retention still applies.
@@ -754,8 +761,38 @@ returned sequence cursor. Canonical retention still applies.
 A successful claim returns `{claimed:true,checklist,page,text}`; the checklist
 contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`,
 `createdAtMs`. A competing or empty claim returns no transport permission. The
-`idle` path verifies actual live idle evidence and refuses while Digest is active;
-`turn_boundary` relies on the admitted provider adapter. No core scheduler exists.
+`idle` path verifies actual live idle evidence. While Digest is active it may claim
+only the range previously marked by `digest.checklist.dueNow`; that operation
+captures the current retained, unclaimed range atomically without changing policy
+revision/expiry. Later arrivals stay held on the idle path until another due-now
+call or policy expiry/clear. An empty call returns count/sequence 0. Duplicate calls
+with no new arrivals keep the same range; definitely-unsent membership remains
+eligible for a later independently admitted opportunity. `turn_boundary` retains
+its existing broader eligibility and relies on the admitted provider adapter.
+Due-now grants no transport permission and starts no worker. No core scheduler exists.
+
+`digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
+active identity UUID, without name or pane resolution. Core reuses its ordinary
+live-session, readiness, claim, transport and settlement checks; it is not a
+readiness grant. The operation reads the configured paste-to-Enter delay, starts
+no timer and returns no message or captured pane text. `state` is `nothing_due`
+when no unclaimed range is mechanically eligible, `not_idle` when no idle claim
+is admitted, `delivered` after successful settlement, `uncertain` after uncertain
+transport, or `unavailable` after definitely-unsent settlement. Errors remain
+ordinary API errors. A competing or uncertain sealed checklist is never replayed;
+the result is not a retry lease.
+
+Stats contain `identityId`, `heldCount` (including active claimed membership),
+`oldestHeldAgeMs` (null with no held references), `deliveredDigests`, `dueCount`,
+`nextEligibleAtMs` and `observedAtMs`. Ages use retained timestamps, never content.
+`dueCount` counts unclaimed mechanically eligible references and is 0 during an
+active claim. `nextEligibleAtMs` is observation time for a due range, policy expiry
+for held future eligibility, or null with no pending work/an active claim; it is
+neither a live-readiness guarantee nor the extension's configured send deadline.
+The delivered counter increments once on the first successful `delivered`
+settlement, never on claim, definitely-unsent or uncertain. It survives checklist
+pruning/restart; migration seeds only successful retained historical checklists,
+because already-pruned history cannot be reconstructed.
 Settlement is exact-token and idempotent; an opposite terminal outcome returns
 `DIGEST_STATE_INVALID`, a wrong scope/token `DIGEST_ATTEMPT_MISMATCH`.
 Existing request housekeeping prunes empty delivered/definitely-unsent checklist

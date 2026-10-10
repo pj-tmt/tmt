@@ -63,6 +63,12 @@ pub fn read(
     let mut projected = Vec::with_capacity(items.len());
     for item in items {
         let mut value = json!({"sequence":item.sequence,"requestId":item.request_id,"kind":item.kind.as_str(),"source":item.source.as_str(),"createdAtMs":item.created_at_ms});
+        if let (Some(tokens), Some(at)) =
+            (item.context_tokens_at_arrival, item.context_observed_at_ms)
+        {
+            value["contextTokensAtArrival"] = json!(tokens);
+            value["contextObservedAtMs"] = json!(at);
+        }
         if let Some((context, replyable)) = RequestService::new(&mut *storage, wall_time_ms)
             .digest_reply_context(&item.request_id)?
         {
@@ -215,7 +221,7 @@ pub fn idle_entry(
     Ok(Some(entry))
 }
 
-/// Called only by an existing talk/check invocation, never by a timer. A crash
+/// Called only by an admitted talk/check/API invocation; Core has no timer. A crash
 /// after claim leaves no replay permission. Refusal releases only proven unsent.
 pub fn flush_idle(
     storage: &mut Storage,
@@ -224,12 +230,7 @@ pub fn flush_idle(
 ) -> Result<Option<DigestState>, RequestError<StorageError>> {
     let views =
         RequestService::new(&mut *storage, wall_time_ms).digest_policies(&[identity.into()])?;
-    if views[0].held_count == 0
-        || views[0]
-            .policy
-            .as_ref()
-            .is_some_and(|p| p.active(views[0].observed_at_ms))
-    {
+    if views[0].held_count == 0 {
         return Ok(None);
     }
     let Some(entry) = idle_entry(storage, identity)? else {

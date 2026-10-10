@@ -12,6 +12,8 @@ mod board_scope_tests;
 #[cfg(test)]
 mod change_cursor_tests;
 #[cfg(test)]
+mod digest_tests;
+#[cfg(test)]
 mod dispatch_tests;
 mod host_names;
 #[cfg(test)]
@@ -252,6 +254,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "retain consumption cache-write and per-turn model attribution",
         "schema/050.sql"
+    ),
+    migration!(
+        "retain digest due ranges, arrival context and successful delivery counters",
+        "schema/051.sql"
     ),
 ];
 

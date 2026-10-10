@@ -1049,12 +1049,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
   }, 60_000);
 
   it.each([
-    { channel: true, nativeParent: true },
-    { channel: false, nativeParent: true },
-    { channel: true, nativeParent: false },
+    { channel: true, nativeParent: true, dueNow: false, flush: false },
+    { channel: false, nativeParent: true, dueNow: false, flush: false },
+    { channel: true, nativeParent: false, dueNow: false, flush: false },
+    { channel: true, nativeParent: true, dueNow: true, flush: false },
+    { channel: false, nativeParent: true, dueNow: true, flush: false },
+    { channel: true, nativeParent: true, dueNow: true, flush: true },
+    { channel: false, nativeParent: true, dueNow: true, flush: true },
+    { channel: true, nativeParent: false, dueNow: false, flush: true },
   ])(
-    'Digest channel=$channel nativeParent=$nativeParent fences checklist delivery at a verified idle check',
-    async ({ channel, nativeParent }) => {
+    'Digest channel=$channel nativeParent=$nativeParent dueNow=$dueNow flush=$flush fences checklist delivery at a verified idle check',
+    async ({ channel, nativeParent, dueNow, flush }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'FocusedClaude';
         const sessionId = randomUUID();
@@ -1152,12 +1157,32 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           }
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
-          expect(api('digest.policy.clear', { ...write, expectedRevision: 1 })).toMatchObject({
-            active: false,
-            heldCount: 2,
-          });
+          let laterRequest: string | undefined;
+          if (dueNow) {
+            expect(api('digest.checklist.dueNow', { identityId: id })).toMatchObject({
+              heldCount: 2,
+            });
+            const later = await talk(fixture, name, 'Held after the due-now call');
+            expect(later.json).toMatchObject({ digest: true, status: 'queued' });
+            laterRequest = String(later.json!.requestId);
+            expect(api('digest.policy.show', { identities: [id] }).policies[0]).toMatchObject({
+              active: true,
+              revision: 1,
+              heldCount: 3,
+            });
+          } else {
+            expect(api('digest.policy.clear', { ...write, expectedRevision: 1 })).toMatchObject({
+              active: false,
+              heldCount: 2,
+            });
+          }
           const plain = await fixture.runJsonCli(['check', name]);
           expect(plain.code).toBe(0);
+          if (flush)
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: 'not_idle',
+            });
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
           expect(
@@ -1185,8 +1210,15 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
                 .get()
             )
-          ).toEqual({ count: 2 });
-          expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          ).toEqual({ count: dueNow ? 3 : 2 });
+          if (flush) {
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: !nativeParent ? 'unavailable' : channel ? 'uncertain' : 'delivered',
+            });
+          } else {
+            expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          }
           if (!nativeParent) {
             // A delegated mock MCP parent differs from the native provider
             // reported by its hooks. The ordinary driver must refuse this
@@ -1221,12 +1253,31 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect(input.match(/TMT Digest checklist/g)).toHaveLength(1);
           for (const request of requests)
             expect(input).toContain(`tmt reply ${request} --receipt `);
+          if (laterRequest) expect(input).not.toContain(laterRequest);
           expect(input).toContain('Remaining in this checklist: 0');
           expect(
             sql(fixture, (db) => db.prepare('SELECT state FROM focus_checklists').all())
           ).toEqual([{ state: channel ? 'uncertain' : 'delivered' }]);
+          expect(
+            sql(fixture, (db) =>
+              db
+                .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
+                .get()
+            )
+          ).toEqual({ count: dueNow ? 1 : 0 });
+          expect(api('digest.stats.show', { identities: [id] }).stats[0]).toMatchObject({
+            deliveredDigests: channel ? 0 : 1,
+            dueCount: 0,
+          });
           const consumed = events(worker).length;
-          expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          if (flush) {
+            expect(api('digest.checklist.flush', { identityId: id })).toEqual({
+              identityId: id,
+              state: 'nothing_due',
+            });
+          } else {
+            expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          }
           expect(events(worker)).toHaveLength(consumed);
           expect(
             sql(fixture, (db) => db.prepare('SELECT COUNT(*) AS count FROM focus_checklists').get())
@@ -1240,7 +1291,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
                 .all(id)
             )
           ).toEqual(
-            requests.map(() => ({
+            [...requests, ...(laterRequest ? [laterRequest] : [])].map(() => ({
               recipient_attention_acknowledged_revision: 0,
               response_submitted_at_ms: null,
             }))

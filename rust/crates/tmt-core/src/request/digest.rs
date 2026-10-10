@@ -82,6 +82,31 @@ pub struct DigestPolicyView {
     pub observed_at_ms: u64,
 }
 
+/// Durable eligibility watermark and successful-checklist counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DigestCounters {
+    pub due_through_sequence: u64,
+    pub delivered_digests: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestStats {
+    pub identity_id: String,
+    pub held_count: u64,
+    pub oldest_held_age_ms: Option<u64>,
+    pub delivered_digests: u64,
+    pub due_count: u64,
+    /// Core eligibility only; an extension owns the configured delivery deadline.
+    pub next_eligible_at_ms: Option<u64>,
+    pub observed_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DigestDue {
+    pub held_count: u64,
+    pub through_sequence: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DigestItem {
     pub sequence: u64,
@@ -91,6 +116,9 @@ pub struct DigestItem {
     pub source: DigestSource,
     pub created_at_ms: u64,
     pub checklist_id: Option<String>,
+    /// Latest verified driver observation available when this reference first held.
+    pub context_tokens_at_arrival: Option<u64>,
+    pub context_observed_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

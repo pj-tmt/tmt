@@ -8,6 +8,7 @@ use crate::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::time::Duration;
 use tmt_core::{
     limits::MAX_JS_SAFE_INTEGER,
     request::{
@@ -19,6 +20,9 @@ use tmt_core::{
 pub enum Operation {
     Write(DigestPolicyWrite),
     Show(Vec<String>),
+    Stats(Vec<String>),
+    Due(String),
+    Flush(String),
     Read {
         identity: String,
         checklist: Option<String>,
@@ -51,6 +55,11 @@ struct Write {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Show {
     identities: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Due {
+    identity_id: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -116,7 +125,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 until_ms: until,
             })
         }
-        "digest.policy.show" => {
+        "digest.policy.show" | "digest.stats.show" => {
             let v: Show = serde_json::from_slice(input).map_err(|_| invalid())?;
             if v.identities.is_empty() || v.identities.len() > 256 {
                 return Err(invalid());
@@ -124,7 +133,20 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
             for id in &v.identities {
                 uuid(id)?;
             }
-            Operation::Show(v.identities)
+            if operation == "digest.stats.show" {
+                Operation::Stats(v.identities)
+            } else {
+                Operation::Show(v.identities)
+            }
+        }
+        "digest.checklist.dueNow" | "digest.checklist.flush" => {
+            let v: Due = serde_json::from_slice(input).map_err(|_| invalid())?;
+            uuid(&v.identity_id)?;
+            if operation.ends_with(".flush") {
+                Operation::Flush(v.identity_id)
+            } else {
+                Operation::Due(v.identity_id)
+            }
         }
         "digest.checklist.read" => {
             let v: Read = serde_json::from_slice(input).map_err(|_| invalid())?;
@@ -178,7 +200,11 @@ fn view(value: &DigestPolicyView) -> Value {
     let policy = value.policy.as_ref();
     json!({"identityId":policy.map(|p|p.identity_id.as_str()),"revision":policy.map_or(0,|p|p.revision),"active":policy.is_some_and(|p|p.active(value.observed_at_ms)),"digestUntilMs":policy.map_or(0,|p|p.until_ms),"remainingMs":policy.map_or(0,|p|p.remaining_ms(value.observed_at_ms)),"heldCount":value.held_count,"activeChecklist":value.active_checklist.as_ref().map(digest::checklist_value),"ownerIdentityId":policy.map(|p|p.owner_identity_id.as_str()),"setterIdentityId":policy.map(|p|p.setter_identity_id.as_str())})
 }
-pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec<u8>, Fault> {
+pub(super) fn execute(
+    storage: &mut Storage,
+    operation: Operation,
+    delay: Duration,
+) -> Result<Vec<u8>, Fault> {
     let document = match operation {
         Operation::Write(input) => view(
             &RequestService::new(&mut *storage, wall_time_ms)
@@ -190,6 +216,34 @@ pub(super) fn execute(storage: &mut Storage, operation: Operation) -> Result<Vec
                 .digest_policies(&ids)
                 .map_err(error)?;
             json!({"policies":views.iter().zip(ids).map(|(v,id)|{let mut v=view(v);v["identityId"]=json!(id);v}).collect::<Vec<_>>()})
+        }
+        Operation::Due(identity) => {
+            let due = RequestService::new(storage, wall_time_ms)
+                .make_digest_due(&identity)
+                .map_err(error)?;
+            json!({"identityId":identity,"heldCount":due.held_count,"throughSequence":due.through_sequence})
+        }
+        Operation::Flush(identity) => {
+            let stats = RequestService::new(&mut *storage, wall_time_ms)
+                .digest_stats(std::slice::from_ref(&identity))
+                .map_err(error)?;
+            let state = if stats[0].due_count == 0 {
+                "nothing_due"
+            } else {
+                match digest::flush_idle(storage, &identity, delay).map_err(error)? {
+                    None => "not_idle",
+                    Some(DigestState::Delivered) => "delivered",
+                    Some(DigestState::Uncertain | DigestState::Claimed) => "uncertain",
+                    Some(DigestState::Unsent) => "unavailable",
+                }
+            };
+            json!({"identityId":identity,"state":state})
+        }
+        Operation::Stats(ids) => {
+            let stats = RequestService::new(storage, wall_time_ms)
+                .digest_stats(&ids)
+                .map_err(error)?;
+            json!({"stats":stats.iter().map(|s| json!({"identityId":s.identity_id,"heldCount":s.held_count,"oldestHeldAgeMs":s.oldest_held_age_ms,"deliveredDigests":s.delivered_digests,"dueCount":s.due_count,"nextEligibleAtMs":s.next_eligible_at_ms,"observedAtMs":s.observed_at_ms})).collect::<Vec<_>>()})
         }
         Operation::Read {
             identity,
@@ -261,3 +315,6 @@ fn error(error: RequestError<StorageError>) -> Fault {
         _ => Fault::unavailable(),
     }
 }
+
+#[cfg(test)]
+mod tests;
