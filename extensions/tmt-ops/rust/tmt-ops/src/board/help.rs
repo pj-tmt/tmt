@@ -333,7 +333,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ),
                 (
                     "~N%/h",
-                    "average weekly use over the last 6 hours, after an hour of samples; ! empties warns before reset, ✗ empties at or within 12 hours; no positive measured rate means no forecast",
+                    "average weekly use over the last 6 hours, after an hour of samples. ! empties: at this pace the week runs out before it resets. ✗ empties: it runs out within 12 hours. No forecast until there is measured use.",
                 ),
                 (
                     "no reading",
