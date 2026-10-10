@@ -415,7 +415,7 @@ function render() {
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
 	element("read-only").hidden = editable;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Check the original result above before making another change." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "";
+	const reason = page.busy ? "A request is in progress. Wait for its outcome." : !editable ? "Changes are unavailable in this browser. Use the local CLI." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "";
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {

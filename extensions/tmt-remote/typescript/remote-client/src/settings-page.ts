@@ -154,7 +154,7 @@ function render(): void {
     : !editable
       ? 'Changes are unavailable in this browser. Use the local CLI.'
       : page.outcome?.state === 'unknown'
-        ? 'Check the original result above before making another change.'
+        ? 'Another change is still unconfirmed. Check its original result first.'
         : page.outcome?.state === 'refused' && page.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
           ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
           : '';

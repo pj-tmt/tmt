@@ -621,6 +621,11 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert!(
         script
             .body
+            .contains("Another change is still unconfirmed. Check its original result first.")
+    );
+    assert!(
+        !script
+            .body
             .contains("Check the original result above before making another change.")
     );
     assert!(script.body.contains(

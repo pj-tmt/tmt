@@ -2900,7 +2900,7 @@ for (const [width, theme] of [
     await expect(row.locator(`#device-reason-${targetId}`)).toBeHidden();
     for (const otherId of [clientId, '00000000-0000-4000-8000-000000000002'])
       await expect(page.locator(`#device-reason-${otherId}`)).toHaveText(
-        'Check the original result above before making another change.',
+        'Another change is still unconfirmed. Check its original result first.',
       );
     await expect(
       row.getByRole('button', { name: 'Check original result', exact: true }),
