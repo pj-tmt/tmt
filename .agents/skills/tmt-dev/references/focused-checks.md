@@ -74,6 +74,8 @@ must suppress foreground collection too.
 
 ## Targets, hosts and setup
 
+Ad-hoc isolated runs must use `env -u TMUX -u TMUX_PANE` and a private tmux `-L` socket before any `tmt add`/`name`; a throwaway `TMT_HOME` alone does not isolate the server.
+
 - Explicit tmux target errors: `cargo test --locked -p tmt-adapters tmux::io_tests` and
   `cargo test --locked -p tmt-cli --test target_resolution` (slow stand-in under an
   isolated HOME; no real tmux server).

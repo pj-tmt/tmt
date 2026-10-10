@@ -349,31 +349,34 @@ describe(
       await withE2EFixture(async (local) => {
         let deadSocket = '';
         let deadPid = 0;
-        await withE2EFixture(async (foreign) => {
-          const expected = expectJsonResult(await foreign.runJsonCli<Snapshot>(['snapshot']));
-          const probe = expectJsonResult(
-            await local.runJsonCli<Counted & { status: string; snapshot: Snapshot }>([
-              'probe',
-              foreign.socketPath,
-              String(foreign.serverPid),
-            ])
-          );
-          expect(probe.status).toBe('live');
-          expect(probe.commandCount).toBe(1);
-          expect(probe.snapshot).toEqual({ server: expected.server, panes: expected.panes });
-          expect(probe.snapshot.server.socketPath).not.toBe(local.socketPath);
-          const unknown = expectJsonResult(
-            await local.runJsonCli<Counted & { status: string }>([
-              'probe',
-              `${foreign.socketPath}.missing`,
-              String(foreign.serverPid),
-            ])
-          );
-          expect(unknown).toEqual({ status: 'unknown', commandCount: 1 });
-          expect(foreign.paneMetadata()).toBe('');
-          deadSocket = foreign.socketPath;
-          deadPid = foreign.serverPid;
-        }, fixtureOptions());
+        await withE2EFixture(
+          async (foreign) => {
+            const expected = expectJsonResult(await foreign.runJsonCli<Snapshot>(['snapshot']));
+            const probe = expectJsonResult(
+              await local.runJsonCli<Counted & { status: string; snapshot: Snapshot }>([
+                'probe',
+                foreign.socketPath,
+                String(foreign.serverPid),
+              ])
+            );
+            expect(probe.status).toBe('live');
+            expect(probe.commandCount).toBe(1);
+            expect(probe.snapshot).toEqual({ server: expected.server, panes: expected.panes });
+            expect(probe.snapshot.server.socketPath).not.toBe(local.socketPath);
+            const unknown = expectJsonResult(
+              await local.runJsonCli<Counted & { status: string }>([
+                'probe',
+                `${foreign.socketPath}.missing`,
+                String(foreign.serverPid),
+              ])
+            );
+            expect(unknown).toEqual({ status: 'unknown', commandCount: 1 });
+            expect(foreign.paneMetadata()).toBe('');
+            deadSocket = foreign.socketPath;
+            deadPid = foreign.serverPid;
+          },
+          { ...fixtureOptions(), globalDir: local.globalDir }
+        );
         const dead = expectJsonResult(
           await local.runJsonCli<Counted & { status: string }>([
             'probe',
