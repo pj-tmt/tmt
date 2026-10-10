@@ -43,6 +43,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
+import { ConnectionOwner, reconnectAttempt } from './connection-owner.js';
 import { PageReopener, readmittable, ReadmitBudget, retryableReopen } from './readmit.js';
 import { FAILURE_CAUSES, terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
@@ -671,6 +672,7 @@ function Page() {
   // A route reload brings its own binding: a reopened one and an attempt in flight end with it.
   const reopener = useRef(new PageReopener<typeof loaded>());
   useEffect(() => () => reopener.current.reset(), [loaded]);
+  const liveErrorRef = useRef<Error | null>(null);
   const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
     null,
   );
@@ -712,6 +714,7 @@ function Page() {
       asks: snapshot.asks,
       threads: snapshot.threads,
     });
+    liveErrorRef.current = null;
     setLiveError(null);
     setEviction(null);
     setEditError(null);
@@ -739,6 +742,7 @@ function Page() {
                 return;
               }
               void buildWatch.check();
+              liveErrorRef.current = result.error;
               setLiveError(result.error);
               setEviction(result.error instanceof SessionEvictedError ? result.error : null);
             },
@@ -747,6 +751,7 @@ function Page() {
         }
         if (reopener.current.busy) return;
         void buildWatch.check();
+        liveErrorRef.current = error;
         setLiveError(error);
         setEviction(error instanceof SessionEvictedError ? error : null);
       },
@@ -782,6 +787,7 @@ function Page() {
     setReconnectFailed(false);
     try {
       if (await snapshot.binding?.reconnect?.()) {
+        if (liveErrorRef.current === interrupted) liveErrorRef.current = null;
         setLiveError((error) => (error === interrupted ? null : error));
       } else setReconnectFailed(true);
     } catch {
@@ -792,6 +798,25 @@ function Page() {
       setReconnecting(false);
     }
   }
+  // The connection owner reconnects an interrupted page on its own (#2572), silently: the card and
+  // its Reconnect button are unchanged, and the button is the same attempt on demand.
+  useEffect(() => {
+    const binding = snapshot.binding;
+    if (!recoveryRequired || !binding?.reconnect) return;
+    const owner = new ConnectionOwner({
+      attempt: reconnectAttempt({
+        reconnect: async () => (await binding.reconnect?.()) ?? false,
+        failure: () => liveErrorRef.current,
+        recovered: (interrupted) => {
+          liveErrorRef.current = null;
+          setLiveError((error) => (error === interrupted ? null : error));
+        },
+        recoverable: (failure) => failure instanceof RecoveryRequiredError,
+      }),
+    });
+    void owner.reconnect();
+    return () => owner.stop();
+  }, [recoveryRequired, snapshot.binding]);
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);

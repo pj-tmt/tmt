@@ -147,8 +147,13 @@ Verified session end starts one existing mounted-owner replacement; verified evi
 blocks. A pending failed attempt also blocks on a successful read without session end
 or an unverified read failure. An opaque socket disconnect, or a native fetch
 `TypeError` during mounted-owner Session replacement, stops the binding with
-`RecoveryRequiredError` (original cause retained) and offers explicit Reconnect.
-Other replacement, admission and eviction failures remain terminal.
+`RecoveryRequiredError` (original cause retained). The page then reconnects by itself: one
+`ConnectionOwner` (`connection-owner.ts`) per page retries the explicit-Reconnect path
+(`binding.reconnect()`) after 1, 2, 4 and 8 s, then every 15 s with 20% jitter, paused while the
+tab is hidden, and stops on success, on a failure that is not `RecoveryRequiredError`, or on
+unmount. The "Connection lost" card and its Reconnect button stay for the click path and show
+no extra state during the silent attempts. Other replacement, admission and eviction failures
+remain terminal.
 A terminal failure card shows a sentence, never the raw token (`terminal-failure.ts`). Each
 token the live path can end a page with (sync frame codes, Remote refusal codes, a few short
 messages) maps to one of five `strings.ts` sentences (access ended, page gone, session ended,
@@ -160,8 +165,8 @@ Ready-page transport failures retain bounded same-session catchup. Superseded ca
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never re-sends an Ask or generates a new mutation. Pending own-stream envelopes
 may be re-delivered through the Writer's existing staging path; exact accepted
-envelopes deduplicate as `Replay`. If automatic recovery fails, explicit Reconnect
-first reuses the admitted mounted-owner replacement on the same Live binding. The
+envelopes deduplicate as `Replay`. If automatic recovery fails, the page's own bounded
+reconnect loop and then explicit Reconnect first reuse the admitted mounted-owner replacement on the same Live binding. The
 stopped write fence remains until the fresh Connection and projection are verified;
 then a new Writer uses the identical stream key and the new Ask facade resumes
 read-only observation. Recovery keeps the admitted Ask view and mounted composer
