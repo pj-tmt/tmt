@@ -157,7 +157,11 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
     assert_eq!(planned.public_url, "https://demo-remote-1.web.app");
     let mut inventory = HostingInventory {
         site_exists: true,
-        web_apps: vec!["1:123:web:abc".into()],
+        web_apps: vec![hosting::HostingWebApp {
+            id: "1:123:web:abc".into(),
+            display_name: format!("tmt Remote ({ID})"),
+            state: "ACTIVE".into(),
+        }],
         live: None,
     };
     assert_eq!(
@@ -167,7 +171,11 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
             .as_deref(),
         Some("1:123:web:abc")
     );
-    inventory.web_apps.push("1:123:web:def".into());
+    inventory.web_apps.push(hosting::HostingWebApp {
+        id: "1:123:web:def".into(),
+        display_name: format!("tmt Remote ({ID})"),
+        state: "ACTIVE".into(),
+    });
     assert!(matches!(
         hosting::deployment_view(&content, "demo-remote-1", ID, &inventory),
         Err(HostingRefusal::WebAppSelection)
@@ -177,8 +185,8 @@ fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() 
         version: "version-1".into(),
         deployment_id: Some(ID.into()),
         plan_digest_prefix: Some("a".repeat(12)),
-        content_digest: Some(content.digest().into()),
-        files: content.files().to_vec(),
+        content_digest: Some(content.live_digest()),
+        files: content.live_files(),
         config: content.config().clone(),
     });
     assert_eq!(
@@ -246,7 +254,7 @@ fn full_file_and_byte_caps_sorted_paths_and_nonadjacent_nested_collisions_are_ch
 #[test]
 fn matching_labels_do_not_adopt_an_edited_release_and_foreign_order_is_canonical() {
     let content = hosting::compose(&[bundle()]).unwrap().unwrap();
-    let mut files = content.files().to_vec();
+    let mut files = content.live_files();
     let mut extra = files[0].clone();
     extra.path = "/extra.html".into();
     files.push(extra);
@@ -257,7 +265,7 @@ fn matching_labels_do_not_adopt_an_edited_release_and_foreign_order_is_canonical
             version: "version-1".into(),
             deployment_id: Some(ID.into()),
             plan_digest_prefix: Some("a".repeat(12)),
-            content_digest: Some(content.digest().into()),
+            content_digest: Some(content.live_digest()),
             files,
             config: content.config().clone(),
         }),
@@ -425,4 +433,52 @@ fn only_named_text_types_receive_utf8_and_every_file_has_the_fixed_referrer_poli
         assert!(rule["headers"].get("Content-Security-Policy").is_none());
         assert_eq!(composed.files()[i + 1].content_type, *ty);
     }
+}
+
+#[test]
+fn foreign_apps_are_never_reused_and_recorded_identity_must_remain_active() {
+    let content = hosting::compose(&[bundle()]).unwrap().unwrap();
+    let mut inventory = HostingInventory {
+        site_exists: true,
+        web_apps: vec![hosting::HostingWebApp {
+            id: "foreign".into(),
+            display_name: "Another app".into(),
+            state: "ACTIVE".into(),
+        }],
+        live: None,
+    };
+    assert!(
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
+            .unwrap()
+            .create_web_app
+    );
+    inventory.web_apps.push(hosting::HostingWebApp {
+        id: "mine".into(),
+        display_name: format!("tmt Remote ({ID})"),
+        state: "ACTIVE".into(),
+    });
+    assert_eq!(
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
+            .unwrap()
+            .web_app
+            .as_deref(),
+        Some("mine")
+    );
+    assert_eq!(
+        hosting::deployment_view_for_app(
+            &content,
+            "demo-remote-1",
+            ID,
+            &inventory,
+            Some("missing")
+        )
+        .unwrap_err(),
+        HostingRefusal::WebAppSelection
+    );
+    inventory.web_apps[1].state = "DELETED".into();
+    assert_eq!(
+        hosting::deployment_view_for_app(&content, "demo-remote-1", ID, &inventory, Some("mine"))
+            .unwrap_err(),
+        HostingRefusal::WebAppSelection
+    );
 }

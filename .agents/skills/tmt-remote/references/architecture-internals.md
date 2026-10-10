@@ -154,9 +154,15 @@ validation and before provider setup, with a separate bounded stream and waited 
 `hosting` validates the complete raw inventory, composes deterministic gzip/ServingConfig and
 names captured site/web-app creation and foreign replacement in the same frozen envelope.
 The contract owns its schema, bounds, route allow-list and non-atomic publication order.
-This slice supplies composition only: the real port has no Hosting inventory/publication yet,
-and every authorized Hosting plan refuses before target binding, record save or provider effects.
-A fixture inventory can produce a read-only plan; it is not installed or provider acceptance.
+The real port inventories Hosting and executes the frozen steps through the same deploy runner.
+Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
+substeps save resource handles and the frozen envelope in the versioned checkpoint; v1/v2 records
+remain readable without conversion. Unknown creates are reconciled by bounded identity lookup,
+never retried on uncertain absence. App/stage Building blocks later effects. Expired unfinalized
+stages require a fresh explicit plan. Joint read-back alone saves a verified public configuration
+and same-project web.app entry with Complete; the remote-link producer consumes that type later.
+Site.appId is never read/set. The contract owns app selection, partial availability and the
+single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
 For offline declaration-vector regeneration, run from `rust/`:
 
@@ -185,7 +191,7 @@ running `status --layers` now reads recorded deployment evidence without a provi
 empty, damaged state is unknown and never repaired. The pure `readiness::from_record`
 projection recognizes finished database/sign-in steps and usable verified bindings. A failed
 run before Rules preserves its old binding; an incomplete Rules attempt reports partial
-Rules and withdraws it. This describes recorded outcomes, not live provider currentness.
+Rules and withdraws it; an incomplete possible Hosting release does the same. This describes recorded outcomes, not live provider currentness.
 
 Plan tier and quota remain unknown because the machine cannot observe either, and layer-1
 traffic goes browser to Firestore. Sharing therefore stays unknown after a complete recorded
@@ -206,7 +212,7 @@ long deployment cannot block status. Malformed, oversized or unsafe state is ref
 reset. Save failure stops effects; a directory-sync failure after rename does not mean the
 visible publication rolled back. Staging cleanup only removes admitted deployment staging
 names under the writer lock. Existing status/stop, settings, store and machine-key owners
-keep the deployment identity and binding. Version 2 also persists the immutable project/region
+keep the deployment identity and binding. Bound records persist the immutable project/region
 with the first authorized run; plan-only drafts stay unbound v1 records. The writer checks it
 before provider creation, login or inventory. Every v1 record is unbound regardless of its old
 binding: reads never convert or infer a target, and the next authorized plan binds it. A conflicting

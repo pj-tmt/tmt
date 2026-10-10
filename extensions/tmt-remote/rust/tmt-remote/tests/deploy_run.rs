@@ -1047,3 +1047,338 @@ fn emulator_artifact_is_the_exact_verified_deployment_output() {
     );
     assert_eq!(evidence.quota, Observed::Unknown);
 }
+
+// Executable Hosting order uses the existing fake provider and original record owner.
+fn hosted_plan() -> DeployPlan {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use serde_json::json;
+    use tmt_remote::hosting::{self, HostingBundle, HostingInventory, HostingManifest};
+    let mut declaration: serde_json::Value =
+        serde_json::from_slice(&read("declarations", "colab-firestore.json")).unwrap();
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":sha256(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+    declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
+    let bytes = serde_json::to_vec(&declaration).unwrap();
+    let artifact = read("declarations", "rules/colab-admission.rules");
+    let extensions = compose(
+        Target {
+            backend: CloudBackend::Firestore,
+            physical_ttl: false,
+        },
+        &[Enabled {
+            name: "colab",
+            supplied: Some(Supplied {
+                declaration: &bytes,
+                artifact: &artifact,
+            }),
+        }],
+    )
+    .unwrap();
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
+    let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap();
+    let content = hosting::compose(&[bundle]).unwrap().unwrap();
+    let hosting = hosting::deployment_view(
+        &content,
+        PROJECT,
+        DEPLOYMENT,
+        &HostingInventory {
+            site_exists: false,
+            web_apps: vec![],
+            live: None,
+        },
+    )
+    .unwrap();
+    let inputs = Inputs::new();
+    tmt_remote::deploy_run::prepare_with_hosting(
+        &extensions,
+        &DeployInput {
+            account: ACCOUNT,
+            project: PROJECT,
+            deployment_id: DEPLOYMENT,
+            location: LOCATION,
+            sign_in: &BOTH,
+            rules_body: &inputs.body,
+            live_rules: None,
+        },
+        Some(&hosting),
+    )
+    .unwrap()
+}
+struct HostedFake {
+    inner: Fake,
+    checkpoint: Option<tmt_remote::deploy_run::HostingCheckpoint>,
+    publish: bool,
+}
+impl HostedFake {
+    fn new() -> Self {
+        Self {
+            inner: Fake::new(ACCOUNT),
+            checkpoint: None,
+            publish: true,
+        }
+    }
+}
+impl tmt_remote::deploy_run::DeployPort for HostedFake {
+    fn supports_hosting(&self) -> bool {
+        true
+    }
+    fn account(&mut self) -> Result<String, DeployProviderError> {
+        Ok(ACCOUNT.into())
+    }
+    fn restore_hosting(
+        &mut self,
+        c: &tmt_remote::deploy_run::HostingCheckpoint,
+        _: &[tmt_remote::deploy_run::StepRecord],
+    ) {
+        self.checkpoint = Some(c.clone());
+    }
+    fn hosting_checkpoint(&self) -> Option<tmt_remote::deploy_run::HostingCheckpoint> {
+        self.checkpoint.clone()
+    }
+    fn observe(
+        &mut self,
+        p: &DeployPlan,
+        s: &tmt_remote::deploy_run::DeployStep,
+    ) -> Result<tmt_remote::deploy_run::DeployObserved, DeployProviderError> {
+        use tmt_remote::deploy_run::{DeployObserved, StepKind};
+        let result = tmt_remote::deploy_run::DeployPort::observe(&mut self.inner, p, s)?;
+        if s.kind == StepKind::Verify && result == DeployObserved::Satisfied && self.publish {
+            // Fixed provider-verification fixture, not a production publication source.
+            let cp = self.checkpoint.as_mut().unwrap();
+            cp.app_id = Some("mine".into());
+            cp.version = Some(format!("sites/{PROJECT}/versions/one"));
+            cp.publication=Some(serde_json::from_value(serde_json::json!({"project":PROJECT,"region":LOCATION,"deploymentId":DEPLOYMENT,"planDigest":p.digest(),"appId":"mine","publicConfig":{"apiKey":"public-key","authDomain":format!("{PROJECT}.firebaseapp.com"),"projectId":PROJECT,"appId":"mine"},"entryUrl":format!("https://{PROJECT}.web.app"),"version":cp.version,"release":format!("sites/{PROJECT}/releases/one"),"rulesDigest":p.view().rules.digest,"contentDigest":p.view().hosting.as_ref().unwrap().content["digest"]})).unwrap());
+        }
+        Ok(result)
+    }
+    fn apply(
+        &mut self,
+        p: &DeployPlan,
+        s: &tmt_remote::deploy_run::DeployStep,
+    ) -> Result<tmt_remote::deploy_run::DeployApplied, DeployProviderError> {
+        tmt_remote::deploy_run::DeployPort::apply(&mut self.inner, p, s)
+    }
+}
+#[test]
+fn hosted_order_is_executable_and_only_joint_verification_publishes() {
+    let plan = hosted_plan();
+    let ids = ids(&plan);
+    assert_eq!(ids, plan.view().steps);
+    assert_eq!(&ids[..2], &["web-app:create", "hosting-site:create"]);
+    let at = |id: &str| ids.iter().position(|s| s == id).unwrap();
+    assert!(at("hosting:stage:create") < at("hosting:stage:populate"));
+    assert!(at("hosting:stage:finalize") < at("rules"));
+    assert!(at("rules") < at("hosting:release") && at("hosting:release") < at("verify"));
+    for publish in [false, true] {
+        let mut fake = HostedFake::new();
+        fake.publish = publish;
+        let mut sink = Mem::default();
+        let record = run(
+            &plan,
+            &authorized(&plan),
+            DeployRecord::new(DEPLOYMENT),
+            &mut fake,
+            &mut sink,
+            1000,
+        )
+        .unwrap();
+        assert_eq!(
+            record.run.as_ref().unwrap().state,
+            if publish {
+                RunState::Complete
+            } else {
+                RunState::Partial
+            }
+        );
+        assert_eq!(record.usable_binding().is_some(), publish);
+        assert_eq!(record.verified_publication().is_some(), publish);
+        assert_eq!(
+            record
+                .run
+                .as_ref()
+                .unwrap()
+                .hosting
+                .as_ref()
+                .unwrap()
+                .publication
+                .is_some(),
+            publish
+        );
+    }
+}
+#[test]
+fn every_hosted_effect_loss_stops_dependents_and_recovery_observes_original_without_resending() {
+    let plan = hosted_plan();
+    for step in plan
+        .steps()
+        .iter()
+        .filter(|s| matches!(s.kind, tmt_remote::deploy_run::StepKind::Hosting(_)))
+    {
+        let mut fake = HostedFake::new();
+        fake.inner
+            .faults
+            .insert(step.id.clone(), When::AfterEffectUnknown);
+        let mut sink = Mem::default();
+        let partial = run(
+            &plan,
+            &authorized(&plan),
+            DeployRecord::new(DEPLOYMENT),
+            &mut fake,
+            &mut sink,
+            1000,
+        )
+        .unwrap();
+        assert_eq!(partial.run.as_ref().unwrap().state, RunState::Partial);
+        let last = fake.inner.calls.last().unwrap();
+        assert_eq!(last, &format!("apply:{}", step.id));
+        assert_eq!(fake.inner.effects_of(&step.id), 1);
+        let complete = run(
+            &plan,
+            &authorized(&plan),
+            partial,
+            &mut fake,
+            &mut sink,
+            2000,
+        )
+        .unwrap();
+        assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+        assert_eq!(
+            fake.inner.effects_of(&step.id),
+            1,
+            "{} was sent twice",
+            step.id
+        );
+    }
+}
+#[test]
+fn unknown_create_without_a_provider_resource_cannot_be_sent_a_second_time() {
+    let plan = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner
+        .faults
+        .insert("web-app:create".into(), When::AfterEffectUnknown);
+    let mut sink = Mem::default();
+    let partial = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1000,
+    )
+    .unwrap();
+    fake.inner.present.remove("web-app:create");
+    fake.inner.calls.clear();
+    let partial = run(
+        &plan,
+        &authorized(&plan),
+        partial,
+        &mut fake,
+        &mut sink,
+        2000,
+    )
+    .unwrap();
+    assert_eq!(partial.run.as_ref().unwrap().state, RunState::Partial);
+    assert_eq!(fake.inner.calls, vec!["observe:web-app:create"]);
+    assert_eq!(fake.inner.effects_of("web-app:create"), 1);
+}
+#[test]
+fn frozen_hosted_envelope_survives_own_inventory_changes_but_not_intent_changes() {
+    let plan = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner
+        .faults
+        .insert("hosting:release".into(), When::AfterEffectUnknown);
+    let mut sink = Mem::default();
+    let record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    let restored = tmt_remote::deploy_run::retain_hosting_plan(hosted_plan(), &record).unwrap();
+    assert_eq!(restored.bytes(), plan.bytes());
+    assert_eq!(restored.view().steps, plan.view().steps);
+    let mut changed = record.clone();
+    changed
+        .run
+        .as_mut()
+        .unwrap()
+        .hosting
+        .as_mut()
+        .unwrap()
+        .envelope["account"] = serde_json::json!("another@example.test");
+    assert!(tmt_remote::deploy_run::retain_hosting_plan(hosted_plan(), &changed).is_err());
+}
+
+#[test]
+fn hosting_checkpoint_survives_every_save_interruption_without_duplicate_effects() {
+    let plan = hosted_plan();
+    let mut baseline = Mem::default();
+    run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut HostedFake::new(),
+        &mut baseline,
+        1000,
+    )
+    .unwrap();
+    for boundary in 0..baseline.saved.len() {
+        let mut fake = HostedFake::new();
+        let mut sink = Mem {
+            saved: Vec::new(),
+            fail_from: Some(boundary),
+        };
+        assert_eq!(
+            run(
+                &plan,
+                &authorized(&plan),
+                DeployRecord::new(DEPLOYMENT),
+                &mut fake,
+                &mut sink,
+                1000
+            ),
+            Err(DeployError::Interrupted)
+        );
+        let durable = sink
+            .saved
+            .last()
+            .cloned()
+            .unwrap_or_else(|| DeployRecord::new(DEPLOYMENT));
+        assert!(
+            durable.verified_publication().is_none(),
+            "boundary {boundary}"
+        );
+        sink.fail_from = None;
+        let complete = run(
+            &plan,
+            &authorized(&plan),
+            durable,
+            &mut fake,
+            &mut sink,
+            2000,
+        )
+        .unwrap();
+        assert_eq!(
+            complete.run.as_ref().unwrap().state,
+            RunState::Complete,
+            "boundary {boundary}"
+        );
+        assert!(complete.verified_publication().is_some());
+        for step in plan
+            .steps()
+            .iter()
+            .filter(|s| matches!(s.kind, tmt_remote::deploy_run::StepKind::Hosting(_)))
+        {
+            assert_eq!(
+                fake.inner.effects_of(&step.id),
+                1,
+                "boundary {boundary}: {}",
+                step.id
+            );
+        }
+    }
+}

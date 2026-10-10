@@ -152,3 +152,7 @@ pub const HOSTING_BUNDLE_CALL: Duration = Duration::from_secs(30);
 pub const HOSTING_WEB_APPS: usize = 256;
 pub const HOSTING_CONFIG_BYTES: usize = 64 * 1024;
 pub const HOSTING_CSP_BYTES: usize = 2048;
+
+/// Base64 of the maximum gzip file plus bounded frozen plan/checkpoint metadata.
+pub const HOSTING_UPLOAD_REQUEST_BYTES: usize =
+    (HOSTING_FILE_BYTES + 65536).div_ceil(3) * 4 + 256 * 1024;

@@ -84,6 +84,36 @@ fn valid(record: &DeployRecord) -> bool {
         {
             return false;
         }
+        if let Some(hosting) = &run.hosting {
+            let Ok(view) =
+                serde_json::from_value::<deploy_run::DeployView>(hosting.envelope.clone())
+            else {
+                return false;
+            };
+            if serde_json::to_value(&view).expect("view serializes") != hosting.envelope
+                || crate::deploy_plan::sha256_hex(
+                    &serde_json::to_vec(&view).expect("view serializes"),
+                ) != run.plan_digest
+                || view.deployment_id != record.deployment_id
+                || view.account != run.account
+                || view.hosting.is_none()
+                || view.steps != run.steps.iter().map(|s| s.id.clone()).collect::<Vec<_>>()
+                || hosting
+                    .publication
+                    .as_ref()
+                    .is_some_and(|p| !p.valid_for(&view, hosting, &run.plan_digest))
+                || [&hosting.app_id, &hosting.operation, &hosting.version]
+                    .iter()
+                    .any(|s| {
+                        s.as_ref().is_some_and(|s| {
+                            s.is_empty() || s.len() > 256 || s.chars().any(char::is_control)
+                        })
+                    })
+                || (run.state == RunState::Complete && hosting.publication.is_none())
+            {
+                return false;
+            }
+        }
         if run.state == RunState::Complete
             && (!run
                 .steps
@@ -125,11 +155,17 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
     // schema here so unknown fields or missing optional fields are not silently lost.
     if !matches!(
         (document.version, &document.target),
-        (1, None) | (2, Some(_))
-    ) || document
-        .target
-        .as_ref()
-        .is_some_and(|target| !target.valid())
+        (1, None) | (2 | 3, Some(_))
+    ) || (document.version == 3)
+        != document
+            .record
+            .run
+            .as_ref()
+            .is_some_and(|r| r.hosting.is_some())
+        || document
+            .target
+            .as_ref()
+            .is_some_and(|target| !target.valid())
         || !valid(&document.record)
         || serde_json::to_value(&document).map_err(|_| invalid())? != value
     {
@@ -266,7 +302,13 @@ impl<'a> DeployRecordStore<'a> {
             return Err(invalid());
         }
         let bytes = serde_json::to_vec(&DeployDocument {
-            version: if self.target.is_some() { 2 } else { 1 },
+            version: if record.run.as_ref().is_some_and(|r| r.hosting.is_some()) {
+                3
+            } else if self.target.is_some() {
+                2
+            } else {
+                1
+            },
             record: record.clone(),
             target: self.target.clone(),
         })

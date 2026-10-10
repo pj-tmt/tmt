@@ -469,6 +469,7 @@ fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
         authorized_at_ms: 1,
         state: RunState::Partial,
         rules_attempted: false,
+        hosting: None,
         steps: [
             "database",
             "sign-in:anonymous",

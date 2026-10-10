@@ -29,6 +29,8 @@ pub enum DeployCliError {
 }
 /// Live Rules are an observation; the engine retains all mutation ownership.
 pub trait FirestoreCommandPort: DeployPort {
+    const SUPPORTS_HOSTING: bool = false;
+    fn prepare_hosting(&mut self, _content: &crate::hosting::HostingComposition) {}
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
     fn check_index_budget(
         &mut self,
@@ -36,7 +38,7 @@ pub trait FirestoreCommandPort: DeployPort {
         plan: &crate::deploy_plan::Plan,
     ) -> Result<(), DeployProviderError>;
     fn live_rules(&mut self, project: &str) -> Result<Option<Vec<u8>>, DeployProviderError>;
-    /// Unsupported until the Hosting provider lifecycle is delivered; never assume empty.
+    /// Ports without Hosting support refuse rather than invent an empty inventory.
     fn hosting_inventory(
         &mut self,
         _project: &str,
@@ -45,6 +47,16 @@ pub trait FirestoreCommandPort: DeployPort {
     }
 }
 impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
+    const SUPPORTS_HOSTING: bool = true;
+    fn prepare_hosting(&mut self, content: &crate::hosting::HostingComposition) {
+        self.prepare_content(content);
+    }
+    fn hosting_inventory(
+        &mut self,
+        project: &str,
+    ) -> Result<crate::hosting::HostingInventory, crate::deploy_run::DeployRefusal> {
+        self.hosting_inventory(project)
+    }
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError> {
         self.login_account().map(|_| ())
     }
@@ -128,6 +140,14 @@ pub fn execute<P: FirestoreCommandPort>(
     if let Some(output) = unavailable(&discovered) {
         return Ok(output);
     }
+    if discovered.hosting.is_some() && !P::SUPPORTS_HOSTING {
+        return Err(DeployCliError::Command(
+            deploy_command::DeployCommandError::Refused(
+                crate::deploy_run::DeployRefusal::HostingUnavailable,
+            ),
+            std::path::PathBuf::new(),
+        ));
+    }
     let layout = layout_factory()?;
     let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
         .map_err(DeployCliError::Local)?;
@@ -153,10 +173,10 @@ fn unavailable(discovered: &deploy_discovery::DiscoveredPlan) -> Option<DeployCo
     discovered.extensions.view().extensions.is_empty().then(|| DeployCommandOutput { json: json!({"available": false, "reason":"no-declaration", "extensions": discovered.extensions.view()}), human: "Firestore sharing is unavailable: no enabled extension uses Firestore.\nNothing changed in your Firebase project.\n".into() })
 }
 /// Execute only the already captured declaration snapshot, without rediscovery.
-fn execute_prepared(
+fn execute_prepared<P: FirestoreCommandPort>(
     args: &FirestoreArgs,
     discovered: &deploy_discovery::DiscoveredPlan,
-    provider: &mut dyn FirestoreCommandPort,
+    provider: &mut P,
     store: &mut DeployRecordStore<'_>,
     now_ms: u64,
     record_path: &std::path::Path,
@@ -180,11 +200,17 @@ fn execute_prepared(
                     )
                 })?;
             let record = store.load_or_draft().map_err(DeployCliError::Local)?;
-            crate::hosting::deployment_view(
+            provider.prepare_hosting(composition);
+            let mut view = crate::hosting::deployment_view_for_app(
                 composition,
                 &args.project,
                 &record.deployment_id,
                 &inventory,
+                record
+                    .run
+                    .as_ref()
+                    .and_then(|r| r.hosting.as_ref())
+                    .and_then(|h| h.app_id.as_deref()),
             )
             .map_err(|_| {
                 DeployCliError::Command(
@@ -193,7 +219,31 @@ fn execute_prepared(
                     ),
                     record_path.to_path_buf(),
                 )
-            })
+            })?;
+            if let Some(checkpoint) = record
+                .run
+                .as_ref()
+                .filter(|r| r.state != crate::deploy_run::RunState::Complete)
+                .and_then(|r| r.hosting.as_ref())
+                && record.run.as_ref().is_some_and(|r| {
+                    r.steps
+                        .iter()
+                        .find(|s| s.id == "hosting:stage:finalize")
+                        .is_some_and(|s| {
+                            !matches!(
+                                s.state,
+                                crate::deploy_run::StepState::Done
+                                    | crate::deploy_run::StepState::Adopted
+                            )
+                        })
+                })
+                && checkpoint
+                    .version_created_ms
+                    .is_some_and(|created| now_ms.saturating_sub(created) >= 12 * 60 * 60 * 1000)
+            {
+                view.abandoned_version = checkpoint.version.clone();
+            }
+            Ok(view)
         })
         .transpose()?;
     deploy_command::execute_with_hosting(

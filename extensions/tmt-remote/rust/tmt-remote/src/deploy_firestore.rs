@@ -1,6 +1,6 @@
-//! Library-only Firestore provider adapter. The embedded helper owns the installed
+//! Firestore and Hosting provider adapter. The embedded helper owns the installed
 //! firebase-tools login; the existing deploy engine owns authorization and recovery.
-//! Nothing registers this adapter as a CLI command or enables cloud routes.
+//! The CLI composition wires it; verified publication does not enable cloud routes.
 use crate::{
     deploy_run::{
         self, DeployApplied, DeployFault, DeployObserved, DeployOwnerAction, DeployPlan,
@@ -39,10 +39,13 @@ pub struct DeployFirestore<'a> {
     node: PathBuf,
     package: PathBuf,
     stop: &'a AtomicBool,
+    hosting: Option<deploy_run::HostingCheckpoint>,
+    compressed: std::collections::BTreeMap<String, Vec<u8>>,
+    steps: Vec<deploy_run::StepRecord>,
 }
 impl<'a> DeployFirestore<'a> {
     /// Check compatibility without loading auth, reading credentials or contacting Google.
-    /// The registration slice will own executable/package discovery.
+    /// Executable/package discovery belongs to the CLI's installed-tool factory.
     pub fn at(
         node: PathBuf,
         package: PathBuf,
@@ -55,6 +58,9 @@ impl<'a> DeployFirestore<'a> {
             node,
             package,
             stop,
+            hosting: None,
+            compressed: std::collections::BTreeMap::new(),
+            steps: Vec::new(),
         };
         let capabilities = adapter
             .exchange(
@@ -148,7 +154,12 @@ impl<'a> DeployFirestore<'a> {
         let request = json!({"version":1,"operation":operation,"input":input,"account":account,
             "budgetMs":remaining.as_millis().min(30_000)});
         let input = serde_json::to_vec(&request).map_err(|_| "unknown")?;
-        if input.len() > limits::DEPLOY_PROVIDER_BYTES {
+        let input_bound = if operation == "apply-hosting" {
+            limits::HOSTING_UPLOAD_REQUEST_BYTES
+        } else {
+            limits::DEPLOY_PROVIDER_BYTES
+        };
+        if input.len() > input_bound {
             return Err("provider-rejected".into());
         }
         let args = [
@@ -175,6 +186,9 @@ impl<'a> DeployFirestore<'a> {
         .map_err(|_| "unknown")?;
         // Never expose exception text, stderr, a failed child's JSON, or its exit cause.
         if !output.status.success() {
+            return Err("unknown".into());
+        }
+        if output.stdout.len() > limits::DEPLOY_PROVIDER_BYTES {
             return Err("unknown".into());
         }
         let value = wire::strict_json(&output.stdout).ok_or("unknown")?;
@@ -221,6 +235,7 @@ impl<'a> DeployFirestore<'a> {
                 json!({"project":plan.view().project,"source":std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?,
                 "deployment":plan.deployment_id(),"replacedDigest":plan.view().rules.replaced_digest})
             }
+            StepKind::Hosting(_) => return self.hosting_step(operation, plan, step, deadline),
             StepKind::Verify => return Err(unknown()),
         };
         let kind = match step.kind {
@@ -228,7 +243,7 @@ impl<'a> DeployFirestore<'a> {
             StepKind::SignIn(_) => "sign-in",
             StepKind::Index { .. } => "index",
             StepKind::Rules => "rules",
-            StepKind::Verify => unreachable!(),
+            StepKind::Hosting(_) | StepKind::Verify => unreachable!(),
         };
         self.exchange(
             &format!("{operation}-{kind}"),
@@ -256,6 +271,20 @@ impl<'a> DeployFirestore<'a> {
     }
 }
 impl DeployPort for DeployFirestore<'_> {
+    fn supports_hosting(&self) -> bool {
+        true
+    }
+    fn restore_hosting(
+        &mut self,
+        checkpoint: &deploy_run::HostingCheckpoint,
+        steps: &[deploy_run::StepRecord],
+    ) {
+        self.hosting = Some(checkpoint.clone());
+        self.steps = steps.to_vec();
+    }
+    fn hosting_checkpoint(&self) -> Option<deploy_run::HostingCheckpoint> {
+        self.hosting.clone()
+    }
     fn account(&mut self) -> Result<String, DeployProviderError> {
         self.login_account().map_err(|_| unknown())
     }
@@ -265,11 +294,27 @@ impl DeployPort for DeployFirestore<'_> {
         step: &DeployStep,
     ) -> Result<DeployObserved, DeployProviderError> {
         if step.kind == StepKind::Verify {
-            return verify_steps(
+            let verified = verify_steps(
                 plan.steps(),
                 |other, deadline| self.observe_until(plan, other, deadline),
                 Instant::now,
-            );
+            )?;
+            if verified == DeployObserved::Satisfied && plan.view().hosting.is_some() {
+                let value = self.hosting_exchange(
+                    "verify-hosting",
+                    plan,
+                    "verify",
+                    None,
+                    None,
+                    Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+                )?;
+                let checkpoint = self.hosting.as_ref().ok_or_else(unknown)?;
+                let publication =
+                    deploy_run::VerifiedHostingPublication::from_verified(plan, checkpoint, &value)
+                        .ok_or_else(unknown)?;
+                self.hosting.as_mut().expect("checkpoint").publication = Some(publication);
+            }
+            return Ok(verified);
         }
         self.observe_until(plan, step, Instant::now() + limits::DEPLOY_PROVIDER_CALL)
     }
@@ -288,6 +333,7 @@ impl DeployPort for DeployFirestore<'_> {
             .as_str()
         {
             Some("done") => Ok(DeployApplied::Done),
+            Some("building") => Ok(DeployApplied::Building),
             Some("initialize-auth") => Ok(DeployApplied::OwnerAction(
                 DeployOwnerAction::InitializeAuth,
             )),
@@ -366,6 +412,96 @@ fn verify_steps(
         }
     }
     Ok(DeployObserved::Satisfied)
+}
+
+impl DeployFirestore<'_> {
+    pub fn prepare_content(&mut self, composition: &crate::hosting::HostingComposition) {
+        self.compressed = composition
+            .files()
+            .iter()
+            .map(|f| {
+                (
+                    f.path.clone(),
+                    composition
+                        .gzip(&f.path)
+                        .expect("validated content")
+                        .to_vec(),
+                )
+            })
+            .collect();
+    }
+    pub fn hosting_inventory(
+        &mut self,
+        project: &str,
+    ) -> Result<crate::hosting::HostingInventory, deploy_run::DeployRefusal> {
+        let value = self
+            .exchange(
+                "hosting-inventory",
+                json!({"project": project}),
+                None,
+                Instant::now() + limits::DEPLOY_PROVIDER_CALL,
+            )
+            .map_err(|_| deploy_run::DeployRefusal::HostingUnavailable)?;
+        serde_json::from_value(value).map_err(|_| deploy_run::DeployRefusal::HostingUnavailable)
+    }
+    fn hosting_exchange(
+        &mut self,
+        operation: &str,
+        plan: &DeployPlan,
+        action: &str,
+        hash: Option<&str>,
+        bytes: Option<&[u8]>,
+        deadline: Instant,
+    ) -> Result<Value, DeployProviderError> {
+        use base64::Engine;
+        let checkpoint = self.hosting.as_ref().ok_or_else(unknown)?.clone();
+        let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "bytesBase64": bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b)), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
+        if let Some(state) = value.get("checkpoint") {
+            let parsed: deploy_run::HostingCheckpoint =
+                serde_json::from_value(state.clone()).map_err(|_| unknown())?;
+            if parsed.envelope != checkpoint.envelope {
+                return Err(unknown());
+            }
+            self.hosting = Some(parsed);
+        }
+        Ok(value)
+    }
+    fn hosting_step(
+        &mut self,
+        operation: &str,
+        plan: &DeployPlan,
+        step: &DeployStep,
+        deadline: Instant,
+    ) -> Result<Value, DeployProviderError> {
+        use deploy_run::HostingStep;
+        let (action, hash, bytes) = match &step.kind {
+            StepKind::Hosting(HostingStep::WebAppCreate) => ("web-app", None, None),
+            StepKind::Hosting(HostingStep::SiteCreate) => ("site", None, None),
+            StepKind::Hosting(HostingStep::VersionCreate) => ("create", None, None),
+            StepKind::Hosting(HostingStep::Populate) => ("populate", None, None),
+            StepKind::Hosting(HostingStep::Upload { path, hash }) => (
+                "upload",
+                Some(hash.as_str()),
+                Some(self.compressed.get(path).ok_or_else(unknown)?.clone()),
+            ),
+            StepKind::Hosting(HostingStep::Finalize) => ("finalize", None, None),
+            StepKind::Hosting(HostingStep::Release) => ("release", None, None),
+            _ => return Err(unknown()),
+        };
+        let value = self.hosting_exchange(
+            &format!("{operation}-hosting"),
+            plan,
+            action,
+            hash,
+            if operation == "apply" {
+                bytes.as_deref()
+            } else {
+                None
+            },
+            deadline,
+        )?;
+        Ok(value["state"].clone())
+    }
 }
 
 #[cfg(test)]

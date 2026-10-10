@@ -54,8 +54,8 @@ pub fn execute(
 ) -> Result<DeployCommandOutput, DeployCommandError> {
     execute_with_hosting(input, options, store, port, now_ms, None)
 }
-/// The same command owner with a captured Hosting plan; execution remains unavailable
-/// until its provider lifecycle exists, while a read-only plan can show every input.
+/// The same command owner with a captured Hosting plan; unsupported ports refuse
+/// execution rather than falling through to a Rules-only run.
 pub fn execute_with_hosting(
     input: &DeployCommandInput<'_>,
     options: &DeployCommandOptions<'_>,
@@ -88,6 +88,8 @@ pub fn execute_with_hosting(
         hosting,
     )
     .map_err(DeployCommandError::Refused)?;
+    let plan =
+        deploy_run::retain_hosting_plan(plan, &record).map_err(DeployCommandError::Refused)?;
     let record = match options.authorize {
         None => {
             store.persist(&record)?;
@@ -96,7 +98,7 @@ pub fn execute_with_hosting(
         Some(typed) => {
             let authorization =
                 deploy_run::authorize(&plan, typed).map_err(DeployCommandError::Refused)?;
-            if hosting.is_some() {
+            if hosting.is_some() && !port.supports_hosting() {
                 return Err(DeployCommandError::Refused(
                     DeployRefusal::HostingUnavailable,
                 ));
@@ -158,9 +160,6 @@ pub fn execute_with_hosting(
         if let Some(fingerprint) = &hosting.replaced_fingerprint {
             writeln!(human, "DESTRUCTIVE: Replace the live Hosting release for project {}. This replaces public content for every tenant.\nExisting Hosting fingerprint: {}", input.project, &fingerprint[..12]).expect("String write");
         }
-        human.push_str(
-            "Hosting publishing is not available in this release. This plan is read-only.\n",
-        );
     }
     for item in plan.view().destructive.iter().filter(|item| {
         !item.starts_with("replaces-rules:") && !item.starts_with("replaces-hosting:")
@@ -216,8 +215,6 @@ pub fn execute_with_hosting(
     }
     if authorized {
         describe_record(&mut human, &record);
-    } else if hosting.is_some() {
-        human.push_str("Not authorized; nothing changed in your Firebase project.\n");
     } else {
         writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
     }

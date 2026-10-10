@@ -218,6 +218,7 @@ fn every_v1_record_is_unbound_and_read_does_not_convert_or_infer_a_target() {
                 authorized_at_ms: 1,
                 state: tmt_remote::deploy_run::RunState::Complete,
                 rules_attempted: true,
+                hosting: None,
                 steps: vec![tmt_remote::deploy_run::StepRecord {
                     id: "verify".into(),
                     state: tmt_remote::deploy_run::StepState::Done,

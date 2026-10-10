@@ -163,6 +163,13 @@ authorized takeover plan from any home. Login, pairing and installation never au
 deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
 blind repeat of an effect.
 
+For an extension declaring Hosting, deployment stages and finalizes its frozen bundle before
+switching Rules and releasing Hosting. A pending app creation needs an explicit rerun; recovery
+reads the saved original and never duplicates an uncertain create. Partial/unknown may include
+applied changes and never claims rollback or a usable joint publication. Complete records the
+verified public app config and same-project web.app entry; it does not yet print a remote link
+or prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.
+
 Declarations come from fixed public commands of enabled installed extensions. Colab's command
 is not shipped yet, so its output is unavailable with no provider/record effect; fixture
 bytes are never a production fallback. Installed end-to-end proof waits for that command and

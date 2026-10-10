@@ -337,23 +337,25 @@ pub fn compose(bundles: &[HostingBundle]) -> Result<Option<HostingComposition>, 
 }
 
 /// Read-only site inventory supplied by the provider edge; never a guessed empty site.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostingInventory {
     pub site_exists: bool,
-    pub web_apps: Vec<String>,
+    pub web_apps: Vec<HostingWebApp>,
     pub live: Option<HostingLiveRelease>,
 }
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostingLiveRelease {
     pub version: String,
     pub deployment_id: Option<String>,
     pub plan_digest_prefix: Option<String>,
     pub content_digest: Option<String>,
-    pub files: Vec<HostingTransportFile>,
+    pub files: Vec<HostingLiveFile>,
     pub config: Value,
 }
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostingDeploymentView {
     pub site: String,
     pub public_url: String,
@@ -361,7 +363,10 @@ pub struct HostingDeploymentView {
     pub web_app: Option<String>,
     pub create_web_app: bool,
     pub content: Value,
-    pub replaces: &'static str,
+    /// An expired retained stage requires a new explicit whole-plan authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abandoned_version: Option<String>,
+    pub replaces: String,
     pub replaced_fingerprint: Option<String>,
 }
 /// Ownership labels plus exact content identify an own release. Labels alone never do.
@@ -372,27 +377,44 @@ pub fn deployment_view(
     deployment_id: &str,
     inventory: &HostingInventory,
 ) -> Result<HostingDeploymentView, HostingRefusal> {
+    deployment_view_for_app(composition, project, deployment_id, inventory, None)
+}
+/// A retained app never silently changes when the provider inventory changes.
+pub fn deployment_view_for_app(
+    composition: &HostingComposition,
+    project: &str,
+    deployment_id: &str,
+    inventory: &HostingInventory,
+    recorded_app: Option<&str>,
+) -> Result<HostingDeploymentView, HostingRefusal> {
     if !crate::deploy_run::project_ok(project)
         || crate::canonical::uuid(deployment_id).is_err()
         || inventory.web_apps.len() > limits::HOSTING_WEB_APPS
     {
         return Err(HostingRefusal::Inventory);
     }
-    let valid_app = |value: &str| {
-        !value.is_empty()
-            && value.len() <= 256
-            && value
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'-'))
-    };
-    let mut apps = inventory.web_apps.clone();
-    apps.sort();
-    if apps.iter().any(|app| !valid_app(app)) || apps.windows(2).any(|pair| pair[0] == pair[1]) {
+    let mut ids = std::collections::BTreeSet::new();
+    if inventory
+        .web_apps
+        .iter()
+        .any(|app| !app.valid() || !ids.insert(&app.id))
+    {
         return Err(HostingRefusal::Inventory);
     }
-    let web_app = match apps.as_slice() {
-        [] => None,
-        [only] => Some(only.clone()),
+    let matching: Vec<_> = inventory
+        .web_apps
+        .iter()
+        .filter(|app| {
+            app.state == "ACTIVE"
+                && recorded_app.map_or_else(
+                    || app.display_name == app_name(deployment_id),
+                    |id| app.id == id,
+                )
+        })
+        .collect();
+    let web_app = match matching.as_slice() {
+        [] if recorded_app.is_none() => None,
+        [only] => Some(only.id.clone()),
         _ => return Err(HostingRefusal::WebAppSelection),
     };
     let mut replaces = "none";
@@ -413,14 +435,9 @@ pub fn deployment_view(
         let mut files = live.files.clone();
         files.sort_by(|a, b| a.path.cmp(&b.path));
         if files.windows(2).any(|p| p[0].path == p[1].path)
-            || files.iter().any(|f| {
-                !path_ok(&f.path)
-                    || !digest_ok(&f.raw_digest)
-                    || !digest_ok(&f.gzip_digest)
-                    || !content_type_ok(&f.content_type)
-                    || f.raw_length > limits::HOSTING_FILE_BYTES as u64
-                    || f.gzip_length > limits::HOSTING_FILE_BYTES + 65536
-            })
+            || files
+                .iter()
+                .any(|f| !path_ok(&f.path) || !digest_ok(&f.hash) || f.status != "ACTIVE")
         {
             return Err(HostingRefusal::Inventory);
         }
@@ -432,7 +449,7 @@ pub fn deployment_view(
                 p.len() == 12 && p.bytes().all(|b| matches!(b,b'0'..=b'9'|b'a'..=b'f'))
             });
         if own {
-            replaces = if digest == composition.digest() {
+            replaces = if digest == composition.live_digest() {
                 "none"
             } else {
                 "own"
@@ -442,7 +459,8 @@ pub fn deployment_view(
             let mut canonical = live.clone();
             canonical.files = files;
             replaced_fingerprint = Some(sha256_hex(
-                &serde_json::to_vec(&canonical).expect("release serializes"),
+                &serde_json::to_vec(&serde_json::to_value(&canonical).expect("release serializes"))
+                    .expect("release serializes"),
             ));
         }
     }
@@ -453,7 +471,55 @@ pub fn deployment_view(
         create_web_app: web_app.is_none(),
         web_app,
         content: composition.view(),
-        replaces,
+        abandoned_version: None,
+        replaces: replaces.into(),
         replaced_fingerprint,
     })
+}
+
+/// Management API app projection; Site.appId is deliberately never consulted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HostingWebApp {
+    pub id: String,
+    pub display_name: String,
+    pub state: String,
+}
+impl HostingWebApp {
+    fn valid(&self) -> bool {
+        [&self.id, &self.display_name, &self.state]
+            .into_iter()
+            .all(|s| s.len() <= 256 && !s.chars().any(char::is_control))
+            && !self.id.is_empty()
+            && matches!(self.state.as_str(), "ACTIVE" | "DELETED")
+    }
+}
+pub fn app_name(deployment_id: &str) -> String {
+    format!("tmt Remote ({deployment_id})")
+}
+/// The actual Hosting API file projection, not invented raw-file metadata.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostingLiveFile {
+    pub path: String,
+    pub hash: String,
+    pub status: String,
+}
+impl HostingComposition {
+    pub fn live_files(&self) -> Vec<HostingLiveFile> {
+        self.files
+            .iter()
+            .map(|f| HostingLiveFile {
+                path: f.path.clone(),
+                hash: f.gzip_digest.clone(),
+                status: "ACTIVE".into(),
+            })
+            .collect()
+    }
+    pub fn live_digest(&self) -> String {
+        sha256_hex(
+            &serde_json::to_vec(&json!({"files": self.live_files(), "config": self.config}))
+                .expect("content serializes"),
+        )
+    }
 }

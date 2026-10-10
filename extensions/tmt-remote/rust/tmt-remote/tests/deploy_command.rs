@@ -990,6 +990,60 @@ mod cli_composition {
         }
         assert!(!provider.0.effects.is_empty());
     }
+    #[test]
+    fn unsupported_hosting_refuses_before_lazy_provider_login_record_and_clock() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        struct HostedSource;
+        impl DeclarationSource for HostedSource {
+            fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+                let mut source = DeployCliSource(0, true);
+                let mut reply: serde_json::Value =
+                    serde_json::from_slice(&source.declaration("colab")?.unwrap()).unwrap();
+                let mut declaration: serde_json::Value =
+                    serde_json::from_str(reply["declaration"].as_str().unwrap()).unwrap();
+                let hash = |b: &[u8]| {
+                    Sha256::digest(b)
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                };
+                declaration["hosting"] = json!({"version":1,"files":[{"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}]});
+                let bytes = serde_json::to_string(&declaration).unwrap();
+                reply["declarationDigest"] = json!(hash(bytes.as_bytes()));
+                reply["declaration"] = json!(bytes);
+                Ok(Some(serde_json::to_vec(&reply).unwrap()))
+            }
+            fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+                let reply = self.declaration("colab")?.unwrap();
+                let parsed: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+                let declaration: serde_json::Value =
+                    serde_json::from_str(parsed["declaration"].as_str().unwrap()).unwrap();
+                let manifest =
+                    tmt_remote::hosting::HostingManifest::parse(&declaration["hosting"]).unwrap();
+                Ok(serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap())
+            }
+        }
+        let mut source = HostedSource;
+        let result = deploy_cli::execute(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || -> Result<&mut DeployCliProvider, DeployCliError> {
+                panic!("unsupported Hosting touched provider/tools/login")
+            },
+            || -> Result<tmt_remote::state::Layout, DeployCliError> {
+                panic!("unsupported Hosting touched record")
+            },
+            || -> Result<u64, DeployCliError> { panic!("unsupported Hosting touched clock") },
+        );
+        assert!(matches!(
+            result,
+            Err(DeployCliError::Command(
+                DeployCommandError::Refused(DeployRefusal::HostingUnavailable),
+                _
+            ))
+        ));
+    }
 }
 
 #[test]
@@ -1135,13 +1189,17 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         .unwrap();
     let mut inventory = HostingInventory {
         site_exists: true,
-        web_apps: vec!["1:123:web:abc".into()],
+        web_apps: vec![tmt_remote::hosting::HostingWebApp {
+            id: "1:123:web:abc".into(),
+            display_name: format!("tmt Remote ({ID})"),
+            state: "ACTIVE".into(),
+        }],
         live: Some(HostingLiveRelease {
             version: "version-1".into(),
             deployment_id: None,
             plan_digest_prefix: None,
             content_digest: None,
-            files: content.files().to_vec(),
+            files: content.live_files(),
             config: content.config().clone(),
         }),
     };
@@ -1171,7 +1229,7 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
             &json!("verify"),
             &json!("hosting:release"),
             &json!("rules"),
-            &json!("hosting:stage")
+            &json!("hosting:stage:finalize")
         ]
     );
     assert_eq!(
@@ -1188,11 +1246,11 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
             .contains("Create site: no\nCreate web app: no\n")
     );
     assert!(
-        preview.human.contains(
-            "Hosting publishing is not available in this release. This plan is read-only."
-        )
+        !preview
+            .human
+            .contains("Hosting publishing is not available")
     );
-    assert!(!preview.human.contains("To deploy this plan"));
+    assert!(preview.human.contains("To deploy this plan"));
     let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
     let saved = fs::read(root.remote().join("deploy.json")).unwrap();
     inventory.live.as_mut().unwrap().version = "version-2".into();

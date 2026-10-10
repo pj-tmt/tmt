@@ -1737,19 +1737,35 @@ verified live-project acceptance. Reserved Firebase paths are never rewritten. P
 configuration confer no device authority.
 
 The Hosting plan names the same-project default site and `web.app` entry, any site/web-app
-creation, exact content/config digests and a captured foreign-release fingerprint. Zero web apps
-requires creation; one is reused; more than one is refused until the publication lifecycle defines
-how Remote identifies its own app. Ownership requires both
-Remote's deployment/plan labels and exact full content/config identity; labels alone cannot adopt
-a release. The whole plan digest covers both foreign Rules and Hosting replacement fingerprints;
-changed foreign state invalidates consent. Rules and Hosting publication are not atomic: the
-publication lifecycle must stage Hosting, switch Rules, then release Hosting and read back both
-before Complete. Ambiguity stays partial/unknown without rollback or a usable binding. Rules and
-declarations change additively first: client N−1 works with Rules N. Tightening waits until the
-client no longer needing the old shape has been the deployed bundle for one release. Colab owns
-the whole hosted bundle, including an unmodified, digest-checked copy of Remote's built SDK;
-Remote adds no hosted pages. Current composition freezes these inputs and steps only;
-Hosting execution remains unavailable until that publication lifecycle is delivered.
+creation, exact content/config digests and a captured foreign-release fingerprint. Remote selects
+its recorded ACTIVE same-project app ID; disappearance refuses. Otherwise exactly one ACTIVE
+app named `tmt Remote (<deployment UUID>)` is used, or creation is planned; duplicate names
+refuse. Remote never reuses a foreign app or reads/sets `Site.appId`; the display name is a lookup
+aid, not ownership proof. Public Firebase configuration is explicit, not reserved init.json.
+Ownership requires Remote's deployment/plan labels and full observed gzip-file/config identity;
+labels alone cannot adopt a release. The whole plan digest covers foreign Rules and Hosting
+replacement fingerprints; changed foreign state invalidates consent.
+
+Declared Hosting refuses before login when the lazy provider factory does not support the
+complete lifecycle. Executable steps create only the named app/site, finish database/sign-in/index
+prerequisites, stage a Version (create, populate, required-hash uploads, finalize), switch Rules,
+release Hosting, then verify both. Pending app/stage work blocks subsequent steps. Rules and
+Hosting publication are not atomic: a single writer is required, switches re-read captured state,
+and ambiguity stays partial/unknown without rollback or a usable binding. Provider-generated
+resource handles and the original authorized envelope are retained in the versioned deployment
+checkpoint; v1/v2 readers remain and reads never convert them. Recovery observes the original
+before any further effect; uncertain absence cannot justify a duplicate create. An unfinalized
+Version retained for at least 12 hours requires a newly displayed and explicitly authorized plan.
+
+Only final joint read-back produces a typed verified publication, saved atomically with Complete:
+exact Rules, live Hosting Version/files/config and same-project app/config and `web.app` entry.
+Its public config currently contains `apiKey`, `authDomain`, `projectId` and `appId` (the field list
+is pending Colab confirmation). It contains no credentials and is the output consumed by the
+separate remote-link descriptor producer. Verification here is control-plane evidence, not
+live-project/browser acceptance. Rules and declarations change additively first: client N−1
+works with Rules N. Tightening waits until the client no longer needing the old shape has been
+the deployed bundle for one release. Colab owns the whole hosted bundle, including an
+unmodified, digest-checked copy of Remote's built SDK; Remote adds no hosted pages.
 
 The composed plan is deterministic JSON (extensions and resources sorted by name) addressed by its SHA-256 digest,
 which also covers each declaration's own digest, the target backend and whether physical TTL is provisioned. Its
@@ -1812,7 +1828,7 @@ plan adds the owner's database `(default)` (edition `standard`, one location), t
 the layer needs, the declared indexes and the composed Rules to the extension plan, and the owner
 authorizes the digest of that whole envelope (account, project, deployment ID and every item above); a
 digest prefix of at least 12 hex characters names it. Steps run in a fixed order and the Rules
-release runs last because it is the single step that switches what the project serves; a final
+release follows additive prerequisites; a declared Hosting release follows it. A final
 read-back step passes only when Rules and indexes match what was applied. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
