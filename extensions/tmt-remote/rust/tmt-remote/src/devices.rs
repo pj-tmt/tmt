@@ -60,10 +60,7 @@ impl Devices {
             RemoteError::new("REMOTE_DEVICE_NOT_FOUND", "No paired device has that ID.")
         })?;
         drop(store);
-        if before.is_some_and(|g| g.revision != grant.revision) {
-            if let Some(sessions) = &self.sessions {
-                sessions.end_device(client_id);
-            }
+        if before.is_some_and(|g| g.name != grant.name) {
             self.wake();
         }
         Ok(grant)
@@ -94,7 +91,7 @@ impl Devices {
         }
         self.wake();
     }
-    fn wake(&self) {
+    pub(crate) fn wake(&self) {
         if let Ok(mut changed) = self.changed.lock() {
             *changed = true;
             self.ready.notify_one();

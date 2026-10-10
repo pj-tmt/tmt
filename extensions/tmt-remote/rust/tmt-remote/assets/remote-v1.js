@@ -591,6 +591,8 @@ function remoteError(value, address) {
 	valid$1(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
 	valid$1(PRE_EFFECT.has(error.code) || [
+		"REMOTE_GRANT_CHANGED",
+		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
 		"REMOTE_INPUT_TOO_LARGE",
 		"REMOTE_STATE_UNAVAILABLE",
@@ -673,6 +675,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			if (error) {
 				if (error instanceof RefusalError && [
 					"REMOTE_CLOSED",
+					"REMOTE_GRANT_CHANGED",
+					"REMOTE_SERVE_STOPPED",
 					"REMOTE_SESSION_ENDED",
 					"REMOTE_SESSION_EVICTED"
 				].includes(error.code)) channel.ended = true;
@@ -2028,7 +2032,6 @@ async function landingPage() {
 		} catch (error) {
 			if (!currentPage()) return;
 			const verifiedRefusal = !opaque && error instanceof RefusalError && !(step.phase === "capabilities" && (error.code === "REMOTE_SESSION_ENDED" || reused && error.code === "REMOTE_SESSION_EVICTED")) && [
-				"REMOTE_CLOSED",
 				"REMOTE_SESSION_ENDED",
 				"REMOTE_SESSION_EVICTED",
 				"REMOTE_DEVICE_REVOKED"

@@ -117,8 +117,10 @@ owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and 
 Store owns local designation and bounded immutable management receipts. Device effects and receipts
 commit in one SQLite transaction; `Devices` owns Session cleanup and events after releasing live/Store
 locks. JSON settings and SQLite receipts are separate durability boundaries: uncertain writes are
-never reapplied by receipt lookup. Live grant admission is required for all reads. Self-rename can reopen then read the original operation. Lost self-revoke acknowledgment
-gets one fresh read-only admission attempt; refusal shows access loss plus unknown outcome and
+never reapplied by receipt lookup. Live grant admission is required for all reads. Self-rename
+preserves its Session, cookie and held work, then reads the original operation. Lost self-revoke
+acknowledgment gets one fresh read-only admission attempt; refusal shows access loss plus unknown
+outcome and
 `tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
 The shared-presentation `/settings` page composes the SDK for admitted forms, frozen outcomes and
 original-ID reading; its separate page bundle imports the single served SDK. Shared CSS supplies presentation only. Management identity

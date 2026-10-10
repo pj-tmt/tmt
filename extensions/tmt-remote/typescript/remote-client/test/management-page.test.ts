@@ -497,3 +497,27 @@ test('refused recovery keeps the unknown original and its write lock', async () 
     });
   }
 });
+
+for (const code of ['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'] as const) {
+  test(`${code} leaves access unconfirmed and preserves the original outcome`, async () => {
+    const f = fixture();
+    await f.page.refresh();
+    const original: ManagementOutcome = {
+      operationId: 'original',
+      state: 'unknown',
+      reason: 'effect_outcome_unconfirmed',
+    };
+    f.setResult(original);
+    await f.page.submit({
+      kind: 'rename',
+      input: { operationId: 'original', clientId: 'device', name: 'Draft' },
+    });
+    f.remote.settings = async () => {
+      throw new RefusalError(code);
+    };
+    await f.page.refresh();
+    assert.equal(f.page.access, 'unconfirmed');
+    assert.deepEqual(f.page.outcome, original);
+    assert.equal(f.counts().effectCalls, 1);
+  });
+}

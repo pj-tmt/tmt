@@ -228,7 +228,12 @@ door omits it. When present, the SDK exposes a normalized URL on the door's own 
 Colab can show that link plus the command; when absent, show the command only. For
 send/operation these codes appear in `{state:'refused', operationId, reason}`. A signed
 distinct end reason is available for 60 seconds, then a generic 404 still maps to
-`REMOTE_SESSION_ENDED`. The caller can silently `reopenSession()` and attach its new
+`REMOTE_SESSION_ENDED`. A real revision change returns `REMOTE_GRANT_CHANGED`; orderly shutdown
+returns `REMOTE_SERVE_STOPPED` only while the originating run remains reachable within that notice
+bound. Restart never answers an old run's notice. Neither code is pre-effect proof; unknown effects
+retain their original IDs and are never resent. Legacy `REMOTE_CLOSED`, opaque 404, expired notices
+and unreachable serve remain unconfirmed, not revocation proof. Previous bundles also leave the
+new unknown signed codes unconfirmed. The caller can silently `reopenSession()` and attach its new
 transport; other tabs remain live. Recover previously unknown send outcomes by observing
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
@@ -266,10 +271,10 @@ receipts never trigger a write; current values do not establish original commit.
 `talk({operationId,clientId,enabled})` changes only the sending scope. It requires the same
 local designation as other mutations; `talkEnabled` in device summaries is configured policy,
 not live access. A changed revision ends old Sessions; exact repeats preserve them. After a
-self-toggle, explicitly reopen and read only the original receipt, as for self-rename.
+self-toggle, explicitly reopen and read only the original receipt.
 
-After self-rename, explicitly reopen a fresh verified Session using the still-live grant and read
-the original receipt. After a lost self-revoke acknowledgment, make one fresh read-only admission
+After self-rename, keep the live Session and read the original receipt; rename changes no authority.
+After a lost self-revoke acknowledgment, make one fresh read-only admission
 attempt with the same paired identity/current trusted door descriptor. If admission is refused,
 show lost current access **and unknown operation outcome**, with `tmt remote devices` for local
 confirmation. Do not claim revoke committed or offer a mutation retry. Transport failure or an

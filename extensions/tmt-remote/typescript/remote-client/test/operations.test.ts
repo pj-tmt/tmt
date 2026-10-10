@@ -769,3 +769,18 @@ test('recipient scope denial does not claim the talk scope is missing', async ()
     (error: unknown) => error instanceof RefusalError && error.scope === undefined,
   );
 });
+
+for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED']) {
+  test(`${code} cannot prove an effect was refused and never resends its original`, async () => {
+    const { door, client } = await ready();
+    door.error = { code, message: 'Session ended.' };
+    const original = intent();
+    await assert.rejects(
+      client.send(original),
+      (error) => error instanceof RefusalError && error.code === code,
+    );
+    assert.equal(door.calls.length, 1);
+    assert.equal(door.calls[0]!.envelope.id, original.operationId);
+    assert.equal(door.opens, 1);
+  });
+}

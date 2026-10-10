@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { test, vi } from 'vite-plus/test';
 
 for (const code of [
+  'REMOTE_CLOSED',
+  'REMOTE_GRANT_CHANGED',
+  'REMOTE_SERVE_STOPPED',
   'REMOTE_SESSION_LIMIT',
   'REMOTE_SESSION_ENDED',
   'REMOTE_SESSION_EVICTED',
@@ -57,6 +60,12 @@ for (const code of [
         assert.ok(
           ![...nodes.values()].some((item) => /Access ended|access refused/.test(item.textContent)),
         );
+      } else if (['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'].includes(code)) {
+        assert.equal(
+          nodes.get('access')!.textContent,
+          'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.',
+        );
+        assert.equal(nodes.get('access-announcement')!.textContent, 'Access unconfirmed');
       } else {
         assert.equal(
           nodes.get('access')!.textContent,

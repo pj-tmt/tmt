@@ -696,8 +696,185 @@ fn an_idle_session_ends_and_reopens_silently() {
     assert_eq!(h.grants(), 1);
 }
 
+/// Scenario requests share the same Session lane, including the held original and rename.
+fn rename_request(
+    h: &Harness,
+    client: &str,
+    key: &SigningKey,
+    session: &str,
+    sequence: u64,
+    operation: &str,
+    input: Value,
+) -> Value {
+    let mut wire = Opening::new(h, client, key).wire();
+    wire["kind"] = json!("request");
+    wire["sessionId"] = json!(session);
+    wire["sequence"] = json!(sequence.to_string());
+    wire["operation"] = json!(operation);
+    if let Some(id) = input["operationId"]
+        .as_str()
+        .or(input["input"]["operationId"].as_str())
+    {
+        wire["id"] = json!(id);
+    }
+    let payload = input.to_string();
+    wire["payload"] = json!(canonical::base64url(payload.as_bytes()));
+    let text = |name: &str| wire[name].as_str().unwrap();
+    let bytes = canonical::envelope(&Envelope {
+        kind: text("kind"),
+        id: text("id"),
+        correlation_id: None,
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: payload.as_bytes(),
+    })
+    .unwrap();
+    wire["signature"] = json!(canonical::base64url(&key.sign(&bytes).to_bytes()));
+    wire
+}
+
 #[test]
-fn rename_preserves_authority_and_reopens_with_the_new_context() {
+fn signed_rename_preserves_revision_session_cookie_and_held_original_with_audited_receipt() {
+    use tmt_remote::transport::{LoopbackTransport, Transport};
+    let h = Harness::new(FAST);
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired_with_talk(&h, &device, true);
+    let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+    oracle
+        .execute(
+            "UPDATE grants SET mode='hold' WHERE client_id=?1",
+            [&client],
+        )
+        .unwrap();
+    h.store
+        .lock()
+        .unwrap()
+        .designate(&client, &h.origin, now_ms())
+        .unwrap();
+    let (session, cookie, state) = cap_session(&h, &client, &device.key);
+    let mut socket = tunnel_for(&h, &cookie, Some(&session));
+    let before = h.store.lock().unwrap().grant(&client).unwrap().unwrap();
+    let held_id = uuid_v4().unwrap();
+    let intent = json!({"version":1,"operation":"dispatch.create","originator":"anonymous",
+        "input":{"operationId":held_id,"recipientIds":[uuid_v4().unwrap()],
+            "message":"Keep held through rename","kind":"request"}});
+    let held_wire = rename_request(
+        &h,
+        &client,
+        &device.key,
+        &session,
+        1,
+        "dispatch.create",
+        intent.clone(),
+    );
+    let permit = h
+        .sessions
+        .admit(
+            tmt_remote::admission::BindingAction::Append,
+            Some(&h.origin),
+            held_wire.to_string().as_bytes(),
+            4096,
+        )
+        .ok()
+        .unwrap();
+    assert_eq!(
+        permit
+            .adopt(Some(intent.to_string().as_bytes()), &[])
+            .unwrap()
+            .phase,
+        "held"
+    );
+    drop(permit);
+    let core = Core::new();
+    let app = Arc::new(
+        Arc::try_unwrap(core.operations())
+            .ok()
+            .unwrap()
+            .with_management(Arc::clone(&h.devices)),
+    );
+    let transport = LoopbackTransport::new(Arc::clone(&h.sessions), 65536).with_operations(app);
+    let rename_id = uuid_v4().unwrap();
+    let wire = rename_request(
+        &h,
+        &client,
+        &device.key,
+        &session,
+        2,
+        "remote.devices.rename",
+        json!({"operationId":rename_id,"clientId":client,"name":"New laptop"}),
+    );
+    let bytes = transport
+        .append(Some(&h.origin), wire.to_string().as_bytes())
+        .unwrap();
+    let reply: Value = serde_json::from_slice(&bytes).unwrap();
+    let outcome: Value = serde_json::from_slice(
+        &canonical::base64url_decode(reply["payload"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let after = h.store.lock().unwrap().grant(&client).unwrap().unwrap();
+    let phase: String = oracle
+        .query_row(
+            "SELECT phase FROM operations WHERE id=?1",
+            [&held_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let audited: i64 = oracle.query_row("SELECT count(*) FROM audit WHERE operation_id=?1 AND operation='remote.devices.rename' AND decision='committed'", [&rename_id], |r| r.get(0)).unwrap();
+    let context = mounted(&h, &colab, Some(&cookie));
+    eprintln!(
+        "R1 rename: revision={}->{}, ended={}, cookie={context:?}, held={phase}, outcome={outcome}, audit={audited}, event={}",
+        before.revision,
+        after.revision,
+        state.ended(),
+        tmt_remote::devices::event_json(&after)
+    );
+    assert_eq!(
+        after.revision, before.revision,
+        "rename must not change authority revision"
+    );
+    assert!(!state.ended());
+    cap_echo(&mut socket);
+    assert_eq!(context.unwrap()["name"], "New laptop");
+    assert_eq!(phase, "held");
+    assert_eq!(outcome["state"], "committed");
+    assert_eq!(outcome["sessionEnded"], false);
+    assert_eq!(audited, 1);
+    assert_eq!(
+        tmt_remote::devices::event_json(&after)["name"],
+        "New laptop"
+    );
+    let read = rename_request(
+        &h,
+        &client,
+        &device.key,
+        &session,
+        3,
+        "remote.management.operation",
+        json!({"operationId":rename_id}),
+    );
+    let bytes = transport
+        .append(Some(&h.origin), read.to_string().as_bytes())
+        .unwrap();
+    let reply: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(
+            &canonical::base64url_decode(reply["payload"].as_str().unwrap()).unwrap()
+        )
+        .unwrap(),
+        outcome
+    );
+    assert!(core.calls().is_empty());
+}
+
+#[test]
+fn rename_preserves_authority_and_the_same_session_context() {
     for _ in 0..2 {
         let h = Harness::new(FAST);
         let colab = Colab::serve(&h);
@@ -711,22 +888,18 @@ fn rename_preserves_authority_and_reopens_with_the_new_context() {
             &h,
             json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
         );
-        assert_eq!(renamed["device"]["revision"], 2);
-        closes(&mut socket);
-        assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
-        let fresh = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
-        assert_eq!(fresh.status, 200);
-        let fresh_cookie = pair_of(&fresh.cookie().unwrap());
-        let context = mounted(&h, &colab, Some(&fresh_cookie)).unwrap();
+        assert_eq!(renamed["device"]["revision"], 1);
+        cap_echo(&mut socket);
+        let context = mounted(&h, &colab, Some(&cookie)).unwrap();
         assert_eq!(context["deviceId"], client_id);
         assert_eq!(context["name"], "New laptop");
-        assert_eq!(context["grantRevision"], 2);
+        assert_eq!(context["grantRevision"], 1);
         let repeated = control(
             &h,
             json!({"op":"rename","clientId":client_id,"name":"New laptop"}),
         );
-        assert_eq!(repeated["device"]["revision"], 2);
-        assert!(mounted(&h, &colab, Some(&fresh_cookie)).is_some());
+        assert_eq!(repeated["device"]["revision"], 1);
+        assert!(mounted(&h, &colab, Some(&cookie)).is_some());
         let mut after = h.store.lock().unwrap().grant(&client_id).unwrap().unwrap();
         after.name = before.name.clone();
         after.revision = before.revision;
@@ -932,6 +1105,22 @@ fn latest_cookie_rebinds_from_issuer_b_to_carrier_a_then_older_survivor_c() {
     let mut legacy = tunnel_for(&h, &latest, None);
     cap_echo(&mut legacy);
     cap_echo(&mut c_transport);
+    // A name change preserves even the latest cookie whose issuer has already ended.
+    let renamed = control(
+        &h,
+        json!({"op":"rename","clientId":client,"name":"Renamed alias"}),
+    );
+    assert_eq!(renamed["device"]["revision"], 1);
+    assert_eq!(
+        mounted(&h, &colab, Some(&latest)).unwrap()["name"],
+        "Renamed alias"
+    );
+    assert!(Arc::ptr_eq(
+        &h.sessions.context(Some(&latest)).unwrap().session,
+        &c
+    ));
+    cap_echo(&mut legacy);
+    cap_echo(&mut c_transport);
     let other = Device::browser(&h, 8);
     let other_client = paired(&h, &other);
     let (other_id, _, _) = cap_session(&h, &other_client, &other.key);
@@ -976,10 +1165,7 @@ fn rebound_cookie_does_not_survive_revoke_revision_expiry_or_stop() {
                 control(&h, json!({"op":"revoke","clientId":client}));
             }
             "revision" => {
-                control(
-                    &h,
-                    json!({"op":"rename","clientId":client,"name":"Changed"}),
-                );
+                control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
             }
             "expiry" => {
                 rusqlite::Connection::open(h.root.join("remote/remote.db"))
@@ -1390,10 +1576,7 @@ fn detached_sessions_count_against_cap_and_authority_loss_remains_immediate() {
                 control(&h, json!({"op":"revoke","clientId":client}));
             }
             "revision" => {
-                control(
-                    &h,
-                    json!({"op":"rename","clientId":client,"name":"Renamed"}),
-                );
+                control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
             }
             "expiry" => {
                 let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
@@ -1797,4 +1980,90 @@ fn missing_talk_scope(kind: &'static str) {
         calls_before,
         "read and refused send trigger no core call"
     );
+}
+
+/// Verify the machine signature rather than treating a decoded payload as proof.
+fn verified_end(h: &Harness, reply: &Reply) -> Value {
+    let body: Value = serde_json::from_str(&reply.body).unwrap();
+    let text = |field: &str| body[field].as_str().unwrap();
+    let payload = canonical::base64url_decode(text("payload")).unwrap();
+    let bytes = canonical::envelope(&Envelope {
+        kind: text("kind"),
+        id: text("id"),
+        correlation_id: Some(text("correlationId")),
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: body["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: &payload,
+    })
+    .unwrap();
+    crypto::verify_signature(
+        &h.machine_public,
+        &bytes,
+        &canonical::base64url_decode(text("signature")).unwrap(),
+    )
+    .unwrap();
+    serde_json::from_slice(&payload).unwrap()
+}
+
+#[test]
+fn real_revision_and_orderly_shutdown_have_bounded_signed_notices_without_a_revoke_oracle() {
+    for stopped in [false, true] {
+        let (h, clock) = cap_door(8);
+        let colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let (id, cookie, state) = cap_session(&h, &client, &device.key);
+        let mut transport = tunnel_for(&h, &cookie, Some(&id));
+        if stopped {
+            h.sessions.shutdown();
+        } else {
+            control(&h, json!({"op":"talk","clientId":client,"enabled":true}));
+        }
+        closes(&mut transport);
+        assert!(state.ended());
+        assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
+        let code = if stopped {
+            "REMOTE_SERVE_STOPPED"
+        } else {
+            "REMOTE_GRANT_CHANGED"
+        };
+        let reply = session_probe(&h, &client, &device.key, &id);
+        assert_eq!(verified_end(&h, &reply)["error"]["code"], code);
+        // The same shape signed with another key remains opaque, not a key-status oracle.
+        let wrong = SigningKey::from_bytes(&[99; 32]);
+        assert_eq!(session_probe(&h, &client, &wrong, &id).status, 404);
+        let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        // A restarted run has another window and never adopts or answers this notice.
+        oracle
+            .execute(
+                "UPDATE sessions SET window_id=?2 WHERE session_id=?1",
+                rusqlite::params![id, uuid_v4().unwrap()],
+            )
+            .unwrap();
+        assert_eq!(session_probe(&h, &client, &device.key, &id).status, 404);
+        oracle
+            .execute(
+                "UPDATE sessions SET window_id=?2,ended_at_ms=1 WHERE session_id=?1",
+                rusqlite::params![id, h.window_id],
+            )
+            .unwrap();
+        *clock.lock().unwrap() += tmt_remote::limits::SESSION_MAINTENANCE_INTERVAL;
+        h.sessions.maintain().unwrap();
+        assert_eq!(session_probe(&h, &client, &device.key, &id).status, 404);
+        assert!(
+            h.store
+                .lock()
+                .unwrap()
+                .grant(&client)
+                .unwrap()
+                .unwrap()
+                .live_at(tmt_remote::pairing::now_ms().unwrap())
+        );
+    }
 }

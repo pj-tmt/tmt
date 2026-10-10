@@ -517,12 +517,13 @@ pub(crate) fn rename_in(
             "A revoked device cannot be renamed.",
         ));
     }
-    connection.execute("UPDATE grants SET name=?2,revision=revision+1 WHERE client_id=?1 AND name!=?2 AND revision<9007199254740990", rusqlite::params![client_id,name]).map_err(database)?;
-    let grant = grant_in(connection, client_id)?;
-    if grant.as_ref().is_some_and(|grant| grant.name != name) {
-        return Err(database("grant revision exhausted"));
-    }
-    Ok(grant)
+    connection
+        .execute(
+            "UPDATE grants SET name=?2 WHERE client_id=?1 AND name!=?2",
+            rusqlite::params![client_id, name],
+        )
+        .map_err(database)?;
+    grant_in(connection, client_id)
 }
 /// Durable counters belong to one live session/run. A restart never adopts an
 /// old row as a live session; each fresh signed open adds independent counters.
@@ -957,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn rename_reserves_the_final_revision_for_revocation() {
+    fn rename_does_not_consume_the_final_authority_revision() {
         let root = std::env::temp_dir().join(format!("tmt-1100-revision-{}", std::process::id()));
         let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
         let mut store = Store::open(&serving).unwrap();
@@ -972,25 +973,21 @@ mod tests {
             mode: "direct".into(),
             issued_at_ms: 1,
             expires_at_ms: None,
-            revision: 9_007_199_254_740_989,
+            revision: 9_007_199_254_740_990,
             disabled: false,
         };
         store.insert_grant(&grant).unwrap();
         grant.name = "Travel".into();
-        grant.revision += 1;
         assert_eq!(
             store.rename(&grant.client_id, "Travel").unwrap(),
             Some(grant.clone())
         );
+        grant.name = "Laptop".into();
         assert_eq!(
-            store.rename(&grant.client_id, "Laptop").unwrap_err().code,
-            "REMOTE_STATE_UNAVAILABLE"
+            store.rename(&grant.client_id, "Laptop").unwrap(),
+            Some(grant.clone())
         );
         assert_eq!(store.grant(&grant.client_id).unwrap(), Some(grant.clone()));
-        assert_eq!(
-            store.rename(&grant.client_id, "Travel").unwrap(),
-            Some(grant.clone())
-        );
         grant.revision += 1;
         grant.disabled = true;
         assert_eq!(store.revoke(&grant.client_id).unwrap(), Some(grant.clone()));

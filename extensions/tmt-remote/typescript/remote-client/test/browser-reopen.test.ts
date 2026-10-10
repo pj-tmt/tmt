@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 import { test, vi } from 'vite-plus/test';
 import { reopenSession, ReopenSessionError } from '../src/browser.js';
@@ -416,3 +418,38 @@ for (const mode of ['capacity', 'unverified-capacity']) {
     }
   });
 }
+
+test('the previous served bundle keeps unknown signed end codes unconfirmed without effect resend', async () => {
+  const bytes = gunzipSync(
+    readFileSync(new URL('./fixtures/previous-session-sdk.js.gz', import.meta.url)),
+  );
+  // Import the actual previous release bytes, not current source validators.
+  const previous = await import(
+    /* @vite-ignore */ `data:text/javascript;base64,${bytes.toString('base64')}`
+  );
+  for (const code of ['REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED']) {
+    const f = await fixture();
+    try {
+      f.mode('success');
+      const session = await previous.reopenSession();
+      f.door.error = { code, message: 'Session ended.' };
+      const operationId = crypto.randomUUID();
+      await assert.rejects(
+        previous.operations(session).send({
+          operationId,
+          agentId: crypto.randomUUID(),
+          message: 'Exact original',
+        }),
+        (error: unknown) =>
+          error instanceof Error &&
+          (error as { code?: string }).code === 'unverifiable_response' &&
+          (error as { operationId?: string }).operationId === operationId,
+      );
+      assert.equal(f.door.calls.length, 1);
+      assert.equal(f.door.calls[0]!.envelope.id, operationId);
+      assert.equal(f.door.opens, 2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+});

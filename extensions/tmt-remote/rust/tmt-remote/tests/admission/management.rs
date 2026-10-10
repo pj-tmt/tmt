@@ -110,7 +110,7 @@ fn paired_browser_is_read_only_until_local_designation_and_agent_hold_never_appl
     assert!(core.calls().is_empty());
 }
 #[test]
-fn self_rename_ends_old_session_then_fresh_live_session_reads_original_receipt() {
+fn self_rename_keeps_same_session_and_reads_original_receipt() {
     let owner = OwnerDoor::browser();
     let core = core_fixture::Core::new();
     let app = app(&owner, &core);
@@ -135,16 +135,12 @@ fn self_rename_ends_old_session_then_fresh_live_session_reads_original_receipt()
         json!({"operationId":id,"clientId":owner.grant.client_id,"name":"New name"}),
     );
     assert_eq!(committed["state"], "committed");
-    assert_eq!(committed["sessionEnded"], true);
-    let old = owner.wire(&session, "2", "remote.settings.show", b"{}");
-    assert!(owner.admit(&old).is_err());
-    let fresh = owner.open();
-    assert_ne!(fresh, session);
+    assert_eq!(committed["sessionEnded"], false);
     let read = request(
         &owner,
         Arc::clone(&app),
-        &fresh,
-        1,
+        &session,
+        2,
         "remote.management.operation",
         json!({"operationId":id}),
     );
@@ -152,8 +148,8 @@ fn self_rename_ends_old_session_then_fresh_live_session_reads_original_receipt()
     let other = request(
         &owner,
         app,
-        &fresh,
-        2,
+        &session,
+        3,
         "remote.management.operation",
         json!({"operationId":uuid_v4().unwrap()}),
     );
@@ -597,7 +593,7 @@ fn settings_snapshot_cannot_disclose_after_revoke_or_close() {
         assert!(refused.get("firestoreLayers").is_none());
         assert!(matches!(
             refused["error"]["code"].as_str(),
-            Some("REMOTE_CLOSED" | "REMOTE_SESSION_ENDED")
+            Some("REMOTE_CLOSED" | "REMOTE_SESSION_ENDED" | "REMOTE_SERVE_STOPPED")
         ));
         assert!(core.calls().is_empty());
     }

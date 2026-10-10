@@ -1030,7 +1030,7 @@ fn authority_loss_cancels_held_work_even_after_its_session_ended() {
                     .store
                     .lock()
                     .unwrap()
-                    .rename(&owner.grant.client_id, "Changed")
+                    .talk(&owner.grant.client_id, false)
                     .unwrap();
             }
             "expiry" => {

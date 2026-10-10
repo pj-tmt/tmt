@@ -713,7 +713,7 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     assert!(renamed);
     assert_eq!(name["device"]["name"], "Travel laptop");
     assert_eq!(name["device"]["clientId"], client_id);
-    assert_eq!(name["device"]["revision"], 2);
+    assert_eq!(name["device"]["revision"], 1);
     for field in [
         "kind",
         "origin",
@@ -768,11 +768,11 @@ fn pair_json_lifecycle(explicit_policy: bool) {
     let (renamed, offline) = devices(&pilot, &["rename", client_id, "Home laptop", "--json"]);
     assert!(renamed);
     assert_eq!(offline["device"]["name"], "Home laptop");
-    assert_eq!(offline["device"]["revision"], 3);
+    assert_eq!(offline["device"]["revision"], 1);
     let (revoked, answer) = devices(&pilot, &["revoke", client_id, "--json"]);
     assert!(revoked);
     assert_eq!(answer["device"]["revoked"], true);
-    assert_eq!(answer["device"]["revision"], 4);
+    assert_eq!(answer["device"]["revision"], 2);
     let (renamed, disabled) = devices(&pilot, &["rename", client_id, "Revived", "--json"]);
     assert!(!renamed);
     assert_eq!(disabled["error"]["code"], "REMOTE_DEVICE_REVOKED");
@@ -1077,7 +1077,7 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
         assert!(renamed.status.success());
         assert_eq!(
             callback.next(),
-            serde_json::json!({"type":"device.renamed","deviceId":grant.client_id,"grantRevision":2,"name":"Travel"})
+            serde_json::json!({"type":"device.renamed","deviceId":grant.client_id,"grantRevision":1,"name":"Travel"})
         );
         terminate(pilot.child.take().unwrap());
         let revoked = pilot
@@ -1090,7 +1090,7 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
         pilot.child = Some(server);
         assert_eq!(
             callback.next(),
-            serde_json::json!({"type":"device.revoked","deviceId":grant.client_id,"grantRevision":3})
+            serde_json::json!({"type":"device.revoked","deviceId":grant.client_id,"grantRevision":2})
         );
         terminate(pilot.child.take().unwrap());
         assert!(!root.join("remote/control.sock").exists());

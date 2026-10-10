@@ -49,6 +49,8 @@ export type RemoteRefusalCode =
   | 'REMOTE_INPUT_INVALID'
   | 'REMOTE_RATE_LIMITED'
   | 'REMOTE_INTENT_CONFLICT'
+  | 'REMOTE_GRANT_CHANGED'
+  | 'REMOTE_SERVE_STOPPED'
   | 'REMOTE_CLOSED'
   | 'REMOTE_SESSION_ENDED'
   | 'REMOTE_SESSION_EVICTED'
@@ -239,6 +241,8 @@ export function remoteError(
   valid(
     PRE_EFFECT.has(error.code) ||
       [
+        'REMOTE_GRANT_CHANGED',
+        'REMOTE_SERVE_STOPPED',
         'REMOTE_SESSION_LIMIT',
         'REMOTE_INPUT_TOO_LARGE',
         'REMOTE_STATE_UNAVAILABLE',
@@ -340,7 +344,13 @@ async function attempt<T>(
         if (error) {
           if (
             error instanceof RefusalError &&
-            ['REMOTE_CLOSED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
+            [
+              'REMOTE_CLOSED',
+              'REMOTE_GRANT_CHANGED',
+              'REMOTE_SERVE_STOPPED',
+              'REMOTE_SESSION_ENDED',
+              'REMOTE_SESSION_EVICTED',
+            ].includes(error.code)
           )
             channel.ended = true;
           if (
