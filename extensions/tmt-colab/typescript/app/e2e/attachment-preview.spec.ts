@@ -8,7 +8,13 @@ const invoke = (page: Page, method: string) =>
   });
 async function mount(
   page: Page,
-  options: { count?: number; held?: boolean; kind?: string; refused?: boolean } = {},
+  options: {
+    count?: number;
+    held?: boolean;
+    kind?: string;
+    refused?: boolean;
+    files?: boolean;
+  } = {},
 ) {
   await page.goto('/');
   await page.evaluate(async ({ path, options }) => (await import(path)).mount(options), {
@@ -139,3 +145,120 @@ for (const width of [1440, 390])
       await expect(page.getByRole('dialog').locator('img')).toBeVisible();
       await page.screenshot({ path: `${captures}/2554-viewer-${width}-${scheme}.png` });
     });
+
+test('Files click uses the current scope even before another render', async ({ page }) => {
+  await mount(page, { count: 1, files: true });
+  await expect(page.getByTestId('file-row')).toBeVisible();
+  await invoke(page, 'advanceWithoutRender');
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await pending;
+  expect(saved.suggestedFilename()).toBe('image-1.png');
+  const stream = await saved.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(chunk);
+  expect(Buffer.concat(chunks).toString('base64')).toBe(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+  );
+  expect((await proof(page)).reads).toEqual(['image-1.png:document']);
+  expect((await proof(page)).zeroed).toBe(true);
+});
+
+for (const change of ['advance', 'removeAll'])
+  test(`Files ${change} during an explicit read shows retry without replay`, async ({ page }) => {
+    await mount(page, { count: 1, files: true, held: true });
+    const downloads: string[] = [];
+    page.on('download', (item) => downloads.push(item.suggestedFilename()));
+    await page.getByRole('button', { name: 'Download', exact: true }).click();
+    await expect.poll(async () => (await proof(page)).reads.length).toBe(1);
+    await invoke(page, change);
+    await invoke(page, 'finish');
+    await expect(page.getByRole('alert')).toHaveText(
+      'The page changed while opening this file. Try again.',
+    );
+    expect((await proof(page)).reads).toEqual(['image-1.png:document']);
+    expect((await proof(page)).zeroed).toBe(true);
+    expect(downloads).toEqual([]);
+  });
+
+test('queued trusted download selects the current message revision without a second click', async ({
+  page,
+}) => {
+  await mount(page, { count: 1, held: true });
+  await expect.poll(async () => (await proof(page)).reads.length).toBe(1);
+  await page.getByRole('button', { name: 'Preview image-1.png' }).click();
+  let downloads = 0;
+  page.on('download', () => downloads++);
+  const pending = page.waitForEvent('download');
+  await page.getByRole('dialog').getByRole('button', { name: 'Download', exact: true }).click();
+  await invoke(page, 'revise');
+  await invoke(page, 'advanceWithoutRender');
+  await invoke(page, 'finish');
+  expect((await pending).suggestedFilename()).toBe('image-1.png');
+  const result = await proof(page);
+  expect(result.reads.slice(0, 2)).toEqual(['image-1.png:1', 'image-1.png:2']);
+  expect(result.readScopes.slice(0, 2)).toEqual(['head:1', 'head:2']);
+  expect(downloads).toBe(1);
+  expect(result.maximum).toBe(1);
+  expect(result.zeroed).toBe(true);
+});
+
+for (const change of ['removeAll', 'unavailable'])
+  test(`queued trusted download refuses ${change} visibly without reading stale metadata`, async ({
+    page,
+  }) => {
+    await mount(page, { count: 1, held: true });
+    await expect.poll(async () => (await proof(page)).reads.length).toBe(1);
+    await page.getByRole('button', { name: 'Preview image-1.png' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Download', exact: true }).click();
+    await invoke(page, change);
+    await invoke(page, 'finish');
+    await expect(page.getByRole('alert')).toHaveText(
+      'The page changed while opening this file. Try again.',
+    );
+    expect((await proof(page)).reads).toEqual(['image-1.png:1']);
+    expect((await proof(page)).zeroed).toBe(true);
+  });
+
+for (const change of ['advance', 'unmount'])
+  test(`download URL ${change === 'advance' ? 'survives display replacement until handoff ends' : 'is revoked on component unmount'}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const active = new Set<string>();
+      Object.defineProperty(window, 'attachmentDownloadUrls', { value: active });
+      const create = URL.createObjectURL.bind(URL),
+        revoke = URL.revokeObjectURL.bind(URL);
+      URL.createObjectURL = (blob) => {
+        const url = create(blob);
+        active.add(url);
+        return url;
+      };
+      URL.revokeObjectURL = (url) => {
+        active.delete(url);
+        revoke(url);
+      };
+    });
+    await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+    await mount(page, { count: 1, files: true });
+    await expect(page.getByTestId('file-row')).toBeVisible();
+    await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download', exact: true }).click();
+    await pending;
+    const urls = () =>
+      page.evaluate(
+        () =>
+          (window as unknown as { attachmentDownloadUrls: Set<string> }).attachmentDownloadUrls
+            .size,
+      );
+    expect(await urls()).toBe(1);
+    await invoke(page, change);
+    if (change === 'advance') {
+      await expect(page.getByTestId('file-row')).toBeVisible();
+      expect(await urls()).toBe(1);
+      await page.clock.fastForward(1000);
+    }
+    await expect.poll(urls).toBe(0);
+    expect((await proof(page)).zeroed).toBe(true);
+  });

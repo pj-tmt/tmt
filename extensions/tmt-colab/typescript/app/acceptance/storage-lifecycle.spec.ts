@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, type Download, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
   annotationInput,
@@ -188,6 +188,11 @@ test('principals: owner, a second paired device and a read-only link read; a rev
 
     await expect(panel.getByText(text.filesAdding)).toHaveCount(0, { timeout: 30_000 });
     await captureResponsive(first, 'files');
+    // The capture restored desktop width; wait for the media-query subscriber before
+    // pageAction chooses between the compact More menu and Source and export.
+    await expect(
+      first.getByRole('button', { name: text.sourceAndExport, exact: true }),
+    ).toBeVisible();
     await (await pageAction(first, 'Export page')).click();
     await expect(
       first
@@ -223,6 +228,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
       'devices',
       'revoke',
       clientId(world, 'life-principal-peer'),
+      '--json',
     ]);
     await second.reload();
     await expect(second.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible({
@@ -263,18 +269,13 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     // The Files panel opened earlier stays open across the re-admission.
     await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
-    // The click may land before the re-admitted binding's disclosure scope settles, and the
-    // opener ignores a click on a scope that moved; a person clicks again, so the case does too.
+    // One click must use the current admitted scope without a user retry.
     const row = rowsOf(first).first();
-    let saved: Download | null = null;
-    for (let attempt = 0; attempt < 6 && !saved; attempt++) {
-      const pending = first.waitForEvent('download', { timeout: 8_000 }).catch(() => null);
-      await row.getByRole('button', { name: text.attachmentDownload }).click();
-      saved = await pending;
-    }
-    expect(saved, 'the owner downloads the file again after the re-admission').not.toBeNull();
-    expect(saved!.suggestedFilename()).toBe(note.name);
-    expect(sha(fs.readFileSync((await saved!.path())!))).toBe(sha(note.buffer));
+    const pending = first.waitForEvent('download');
+    await row.getByRole('button', { name: text.attachmentDownload }).click();
+    const saved = await pending;
+    expect(saved.suggestedFilename()).toBe(note.name);
+    expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(note.buffer));
   });
 });
 

@@ -2,12 +2,14 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
+import { FilesList } from '../src/files-panel.js';
 import { MessageAttachments } from '../src/message-attachments.js';
 import type { CommentView } from '../src/thread-records.js';
 import type { AttachmentBinding } from '../src/attachment-service.js';
 import { AttachmentReadError } from '../src/attachments.js';
 import { id } from './ask-fixtures.js';
 let root: Root | undefined;
+let files = false;
 let scope = 'head:1',
   count = 7,
   revision = '1',
@@ -19,7 +21,8 @@ let active = 0,
   held = false;
 let release: (() => void) | undefined;
 let refused = false;
-let activeBinding: AttachmentBinding;
+let activeBinding: AttachmentBinding | undefined;
+let readScopes: string[] = [];
 const raw = Uint8Array.from(
   atob(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
@@ -41,6 +44,7 @@ const binding: AttachmentBinding = {
     throw new Error('Read-only fixture');
   },
   async open(reference, descriptor) {
+    readScopes.push(scope);
     reads.push(
       `${descriptor.filename}:${reference.kind === 'message' ? reference.revision : 'document'}`,
     );
@@ -83,7 +87,17 @@ function render() {
   root!.render(
     <div style={{ width: 'min(360px, calc(100vw - 28px))', margin: '14px' }}>
       <p className="comment-body">These images and the grid share this left edge.</p>
-      <MessageAttachments comment={comment} binding={activeBinding} />
+      {files ? (
+        <FilesList
+          descriptors={comment.attachments!.map((d) => ({
+            ...d,
+            source: { kind: 'document' as const, sourceDigest: '00'.repeat(32) },
+          }))}
+          binding={activeBinding}
+        />
+      ) : (
+        <MessageAttachments comment={comment} binding={activeBinding} />
+      )}
       <button type="button" style={{ marginTop: 1000 }}>
         After attachments
       </button>
@@ -91,7 +105,13 @@ function render() {
   );
 }
 export function mount(
-  options: { count?: number; held?: boolean; kind?: string; refused?: boolean } = {},
+  options: {
+    count?: number;
+    held?: boolean;
+    kind?: string;
+    refused?: boolean;
+    files?: boolean;
+  } = {},
 ) {
   root?.unmount();
   document.getElementById('attachment-fixture')?.remove();
@@ -100,9 +120,11 @@ export function mount(
   document.getElementById('root')?.setAttribute('hidden', '');
   document.body.append(host);
   root = createRoot(host);
+  files = options.files ?? false;
   scope = 'head:1';
   revision = '1';
   reads = [];
+  readScopes = [];
   cleared = [];
   active = 0;
   maximum = 0;
@@ -111,6 +133,17 @@ export function mount(
   kind = options.kind ?? 'image/png';
   refused = options.refused ?? false;
   activeBinding = binding;
+  render();
+}
+export function advanceWithoutRender() {
+  scope = 'head:2';
+}
+export function unavailable() {
+  activeBinding = undefined;
+  render();
+}
+export function removeAll() {
+  count = 0;
   render();
 }
 export function advance() {
@@ -133,5 +166,10 @@ export function unmount() {
   root?.unmount();
 }
 export function proof() {
-  return { reads, maximum, zeroed: cleared.every((bytes) => bytes.every((b) => b === 0)) };
+  return {
+    reads,
+    readScopes,
+    maximum,
+    zeroed: cleared.every((bytes) => bytes.every((b) => b === 0)),
+  };
 }
