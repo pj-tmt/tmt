@@ -379,8 +379,9 @@ Historical bootstrap is a separate owner-authorized execution. First review
 Then run `backfill` with that exact `--tag`, `--release-id`, `--source-sha`, channel,
 product and an empty `--directory` outside the checkout. It reuses the historical
 immutable/tag/attestation/digest gates and writes a branch record and pointer,
-never old release assets. Branch initialization and the App-only, no-force/no-delete
-ruleset need Ben's authorization before the writer merges.
+never old release assets. The writer requires an owner-initialized `release-index`
+branch protected so that only the Release App can advance it, without force push
+or deletion, and runs only from the main-only release environment.
 
 It verifies public immutable state, the exact tag commit, product flags, latest
 CLI selection, the completeness marker, release attestation and every downloaded

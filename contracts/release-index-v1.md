@@ -76,19 +76,19 @@ never amended, and a failed readback cannot roll back immutable publication.
 The index writer may advance a pointer only after every publication
 check succeeds. It executes trusted main tooling under the minimum contents-write
 Release App token, never release-tag or PR code under writer credentials.
-Ben must authorize branch initialization and a ruleset admitting only that App,
-without force push or deletion, before the writer merges. Non-force races re-read
+The writer requires an owner-initialized `release-index` branch protected so that
+only the Release App can advance it, without force push or deletion, and runs only
+from the main-only release environment. Non-force races re-read
 and re-apply against the latest tip, preserving unrelated products and monotonic
 version selection, with at most five non-force update attempts. Equal-version
 differing identities refuse. Failure leaves the preceding pointer intact and is
-reported visibly. An ambiguous readback does not
-claim rollback of a possibly completed update. The writer rechecks the same
-verified download directory; no flag file substitutes for verification.
+reported visibly. An ambiguous readback does not claim rollback of a possibly
+completed update. The writer rechecks the same verified download directory; no
+flag file substitutes for verification.
 Owner recovery reruns only the failed published job: lower/equal-identical
 versions are no-ops, while a higher verified version advances. Historical bootstrap
 separately performs the existing immutable/tag/attestation/digest gates; it does not
-pass a
-recordless release through the new full verifier or mutate old assets.
+pass a recordless release through the new full verifier or mutate old assets.
 
 ## Client and trust boundary
 
