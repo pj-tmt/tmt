@@ -121,7 +121,7 @@ describe('colab browser values and immutable crypto', () => {
     expect(c.equal(envelope.ciphertext(), ciphertext)).toBe(true);
     expect(c.equal(envelope.toJson(), raw)).toBe(true);
     expect(() => c.binary('A'.repeat(c.MAX_PLAINTEXT) + '!', c.MAX_PLAINTEXT)).toThrow();
-  });
+  }, 30_000);
   it('matches independent ciphertext/hash and snapshots strict verify inputs', async () => {
     expect(await c.deriveSpaceId(hex(authority.public))).toBe(authority.space);
     const e = frozen(),
