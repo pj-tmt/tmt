@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/remote.mdx
-sourceRevision: fb2be5df056de1865d6335a235649da068570931
+sourceRevision: f77c7ba23576260446fe8369277aaa348e215a59
 title: Remote：每台機器上的 agent
 ---
 
@@ -12,11 +12,13 @@ import { Caption } from "../../components/marks";
 
 <Cmd>{`
 $ tmt extension install remote
-$ tmt remote pair                  # 顯示要在另一台機器上輸入的配對碼
+$ tmt remote pair --talk           # 顯示要在另一台機器上輸入的配對碼
 $ tmt talk reviewer@studio "Review the patch"   # 同一個 talk，傳到另一台機器
 `}</Cmd>
 
 <Caption>提案。指令名稱尚未定案。</Caption>
+
+配對只會給讀取權限。要讓裝置傳訊息給 agent，可以在配對時回答 yes、用 `tmt remote pair --talk` 配對，或在 Remote 設定中為該裝置開啟傳送。
 
 <Mdx.h3 id="you-own-the-backend">Backend 由你掌握</Mdx.h3>
 
