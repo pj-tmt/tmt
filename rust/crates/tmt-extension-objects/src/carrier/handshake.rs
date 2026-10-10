@@ -9,7 +9,7 @@
 //! Upgrade: tmt-object-channel-v1                    tmt-object-generation: <same>
 //! Content-Length: 0
 //! tmt-mount: <the selected mount>
-//! tmt-object-channel: 1
+//! tmt-object-channel: <1 or 2>
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
 use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, bounded, halves};

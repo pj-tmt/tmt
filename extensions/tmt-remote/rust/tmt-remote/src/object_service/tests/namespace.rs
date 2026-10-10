@@ -285,3 +285,86 @@ fn a_new_namespace_tombstone_keeps_typed_capacity_refusal_without_changes() {
         }
     );
 }
+
+#[test]
+fn removal_disclose_refusal_reports_unknown_after_removal_without_replay() {
+    for decision in [Decision::Deny, Decision::Unavailable] {
+        let env = Env::new();
+        let (service, peer) = running(&env, bounds());
+        let original = spec(Context::LocalExtension, 7, b"hello");
+        seed(&service, &original, b"hello", true);
+        let removals = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&removals);
+        service.storage.observe(Arc::new(move |point| {
+            if point == crate::objects::Milestone::RemovalMarked {
+                observed.fetch_add(1, Ordering::SeqCst);
+            }
+            true
+        }));
+        request(&peer, 1, Origin::LocalExtension, remove(7));
+        for boundary in [Checkpoint::Acquire, Checkpoint::Effect] {
+            let admit = callback(&peer);
+            assert_eq!(admit.boundary, boundary);
+            decide(&peer, admit.callback_id.get(), 1, Decision::Allow);
+        }
+        let admit = callback(&peer);
+        assert_eq!(admit.boundary, Checkpoint::Disclose);
+        assert_eq!(admit.operation.disclosure, Some(Disclosure::Removed));
+        decide(&peer, admit.callback_id.get(), 1, decision);
+        assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::Unknown));
+        let after = usage(
+            &peer,
+            2,
+            UsageScope::Namespace(Bytes32::from_bytes([7; 32])),
+        );
+        assert_eq!(
+            after,
+            tmt_extension_objects::Usage {
+                charged_bytes: crate::limits::OBJECT_RECORD_BYTES
+                    + crate::limits::OBJECT_FENCE_BYTES,
+                entries: 0,
+                active_uploads: 0,
+                retained_identities: 1,
+            }
+        );
+        assert_eq!(
+            removals.load(Ordering::SeqCst),
+            1,
+            "removal was not replayed"
+        );
+        assert_eq!(
+            service.handle("alpha").unwrap().begin(&original, &io()),
+            Ok(crate::objects::BeginResult::Terminal(
+                crate::objects::TransferState::Unavailable
+            ))
+        );
+    }
+}
+
+#[test]
+fn usage_disclose_refusal_preserves_denied_and_unavailable() {
+    for (decision, code) in [
+        (Decision::Deny, ErrorCode::Denied),
+        (Decision::Unavailable, ErrorCode::Unavailable),
+    ] {
+        let env = Env::new();
+        let (_service, peer) = running(&env, bounds());
+        request(
+            &peer,
+            1,
+            Origin::LocalExtension,
+            Call::Usage(UsageScope::Extension),
+        );
+        let admit = callback(&peer);
+        assert_eq!(admit.boundary, Checkpoint::Acquire);
+        decide(&peer, admit.callback_id.get(), 1, Decision::Allow);
+        let admit = callback(&peer);
+        assert_eq!(admit.boundary, Checkpoint::Disclose);
+        assert!(matches!(
+            admit.operation.disclosure,
+            Some(Disclosure::Usage(_))
+        ));
+        decide(&peer, admit.callback_id.get(), 1, decision);
+        assert_eq!(result(&peer).outcome, Outcome::Failure(code));
+    }
+}

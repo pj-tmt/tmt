@@ -109,8 +109,10 @@ pub(super) fn serve(
     else {
         return finish(Outcome::Failure(uncertain));
     };
-    if decision != Decision::Allow {
-        return finish(Outcome::Failure(uncertain));
+    match decision {
+        Decision::Allow => {}
+        Decision::Deny if !removes => return finish(Outcome::Failure(ErrorCode::Denied)),
+        Decision::Deny | Decision::Unavailable => return finish(Outcome::Failure(uncertain)),
     }
     dispatch::before_result(hub, deadline);
     if !current() {
