@@ -147,6 +147,7 @@ unmount. Chat initializes on first opening; closed Source, Comments and Chat pan
 closing never dispatches, abandons or retries. Export closes its preparation and
 revokes download Blob URLs. Manage also portals outside the menu and initially
 focuses its non-interactive heading without an outline while metadata loads;
+Its title and Close stay fixed while only the management body scrolls.
 Tab reaches its enabled controls with visible focus outlines, and
 Close/Escape restores the trigger's focus. Safety details
 remain available from About this page, reader Page information and blocked views; visibility never
