@@ -34,7 +34,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 ## Native installation
 
 [Release-index v1](../../../../contracts/release-index-v1.md) owns the publication-side
-record contract; index writing and API-free native client consumption remain pending.
+record contract and the fixed-origin API-free native resolver.
 
 The one-release Core-name cutover is owned by `skill_installation::retired` and
 `native_upgrade_command::rename`. Install and the upgrade skill-refresh child
@@ -77,13 +77,17 @@ upgrade failure, retirement, re-launch or automatic rebind.
   acquisition, receipt and atomic-publication path with independent links, lock and current
   release. Manifest selection uses product and target together and rejects ambiguous or multiply
   owned artifacts.
-- Discovery lists matching refs per product tag prefix (CLI `v`, others `tmt-<name>-v`), finishes
-  bounded ref discovery before channel filtering and semantic-version selection, and treats
-  equal-precedence published versions as ambiguous; incomplete discovery fails closed. GitHub's
-  latest pointer never selects a channel.
-- `release_http::Https` treats a 403/429 as rate limiting only with primary headers reporting
-  zero remaining plus a reset, or a secondary Retry-After, and retries once within the caller's
-  unchanged absolute deadline. `GITHUB_TOKEN` is sent per hop only to `api.github.com`.
+- Normal discovery reads one fixed raw index pointer per product/channel, then its size/hash-bound
+  record. Exact versions read the record from the tag's release assets; historical exact tags without
+  a record refuse, without API fallback. Bootstrap pointers may name a raw index record. The
+  [release-index contract](../../../../contracts/release-index-v1.md) owns identities and bounds;
+  cargo-dist remains the archive, inventory and application-schema authority. Missing or unreadable
+  pointers fail without changing installations; a stale pointer cannot authorize a downgrade.
+- `release_http::environment_token` selects nonempty `GH_TOKEN`, then `GITHUB_TOKEN`, with no
+  credential command or prompt. Only authenticated PR-mode API hops receive Authorization;
+  normal raw/download hops and redirects never receive tokens or follow an API redirect. The
+  existing API-only 403/429 bounded retry and absolute acquisition deadlines remain unchanged.
+  Binaries published before this resolver still use the API for their first upgrade.
 - Publication runs the caller's release verifier on the written candidate before the receipt, so
   a rejection keeps the previous release current; a product whose row requires a verifier is
   refused without one before anything is written.
@@ -186,10 +190,9 @@ A parent CLI released before Ops registration parses the candidate's upgrade pla
 
 - The facade `extension_install_command` keeps dispatch, consent, errors, interruption, rendering
   and uninstall; private modules own install, repair, list/upgrade and skills settlement. Names
-  come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation.
-  Without a published release in the selected channel, install returns `EXTENSION_RELEASE_UNAVAILABLE`
-  (marked by `release::ReleaseUnavailable` after complete discovery) and changes nothing.
-  Digest remains unpublished until its release activation.
+  come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
+  an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
+  and changes nothing. Digest remains unpublished until its release activation.
 - Office is frozen: install and explicit upgrade refuse before consent or acquisition, root
   upgrade skips it, listing marks an existing one frozen and never looks up an upgrade, and
   `tmt office install|upgrade` share the same `require_installable` guard. Historical receipts and

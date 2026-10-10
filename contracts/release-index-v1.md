@@ -2,8 +2,8 @@
 
 This contract owns release discovery documents for #2371. Publication tooling emits
 and verifies release records and advances channel pointers after verification.
-Writer activation and bootstrap execution require owner authorization; native
-client consumption is pending and the shipped client still uses GitHub's API.
+Writer activation and bootstrap execution require owner authorization. The native
+client consumes fixed-origin channel pointers and verified records without an API fallback.
 
 ## Origins and identity
 
@@ -95,7 +95,7 @@ pass a recordless release through the new full verifier or mutate old assets.
 
 ## Client and trust boundary
 
-The pending client uses one compile-time index base constant, with injection only
+The client uses one compile-time index base constant, with injection only
 through its existing test fixture seam, never environment/configuration override.
 Network and HTTP errors name the failing host; oversize, malformed, unsupported,
 404/5xx and digest failures do not change installed state. Redirects remain within

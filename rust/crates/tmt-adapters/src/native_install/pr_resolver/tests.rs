@@ -135,14 +135,9 @@ impl Fixture {
                 payload,
             );
             if target == TARGET {
-                fixture.put(
-                    "git/matching-refs/tags/v?per_page=100&page=1",
-                    json!([{"ref":"refs/tags/v5.0.0-alpha.92"}]),
-                );
-                fixture.put("releases/tags/v5.0.0-alpha.92", release);
                 fixture
                     .routes
-                    .insert(format!("{ROOT}/releases/assets/421"), manifest);
+                    .extend(release::indexed_routes(&release, &manifest, &archive));
             }
         }
         let catalog_zip = zip(&[("catalog.json", &serde_json::to_vec(&catalog).unwrap())]);
@@ -382,17 +377,30 @@ fn local_newer_than_candidate_and_unknown_latest_alpha_refuse() {
             .is::<tmt_core::native_install::SchemaError>()
     );
     let mut fixture = Fixture::new();
-    fixture.modify("releases/assets/421", false, |value| {
-        value
-            .as_object_mut()
-            .unwrap()
-            .remove("tmt_application_schema");
-    });
-    let alpha = fixture.routes[&format!("{ROOT}/releases/assets/421")].clone();
-    fixture.modify("releases/tags/v5.0.0-alpha.92", false, |release| {
-        release["assets"][0]["size"] = alpha.len().into();
-        release["assets"][0]["digest"] = format!("sha256:{}", artifact::digest(&alpha)).into();
-    });
+    let manifest_url =
+        "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.92/dist-manifest.json";
+    let record_url =
+        "https://github.com/pj-tmt/tmt/releases/download/v5.0.0-alpha.92/tmt-release-record.json";
+    let pointer_url =
+        "https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/alpha.json";
+    let mut alpha: Value = serde_json::from_slice(&fixture.routes[manifest_url]).unwrap();
+    alpha
+        .as_object_mut()
+        .unwrap()
+        .remove("tmt_application_schema");
+    let alpha = serde_json::to_vec(&alpha).unwrap();
+    let mut record: Value = serde_json::from_slice(&fixture.routes[record_url]).unwrap();
+    record["manifest"]["size"] = alpha.len().into();
+    record["manifest"]["sha256"] = artifact::digest(&alpha).into();
+    let record = serde_json::to_vec(&record).unwrap();
+    let mut pointer: Value = serde_json::from_slice(&fixture.routes[pointer_url]).unwrap();
+    pointer["record"]["size"] = record.len().into();
+    pointer["record"]["sha256"] = artifact::digest(&record).into();
+    fixture.routes.insert(manifest_url.into(), alpha);
+    fixture.routes.insert(record_url.into(), record);
+    fixture
+        .routes
+        .insert(pointer_url.into(), serde_json::to_vec(&pointer).unwrap());
     assert!(fixture.download().is_err());
 }
 
