@@ -896,7 +896,7 @@ for (const backward of [false, true])
     await page.mouse.up();
   });
 
-test('keyboard selection waits for key release; C toggles mode and Alt+Enter keeps the explicit annotation guards', async ({
+test('keyboard selection waits for key release; C annotates a completed selection or toggles mode with editing guards', async ({
   page,
 }) => {
   await page.goto('/');
@@ -961,19 +961,24 @@ test('keyboard selection waits for key release; C toggles mode and Alt+Enter kee
   ).toEqual({ trusted: true, code: 'KeyC', keyCode: 229 });
   await client.detach();
   await page.keyboard.press('c');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await expect(page.locator('#probe')).not.toHaveAttribute('data-toggles');
+  await page.keyboard.press('Alt+Enter');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
+  await frame.evaluate(() => getSelection()?.removeAllRanges());
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
+  await page.keyboard.press('c');
   await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '1');
   await page.keyboard.down('c');
   await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   await page.keyboard.down('c');
   await page.keyboard.up('c');
   await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
-  await page.keyboard.press('Alt+Enter');
-  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
   for (const id of ['edit', 'area', 'editable']) {
     await frame.locator(`#${id}`).focus();
     await page.keyboard.press('c');
     await page.keyboard.press('Alt+Enter');
-    await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+    await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
     await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   }
 });

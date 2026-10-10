@@ -74,7 +74,8 @@ header; fallback pages instead scroll to the target internally. Neither layout
 nor anchor reports grant a publication capability. Quote capture/resolution and
 the existing selection channel remain cosmetic and keep working after resize.
 Selection capture waits for pointer/keyboard release; the parent Annotate control follows
-its focus end. C toggles selection mode outside text entry, IME, repeats and modifiers;
+its focus end. With mode off, C annotates a completed selection; otherwise it toggles mode.
+It stays outside text entry, IME, repeats and modifiers;
 Alt+Enter keeps its explicit annotation action. The parent-only bottom-right toggle clears
 open panels and composers spatially, independently of their state. In mode, one outline
 marks the hovered target; text-bearing clicks and completed selections open the retained

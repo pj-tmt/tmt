@@ -319,7 +319,7 @@ for (const selected of [false, true]) {
 }
 
 for (const theme of ['light', 'dark'] as const)
-  test(`390px ${theme}: Annotate waits for drag release; Alt+Enter opens without sending and stays out of the composing field`, async ({
+  test(`390px ${theme}: Annotate waits for drag release; C opens without sending and stays out of the composing field`, async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -357,7 +357,8 @@ for (const theme of ['light', 'dark'] as const)
     expect(actionBox.x).toBeGreaterThan(box.x + box.width);
     expect(actionBox.x + actionBox.width).toBeLessThanOrEqual(390);
     await page.screenshot({ path: capturePath(`selection-finished-390-${theme}.png`) });
-    await page.keyboard.press('Alt+Enter');
+    await expect(action).toHaveAttribute('aria-keyshortcuts', 'c Alt+Enter');
+    await page.keyboard.press('c');
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();
     await expect(page.locator('.annotation-popover blockquote')).toHaveText('Exact selected text');

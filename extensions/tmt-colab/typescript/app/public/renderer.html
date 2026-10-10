@@ -823,7 +823,9 @@
             }
             if (isColabShortcut(event, editing)) {
               event.preventDefault();
-              parent.postMessage({ type: 'colab.render.toggle-selection', renderId }, '*');
+              const type =
+                !selecting && capture() ? 'colab.render.annotate' : 'colab.render.toggle-selection';
+              parent.postMessage({ type, renderId }, '*');
               return;
             }
             if (

@@ -93,6 +93,8 @@ function SelectionMode({
       const box = host?.getBoundingClientRect();
       if (!box) return;
       const margin = innerWidth <= 640 ? 16 : 24;
+      // These parent-owned overlays sit outside the renderer host's layout box.
+      // Their actual bounds keep the control clear without altering author geometry.
       const drawer = document
         .querySelector<HTMLDialogElement>('.page-drawer[open]')
         ?.getBoundingClientRect();
@@ -272,7 +274,7 @@ function SelectionAnnotation({
         <button
           className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
-          aria-keyshortcuts="Alt+Enter"
+          aria-keyshortcuts="c Alt+Enter"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
             if (event.isTrusted) open();
@@ -1147,11 +1149,12 @@ function Page() {
       )
         return;
       event.preventDefault();
-      toggleSelectionMode.current();
+      if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
+      else toggleSelectionMode.current();
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [canSelect]);
+  }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
   const questions = useMemo(() => readQuestions(view.source), [view.source]);
   const inlineSlots = useInlineSlots({

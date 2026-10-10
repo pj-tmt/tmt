@@ -1884,7 +1884,8 @@ The bootstrap hides the affordance while a pointer drag or keyboard selection is
 progress and captures after release (coalescing other selection changes at the next
 animation frame). Its rectangle follows the selection's focus end, including backward
 selections; layout updates refresh only completed selections. Legacy text-only messages
-supply no anchor. Unmodified, non-repeating C toggles parent-owned selection mode outside
+supply no anchor. Unmodified, non-repeating C annotates an existing completed selection while mode is
+off; otherwise it toggles parent-owned selection mode. It stays outside
 input/textarea/select/contenteditable/textbox targets, with all modifiers, handled-event,
 IME and keyCode 229 guards. The frame requests only `type:"colab.render.toggle-selection",renderId`;
 the parent enables it only for the admitted comment surface. Its bound port projection is
