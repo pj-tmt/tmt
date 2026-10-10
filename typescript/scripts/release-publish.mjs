@@ -23,6 +23,8 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { RELEASE_RECORD, RECORD_LIMIT, verifyReleaseRecord } from './release-index.mjs';
+import { readBoundedFile } from './native-artifact-policy.mjs';
 import {
   checkLatestTag,
   isProductReleased,
@@ -253,6 +255,7 @@ export function verifyPublication({
       highest,
     };
   }, retry).current;
+  const tagCommit = api.tagCommit(tag);
   const results = checkPublishedRelease({
     release,
     latest,
@@ -260,7 +263,7 @@ export function verifyPublication({
       product === 'cli'
         ? (publishedReleases(api.listReleases(), 'cli')[0]?.tag_name ?? null)
         : undefined,
-    tagCommit: api.tagCommit(tag),
+    tagCommit,
     product,
     tag,
   });
@@ -292,6 +295,27 @@ export function verifyPublication({
       ? pass('assets', `gh release verify-asset passed for ${names.length} assets`)
       : fail('assets', `gh release verify-asset failed for ${failed.join('; ')}`)
   );
+  if (!names.includes(RELEASE_RECORD)) {
+    results.push(
+      fail('record', `release has no ${RELEASE_RECORD}; pre-record tags are expected to fail here`)
+    );
+  } else {
+    try {
+      verifyReleaseRecord({
+        recordBytes: readBoundedFile(path.join(directory, RELEASE_RECORD), RECORD_LIMIT),
+        product,
+        tag,
+        releaseId: release.id,
+        sourceSha: tagCommit,
+        directory,
+      });
+      results.push(
+        pass('record', 'release record matches the verified release and downloaded bytes')
+      );
+    } catch (error) {
+      results.push(fail('record', `release record verification failed: ${error.message}`));
+    }
+  }
   return results;
 }
 

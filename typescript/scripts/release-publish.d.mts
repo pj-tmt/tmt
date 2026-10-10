@@ -14,6 +14,7 @@ export interface Outcome {
 
 /** The fields of a published release that the checks read. */
 export interface PublishedRelease {
+  readonly id: number;
   readonly draft: boolean;
   readonly immutable?: boolean;
   readonly prerelease: boolean;
