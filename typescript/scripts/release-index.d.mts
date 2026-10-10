@@ -62,10 +62,10 @@ export function channelPointer(
   options?: { bootstrap?: boolean }
 ): ChannelPointer;
 export function updateReleaseIndex(input: {
-  sleep?: (milliseconds: number) => void;
   api: IndexApi;
   recordBytes: Buffer | string;
   bootstrap?: boolean;
+  sleep?: (milliseconds: number) => void;
 }): IndexResult;
 export function ghIndexApi(input: {
   repository: string;

@@ -287,13 +287,11 @@ export function updateReleaseIndex({ api, recordBytes, bootstrap = false, sleep 
     let staleFailure;
     const observed = retryReleaseRead(
       () => {
-        const observed = api.readTip();
-        const readback = api.readFile(observed.sha, pointerPath, POINTER_LIMIT);
+        const tip = api.readTip();
+        const readback = api.readFile(tip.sha, pointerPath, POINTER_LIMIT);
         const observedOrder = readback === null ? null : pointerOrder(readback, pointer);
         if (observedOrder === null || observedOrder < 0) {
-          process.stderr.write(
-            `Index pointer readback tip=${observed.sha} order=${observedOrder}\n`
-          );
+          process.stderr.write(`Index pointer readback tip=${tip.sha} order=${observedOrder}\n`);
           try {
             assert(readback !== null, 'Index pointer readback failed');
             assert(false, 'Index pointer readback bytes failed');
@@ -306,7 +304,7 @@ export function updateReleaseIndex({ api, recordBytes, bootstrap = false, sleep 
           observedOrder > 0 || Buffer.from(readback).equals(pointerBytes),
           'Index pointer readback bytes failed'
         );
-        return observed;
+        return tip;
       },
       { label: 'Index pointer readback', sleep, retryIf: (failure) => failure === staleFailure }
     );
