@@ -32,6 +32,7 @@ export function QuestionCard({
   asks,
   title,
   blocked,
+  readOnly = false,
 }: {
   question: Question;
   selector?: QuoteSelector;
@@ -41,6 +42,7 @@ export function QuestionCard({
   asks: readonly PageAsk[];
   title: string;
   blocked: boolean;
+  readOnly?: boolean;
 }) {
   const heading = useId();
   const [choices, setChoices] = useState<string[]>([]);
@@ -92,7 +94,7 @@ export function QuestionCard({
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const decision = messageRecipient({
-    writable: !blocked && !!discussion,
+    writable: !readOnly && !blocked && !!discussion,
     edit: recipient,
     destinations: agents,
   });
@@ -102,6 +104,7 @@ export function QuestionCard({
     if (
       sending.current ||
       recorded ||
+      readOnly ||
       blocked ||
       !discussion ||
       !selector ||
@@ -158,7 +161,7 @@ export function QuestionCard({
           <p className="question-answer">
             {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
           </p>
-          {!changing && (
+          {!readOnly && !changing && (
             <BrowserAction
               label="Change answer"
               type="button"
@@ -176,7 +179,7 @@ export function QuestionCard({
           )}
         </>
       )}
-      {compose && (
+      {!readOnly && compose && (
         <>
           {(question.kind === 'single' || question.kind === 'multiple') && (
             <fieldset disabled={disabled}>
@@ -298,28 +301,32 @@ export function QuestionCard({
       )}
       {recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
       {error && <p role="alert">{error}</p>}
-      <CommentSendFailures
-        failures={failures.filter(
-          (failure) =>
-            !asks.some(
-              (record) =>
-                record.messageIds?.includes(failure.message) &&
-                record.agent === failure.recipient.agent &&
-                record.machine === failure.recipient.machine,
-            ),
-        )}
-        binding={ask}
-        blocked={blocked || busy}
-        settled={(failure, outcome) =>
-          setFailures((previous) =>
-            outcome.adopted === true
-              ? previous.filter((item) => item !== failure)
-              : outcome.adopted === false
-                ? previous
-                : previous.map((item) => (item === failure ? { ...item, uncertain: true } : item)),
-          )
-        }
-      />
+      {!readOnly && (
+        <CommentSendFailures
+          failures={failures.filter(
+            (failure) =>
+              !asks.some(
+                (record) =>
+                  record.messageIds?.includes(failure.message) &&
+                  record.agent === failure.recipient.agent &&
+                  record.machine === failure.recipient.machine,
+              ),
+          )}
+          binding={ask}
+          blocked={blocked || busy}
+          settled={(failure, outcome) =>
+            setFailures((previous) =>
+              outcome.adopted === true
+                ? previous.filter((item) => item !== failure)
+                : outcome.adopted === false
+                  ? previous
+                  : previous.map((item) =>
+                      item === failure ? { ...item, uncertain: true } : item,
+                    ),
+            )
+          }
+        />
+      )}
       {threads.some((thread) => thread.comments.length) && (
         <details className="question-history">
           <summary>
@@ -335,6 +342,7 @@ export function QuestionCard({
             <div key={`${thread.ref.writer}:${thread.ref.id}`} className="question-history">
               {thread.comments.map((comment) => (
                 <CommentExchange
+                  readOnly={readOnly}
                   key={`${comment.ref.writer}:${comment.ref.id}`}
                   comment={comment}
                   thread={thread}

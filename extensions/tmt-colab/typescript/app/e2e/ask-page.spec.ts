@@ -685,3 +685,65 @@ for (const width of [1440, 390])
       expect(await run(page, 'discussionProof')).toEqual(before);
       expect(await run(page, 'proof')).toEqual(proof);
     });
+
+test('a live archive preserves Chat text for Copy and removes publication controls', async ({
+  page,
+}) => {
+  await mount(page);
+  const input = await compose(page);
+  const draft = '@Agent 1 Explain exactly';
+  await expect(input).toHaveText(draft, { useInnerText: true });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as any).copiedArchiveDraft = value;
+        },
+      },
+    });
+  });
+  await run(page, 'archive');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText(text.archiveReadOnly);
+  const chat = page.getByTestId('chat-panel');
+  await expect(chat.getByText(text.unsentDraft, { exact: true })).toBeVisible();
+  await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(draft);
+  await expect(chat.getByRole('combobox')).toHaveCount(0);
+  await expect(chat.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+  await expect(chat.getByRole('button', { name: /Attach/ })).toHaveCount(0);
+  await chat.getByRole('button', { name: text.copyDraft, exact: true }).click();
+  expect(await page.evaluate(() => (window as any).copiedArchiveDraft)).toBe(draft);
+  await expect(page.getByRole('button', { name: 'Agents', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
+test('archive keeps an open anchored draft mounted as read-only Copy text', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  const quote = page.frameLocator('iframe').locator('#selected');
+  await quote.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const selection = node.ownerDocument.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  });
+  await expect(page.getByTestId('selection-ask')).toBeVisible();
+  await page.getByTestId('selection-ask').click();
+  const annotation = page.getByRole('dialog', { name: 'Annotate selection' });
+  await annotation
+    .getByRole('combobox', { name: 'Message', exact: true })
+    .fill('Keep this anchored draft');
+  await run(page, 'archive');
+  await expect(annotation).toBeVisible();
+  await expect(annotation.locator('.archive-unsent-draft pre')).toHaveText(
+    'Keep this anchored draft',
+  );
+  await expect(annotation.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+  await expect(annotation.getByRole('combobox')).toHaveCount(0);
+  await expect(annotation.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});

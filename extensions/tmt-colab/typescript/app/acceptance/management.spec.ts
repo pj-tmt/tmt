@@ -332,3 +332,68 @@ test('a lost management reply permits only an explicit byte-identical retry of t
     expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(0);
   });
 });
+
+test('archive commit reopens paired tabs read-only while retaining unsent Chat drafts', async () => {
+  const info = test.info();
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const recipient = await world.startAgent('archive-recipient');
+    const device = await pairBrowser(world, 'archive-browser');
+    const created = createPage(
+      world,
+      'Archived readable page',
+      '<p id="quote">Still readable after archive.</p>',
+    );
+    const page = await openPage(door, device, created);
+    await composeChat(page, recipient, 'Keep this unsent archive draft');
+    const chat = page.getByTestId('chat-panel');
+    const expected = '@archive-recipient Keep this unsent archive draft';
+    const second = await openPage(door, device, created);
+    // Commit through the actual management modal; the other tab receives the sync invalidation.
+    const dialog = await manage(second);
+    await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm archive page', exact: true }).click();
+    await expect(managementStatus(dialog)).toContainText('Change verified');
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    for (const tab of [page, second]) {
+      await expect(tab.locator('.status')).toContainText('Archived · Read only');
+      await expect(tab.getByRole('button', { name: 'Agents', exact: true })).toHaveCount(0);
+      await expect(tab.getByRole('button', { name: 'Selection mode', exact: true })).toHaveCount(0);
+      await expect(
+        tab.frameLocator('iframe').getByText('Still readable after archive.'),
+      ).toBeVisible();
+    }
+    await expect(chat.getByText('Unsent draft', { exact: true })).toBeVisible();
+    await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(expected);
+    await expect(chat.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            (window as any).archiveCopy = value;
+          },
+        },
+      });
+    });
+    await chat.getByRole('button', { name: 'Copy', exact: true }).click();
+    expect(await page.evaluate(() => (window as any).archiveCopy)).toBe(expected);
+    for (const [width, theme] of [
+      [1440, 'light'],
+      [390, 'dark'],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      await page.screenshot({ path: info.outputPath(`archived-draft-${width}-${theme}.png`) });
+    }
+    await (await pageAction(second, 'Source')).click();
+    await expect(second.getByRole('textbox', { name: 'Source' })).toHaveAttribute('readonly', '');
+    await expect(second.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+    expect(recipient.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    await second.reload();
+    await expect(second.locator('.status')).toContainText('Archived · Read only');
+  });
+});

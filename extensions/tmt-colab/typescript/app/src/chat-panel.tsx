@@ -21,6 +21,7 @@ export function ChatPanel({
   creationRecipient,
   blocked,
   recoveryRequired = false,
+  archived = false,
   observationUnavailable,
   initialEdit,
   onDraft,
@@ -35,6 +36,7 @@ export function ChatPanel({
   creationRecipient?: CreationRecipient;
   blocked: boolean;
   recoveryRequired?: boolean;
+  archived?: boolean;
   observationUnavailable?: boolean;
   /** A draft kept for this composer; read once when it mounts. */
   initialEdit?: ComposerEdit;
@@ -100,6 +102,7 @@ export function ChatPanel({
         }
         composer={
           <AnnotationInput
+            archived={archived}
             chat
             binding={binding}
             discussion={discussion}
@@ -129,13 +132,14 @@ export function ChatPanel({
           >
             {thread.comments.map((comment) => (
               <CommentExchange
+                readOnly={archived}
                 key={`${comment.ref.writer}:${comment.messageId}`}
                 comment={comment}
                 thread={thread}
                 binding={discussion}
                 ask={binding}
                 asks={asks}
-                blocked={blocked}
+                blocked={blocked || archived}
                 allowEdit={false}
                 title={title}
               />
@@ -143,7 +147,7 @@ export function ChatPanel({
           </section>
         ))}
         {legacy.length > 0 && (
-          <AskPanel records={legacy} binding={binding} blocked={blocked} inline />
+          <AskPanel readOnly={archived} records={legacy} binding={binding} blocked={blocked} inline />
         )}
       </ConversationWindow>
     </AttachmentDropPanel>

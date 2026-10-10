@@ -16,7 +16,7 @@ import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
-import { AnnotationInput } from './annotation-input.js';
+import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
   presentationOf,
   type ThreadPresentation,
@@ -36,17 +36,20 @@ function Composer({
   submit,
   cancel,
   blocked,
+  archived = false,
 }: {
   label: string;
   quote?: string;
   submit(body: string): Promise<void>;
   cancel?(): void;
   blocked: boolean;
+  archived?: boolean;
 }) {
   const [resetKey, setResetKey] = useState(0);
   const [body, setBody] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
+  if (archived) return <ArchivedDraft value={body} />;
   return (
     <form
       className="comment-compose"
@@ -108,12 +111,14 @@ export function DiscussionComment({
   binding,
   blocked,
   allowEdit = true,
+  readOnly = false,
   mentionedNames,
   status,
   delivery,
 }: {
   comment: CommentView;
   allowEdit?: boolean;
+  readOnly?: boolean;
   mentionedNames?: readonly string[];
   status?: ReactNode;
   delivery?: ReactNode;
@@ -125,7 +130,7 @@ export function DiscussionComment({
     [editRevision, setEditRevision] = useState(comment.revision);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
-  const owned = binding?.deviceId === comment.ref.writer;
+  const owned = !readOnly && binding?.deviceId === comment.ref.writer;
   const menu = [
     ...(owned && allowEdit && !comment.attachments?.length
       ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
@@ -141,7 +146,7 @@ export function DiscussionComment({
       : []),
   ];
   const action = (run: () => Promise<void>) => {
-    if (busy || blocked) return;
+    if (readOnly || busy || blocked) return;
     setBusy(true);
     setError(false);
     void run()
@@ -192,7 +197,9 @@ export function DiscussionComment({
         <p className="comment-status">{text.commentDeleted}</p>
       ) : (
         <>
-          {editing ? (
+          {editing && readOnly ? (
+            <ArchivedDraft value={draft} />
+          ) : editing ? (
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -251,6 +258,7 @@ export function CommentExchange({
   asks,
   blocked,
   allowEdit = true,
+  readOnly = false,
   title,
 }: {
   comment: CommentView;
@@ -260,6 +268,7 @@ export function CommentExchange({
   asks: readonly PageAsk[];
   blocked: boolean;
   allowEdit?: boolean;
+  readOnly?: boolean;
   title: string;
 }) {
   const records = conversationAsks(thread, asks, true).filter((record) =>
@@ -267,6 +276,7 @@ export function CommentExchange({
   );
   const user = (status?: ReactNode, delivery?: ReactNode) => (
     <DiscussionComment
+      readOnly={readOnly}
       comment={comment}
       binding={binding}
       blocked={blocked}
@@ -278,6 +288,7 @@ export function CommentExchange({
   );
   return records.length ? (
     <AskPanel
+      readOnly={readOnly}
       inline
       records={records}
       binding={ask}
@@ -328,6 +339,7 @@ export type ThreadWindowProps = {
   close(): void;
   blocked: boolean;
   observationUnavailable?: boolean;
+  archived?: boolean;
   composer?: ReactNode;
   initialEdit?: ComposerEdit;
   onDraft?(edit: ComposerEdit): void;
@@ -353,6 +365,7 @@ export function ThreadWindow({
   close,
   blocked,
   observationUnavailable,
+  archived = false,
   composer,
   initialEdit,
   onDraft,
@@ -457,7 +470,7 @@ export function ThreadWindow({
               </span>
             )}
 
-            {thread && onStatusChange && status?.controllable && !thread.deleted && (
+            {!archived && thread && onStatusChange && status?.controllable && !thread.deleted && (
               <BrowserIconAction
                 type="button"
                 variant="text"
@@ -499,6 +512,7 @@ export function ThreadWindow({
               !thread.deleted &&
               binding && (
                 <AnnotationInput
+                  archived={archived}
                   creationRecipient={creationRecipient}
                   binding={ask}
                   discussion={binding}
@@ -522,6 +536,8 @@ export function ThreadWindow({
         {thread?.comments.map((comment) => (
           <CommentExchange
             key={`${comment.ref.writer}:${comment.messageId}`}
+            readOnly={archived}
+            allowEdit={!archived}
             comment={comment}
             thread={thread}
             binding={binding}
@@ -531,7 +547,8 @@ export function ThreadWindow({
             title={title}
           />
         ))}
-        {binding &&
+        {!archived &&
+          binding &&
           thread &&
           !thread.proposal &&
           !thread.deleted &&
@@ -550,7 +567,7 @@ export function ThreadWindow({
               />
             </div>
           )}
-        {reattach && thread && !thread.deleted && (
+        {!archived && reattach && thread && !thread.deleted && (
           <section className="comment-compose">
             <blockquote>{reattach.exact}</blockquote>
             <div className="comment-actions">
@@ -599,6 +616,7 @@ export function ThreadPanel({
   asks,
   title,
   blocked,
+  archived = false,
   active,
   select,
   draft,
@@ -620,6 +638,7 @@ export function ThreadPanel({
   asks: readonly PageAsk[];
   title: string;
   blocked: boolean;
+  archived?: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
   draft?(ref: DiscussionRef): ComposerEdit | undefined;
@@ -653,15 +672,17 @@ export function ThreadPanel({
             }}
           />
         )}
-        <BrowserAction
-          type="button"
-          variant="text"
-          label={`+ ${text.commentPage}`}
-          disabled={!binding || blocked || compose}
-          onActivate={(event) => {
-            if (event.isTrusted) setCompose(true);
-          }}
-        />
+        {!archived && (
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={`+ ${text.commentPage}`}
+            disabled={!binding || blocked || compose}
+            onActivate={(event) => {
+              if (event.isTrusted) setCompose(true);
+            }}
+          />
+        )}
       </div>
       {compose && binding && (
         <Composer
@@ -672,6 +693,7 @@ export function ThreadPanel({
           }}
           cancel={() => setCompose(false)}
           blocked={blocked}
+          archived={archived}
         />
       )}
       {!visibleThreads.length && (
@@ -774,6 +796,7 @@ export function ThreadPanel({
                   renderProposal?.(thread)
                 ) : (
                   <ThreadWindow
+                    archived={archived}
                     creationRecipient={creationRecipient}
                     thread={thread}
                     attached={resolved.includes(id)}

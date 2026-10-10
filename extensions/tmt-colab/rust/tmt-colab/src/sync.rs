@@ -524,6 +524,30 @@ impl<A: Admission> Server<A> {
         state.recheck();
         Ok(())
     }
+    /// Commit management and invalidate only its newly archived page under the same
+    /// sync lock, before a fresh read peer can subscribe. Admission still owns all denials.
+    pub fn manage(
+        &self,
+        change: impl FnOnce(
+            &mut A,
+        )
+            -> std::result::Result<crate::management::Applied, crate::management::Code>,
+    ) -> std::result::Result<Vec<u8>, crate::management::Code> {
+        let mut state = self
+            .0
+            .lock()
+            .map_err(|_| crate::management::Code::Unavailable)?;
+        let applied = change(&mut state.admission)?;
+        state.recheck();
+        if let Some(page) = applied.archived_page {
+            for peer in state.peers.values_mut() {
+                if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
+                    peer.end(Code::ResyncRequired);
+                }
+            }
+        }
+        Ok(applied.body)
+    }
     /// stream must already be upgraded, nonblocking and exclusively owned.
     /// The caller preserves any bytes read past HTTP upgrade via a Read wrapper.
     /// No handshake or principal is accepted from untrusted WebSocket frames.

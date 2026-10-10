@@ -1263,3 +1263,9 @@ export function questionSibling(options: {
   current = { ...current, threads: options.reverse ? threads.reverse() : threads };
   emit();
 }
+
+/** A verified sync publication after an archive commit. */
+export function archive() {
+  current = { ...current, archived: true };
+  emit();
+}

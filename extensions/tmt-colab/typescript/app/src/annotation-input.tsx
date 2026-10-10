@@ -44,6 +44,7 @@ export function AnnotationInput({
   onFailure,
   blocked,
   recoveryRequired = false,
+  archived = false,
   cancel,
   showCancel = false,
   committed,
@@ -69,6 +70,7 @@ export function AnnotationInput({
   blocked: boolean;
   /** Recovery keeps local editing available; blocked still fences every publish. */
   recoveryRequired?: boolean;
+  archived?: boolean;
   cancel(): void;
   showCancel?: boolean;
   committed(ref: DiscussionRef): void;
@@ -154,7 +156,7 @@ export function AnnotationInput({
   }, [directory, creationRecipient, creatorPreference.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (current: ComposerEdit) =>
     messageRecipient({
-      writable: !blocked && !!discussion,
+      writable: !archived && !blocked && !!discussion,
       edit: current,
       destinations: agents,
     });
@@ -184,7 +186,7 @@ export function AnnotationInput({
     setResetKey((key) => key + 1);
   }
   async function send(current: ComposerEdit = edit) {
-    if (sending.current || recorded || blocked || !discussion) return;
+    if (sending.current || recorded || archived || blocked || !discussion) return;
     const admitted = decide(current);
     if (!admitted.allowed || (admitted.agents.length && !binding)) return;
     if (!current.value.trim()) {
@@ -247,7 +249,7 @@ export function AnnotationInput({
       setBusy(false);
     }
   }
-  const attachable = !!discussion?.attachments && !busy && !blocked && !recorded;
+  const attachable = !archived && !!discussion?.attachments && !busy && !blocked && !recorded;
   const drop = useAttachmentDropTarget(files, attachable);
   const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
     // Adding only makes an inert local chip; the trusted Send is the first effect.
@@ -256,6 +258,14 @@ export function AnnotationInput({
     void files.add([...list]);
     return true;
   };
+  if (archived)
+    return (
+      <section className="annotation-compose" data-testid="annotation-compose">
+        <ArchivedDraft value={value} />
+        <p className="annotation-hint">{text.archivePosting}</p>
+        {error && <p role="alert">{error}</p>}
+      </section>
+    );
   return (
     <section
       className="annotation-compose"
@@ -440,4 +450,25 @@ export function AnnotationInput({
       )}
     </section>
   );
+}
+
+/** Retained local text has no publication actions once its page is archived. */
+export function ArchivedDraft({ value }: { value: string }) {
+  const [failed, setFailed] = useState(false);
+  return value ? (
+    <div className="archive-unsent-draft">
+      <p>{text.unsentDraft}</p>
+      <pre>{value}</pre>
+      <BrowserAction
+        type="button"
+        variant="text"
+        label={text.copyDraft}
+        onActivate={(event) => {
+          if (event.isTrusted)
+            void navigator.clipboard.writeText(value).catch(() => setFailed(true));
+        }}
+      />
+      {failed && <p role="alert">{text.copyDraftFailed}</p>}
+    </div>
+  ) : null;
 }

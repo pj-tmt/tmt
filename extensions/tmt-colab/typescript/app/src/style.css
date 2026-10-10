@@ -1373,3 +1373,15 @@ footer {
   text-align: start;
   white-space: normal;
 }
+
+.archive-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.archive-unsent-draft pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

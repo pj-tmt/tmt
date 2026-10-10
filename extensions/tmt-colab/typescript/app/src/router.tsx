@@ -1,3 +1,4 @@
+import type { Selection } from './management.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -545,7 +546,7 @@ function ManagePage({
   title: string;
   open: boolean;
   close(): void;
-  changed?(): void;
+  changed?(operation: Selection['operation']): void;
 }) {
   const port = root.useRouteContext().transport.management;
   const router = useRouter();
@@ -556,9 +557,9 @@ function ManagePage({
           port={port}
           pageId={pageId}
           title={title}
-          committed={() => {
+          committed={(operation) => {
             touched.current = true;
-            changed?.();
+            changed?.(operation);
           }}
           close={() => {
             close();
@@ -672,13 +673,9 @@ function Home() {
                 key={p.id}
                 data-page-id={p.id}
                 title={
-                  p.archived ? (
-                    <span title={title}>{title}</span>
-                  ) : (
-                    <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
-                      {title}
-                    </Link>
-                  )
+                  <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
+                    {title}
+                  </Link>
                 }
                 metadata={
                   updated.dateTime ? (
@@ -735,6 +732,7 @@ function Page() {
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
+    archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
     originalAuthor: snapshot.originalAuthor,
@@ -766,6 +764,13 @@ function Page() {
       (view.asks ?? []).map(({ writer, operationId }) => [writer, operationId]).sort(),
     ),
   );
+  const archived = view.archived ?? snapshot.archived ?? false;
+  const wasArchived = useRef(archived);
+  const [archiveAnnouncement, setArchiveAnnouncement] = useState('');
+  useEffect(() => {
+    if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
+    wasArchived.current = archived;
+  }, [archived]);
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
   const readmit = useRef(new ReadmitBudget());
   // A route reload brings its own binding: a reopened one and an attempt in flight end with it.
@@ -804,6 +809,7 @@ function Page() {
     base.current = snapshot.source;
     setDraft(snapshot.source);
     setView({
+      archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
       originalAuthor: snapshot.originalAuthor,
@@ -917,6 +923,11 @@ function Page() {
     return () => owner.stop();
   }, [recoveryRequired, snapshot.binding]);
   const [selectionMode, setSelectionMode] = useState(false);
+  useEffect(() => {
+    if (!archived) return;
+    setSelectionMode(false);
+    setPanel((current) => (current === 'agents' || current === 'export' ? null : current));
+  }, [archived]);
   const toggleSelectionMode = useRef<() => void>(() => {});
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
@@ -1032,7 +1043,7 @@ function Page() {
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
-    liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
+    archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
@@ -1120,7 +1131,7 @@ function Page() {
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
-  const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
+  const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
@@ -1314,24 +1325,28 @@ function Page() {
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={
-                recoveryRequired
-                  ? text.connectionLost
-                  : state === 'ready'
-                    ? text.loaded
-                    : state === 'loading'
-                      ? text.loading
-                      : text.blocked
+                archived
+                  ? text.archiveReadOnlyHint
+                  : recoveryRequired
+                    ? text.connectionLost
+                    : state === 'ready'
+                      ? text.loaded
+                      : state === 'loading'
+                        ? text.loading
+                        : text.blocked
               }
             >
-              {text[snapshot.sharing]} ·{' '}
+              {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">
-                {recoveryRequired
-                  ? text.connectionLost
-                  : state === 'ready'
-                    ? text.live
-                    : state === 'loading'
-                      ? text.loading
-                      : text.blocked}
+                {archived
+                  ? text.archiveReadOnly
+                  : recoveryRequired
+                    ? text.connectionLost
+                    : state === 'ready'
+                      ? text.live
+                      : state === 'loading'
+                        ? text.loading
+                        : text.blocked}
               </span>
             </span>
           </div>
@@ -1342,13 +1357,17 @@ function Page() {
             comments={openThreads}
             files={fileCount}
             unseen={unseenThreads}
-            canExport={!!snapshot.binding && !liveError}
+            readOnly={archived}
+            canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
             onSelect={toggle}
           />
         }
       />
+      <p role="status" className="archive-announcement">
+        {archiveAnnouncement}
+      </p>
       <ExportPanel
         key={`export:${snapshot.id}`}
         binding={snapshot.binding}
@@ -1362,7 +1381,9 @@ function Page() {
         title={view.title || snapshot.title}
         open={panel === 'manage'}
         close={() => setPanel(null)}
-        changed={() => {
+        changed={(operation) => {
+          // Archive commits invalidate sync; verified read catch-up keeps this draft owner mounted.
+          if (operation === 'page.archive') return;
           snapshot.binding?.close();
           setLiveError(new Error(managementChanged));
         }}
@@ -1492,6 +1513,7 @@ function Page() {
                 }}
               >
                 <ThreadWindow
+                  archived={archived}
                   thread={annotationThread}
                   anchor={annotation.selector ?? undefined}
                   layout="anchored"
@@ -1532,6 +1554,7 @@ function Page() {
                       {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
+                        archived={archived}
                         creationRecipient={
                           annotationThread?.proposal?.proposer ?? view.creationRecipient
                         }
@@ -1578,6 +1601,7 @@ function Page() {
           <FilesPanel
             descriptors={view.attachments ?? []}
             files={snapshot.binding.files}
+            readOnly={archived}
             disabled={!!liveError || saving}
           />
         </PageDrawer>
@@ -1591,7 +1615,7 @@ function Page() {
         <div className="source">
           <span>
             <label htmlFor="source-edit">{text.source}</label>
-            {snapshot.binding && (
+            {snapshot.binding && !archived && (
               <button
                 disabled={saving || !!liveError || draft === base.current}
                 onClick={() => void save()}
@@ -1603,7 +1627,7 @@ function Page() {
           {editError && <SaveNotice problem={editError} />}
           <textarea
             id="source-edit"
-            readOnly={!snapshot.binding || saving || !!liveError}
+            readOnly={archived || !snapshot.binding || saving || !!liveError}
             spellCheck={false}
             value={draft}
             onChange={(event) => {
@@ -1629,6 +1653,7 @@ function Page() {
           </p>
         )}
         <ThreadPanel
+          archived={archived}
           reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
           hideHeader
@@ -1683,6 +1708,7 @@ function Page() {
       >
         {chatOpened && (
           <ChatPanel
+            archived={archived}
             creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}:${draftsReady}`}
             initialEdit={drafts.current.get(CHAT_DRAFT)}

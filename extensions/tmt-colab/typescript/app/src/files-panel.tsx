@@ -20,6 +20,7 @@ export function FilesList({
   binding,
   remove,
   disabled = false,
+  readOnly = false,
   epoch,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
@@ -28,6 +29,7 @@ export function FilesList({
   epoch?: string;
   remove?(attachmentId: string): Promise<void>;
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   const opener = useAttachmentOpener(binding, DOCUMENT, descriptors),
     { busy, failed, shown } = opener;
@@ -80,7 +82,8 @@ export function FilesList({
               }
               actions={
                 <>
-                  {raster &&
+                  {!readOnly &&
+                    raster &&
                     (image ? (
                       <BrowserAction
                         type="button"
@@ -144,10 +147,12 @@ export function FilesPanel({
   descriptors,
   files,
   disabled,
+  readOnly = false,
 }: {
   descriptors: readonly attachment.AttachmentDescriptor[];
   files: DocumentFiles;
   disabled: boolean;
+  readOnly?: boolean;
 }) {
   const [draft] = useState(
     () =>
@@ -185,38 +190,43 @@ export function FilesPanel({
       setAdding(false);
     }
   };
-  const attachable = !disabled && !adding;
+  const attachable = !readOnly && !disabled && !adding;
   return (
     <div className="files-panel" data-testid="files-panel">
       <FilesList
         descriptors={descriptors}
         binding={files.attachments}
-        remove={(id) => files.remove([id])}
+        remove={readOnly ? undefined : (id) => files.remove([id])}
         disabled={disabled || adding}
+        readOnly={readOnly}
         epoch={files.epoch}
       />
       {!descriptors.length && !staged.chips.length && (
         <p className="files-empty">{text.filesEmpty}</p>
       )}
-      <AttachmentChips draft={draft} disabled={!attachable} page />
-      <div className="annotation-status-row">
-        <AttachButton draft={draft} disabled={!attachable} labeled />
-        <p role="status" className="annotation-hint">
-          {error}
-        </p>
-        {staged.chips.length > 0 && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={adding ? text.filesAdding : text.filesAdd}
-            busy={adding}
-            disabled={!attachable || draft.uploading}
-            onActivate={(event) => {
-              if (event.isTrusted) void add();
-            }}
-          />
-        )}
-      </div>
+      {!readOnly && (
+        <>
+          <AttachmentChips draft={draft} disabled={!attachable} page />
+          <div className="annotation-status-row">
+            <AttachButton draft={draft} disabled={!attachable} labeled />
+            <p role="status" className="annotation-hint">
+              {error}
+            </p>
+            {staged.chips.length > 0 && (
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={adding ? text.filesAdding : text.filesAdd}
+                busy={adding}
+                disabled={!attachable || draft.uploading}
+                onActivate={(event) => {
+                  if (event.isTrusted) void add();
+                }}
+              />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -92,7 +92,7 @@ vi.mock('../src/live.js', () => ({
   },
 }));
 
-it('opens no live page for an archived page, which the browser does not open in local v1', async () => {
+it('opens archived pages through the same verified mounted read binding', async () => {
   setup.events.length = 0;
   setup.pages = [
     { pageId: 'page', sharing: 'private' },
@@ -101,11 +101,9 @@ it('opens no live page for an archived page, which the browser does not open in 
   setup.register.mockReset().mockResolvedValueOnce(setup.first);
   setup.remote.mockReset().mockResolvedValue({});
   const mounted = await mountedTransport();
-  await expect(mounted.transport.page('archived', new AbortController().signal)).rejects.toThrow(
-    'Page unavailable',
-  );
-  expect(setup.events).toEqual([]);
-  await mounted.transport.page('page', new AbortController().signal);
+  await mounted.transport.page('archived', new AbortController().signal);
+  expect(setup.events).toEqual(['connection']);
+  await expect(mounted.transport.page('missing')).rejects.toThrow('Page unavailable');
   expect(setup.events).toEqual(['connection']);
   setup.pages = [{ pageId: 'page', sharing: 'private' }];
 });

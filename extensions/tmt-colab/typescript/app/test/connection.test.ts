@@ -78,6 +78,7 @@ async function open(rejectChain = false) {
     ...scope,
     root: new Uint8Array(32),
     closeKeys() {},
+    validatePage: vi.fn(),
     registration: {
       deviceId: author,
       syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture',

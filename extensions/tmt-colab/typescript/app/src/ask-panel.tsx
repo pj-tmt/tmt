@@ -77,6 +77,7 @@ export function AskPanel({
   records,
   binding,
   blocked,
+  readOnly = false,
   inline = false,
   renderUser,
   retryInput,
@@ -84,6 +85,7 @@ export function AskPanel({
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
+  readOnly?: boolean;
   inline?: boolean;
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskAgainInput;
@@ -225,7 +227,7 @@ export function AskPanel({
             {deliveryState.label}
           </span>
         </span>
-        {canAskAgain && (
+        {!readOnly && canAskAgain && (
           <AskAgainAction
             key={recipientRecords
               .map((value) => value.operationId)
@@ -238,7 +240,7 @@ export function AskPanel({
             retryOf={record.operationId}
           />
         )}
-        {canRecheck && (
+        {!readOnly && canRecheck && (
           <>
             <BrowserIconAction
               type="button"

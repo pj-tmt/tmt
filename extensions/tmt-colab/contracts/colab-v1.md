@@ -95,9 +95,13 @@ reader does not hold).
 
 Warning-only page expiry never deletes completed objects, and Colab runs no garbage
 collection of Remote objects. Deleting a page keeps its encrypted objects charged to
-the space until Remote's deletion lands (follow-up #2294). The browser does not open
-an archived page in local v1 (follow-up #2298), so an already-open session ends in the
-existing `changed` or `unavailable` state.
+the space until Remote's deletion lands (follow-up #2294). Paired local browsers
+open archived pages through read-purpose catch-up. A newly committed management
+archive ends that page's open sync connections with
+`RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
+Writes, Ask, upload and thread status actions are removed; native admission still
+refuses their stale captures. Retained unsent drafts remain selectable with Copy.
+Archived export stays refused, and there is no unarchive operation.
 
 ### Attaching files in Chat and annotation conversations (#1854)
 
@@ -754,8 +758,9 @@ identity or agent access. The [reader link](#read-only-reader-link-1545) opens t
 canonical base64url of the model's exact link-device chain JSON (at most 16 KiB).
 The server resolves the current local page/epoch, public or live assigned-link
 policy, pinned `link.add` keys and statement, certificate lifetime and device
-revocation. A private or deleted page denies readers; archive retains native reads. The browser does not open
-an archived page in local v1 (follow-up #2298).
+revocation. A private or deleted page denies readers; archive retains native reads.
+Paired local browsers also admit archived reads;
+bearer reader entry is unchanged by that paired-page behavior.
 The response is exactly `{challengeId,nonce,space,page,epoch,chainDigest,expiresAt}`:
 UUIDv4 challenge ID, nonce32, canonical scope, digest32, and safe-integer UTC
 milliseconds. Public uses zero32 chainDigest. Challenge lifetime is 60 seconds.
@@ -2692,8 +2697,7 @@ changes access or writes content. Explicit opening ignores the automatic-open se
 and noninteractive-terminal suppression, using the shared `tmt-invoke` opener; like every
 browser handoff it only prints the link under an agent (nonempty `TMT_AGENT`) unless
 `--open` is passed. `--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
-before opening. Archived pages still print their link, but the browser does not open an
-archived page in local v1 (follow-up #2298). An unavailable
+before opening. Archived pages print their link and open read-only in the paired local browser. An unavailable
 service prints the current link/path and next step. Opener failure warns once and
 retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
