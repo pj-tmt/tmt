@@ -154,8 +154,9 @@ requires `expanded` with `controls` and excludes `pressed` from disclosure actio
 Expanded uses the same selection treatment as pressed. While expanded, the tooltip
 stays hidden and installs no Escape listener; the host owns menu dismissal.
 
-The tooltip is a manual native popover, below the button and bounded by the visual
-viewport. Pointer movement over the action and keyboard `:focus-visible` show it
+The tooltip is a manual native popover bounded by the visual viewport. It opens
+below the button, flips above when its measured height does not fit below and
+there is more room above, and clamps to that side when neither side fits. Pointer movement over the action and keyboard `:focus-visible` show it
 immediately; layout-only pointer entry does not. The display-only
 tooltip never receives pointer events. Activation dismisses it synchronously; a
 fresh pointer movement after leaving restores hover help. Pointer/focus departure closes it;
