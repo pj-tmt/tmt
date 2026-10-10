@@ -487,7 +487,7 @@ mod tests {
                     .iter()
                     .map(|arg| arg.to_str().unwrap())
                     .collect();
-                assert_eq!(&args[..2], ["-S", "/tmp/selected.sock"]);
+                assert_eq!(&args[..3], ["-u", "-S", "/tmp/selected.sock"]);
                 let binding = self.entry.binding.as_ref().unwrap();
                 let text = if args.contains(&"display-message") {
                     [

@@ -31,7 +31,7 @@ impl Fixture {
         tmt_test_support::write_executable(
             &fixture.root.join("bin/tmux"),
             br##"#!/bin/sh
-[ "$*" = 'display-message -p -t 10.3 #{pane_id}' ] || exit 99
+[ "$*" = '-u display-message -p -t 10.3 #{pane_id}' ] || exit 99
 if [ "$TMT_TEST_RESOLUTION_MODE" = timeout ]; then
   echo $$ > "$TMT_TEST_TMUX_PID"
   exec /bin/sleep 10
@@ -118,13 +118,13 @@ fn explicit_resolution_preserves_completed_and_expired_lookups() {
                     }}),
                 );
                 assert!(
-                    log.is_empty() || log == "display-message -p -t 10.3 #{pane_id}\n",
+                    log.is_empty() || log == "-u display-message -p -t 10.3 #{pane_id}\n",
                     "unexpected timeout invocation: {log:?}",
                 );
             } else {
                 assert_eq!(output.status.code(), Some(status), "{mode}: {output:?}");
                 assert_eq!(document["error"]["code"], code);
-                assert_eq!(log, "display-message -p -t 10.3 #{pane_id}\n");
+                assert_eq!(log, "-u display-message -p -t 10.3 #{pane_id}\n");
             }
             if mode == "timeout" {
                 assert!(timed_out, "held mock did not time out: {output:?}");
