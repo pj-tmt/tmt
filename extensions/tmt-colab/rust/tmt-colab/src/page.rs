@@ -507,10 +507,10 @@ pub(crate) fn freeze_own_records(
     let mut decisions = std::collections::BTreeSet::new();
     for record in records {
         crate::threads::validate_record(&record.root, &record.key, &record.value)?;
-        if record.value["kind"] == "thread" {
-            if let Some(id) = record.value["proposal"]["proposalId"].as_str() {
-                proposals.insert((writer.clone(), id.to_owned()));
-            }
+        if record.value["kind"] == "thread"
+            && let Some(id) = record.value["proposal"]["proposalId"].as_str()
+        {
+            proposals.insert((writer.clone(), id.to_owned()));
         }
         if record.value["kind"] == "proposal-decision" {
             let action: crate::threads::status::Decision =
