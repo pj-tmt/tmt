@@ -27,7 +27,14 @@ Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizo
 rules and blank side slots retain measured inner areas and title/fold hits.
 Each boundary has one rule: a framed pane whose bottom row is a later heading's row
 (another framed pane's title, or the cron heading) extends its frame over that row
-and the heading is painted over it (`render_split`, panes in top-to-bottom order).
+and the heading is painted over it (`render_split`, panes in top-to-bottom order). Headings
+side by side with a collapsed strip, and the one-column gap between siblings, still count as
+one heading row. The rich member list paints its own edges, so it drops its top edge under a
+framed pane (`Shared::above`) and its bottom edge above a heading (`Shared::below`); a
+frame with no row between heading and bottom edge keeps its heading alone.
+`tests/rules.rs` (pane orders, factory views, notes, cron, widths 160/100/80) and the HOME
+oracle assert that no two rule lines are ever adjacent; keep them green when a section
+or painter changes.
 Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
 Invisible walls do not change the actual borderless dispatch predicate. The shared
 inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask

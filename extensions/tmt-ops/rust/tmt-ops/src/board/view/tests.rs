@@ -32,6 +32,7 @@ mod layout_shift;
 mod menu;
 mod meter;
 mod parity;
+mod rules;
 use super::*;
 use crate::board::app::{Effect, Notes, Snapshot, View};
 use crate::config::{BoardMode, Direction, Pane};

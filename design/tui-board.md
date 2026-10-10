@@ -19,7 +19,8 @@ above examples.
 Use the resolved terminal theme and its neutral text, dim, muted and selection
 roles. Group member rows, HOME leads and body panes with horizontal rules and
 blank side margins, one rule per boundary: a heading's rule replaces the box top
-under it, and a pane above another pane's heading or the cron heading ends on that rule. Keep the existing measured title, fold controls, inner area
+under it, and a pane above another pane's heading or the cron heading ends on that rule.
+No two rules are ever adjacent, whatever the layout, width or notes. Keep the existing measured title, fold controls, inner area
 and hit regions when a side wall is visually absent. Do not add decorative boxes
 around each field, shadows, gradients or a colored background for each state.
 

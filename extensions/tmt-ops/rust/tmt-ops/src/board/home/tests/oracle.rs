@@ -580,6 +580,28 @@ fn home_oracle_keeps_every_cell_style_and_hit() {
 }
 
 #[test]
+fn no_home_frame_stacks_two_rules() {
+    let captured = captures();
+    for frame in captured["frames"].as_array().unwrap() {
+        let lines: Vec<String> = frame["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            crate::test_support::stacked_rules(&lines),
+            None,
+            "{} / {} at {}\n{}",
+            frame["state"],
+            frame["look"],
+            frame["width"],
+            lines.join("\n")
+        );
+    }
+}
+
+#[test]
 #[ignore = "regenerates the HOME oracle; an own commit approved by the Squad lead"]
 fn record_home_oracle() {
     fs::write(

@@ -292,10 +292,12 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             row["chips"] = json!([]);
         }
     }
-    // A section whose head carries its own rule is already bounded above.
+    // A section whose head carries its own rule, or that a rule already bounds
+    // above, draws no top edge of its own.
     let headed = key.data["head"]
         .as_array()
-        .is_some_and(|head| !head.is_empty());
+        .is_some_and(|head| !head.is_empty())
+        || key.data["ruled_above"].as_bool() == Some(true);
     data["top"] = if headed {
         json!([])
     } else {
@@ -415,7 +417,12 @@ pub(in crate::board) fn build(key: &Key) -> Block {
 
 /// Named squad rows use the HOME box template and block builder. Display order,
 /// pane scrolling and the shared band remain the existing application owners.
-pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area: Rect) {
+pub(in crate::board) fn render_squad(
+    frame: &mut ratatui::Frame,
+    app: &App,
+    area: Rect,
+    shared: super::panes::Shared,
+) {
     use crate::{
         config::Pane,
         display_rows::{Item, RowOrigin},
@@ -579,7 +586,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         width: area.width,
         look,
         selected: Some(id(app.selected)),
-        data: json!({"head": [], "leads": rows, "members": true, "tail": tail}),
+        data: json!({"head": [], "leads": rows, "members": true, "tail": tail, "ruled_above": shared.above}),
     };
     let block = view
         .derived
@@ -598,13 +605,18 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             input = Some(reserve.clone());
         }
     }
+    // The last line is the box's bottom edge. A list that fills its pane exactly
+    // would put it on the row above a rule the next section draws: one rule is
+    // enough there.
+    let shown = match block.lines.split_last() {
+        Some((_, rest)) if shared.below && block.lines.len() == usize::from(area.height) => rest,
+        _ => &block.lines[..],
+    };
     if app.follow {
         app.scrolls
-            .reveal_range(Pane::Rows, selected, area, block.lines.len());
+            .reveal_range(Pane::Rows, selected, area, shown.len());
     }
-    let (offset, viewport) = app
-        .scrolls
-        .show(frame, Pane::Rows, area, &block.lines, look);
+    let (offset, viewport) = app.scrolls.show(frame, Pane::Rows, area, shown, look);
     crate::board::view::waiting::place_input(app, input, inner, offset, viewport);
     for row in block.leads {
         crate::board::row_detail::more_hit(

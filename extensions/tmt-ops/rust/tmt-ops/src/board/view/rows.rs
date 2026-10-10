@@ -214,13 +214,13 @@ fn prepare(
     })
 }
 
-pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
+pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect, shared: super::panes::Shared) {
     let look = app.look();
     let Some(view) = &app.view else {
         return;
     };
     if app.effective_board().is_some_and(|board| board.members) {
-        super::member_list::render_squad(frame, app, area);
+        super::member_list::render_squad(frame, app, area, shared);
         return;
     }
     let Some(tab) = app.shown_tab() else { return };
