@@ -4,6 +4,10 @@ import type { BrowserActionProps } from './action.js';
 import { placeIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
+// Escape can restore focus to another icon action while closing its host.
+// Keep that focus return from opening a replacement tooltip in the same frame.
+const escapeFocus = new WeakSet<Document>();
+
 export type BrowserIconActionProps = BrowserActionProps & {
   icon: ReactNode;
   buttonRef?: Ref<HTMLButtonElement>;
@@ -47,9 +51,20 @@ export function BrowserIconAction({
     const dispose = placeIconActionTooltip(anchor, node);
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !node.matches(':popover-open')) return;
-      event.preventDefault();
-      event.stopPropagation();
+      // Dismiss the tooltip without consuming the containing dialog/menu's Escape.
+      const document = anchor.ownerDocument;
+      node.hidePopover();
+      escapeFocus.add(document);
       setDismissed(true);
+      const clear = () => {
+        escapeFocus.delete(document);
+        document.removeEventListener('keydown', nextKey, true);
+      };
+      const nextKey = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') clear();
+      };
+      document.addEventListener('keydown', nextKey, true);
+      document.defaultView?.requestAnimationFrame(clear);
     };
     anchor.ownerDocument.addEventListener('keydown', escape, true);
     return () => {
@@ -91,7 +106,7 @@ export function BrowserIconAction({
           onFocus={(event) => {
             if (event.currentTarget.matches(':focus-visible')) {
               setFocused(true);
-              setDismissed(false);
+              setDismissed(escapeFocus.has(event.currentTarget.ownerDocument));
             }
           }}
           onBlur={() => setFocused(false)}

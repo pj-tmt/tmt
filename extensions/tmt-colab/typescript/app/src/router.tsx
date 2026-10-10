@@ -33,6 +33,7 @@ import type { PageSummary, PageView, PageTransport } from './transport.js';
 import { orderPages, pageTitle, pageUpdate } from './page-index.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
+import { ReplyAnnouncer } from './reply-announcer.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
@@ -1070,6 +1071,7 @@ function Page() {
           );
       }}
     >
+      <ReplyAnnouncer key={snapshot.id} initialRecords={snapshot.asks} records={view.asks} />
       <ColabHeader
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
