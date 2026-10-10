@@ -348,6 +348,9 @@ fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
             super::upload::serve(hub, bus, &request, deadline)
         }
         Call::Config(_) => config(hub, bus, &request, deadline),
+        Call::RemoveNamespace(_) | Call::Usage(_) => {
+            super::namespace::serve(hub, bus, &request, deadline)
+        }
     }
 }
 
@@ -604,6 +607,42 @@ fn transfer_of(call: &Call) -> Option<Uuid4> {
         Call::Part(input) => Some(input.transfer_id),
         Call::Commit(input) | Call::Discard(input) => Some(input.transfer_id),
         Call::Status(input) => Some(input.transfer_id),
-        Call::Config(_) | Call::Read(_) => None,
+        Call::Config(_) | Call::Read(_) | Call::RemoveNamespace(_) | Call::Usage(_) => None,
+    }
+}
+
+/// Errors from an invoked mutating call, not an assertion that storage stayed
+/// unchanged. Missing is conservatively unknown: not-found is read-only on wire.
+pub(super) fn mutation_error(error: crate::objects::BackendError) -> ErrorCode {
+    match error {
+        crate::objects::BackendError::Invalid => ErrorCode::Invalid,
+        crate::objects::BackendError::Conflict => ErrorCode::Conflict,
+        crate::objects::BackendError::Capacity(limit) => ErrorCode::Capacity(match limit {
+            crate::objects::Limit::NamespaceBytes => tmt_extension_objects::Limit::NamespaceBytes,
+            crate::objects::Limit::ExtensionBytes => tmt_extension_objects::Limit::ExtensionBytes,
+            crate::objects::Limit::InstallationBytes => {
+                tmt_extension_objects::Limit::InstallationBytes
+            }
+            crate::objects::Limit::NamespaceEntries => {
+                tmt_extension_objects::Limit::NamespaceEntries
+            }
+            crate::objects::Limit::ExtensionEntries => {
+                tmt_extension_objects::Limit::ExtensionEntries
+            }
+            crate::objects::Limit::InstallationEntries => {
+                tmt_extension_objects::Limit::InstallationEntries
+            }
+            crate::objects::Limit::ActiveIntents => tmt_extension_objects::Limit::ActiveIntents,
+            crate::objects::Limit::RetainedExtension => {
+                tmt_extension_objects::Limit::RetainedExtension
+            }
+            crate::objects::Limit::RetainedInstallation => {
+                tmt_extension_objects::Limit::RetainedInstallation
+            }
+        }),
+        crate::objects::BackendError::Missing
+        | crate::objects::BackendError::Unavailable
+        | crate::objects::BackendError::Cancelled
+        | crate::objects::BackendError::Deadline => ErrorCode::Unknown,
     }
 }

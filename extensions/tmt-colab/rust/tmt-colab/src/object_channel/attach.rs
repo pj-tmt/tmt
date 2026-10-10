@@ -186,7 +186,9 @@ impl Transport for UploadChannel<'_> {
             Call::Part(_) | Call::Commit(_) | Call::Discard(_) => {
                 self.upload.admission_input(&call)?
             }
-            Call::Read(_) | Call::Config(_) => return Err(page::Fault::Invalid.into()),
+            Call::Read(_) | Call::Config(_) | Call::RemoveNamespace(_) | Call::Usage(_) => {
+                return Err(page::Fault::Invalid.into());
+            }
         };
         let owner: Arc<dyn CallbackOwner> = Arc::new(RootWriteAdmission {
             client: self.client.clone(),

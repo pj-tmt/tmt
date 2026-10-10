@@ -224,28 +224,38 @@ impl ServeObjectPeer {
         let completed = Arc::new(AtomicBool::new(false));
         let observed = Arc::clone(&completed);
         let thread = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut head = Vec::new();
-            let mut byte = [0];
-            while !head.ends_with(b"\r\n\r\n") {
-                if stream.read_exact(&mut byte).is_err() {
-                    return listener;
+            // Silent refusal consumes the one version fallback; a hung head spends
+            // the whole setup budget and therefore has only the first attempt.
+            let attempts = if entered.is_some() { 1 } else { 2 };
+            for attempt in 0..attempts {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut head = Vec::new();
+                let mut byte = [0];
+                while !head.ends_with(b"\r\n\r\n") {
+                    if stream.read_exact(&mut byte).is_err() {
+                        return listener;
+                    }
+                    head.push(byte[0]);
                 }
-                head.push(byte[0]);
+                assert!(head.starts_with(b"GET /.tmt/remote/object-channel-v1 "));
+                let version = if attempt == 0 { 2 } else { 1 };
+                assert!(
+                    String::from_utf8_lossy(&head)
+                        .contains(&format!("tmt-object-channel: {version}\r\n"))
+                );
+                if let Some(entered) = &entered {
+                    stream.set_read_timeout(Some(STARTUP)).unwrap();
+                    entered.send(Instant::now()).unwrap();
+                    // No reply or fixture release: only Remote's deadline closes this head.
+                    while matches!(stream.read(&mut byte), Ok(1)) {}
+                }
+                let _ = stream.shutdown(std::net::Shutdown::Both);
             }
-            assert!(head.starts_with(b"GET /.tmt/remote/object-channel-v1 "));
             listener.set_nonblocking(true).unwrap();
-            if let Some(entered) = entered {
-                stream.set_read_timeout(Some(STARTUP)).unwrap();
-                entered.send(Instant::now()).unwrap();
-                // No reply or fixture release: only Remote's deadline closes this head.
-                while matches!(stream.read(&mut byte), Ok(1)) {}
-            }
             observed.store(true, Ordering::Release);
-            let _ = stream.shutdown(std::net::Shutdown::Both);
             listener
         });
         Self {
@@ -274,7 +284,7 @@ impl Drop for ServeObjectPeer {
 }
 
 #[test]
-fn serve_one_failed_object_handshake_precedes_ready_and_leaves_door_running() {
+fn serve_failed_object_setup_uses_one_version_fallback_before_ready_and_leaves_door_running() {
     let fixture = ServeObjectFixture::new();
     let peer = ServeObjectPeer::refuse(&fixture);
     let mut run = ServeObjectRun::start(&fixture, &LOCAL);

@@ -8,10 +8,10 @@
 //! failed write or the end of the stream is final: the first such fault is kept, the
 //! socket is shut down and every later call reports it.
 use super::{
-    Budget, Budgets, Caps, Fault, Idle, Link, Role, Stage, bounded, ledger::Ledger, prepared,
-    read_checked,
+    Budget, Budgets, Caps, Fault, Idle, Link, Role, Stage, bounded, frame_supported,
+    ledger::Ledger, prepared, read_checked, supports,
 };
-use crate::{Frame, Uuid4};
+use crate::{Frame, Method, Uuid4};
 use std::{
     collections::VecDeque,
     net::Shutdown,
@@ -42,6 +42,7 @@ struct Inbox {
 #[derive(Debug)]
 struct Shared {
     role: Role,
+    version: u8,
     generation: Uuid4,
     budgets: Budgets,
     stop: AtomicBool,
@@ -94,6 +95,7 @@ impl Bus {
         let Link {
             generation,
             role,
+            version,
             reader,
             writer,
         } = link;
@@ -102,6 +104,7 @@ impl Bus {
             .map_err(|error| Fault::Io(error.kind()))?;
         let shared = Arc::new(Shared {
             role,
+            version,
             generation,
             budgets,
             stop: AtomicBool::new(false),
@@ -122,6 +125,9 @@ impl Bus {
         })
     }
 
+    pub fn supports(&self, method: Method) -> bool {
+        supports(self.shared.version, method)
+    }
     pub fn role(&self) -> Role {
         self.shared.role
     }
@@ -148,6 +154,15 @@ impl Bus {
             return Err(fault);
         }
         let deadline = until.min(Instant::now() + self.shared.budgets.write);
+        if !frame_supported(self.shared.version, frame) {
+            let method = match frame {
+                Frame::Request(value) => value.call.method(),
+                Frame::Result(value) => value.method,
+                Frame::Admit(value) => value.operation.input.method(),
+                _ => unreachable!("non-method frames are supported"),
+            };
+            return Err(Fault::Unsupported(method));
+        }
         let bytes = prepared(self.shared.generation, frame)?;
         // The ledger and the wire see frames in one order: the writer is held across both.
         let mut writer = locked(&self.shared.writer);
@@ -236,6 +251,9 @@ fn drive(shared: &Shared, mut reader: bounded::Reader) {
                 Ok(read) => read,
                 Err(fault) => return shared.fail(fault),
             };
+        if !frame_supported(shared.version, &received.frame) {
+            return shared.fail(Fault::Frame(crate::ErrorClass::Value));
+        }
         if let Err(reason) = locked(&shared.ledger).apply(&received.frame, false) {
             return shared.fail(Fault::Correlation(reason));
         }

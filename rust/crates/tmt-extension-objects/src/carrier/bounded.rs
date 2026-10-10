@@ -146,10 +146,20 @@ impl Reader {
         limit: usize,
         deadline: Instant,
     ) -> Result<(Vec<u8>, Vec<u8>), Fault> {
+        self.head_observed(limit, deadline, &mut false)
+    }
+    /// Report that a whole reply head was seen even when its size is refused.
+    pub(super) fn head_observed(
+        &mut self,
+        limit: usize,
+        deadline: Instant,
+        complete: &mut bool,
+    ) -> Result<(Vec<u8>, Vec<u8>), Fault> {
         let mut bytes = std::mem::take(&mut self.first_bytes);
         let mut chunk = [0u8; 1024];
         loop {
             if let Some(at) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                *complete = true;
                 let rest = bytes.split_off(at + 4);
                 return if bytes.len() > limit {
                     Err(Fault::Handshake(Refusal::Head))

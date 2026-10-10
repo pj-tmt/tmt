@@ -15,15 +15,15 @@ pub mod limits;
 #[cfg(unix)]
 pub use carrier::{
     Budget, Budgets, Bus, Caps, Expect, Fault, Idle, Link, Offer, Reason, Refusal, Role, Stage,
-    StampedObjectFrame, accept, accept_head, initiate,
+    StampedObjectFrame, accept, accept_head, initiate, negotiate, unsupported_hint,
 };
 pub use codec::decode_length;
 pub use error::ErrorClass;
 pub use frame::{
     Admission, Admit, AdmitInput, BeginInput, Call, Checkpoint, Config, ConfigInput, Context,
-    Decision, Disclosure, ErrorCode, Frame, Limit, Limits, Method, Operation, Origin, OriginPhase,
-    OriginState, Outcome, PartAdmit, PartInput, Projection, ReadInput, Request, ResultFrame,
-    Retained, State, StatusInput, Success, TransferAdmit, TransferBounds, TransferInput, decode,
-    encode,
+    Decision, Disclosure, ErrorCode, Frame, Limit, Limits, Method, NamespaceInput, Operation,
+    Origin, OriginPhase, OriginState, Outcome, PartAdmit, PartInput, Projection, ReadInput,
+    Request, ResultFrame, Retained, State, StatusInput, Success, TransferAdmit, TransferBounds,
+    TransferInput, Usage, UsageScope, decode, encode,
 };
 pub use ids::{Bytes32, Chunk, Counter, Policy, Sha256Hex, Uuid4};

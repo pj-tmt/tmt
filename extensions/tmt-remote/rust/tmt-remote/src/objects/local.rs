@@ -214,6 +214,13 @@ impl LocalObjectReader {
     pub(crate) fn status(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Transfer> {
         self.handle().status(intent, io)
     }
+    pub(crate) fn usage(
+        &self,
+        namespace: Option<NamespaceId>,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Usage> {
+        self.handle().usage(namespace, io)
+    }
     pub(crate) fn stat(&self, key: BlobKey, io: &IoBudget<'_>) -> BackendResult<Receipt> {
         self.handle().stat(key, io)
     }
@@ -263,6 +270,13 @@ impl LocalObjectWriter {
     }
     pub(crate) fn discard(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<()> {
         self.handle().discard(intent, io)
+    }
+    pub(crate) fn remove_namespace(
+        &self,
+        namespace: NamespaceId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.handle().remove_namespace(namespace, io)
     }
 }
 

@@ -5,8 +5,8 @@
 //!
 //! An extension has at most one active bus and one setup candidate, and the installation
 //! at most [`ServiceBounds::buses`] buses in all. A channel is opened only by an
-//! explicit [`ObjectService::activate`]; a failed setup is reported and dropped, with no
-//! retry and no polling. Serve attempts activation once per Local declaration before
+//! explicit [`ObjectService::activate`]; setup permits only the carrier’s one pre-reply
+//! version fallback, with no operation retry or polling. Serve attempts activation once per Local declaration before
 //! door readiness and shuts down the service before releasing its lease. The
 //! static mount registry alone chooses enabled extensions; callbacks grant no cached authority.
 //!
@@ -23,7 +23,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
-use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, initiate};
+use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, negotiate};
 
 mod activation;
 mod readiness;
@@ -32,6 +32,7 @@ pub use readiness::ObjectReadiness;
 
 mod config;
 mod dispatch;
+mod namespace;
 mod observe;
 mod original;
 mod origins;
@@ -313,19 +314,27 @@ impl<'s> ObjectService<'s> {
         tunnels: usize,
         setup: Instant,
     ) -> Result<Running, ActivateError> {
-        let endpoint = mounts
-            .open_object_channel(name, setup)
-            .map_err(|error| ActivateError::Connect(error.kind()))?;
-        let generation = uuid_v4()
-            .ok()
-            .and_then(|text| Uuid4::parse(&text).ok())
-            .ok_or(ActivateError::Connect(io::ErrorKind::Other))?;
-        let offer = Offer {
-            host: endpoint.host,
-            mount: endpoint.mount,
-            generation,
-        };
-        let link = initiate(endpoint.stream, &offer, setup).map_err(ActivateError::Channel)?;
+        let link = negotiate(setup, || {
+            let endpoint = mounts
+                .open_object_channel(name, setup)
+                .map_err(|error| Fault::Io(error.kind()))?;
+            let generation = uuid_v4()
+                .ok()
+                .and_then(|text| Uuid4::parse(&text).ok())
+                .ok_or(Fault::Io(io::ErrorKind::Other))?;
+            Ok((
+                endpoint.stream,
+                Offer {
+                    host: endpoint.host,
+                    mount: endpoint.mount,
+                    generation,
+                },
+            ))
+        })
+        .map_err(|fault| match fault {
+            Fault::Io(kind) => ActivateError::Connect(kind),
+            fault => ActivateError::Channel(fault),
+        })?;
         if self.locked().stopped {
             return Err(ActivateError::Stopped);
         }

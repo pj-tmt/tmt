@@ -394,7 +394,7 @@ fn the_offer_carries_the_values_the_door_sets_on_every_request_it_sends() {
 }
 
 #[test]
-fn a_setup_that_fails_is_reported_once_and_never_retried() {
+fn failed_setup_has_only_one_version_fallback_and_no_automatic_reactivation() {
     let env = Env::new();
     let mounts = env.mounts(&ALPHA);
     let service = env.service(&ALPHA, bounds()).unwrap();
@@ -429,14 +429,14 @@ fn a_setup_that_fails_is_reported_once_and_never_retried() {
         connect(&service),
         Err(ActivateError::Channel(Fault::Truncated))
     );
-    // One attempt, no fallback, and the slot is free for an explicit later call.
-    assert_eq!(refusing.connections(), 1);
+    // One v2 attempt and one v1 fallback, then only an explicit call can reactivate.
+    assert_eq!(refusing.connections(), 2);
     assert_eq!(service.active("alpha"), None);
     assert_eq!(
         connect(&service),
         Err(ActivateError::Channel(Fault::Truncated))
     );
-    assert_eq!(refusing.connections(), 2);
+    assert_eq!(refusing.connections(), 4);
 }
 
 #[test]
@@ -1112,4 +1112,5 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
 mod flow;
 mod observe;
 
+mod namespace;
 mod upload;

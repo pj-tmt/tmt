@@ -6,8 +6,8 @@ use super::{
     original::original_id,
 };
 use crate::objects::{
-    BackendError, BeginResult, BeginSpec, BlobKey, IntentId, IoBudget, Limit, NamespaceId,
-    OpaqueKey, Receipt, Transfer, TransferState,
+    BackendError, BeginResult, BeginSpec, BlobKey, IntentId, IoBudget, NamespaceId, OpaqueKey,
+    Receipt, Transfer, TransferState,
 };
 use std::time::{Duration, Instant};
 use tmt_extension_objects::{
@@ -15,30 +15,6 @@ use tmt_extension_objects::{
     Operation, Outcome, PartAdmit, Policy, Request, Retained, Sha256Hex, State, Success,
     TransferAdmit,
 };
-
-/// Errors from an invoked mutating call, not an assertion that storage stayed
-/// unchanged. Missing is conservatively unknown: not-found is read-only on wire.
-fn mutation_error(error: BackendError) -> ErrorCode {
-    match error {
-        BackendError::Invalid => ErrorCode::Invalid,
-        BackendError::Conflict => ErrorCode::Conflict,
-        BackendError::Capacity(limit) => ErrorCode::Capacity(match limit {
-            Limit::NamespaceBytes => tmt_extension_objects::Limit::NamespaceBytes,
-            Limit::ExtensionBytes => tmt_extension_objects::Limit::ExtensionBytes,
-            Limit::InstallationBytes => tmt_extension_objects::Limit::InstallationBytes,
-            Limit::NamespaceEntries => tmt_extension_objects::Limit::NamespaceEntries,
-            Limit::ExtensionEntries => tmt_extension_objects::Limit::ExtensionEntries,
-            Limit::InstallationEntries => tmt_extension_objects::Limit::InstallationEntries,
-            Limit::ActiveIntents => tmt_extension_objects::Limit::ActiveIntents,
-            Limit::RetainedExtension => tmt_extension_objects::Limit::RetainedExtension,
-            Limit::RetainedInstallation => tmt_extension_objects::Limit::RetainedInstallation,
-        }),
-        BackendError::Missing
-        | BackendError::Unavailable
-        | BackendError::Cancelled
-        | BackendError::Deadline => ErrorCode::Unknown,
-    }
-}
 
 struct UploadOriginal {
     intent: IntentId,
@@ -376,7 +352,7 @@ pub(super) fn serve(
                 hub,
                 bus,
                 request,
-                Outcome::Failure(mutation_error(error)),
+                Outcome::Failure(dispatch::mutation_error(error)),
                 deadline,
                 ErrorCode::Unknown,
             );

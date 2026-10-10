@@ -145,7 +145,9 @@ impl Ledger {
                     Call::Part(input) => Some(input.transfer_id),
                     Call::Commit(input) | Call::Discard(input) => Some(input.transfer_id),
                     Call::Status(input) => Some(input.transfer_id),
-                    Call::Config(_) | Call::Read(_) => None,
+                    Call::Config(_) | Call::Read(_) | Call::RemoveNamespace(_) | Call::Usage(_) => {
+                        None
+                    }
                 };
                 self.requests.insert(
                     id,
@@ -239,7 +241,10 @@ fn admitted_transfer(input: &AdmitInput) -> Option<Uuid4> {
         AdmitInput::Part(value) => Some(value.transfer_id),
         AdmitInput::Commit(value) | AdmitInput::Discard(value) => Some(value.transfer_id),
         AdmitInput::Status(value) => Some(value.transfer_id),
-        AdmitInput::Config(_) | AdmitInput::Read(_) => None,
+        AdmitInput::Config(_)
+        | AdmitInput::Read(_)
+        | AdmitInput::RemoveNamespace(_)
+        | AdmitInput::Usage(_) => None,
     }
 }
 

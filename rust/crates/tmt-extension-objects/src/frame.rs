@@ -1,4 +1,4 @@
-//! Typed frames of the generic object channel: request and result frames for seven
+//! Typed frames of the generic object channel: request and result frames for the
 //! methods, each with exact input, result and error associations, and the admission
 //! callback and origin lifecycle frames around them. Requests, results and
 //! admission replies carry no principal, role, permit, retry or scope, and no
@@ -55,7 +55,7 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, ErrorClass> {
     Ok(bytes)
 }
 
-/// The seven generic object operations, spelled `objects.<name>` on the wire.
+/// The generic object operations, spelled `objects.<name>` on the wire.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Method {
     Config,
@@ -65,18 +65,23 @@ pub enum Method {
     Status,
     Read,
     Discard,
+    RemoveNamespace,
+    Usage,
 }
 impl Method {
     /// Whether results and errors of this method repeat the original transfer id.
     fn carries_transfer(self) -> bool {
-        !matches!(self, Self::Config | Self::Read)
+        matches!(
+            self,
+            Self::Begin | Self::Part | Self::Commit | Self::Status | Self::Discard
+        )
     }
     /// Whether the method may change durable state, so an effect boundary exists and
     /// its failure may leave a possible effect (`unknown`).
     fn mutates(self) -> bool {
         matches!(
             self,
-            Self::Begin | Self::Part | Self::Commit | Self::Discard
+            Self::Begin | Self::Part | Self::Commit | Self::Discard | Self::RemoveNamespace
         )
     }
 }
@@ -107,6 +112,8 @@ pub enum Call {
     Status(StatusInput),
     Read(ReadInput),
     Discard(TransferInput),
+    RemoveNamespace(NamespaceInput),
+    Usage(UsageScope),
 }
 impl Call {
     pub fn method(&self) -> Method {
@@ -118,10 +125,29 @@ impl Call {
             Self::Status(_) => Method::Status,
             Self::Read(_) => Method::Read,
             Self::Discard(_) => Method::Discard,
+            Self::RemoveNamespace(_) => Method::RemoveNamespace,
+            Self::Usage(_) => Method::Usage,
         }
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamespaceInput {
+    pub namespace: Bytes32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UsageScope {
+    Extension,
+    Namespace(Bytes32),
+}
+/// Conservative ledger projection, including cleanup-pending charges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Usage {
+    pub charged_bytes: u64,
+    pub entries: u32,
+    pub active_uploads: u32,
+    pub retained_identities: u32,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConfigInput {
     pub namespace: Bytes32,
@@ -187,6 +213,8 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Success {
     Config(Config),
+    Removed,
+    Usage(Usage),
     /// `expires_at_ms` is the actual stored expiry and appears only when answering
     /// `status`; a begin never fabricates one.
     Pending {
@@ -214,6 +242,8 @@ impl Success {
     fn answer(&self) -> Answer {
         match self {
             Self::Config(_) => Answer::Config,
+            Self::Removed => Answer::Removed,
+            Self::Usage(_) => Answer::Usage,
             Self::Pending { .. } => Answer::Pending,
             Self::Progress { .. } => Answer::Progress,
             Self::Committed { .. } => Answer::Committed,
@@ -231,6 +261,8 @@ impl Success {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Answer {
     Config,
+    Removed,
+    Usage,
     Pending,
     Progress,
     Committed,
@@ -241,6 +273,8 @@ impl Answer {
     fn allowed_for(self, method: Method) -> bool {
         match self {
             Self::Config => method == Method::Config,
+            Self::Removed => method == Method::RemoveNamespace,
+            Self::Usage => method == Method::Usage,
             Self::Pending => matches!(method, Method::Begin | Method::Status),
             Self::Progress => method == Method::Part,
             Self::Committed => matches!(method, Method::Begin | Method::Commit | Method::Status),
@@ -294,7 +328,7 @@ pub struct TransferBounds {
 }
 
 /// Why a request failed. `Unknown` is possible only where an effect may have
-/// happened, which is the four mutating methods.
+/// happened, which is a mutating method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
     Denied,
@@ -386,6 +420,8 @@ impl Success {
     fn check(&self, method: Method) -> Result<(), ErrorClass> {
         match self {
             Self::Config(config) => config.check(),
+            Self::Removed => Ok(()),
+            Self::Usage(usage) => require(usage.charged_bytes <= MAX_SAFE_INTEGER),
             Self::Pending {
                 received,
                 expires_at_ms,
