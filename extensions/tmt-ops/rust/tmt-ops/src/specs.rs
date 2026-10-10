@@ -105,12 +105,12 @@ pub const CHECKLIST_REORDER: &CommandSpec = spec!(
     ["Submit the full reviewed order" => "tmt ops squad checklist reorder --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --expect-inventory 1 --order '[\"66666666-6666-4666-8666-666666666666\"]'"]
 );
 
-pub const FOCUS: &CommandSpec = spec!(
-    "focus", "Show, set or clear a member focus window",
-    details = "Showing, setting and clearing focus all require the recorded user or the current squad lead. Whole s/m/h segments from 1s through 24h; no recurring cadence. Revision conflicts require reload and retry.",
-    ["Focus for thirty minutes" => "tmt ops squad focus worker 30m",
-     "Inspect the current policy" => "tmt ops squad focus worker",
-     "Clear focus" => "tmt ops squad focus worker off"]
+pub const DIGEST: &CommandSpec = spec!(
+    "digest", "Show, set or clear a member digest window",
+    details = "Showing, setting and clearing digest all require the recorded user or the current squad lead. Whole s/m/h segments from 1s through 24h; no recurring cadence. Revision conflicts require reload and retry.",
+    ["Digest for thirty minutes" => "tmt ops squad digest worker 30m",
+     "Inspect the current policy" => "tmt ops squad digest worker",
+     "Clear digest" => "tmt ops squad digest worker off"]
 );
 
 pub const CRON: &CommandSpec = spec!(

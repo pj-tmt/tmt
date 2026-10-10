@@ -1,4 +1,4 @@
-//! Core-owned focus policy: one bounded read, then snapshot-only projections.
+//! Core-owned digest policy: one bounded read, then snapshot-only projections.
 use crate::core::{Core, SquadError};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -9,22 +9,22 @@ pub struct Policy {
     pub identity_id: String,
     pub revision: u64,
     pub active: bool,
-    pub focus_until_ms: u64,
+    pub digest_until_ms: u64,
     pub remaining_ms: u64,
     pub held_count: u64,
 }
 impl Policy {
     pub fn row(&self) -> Value {
-        json!({"active": self.active, "focusUntilMs": self.focus_until_ms,
+        json!({"active": self.active, "digestUntilMs": self.digest_until_ms,
             "remainingMs": self.remaining_ms, "heldCount": self.held_count})
     }
 }
 pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Policy>, SquadError> {
-    let document = core.api("focus.policy.show", json!({"identities": ids}))?;
+    let document = core.api("digest.policy.show", json!({"identities": ids}))?;
     let invalid = || {
         SquadError::new(
             "SQUAD_CORE_UNAVAILABLE",
-            "Core returned an incomplete focus policy.",
+            "Core returned an incomplete digest policy.",
         )
     };
     let policies = document["policies"]
@@ -42,7 +42,7 @@ pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Pol
                 identity_id: value["identityId"].as_str().ok_or_else(invalid)?.into(),
                 revision: number("revision")?,
                 active: value["active"].as_bool().ok_or_else(invalid)?,
-                focus_until_ms: number("focusUntilMs")?,
+                digest_until_ms: number("digestUntilMs")?,
                 remaining_ms: number("remainingMs")?,
                 held_count: number("heldCount")?,
             })
@@ -51,7 +51,7 @@ pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Pol
     if policies.len() != ids.len() || policies.iter().zip(ids).any(|(p, id)| &p.identity_id != id) {
         return Err(SquadError::new(
             "SQUAD_CORE_UNAVAILABLE",
-            "Core returned a mismatched focus policy.",
+            "Core returned a mismatched digest policy.",
         ));
     }
     Ok(policies
@@ -61,7 +61,7 @@ pub fn read_policies(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Pol
 }
 /// Collect every row occurrence before reading. Duplicate rows and squad membership
 /// share one policy; only identities admitted by the acquired active room rosters
-/// are eligible. Overflow and optional-Core failures omit focus without noise.
+/// are eligible. Overflow and optional-Core failures omit digest without noise.
 pub fn enrich(core: &Core, documents: &mut [&mut Value], active_ids: &BTreeSet<String>) {
     let ids = eligible(documents.iter().map(|document| &**document), active_ids);
     if ids.is_empty() {
@@ -86,7 +86,7 @@ pub fn eligible<'a>(
     ids.into_iter().take(LIMIT).collect()
 }
 
-/// Each identity's projected focus row; `None` when the optional read failed.
+/// Each identity's projected digest row; `None` when the optional read failed.
 pub fn rows(core: &Core, ids: &[String]) -> Option<BTreeMap<String, Value>> {
     if ids.is_empty() {
         return Some(BTreeMap::new());
@@ -100,8 +100,8 @@ pub fn rows(core: &Core, ids: &[String]) -> Option<BTreeMap<String, Value>> {
     )
 }
 
-/// Gives every member row exactly the focus `rows` holds for it, removing any
-/// other; `None` (a failed read) removes all, as a document read without focus.
+/// Gives every member row exactly the digest `rows` holds for it, removing any
+/// other; `None` (a failed read) removes all, as a document read without digest.
 pub fn set(document: &mut Value, rows: Option<&BTreeMap<String, Value>>) {
     match document {
         Value::Object(object) => {
@@ -110,10 +110,10 @@ pub fn set(document: &mut Value, rows: Option<&BTreeMap<String, Value>>) {
             {
                 match rows.and_then(|rows| rows.get(id)) {
                     Some(row) => {
-                        object.insert("focus".into(), row.clone());
+                        object.insert("digest".into(), row.clone());
                     }
                     None => {
-                        object.remove("focus");
+                        object.remove("digest");
                     }
                 }
             }
@@ -154,12 +154,12 @@ fn collect(document: &Value, active_ids: &BTreeSet<String>, ids: &mut BTreeSet<S
 /// Board time advances independently of snapshot acquisition. Expiry hides the
 /// label even while a slow/failed refresh retains the previous snapshot.
 pub fn remaining(row: &Value, now: u64) -> Option<(u64, u64)> {
-    let focus = &row["focus"];
-    let until = focus["focusUntilMs"].as_u64()?;
-    (focus["active"] == true && until > now).then(|| {
+    let digest = &row["digest"];
+    let until = digest["digestUntilMs"].as_u64()?;
+    (digest["active"] == true && until > now).then(|| {
         (
             until.saturating_sub(now),
-            focus["heldCount"].as_u64().unwrap_or(0),
+            digest["heldCount"].as_u64().unwrap_or(0),
         )
     })
 }
@@ -178,7 +178,7 @@ pub fn label(row: &Value, now: u64) -> Option<String> {
         } else {
             format!(" · {held} held")
         };
-        format!("focus {}{suffix}", minutes(ms))
+        format!("digest {}{suffix}", minutes(ms))
     })
 }
 pub fn detail(row: &Value, now: u64) -> Option<String> {
@@ -192,18 +192,18 @@ pub fn detail(row: &Value, now: u64) -> Option<String> {
     })
 }
 
-/// Fitting keeps the focus word whole; expansion carries omitted details.
+/// Fitting keeps the digest word whole; expansion carries omitted details.
 pub fn fitted(row: &Value, now: u64, budget: usize) -> (String, String, bool) {
     let Some(label) = label(row, now) else {
         return (String::new(), String::new(), false);
     };
-    if budget < 5 {
+    if budget < "digest".len() {
         return (String::new(), String::new(), false);
     }
     if unicode_width::UnicodeWidthStr::width(label.as_str()) <= budget {
-        ("focus".into(), label[5..].into(), true)
+        ("digest".into(), label["digest".len()..].into(), true)
     } else {
-        ("focus".into(), String::new(), false)
+        ("digest".into(), String::new(), false)
     }
 }
 
@@ -221,18 +221,34 @@ pub fn pieces(row: &Value, now: u64, budget: usize) -> Value {
 mod tests {
     use super::*;
     #[test]
+    fn narrow_labels_keep_the_whole_digest_word_and_complete_suffix() {
+        let row = json!({"digest":{"active":true,"digestUntilMs":60_000,"heldCount":2}});
+        assert_eq!(fitted(&row, 0, 5), (String::new(), String::new(), false));
+        assert_eq!(fitted(&row, 0, 6), ("digest".into(), String::new(), false));
+        assert_eq!(
+            fitted(&row, 0, 40),
+            ("digest".into(), " 1m · 2 held".into(), true)
+        );
+    }
+    #[test]
     fn clock_rounds_minutes_and_hides_expired_or_inactive_policies() {
-        let mut row = json!({"focus":{"active":true,"focusUntilMs":4_801_001,"heldCount":2}});
-        assert_eq!(label(&row, 1001).as_deref(), Some("focus 1h20m · 2 held"));
-        assert_eq!(label(&row, 4_741_001).as_deref(), Some("focus 1m · 2 held"));
-        assert_eq!(label(&row, 4_801_000).as_deref(), Some("focus 1m · 2 held"));
+        let mut row = json!({"digest":{"active":true,"digestUntilMs":4_801_001,"heldCount":2}});
+        assert_eq!(label(&row, 1001).as_deref(), Some("digest 1h20m · 2 held"));
+        assert_eq!(
+            label(&row, 4_741_001).as_deref(),
+            Some("digest 1m · 2 held")
+        );
+        assert_eq!(
+            label(&row, 4_801_000).as_deref(),
+            Some("digest 1m · 2 held")
+        );
         assert_eq!(label(&row, 4_801_001), None);
-        row["focus"]["heldCount"] = json!(0);
-        assert_eq!(label(&row, 1000).as_deref(), Some("focus 1h21m"));
+        row["digest"]["heldCount"] = json!(0);
+        assert_eq!(label(&row, 1000).as_deref(), Some("digest 1h21m"));
         assert_eq!(detail(&row, 1000).as_deref(), Some("1h21m left"));
-        assert_eq!(label(&row, 1).as_deref(), Some("focus 1h21m"));
+        assert_eq!(label(&row, 1).as_deref(), Some("digest 1h21m"));
         assert_eq!(minutes(7_200_000), "2h");
-        row["focus"]["active"] = json!(false);
+        row["digest"]["active"] = json!(false);
         assert_eq!(label(&row, 0), None);
         assert_eq!(label(&json!({}), 0), None);
     }
@@ -240,43 +256,43 @@ mod tests {
     fn batching_deduplicates_rows_bounds_input_and_omits_unavailable_or_malformed_core() {
         use crate::cron_service::test_support::{Fixture, WORKER};
         let f = Fixture::new();
-        let script = f.directory.join("focus-core");
+        let script = f.directory.join("digest-core");
         crate::test_support::write_ready_executable(
             &script,
             &format!(
                 r#"#!/bin/sh
 read -r request
-printf '%s\n' "$request" >> '{}/focus-calls'
-cat '{}/focus-reply'
+printf '%s\n' "$request" >> '{}/digest-calls'
+cat '{}/digest-reply'
 "#,
                 f.directory.display(),
                 f.directory.display()
             ),
         );
         let core = Core::at(script);
-        let reply = f.directory.join("focus-reply");
-        std::fs::write(&reply, json!({"policies":[{"identityId":WORKER,"revision":1,"active":true,"focusUntilMs":100,"remainingMs":99,"heldCount":3}]}).to_string()).unwrap();
+        let reply = f.directory.join("digest-reply");
+        std::fs::write(&reply, json!({"policies":[{"identityId":WORKER,"revision":1,"active":true,"digestUntilMs":100,"remainingMs":99,"heldCount":3}]}).to_string()).unwrap();
         let row = json!({"id":WORKER,"name":"worker","fields":{}});
         let retired = json!({"id":"retired","name":"old member","fields":{}});
         let absent = json!({"id":"absent","name":"removed member","fields":{}});
         let mut doc = json!({"squad":{"lead":row},"sections":[{"rows":[row,row,retired,absent]}]});
         enrich(&core, &mut [&mut doc], &BTreeSet::from([WORKER.into()]));
         assert_eq!(
-            doc["squad"]["lead"]["focus"],
-            doc["sections"][0]["rows"][0]["focus"]
+            doc["squad"]["lead"]["digest"],
+            doc["sections"][0]["rows"][0]["digest"]
         );
-        assert_eq!(doc["sections"][0]["rows"][1]["focus"]["heldCount"], 3);
-        assert!(doc["sections"][0]["rows"][2].get("focus").is_none());
-        assert!(doc["sections"][0]["rows"][3].get("focus").is_none());
+        assert_eq!(doc["sections"][0]["rows"][1]["digest"]["heldCount"], 3);
+        assert!(doc["sections"][0]["rows"][2].get("digest").is_none());
+        assert!(doc["sections"][0]["rows"][3].get("digest").is_none());
         let request: Value = serde_json::from_str(
-            std::fs::read_to_string(f.directory.join("focus-calls"))
+            std::fs::read_to_string(f.directory.join("digest-calls"))
                 .unwrap()
                 .trim(),
         )
         .unwrap();
         assert_eq!(
             request,
-            json!({"version":1,"operation":"focus.policy.show","input":{"identities":[WORKER]}})
+            json!({"version":1,"operation":"digest.policy.show","input":{"identities":[WORKER]}})
         );
         for response in [
             json!({"error":{"code":"API_INPUT_INVALID","message":"old core"}}),
@@ -285,7 +301,7 @@ cat '{}/focus-reply'
             std::fs::write(&reply, response.to_string()).unwrap();
             let mut fresh = row.clone();
             enrich(&core, &mut [&mut fresh], &BTreeSet::from([WORKER.into()]));
-            assert!(fresh.get("focus").is_none());
+            assert!(fresh.get("digest").is_none());
         }
         let mut large = json!(
             (0..300)
@@ -294,7 +310,7 @@ cat '{}/focus-reply'
         );
         let active_ids = (0..300).map(|n| format!("id-{n:03}")).collect();
         enrich(&core, &mut [&mut large], &active_ids);
-        let calls = std::fs::read_to_string(f.directory.join("focus-calls")).unwrap();
+        let calls = std::fs::read_to_string(f.directory.join("digest-calls")).unwrap();
         let request: Value = serde_json::from_str(calls.lines().last().unwrap()).unwrap();
         assert_eq!(
             request["input"]["identities"].as_array().unwrap().len(),

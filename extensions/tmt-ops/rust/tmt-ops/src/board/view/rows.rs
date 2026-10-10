@@ -107,11 +107,11 @@ fn prepare(
                 } else {
                     node.text.as_deref()
                 };
-                let (width, flow) = if line == 0 && extra.focus.is_some() {
+                let (width, flow) = if line == 0 && extra.digest.is_some() {
                     let heading = super::row_paint::heading_labels(
                         ages[index].clone(),
                         extra.next.clone(),
-                        extra.focus.as_deref(),
+                        extra.digest.as_deref(),
                         usize::from(area.width),
                     );
                     let end = usize::from(area.width)
@@ -178,11 +178,11 @@ fn prepare(
             }
         }
         if extra
-            .focus
+            .digest
             .as_ref()
             .is_some_and(|text| text.width() <= available / 2)
         {
-            visible.push("focus");
+            visible.push("digest");
         }
         extra.detail = app.detail_value(index, &visible);
     }
@@ -237,7 +237,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
-                focus: crate::focus::label(row, request_now),
+                digest: crate::digest::label(row, request_now),
                 detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()

@@ -43,7 +43,7 @@ as described below. Waiting `talk` returns that durable final directly.
 TMT can send to a verified host pane (tmux, or Herdr after the user approves
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
 correlates durable requests and final replies by request ID. `check` captures a
-diagnostic pane snapshot and may deliver a due Focus checklist at verified idle.
+diagnostic pane snapshot and may deliver a due Digest checklist at verified idle.
 
 Do not infer completion from screen text, idle output, process exit or a sent
 receipt; do not automatically resend after timeout, interruption or uncertain
@@ -93,7 +93,7 @@ continues; never type into its pane to get around it.
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
-`check` captures diagnostics and may deliver a due Focus checklist at verified idle.
+`check` captures diagnostics and may deliver a due Digest checklist at verified idle.
 It does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
@@ -156,24 +156,24 @@ tmt talk reviewer "Review this patch" --timeout 300 --json
 tmt talk reviewer "Run the agreed tests" --detach --json
 tmt talk reviewer "Review this patch" --identity coordinator --json
 tmt result <request-id> --json
-tmt check reviewer 200  # capture; may deliver a due Focus checklist
+tmt check reviewer 200  # capture; may deliver a due Digest checklist
 ```
 
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
 
-Focus holds non-owner, non-urgent automatic requests and result notices in a
+Digest holds non-owner, non-urgent automatic requests and result notices in a
 single durable checklist. Held talk returns queued immediately with remaining
-time; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`, `notification:"held"`
-and `waitingFor:"focus_checklist"`. Preserve the request ID; do not resend just
-because it was held. `--urgent` bypasses Focus only, and `--kind decision|review|fyi`
+time; JSON adds `digest:true`, `digestUntilMs`, `remainingMs`, `notification:"held"`
+and `waitingFor:"digest_checklist"`. Preserve the request ID; do not resend just
+because it was held. `--urgent` bypasses Digest only, and `--kind decision|review|fyi`
 records its checklist purpose (default `fyi`). The pinned recorded owner UUID
 also bypasses. All channel, host and pending-approval guards still apply.
 Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
 
 There is no core timer, worker or periodic flush. An admitted provider turn
-boundary may hand off one checklist during Focus. After expiry or off, the next
+boundary may hand off one checklist during Digest. After expiry or off, the next
 ordinary talk/check touching a verified idle recipient may hand off one backlog
 checklist. Without hooks or traffic it remains pending; an optional Squad cron
 reminder is outside core. A checklist contains original receipt-bound reply

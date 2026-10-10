@@ -240,7 +240,7 @@ pub(super) fn claim<E>(
 }
 
 /// Recheck already queued legacy notice frames at their transport boundary.
-/// Definitely unattempted frames can move to focus; an attempted frame cannot.
+/// Definitely unattempted frames can move to digest; an attempted frame cannot.
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     pub fn hold_reply_notice(&mut self, request_id: &str) -> Result<bool, RequestError<R::Error>> {
         self.hold_originator_notice(request_id, HintKind::Reply)
@@ -268,5 +268,5 @@ fn hold_notice<E>(
     kind: HintKind,
     now: u64,
 ) -> Result<bool, RequestError<E>> {
-    super::super::focus::hold_originator_notice(records, attempt, kind, now)
+    super::super::digest::hold_originator_notice(records, attempt, kind, now)
 }

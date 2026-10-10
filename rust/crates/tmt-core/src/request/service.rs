@@ -3,7 +3,7 @@
 
 mod answers;
 mod attention;
-mod focus;
+mod digest;
 mod history;
 mod lifecycle;
 mod notification;
@@ -34,7 +34,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
             input,
             attempt_id,
             retention_days,
-            super::focus::DeliveryPolicy::default(),
+            super::digest::DeliveryPolicy::default(),
             None,
         )
     }
@@ -44,11 +44,11 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         input: PrepareRequest,
         attempt_id: String,
         retention_days: u64,
-        delivery: super::focus::DeliveryPolicy,
+        delivery: super::digest::DeliveryPolicy,
         notification: Option<super::notification::NotificationPolicy>,
     ) -> Result<PreparedRequest, RequestError<R::Error>> {
         validate_prepare(&input, &attempt_id, retention_days)?;
-        if delivery.kind == super::focus::FocusKind::Result {
+        if delivery.kind == super::digest::DigestKind::Result {
             return Err(RequestError::Invalid(
                 "Result is reserved for final notices.",
             ));
@@ -79,7 +79,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
             input,
             attempt_id,
             retention_days,
-            super::focus::DeliveryPolicy::default(),
+            super::digest::DeliveryPolicy::default(),
         )
     }
 
@@ -88,10 +88,10 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         input: PrepareRequest,
         attempt_id: String,
         retention_days: u64,
-        delivery: super::focus::DeliveryPolicy,
+        delivery: super::digest::DeliveryPolicy,
     ) -> Result<PreparedRequest, RequestError<R::Error>> {
         validate_prepare(&input, &attempt_id, retention_days)?;
-        if delivery.kind == super::focus::FocusKind::Result {
+        if delivery.kind == super::digest::DigestKind::Result {
             return Err(RequestError::Invalid(
                 "Result is reserved for final notices.",
             ));
@@ -111,7 +111,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
                 &delivery,
                 None,
             )?;
-            let queued = if prepared.focus_until_ms.is_some() {
+            let queued = if prepared.digest_until_ms.is_some() {
                 true
             } else {
                 lifecycle::queue_records(records, &prepared.attempt_id, now)?
@@ -222,7 +222,7 @@ fn prepare_records<E>(
     mut input: PrepareRequest,
     attempt_id: String,
     retention_days: u64,
-    delivery: &super::focus::DeliveryPolicy,
+    delivery: &super::digest::DeliveryPolicy,
     notification: Option<&super::notification::NotificationPolicy>,
 ) -> Result<PreparedRequest, RequestError<E>> {
     if let Some(room_id) = &input.room_id {
@@ -252,9 +252,9 @@ fn prepare_records<E>(
         Some(id) => reserve_revision(records, id)?,
         None => 0,
     };
-    let focus_until_ms = if delivery.automatic && matches!(input.route, RequestRoute::Inbox { .. })
+    let digest_until_ms = if delivery.automatic && matches!(input.route, RequestRoute::Inbox { .. })
     {
-        focus::held_until(
+        digest::held_until(
             records,
             input.recipient_identity_id.as_deref(),
             input.originator.identity_id(),
@@ -264,7 +264,7 @@ fn prepare_records<E>(
     } else {
         None
     };
-    if focus_until_ms.is_some() {
+    if digest_until_ms.is_some() {
         input.wait = false;
         input.preamble = None;
     }
@@ -310,7 +310,7 @@ fn prepare_records<E>(
     };
     records.create_attempt(&attempt, &prompt, revision)?;
     records.write_delivery_policy(&attempt.request_id, delivery)?;
-    if focus_until_ms.is_some() {
+    if digest_until_ms.is_some() {
         if let Some(policy) = notification {
             if policy.waiter.is_some()
                 || policy.timeout_ms == 0
@@ -322,7 +322,7 @@ fn prepare_records<E>(
             }
             records.create_notification(&attempt.request_id, policy)?;
         }
-        focus::hold_incoming(records, &attempt, now)?;
+        digest::hold_incoming(records, &attempt, now)?;
         lifecycle::queue_records(records, &attempt.attempt_id, now)?;
     }
     Ok(PreparedRequest {
@@ -330,7 +330,7 @@ fn prepare_records<E>(
         request_id: input.request_id,
         inject_preamble: inject,
         previous_request_id,
-        focus_until_ms,
+        digest_until_ms,
     })
 }
 

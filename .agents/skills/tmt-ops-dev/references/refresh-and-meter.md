@@ -36,11 +36,11 @@
   refuses a new send while one is in flight so no text is lost. Picker and overlay
   saves are bounded local file writes through the compare-and-set config writer and stay
   on the session thread; they start no command.
-- Squad enrichment: a squad tab publishes without its focus-policy read and reply-body
-  reads. It applies the focus rows and bodies this worker already read (`Known`), so a
+- Squad enrichment: a squad tab publishes without its digest-policy read and reply-body
+  reads. It applies the digest rows and bodies this worker already read (`Known`), so a
   reload never blinks them off. The first deferred job (`EnrichJob`) then makes one
-  `focus.policy.show` read and the missing `requests.show` reads, and sends `Enriched`.
-  `App::apply_enriched` sets focus exactly as read (a failed read removes it, as before)
+  `digest.policy.show` read and the missing `requests.show` reads, and sends `Enriched`.
+  `App::apply_enriched` sets digest exactly as read (a failed read removes it, as before)
   and fills only replies still without a body. It acts only on the shown, settled squad.
   A fully enriched view equals the former synchronous load; a body-read failure no
   longer fails the view.
@@ -101,7 +101,7 @@ waiting/blocked tab counts, section titles/order and basic member/lead headings
 (name, squad, state, task, and a boolean decision mark). HOME
 instead retains summary/squad/member counts and blocked rows with names,
 squad labels and optional observed age. It omits grid/configuration, arbitrary
-fields/providers, presence/role, model/usage history, focus, action bindings/targets, identity
+fields/providers, presence/role, model/usage history, digest, action bindings/targets, identity
 UUIDs, panes/ttys, requests/receipts/bodies/previews, annotations, notes, checklists
 and deferred exchanges/cron. Fresh acquisition supplies omitted details.
 
@@ -146,24 +146,24 @@ A default-tab acquisition can have null `tab` on early stages; its total/milesto
 records identify the resolved tab. `deferred_pending` on the total/milestone records
 means existing enrichment, attention, history, cron or HOME exchanges remain scheduled.
 
-| Event          | Stage names / boundary                                                                                            |
-| -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `stage`        | `startup.placeholder`: the placeholder frame, drawn before any command                                            |
-| `stage`        | `startup.Config::load`: initial config in `board::run`                                                            |
-| `stage`        | `worker.caller`, `worker.Config::locate`: refresh-worker setup, overlapping terminal entry                        |
-| `stage`        | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                               |
-| `stage`        | `observe::observe`, `observation.document`, `squad_view`: named squad acquisition (focus and bodies are deferred) |
-| `stage`        | `snapshot_cache_read`: the stored display offer after the inventory read                                          |
-| `stage`        | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write           |
-| `stage`        | `all_view`: complete HOME base acquisition/projection                                                             |
-| `first_frame`  | `draw`: first successful terminal draw, including a loading screen                                                |
-| `cached_board` | `draw`: first successful draw showing a stored display, before any fresh board                                    |
-| `fresh_board`  | `draw`: first successful draw after an accepted current-tab snapshot                                              |
+| Event          | Stage names / boundary                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `stage`        | `startup.placeholder`: the placeholder frame, drawn before any command                                             |
+| `stage`        | `startup.Config::load`: initial config in `board::run`                                                             |
+| `stage`        | `worker.caller`, `worker.Config::locate`: refresh-worker setup, overlapping terminal entry                         |
+| `stage`        | `Squad::list`, `Config::load`, `load`: `board::refresh::load` acquisition and total                                |
+| `stage`        | `observe::observe`, `observation.document`, `squad_view`: named squad acquisition (digest and bodies are deferred) |
+| `stage`        | `snapshot_cache_read`: the stored display offer after the inventory read                                           |
+| `stage`        | `snapshot_publish`: fresh event send; `snapshot_cache`: subsequent best-effort root/serialization/write            |
+| `stage`        | `all_view`: complete HOME base acquisition/projection                                                              |
+| `first_frame`  | `draw`: first successful terminal draw, including a loading screen                                                 |
+| `cached_board` | `draw`: first successful draw showing a stored display, before any fresh board                                     |
+| `fresh_board`  | `draw`: first successful draw after an accepted current-tab snapshot                                               |
 
 Stage durations include their called work and stop before trace serialization;
 outer stages include enabled inner trace emission overhead. Failed Result stages
-emit `error` before returning the original error. Focus enrichment remains best
-effort, so its successful timing does not attest available focus evidence.
+emit `error` before returning the original error. Digest enrichment remains best
+effort, so its successful timing does not attest available digest evidence.
 HOME uses its own roster projection; named-squad stage records are not synthesized
 for it. Both milestones are emitted once per UI process, after the normal draw
 returns successfully. Failed, cancelled, wrong-tab and retained/cache-only views
@@ -267,7 +267,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   a listed active session has newer usage than the last reading or attempt, the
   worker reads up to three panes with `tmt check <name> --capture-only --lines
 12 --json` and parses the exact `5h P% (reset)  7d P% (reset)` form
-  (otherwise no reading). Never a plain `check`: it may hand a retained Focus
+  (otherwise no reading). Never a plain `check`: it may hand a retained Digest
   checklist to an idle pane, and a Core without the flag leaves those providers
   unread. A reading is dated by its source's own time (the limits' own
   observation; a session's usage observation for a footer), never by the read.

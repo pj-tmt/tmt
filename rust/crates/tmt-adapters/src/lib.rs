@@ -12,6 +12,7 @@ pub mod config;
 pub mod core_executable;
 #[cfg(unix)]
 pub mod delivery;
+pub mod digest;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod driver_protocol;
@@ -22,7 +23,6 @@ pub mod extension_command;
 pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
-pub mod focus;
 #[cfg(unix)]
 pub mod hint_cadence;
 #[cfg(unix)]

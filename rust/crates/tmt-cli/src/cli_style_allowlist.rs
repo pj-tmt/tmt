@@ -69,8 +69,8 @@ pub const MIGRATING: &[(&str, &[Rule])] = &[
 /// with a reason; a listed one that stops being hidden or is removed fails too.
 pub const HIDDEN: &[(&str, &str)] = &[
     (
-        "tmt __focus-hook",
-        "Session-only provider callback admits and settles a launch-scoped Focus checklist.",
+        "tmt __digest-hook",
+        "Session-only provider callback admits and settles a launch-scoped Digest checklist.",
     ),
     (
         "tmt team",

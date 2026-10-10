@@ -30,7 +30,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="shrink-0"/>
 <tmt-text id="name" bind="row.name" token="text" class="shrink-0"/>
 <tmt-text id="squad" bind="row.squad" token="muted" class="shrink-0"/>
-<tmt-repeat each="row.focus" as="focus"><tmt-text id="focus-gap" class="shrink-0"> </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/></tmt-repeat>
+<tmt-repeat each="row.digest" as="digest"><tmt-text id="digest-gap" class="shrink-0"> </tmt-text><tmt-text id="digest-word" bind="digest.word" token="text" class="shrink-0"/><tmt-text id="digest-suffix" bind="digest.suffix" token="muted" class="shrink-0"/></tmt-repeat>
 <tmt-text id="age" bind="row.age" token="dim" class="shrink-0"/>
 <tmt-text id="fill" class="grow h-1"/>
 </tmt-row>
@@ -68,7 +68,7 @@ fn schema() -> Schema {
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
                 (
-                    "focus",
+                    "digest",
                     list(object(&[
                         ("word", Schema::Scalar),
                         ("suffix", Schema::Scalar),
@@ -144,11 +144,11 @@ pub(super) fn paint(
             let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
             let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
             let available = width.saturating_sub(4 + age_width);
-            let focus = crate::focus::pieces(entry.row, now, available / 2);
-            let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+            let digest = crate::digest::pieces(entry.row, now, available / 2);
+            let digest_width = digest.as_array().unwrap().first().map_or(0, |piece| {
                 piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 1
             });
-            let name_width = (available.saturating_sub(focus_width) / 2).min(24);
+            let name_width = (available.saturating_sub(digest_width) / 2).min(24);
             let sent = app.sent.as_ref().and_then(|feedback| {
                 feedback.line(&crate::board::app::RowTarget::Home(entry.target.clone()))
             });
@@ -162,21 +162,21 @@ pub(super) fn paint(
                 after.push(json!({"id": format!("reserve-{line}"), "text": null, "role": null}));
             }
             let budget = available / 2;
-            let visible = if crate::focus::fitted(entry.row, now, budget).2 {
-                vec!["focus"]
+            let visible = if crate::digest::fitted(entry.row, now, budget).2 {
+                vec!["digest"]
             } else {
                 vec![]
             };
             json!({
-                "focus":focus,
+                "digest":digest,
                 "id": id(local),
                 "mark": " ✗ ",
                 "mark_role": Role::Blocked.name(),
                 "name": fit(&escape(entry.row["name"].as_str().unwrap_or_default()), name_width),
-                "squad": if focus_width == 0 {
+                "squad": if digest_width == 0 {
                     fit(&escape(&entry.target.squad), available.saturating_sub(name_width))
                 } else {
-                    format!(" {}", fit(&escape(&entry.target.squad), available.saturating_sub(name_width + focus_width + 1)))
+                    format!(" {}", fit(&escape(&entry.target.squad), available.saturating_sub(name_width + digest_width + 1)))
                 },
                 "age": format!(" {age}"),
                 "after": after,
@@ -238,7 +238,7 @@ fn build(key: &Key) -> Block {
                     look.role(Role::Working)
                 }
                 Some("mark") => base.patch(span(look.role(role), true)),
-                Some("name" | "squad" | "age" | "focus-word" | "focus-suffix" | "focus-gap") => {
+                Some("name" | "squad" | "age" | "digest-word" | "digest-suffix" | "digest-gap") => {
                     base.patch(span(look.role(role), false))
                 }
                 Some("fill") => base,

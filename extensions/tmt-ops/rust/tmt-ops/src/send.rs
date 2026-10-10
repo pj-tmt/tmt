@@ -24,7 +24,7 @@ pub enum Disposition {
     Queued,
     /// The recipient has no live session; it waits for their inbox read.
     Offline,
-    /// The recipient's focus checklist holds the notice.
+    /// The recipient's digest checklist holds the notice.
     Held,
 }
 
@@ -83,7 +83,7 @@ impl Accepted {
                 format!("{what} queued for {to} ({request}): offline, it waits for their inbox.")
             }
             Disposition::Held => {
-                format!("{what} held for {to} ({request}) until their focus checklist ends.")
+                format!("{what} held for {to} ({request}) until their digest checklist ends.")
             }
         }
     }

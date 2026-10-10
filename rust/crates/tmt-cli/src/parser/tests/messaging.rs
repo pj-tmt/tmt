@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn talk_focus_bypass_and_purpose_are_command_local_and_result_is_reserved() {
+fn talk_digest_bypass_and_purpose_are_command_local_and_result_is_reserved() {
     let Invocation::Talk { options, .. } =
         parsed(&["talk", "peer", "hello", "--urgent", "--kind", "review"]).invocation
     else {
@@ -9,8 +9,8 @@ fn talk_focus_bypass_and_purpose_are_command_local_and_result_is_reserved() {
     };
     assert!(options.urgent);
     assert_eq!(
-        options.focus_kind,
-        tmt_core::request::focus::FocusKind::Review
+        options.digest_kind,
+        tmt_core::request::digest::DigestKind::Review
     );
     for value in ["result", "urgent", "decision "] {
         assert_eq!(
@@ -75,7 +75,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -95,7 +95,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -137,7 +137,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             originator: None,
             options: TalkOptions {
                 urgent: false,
-                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
+                digest_kind: tmt_core::request::digest::DigestKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,

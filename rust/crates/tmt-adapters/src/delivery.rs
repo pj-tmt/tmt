@@ -372,7 +372,7 @@ fn send_messages(
 
 /// A checklist belongs to the exact admitted binding and runtime incarnation.
 /// Reuse ordinary channel/host routing without redirecting a sealed handoff.
-pub fn send_focus(
+pub fn send_digest(
     storage: &mut Storage,
     expected: &BindingEntry,
     message: &str,
@@ -385,7 +385,7 @@ pub fn send_focus(
         storage,
         &expected.identity.id,
         expected.binding.as_ref().map(|b| b.id.as_str()),
-        Messages::Focus {
+        Messages::Digest {
             text: message,
             expected,
         },
@@ -413,7 +413,7 @@ struct NoticeAttempt<'a> {
 }
 
 enum Messages<'a> {
-    Focus {
+    Digest {
         text: &'a str,
         expected: &'a BindingEntry,
     },
@@ -429,7 +429,7 @@ enum Messages<'a> {
 impl Messages<'_> {
     fn rendered(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            Self::Focus { text, .. } => std::borrow::Cow::Borrowed(text),
+            Self::Digest { text, .. } => std::borrow::Cow::Borrowed(text),
             Self::Single { host, .. } => std::borrow::Cow::Borrowed(host),
             Self::Notices(attempt) => std::borrow::Cow::Borrowed(&attempt.host_text),
         }
@@ -450,7 +450,7 @@ impl Messages<'_> {
             ActionResult::Failed(error) => ActionResult::Failed(runtime_failure(error)),
         };
         let attempt = match self {
-            Self::Focus { text, expected } => {
+            Self::Digest { text, expected } => {
                 if entry != *expected
                     || current(&mut storage.borrow_mut(), &entry.identity.id)
                         .ok()
@@ -556,7 +556,7 @@ impl Messages<'_> {
 
     fn claim_fallback(&self, storage: &std::cell::RefCell<&mut Storage>) -> bool {
         match self {
-            Self::Focus { expected, .. } => {
+            Self::Digest { expected, .. } => {
                 current(&mut storage.borrow_mut(), &expected.identity.id)
                     .ok()
                     .flatten()
@@ -598,7 +598,7 @@ pub fn send_reply_notices(
     // not parsed from persisted lines. Old queued notices retain their claims.
     let mut eligible = Vec::with_capacity(notices.len());
     for notice in notices {
-        if !crate::focus::hold_notice(
+        if !crate::digest::hold_notice(
             storage,
             &notice.request_id,
             tmt_core::request::notification::HintKind::Reply,
@@ -773,7 +773,7 @@ pub fn hint_text(storage: &mut Storage, hint: &OriginatorHint) -> String {
 }
 
 pub fn notify(storage: &mut Storage, hint: &OriginatorHint) -> Result<WakeState, StorageError> {
-    if crate::focus::hold_notice(storage, &hint.request_id, hint.kind)? {
+    if crate::digest::hold_notice(storage, &hint.request_id, hint.kind)? {
         return Ok(WakeState::Unavailable);
     }
     let (registered, host) = notices::immediate(storage, hint);

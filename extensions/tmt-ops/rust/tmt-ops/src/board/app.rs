@@ -1356,7 +1356,7 @@ impl App {
         let Some(view) = self.view.as_mut().filter(|view| view.home.is_none()) else {
             return false;
         };
-        crate::focus::set(&mut view.document, enrichment.focus.as_ref());
+        crate::digest::set(&mut view.document, enrichment.digest.as_ref());
         for reply in &mut view.replies {
             if let Some(response) = enrichment
                 .replies
@@ -4524,9 +4524,9 @@ pub(crate) mod tests {
     #[test]
     fn deferred_reads_complete_only_the_shown_squad_like_the_synchronous_load() {
         let enrichment = |held: u64, body: &str| super::super::refresh::Enrichment {
-            focus: Some(BTreeMap::from([(
+            digest: Some(BTreeMap::from([(
                 "a".to_owned(),
-                json!({"active": true, "focusUntilMs": 1, "remainingMs": 1, "heldCount": held}),
+                json!({"active": true, "digestUntilMs": 1, "remainingMs": 1, "heldCount": held}),
             )])),
             replies: Some(vec![json!({"requestId": "r1", "response": body})]),
         };
@@ -4546,23 +4546,23 @@ pub(crate) mod tests {
         assert!(app.apply_enriched("product", enrichment(2, "done")));
         let view = app.view.as_ref().unwrap();
         let rows = &view.document["sections"][0]["rows"];
-        assert_eq!(rows[0]["focus"]["heldCount"], 2);
-        assert!(rows[1].get("focus").is_none(), "no policy, no focus");
+        assert_eq!(rows[0]["digest"]["heldCount"], 2);
+        assert!(rows[1].get("digest").is_none(), "no policy, no digest");
         assert_eq!(view.replies[0]["response"], "done");
         assert_eq!(
             view.replies[1]["response"], "kept",
             "bodies never overwrite"
         );
 
-        // A failed optional read removes focus, as a load without it would show.
+        // A failed optional read removes digest, as a load without it would show.
         let failed = super::super::refresh::Enrichment {
-            focus: None,
+            digest: None,
             replies: None,
         };
         assert!(app.apply_enriched("product", failed));
         assert!(
             app.view.as_ref().unwrap().document["sections"][0]["rows"][0]
-                .get("focus")
+                .get("digest")
                 .is_none()
         );
 

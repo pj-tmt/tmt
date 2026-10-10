@@ -2,9 +2,9 @@
 
 mod changes;
 mod consumption;
+mod digest;
 mod dispatch;
 mod extensions;
-mod focus;
 mod identities;
 mod identity_hooks;
 mod notes;
@@ -29,12 +29,12 @@ use tmt_core::{
 pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
-    "focus.policy.set",
-    "focus.policy.clear",
-    "focus.policy.show",
-    "focus.checklist.read",
-    "focus.checklist.claim",
-    "focus.checklist.settle",
+    "digest.policy.set",
+    "digest.policy.clear",
+    "digest.policy.show",
+    "digest.checklist.read",
+    "digest.checklist.claim",
+    "digest.checklist.settle",
     "capabilities",
     "storage.root",
     "changes.cursor",
@@ -161,7 +161,7 @@ pub enum DispatchIdentity {
 }
 
 pub enum Request {
-    Focus(Box<focus::Operation>),
+    Digest(Box<digest::Operation>),
     Capabilities,
     ConsumptionHistory {
         identities: Vec<String>,
@@ -290,7 +290,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::ChangeCursor
         }
-        op if op.starts_with("focus.") => focus::decode(op, input)?,
+        op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
@@ -394,7 +394,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             windows,
             max_buckets,
         } => consumption::history(&mut storage, identities, windows, max_buckets),
-        Request::Focus(operation) => focus::execute(&mut storage, *operation),
+        Request::Digest(operation) => digest::execute(&mut storage, *operation),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {

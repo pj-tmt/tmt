@@ -266,7 +266,7 @@ a working directory, active pane or sole identity.
   authorize retirement or detachment; unchanged records retain conclusive stale
   binding cleanup.
 - Lifecycle hooks observe existing bindings; they never create or move identities.
-  Bounded callbacks exit zero; `tmt run` composes Claude/Codex Focus hooks with stable definitions. Persistent
+  Bounded callbacks exit zero; `tmt run` composes Claude/Codex Digest hooks with stable definitions. Persistent
   provider configuration changes only through consented `tmt setup`.
 - `tmt-core::endpoint::ProcessIncarnation` (PID plus core's own start token) is the
   one value for comparing local processes.
@@ -311,7 +311,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::focus` owns held references and sealed checklists; the Focus adapter composes API
+`request::digest` owns held references and sealed checklists; the Digest adapter composes API
 and verified-idle handoff without scheduling. Clocks are sampled at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
@@ -434,7 +434,7 @@ Independent releases use `tmt-ops-v<version>`; module/drawing ownership and guar
   Reads create no checklist files, a failed prepublication preserves bytes, and uncertainty stays
   Unknown after readback; the board controller consumes the same typed service
   ([data and state reference](.agents/skills/tmt-ops-dev/references/data-and-state.md#checklist-storage-and-service)).
-- **Row detail, focus, timing and entry.** Shared detail ownership and Core-owned focus policy live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences; the [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace) owns timing fields; the [config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
+- **Row detail, digest, timing and entry.** Shared detail ownership and Core-owned digest policy live in the [Ops skill](.agents/skills/tmt-ops-dev/SKILL.md); the [board reference](.agents/skills/tmt-ops-dev/references/board.md) owns worker fences; the [refresh reference](.agents/skills/tmt-ops-dev/references/refresh-and-meter.md#load-timing-trace) owns timing fields; the [config reference](.agents/skills/tmt-ops-dev/references/config-and-effects.md#cli-entry-and-public-json) owns CLI entry and display-document contracts.
 - **Contracts.** The [embedded lead skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md) owns the public JSON
   shapes of `ops sq ls`, `config`, `checklist` and `cron`; `typescript/test/native/ops.test.ts` checks them.
   A change to row JSON updates the lead skill and runs the native row-shape test in the same PR.

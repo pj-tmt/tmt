@@ -39,7 +39,7 @@ fn valid_query(query: &HistoryQuery) -> bool {
 fn item<T>(
     record: AttentionRecord,
     final_state: FinalState<T>,
-    delivery_policy: super::super::focus::DeliveryPolicy,
+    delivery_policy: super::super::digest::DeliveryPolicy,
 ) -> HistoryItem<T> {
     let acknowledged = matches!(record.attempt.route, RequestRoute::Inbox { .. }).then_some(
         record.revision > 0

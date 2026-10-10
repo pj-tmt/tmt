@@ -6,9 +6,9 @@ use tmt_core::{
     request::{
         Originator, PreambleReservation, PrepareRequest, RequestError, RequestKind, RequestRoute,
         RequestService, ResponseProof, SubmitResponse, WakeState,
-        focus::{
-            DeliveryPolicy, FocusKind, FocusOpportunity, FocusPolicyWrite, FocusRejection,
-            FocusState,
+        digest::{
+            DeliveryPolicy, DigestKind, DigestOpportunity, DigestPolicyWrite, DigestRejection,
+            DigestState,
         },
         notification::NotificationPolicy,
     },
@@ -39,7 +39,7 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
     let (mut f, target, owner, sender) = start();
     f.set_now(crate::request_runtime::wall_time_ms());
     service(&mut f)
-        .write_focus(policy(
+        .write_digest(policy(
             &target,
             &owner,
             1,
@@ -90,7 +90,7 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
         panic!("original fixture worker must claim the queued frame");
     };
     service(&mut f)
-        .write_focus(policy(
+        .write_digest(policy(
             &sender,
             &owner,
             0,
@@ -99,8 +99,8 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
         .unwrap();
     let db = rusqlite::Connection::open(&f.database).unwrap();
     db.execute_batch(
-        "CREATE TRIGGER fail_focus_notice BEFORE INSERT ON focus_items
-        BEGIN SELECT RAISE(ABORT, 'injected focus hold failure'); END;",
+        "CREATE TRIGGER fail_digest_notice BEFORE INSERT ON focus_items
+        BEGIN SELECT RAISE(ABORT, 'injected digest hold failure'); END;",
     )
     .unwrap();
     assert!(crate::delivery::notify(&mut f.storage, &hint).is_err());
@@ -145,7 +145,7 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
         tmt_core::request::ResponseLookup::Available(response) if response.body == "Durable final")
     );
 
-    db.execute_batch("DROP TRIGGER fail_focus_notice").unwrap();
+    db.execute_batch("DROP TRIGGER fail_digest_notice").unwrap();
     // Simulate the caller's independent proof that the exact old fixture worker
     // is gone. Both release and replacement election remain incarnation-fenced.
     assert!(f.storage.release_reply_notice_send(&pending).unwrap());
@@ -174,7 +174,7 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
     assert!(f.storage.reply_notice_batch(&batch.id).unwrap().is_none());
     assert_eq!(
         service(&mut f)
-            .focus_checklist_items(&sender, None, 0, 128)
+            .digest_checklist_items(&sender, None, 0, 128)
             .unwrap()
             .1,
         1
@@ -194,66 +194,66 @@ fn reply_notice_admission_error_keeps_unattempted_batch_pending_for_a_fenced_ret
 #[test]
 fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_claims() {
     let (mut f, target, _, sender) = start();
-    held(&mut f, &target, &sender, "retained-focus");
+    held(&mut f, &target, &sender, "retained-digest");
     let unsent = service(&mut f)
-        .claim_focus_checklist(
+        .claim_digest_checklist(
             &target,
             new_operation_id(),
             new_operation_id(),
-            FocusOpportunity::TurnBoundary,
+            DigestOpportunity::TurnBoundary,
         )
         .unwrap()
         .unwrap();
     service(&mut f)
-        .settle_focus_checklist(
+        .settle_digest_checklist(
             &target,
             &unsent.id,
             &unsent.attempt_token,
-            FocusState::Unsent,
+            DigestState::Unsent,
         )
         .unwrap();
     let delivered = service(&mut f)
-        .claim_focus_checklist(
+        .claim_digest_checklist(
             &target,
             new_operation_id(),
             new_operation_id(),
-            FocusOpportunity::TurnBoundary,
+            DigestOpportunity::TurnBoundary,
         )
         .unwrap()
         .unwrap();
     service(&mut f)
-        .settle_focus_checklist(
+        .settle_digest_checklist(
             &target,
             &delivered.id,
             &delivered.attempt_token,
-            FocusState::Delivered,
+            DigestState::Delivered,
         )
         .unwrap();
-    held(&mut f, &target, &sender, "uncertain-focus");
+    held(&mut f, &target, &sender, "uncertain-digest");
     let uncertain = service(&mut f)
-        .claim_focus_checklist(
+        .claim_digest_checklist(
             &target,
             new_operation_id(),
             new_operation_id(),
-            FocusOpportunity::TurnBoundary,
+            DigestOpportunity::TurnBoundary,
         )
         .unwrap()
         .unwrap();
     service(&mut f)
-        .settle_focus_checklist(
+        .settle_digest_checklist(
             &target,
             &uncertain.id,
             &uncertain.attempt_token,
-            FocusState::Uncertain,
+            DigestState::Uncertain,
         )
         .unwrap();
-    held(&mut f, &target, &sender, "claimed-focus");
+    held(&mut f, &target, &sender, "claimed-digest");
     let claimed = service(&mut f)
-        .claim_focus_checklist(
+        .claim_digest_checklist(
             &target,
             new_operation_id(),
             new_operation_id(),
-            FocusOpportunity::TurnBoundary,
+            DigestOpportunity::TurnBoundary,
         )
         .unwrap()
         .unwrap();
@@ -299,7 +299,7 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
     }
     assert!(
         service(&mut f)
-            .focus_policies(std::slice::from_ref(&target))
+            .digest_policies(std::slice::from_ref(&target))
             .unwrap()[0]
             .active_checklist
             .as_ref()
@@ -307,11 +307,11 @@ fn request_housekeeping_prunes_empty_settled_checklists_but_retains_unknown_clai
     );
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary
             )
             .unwrap()
             .is_none()
@@ -326,7 +326,7 @@ fn a_retired_snapshot_member_does_not_finish_its_untouched_reply_batch_peer() {
     let (mut f, target, owner, sender) = start();
     f.set_now(crate::request_runtime::wall_time_ms());
     service(&mut f)
-        .write_focus(policy(
+        .write_digest(policy(
             &target,
             &owner,
             1,
@@ -438,8 +438,8 @@ fn identity(f: &mut Fixture, name: &str) -> String {
         .identity
         .id
 }
-fn policy(target: &str, owner: &str, revision: u64, until: u64) -> FocusPolicyWrite {
-    FocusPolicyWrite {
+fn policy(target: &str, owner: &str, revision: u64, until: u64) -> DigestPolicyWrite {
+    DigestPolicyWrite {
         identity_id: target.into(),
         owner_identity_id: owner.into(),
         setter_identity_id: owner.into(),
@@ -486,19 +486,19 @@ fn held(
 fn start() -> (Fixture, String, String, String) {
     let mut f = Fixture::new();
     let target = f.identity_id.clone();
-    let owner = identity(&mut f, "Focus Owner");
-    let sender = identity(&mut f, "Focus Sender");
+    let owner = identity(&mut f, "Digest Owner");
+    let sender = identity(&mut f, "Digest Sender");
     service(&mut f)
-        .write_focus(policy(&target, &owner, 0, NOW_MS + 1000))
+        .write_digest(policy(&target, &owner, 0, NOW_MS + 1000))
         .unwrap();
     (f, target, owner, sender)
 }
 
 #[test]
-fn focus_admission_atomically_publishes_detached_attention_and_notice_policy() {
+fn digest_admission_atomically_publishes_detached_attention_and_notice_policy() {
     let (mut f, target, _, sender) = start();
     let p = held(&mut f, &target, &sender, "held");
-    assert_eq!(p.focus_until_ms, Some(NOW_MS + 1000));
+    assert_eq!(p.digest_until_ms, Some(NOW_MS + 1000));
     let a = service(&mut f).get_attempt(&p.attempt_id).unwrap().unwrap();
     assert!(!a.wait_active);
     assert_eq!(a.status, tmt_core::request::AttemptStatus::Queued);
@@ -506,7 +506,7 @@ fn focus_admission_atomically_publishes_detached_attention_and_notice_policy() {
     assert!(service(&mut f).notification("held").unwrap().is_some());
     assert!(!service(&mut f).claim_wake("held").unwrap().claimed);
     let (items, count) = service(&mut f)
-        .focus_checklist_items(&target, None, 0, 128)
+        .digest_checklist_items(&target, None, 0, 128)
         .unwrap();
     assert_eq!(count, 1);
     assert_eq!(items[0].request_id, "held");
@@ -522,12 +522,12 @@ fn focus_admission_atomically_publishes_detached_attention_and_notice_policy() {
 }
 
 #[test]
-fn focus_enabled_between_publication_and_wake_blocks_the_original_claim() {
+fn digest_enabled_between_publication_and_wake_blocks_the_original_claim() {
     let (mut f, target, owner, sender) = start();
     service(&mut f)
-        .write_focus(policy(&target, &owner, 1, 0))
+        .write_digest(policy(&target, &owner, 1, 0))
         .unwrap();
-    let mut input = request(&target, Some(&sender), "late-focus");
+    let mut input = request(&target, Some(&sender), "late-digest");
     input.wait = false;
     input.preamble = Some(PreambleReservation {
         identity_id: target.clone(),
@@ -536,15 +536,15 @@ fn focus_enabled_between_publication_and_wake_blocks_the_original_claim() {
     let prepared = service(&mut f)
         .enqueue_delivery(input, "late-attempt".into(), 7, DeliveryPolicy::default())
         .unwrap();
-    assert_eq!(prepared.focus_until_ms, None);
+    assert_eq!(prepared.digest_until_ms, None);
     assert_eq!(preamble_count(&f.database, &target), 1);
     service(&mut f)
-        .write_focus(policy(&target, &owner, 2, NOW_MS + 1000))
+        .write_digest(policy(&target, &owner, 2, NOW_MS + 1000))
         .unwrap();
-    let wake = service(&mut f).claim_wake("late-focus").unwrap();
+    let wake = service(&mut f).claim_wake("late-digest").unwrap();
     assert!(!wake.claimed);
     assert_eq!(wake.state, WakeState::NotAttempted);
-    assert_eq!(wake.focus_until_ms, Some(NOW_MS + 1000));
+    assert_eq!(wake.digest_until_ms, Some(NOW_MS + 1000));
     assert_eq!(preamble_count(&f.database, &target), 0);
     assert!(
         !service(&mut f)
@@ -555,19 +555,19 @@ fn focus_enabled_between_publication_and_wake_blocks_the_original_claim() {
     );
     assert_eq!(
         service(&mut f)
-            .focus_checklist_items(&target, None, 0, 128)
+            .digest_checklist_items(&target, None, 0, 128)
             .unwrap()
             .1,
         1
     );
     service(&mut f)
-        .write_focus(policy(&target, &owner, 3, 0))
+        .write_digest(policy(&target, &owner, 3, 0))
         .unwrap();
     // Clearing after admission cannot erase the captured held decision.
-    assert_eq!(wake.focus_until_ms, Some(NOW_MS + 1000));
-    let after_clear = service(&mut f).claim_wake("late-focus").unwrap();
+    assert_eq!(wake.digest_until_ms, Some(NOW_MS + 1000));
+    let after_clear = service(&mut f).claim_wake("late-digest").unwrap();
     assert!(!after_clear.claimed);
-    assert_eq!(after_clear.focus_until_ms, Some(0));
+    assert_eq!(after_clear.digest_until_ms, Some(0));
     f.storage.close().unwrap();
 }
 
@@ -580,7 +580,7 @@ fn withdrawn_and_expired_members_never_offer_a_live_reply_or_renew_retention() {
         .unwrap();
     assert!(
         !service(&mut f)
-            .focus_reply_context("obsolete")
+            .digest_reply_context("obsolete")
             .unwrap()
             .unwrap()
             .1
@@ -592,24 +592,24 @@ fn withdrawn_and_expired_members_never_offer_a_live_reply_or_renew_retention() {
     f.set_now(before.retention_expires_at_ms);
     assert!(
         service(&mut f)
-            .focus_reply_context("obsolete")
+            .digest_reply_context("obsolete")
             .unwrap()
             .is_none()
     );
     assert_eq!(
         service(&mut f)
-            .focus_checklist_items(&target, None, 0, 128)
+            .digest_checklist_items(&target, None, 0, 128)
             .unwrap()
             .1,
         0
     );
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary
             )
             .unwrap()
             .is_none()
@@ -618,7 +618,7 @@ fn withdrawn_and_expired_members_never_offer_a_live_reply_or_renew_retention() {
 }
 
 #[test]
-fn owner_and_urgent_bypass_focus_but_explicit_inbox_stays_pull_only() {
+fn owner_and_urgent_bypass_digest_but_explicit_inbox_stays_pull_only() {
     let (mut f, target, owner, sender) = start();
     for (id, originator, urgent, automatic) in [
         ("owner", owner.as_str(), false, true),
@@ -635,11 +635,11 @@ fn owner_and_urgent_bypass_focus_but_explicit_inbox_stays_pull_only() {
                 DeliveryPolicy {
                     urgent,
                     automatic,
-                    kind: FocusKind::Review,
+                    kind: DigestKind::Review,
                 },
             )
             .unwrap();
-        assert_eq!(p.focus_until_ms, None);
+        assert_eq!(p.digest_until_ms, None);
         assert_eq!(
             service(&mut f)
                 .request_detail(id)
@@ -656,11 +656,11 @@ fn owner_and_urgent_bypass_focus_but_explicit_inbox_stays_pull_only() {
                 .exchange
                 .delivery_policy
                 .kind,
-            FocusKind::Review
+            DigestKind::Review
         );
     }
     assert_eq!(
-        service(&mut f).focus_policies(&[target]).unwrap()[0].held_count,
+        service(&mut f).digest_policies(&[target]).unwrap()[0].held_count,
         0
     );
     f.storage.close().unwrap();
@@ -673,11 +673,11 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
     held(&mut f, &target, &sender, "b");
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::Idle
+                DigestOpportunity::Idle
             )
             .unwrap()
             .is_none()
@@ -685,66 +685,66 @@ fn checklist_seals_order_and_later_arrivals_cannot_join_or_replay() {
     let id = new_operation_id();
     let token = new_operation_id();
     let batch = service(&mut f)
-        .claim_focus_checklist(
+        .claim_digest_checklist(
             &target,
             id.clone(),
             token.clone(),
-            FocusOpportunity::TurnBoundary,
+            DigestOpportunity::TurnBoundary,
         )
         .unwrap()
         .unwrap();
     held(&mut f, &target, &sender, "c");
     let (items, count) = service(&mut f)
-        .focus_checklist_items(&target, Some(&id), 0, 1)
+        .digest_checklist_items(&target, Some(&id), 0, 1)
         .unwrap();
     assert_eq!(count, 2);
     assert_eq!(items[0].request_id, "a");
     let (next, count) = service(&mut f)
-        .focus_checklist_items(&target, Some(&id), items[0].sequence, 128)
+        .digest_checklist_items(&target, Some(&id), items[0].sequence, 128)
         .unwrap();
     assert_eq!(count, 1);
     assert_eq!(next[0].request_id, "b");
     assert_eq!(batch.through_sequence, next[0].sequence);
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 id.clone(),
                 token.clone(),
-                FocusOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary
             )
             .unwrap()
             .is_none()
     );
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary
             )
             .unwrap()
             .is_none()
     );
     assert!(
         service(&mut f)
-            .settle_focus_checklist(&target, &id, &token, FocusState::Delivered)
+            .settle_digest_checklist(&target, &id, &token, DigestState::Delivered)
             .unwrap()
     );
     assert!(
         !service(&mut f)
-            .settle_focus_checklist(&target, &id, &token, FocusState::Delivered)
+            .settle_digest_checklist(&target, &id, &token, DigestState::Delivered)
             .unwrap()
     );
     assert!(
         service(&mut f)
-            .settle_focus_checklist(&target, &id, &token, FocusState::Unsent)
+            .settle_digest_checklist(&target, &id, &token, DigestState::Unsent)
             .is_err()
     );
     assert!(!service(&mut f).claim_wake("a").unwrap().claimed);
     let (items, count) = service(&mut f)
-        .focus_checklist_items(&target, None, 0, 128)
+        .digest_checklist_items(&target, None, 0, 128)
         .unwrap();
     assert_eq!(count, 1);
     assert_eq!(items[0].request_id, "c");
@@ -759,28 +759,28 @@ fn expiry_and_clear_expose_one_backlog_without_renewing_receipts() {
         let before = service(&mut f).get_attempt(&p.attempt_id).unwrap().unwrap();
         if clear {
             service(&mut f)
-                .write_focus(policy(&target, &owner, 1, 0))
+                .write_digest(policy(&target, &owner, 1, 0))
                 .unwrap();
         } else {
             f.set_now(NOW_MS + 1000);
         }
         let batch = service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::Idle,
+                DigestOpportunity::Idle,
             )
             .unwrap()
             .unwrap();
         assert_eq!(
             service(&mut f)
-                .focus_checklist_items(&target, Some(&batch.id), 0, 128)
+                .digest_checklist_items(&target, Some(&batch.id), 0, 128)
                 .unwrap()
                 .1,
             1
         );
-        let (_, replyable) = service(&mut f).focus_reply_context("a").unwrap().unwrap();
+        let (_, replyable) = service(&mut f).digest_reply_context("a").unwrap().unwrap();
         assert!(replyable);
         assert_eq!(
             before.retention_expires_at_ms,
@@ -803,7 +803,13 @@ fn expiry_and_clear_expose_one_backlog_without_renewing_receipts() {
                 body: "Exact final".into(),
             })
             .unwrap();
-        assert!(!service(&mut f).focus_reply_context("a").unwrap().unwrap().1);
+        assert!(
+            !service(&mut f)
+                .digest_reply_context("a")
+                .unwrap()
+                .unwrap()
+                .1
+        );
         assert!(matches!(
             service(&mut f).get_response("a").unwrap(),
             tmt_core::request::ResponseLookup::Available(_)
@@ -816,31 +822,31 @@ fn expiry_and_clear_expose_one_backlog_without_renewing_receipts() {
 fn definitely_unsent_releases_members_but_uncertainty_never_replays() {
     let (mut f, target, _, sender) = start();
     held(&mut f, &target, &sender, "a");
-    for state in [FocusState::Unsent, FocusState::Uncertain] {
+    for state in [DigestState::Unsent, DigestState::Uncertain] {
         let batch = service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::TurnBoundary,
+                DigestOpportunity::TurnBoundary,
             )
             .unwrap()
             .unwrap();
         assert!(matches!(
-            service(&mut f).settle_focus_checklist(&target, &batch.id, &new_operation_id(), state),
-            Err(RequestError::Focus(FocusRejection::AttemptMismatch))
+            service(&mut f).settle_digest_checklist(&target, &batch.id, &new_operation_id(), state),
+            Err(RequestError::Digest(DigestRejection::AttemptMismatch))
         ));
         service(&mut f)
-            .settle_focus_checklist(&target, &batch.id, &batch.attempt_token, state)
+            .settle_digest_checklist(&target, &batch.id, &batch.attempt_token, state)
             .unwrap();
     }
     assert!(
         service(&mut f)
-            .claim_focus_checklist(
+            .claim_digest_checklist(
                 &target,
                 new_operation_id(),
                 new_operation_id(),
-                FocusOpportunity::TurnBoundary
+                DigestOpportunity::TurnBoundary
             )
             .unwrap()
             .is_none()
@@ -857,9 +863,10 @@ fn concurrent_policy_writers_and_checklist_claims_have_one_winner() {
         let target = target.clone();
         let owner = owner.clone();
         Box::new(move |s: &mut crate::storage::Storage| {
-            match RequestService::new(s, || NOW_MS).write_focus(policy(&target, &owner, 1, until)) {
+            match RequestService::new(s, || NOW_MS).write_digest(policy(&target, &owner, 1, until))
+            {
                 Ok(_) => true,
-                Err(RequestError::Focus(FocusRejection::Conflict)) => false,
+                Err(RequestError::Digest(DigestRejection::Conflict)) => false,
                 other => panic!("Expected one policy success and one revision conflict: {other:?}"),
             }
         }) as Operation<bool>
@@ -875,11 +882,11 @@ fn concurrent_policy_writers_and_checklist_claims_have_one_winner() {
         let target = target.clone();
         Box::new(move |s: &mut crate::storage::Storage| {
             RequestService::new(s, || NOW_MS)
-                .claim_focus_checklist(
+                .claim_digest_checklist(
                     &target,
                     new_operation_id(),
                     new_operation_id(),
-                    FocusOpportunity::TurnBoundary,
+                    DigestOpportunity::TurnBoundary,
                 )
                 .unwrap()
                 .is_some()
@@ -899,7 +906,7 @@ fn concurrent_policy_writers_and_checklist_claims_have_one_winner() {
 fn result_notice_is_held_and_deduplicated_independently_from_incoming() {
     let (mut f, target, owner, sender) = start();
     service(&mut f)
-        .write_focus(policy(&sender, &owner, 0, NOW_MS + 1000))
+        .write_digest(policy(&sender, &owner, 0, NOW_MS + 1000))
         .unwrap();
     let p = held(&mut f, &target, &sender, "a");
     service(&mut f)
@@ -918,10 +925,10 @@ fn result_notice_is_held_and_deduplicated_independently_from_incoming() {
     assert!(service(&mut f).hold_reply_notice("a").unwrap());
     assert!(service(&mut f).hold_reply_notice("a").unwrap());
     let (items, count) = service(&mut f)
-        .focus_checklist_items(&sender, None, 0, 128)
+        .digest_checklist_items(&sender, None, 0, 128)
         .unwrap();
     assert_eq!(count, 1);
-    assert_eq!(items[0].kind, FocusKind::Result);
+    assert_eq!(items[0].kind, DigestKind::Result);
     assert_ne!(
         service(&mut f).notification("a").unwrap().unwrap().reply,
         WakeState::Sent
@@ -930,7 +937,7 @@ fn result_notice_is_held_and_deduplicated_independently_from_incoming() {
 }
 
 #[test]
-fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
+fn digest_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
     use tmt_core::{endpoint::ProcessIncarnation, request::notification::batch::SendClaim};
     for joined in [false, true] {
         let mut f = Fixture::new();
@@ -939,7 +946,7 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
         let owner = identity(&mut f, "Owner");
         let sender = identity(&mut f, "Sender");
         service(&mut f)
-            .write_focus(policy(
+            .write_digest(policy(
                 &target,
                 &owner,
                 0,
@@ -989,7 +996,7 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
             SendClaim::Ready(_)
         ));
         service(&mut f)
-            .write_focus(policy(
+            .write_digest(policy(
                 &sender,
                 &owner,
                 0,
@@ -1003,7 +1010,7 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
         );
         assert_eq!(
             service(&mut f)
-                .focus_policies(std::slice::from_ref(&sender))
+                .digest_policies(std::slice::from_ref(&sender))
                 .unwrap()[0]
                 .held_count,
             0
@@ -1018,7 +1025,7 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
         .unwrap();
         assert!(!claimed);
         assert_eq!(
-            service(&mut f).focus_policies(&[sender]).unwrap()[0].held_count,
+            service(&mut f).digest_policies(&[sender]).unwrap()[0].held_count,
             1
         );
         assert_eq!(
@@ -1036,7 +1043,7 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
 }
 
 #[test]
-fn focus_reads_do_not_housekeep_acknowledge_or_renew_retained_data() {
+fn digest_reads_do_not_housekeep_acknowledge_or_renew_retained_data() {
     let (mut f, target, _, sender) = start();
     held(&mut f, &target, &sender, "read");
     let before = f.storage.change_cursor().unwrap();
@@ -1045,13 +1052,13 @@ fn focus_reads_do_not_housekeep_acknowledge_or_renew_retained_data() {
         .unwrap()
         .unwrap();
     service(&mut f)
-        .focus_policies(std::slice::from_ref(&target))
+        .digest_policies(std::slice::from_ref(&target))
         .unwrap();
     service(&mut f)
-        .focus_checklist_items(&target, None, 0, 1)
+        .digest_checklist_items(&target, None, 0, 1)
         .unwrap();
-    service(&mut f).focus_reply_context("read").unwrap();
-    service(&mut f).focus_result_context("read").unwrap();
+    service(&mut f).digest_reply_context("read").unwrap();
+    service(&mut f).digest_result_context("read").unwrap();
     assert_eq!(f.storage.change_cursor().unwrap(), before);
     assert_eq!(
         service(&mut f)

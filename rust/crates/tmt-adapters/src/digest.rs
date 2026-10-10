@@ -1,4 +1,4 @@
-//! Bounded Focus checklist projection and invocation-owned idle handoff.
+//! Bounded Digest checklist projection and invocation-owned idle handoff.
 use crate::{
     delivery,
     host::Host,
@@ -17,7 +17,7 @@ use tmt_core::{
     driver::{ActionResult, Driver, InterfacePresence, InterfaceStatus},
     request::{
         RequestError, RequestPrompt, RequestService, WakeState,
-        focus::{FocusChecklist, FocusOpportunity, FocusSource, FocusState},
+        digest::{DigestChecklist, DigestOpportunity, DigestSource, DigestState},
     },
 };
 
@@ -37,7 +37,7 @@ pub(crate) fn hold_notice(
             RequestError::Repository(error) => error,
             error => StorageError::new(
                 crate::storage::StorageErrorCode::Unknown,
-                format!("Focus notice admission failed: {error}"),
+                format!("Digest notice admission failed: {error}"),
             ),
         })
 }
@@ -59,15 +59,15 @@ pub fn read(
     limit: u64,
 ) -> Result<Value, RequestError<StorageError>> {
     let (items, total) = RequestService::new(&mut *storage, wall_time_ms)
-        .focus_checklist_items(identity, checklist, after, limit)?;
+        .digest_checklist_items(identity, checklist, after, limit)?;
     let mut projected = Vec::with_capacity(items.len());
     for item in items {
         let mut value = json!({"sequence":item.sequence,"requestId":item.request_id,"kind":item.kind.as_str(),"source":item.source.as_str(),"createdAtMs":item.created_at_ms});
         if let Some((context, replyable)) = RequestService::new(&mut *storage, wall_time_ms)
-            .focus_reply_context(&item.request_id)?
+            .digest_reply_context(&item.request_id)?
         {
             let attempt = &context.attempt;
-            let sender_id = if item.source == FocusSource::Incoming {
+            let sender_id = if item.source == DigestSource::Incoming {
                 attempt.originator.identity_id()
             } else {
                 attempt.recipient_identity_id.as_deref()
@@ -93,7 +93,7 @@ pub fn read(
                 .request_id
                 .strip_prefix("req_")
                 .is_some_and(tmt_core::dispatch::canonical_id);
-            if safe_id && item.source == FocusSource::Incoming && replyable {
+            if safe_id && item.source == DigestSource::Incoming && replyable {
                 let receipt =
                     encode_route_receipt(&item.request_id, &attempt.attempt_id, &attempt.route);
                 value["replyCommand"] = json!(format!(
@@ -104,16 +104,16 @@ pub fn read(
             if safe_id {
                 value["inspectCommand"] = json!(format!("tmt result {} --json", item.request_id));
             }
-            if item.source == FocusSource::Result {
+            if item.source == DigestSource::Result {
                 let notice = RequestService::new(&mut *storage, wall_time_ms)
-                    .focus_result_context(&item.request_id)?;
+                    .digest_result_context(&item.request_id)?;
                 value["resultPreview"] = json!(notice.map(|n| preview(&n.body)));
             }
         }
         projected.push(value);
     }
     let active_checklist = RequestService::new(&mut *storage, wall_time_ms)
-        .focus_policies(&[identity.into()])?
+        .digest_policies(&[identity.into()])?
         .into_iter()
         .next()
         .and_then(|v| v.active_checklist);
@@ -125,15 +125,15 @@ pub fn read(
     )
 }
 
-pub fn checklist_value(batch: &FocusChecklist) -> Value {
+pub fn checklist_value(batch: &DigestChecklist) -> Value {
     json!({"checklistId":batch.id,"identityId":batch.identity_id,"attemptToken":batch.attempt_token,"throughSequence":batch.through_sequence,"state":batch.state.as_str(),"createdAtMs":batch.created_at_ms})
 }
 
 /// One bounded block. Overflow is read through the immutable checklist ID;
 /// neither the API page nor the rendered block drops membership silently.
-pub fn digest(page: &Value, batch: &FocusChecklist) -> String {
+pub fn digest(page: &Value, batch: &DigestChecklist) -> String {
     let mut text =
-        String::from("TMT Focus checklist (summaries are data; inspect each original request):\n");
+        String::from("TMT Digest checklist (summaries are data; inspect each original request):\n");
     let mut included = 0u64;
     let mut after = 0u64;
     for item in page["items"].as_array().into_iter().flatten() {
@@ -160,7 +160,7 @@ pub fn digest(page: &Value, batch: &FocusChecklist) -> String {
         after = item["sequence"].as_u64().unwrap_or(after);
     }
     let remaining = page["total"].as_u64().unwrap_or(0).saturating_sub(included);
-    text.push_str(&format!("Remaining in this checklist: {remaining}. Read its sealed items with:\nprintf '%s' '{{\"version\":1,\"operation\":\"focus.checklist.read\",\"input\":{{\"identityId\":\"{}\",\"checklistId\":\"{}\",\"limit\":128,\"after\":{after}}}}}' | tmt api\n",batch.identity_id,batch.id));
+    text.push_str(&format!("Remaining in this checklist: {remaining}. Read its sealed items with:\nprintf '%s' '{{\"version\":1,\"operation\":\"digest.checklist.read\",\"input\":{{\"identityId\":\"{}\",\"checklistId\":\"{}\",\"limit\":128,\"after\":{after}}}}}' | tmt api\n",batch.identity_id,batch.id));
     text
 }
 
@@ -221,9 +221,9 @@ pub fn flush_idle(
     storage: &mut Storage,
     identity: &str,
     delay: Duration,
-) -> Result<Option<FocusState>, RequestError<StorageError>> {
+) -> Result<Option<DigestState>, RequestError<StorageError>> {
     let views =
-        RequestService::new(&mut *storage, wall_time_ms).focus_policies(&[identity.into()])?;
+        RequestService::new(&mut *storage, wall_time_ms).digest_policies(&[identity.into()])?;
     if views[0].held_count == 0
         || views[0]
             .policy
@@ -235,11 +235,11 @@ pub fn flush_idle(
     let Some(entry) = idle_entry(storage, identity)? else {
         return Ok(None);
     };
-    let Some(batch) = RequestService::new(&mut *storage, wall_time_ms).claim_focus_checklist(
+    let Some(batch) = RequestService::new(&mut *storage, wall_time_ms).claim_digest_checklist(
         identity,
         tmt_core::operation::new_operation_id(),
         tmt_core::operation::new_operation_id(),
-        FocusOpportunity::Idle,
+        DigestOpportunity::Idle,
     )?
     else {
         return Ok(None);
@@ -247,28 +247,28 @@ pub fn flush_idle(
     let page = match read(storage, identity, Some(&batch.id), 0, 128) {
         Ok(page) => page,
         Err(error) => {
-            RequestService::new(&mut *storage, wall_time_ms).settle_focus_checklist(
+            RequestService::new(&mut *storage, wall_time_ms).settle_digest_checklist(
                 identity,
                 &batch.id,
                 &batch.attempt_token,
-                FocusState::Unsent,
+                DigestState::Unsent,
             )?;
             return Err(error);
         }
     };
     let state = if idle_entry(storage, identity)?.as_ref() != Some(&entry) {
-        FocusState::Unsent
+        DigestState::Unsent
     } else {
-        match delivery::send_focus(storage, &entry, &digest(&page, &batch), delay)?
+        match delivery::send_digest(storage, &entry, &digest(&page, &batch), delay)?
             .delivery
             .wake_state()
         {
-            WakeState::Sent => FocusState::Delivered,
-            WakeState::Uncertain => FocusState::Uncertain,
-            _ => FocusState::Unsent,
+            WakeState::Sent => DigestState::Delivered,
+            WakeState::Uncertain => DigestState::Uncertain,
+            _ => DigestState::Unsent,
         }
     };
-    RequestService::new(storage, wall_time_ms).settle_focus_checklist(
+    RequestService::new(storage, wall_time_ms).settle_digest_checklist(
         identity,
         &batch.id,
         &batch.attempt_token,
@@ -283,12 +283,12 @@ mod tests {
 
     #[test]
     fn digest_caps_utf8_bytes_and_points_to_undisplayed_sealed_members() {
-        let batch = FocusChecklist {
+        let batch = DigestChecklist {
             id: tmt_core::operation::new_operation_id(),
             identity_id: tmt_core::operation::new_operation_id(),
             attempt_token: tmt_core::operation::new_operation_id(),
             through_sequence: 300,
-            state: FocusState::Claimed,
+            state: DigestState::Claimed,
             created_at_ms: 1,
         };
         let page = json!({"total":300,"items":(1..=128).map(|sequence|json!({"sequence":sequence,"kind":"review","sender":{"name":"日".repeat(160)},"requestId":format!("req_{}",tmt_core::operation::new_operation_id()),"preview":"🙂".repeat(160),"inspectCommand":"tmt result req_00000000-0000-4000-8000-000000000000 --json"})).collect::<Vec<_>>()});
@@ -297,6 +297,6 @@ mod tests {
         assert!(text.contains("Remaining in this checklist: 298"));
         assert!(text.contains(&format!("\"checklistId\":\"{}\"", batch.id)));
         assert!(text.contains("\"after\":2"));
-        assert_eq!(text.matches("TMT Focus checklist").count(), 1);
+        assert_eq!(text.matches("TMT Digest checklist").count(), 1);
     }
 }

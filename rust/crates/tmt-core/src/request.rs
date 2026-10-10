@@ -3,7 +3,7 @@
 
 pub mod attention;
 pub mod correlation;
-pub mod focus;
+pub mod digest;
 pub mod history;
 pub mod inbox;
 pub mod notification;
@@ -139,7 +139,7 @@ pub struct WakeClaim {
     pub claimed: bool,
     /// Captured with the held decision; Some(0) denotes a cleared policy whose
     /// request remains owned by its checklist instead of an individual wake.
-    pub focus_until_ms: Option<u64>,
+    pub digest_until_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,7 +249,7 @@ pub struct PreparedRequest {
     pub request_id: String,
     pub inject_preamble: bool,
     pub previous_request_id: Option<String>,
-    pub focus_until_ms: Option<u64>,
+    pub digest_until_ms: Option<u64>,
 }
 
 pub struct SubmitResponse {
@@ -301,57 +301,58 @@ pub struct RequestContext {
 /// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
-    fn focus_policy(&self, identity_id: &str) -> Result<Option<focus::FocusPolicy>, Self::Error>;
-    fn write_focus_policy(&mut self, policy: &focus::FocusPolicy) -> Result<(), Self::Error>;
-    fn delivery_policy(&self, request_id: &str) -> Result<focus::DeliveryPolicy, Self::Error>;
+    fn digest_policy(&self, identity_id: &str)
+    -> Result<Option<digest::DigestPolicy>, Self::Error>;
+    fn write_digest_policy(&mut self, policy: &digest::DigestPolicy) -> Result<(), Self::Error>;
+    fn delivery_policy(&self, request_id: &str) -> Result<digest::DeliveryPolicy, Self::Error>;
     fn write_delivery_policy(
         &mut self,
         request_id: &str,
-        policy: &focus::DeliveryPolicy,
+        policy: &digest::DeliveryPolicy,
     ) -> Result<(), Self::Error>;
-    fn hold_focus_item(
+    fn hold_digest_item(
         &mut self,
         identity_id: &str,
         request_id: &str,
-        kind: focus::FocusKind,
-        source: focus::FocusSource,
+        kind: digest::DigestKind,
+        source: digest::DigestSource,
         now_ms: u64,
     ) -> Result<(), Self::Error>;
-    fn has_focus_item(
+    fn has_digest_item(
         &self,
         identity_id: &str,
         request_id: &str,
-        source: focus::FocusSource,
+        source: digest::DigestSource,
     ) -> Result<bool, Self::Error>;
-    fn focus_inventory(
+    fn digest_inventory(
         &self,
         identity_id: &str,
         checklist_id: Option<&str>,
         after: u64,
         now_ms: u64,
     ) -> Result<(u64, u64), Self::Error>;
-    fn focus_items(
+    fn digest_items(
         &self,
         identity_id: &str,
         checklist_id: Option<&str>,
         after: u64,
         limit: u64,
         now_ms: u64,
-    ) -> Result<Vec<focus::FocusItem>, Self::Error>;
-    fn focus_checklist(&self, id: &str) -> Result<Option<focus::FocusChecklist>, Self::Error>;
-    fn active_focus_checklist(
+    ) -> Result<Vec<digest::DigestItem>, Self::Error>;
+    fn digest_checklist(&self, id: &str) -> Result<Option<digest::DigestChecklist>, Self::Error>;
+    fn active_digest_checklist(
         &self,
         identity_id: &str,
-    ) -> Result<Option<focus::FocusChecklist>, Self::Error>;
-    fn create_focus_checklist(
+    ) -> Result<Option<digest::DigestChecklist>, Self::Error>;
+    fn create_digest_checklist(
         &mut self,
-        checklist: &focus::FocusChecklist,
+        checklist: &digest::DigestChecklist,
         now_ms: u64,
     ) -> Result<(), Self::Error>;
-    fn settle_focus_checklist(
+    fn settle_digest_checklist(
         &mut self,
-        checklist: &focus::FocusChecklist,
-        state: focus::FocusState,
+        checklist: &digest::DigestChecklist,
+        state: digest::DigestState,
     ) -> Result<(), Self::Error>;
     fn notification(
         &self,
@@ -593,7 +594,7 @@ pub enum RequestError<E> {
     Attention(attention::AttentionRejection),
     Answer(inbox::AnswerRejection),
     ResultSelection(ResultSelectionRejection),
-    Focus(focus::FocusRejection),
+    Digest(digest::DigestRejection),
     Repository(E),
 }
 
@@ -640,7 +641,7 @@ impl<E> fmt::Display for RequestError<E> {
             Self::ResultSelection(ResultSelectionRejection::Ambiguous(_)) => {
                 f.write_str("Request-ID prefix matches several retained requests.")
             }
-            Self::Focus(reason) => f.write_str(reason.code()),
+            Self::Digest(reason) => f.write_str(reason.code()),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

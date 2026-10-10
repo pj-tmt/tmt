@@ -54,10 +54,10 @@ fn only_a_pane_write_reads_as_sent() {
     assert_eq!(
         notice(
             "held",
-            json!({"requestId": "req_1", "status": "queued", "focus": true,
-                   "notification": "held", "waitingFor": "focus_checklist"})
+            json!({"requestId": "req_1", "status": "queued", "digest": true,
+                   "notification": "held", "waitingFor": "digest_checklist"})
         ),
-        "Message held for sol (req_1) until their focus checklist ends."
+        "Message held for sol (req_1) until their digest checklist ends."
     );
     assert_eq!(
         notice(

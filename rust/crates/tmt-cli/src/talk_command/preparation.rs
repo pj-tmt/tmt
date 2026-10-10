@@ -120,7 +120,7 @@ pub(super) fn prepare(
         offline,
         unbound,
         delivery_uncertain: false,
-        focus_until_ms: None,
+        digest_until_ms: None,
     };
     if let Some(room) = &room
         && !correlation
@@ -174,7 +174,7 @@ pub(super) fn prepare(
     };
     if !input.options.inbox
         && let Some(identity) = &correlation.identity
-        && let Err(error) = tmt_adapters::focus::flush_idle(
+        && let Err(error) = tmt_adapters::digest::flush_idle(
             storage,
             &identity.id,
             Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
@@ -192,7 +192,7 @@ pub(super) fn prepare(
             &mut output,
             terminal,
             &format!(
-                "Could not flush Focus checklist for {}: {detail}.",
+                "Could not flush Digest checklist for {}: {detail}.",
                 identity.id
             ),
             None,
@@ -244,9 +244,9 @@ pub(super) fn prepare(
             }),
     };
     let mut service = RequestService::new(storage, wall_time_ms);
-    let delivery = tmt_core::request::focus::DeliveryPolicy {
+    let delivery = tmt_core::request::digest::DeliveryPolicy {
         urgent: input.options.urgent,
-        kind: input.options.focus_kind,
+        kind: input.options.digest_kind,
         automatic: !input.options.inbox,
     };
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
@@ -273,8 +273,8 @@ pub(super) fn prepare(
         )
     }
     .map_err(|error| correlation.state_error(error, false))?;
-    correlation.focus_until_ms = prepared.focus_until_ms;
-    if prepared.focus_until_ms.is_some() {
+    correlation.digest_until_ms = prepared.digest_until_ms;
+    if prepared.digest_until_ms.is_some() {
         correlation.inbox = true;
         correlation.offline = false;
         correlation.unbound = false;

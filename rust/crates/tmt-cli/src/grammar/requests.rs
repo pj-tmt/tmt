@@ -8,7 +8,7 @@ pub(in crate::grammar) fn talk() -> Command {
             general(spec!(
                 "talk",
                 "Send a request and wait for its durable reply",
-                details = "An identity with no binding receives through its inbox: talk waits for its reply (180 seconds unless configured; --timeout overrides it), and the recipient must pull with tmt inbox or tmt x listen. Use --detach to return at once. For a bound recipient, plain talk attempts live notification; --inbox suppresses that notification and requires inbox pull. Focus queues non-owner, non-urgent automatic delivery for one checklist and returns immediately with remaining time; --urgent bypasses only Focus.",
+                details = "An identity with no binding receives through its inbox: talk waits for its reply (180 seconds unless configured; --timeout overrides it), and the recipient must pull with tmt inbox or tmt x listen. Use --detach to return at once. For a bound recipient, plain talk attempts live notification; --inbox suppresses that notification and requires inbox pull. Digest queues non-owner, non-urgent automatic delivery for one checklist and returns immediately with remaining time; --urgent bypasses only Digest.",
                 [
                     "Send a message and wait for the reply" => "tmt talk worker \"Run the tests\"",
                     "Send and return at once" => "tmt talk --detach worker \"Deploy when green\"",
@@ -27,7 +27,7 @@ pub(in crate::grammar) fn talk() -> Command {
             ],
         )
         .visible_alias("send")
-        .arg(clap::Arg::new("urgent").long("urgent").action(clap::ArgAction::SetTrue).help("Bypass Focus only; all delivery guards still apply"))
+        .arg(clap::Arg::new("urgent").long("urgent").action(clap::ArgAction::SetTrue).help("Bypass Digest only; all delivery guards still apply"))
         .arg(clap::Arg::new("kind").long("kind").value_parser(["decision", "review", "fyi"]).default_value("fyi").help("Checklist purpose (default: fyi)"))
         .arg(operand("target", true))
         .arg(operand("message", true))

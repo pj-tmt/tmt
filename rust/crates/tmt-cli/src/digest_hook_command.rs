@@ -5,19 +5,19 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
-    focus,
+    digest,
     process::{CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner, handoff},
     request_runtime::wall_time_ms,
     response_input::read_stdin_bounded,
     runtime::{
         RuntimeRegistry,
-        hook_protocol::{FocusHandoff, HOOK_INPUT_LIMIT, HookLaunch},
+        hook_protocol::{DigestHandoff, HOOK_INPUT_LIMIT, HookLaunch},
     },
     storage::Storage,
 };
 use tmt_core::{
     binding::session::HarnessId,
-    request::{RequestService, focus::FocusState},
+    request::{RequestService, digest::DigestState},
 };
 
 const BUDGET: Duration = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
@@ -45,7 +45,7 @@ pub fn execute(
             HOOK_INPUT_LIMIT,
         )
         .map_err(|_| ())?;
-        let Some(session) = lifecycle.decode_focus_turn(input.as_bytes()) else {
+        let Some(session) = lifecycle.decode_digest_turn(input.as_bytes()) else {
             return Ok(());
         };
         if worker {
@@ -53,7 +53,7 @@ pub fn execute(
                 .map(serde_json::from_str::<HookLaunch>)
                 .transpose()
                 .map_err(|_| ())?;
-            let (launch, paths, stored) = crate::provider_hook_command::verified_focus_launch(
+            let (launch, paths, stored) = crate::provider_hook_command::verified_digest_launch(
                 provider,
                 lifecycle,
                 supplied.as_ref(),
@@ -63,7 +63,7 @@ pub fn execute(
             )?;
             let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
             let Some(batch) = storage
-                .claim_focus_for_launch(
+                .claim_digest_for_launch(
                     &stored,
                     tmt_core::operation::new_operation_id(),
                     tmt_core::operation::new_operation_id(),
@@ -73,24 +73,25 @@ pub fn execute(
                 storage.close().map_err(|_| ())?;
                 return Ok(());
             };
-            let page = match focus::read(&mut storage, &launch.identity_id, Some(&batch.id), 0, 128)
-            {
-                Ok(page) => page,
-                Err(_) => {
-                    let _ = RequestService::new(&mut storage, wall_time_ms).settle_focus_checklist(
-                        &launch.identity_id,
-                        &batch.id,
-                        &batch.attempt_token,
-                        FocusState::Unsent,
-                    );
-                    return Err(());
-                }
-            };
-            let prepared = FocusHandoff {
+            let page =
+                match digest::read(&mut storage, &launch.identity_id, Some(&batch.id), 0, 128) {
+                    Ok(page) => page,
+                    Err(_) => {
+                        let _ = RequestService::new(&mut storage, wall_time_ms)
+                            .settle_digest_checklist(
+                                &launch.identity_id,
+                                &batch.id,
+                                &batch.attempt_token,
+                                DigestState::Unsent,
+                            );
+                        return Err(());
+                    }
+                };
+            let prepared = DigestHandoff {
                 launch: launch.clone(),
                 checklist_id: batch.id.clone(),
                 attempt_token: batch.attempt_token.clone(),
-                digest: focus::digest(&page, &batch),
+                digest: digest::digest(&page, &batch),
             };
             storage.close().map_err(|_| ())?;
             let bytes = serde_json::to_vec(&prepared).map_err(|_| ())?;
@@ -109,7 +110,7 @@ pub fn execute(
             return Err(());
         }
         let mut args = vec![
-            "__focus-hook".into(),
+            "__digest-hook".into(),
             provider.into(),
             "--worker".into(),
             "--work-budget-ms".into(),
@@ -135,7 +136,7 @@ pub fn execute(
         if output.stdout.is_empty() {
             return Ok(());
         }
-        let prepared: FocusHandoff = serde_json::from_slice(&output.stdout).map_err(|_| ())?;
+        let prepared: DigestHandoff = serde_json::from_slice(&output.stdout).map_err(|_| ())?;
         let launch = &prepared.launch;
         if !launch.valid()
             || scope.is_some_and(|scope| {
@@ -149,9 +150,9 @@ pub fn execute(
         {
             return Err(());
         }
-        let payload = lifecycle.encode_focus_turn(&prepared.digest).ok_or(())?;
+        let payload = lifecycle.encode_digest_turn(&prepared.digest).ok_or(())?;
         let paths = tmt_adapters::config::ConfigPaths::discover().map_err(|_| ())?;
-        let state = match crate::provider_hook_command::verified_focus_launch(
+        let state = match crate::provider_hook_command::verified_digest_launch(
             provider,
             lifecycle,
             Some(launch),
@@ -159,11 +160,11 @@ pub fn execute(
             deadline,
             UnixCommandRunner,
         ) {
-            Err(()) => FocusState::Unsent,
+            Err(()) => DigestState::Unsent,
             Ok(_) => {
                 let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
                 let active = RequestService::new(&mut storage, wall_time_ms)
-                    .focus_policies(std::slice::from_ref(&launch.identity_id))
+                    .digest_policies(std::slice::from_ref(&launch.identity_id))
                     .map_err(|_| ())?
                     .into_iter()
                     .next()
@@ -172,7 +173,7 @@ pub fn execute(
                 if active.is_none_or(|batch| {
                     batch.id != prepared.checklist_id
                         || batch.attempt_token != prepared.attempt_token
-                        || batch.state != FocusState::Claimed
+                        || batch.state != DigestState::Claimed
                 }) {
                     return Ok(());
                 }
@@ -185,7 +186,7 @@ pub fn execute(
         };
         let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
         RequestService::new(&mut storage, wall_time_ms)
-            .settle_focus_checklist(
+            .settle_digest_checklist(
                 &launch.identity_id,
                 &prepared.checklist_id,
                 &prepared.attempt_token,
@@ -198,15 +199,15 @@ pub fn execute(
     if result.is_err() && worker {
         let _ = SupervisedProbeRunner::abort_worker_group();
     }
-    // Unsupported, stale or unavailable Focus never vetoes an ordinary stop.
+    // Unsupported, stale or unavailable Digest never vetoes an ordinary stop.
     Ok(u8::from(worker && result.is_err()))
 }
 
-fn publication_state(result: Result<(), handoff::HandoffFailure>) -> FocusState {
+fn publication_state(result: Result<(), handoff::HandoffFailure>) -> DigestState {
     match result {
-        Ok(()) => FocusState::Delivered,
-        Err(error) if error.written == 0 => FocusState::Unsent,
-        Err(_) => FocusState::Uncertain,
+        Ok(()) => DigestState::Delivered,
+        Err(error) if error.written == 0 => DigestState::Unsent,
+        Err(_) => DigestState::Uncertain,
     }
 }
 
@@ -215,14 +216,14 @@ mod tests {
     use super::*;
     #[test]
     fn only_complete_publication_is_delivered() {
-        assert_eq!(publication_state(Ok(())), FocusState::Delivered);
+        assert_eq!(publication_state(Ok(())), DigestState::Delivered);
         assert_eq!(
             publication_state(Err(handoff::HandoffFailure { written: 0 })),
-            FocusState::Unsent
+            DigestState::Unsent
         );
         assert_eq!(
             publication_state(Err(handoff::HandoffFailure { written: 1 })),
-            FocusState::Uncertain
+            DigestState::Uncertain
         );
     }
 }

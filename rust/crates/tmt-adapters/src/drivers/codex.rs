@@ -10,7 +10,7 @@ pub mod channel;
 pub mod channel_context;
 pub mod channel_hooks;
 pub mod delivery;
-mod focus;
+mod digest;
 pub mod lease;
 pub mod pane;
 pub mod queue;
@@ -467,15 +467,15 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         &self,
         plan: &crate::runtime::hook_protocol::LaunchHooks<'_>,
     ) -> std::io::Result<Option<crate::runtime::RuntimeCommand>> {
-        focus::prepare(plan).map(Some)
+        digest::prepare(plan).map(Some)
     }
-    fn decode_focus_turn(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
-        focus::decode(bytes)
+    fn decode_digest_turn(&self, bytes: &[u8]) -> Option<ProviderSessionId> {
+        digest::decode(bytes)
     }
-    fn encode_focus_turn(&self, digest: &str) -> Option<String> {
-        focus::encode(digest)
+    fn encode_digest_turn(&self, digest: &str) -> Option<String> {
+        digest::encode(digest)
     }
-    fn focus_process(
+    fn digest_process(
         &self,
         current: &BindingSessionState,
         observed: &ProcessIncarnation,

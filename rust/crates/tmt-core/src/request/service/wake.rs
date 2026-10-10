@@ -17,7 +17,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Ok(WakeClaim {
                     state,
                     claimed: false,
-                    focus_until_ms: None,
+                    digest_until_ms: None,
                 });
             }
             let RequestRoute::Inbox {
@@ -27,7 +27,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Ok(WakeClaim {
                     state,
                     claimed: false,
-                    focus_until_ms: None,
+                    digest_until_ms: None,
                 });
             };
             if !records.delivery_policy(request_id)?.automatic
@@ -37,29 +37,29 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Ok(WakeClaim {
                     state,
                     claimed: false,
-                    focus_until_ms: None,
+                    digest_until_ms: None,
                 });
             }
             let now = positive(clock())?;
-            let focus_until_ms = if records.has_focus_item(
+            let digest_until_ms = if records.has_digest_item(
                 recipient_identity_id,
                 request_id,
-                super::super::focus::FocusSource::Incoming,
+                super::super::digest::DigestSource::Incoming,
             )? {
                 Some(
                     records
-                        .focus_policy(recipient_identity_id)?
+                        .digest_policy(recipient_identity_id)?
                         .map_or(0, |p| p.until_ms),
                 )
             } else {
-                super::focus::hold_incoming(records, &attempt, now)?
+                super::digest::hold_incoming(records, &attempt, now)?
             };
-            if focus_until_ms.is_some() {
+            if digest_until_ms.is_some() {
                 refund_unsent_preamble(records, &attempt, now)?;
                 return Ok(WakeClaim {
                     state,
                     claimed: false,
-                    focus_until_ms,
+                    digest_until_ms,
                 });
             }
             if !records.claim_wake(request_id)? {
@@ -79,13 +79,13 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 return Ok(WakeClaim {
                     state: WakeState::Unavailable,
                     claimed: false,
-                    focus_until_ms: None,
+                    digest_until_ms: None,
                 });
             }
             Ok(WakeClaim {
                 state: WakeState::Claimed,
                 claimed: true,
-                focus_until_ms: None,
+                digest_until_ms: None,
             })
         })
     }

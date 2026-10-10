@@ -329,7 +329,7 @@ pub(super) fn run_bound(
         Err(error) => {
             let reason = error.to_string().replace(['\r', '\n'], " ");
             diagnostic(&format!(
-                "session-only Focus hooks unavailable for this launch: {reason}; continuing with the original command."
+                "session-only Digest hooks unavailable for this launch: {reason}; continuing with the original command."
             ));
             None
         }

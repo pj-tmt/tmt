@@ -155,19 +155,19 @@ pub trait RuntimeLifecycle {
         Ok(None)
     }
 
-    /// Only a provider's main-agent continuation boundary may claim Focus.
-    fn decode_focus_turn(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
+    /// Only a provider's main-agent continuation boundary may claim Digest.
+    fn decode_digest_turn(&self, _payload: &[u8]) -> Option<ProviderSessionId> {
         None
     }
 
-    fn encode_focus_turn(&self, _digest: &str) -> Option<String> {
+    fn encode_digest_turn(&self, _digest: &str) -> Option<String> {
         None
     }
 
     /// Map a native hook caller to the exact launch incarnation. Shared callers
     /// need a driver-owned enrollment proof; the default admits only independent
     /// callers and never grants a shared server the foreground's authority.
-    fn focus_process(
+    fn digest_process(
         &self,
         _current: &BindingSessionState,
         observed: &ProcessIncarnation,

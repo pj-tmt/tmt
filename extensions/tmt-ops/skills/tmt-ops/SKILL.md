@@ -136,11 +136,11 @@ cell).
   below for reset and evidence limits.
 - A row with `pending` owes the user a decision. It is marked ◆, and the crew
   and team layouts list it first.
-- A row has the optional `focus` object when Core supports the focus policy read:
-  `{active, focusUntilMs, remainingMs, heldCount}`. Times are milliseconds; inactive
+- A row has the optional `digest` object when Core supports the digest policy read:
+  `{active, digestUntilMs, remainingMs, heldCount}`. Times are milliseconds; inactive
   windows have zero remaining time. Failed/older Core reads omit it. The board shows
-  `focus 30m · 2 held`, rounding remaining minutes up (then `1h20m`); zero held is
-  omitted. Narrow rows keep `focus`; expand with `e` for remaining time and held count.
+  `digest 30m · 2 held`, rounding remaining minutes up (then `1h20m`); zero held is
+  omitted. Narrow rows keep `digest`; expand with `e` for remaining time and held count.
 - A row has the optional `colors` key only when a cell has a color:
   `{field: theme token}`. `colors.state` holds the resolved state token; other
   keys come from the user's column thresholds or a field provider's suggestion.
@@ -403,7 +403,7 @@ or input, which retains at least 30 columns. A successful send closes the band
 and marks the row until the next key; the cursor stays with it. Talk and notes
 report what Core did with the request, naming its ID: `✓ sent` (written to the
 pane), `✓ queued` (in the inbox), `✓ queued · offline` (no live session),
-`✓ held` (the recipient's focus checklist holds it) or `✓ handed over` (no
+`✓ held` (the recipient's digest checklist holds it) or `✓ handed over` (no
 receipt; do not resend). A failure after Core accepted the request names that
 retained request, and the board never resends it.
 Opening, cancelling, empty input or a changed target sends nothing. A failed
@@ -472,9 +472,9 @@ The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
 switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
 
-## Focus time
+## Digest time
 
-`tmt ops sq focus <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
+`tmt ops sq digest <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
 one active member or lead policy. Showing, setting and clearing all require the
 recorded user or the current squad lead; a lead needs the saved owner recorded with
 `tmt ops sq me <owner>`. Human output names the member. JSON includes `member` (the
@@ -483,8 +483,8 @@ Use whole `s`/`m`/`h` segments from **1s through 24h**, such as `30m` or `1h30m`
 Zero, negative and larger windows are refused. Omit duration to inspect; `off` clears.
 Running it again replaces the window against the observed revision. A revision
 conflict says to reload and retry; there is no automatic retry or recurring cadence.
-Core owns focus and held items; Squad stores no policy. The command passes through
-Core errors, including when an older Core has no focus operation. Focus delays
+Core owns digest and held items; Squad stores no policy. The command passes through
+Core errors, including when an older Core has no digest operation. Digest delays
 ordinary deliveries; owner and urgent messages can still interrupt.
 
 ## Cron on the board

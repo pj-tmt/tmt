@@ -485,7 +485,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       ],
     },
     { label: 'unreadable settings', args: ['--settings', '<unreadable>'] },
-  ])('unavailable Focus hooks ($label) launch the original command', async ({ args }) => {
+  ])('unavailable Digest hooks ($label) launch the original command', async ({ args }) => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('fallback-launch').pane;
       const recorded = path.join(fixture.root, 'provider-argv');
@@ -504,7 +504,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
       expect(
         result.stderr
           .split('\n')
-          .filter((line) => line.includes('session-only Focus hooks unavailable'))
+          .filter((line) => line.includes('session-only Digest hooks unavailable'))
       ).toHaveLength(1);
       const actual = fs.readFileSync(recorded, 'utf8');
       expect(actual === '' ? [] : actual.split('\0').slice(0, -1)).toEqual(originalArgs);
@@ -697,7 +697,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     { channel: true, setup: true, resume: true },
     { channel: false, setup: true, resume: false },
   ])(
-    'Focus launch hooks channel=$channel setup=$setup resume=$resume deliver one Stop continuation',
+    'Digest launch hooks channel=$channel setup=$setup resume=$resume deliver one Stop continuation',
     async ({ channel, setup, resume }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'BoundaryClaude';
@@ -758,8 +758,8 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           oracle((db) =>
             db.prepare('SELECT id,state FROM focus_checklists ORDER BY created_at_ms,id').all()
           ) as { id: string; state: string }[];
-        const focusStep = async (event: string, extra: Record<string, unknown> = {}) => {
-          fs.writeFileSync(`${worker.log}.focus-step`, JSON.stringify({ event, ...extra }));
+        const digestStep = async (event: string, extra: Record<string, unknown> = {}) => {
+          fs.writeFileSync(`${worker.log}.digest-step`, JSON.stringify({ event, ...extra }));
           await waitForEvent(fixture, worker, event);
         };
         await withCompletedSession(fixture, worker, async () => {
@@ -793,12 +793,12 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             expectedRevision: 0,
           };
           expect(
-            api('focus.policy.set', { ...policy, untilMs: Date.now() + 600_000 })
+            api('digest.policy.set', { ...policy, untilMs: Date.now() + 600_000 })
           ).toMatchObject({ active: true });
           const requests: string[] = [];
           for (const text of ['First held boundary decision', 'Second held boundary review']) {
             const result = await talk(fixture, name, text, ['--kind', 'decision']);
-            expect(result.json).toMatchObject({ status: 'queued', focus: true });
+            expect(result.json).toMatchObject({ status: 'queued', digest: true });
             requests.push(String(result.json!.requestId));
           }
           expect((await fixture.runJsonCli(['identity', 'create', 'BoundaryPeer'])).code).toBe(0);
@@ -845,27 +845,27 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           ]);
           // Stale and recursive events cannot claim. The following valid event
           // is a positive control against a hook that simply refuses everything.
-          await focusStep('stale-stop', { session: 'old-session' });
-          await focusStep('already-continuing-stop', { active: true });
+          await digestStep('stale-stop', { session: 'old-session' });
+          await digestStep('already-continuing-stop', { active: true });
           expect(batches()).toEqual([]);
-          expect(named(worker, 'focus-continuation')).toEqual([]);
+          expect(named(worker, 'digest-continuation')).toEqual([]);
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
-          // Both bypasses remain ordinary transport while Focus is active.
+          // Both bypasses remain ordinary transport while Digest is active.
           for (const [text, extra] of [
             ['Urgent bypass', ['--urgent', '--detach']],
             ['Owner bypass', ['--identity', 'BoundaryOwner', '--detach']],
           ] as const) {
             const result = await talk(fixture, name, text, [...extra]);
             expect(result.code).toBe(0);
-            expect(result.json!.focus).toBeUndefined();
+            expect(result.json!.digest).toBeUndefined();
             await fixture.waitFor(
               () =>
                 channel
                   ? contents(worker).some((value) => value.includes(text))
                   : named(worker, 'paste').some((event) => String(event.line).includes(text)),
               5000,
-              'Focus bypass consumed'
+              'Digest bypass consumed'
             );
           }
           const channelBefore = named(worker, 'channel').length;
@@ -873,14 +873,14 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           // A cleared window still waits for this boundary: clearing never
           // creates a scheduler. Active windows use the same boundary primitive.
           if (resume)
-            expect(api('focus.policy.clear', { ...policy, expectedRevision: 1 })).toMatchObject({
+            expect(api('digest.policy.clear', { ...policy, expectedRevision: 1 })).toMatchObject({
               heldCount: 3,
             });
           const rejectsOutput = channel && !setup;
           if (rejectsOutput) {
-            await focusStep('rejected-output-stop', { rejectFocusOutput: true });
+            await digestStep('rejected-output-stop', { rejectDigestOutput: true });
             expect(batches()).toMatchObject([{ state: 'definitely_unsent' }]);
-            expect(named(worker, 'focus-continuation')).toEqual([]);
+            expect(named(worker, 'digest-continuation')).toEqual([]);
             expect(
               oracle((db) =>
                 db
@@ -891,12 +891,12 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               )
             ).toEqual({ count: 3 });
           }
-          await focusStep('boundary-stop');
+          await digestStep('boundary-stop');
           await waitForEvent(fixture, worker, 'recursive-stop');
-          const feedback = named(worker, 'focus-continuation');
+          const feedback = named(worker, 'digest-continuation');
           expect(feedback).toHaveLength(1);
           const reason = String(feedback[0].reason);
-          expect(reason.match(/TMT Focus checklist/g)).toHaveLength(1);
+          expect(reason.match(/TMT Digest checklist/g)).toHaveLength(1);
           for (const request of requests)
             expect(reason).toContain(`tmt reply ${request} --receipt `);
           expect(reason).toContain('Remaining in this checklist: 0');
@@ -936,8 +936,8 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               response_submitted_at_ms: null,
             }))
           );
-          await focusStep('empty-stop');
-          expect(named(worker, 'focus-continuation')).toHaveLength(1);
+          await digestStep('empty-stop');
+          expect(named(worker, 'digest-continuation')).toHaveLength(1);
           expect(batches()).toHaveLength(rejectsOutput ? 2 : 1);
         });
         expect(fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile) : null).toEqual(
@@ -991,7 +991,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             {
               input: JSON.stringify({
                 version: 1,
-                operation: 'focus.policy.set',
+                operation: 'digest.policy.set',
                 input: {
                   identityId: id,
                   ownerIdentityId: owner,
@@ -1018,17 +1018,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             '--kind',
             'review',
           ]);
-          expect(held.json).toMatchObject({ status: 'queued', focus: true });
+          expect(held.json).toMatchObject({ status: 'queued', digest: true });
         }
         fs.writeFileSync(
-          `${worker.log}.focus-step`,
-          JSON.stringify({ event: 'partial-stop', partialFocusOutput: true })
+          `${worker.log}.digest-step`,
+          JSON.stringify({ event: 'partial-stop', partialDigestOutput: true })
         );
         await waitForEvent(fixture, worker, 'partial-stop');
-        expect(named(worker, 'focus-partial-handoff')).toMatchObject([
+        expect(named(worker, 'digest-partial-handoff')).toMatchObject([
           { partialBytes: 4096, code: 0 },
         ]);
-        expect(named(worker, 'focus-continuation')).toEqual([]);
+        expect(named(worker, 'digest-continuation')).toEqual([]);
         const before = snapshot();
         expect(before).toMatchObject({
           batches: [{ state: 'claimed' }],
@@ -1036,12 +1036,12 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           pending: { count: 0 },
         });
         expect((await talk(fixture, name, 'Later boundary work')).json).toMatchObject({
-          focus: true,
+          digest: true,
         });
-        fs.writeFileSync(`${worker.log}.focus-step`, JSON.stringify({ event: 'no-replay-stop' }));
+        fs.writeFileSync(`${worker.log}.digest-step`, JSON.stringify({ event: 'no-replay-stop' }));
         await waitForEvent(fixture, worker, 'no-replay-stop');
         expect(snapshot()).toEqual({ ...before, pending: { count: 1 } });
-        expect(named(worker, 'focus-continuation')).toEqual([]);
+        expect(named(worker, 'digest-continuation')).toEqual([]);
         expect(named(worker, 'channel')).toEqual([]);
         expect(named(worker, 'paste')).toEqual([]);
       });
@@ -1053,7 +1053,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     { channel: false, nativeParent: true },
     { channel: true, nativeParent: false },
   ])(
-    'Focus channel=$channel nativeParent=$nativeParent fences checklist delivery at a verified idle check',
+    'Digest channel=$channel nativeParent=$nativeParent fences checklist delivery at a verified idle check',
     async ({ channel, nativeParent }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'FocusedClaude';
@@ -1113,7 +1113,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           const created = await fixture.runJsonCli<{ identity: { id: string } }>([
             'identity',
             'create',
-            'FocusOwner',
+            'DigestOwner',
           ]);
           expect(created.code).toBe(0);
           const owner = created.json!.identity.id;
@@ -1137,7 +1137,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             expectedRevision: 0,
           };
           expect(
-            api('focus.policy.set', { ...write, untilMs: Date.now() + 600_000 })
+            api('digest.policy.set', { ...write, untilMs: Date.now() + 600_000 })
           ).toMatchObject({ active: true, revision: 1 });
           const requests: string[] = [];
           for (const message of ['First held decision', 'Second held review']) {
@@ -1145,14 +1145,14 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             expect(sent.code).toBe(0);
             expect(sent.json).toMatchObject({
               status: 'queued',
-              focus: true,
-              waitingFor: 'focus_checklist',
+              digest: true,
+              waitingFor: 'digest_checklist',
             });
             requests.push(String(sent.json!.requestId));
           }
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
-          expect(api('focus.policy.clear', { ...write, expectedRevision: 1 })).toMatchObject({
+          expect(api('digest.policy.clear', { ...write, expectedRevision: 1 })).toMatchObject({
             active: false,
             heldCount: 2,
           });
@@ -1208,17 +1208,17 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           await fixture.waitFor(
             () =>
               channel
-                ? contents(worker).some((text) => text.includes('TMT Focus checklist'))
+                ? contents(worker).some((text) => text.includes('TMT Digest checklist'))
                 : named(worker, 'paste').some((event) => String(event.line).endsWith(' | tmt api')),
             5000,
-            'Focus checklist consumed by the mock'
+            'Digest checklist consumed by the mock'
           );
           const input = channel
             ? contents(worker).join('\n')
             : named(worker, 'paste')
                 .map((event) => String(event.line))
                 .join('\n');
-          expect(input.match(/TMT Focus checklist/g)).toHaveLength(1);
+          expect(input.match(/TMT Digest checklist/g)).toHaveLength(1);
           for (const request of requests)
             expect(input).toContain(`tmt reply ${request} --receipt `);
           expect(input).toContain('Remaining in this checklist: 0');

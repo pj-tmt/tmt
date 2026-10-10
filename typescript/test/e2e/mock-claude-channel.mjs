@@ -74,7 +74,7 @@ function emitHook(payload, event) {
 // response therefore publishes a prefix, exhausts its own deadline, and leaves
 // the sealed attempt uncertain/claimed. The fixture owns and reaps its child;
 // it never substitutes a settlement or changes the product work budget.
-const partialFocusHandoff = `
+const partialDigestHandoff = `
 import fcntl, json, os, signal, subprocess, sys
 payload = sys.stdin.buffer.read()
 read, write = os.pipe()
@@ -87,7 +87,7 @@ try:
     write = None
     _, error = child.communicate(payload, timeout=5)
     if error or child.returncode != 0:
-        raise RuntimeError('generated Focus hook failed')
+        raise RuntimeError('generated Digest hook failed')
     chunks = []
     while True:
         chunk = os.read(read, 4096)
@@ -112,12 +112,12 @@ finally:
     os.close(read)
 `;
 
-// Focus scenarios execute the actual per-launch configuration. Other channel
+// Digest scenarios execute the actual per-launch configuration. Other channel
 // scenarios deliberately retain their observation-only fake provider contract.
 async function emitInstalledHooks(
   payload,
   event,
-  rejectFocusOutput = false,
+  rejectDigestOutput = false,
   partialOutput = false
 ) {
   const index = args.indexOf('--settings');
@@ -137,13 +137,13 @@ async function emitInstalledHooks(
       (command) =>
         new Promise((resolve, reject) => {
           const effectiveCommand =
-            rejectFocusOutput && command.includes(' __focus-hook ')
+            rejectDigestOutput && command.includes(' __digest-hook ')
               ? `${command} >/dev/full`
               : command;
-          const partial = partialOutput && command.includes(' __focus-hook ');
+          const partial = partialOutput && command.includes(' __digest-hook ');
           const child = execFile(
             partial ? 'python3' : '/bin/sh',
-            partial ? ['-c', partialFocusHandoff, command] : ['-c', effectiveCommand],
+            partial ? ['-c', partialDigestHandoff, command] : ['-c', effectiveCommand],
             { env: process.env },
             (error, stdout, stderr) => {
               if (error || stderr) reject(error ?? new Error(stderr));
@@ -155,7 +155,7 @@ async function emitInstalledHooks(
                   stdout,
                 });
                 if (partial) {
-                  log({ event: 'focus-partial-handoff', ...JSON.parse(stdout) });
+                  log({ event: 'digest-partial-handoff', ...JSON.parse(stdout) });
                   resolve('');
                 } else resolve(stdout);
               }
@@ -174,7 +174,7 @@ async function emitInstalledHooks(
     .filter((value) => value.decision === 'block');
   log({ event, stdout: outputs.join('') });
   for (const continuation of continuations) {
-    log({ event: 'focus-continuation', reason: continuation.reason });
+    log({ event: 'digest-continuation', reason: continuation.reason });
     // The provider's causal continuation invokes Stop again with its loop guard.
     // That second event must not claim a later arrival or repeat the batch.
     await emitInstalledHooks({ ...payload, stop_hook_active: true }, 'recursive-stop');
@@ -183,7 +183,7 @@ async function emitInstalledHooks(
 
 let turnReady = false;
 let turnSubmitted = false;
-let focusStepRunning = false;
+let digestStepRunning = false;
 
 let server;
 let serverClosed;
@@ -309,13 +309,13 @@ const control = setInterval(() => {
   if (
     !stopping &&
     turnReady &&
-    !focusStepRunning &&
+    !digestStepRunning &&
     process.env.MOCK_LAUNCH_HOOKS === '1' &&
-    fs.existsSync(`${logPath}.focus-step`)
+    fs.existsSync(`${logPath}.digest-step`)
   ) {
-    const step = JSON.parse(fs.readFileSync(`${logPath}.focus-step`, 'utf8'));
-    fs.rmSync(`${logPath}.focus-step`);
-    focusStepRunning = true;
+    const step = JSON.parse(fs.readFileSync(`${logPath}.digest-step`, 'utf8'));
+    fs.rmSync(`${logPath}.digest-step`);
+    digestStepRunning = true;
     void emitInstalledHooks(
       {
         hook_event_name: 'Stop',
@@ -323,15 +323,15 @@ const control = setInterval(() => {
         stop_hook_active: step.active ?? false,
       },
       step.event,
-      step.rejectFocusOutput === true,
-      step.partialFocusOutput === true
+      step.rejectDigestOutput === true,
+      step.partialDigestOutput === true
     )
       .catch((error) => {
         log({ event: 'hook-error', message: error.message });
         process.exitCode = 1;
       })
       .finally(() => {
-        focusStepRunning = false;
+        digestStepRunning = false;
       });
   }
   if (!stopping && turnReady && !turnSubmitted && fs.existsSync(`${logPath}.stop-turn`)) {

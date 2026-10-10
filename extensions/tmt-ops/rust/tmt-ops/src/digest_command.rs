@@ -1,8 +1,8 @@
-//! Focus grammar and management over the existing trusted Core policy seam.
+//! Digest grammar and management over the existing trusted Core policy seam.
 use crate::{
     config::Config,
     core::{Core, SquadError},
-    focus, management,
+    digest, management,
     squad::Squad,
 };
 use clap::{Arg, ArgMatches, Command};
@@ -11,7 +11,7 @@ use tmt_cli_style::{Terminal, message};
 
 const MAX_MS: u64 = 86_400_000;
 pub fn grammar() -> Command {
-    tmt_cli_style::command(crate::specs::FOCUS)
+    tmt_cli_style::command(crate::specs::DIGEST)
         .arg(
             Arg::new("member")
                 .required(true)
@@ -26,7 +26,7 @@ pub fn grammar() -> Command {
 }
 fn invalid() -> SquadError {
     SquadError::new(
-        "SQUAD_FOCUS_DURATION_INVALID",
+        "SQUAD_DIGEST_DURATION_INVALID",
         "Use whole s/m/h segments from 1s through 24h (for example 30m or 1h30m), or off.",
     )
 }
@@ -68,11 +68,11 @@ fn admission(error: SquadError) -> SquadError {
         "CALLER_IDENTITY_AMBIGUOUS"
         | "SQUAD_SENDER_UNKNOWN"
         | "NAME_NOT_FOUND"
-        | "SQUAD_FOCUS_PERMISSION_DENIED" => SquadError::hinted(
-            "SQUAD_FOCUS_PERMISSION_DENIED",
+        | "SQUAD_DIGEST_PERMISSION_DENIED" => SquadError::hinted(
+            "SQUAD_DIGEST_PERMISSION_DENIED",
             &error.message,
             " ",
-            "Ask the recorded user or this squad's current lead to manage focus.",
+            "Ask the recorded user or this squad's current lead to manage digest.",
         ),
         _ => error,
     }
@@ -84,21 +84,21 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
         .map(duration)
         .transpose()?;
     let squad = Squad::resolve(core, matches.get_one::<String>("squad").map(String::as_str))?;
-    let actor = management::actor(core, config, None, &management::FOCUS).map_err(admission)?;
+    let actor = management::actor(core, config, None, &management::DIGEST).map_err(admission)?;
     let roster =
-        management::admit(core, config, &squad, &actor, &management::FOCUS).map_err(admission)?;
+        management::admit(core, config, &squad, &actor, &management::DIGEST).map_err(admission)?;
     let target = management::member(
         core,
         matches.get_one::<String>("member").expect("required"),
-        &management::FOCUS,
+        &management::DIGEST,
     )?;
     if !roster.iter().any(|member| member.id == target.id) {
         return Err(SquadError::new(
             "SQUAD_NOT_A_MEMBER",
-            "The focus target must be an active member of this squad.",
+            "The digest target must be an active member of this squad.",
         ));
     }
-    let shown = focus::read_policies(core, std::slice::from_ref(&target.id))?;
+    let shown = digest::read_policies(core, std::slice::from_ref(&target.id))?;
     let policy = &shown[&target.id];
     if input.is_none() {
         let mut document = policy_document(policy);
@@ -107,7 +107,7 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
     }
     let owner = config.me_id()?.ok_or_else(|| {
         SquadError::hinted(
-            "SQUAD_FOCUS_OWNER_REQUIRED",
+            "SQUAD_DIGEST_OWNER_REQUIRED",
             "No owner UUID is recorded.",
             " ",
             "Record the saved owner with tmt ops squad me <name>.",
@@ -122,12 +122,12 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
                 .filter(|n| *n <= 9_007_199_254_740_991)
                 .ok_or_else(invalid)?
         );
-        "focus.policy.set"
+        "digest.policy.set"
     } else {
-        "focus.policy.clear"
+        "digest.policy.clear"
     };
     let mut document = core.api(operation, fields).map_err(|error| {
-        if error.code == "FOCUS_REVISION_CONFLICT" {
+        if error.code == "DIGEST_REVISION_CONFLICT" {
             SquadError::hinted(&error.code, &error.message, " ", "Reload and retry.")
         } else {
             error
@@ -136,7 +136,7 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
     document["member"] = json!(target.name);
     Ok(document)
 }
-fn policy_document(policy: &focus::Policy) -> Value {
+fn policy_document(policy: &digest::Policy) -> Value {
     let mut value = policy.row();
     value["identityId"] = json!(policy.identity_id);
     value["revision"] = json!(policy.revision);
@@ -145,14 +145,14 @@ fn policy_document(policy: &focus::Policy) -> Value {
 pub fn text(document: &Value, terminal: Terminal) -> String {
     let mut bytes = Vec::new();
     let line = if document["active"] == true {
-        let row = json!({"focus":document});
+        let row = json!({"digest":document});
         format!(
             "{}: {}",
             document["member"].as_str().unwrap_or("–"),
-            focus::label(&row, crate::status::now_ms()).unwrap_or_else(|| "focus off".into())
+            digest::label(&row, crate::status::now_ms()).unwrap_or_else(|| "digest off".into())
         )
     } else {
-        format!("{}: focus off", document["member"].as_str().unwrap_or("–"))
+        format!("{}: digest off", document["member"].as_str().unwrap_or("–"))
     };
     let _ = message::success(&mut bytes, terminal, &line);
     String::from_utf8(bytes).unwrap_or_default()
@@ -164,7 +164,7 @@ mod tests {
     fn human_policy_names_the_member_instead_of_its_uuid() {
         let document = json!({"member":"worker", "identityId":"33333333-3333-4333-8333-333333333333", "active":false});
         let output = text(&document, Terminal::PLAIN);
-        assert!(output.contains("worker: focus off"));
+        assert!(output.contains("worker: digest off"));
         assert!(!output.contains(document["identityId"].as_str().unwrap()));
     }
     #[test]
@@ -196,17 +196,17 @@ mod tests {
         ] {
             assert_eq!(
                 duration(input).unwrap_err().code,
-                "SQUAD_FOCUS_DURATION_INVALID",
+                "SQUAD_DIGEST_DURATION_INVALID",
                 "{input}"
             );
         }
     }
     #[test]
-    fn members_ambiguous_and_retired_callers_never_reach_focus_writes() {
+    fn members_ambiguous_and_retired_callers_never_reach_digest_writes() {
         use crate::cron_service::test_support::{Fixture, LEAD, WORKER};
         let f = Fixture::new();
         let flags = |show: bool| {
-            let mut args = vec!["focus", "worker", "--squad", "product"];
+            let mut args = vec!["digest", "worker", "--squad", "product"];
             if !show {
                 args.push("30m");
             }
@@ -224,7 +224,7 @@ mod tests {
             for show in [false, true] {
                 assert_eq!(
                     run(&f.core, &f.config, &flags(show)).unwrap_err().code,
-                    "SQUAD_FOCUS_PERMISSION_DENIED"
+                    "SQUAD_DIGEST_PERMISSION_DENIED"
                 );
             }
         }
@@ -232,13 +232,13 @@ mod tests {
             !call["request"]["operation"]
                 .as_str()
                 .unwrap()
-                .starts_with("focus.")
+                .starts_with("digest.")
         }));
     }
     #[test]
     fn optional_window_preserves_known_options_and_rejects_cadence() {
         let flags = grammar()
-            .try_get_matches_from(["focus", "worker", "--squad", "product"])
+            .try_get_matches_from(["digest", "worker", "--squad", "product"])
             .unwrap();
         assert!(flags.get_one::<String>("duration").is_none());
         assert_eq!(
@@ -247,7 +247,7 @@ mod tests {
         );
         assert!(
             grammar()
-                .try_get_matches_from(["focus", "worker", "30m", "--every", "1m"])
+                .try_get_matches_from(["digest", "worker", "30m", "--every", "1m"])
                 .is_err()
         );
     }

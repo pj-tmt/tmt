@@ -54,24 +54,24 @@ Raw ratatui widget enforcement and its verification belong to the
 [tmt-tui skill](../tmt-tui/SKILL.md). A surface split preserves captured cells,
 styles, hits and list bytes; it grants no parity-regeneration permission.
 
-## Focus ownership
+## Digest ownership
 
 `management.rs` shares active-actor and user-or-current-lead admission with cron;
-cron retains its original errors and tests. `focus_command.rs` owns bounded compound
+cron retains its original errors and tests. `digest_command.rs` owns bounded compound
 s/m/h duration parsing (1s–24h), command output and Core revision-conflict guidance.
-`focus.rs` owns the typed optional policy projection, UUID deduplication and one
-bounded `focus.policy.show` (up to 256 identities) per list/board acquisition.
+`digest.rs` owns the typed optional policy projection, UUID deduplication and one
+bounded `digest.policy.show` (up to 256 identities) per list/board acquisition.
 Eligible UUIDs come from the acquired `rooms.roster` snapshots, whose contract
 excludes retired/nonmembers; document-shaped objects cannot add eligible identities.
 Presence (including offline/unknown) is independent of identity retirement.
-Command writes pass exactly the [focus contract](../../../contracts/extension-api.md#focus-policy-and-checklist)
+Command writes pass exactly the [digest contract](../../../contracts/extension-api.md#digest-policy-and-checklist)
 fields: target, owner `me_id`, setter, expected revision and set-only expiry.
 No policy storage or retry lives in Squad. `ls` enriches once after all source
 observations; aggregate/HOME acquisition shares one read across source and flat rows.
-Unsupported, failed or malformed policy reads silently omit focus. Overflow UUIDs
-beyond the one bounded batch omit focus. The existing worker acquires board values;
+Unsupported, failed or malformed policy reads silently omit digest. Overflow UUIDs
+beyond the one bounded batch omit digest. The existing worker acquires board values;
 paint/input never read Core. The board clock advances minute labels and hides expiry,
-and the existing row cache keys include labels. Shared row detail shows clipped focus
+and the existing row cache keys include labels. Shared row detail shows clipped digest
 information. Use the native row-shape/management cases, focused parser/projection
 and injected-clock renderer checks alongside unchanged cron tests.
 

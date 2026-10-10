@@ -239,7 +239,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         expect(JSON.parse(fs.readFileSync(resumed, 'utf8'))).toEqual([
           'resume',
           '-c',
-          expect.stringContaining(' __focus-hook codex --discover-launch'),
+          expect.stringContaining(' __digest-hook codex --discover-launch'),
           '-m',
           'gpt-5.3-codex',
           session,
