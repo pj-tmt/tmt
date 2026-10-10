@@ -1,120 +1,127 @@
-import type { RCIdentity, RCProducer, RCSnapshot, RCPlan } from './pr-rc-resources.mjs';
-import type {
-  RCCheckpointWriter,
-  RCCheckpointRecord,
-  RCCheckpointPorts,
-  RCCheckpointRecovery,
-  RCCheckpointResult,
-} from './pr-rc-journal.mjs';
-
-/** Local injected source interfaces, never frozen Core wire or a live approval set. */
-export interface RCPublicationApproval {
-  reference: string;
-  producer: RCProducer;
-  preparation: {
-    workflow_id: number;
-    workflow_path: string;
-    workflow_sha256: string;
-    tooling_sha: string;
-    /** Complete externally reviewed workflow/action/verifier/dependency file closure. */
-    closure: { path: string; sha256: string }[];
-  };
-}
-export interface RCPublicationResponse {
-  status: number;
-  body: Uint8Array;
-  elapsedMs: number;
-  nextPage: number | null;
-  reference: string;
-  observedAtMs: number;
-  authenticated: { repository: string; ownerId: number };
-}
-export interface RCPublicationLimits {
-  timeoutMs: number;
-  maximum: number;
-  signal: AbortSignal;
-}
-export interface RCUploadResponse extends RCPublicationResponse {
-  /** Actual returned ID, durably retained before interpreting/readback of raw body. */
-  id: number | null;
-}
-export interface RCPublicationPorts {
-  checkpoint: Omit<RCCheckpointPorts, 'recovery'> & {
-    /** Same checkpoint recovery owner and store; preserves the extended record exactly. */
-    recovery: {
-      load(): Promise<RCCheckpointRecovery | RCPublicationRecovery | null>;
-      save(state: RCCheckpointRecovery | RCPublicationRecovery): Promise<void>;
-    };
-  };
-  /** Must be external immutable owning review, never PR JSON or successful CI. */
-  approval: { capture(limits: RCPublicationLimits): Promise<RCPublicationApproval> };
-  /** Authenticated bounded exports; no live backend is supplied or qualified here. */
-  observe(
-    request: RCPublicationLimits & {
-      kind: 'eligibility' | 'preparation' | 'artifact' | 'finalization';
-      identity: RCIdentity;
-      artifactId: number | null;
-    }
-  ): Promise<RCPublicationResponse>;
-  /** Existing upload owner packages exactly these root regular byte members; no PR execution. */
-  upload(
-    request: RCPublicationLimits & {
-      name: string;
-      files: { name: string; bytes: Uint8Array }[];
-      identity: RCIdentity;
-      maxZipBytes: number;
-    }
-  ): Promise<RCUploadResponse>;
-}
-export interface RCUploadedResource {
+import type { ApplicationSchema } from './native-application-schema.mjs';
+export const RC_REPOSITORY: 'pj-tmt/tmt';
+export const RC_TARGETS: string[];
+export const RC_TTL_MS: number;
+export interface RCMember {
   name: string;
-  kind: 'payload' | 'catalog';
-  members: { name: string; sha256: string; bytes: number }[];
-  phase: 'intent' | 'returned' | 'readback' | 'finalized';
-  id: number | null;
-  /** Also retain an independently parsed raw-body ID when the receipt disagrees. */
-  rawReturnedId: number | null;
-  response: RCUploadResponse | null;
-  readback: RCPublicationResponse | null;
-  finalization: RCPublicationResponse | null;
+  sha256: string;
+  bytes: number;
 }
-export interface RCPublicationRecovery extends RCCheckpointRecovery {
-  /** Recovery evidence alongside the unchanged immutable worst-case checkpoint reservation. */
-  publication: {
-    generationKey: string;
-    reservationId: number;
-    reservationDigest: string;
-    approvalReference: string;
-    phase: 'reserved' | 'uploading' | 'readback-confirmed' | 'frozen';
-    observations: { kind: string; artifactId: number | null; response: RCPublicationResponse }[];
-    uploads: RCUploadedResource[];
-    catalog: unknown;
-    unknown: boolean;
+export interface RCVerificationReport {
+  schema_version: 1;
+  product: 'cli';
+  target: string;
+  source_sha: string;
+  version: string;
+  prepare_run_id: number;
+  prepare_run_attempt: number;
+  prepare_tooling_sha: string;
+  application_schema: ApplicationSchema;
+  dist_manifest: RCMember;
+  archive: RCMember;
+  binary_sha256: string;
+  output_sha256: string;
+  notices: RCMember;
+  source_snapshot_sha256: string;
+}
+export interface RCIdentity {
+  pr: number;
+  head: string;
+  head12: string;
+  runId: number;
+  attempt: number;
+}
+export interface RCObservation {
+  pull: unknown;
+  timeline: unknown;
+  run: unknown;
+}
+export interface RCEpoch {
+  label: 'rc-build';
+  label_id: number;
+  enabled_event_id: number;
+  enabled_at_ms: number;
+}
+export interface RCCandidate {
+  product: 'cli';
+  target: string;
+  version: string;
+  application_schema: ApplicationSchema;
+  dist_manifest: RCMember;
+  archive: RCMember;
+  verification: {
+    prepare_run_id: number;
+    prepare_run_attempt: number;
+    prepare_tooling_sha: string;
+    source_sha: string;
+    complete: true;
   };
 }
-export interface RCPublicationInput {
-  identity: RCIdentity;
-  writer: RCCheckpointWriter;
-  snapshot: RCSnapshot;
-  recorded: RCCheckpointRecord[];
-  terminal: { generationKey: string; reference: string }[];
-  sourceRoot: string;
-  manifestPath: string;
-  archives: { target: string; path: string }[];
-  startedAtMs: number;
-  publishedAtMs: number;
-  expiresAtMs: number;
+export interface RCPayload {
+  id: number;
+  name: string;
+  zip_sha256: string;
+  zip_bytes: number;
+  members: RCMember[];
 }
-export interface RCPublicationResult {
-  mode: 'unarmed';
-  status: 'refused' | 'frozen' | 'readback-confirmed';
-  reason?: string;
-  charges: RCPlan['charges'];
-  recovery: RCCheckpointRecovery | RCPublicationRecovery | null;
-  checkpoint: RCCheckpointResult | null;
-  observations?: { kind: string; artifactId: number | null; response: RCPublicationResponse }[];
+export interface RCProducer {
+  workflow_id: number;
+  workflow_path: string;
+  workflow_sha256: string;
+  tooling_sha: string;
+  run_id: number;
+  run_attempt: number;
 }
-export function coordinatePRRC(
-  input: RCPublicationInput,
-  ports: RCPublicationPorts
-): Promise<RCPublicationResult>;
+export function capturePRRCVerification(input: {
+  root: string;
+  directory: string;
+  target: string;
+  snapshot: string;
+  runId: number;
+  attempt: number;
+  toolingSha: string;
+}): RCVerificationReport;
+export function validatePRRCEligibility(
+  observation: RCObservation,
+  identity: RCIdentity,
+  nowMs: number
+): RCEpoch;
+export function stagePRRCPayloads(input: {
+  directory: string;
+  reports: RCVerificationReport[];
+  output: string;
+  head: string;
+  runId: number;
+  attempt: number;
+  toolingSha: string;
+}): RCCandidate[];
+export function prRCPayloadName(pr: number, target: string, runId: number, attempt: number): string;
+export function prRCCatalogName(pr: number): string;
+export function buildPRRCCatalog(
+  input: {
+    identity: RCIdentity;
+    candidates: RCCandidate[];
+    producer: RCProducer;
+    publishedAtMs: number;
+  },
+  ports: {
+    observe(): RCObservation | Promise<RCObservation>;
+    payload(name: string): RCPayload | Promise<RCPayload>;
+  }
+): Promise<Buffer>;
+export interface RCAPI {
+  metadata(route: string): unknown;
+  inventory(runId: number): unknown[];
+  members(artifact: unknown, maximum: number): { name: string; bytes: Buffer }[];
+}
+export type RCExecute = (
+  file: string,
+  args: string[],
+  options: { input?: Buffer; timeout: number; maxBuffer: number }
+) => Buffer;
+export function createPRRCAPI(execute?: RCExecute): RCAPI;
+export function runPRRCCommand(
+  command: string,
+  env?: NodeJS.ProcessEnv,
+  api?: RCAPI
+): Promise<void>;

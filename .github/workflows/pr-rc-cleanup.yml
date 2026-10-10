@@ -1,0 +1,146 @@
+name: PR release candidate cleanup
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR to reconcile; empty reconciles the bounded recent inventory
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      pr:
+        required: true
+        type: string
+      keep-run:
+        description: This caller's newly published generation; empty retains none from this caller
+        required: false
+        default: ''
+        type: string
+permissions:
+  actions: write
+concurrency:
+  group: pr-rc-cleanup-${{ inputs.pr || github.event.pull_request.number || 'recent' }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: ${{ github.repository == 'pj-tmt/tmt' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Deliberately no checkout, PR code, cache, artifact upload, or extra write permission.
+      - name: Reconcile only authenticated RC run artifact IDs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLEANUP_PR: ${{ inputs.pr || github.event.pull_request.number }}
+          KEEP_RUN: ${{ inputs.keep-run }}
+        run: |
+          node <<'CLEANUP'
+          const { execFileSync } = require('node:child_process');
+          const { appendFileSync } = require('node:fs');
+          // BEGIN_CLEANUP
+          async function cleanupPRRC({ call, now, sleep, pr, keepRun, runId }) {
+            const root = 'repos/pj-tmt/tmt';
+            const need = (ok, message) => { if (!ok) throw new Error(message); };
+            const integer = (value) => Number.isSafeInteger(value) && value > 0;
+            need(pr === null || integer(pr), 'Invalid cleanup PR.');
+            need(keepRun === null || (integer(keepRun) && keepRun === runId), 'Only the current producer caller may retain its new run.');
+            let requests = 0;
+            const request = async (method, route, absent = false) => {
+              need(++requests <= 256, 'RC cleanup request bound exceeded.');
+              const result = await call(method, `${root}/${route}`);
+              need((result.status >= 200 && result.status < 300) || (absent && result.status === 404), `RC cleanup API ${method} failed (${result.status}).`);
+              return result;
+            };
+            const workflow = (await request('GET', 'actions/workflows/pr-rc.yml')).data;
+            need(integer(workflow.id) && workflow.path === '.github/workflows/pr-rc.yml', 'Unknown RC producer workflow identity.');
+            const since = new Date(now() - 7 * 86400000).toISOString();
+            const list = (await request('GET', `actions/workflows/${workflow.id}/runs?branch=main&event=workflow_dispatch&created=%3E%3D${since}&per_page=100`)).data;
+            need(Array.isArray(list.workflow_runs) && list.total_count === list.workflow_runs.length && list.total_count < 100, 'Recent RC run inventory incomplete.');
+            const runs = [];
+            for (const run of list.workflow_runs) {
+              need(integer(run.id) && run.workflow_id === workflow.id && run.path === workflow.path && run.head_branch === 'main' && run.event === 'workflow_dispatch' && run.repository?.full_name === 'pj-tmt/tmt', 'Run does not belong to the main RC producer.');
+              const match = /^pr-rc #([1-9][0-9]*) ([a-f0-9]{12})$/.exec(run.display_title);
+              need(match && integer(Number(match[1])) && Number.isSafeInteger(Date.parse(run.created_at)), 'RC run ownership name or time is invalid.');
+              if (pr !== null && Number(match[1]) !== pr) continue;
+              runs.push({ ...run, pr: Number(match[1]), sourcePrefix: match[2] });
+            }
+            const artifactList = async (run) => {
+              const result = (await request('GET', `actions/runs/${run.id}/artifacts?per_page=100`)).data;
+              need(Array.isArray(result.artifacts) && result.total_count === result.artifacts.length && result.total_count < 100, 'RC artifact inventory incomplete.');
+              const seen = new Set();
+              return result.artifacts.filter((artifact) => {
+                need(integer(artifact.id) && !seen.has(artifact.id) && artifact.workflow_run?.id === run.id && Number.isSafeInteger(artifact.size_in_bytes) && artifact.size_in_bytes >= 0, 'Wrong-run or duplicate artifact identity.');
+                seen.add(artifact.id);
+                // Run identity grants ownership; the exact fixed RC membership keeps ordinary preparation outputs untouched.
+                const catalog = artifact.name === `tmt-pr-rc-catalog-v2-pr${run.pr}`;
+                const payload = new RegExp(`^tmt-pr-rc-payload-v2-pr${run.pr}-cli-(aarch64|x86_64)-(apple-darwin|unknown-linux-musl)-${run.id}-a[1-9][0-9]*$`).test(artifact.name);
+                return catalog || payload;
+              });
+            };
+            const deleted = [];
+            let bytes = 0;
+            const erase = async (artifact) => {
+              await request('DELETE', `actions/artifacts/${artifact.id}`, true);
+              const absent = await request('GET', `actions/artifacts/${artifact.id}`, true);
+              need(absent.status === 404, 'Deleted RC artifact is still present.');
+              deleted.push(artifact.id); bytes += artifact.size_in_bytes;
+              console.log(`RC artifact ${artifact.id}: ${artifact.size_in_bytes} B confirmed absent.`);
+            };
+            for (const number of [...new Set(runs.map((run) => run.pr))]) {
+              const pull = (await request('GET', `pulls/${number}`)).data;
+              need(pull.number === number && pull.base?.repo?.full_name === 'pj-tmt/tmt' && pull.head?.repo?.full_name === 'pj-tmt/tmt', 'Cleanup PR ownership unavailable.');
+              const eligible = pull.state === 'open' && pull.labels?.filter((label) => label.name === 'rc-build').length === 1;
+              const generations = [];
+              for (const run of runs.filter((run) => run.pr === number)) generations.push({ run, artifacts: await artifactList(run) });
+              generations.sort((a,b) => b.run.id - a.run.id);
+              const current = generations.filter(({ run, artifacts }) => eligible && run.sourcePrefix === pull.head.sha?.slice(0,12) && now() - Date.parse(run.created_at) < 3 * 86400000 && artifacts.some((artifact) => artifact.name === `tmt-pr-rc-catalog-v2-pr${number}`) && (run.conclusion === 'success' || run.id === keepRun));
+              const retained = new Set(current.slice(0,2).map(({ run }) => run.id));
+              for (const generation of generations) {
+                const run = generation.run;
+                if (retained.has(run.id)) continue;
+                // Retire discovery before cancellation/settlement; a late catalog is re-inventoried below.
+                for (const artifact of generation.artifacts.filter((item) => item.name.startsWith('tmt-pr-rc-catalog-'))) await erase(artifact);
+                if (run.status !== 'completed' && run.id !== runId) {
+                  await request('POST', `actions/runs/${run.id}/cancel`);
+                  let settled = false;
+                  for (let attempt = 0; attempt < 10; attempt++) {
+                    const state = (await request('GET', `actions/runs/${run.id}`)).data;
+                    need(state.id === run.id && state.workflow_id === workflow.id && state.head_branch === 'main', 'Cancelled run identity changed.');
+                    if (state.status === 'completed') { settled = true; break; }
+                    await sleep(3000);
+                  }
+                  need(settled, 'Cancelled RC run has not settled; retention remains the backstop.');
+                }
+                // The current caller reaches this only after all upload jobs settled; no future uploader remains in its DAG.
+                const artifacts = await artifactList(run);
+                artifacts.sort((a,b) => Number(b.name.startsWith('tmt-pr-rc-catalog-')) - Number(a.name.startsWith('tmt-pr-rc-catalog-')) || a.id - b.id);
+                for (const artifact of artifacts) {
+                  await erase(artifact);
+                }
+                need((await artifactList(run)).length === 0, 'Late RC upload remains after cleanup.');
+              }
+            }
+            return { requests, deleted, bytes, retainedLimit: 2 };
+          }
+          // END_CLEANUP
+          const call = async (method, route) => {
+            let output;
+            try { output = execFileSync('gh', ['api', '--include', '--method', method, route], { timeout: 30000, maxBuffer: 2 * 1024 * 1024 }).toString(); }
+            catch (error) { if (!error.stdout?.length) throw error; output = error.stdout.toString(); }
+            const status = /^HTTP\/\S+ (\d+)/.exec(output);
+            if (!status) throw new Error('Missing authenticated API status.');
+            const body = output.split(/\r?\n\r?\n/).slice(1).join('\n\n').trim();
+            return { status: Number(status[1]), data: body ? JSON.parse(body) : null };
+          };
+          cleanupPRRC({ call, now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve,ms)),
+            pr: process.env.CLEANUP_PR ? Number(process.env.CLEANUP_PR) : null,
+            keepRun: process.env.KEEP_RUN ? Number(process.env.KEEP_RUN) : null, runId: Number(process.env.GITHUB_RUN_ID) })
+            .then((result) => { console.log(JSON.stringify(result)); appendFileSync(process.env.GITHUB_STEP_SUMMARY, `RC cleanup: ${result.deleted.length} exact IDs, ${result.bytes} B confirmed absent.\n`); })
+            .catch((error) => { console.error(error.message); process.exitCode = 1; });
+          CLEANUP

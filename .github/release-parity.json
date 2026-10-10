@@ -199,9 +199,11 @@
           "name:Warm the macOS toolchain lookup",
           "name:Build independent expected Colab app bytes",
           "name:Execute final archive and bootstrap with the matching target process",
-          "name:Recheck version-only source after this stage"
+          "name:Recheck version-only source after this stage",
+          "name:Capture the final CLI preparation report",
+          "name:Retain the matching-host verification report"
         ],
-        "sha256": "c752f4d2f84347b3426fad3f943d713490d286bffc3320b891737f2bec3ca2d8",
+        "sha256": "e517f81903b8a156249c5f396d2f3fa8244dc0cc598feec68474d382bd4e6ea8",
         "preMerge": [
           {
             "workflow": "ci.yml",

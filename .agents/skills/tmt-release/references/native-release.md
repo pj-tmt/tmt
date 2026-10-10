@@ -432,172 +432,44 @@ end of runtime verification. Sidecars remain preparation evidence, not a new rel
 No extension schema is inferred, published manifest rewritten or PR binary executed with writer
 credentials. Source/tooling proof and actual integrated native preparation remain separate gates.
 
-## Unarmed PR RC resource planning
+## Opt-in PR release candidates
 
-`typescript/scripts/pr-rc-resources.mjs` owns the pure first resource-policy slice of
-#1889. It imports only the built-in digest owner, exports `rcGenerationKey` and
-`planRCResources`, and has no command entry point or effectful adapter. Its local
-typed planning records are not Core catalog/eligibility/schema/trust wire types.
-The [PR channel contract](../../../../contracts/native-pr-channel.md) retains those
-owners and frozen v2 catalog/payload and v1 schema/trust semantics.
+`pr-rc.yml` runs reviewed main tooling for an open same-repository PR carrying
+`rc-build`; dispatch supplies the exact head and its first twelve hex characters.
+The label opts into CLI preparation on all four native targets and its runner cost;
+per-PR concurrency cancels superseded runs. Existing `native-release-prepare.yml`
+receives the guarded PR head as source data, uses its ordinary verification gates,
+and captures a report after each matching-host final archive/source check.
+No PR executable runs with artifact-deletion or repository-write authority.
 
-The complete snapshot binds official repository, current channel source/enable
-epoch, externally approved producer tuple, exact run/attempt and sorted selected
-product/target set. Each reservation/settlement/inventory/absence observation binds
-the digest of that entire identity and a bounded evidence reference. `confirmed`
-is a supplied planning observation, never API authentication, upload quiescence,
-installer eligibility or remote cleanup proof. A future trusted adapter must
-establish and revalidate the evidence; PR code must never run with its write authority.
-Upstream source-artifact provenance is separate and cannot become deletion ownership.
+`pr-rc-coordinator.mjs` reads authenticated current pull, label timeline and main
+workflow-run identity before staging unchanged archive/manifest bytes. Four final
+reports bind the same run/attempt, source, version, schema, archive and notices.
+Each three-day payload contains only the root manifest and target archive. Returned
+Actions IDs, ZIP sizes/digests and bounded regular-root member bytes are read back
+before the revision-2 catalog is uploaded last as the sole `catalog.json` member;
+its returned ID and bytes are checked again with fresh current-head/opt-in evidence.
+Missing, ambiguous, incomplete or changed observations fail visibly without retry.
+Core owns catalog admission, compiled schema semantics and installer trust; the
+producer's workflow/tooling hashes remain diagnostics, not a rotation allow-list.
 
-A reserve request proposes only an exclusive durable journal commit/readback; it
-cannot expose upload in that call. The subsequent complete snapshot must retain
-that reservation before upload intents can appear. Every output reserves declared
-transport and metadata maxima, at least the frozen 69 MiB payload/2 MiB catalog
-transport bounds. The future uploader must enforce the complete declared envelope
-before and during effects, with one payload bound to each canonical selected pair.
-It must refuse an unknown overhead bound. Raw member sizes do
-not replace transport bounds. Catalog upload is last and separately requires all
-payloads independently verified/settled and fresh Core eligibility.
+`pr-rc-cleanup.yml` uses one no-checkout implementation for close, daily reconciliation,
+manual dispatch and post-publication retirement. It has only `actions:write` and
+identifies its artifacts through the authenticated `pr-rc.yml` main run and exact
+`pr-rc #<PR> <head12>` run-name, then records exact artifact IDs before deletion.
+At most two current successful catalog-bearing generations remain live per PR.
+Close, missing label, changed head or three-day expiry retires catalog discovery
+first; an owned pending run is cancelled and observed settled before payload cleanup.
+A fresh inventory catches late uploads, and each deletion requires authenticated
+absence. Unknown ownership, incomplete inventories, unsettled cancellation or late
+uploads fail visibly; retention is the backstop, not proof of physical reclamation.
+Ordinary preparation artifacts, caches, releases and local installations are untouched.
 
-Local admission enforces eight enabled channels, one current generation per PR,
-one incomplete/replacement/retired/uncertain generation repository-wide, 1 GiB/64
-artifacts per generation, 9 GiB aggregate, 1 MiB declared manifest content and
-16 MiB diagnostics per generation, and no cache resource kind. All reservations,
-unknown/unmatched and deletion-unconfirmed resources remain charged. The proposed
-128 KiB checkpoint/three-checkpoint/32-terminal-entry limits are conservative local
-controls, not backend guarantees: all three maximum checkpoint representations
-remain charged inside the aggregate even when observed metadata is smaller. Input
-plus request must fit one checkpoint; reconciliation admits at most 100 channel
-and 1000 resource records. It never evicts unresolved records to meet a bound.
-
-Close (merged or unmerged), disable, new head or new epoch retires discovery first.
-Only exact journal-owned run/attempt cancellation and artifact-ID deletion intents
-are proposed. Cancellation acceptance, deletion status, a bare 404, expiry or missing
-logs do not settle uploads or release capacity. Deletion additionally requires
-settled uploads and complete exact inventory; payload deletion requires confirmed
-catalog absence. Release additionally requires separately bound confirmed absence
-and an exclusive durable release commit. Even a release intent leaves the input
-charge unchanged. A refusal preserves input and has no intents; a null charge means
-unknown accounting, never zero. Readers gain no remote lease or local uninstall.
-Valid observations with unmet obligations return `blocked`, including unmatched
-charges with no generation and uncertain/contradictory current publication evidence.
-Confirmed absence of recorded pending outputs blocks further upload intents; an
-empty pre-upload absence set does not. A current producer tuple that differs from
-the supplied approved tuple remains unresolved in the incomplete slot. Changed
-approval does not prevent exact owned historical retirement.
-Re-enable/reopen cannot resurrect a retired generation or erase a charged slot.
-
-`typescript/scripts/pr-rc-journal.mjs` implements an unarmed Deployment checkpoint
-candidate using only injected custody, authenticated bounded transport and durable
-recovery ports. It has no CLI, credential reader, live transport or workflow caller.
-Strict finite UTF-8 JSON rejects duplicate/unknown checkpoint fields, unsafe integers,
-excess nesting and oversized representations. Immutable bytes bind the official
-repository, writer/approved tooling, exact run/attempt, source revision, predecessor
-ID/digest, complete snapshot digest and bounded terminal records. Accounting and
-reservation admission reuse `planRCResources`/`rcGenerationKey`; previous generations,
-unmatched uncertainty and terminal records cannot disappear at any recorded transition
-or candidate succession. An inconsistent history is refused before transport effects;
-complete original records remain available and accounting is unknown, never the
-smaller candidate-only total.
-Qualified release/terminal compaction remains unsupported rather than inferred.
-
-A captured externally qualified exclusive-writer context and complete bounded
-unfiltered Deployment inventory precede effects. The injected context is not CAS,
-authentication or proof of workflow exclusivity. A future writer/reconciler needs
-one shared concurrency domain with cancellation disabled. Bootstrap requires a
-separate explicit empty-ledger admission; a missing checkpoint is never bootstrap.
-Original returned IDs and raw authenticated responses are retained. Successor
-create, exact readback and complete inventory precede pruning of recorded owned
-predecessors only. Each gets an inactive status with `auto_inactive:false`, exact
-status readback, DELETE, exact authenticated absence and complete inventory.
-Unrelated deployments/environments are never mutation targets. This proves no
-artifact settlement, physical storage reclamation or billing reduction.
-
-An injected durable intent is saved before create/status/delete and at independent
-returned-ID/readback/inactive/delete boundaries. Each actual returned inactive-status
-ID and raw response is saved before asynchronous readback; status identity is reset
-for each predecessor. Unknown outcomes stop later effects;
-recovery preserves the complete candidate, recorded IDs, custody and raw evidence,
-freezes allocations and never retries POST or infers an empty ledger. Completed
-exact-ID evidence also remains durable until an independently qualified handoff. Recovery
-qualification must resolve retained evidence before another operation; no automatic
-resume/replacement or silent alternate store is supplied. All generations and
-worst-case checkpoint overlap stay charged, including after successful pruning.
-
-The candidate enforces 256 requests/8 MiB cumulative request-plus-response bytes per
-pass, at most 10 seconds per call within the original 10-minute deadline including
-queue/custody wait, 1000 inventory records and three checkpoints without eviction.
-Ports must independently enforce bounds, abort, authentication and durable exact-byte
-recovery writes. The three-day TTL remains a future backstop, never absence evidence.
-Deterministic owning controls in `test/tooling/pr-rc-journal.test.ts` and retained
-`pr-rc-resources.test.ts` qualify source behavior only. Official
-[Deployments](https://docs.github.com/en/rest/deployments/deployments),
-[statuses](https://docs.github.com/en/rest/deployments/statuses) and
-[concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
-semantics do not qualify this repository's permissions, accepted payload size,
-events/integrations, custody or incremental costs. Live backend selection and
-bounded real API qualification remain separate gates. Producer admission, Core
-catalog/eligibility/schema/trust ownership, actual upload/close cleanup, ordinary
-CI artifacts, caches, releases, upstream provenance and local installs are unchanged.
-
-## Unarmed trusted reuse-only PR RC coordination
-
-`typescript/scripts/pr-rc-coordinator.mjs` composes the delivered planner and checkpoint
-owners for one CLI generation: four sorted existing targets, unchanged archive versions,
-final manifest bytes and frozen revision2 catalog fields. It supplies fixed root regular
-byte members to an injected upload owner; it has no command entry point, default live
-transport, ZIP parser, extraction, PR executable invocation or workflow caller.
-
-The externally reviewed approval port supplies the publisher tuple and complete preparation
-workflow/action/verifier/dependency closure. Authenticated bounded observations bind the
-actual workflow blob, same-repository open/current-head PR, current label and unique latest
-UTC-second enable epoch, and current trusted-main writer run/attempt. Preparation exports
-separately identify actual prepared PR source, possible synthetic API head and trusted tooling;
-a successful run or `complete:true` alone supplies none of these facts. Existing source/schema,
-native manifest/inventory and no-follow bounded file readers admit only known raw hashes and
-lengths. All four final matching-host proofs must bind authenticated preparation artifact IDs,
-source snapshot, schema output/binary, final manifest/archive and notices/inventory digests.
-
-Current `native-release-prepare.yml` and schema sidecars do not export that complete
-authenticated closure/run/artifact/final-verification record. Missing fields refuse with the
-preparation owner's exact export obligation. The future observation adapter must provide
-complete authenticated raw pull/timeline/run/workflow and upstream evidence; no adapter or
-approval is activated here. The local injected projections accept compact JSON (optional
-newline) or the existing two-space/newline manifest encoding, reject duplicate keys and unknown
-projected proof/receipt fields, and enforce raw byte/depth/integer bounds. Unsupported service encoding remains unavailable.
-
-Before payload effects the coordinator commits and independently reads back the complete
-worst-case reservation through `prepareRCCheckpoint`/`commitRCCheckpoint`: four 69 MiB payload
-transports, one 2 MiB catalog transport and 20 MiB metadata, plus retained checkpoint overlap.
-Four copies of the final manifest must fit the existing 1 MiB aggregate manifest-content limit.
-A finite 16 MiB recovery envelope (measured with raw bytes as base64) is covered by that metadata;
-the same checkpoint recovery port must preserve the extended record exactly and enforce its
-bound. This does not enlarge the 128 KiB checkpoint wire or introduce a second store. Immutable
-reserved generations and original charges remain unchanged; upload identities and observations
-stay alongside them in recovery evidence. Checkpoint and publication metadata share the
-256-request/8 MiB pass budget and original ten-minute deadline, with ten seconds per operation.
-
-An intent is durable before upload. Each returned ID, independently parsed raw-body ID and
-original response is durable before asynchronous readback or finalization. Exact run, attempt,
-name, ZIP size/digest and fixed raw member descriptors must independently agree. Authenticated
-finalization exports bind the exact upload's ended-writer, settlement and inventory references;
-a successful upload, cancellation202 or custody Boolean cannot replace them. Real upload
-ownership, quiescence and service permission remain unqualified. Source controls inject those
-facts; they do not prove their existence on a real backend.
-
-Fresh eligibility precedes each payload and catalog publication. Four verified/finalized payloads
-supply the catalog; its sole `catalog.json` upload is last and independently read back, followed
-by eligibility recheck for a close during publication. A partial or changed observation freezes
-subsequent publication and retains all IDs, raw evidence and charges. The result is explicitly
-unarmed `readback-confirmed`, never a live current/complete channel. Existing recovery, including
-completed operations, requires qualified owning disposition before any new operation; no
-automatic retry, older fallback, inferred bootstrap or deletion is exposed. Ordinary preparation
-artifacts remain read-only reuse provenance, with no deletion rights.
-
-Source controls prove ordering, catalog bytes and refusal sensitivity only. Production approval, actual workflow/transport, backend/recovery
-custody, finalization, catalog-first close/missed-event/late-upload/reader-race cleanup, physical
-absence, measured cost and representative installs remain #1889/#1639 work.
+Focused controls in `test/tooling/pr-rc-coordinator.test.ts` cover catalog bytes,
+final verification binding, bounded ZIP readback and exact-ID cleanup; workflow
+controls pin trusted preparation and catalog-last ordering. Native preparation,
+representative installs and the Core reader's protected-main trust seam remain
+separate qualification evidence; source controls do not claim a live acceptance run.
 
 ## Packed verifier cleanup
 

@@ -1,858 +1,572 @@
-// Unarmed trusted reuse-only coordinator. All remote effects and durable custody are injected.
+// Trusted main PR-candidate producer; Core owns installer admission and schema semantics.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { readBoundedFile, selectNativeArtifact } from './native-artifact-policy.mjs';
 import {
   CLI_SCHEMA_TARGETS,
   parseCompiledSchema,
   assertCompiledSource,
+  readSchemaEvidence,
 } from './native-application-schema.mjs';
-import {
-  planRCResources,
-  rcGenerationKey,
-  RC_RESOURCE_LIMITS as LIMIT,
-} from './pr-rc-resources.mjs';
-import { prepareRCCheckpoint, commitRCCheckpoint } from './pr-rc-journal.mjs';
 
-const REPOSITORY = 'pj-tmt/tmt';
+export const RC_REPOSITORY = 'pj-tmt/tmt';
+export const RC_TARGETS = CLI_SCHEMA_TARGETS;
+export const RC_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const MiB = 1024 * 1024;
+const sha = (value) => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+const digest = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const positive = (value) => Number.isSafeInteger(value) && value > 0;
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const positive = (n) => Number.isSafeInteger(n) && n > 0;
-const digest = (s) => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
-const sha = (s) => typeof s === 'string' && /^[a-f0-9]{40}$/.test(s);
-const reference = (s) => typeof s === 'string' && /^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/.test(s);
-const fields = (value, keys) => {
+const descriptor = (name, bytes) => ({ name, sha256: hash(bytes), bytes: bytes.length });
+const json = (file, limit) => JSON.parse(readBoundedFile(file, limit).toString('utf8'));
+const fields = (value, names) => {
   assert(value && typeof value === 'object' && !Array.isArray(value), 'Evidence object required.');
   assert.deepEqual(
     Object.keys(value).sort(),
-    [...keys].sort(),
+    [...names].sort(),
     'Unknown or missing evidence fields.'
   );
 };
-const encode = (value) => new TextEncoder().encode(JSON.stringify(value));
-// The same recovery port may encode raw bytes as base64; its finite envelope is charged as metadata.
-const recoverySize = (state) =>
-  Buffer.byteLength(
-    JSON.stringify(state, (_key, value) =>
-      value instanceof Uint8Array ? Buffer.from(value).toString('base64') : value
-    )
-  );
 
-// Exact accepted encodings preserve duplicate-key sensitivity without another wire decoder.
-function json(bytes, maximum = MiB) {
+/** Captured after the existing matching-host verification and final source recheck. */
+export function capturePRRCVerification({
+  root,
+  directory,
+  target,
+  snapshot,
+  runId,
+  attempt,
+  toolingSha,
+}) {
   assert(
-    bytes instanceof Uint8Array && bytes.length > 0 && bytes.length <= maximum,
-    'Evidence byte bound.'
+    RC_TARGETS.includes(target) &&
+      positive(runId) &&
+      positive(attempt) &&
+      attempt <= 100 &&
+      sha(toolingSha),
+    'Invalid preparation identity.'
   );
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  const value = JSON.parse(text);
-  assert(
-    [
-      JSON.stringify(value),
-      `${JSON.stringify(value)}\n`,
-      `${JSON.stringify(value, null, 2)}\n`,
-    ].includes(text),
-    'Unsupported or duplicate-key evidence encoding.'
+  const source = json(snapshot, 4 * MiB);
+  const manifest = readBoundedFile(path.join(directory, 'dist-manifest.json'), 4 * MiB);
+  const name = `tmt-cli-${target}.tar.gz`;
+  const archive = readBoundedFile(path.join(directory, name), 64 * MiB);
+  const metadata = selectNativeArtifact(
+    path.join(directory, 'dist-manifest.json'),
+    path.join(directory, name),
+    target,
+    'cli',
+    { release: true }
   );
-  const visit = (item, depth) => {
-    assert(depth <= 12, 'Evidence depth bound.');
-    if (typeof item === 'number') assert(Number.isSafeInteger(item), 'Unsafe evidence integer.');
-    if (typeof item === 'string') assert(item.isWellFormed(), 'Malformed evidence Unicode.');
-    if (item && typeof item === 'object') Object.values(item).forEach((v) => visit(v, depth + 1));
-  };
-  visit(value, 0);
-  return value;
-}
-
-function producerWire(identity) {
-  const p = identity.producer;
-  assert.equal(p.workflowPath, '.github/workflows/pr-rc.yml', 'Frozen producer path differs.');
-  assert(identity.attempt <= 100, 'Frozen attempt bound.');
+  const schema = parseCompiledSchema(
+    `${JSON.stringify(JSON.parse(manifest).tmt_application_schema)}\n`
+  );
+  assertCompiledSource(schema, source, root);
+  const evidence = readSchemaEvidence(path.join(directory, `${target}-application-schema.json`));
+  assert.equal(evidence.target, target, 'Matching-host evidence target differs.');
+  assert.deepEqual(evidence.record, schema, 'Matching-host schema differs.');
+  assert.equal(evidence.archive_sha256, hash(archive), 'Verified archive changed.');
+  assert.equal(metadata.sha256, hash(archive), 'Manifest archive digest differs.');
+  assert.equal(metadata.version, source.version, 'Verified version differs.');
+  assert.equal(
+    evidence.output_sha256,
+    hash(`${JSON.stringify(schema)}\n`),
+    'Compiled output digest differs.'
+  );
+  assert(digest(evidence.binary_sha256), 'Missing verified binary digest.');
+  const notices = readBoundedFile(path.join(directory, `${target}-notices.txt`), 16 * MiB);
+  assert(notices.length > 0, 'Verified notices missing.');
   return {
-    workflow_id: p.workflowId,
-    workflow_path: p.workflowPath,
-    workflow_sha256: p.workflowSha256,
-    tooling_sha: p.toolingCommit,
-    run_id: identity.runId,
-    run_attempt: identity.attempt,
+    schema_version: 1,
+    product: 'cli',
+    target,
+    source_sha: source.cut,
+    version: source.version,
+    prepare_run_id: runId,
+    prepare_run_attempt: attempt,
+    prepare_tooling_sha: toolingSha,
+    application_schema: schema,
+    dist_manifest: descriptor('dist-manifest.json', manifest),
+    archive: descriptor(name, archive),
+    binary_sha256: evidence.binary_sha256,
+    output_sha256: evidence.output_sha256,
+    notices: descriptor(`${target}-notices.txt`, notices),
+    source_snapshot_sha256: evidence.source_snapshot_sha256,
   };
 }
 
-function eligibility(observation, identity, nowMs) {
-  fields(observation, ['pull', 'timeline', 'run', 'workflow']);
-  fields(observation.workflow, ['path', 'tooling_sha', 'body']);
+/** API observations, not PR-controlled files, establish current opt-in and trusted run ownership. */
+export function validatePRRCEligibility(
+  { pull, timeline, run },
+  { pr, head, runId, attempt, head12 },
+  nowMs
+) {
   assert(
-    observation.workflow.path === identity.producer.workflowPath &&
-      observation.workflow.tooling_sha === identity.producer.toolingCommit &&
-      typeof observation.workflow.body === 'string' &&
-      Buffer.byteLength(observation.workflow.body) <= MiB &&
-      hash(observation.workflow.body) === identity.producer.workflowSha256,
-    'Actual producer workflow blob differs from reviewed tuple.'
+    positive(pr) && sha(head) && head12 === head.slice(0, 12) && positive(nowMs),
+    'Invalid requested PR/head.'
   );
-  const pull = observation.pull;
   assert(
-    pull.number === identity.pr &&
+    pull.number === pr &&
       pull.state === 'open' &&
-      pull.base?.repo?.full_name === REPOSITORY &&
-      pull.head?.repo?.full_name === REPOSITORY &&
-      pull.head.sha === identity.sourceSha,
+      pull.head?.sha === head &&
+      pull.head?.repo?.full_name === RC_REPOSITORY &&
+      pull.base?.repo?.full_name === RC_REPOSITORY,
     'PR is forked, closed or no longer current.'
   );
-  assert(Array.isArray(pull.labels), 'Missing current labels.');
-  const labels = pull.labels.filter((l) => l.name === 'rc-build');
-  assert(
-    labels.length === 1 && labels[0].id === identity.epoch.labelId,
-    'Label is disabled or recreated.'
+  const labels = pull.labels?.filter((label) => label.name === 'rc-build');
+  assert(labels?.length === 1 && positive(labels[0].id), 'PR lacks the current rc-build label.');
+  assert(Array.isArray(timeline) && timeline.length < 100, 'PR timeline is incomplete.');
+  const events = timeline.filter(
+    (event) => ['labeled', 'unlabeled'].includes(event.event) && event.label?.name === 'rc-build'
   );
   assert(
-    Array.isArray(observation.timeline) && observation.timeline.length <= 100,
-    'Complete one-page timeline required.'
-  );
-  const events = observation.timeline.filter(
-    (e) => ['labeled', 'unlabeled'].includes(e.event) && e.label?.name === 'rc-build'
-  );
-  assert(
-    events.length > 0 && new Set(events.map((e) => e.id)).size === events.length,
-    'Unknown or duplicate enable events.'
+    events.length > 0 && new Set(events.map((event) => event.id)).size === events.length,
+    'Missing or duplicate opt-in events.'
   );
   for (const event of events)
     assert(
       positive(event.id) &&
-        event.label.id === identity.epoch.labelId &&
+        event.label.id === labels[0].id &&
         /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(event.created_at) &&
-        positive(Date.parse(event.created_at)) &&
-        new Date(event.created_at).toISOString() === event.created_at.replace('Z', '.000Z'),
-      'Invalid label event.'
+        Number.isSafeInteger(Date.parse(event.created_at)),
+      'Invalid opt-in event.'
     );
-  const latestMs = Math.max(...events.map((e) => Date.parse(e.created_at)));
-  const latest = events.filter((e) => Date.parse(e.created_at) === latestMs);
+  const latestTime = Math.max(...events.map((event) => Date.parse(event.created_at)));
+  const latest = events.filter((event) => Date.parse(event.created_at) === latestTime);
   assert(
-    latest.length === 1 &&
-      latest[0].event === 'labeled' &&
-      latest[0].id === identity.epoch.eventId &&
-      latestMs === identity.epoch.enabledAtMs &&
-      latestMs <= nowMs,
-    'Enable epoch changed or ambiguous.'
+    latest.length === 1 && latest[0].event === 'labeled' && latestTime <= nowMs,
+    'Opt-in epoch is disabled or ambiguous.'
   );
-  const run = observation.run;
+  const reopened = timeline.filter((event) => event.event === 'reopened');
   assert(
-    run.repository?.full_name === REPOSITORY &&
-      run.id === identity.runId &&
-      run.run_attempt === identity.attempt &&
-      run.workflow_id === identity.producer.workflowId &&
-      run.path === identity.producer.workflowPath &&
-      run.head_sha === identity.producer.toolingCommit &&
+    reopened.every(
+      (event) =>
+        Number.isSafeInteger(Date.parse(event.created_at)) &&
+        Date.parse(event.created_at) < latestTime
+    ),
+    'Reopened PR requires a fresh rc-build opt-in.'
+  );
+  assert(
+    run.id === runId &&
+      run.run_attempt === attempt &&
+      attempt <= 100 &&
+      run.repository?.full_name === RC_REPOSITORY &&
+      positive(run.workflow_id) &&
+      run.path === '.github/workflows/pr-rc.yml' &&
       run.head_branch === 'main' &&
       run.event === 'workflow_dispatch' &&
-      run.status === 'in_progress',
-    'Current trusted writer run/attempt unavailable.'
+      run.status === 'in_progress' &&
+      sha(run.head_sha) &&
+      run.display_title === `pr-rc #${pr} ${head12}`,
+    'Untrusted PR producer run.'
   );
+  return {
+    label: 'rc-build',
+    label_id: labels[0].id,
+    enabled_event_id: latest[0].id,
+    enabled_at_ms: latestTime,
+  };
 }
 
-function closure(files) {
+/** Admit only four final matching-host reports and the exact unchanged bundle. */
+export function stagePRRCPayloads({
+  directory,
+  reports,
+  output,
+  head,
+  runId,
+  attempt,
+  toolingSha,
+}) {
   assert(
-    Array.isArray(files) && files.length > 0 && files.length <= 128,
-    'Missing reviewed tooling/workflow/action/verifier/dependency closure.'
-  );
-  let previous = '';
-  for (const file of files) {
-    fields(file, ['path', 'sha256']);
-    assert(
-      typeof file.path === 'string' &&
-        file.path.length <= 256 &&
-        file.path > previous &&
-        file.path
-          .split('/')
-          .every((p) => /^[A-Za-z0-9_.-]+$/.test(p) && !['.', '..'].includes(p)) &&
-        digest(file.sha256),
-      'Invalid closure inventory.'
-    );
-    previous = file.path;
-  }
-}
-
-/** The preparation owner must export authenticated final verification facts; successful jobs are insufficient. */
-function preparedBundle(input, approval, proof, identity) {
-  assert(
-    proof,
-    'Missing native-release-prepare.yml authenticated source/closure/four-host final-verification export.'
-  );
-  const required = [
-    'repository',
-    'run_id',
-    'run_attempt',
-    'api_head_sha',
-    'source_sha',
-    'tooling_sha',
-    'workflow_id',
-    'workflow_path',
-    'workflow_sha256',
-    'closure',
-    'run',
-    'source_snapshot',
-    'artifacts',
-    'targets',
-  ];
-  assert(
-    required.every((key) => Object.hasOwn(proof, key)),
-    `Missing native-release-prepare.yml authenticated export fields: ${required.filter((key) => !Object.hasOwn(proof, key)).join(', ')}`
-  );
-  fields(proof, required);
-  const approved = approval.preparation;
-  fields(approved, ['workflow_id', 'workflow_path', 'workflow_sha256', 'tooling_sha', 'closure']);
-  closure(approved.closure);
-  assert(
-    approved.closure.some(
-      (f) => f.path === approved.workflow_path && f.sha256 === approved.workflow_sha256
-    ),
-    'Preparation workflow missing from reviewed closure.'
+    sha(head) && positive(runId) && positive(attempt) && sha(toolingSha),
+    'Invalid preparation binding.'
   );
   assert(
-    positive(approved.workflow_id) &&
-      /^\.github\/workflows\/[A-Za-z0-9._-]+\.yml$/.test(approved.workflow_path) &&
-      digest(approved.workflow_sha256) &&
-      sha(approved.tooling_sha),
-    'Unknown preparation authority.'
+    Array.isArray(reports) &&
+      reports.length === 4 &&
+      reports.every((report, i) => report.target === RC_TARGETS[i]),
+    'Four sorted target reports required.'
   );
-  assert(
-    proof.repository === REPOSITORY &&
-      positive(proof.run_id) &&
-      positive(proof.run_attempt) &&
-      proof.run_attempt <= 100 &&
-      sha(proof.api_head_sha) &&
-      proof.source_sha === identity.sourceSha,
-    'Actual prepared source differs from PR; API synthetic head is not source authority.'
+  const manifestBytes = readBoundedFile(path.join(directory, 'dist-manifest.json'), 4 * MiB);
+  const schema = parseCompiledSchema(
+    `${JSON.stringify(JSON.parse(manifestBytes).tmt_application_schema)}\n`
   );
-  for (const key of ['workflow_id', 'workflow_path', 'workflow_sha256', 'tooling_sha', 'closure'])
-    assert.deepEqual(
-      proof[key],
-      approved[key],
-      'Preparation tooling closure differs from externally reviewed authority.'
-    );
-  const run = proof.run;
-  assert(
-    run.repository?.full_name === REPOSITORY &&
-      run.id === proof.run_id &&
-      run.run_attempt === proof.run_attempt &&
-      run.head_sha === proof.api_head_sha &&
-      run.workflow_id === proof.workflow_id &&
-      run.path === proof.workflow_path &&
-      run.status === 'completed' &&
-      run.conclusion === 'success',
-    'Preparation exact current run/attempt unavailable.'
-  );
-  const source = proof.source_snapshot;
-  assert(
-    source.schema === 1 &&
-      source.product === 'cli' &&
-      source.cut === identity.sourceSha &&
-      typeof source.version === 'string' &&
-      source.version.length <= 128 &&
-      source.version.length > 0,
-    'Unknown source/version snapshot.'
-  );
-  const manifestBytes = readBoundedFile(input.manifestPath, Math.floor(LIMIT.manifestBytes / 4));
-  const manifest = json(manifestBytes, 4 * MiB);
-  const schema = parseCompiledSchema(`${JSON.stringify(manifest.tmt_application_schema)}\n`);
-  assertCompiledSource(schema, source, input.sourceRoot);
-  assert(
-    Array.isArray(input.archives) &&
-      input.archives.length === 4 &&
-      input.archives.every((a, i) => a.target === CLI_SCHEMA_TARGETS[i]),
-    'Exactly four sorted unique CLI inputs required.'
-  );
-  assert(
-    Array.isArray(proof.targets) &&
-      proof.targets.length === 4 &&
-      proof.targets.every((a, i) => a.target === CLI_SCHEMA_TARGETS[i]),
-    'Missing or duplicate matching-host final verification.'
-  );
-  assert(
-    Array.isArray(proof.artifacts) &&
-      proof.artifacts.length > 0 &&
-      proof.artifacts.length <= 64 &&
-      new Set(proof.artifacts.map((a) => a.id)).size === proof.artifacts.length,
-    'Incomplete authenticated preparation artifact inventory.'
-  );
-  for (const artifact of proof.artifacts) {
-    fields(artifact, ['id', 'name', 'run_id', 'run_attempt', 'zip_sha256', 'zip_bytes']);
-    assert(
-      positive(artifact.id) &&
-        reference(artifact.name) &&
-        artifact.run_id === proof.run_id &&
-        artifact.run_attempt === proof.run_attempt &&
-        digest(artifact.zip_sha256) &&
-        positive(artifact.zip_bytes) &&
-        artifact.zip_bytes <= LIMIT.generationBytes,
-      'Wrong preparation artifact identity/digest.'
-    );
-  }
-  const payloads = input.archives.map((archive, i) => {
-    fields(archive, ['target', 'path']);
-    const target = archive.target;
-    const name = `tmt-cli-${target}.tar.gz`;
-    const metadata = selectNativeArtifact(input.manifestPath, archive.path, target, 'cli', {
-      release: true,
-    });
-    assert(
-      metadata.name === name && metadata.version === source.version,
-      'Archive/version mismatch.'
-    );
-    const bytes = readBoundedFile(archive.path, 64 * MiB);
-    const p = proof.targets[i];
-    fields(p, [
+  assert.equal(schema.source_sha, head, 'Bundle schema source differs from PR.');
+  let version;
+  return reports.map((report) => {
+    fields(report, [
+      'schema_version',
+      'product',
       'target',
-      'host_target',
-      'artifact_id',
-      'archive_name',
-      'archive_sha256',
-      'archive_bytes',
-      'manifest_sha256',
-      'manifest_bytes',
+      'source_sha',
+      'version',
+      'prepare_run_id',
+      'prepare_run_attempt',
+      'prepare_tooling_sha',
+      'application_schema',
+      'dist_manifest',
+      'archive',
       'binary_sha256',
       'output_sha256',
-      'application_schema',
-      'notices_sha256',
-      'notices_bytes',
-      'inventory_sha256',
-      'verification_reference',
+      'notices',
+      'source_snapshot_sha256',
     ]);
     assert(
-      p.host_target === target &&
-        proof.artifacts.some((a) => a.id === p.artifact_id) &&
-        p.archive_name === name &&
-        p.archive_sha256 === hash(bytes) &&
-        p.archive_sha256 === metadata.sha256 &&
-        p.archive_bytes === bytes.length &&
-        p.manifest_sha256 === hash(manifestBytes) &&
-        p.manifest_bytes === manifestBytes.length,
-      'Missing matching-host archive/manifest provenance.'
+      report.schema_version === 1 &&
+        report.product === 'cli' &&
+        report.source_sha === head &&
+        report.prepare_run_id === runId &&
+        report.prepare_run_attempt === attempt &&
+        report.prepare_tooling_sha === toolingSha,
+      'Preparation report identity differs.'
     );
-    assert.deepEqual(p.application_schema, schema, 'Final verified schema mismatch.');
+    assert.deepEqual(report.application_schema, schema, 'Final target schemas disagree.');
+    const name = `tmt-cli-${report.target}.tar.gz`;
+    const archive = readBoundedFile(path.join(directory, name), 64 * MiB);
+    const metadata = selectNativeArtifact(
+      path.join(directory, 'dist-manifest.json'),
+      path.join(directory, name),
+      report.target,
+      'cli',
+      { release: true }
+    );
+    assert.equal(metadata.version, report.version, 'Preparation version differs.');
+    if (version === undefined) version = report.version;
+    assert.equal(report.version, version, 'Final target versions disagree.');
+    assert.equal(metadata.sha256, hash(archive), 'Archive bytes differ from manifest.');
+    assert.deepEqual(
+      report.dist_manifest,
+      descriptor('dist-manifest.json', manifestBytes),
+      'Verified manifest changed.'
+    );
+    assert.deepEqual(report.archive, descriptor(name, archive), 'Verified archive changed.');
     assert(
-      digest(p.binary_sha256) &&
-        p.output_sha256 === hash(`${JSON.stringify(schema)}\n`) &&
-        digest(p.notices_sha256) &&
-        positive(p.notices_bytes) &&
-        p.notices_bytes <= 16 * MiB &&
-        digest(p.inventory_sha256) &&
-        reference(p.verification_reference),
-      'Missing binary/schema/notices/inventory proof.'
+      digest(report.binary_sha256) &&
+        digest(report.source_snapshot_sha256) &&
+        report.output_sha256 === hash(`${JSON.stringify(schema)}\n`),
+      'Missing binary/schema/source evidence.'
     );
+    const notices = readBoundedFile(path.join(directory, `${report.target}-notices.txt`), 16 * MiB);
+    assert.deepEqual(
+      report.notices,
+      descriptor(`${report.target}-notices.txt`, notices),
+      'Verified notices changed.'
+    );
+    // Artifact uploads use compression-level:0; two bounded root files leave >1 MiB ZIP overhead.
+    assert(
+      manifestBytes.length + archive.length <= 68 * MiB,
+      'Payload member bytes exceed ZIP allowance.'
+    );
+    const destination = path.join(output, report.target);
+    fs.mkdirSync(destination, { recursive: true });
+    fs.writeFileSync(path.join(destination, 'dist-manifest.json'), manifestBytes);
+    fs.writeFileSync(path.join(destination, name), archive);
     return {
-      target,
-      version: metadata.version,
+      product: 'cli',
+      target: report.target,
+      version,
       application_schema: schema,
-      files: [
-        { name: 'dist-manifest.json', bytes: new Uint8Array(manifestBytes) },
-        { name, bytes: new Uint8Array(bytes) },
-      ],
+      dist_manifest: report.dist_manifest,
+      archive: report.archive,
       verification: {
-        prepare_run_id: proof.run_id,
-        prepare_run_attempt: proof.run_attempt,
-        prepare_tooling_sha: proof.tooling_sha,
-        source_sha: proof.source_sha,
+        prepare_run_id: runId,
+        prepare_run_attempt: attempt,
+        prepare_tooling_sha: toolingSha,
+        source_sha: head,
         complete: true,
       },
     };
   });
-  return {
-    payloads,
-    reuse: proof.artifacts.map((a) => ({
-      repository: REPOSITORY,
-      runId: proof.run_id,
-      attempt: proof.run_attempt,
-      artifactId: a.id,
-      sha256: a.zip_sha256,
-    })),
-  };
 }
 
-function descriptor(file) {
+export function prRCPayloadName(pr, target, runId, attempt) {
   assert(
-    /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/.test(file.name) &&
-      file.bytes instanceof Uint8Array &&
-      file.bytes.length > 0,
-    'Root regular member required.'
+    positive(pr) && RC_TARGETS.includes(target) && positive(runId) && positive(attempt),
+    'Invalid payload identity.'
   );
-  return { name: file.name, sha256: hash(file.bytes), bytes: file.bytes.length };
+  return `tmt-pr-rc-payload-v2-pr${pr}-cli-${target}-${runId}-a${attempt}`;
+}
+export function prRCCatalogName(pr) {
+  assert(positive(pr), 'Invalid PR catalog identity.');
+  return `tmt-pr-rc-catalog-v2-pr${pr}`;
 }
 
-function artifactMetadata(value, entry, identity, maximum, reusedIds) {
-  fields(value, [
-    'id',
-    'repository',
-    'run_id',
-    'run_attempt',
-    'name',
-    'zip_sha256',
-    'zip_bytes',
-    'members',
-  ]);
+/** Each returned artifact is read back and byte-checked before catalog exposure. */
+export async function buildPRRCCatalog(
+  { identity, candidates, producer, publishedAtMs },
+  { observe, payload }
+) {
+  const before = validatePRRCEligibility(await observe(), identity, publishedAtMs);
   assert(
-    positive(value.id) &&
-      !reusedIds.includes(value.id) &&
-      value.repository === REPOSITORY &&
-      value.run_id === identity.runId &&
-      value.run_attempt === identity.attempt &&
-      value.name === entry.name &&
-      digest(value.zip_sha256) &&
-      positive(value.zip_bytes) &&
-      value.zip_bytes <= maximum,
-    'Artifact identity/ZIP bounds mismatch or ordinary artifact adopted.'
+    candidates.length === 4 &&
+      candidates.every((candidate, i) => candidate.target === RC_TARGETS[i]),
+    'Four candidate targets required.'
   );
-  assert.deepEqual(value.members, entry.members, 'Uploaded fixed regular members differ.');
-}
-
-/** No default transport, CLI or workflow. Ports are trusted, externally qualified effect owners. */
-export async function coordinatePRRC(input, ports) {
-  input = structuredClone(input);
-  let recovery = null;
-  let charges = planRCResources(input.snapshot, { kind: 'reconcile' }).charges;
-  let checkpointResult = null;
-  let requests = 0;
-  let responseBytes = 0;
-  const startedAtMs = input.startedAtMs;
-  const deadline = startedAtMs + LIMIT.closeMs;
-  const observed = [];
-  try {
-    const old = await ports.checkpoint.recovery.load();
-    if (old !== null) {
-      recovery = old;
-      charges = old.candidate.charges;
-      let reason = 'Existing checkpoint recovery requires qualified disposition; no upload replay.';
-      try {
-        checkpointResult = await commitRCCheckpoint({
-          candidate: old.candidate,
-          recorded: old.recorded,
-          bootstrap: null,
-          ports: ports.checkpoint,
-          startedAtMs,
-        });
-        charges = checkpointResult.charges ?? charges;
-      } catch (error) {
-        reason = error instanceof Error ? error.message : 'Unknown retained checkpoint evidence.';
-      }
-      return {
-        mode: 'unarmed',
-        status: 'frozen',
-        reason,
-        charges,
-        recovery: old,
-        checkpoint: checkpointResult,
-      };
-    }
-    const identity = input.identity;
-    const key = rcGenerationKey(identity);
-    assert.deepEqual(
-      identity.selection,
-      CLI_SCHEMA_TARGETS.map((target) => ({ product: 'cli', target })),
-      'CLI-only complete four-target selection required.'
-    );
-    producerWire(identity);
+  assert(
+    producer.workflow_id > 0 &&
+      producer.workflow_path === '.github/workflows/pr-rc.yml' &&
+      digest(producer.workflow_sha256) &&
+      sha(producer.tooling_sha) &&
+      producer.run_id === identity.runId &&
+      producer.run_attempt === identity.attempt,
+    'Invalid producer diagnostics.'
+  );
+  const complete = [];
+  for (const candidate of candidates) {
+    const name = prRCPayloadName(identity.pr, candidate.target, identity.runId, identity.attempt);
+    const received = await payload(name);
     assert(
-      positive(startedAtMs) &&
-        Number.isSafeInteger(deadline) &&
-        ports.checkpoint.now() >= startedAtMs &&
-        ports.checkpoint.now() < deadline,
-      'Original publication deadline exceeded.'
-    );
-    assert(
-      positive(input.publishedAtMs) &&
-        input.publishedAtMs >= identity.epoch.enabledAtMs &&
-        positive(input.expiresAtMs) &&
-        input.expiresAtMs > input.publishedAtMs &&
-        input.expiresAtMs - input.publishedAtMs <= LIMIT.retentionMs,
-      'Publication lifetime bound.'
-    );
-    const bounded = async (operation, maximum = LIMIT.reconciliationBytes) => {
-      const timeoutMs = Math.min(10_000, deadline - ports.checkpoint.now());
-      assert(
-        timeoutMs > 0 &&
-          requests < LIMIT.reconciliationRequests &&
-          responseBytes < LIMIT.reconciliationBytes,
-        'Publication control-plane budget exceeded.'
-      );
-      requests++;
-      const controller = new AbortController();
-      let timer;
-      try {
-        return await Promise.race([
-          operation({ timeoutMs, maximum, signal: controller.signal }),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => {
-              controller.abort();
-              reject(new Error('Publication operation timed out; settlement unknown.'));
-            }, timeoutMs);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
-      }
-    };
-    const capture = async (kind, artifactId = null) => {
-      const response = structuredClone(
-        await bounded((limits) =>
-          ports.observe({ kind, identity: structuredClone(identity), artifactId, ...limits })
-        )
-      );
-      // Raw evidence is retained before interpretation, including rejected observations.
-      observed.push({ kind, artifactId, response });
-      assert(response.body instanceof Uint8Array, 'Missing raw authenticated observation.');
-      responseBytes += response.body.length;
-      assert(
-        response.authenticated?.repository === REPOSITORY &&
-          response.authenticated?.ownerId === input.writer.ownerId &&
-          response.status === 200 &&
-          response.nextPage === null &&
-          reference(response.reference) &&
-          positive(response.observedAtMs) &&
-          Number.isSafeInteger(response.elapsedMs) &&
-          response.elapsedMs >= 0 &&
-          response.elapsedMs <= 10_000 &&
-          responseBytes <= LIMIT.reconciliationBytes &&
-          ports.checkpoint.now() < deadline,
-        'Unknown/partial/denied or unbounded observation.'
-      );
-      return { value: json(response.body), response };
-    };
-    const approval = structuredClone(await bounded((limits) => ports.approval.capture(limits)));
-    responseBytes += encode(approval).length;
-    assert(responseBytes <= LIMIT.reconciliationBytes, 'Approval evidence byte bound.');
-    fields(approval, ['reference', 'producer', 'preparation']);
-    assert(reference(approval.reference), 'Missing external immutable approval reference.');
-    assert.deepEqual(
-      approval.producer,
-      identity.producer,
-      'Unknown externally reviewed producer/tooling.'
+      positive(received.id) &&
+        received.name === name &&
+        digest(received.zip_sha256) &&
+        positive(received.zip_bytes) &&
+        received.zip_bytes <= 69 * MiB,
+      'Payload metadata unavailable or oversized.'
     );
     assert.deepEqual(
-      input.writer.producer,
-      approval.producer,
-      'Checkpoint writer differs from approval.'
+      received.members,
+      [candidate.dist_manifest, candidate.archive],
+      'Read-back payload member bytes differ.'
     );
-    const first = await capture('eligibility');
-    eligibility(first.value, identity, first.response.observedAtMs);
-    const preparation = await capture('preparation');
-    const bundle = preparedBundle(input, approval, preparation.value, identity);
-    const payloadNames = CLI_SCHEMA_TARGETS.map(
-      (target) =>
-        `tmt-pr-rc-payload-v2-pr${identity.pr}-cli-${target}-${identity.runId}-a${identity.attempt}`
-    );
-    const catalogName = `tmt-pr-rc-catalog-v2-pr${identity.pr}`;
-    const generation = {
-      identity,
-      disposition: 'pending',
-      mutation: 'none',
-      resources: [
-        ...payloadNames.map((path, i) => ({
-          path,
-          kind: 'payload',
-          selectionIndex: i,
-          transportBytes: 69 * MiB,
-          metadataBytes: 4 * MiB,
-          manifestBytes: bundle.payloads[i].files[0].bytes.length,
-          diagnosticBytes: 0,
-          artifactId: null,
-        })),
-        {
-          path: catalogName,
-          kind: 'catalog',
-          selectionIndex: null,
-          transportBytes: 2 * MiB,
-          metadataBytes: 4 * MiB,
-          manifestBytes: 0,
-          diagnosticBytes: 0,
-          artifactId: null,
-        },
-      ],
-      reuse: bundle.reuse,
-      observations: Object.fromEntries(
-        ['reservation', 'settlement', 'inventory', 'absence'].map((kind) => [
-          kind,
-          { generationKey: key, reference: `${kind}/${key}`, state: 'unknown', artifactIds: [] },
-        ])
-      ),
-    };
-    const snapshot = structuredClone(input.snapshot);
-    const channel = snapshot.channels.find((c) => c.pr === identity.pr);
     assert(
-      channel &&
-        channel.state === 'enabled' &&
-        channel.sourceSha === identity.sourceSha &&
-        channel.sourceRepository === REPOSITORY,
-      'Snapshot does not match observed channel.'
+      !complete.some((previous) => previous.payload_artifact.id === received.id),
+      'Duplicate payload artifact ID.'
     );
-    assert.deepEqual(
-      channel.epoch,
-      identity.epoch,
-      'Snapshot epoch differs from fresh observation.'
-    );
-    const candidate = prepareRCCheckpoint({
-      writer: input.writer,
-      sourceSha: identity.sourceSha,
-      previous: input.recorded.at(-1) ?? null,
-      snapshot,
-      request: { kind: 'reserve', generation },
-      terminal: input.terminal,
-    });
-    checkpointResult = await commitRCCheckpoint({
-      candidate,
-      recorded: input.recorded,
-      bootstrap: null,
-      ports: {
-        ...ports.checkpoint,
-        transport: async (request) => {
-          responseBytes += request.body?.byteLength ?? 0;
-          const response = await bounded(() => ports.checkpoint.transport(request));
-          assert(response.body instanceof Uint8Array, 'Missing raw checkpoint response.');
-          responseBytes += response.body.byteLength;
-          assert(
-            responseBytes <= LIMIT.reconciliationBytes,
-            'Shared checkpoint/publication byte budget exceeded.'
-          );
-          return response;
-        },
-      },
-      startedAtMs,
-    });
-    charges = checkpointResult.charges;
-    assert(
-      checkpointResult.status === 'readback-confirmed' &&
-        checkpointResult.successor &&
-        checkpointResult.recovery?.phase === 'complete',
-      checkpointResult.reason ?? 'Worst-case reservation readback unavailable.'
-    );
-    recovery = structuredClone(checkpointResult.recovery);
-    recovery.publication = {
-      generationKey: key,
-      reservationId: checkpointResult.successor.id,
-      reservationDigest: candidate.digest,
-      approvalReference: approval.reference,
-      phase: 'reserved',
-      observations: observed,
-      uploads: [],
-      catalog: null,
-      unknown: false,
-    };
-    const save = async () => {
-      assert(
-        recoverySize(recovery) <= LIMIT.diagnosticBytes,
-        'Recovery envelope exceeds reserved metadata bound; retain original state.'
-      );
-      await ports.checkpoint.recovery.save(structuredClone(recovery));
-    };
-    await save();
-    const latest = async () => {
-      const observation = await capture('eligibility');
-      recovery.publication.observations = structuredClone(observed);
-      await save();
-      eligibility(observation.value, identity, observation.response.observedAtMs);
-      return observation;
-    };
-    const upload = async (name, files, kind) => {
-      const maximum = kind === 'catalog' ? 2 * MiB : 69 * MiB;
-      const members = files.map(descriptor);
-      assert(
-        files.length === (kind === 'catalog' ? 1 : 2) &&
-          members[0].name === (kind === 'catalog' ? 'catalog.json' : 'dist-manifest.json') &&
-          new Set(members.map((m) => m.name)).size === members.length,
-        'Fixed regular-member payload required.'
-      );
-      const entry = {
-        name,
-        kind,
-        members,
-        phase: 'intent',
-        id: null,
-        rawReturnedId: null,
-        response: null,
-        readback: null,
-        finalization: null,
-      };
-      recovery.publication.uploads.push(entry);
-      recovery.publication.phase = 'uploading';
-      recovery.publication.unknown = true;
-      await save();
-      const response = structuredClone(
-        await bounded((limits) =>
-          ports.upload({
-            name,
-            files: structuredClone(files),
-            identity: structuredClone(identity),
-            maxZipBytes: maximum,
-            ...limits,
-          })
-        )
-      );
-      entry.response = response;
-      // Actual returned ID and raw response must survive before the next asynchronous call.
-      entry.id = positive(response.id) ? response.id : null;
-      try {
-        const rawId = json(response.body).id;
-        entry.rawReturnedId = positive(rawId) ? rawId : null;
-      } catch {
-        /* Preserve unsupported raw bytes; missing identity never permits publication. */
-      }
-      entry.phase = 'returned';
-      await save();
-      assert(
-        response.body instanceof Uint8Array &&
-          response.authenticated?.repository === REPOSITORY &&
-          response.authenticated?.ownerId === input.writer.ownerId,
-        'Upload response unavailable or unauthenticated.'
-      );
-      responseBytes += response.body.length;
-      assert(
-        response.status === 201 &&
-          responseBytes <= LIMIT.reconciliationBytes &&
-          response.elapsedMs >= 0 &&
-          response.elapsedMs <= 10_000 &&
-          ports.checkpoint.now() < deadline,
-        'Upload response/time bound.'
-      );
-      const returned = json(response.body);
-      assert(
-        returned.id === entry.id &&
-          !recovery.publication.uploads.slice(0, -1).some((e) => e.id === entry.id),
-        'Returned ID missing or duplicate.'
-      );
-      artifactMetadata(
-        returned,
-        entry,
-        identity,
-        maximum,
-        bundle.reuse.map((r) => r.artifactId)
-      );
-      const readback = await capture('artifact', entry.id);
-      entry.readback = readback.response;
-      entry.phase = 'readback';
-      await save();
-      artifactMetadata(
-        readback.value,
-        entry,
-        identity,
-        maximum,
-        bundle.reuse.map((r) => r.artifactId)
-      );
-      assert.deepEqual(
-        readback.value,
-        returned,
-        'Authenticated ZIP readback differs from returned receipt.'
-      );
-      const final = await capture('finalization', entry.id);
-      entry.finalization = final.response;
-      await save();
-      fields(final.value, [
-        'repository',
-        'run_id',
-        'run_attempt',
-        'artifact_id',
-        'zip_sha256',
-        'zip_bytes',
-        'settlement_reference',
-        'writer_ended_at_ms',
-        'inventory_reference',
-      ]);
-      assert(
-        final.value.repository === REPOSITORY &&
-          final.value.run_id === identity.runId &&
-          final.value.run_attempt === identity.attempt &&
-          final.value.artifact_id === entry.id &&
-          final.value.zip_sha256 === returned.zip_sha256 &&
-          final.value.zip_bytes === returned.zip_bytes &&
-          reference(final.value.settlement_reference) &&
-          reference(final.value.inventory_reference) &&
-          positive(final.value.writer_ended_at_ms) &&
-          final.value.writer_ended_at_ms <= final.response.observedAtMs,
-        'Missing bounded exact-upload finalization/quiescence evidence.'
-      );
-      entry.phase = 'finalized';
-      recovery.publication.unknown = false;
-      await save();
-      return { id: entry.id, name, zip_sha256: returned.zip_sha256, zip_bytes: returned.zip_bytes };
-    };
-    const candidates = [];
-    for (let i = 0; i < bundle.payloads.length; i++) {
-      await latest();
-      const payload = bundle.payloads[i];
-      const artifact = await upload(payloadNames[i], payload.files, 'payload');
-      candidates.push({
-        product: 'cli',
-        target: payload.target,
-        version: payload.version,
-        application_schema: payload.application_schema,
-        payload_artifact: artifact,
-        dist_manifest: descriptor(payload.files[0]),
-        archive: descriptor(payload.files[1]),
-        verification: payload.verification,
-      });
-    }
-    const fresh = await latest();
-    assert(
-      fresh.response.observedAtMs >= input.publishedAtMs &&
-        fresh.response.observedAtMs < input.expiresAtMs,
-      'Catalog publication time is stale or expired.'
-    );
-    const catalog = {
-      schema_version: 2,
-      kind: 'tmt-pr-rc-catalog',
-      repository: REPOSITORY,
-      pr: identity.pr,
-      head_sha: identity.sourceSha,
-      producer: producerWire(identity),
-      eligibility: {
-        label: 'rc-build',
-        label_id: identity.epoch.labelId,
-        enabled_event_id: identity.epoch.eventId,
-        enabled_at_ms: identity.epoch.enabledAtMs,
-      },
-      published_at_ms: input.publishedAtMs,
-      expires_at_ms: input.expiresAtMs,
-      candidates,
-    };
-    const catalogBytes = encode(catalog);
-    assert(catalogBytes.length <= MiB, 'Catalog raw bound.');
-    recovery.publication.catalog = catalog;
-    await save();
-    await upload(catalogName, [{ name: 'catalog.json', bytes: catalogBytes }], 'catalog');
-    const finalEligibility = await latest();
-    assert(
-      finalEligibility.response.observedAtMs < input.expiresAtMs,
-      'Catalog expired during final readback.'
-    );
-    recovery.publication.phase = 'readback-confirmed';
-    recovery.publication.observations = structuredClone(observed);
-    await save();
-    return {
-      mode: 'unarmed',
-      status: 'readback-confirmed',
-      charges,
-      recovery,
-      checkpoint: checkpointResult,
-    };
-  } catch (error) {
-    let reason = error instanceof Error ? error.message : 'Unknown publication evidence.';
-    if (recovery?.publication) {
-      recovery.publication.phase = 'frozen';
-      recovery.publication.unknown = true;
-      recovery.publication.observations = structuredClone(observed);
-      try {
-        if (recoverySize(recovery) > LIMIT.diagnosticBytes) throw new Error('Recovery byte bound');
-        await ports.checkpoint.recovery.save(structuredClone(recovery));
-      } catch {
-        reason +=
-          ' Durable recovery unconfirmed; retain the full returned recovery and all charges.';
-      }
-    }
-    return {
-      mode: 'unarmed',
-      status: recovery || checkpointResult?.status === 'frozen' ? 'frozen' : 'refused',
-      reason,
-      charges,
-      recovery: recovery ?? checkpointResult?.recovery ?? null,
-      checkpoint: checkpointResult,
-      observations: observed,
-    };
+    const { members: _members, ...artifact } = received;
+    complete.push({ ...candidate, payload_artifact: artifact });
   }
+  const after = validatePRRCEligibility(await observe(), identity, publishedAtMs);
+  assert.deepEqual(after, before, 'PR opt-in epoch changed before catalog.');
+  const catalog = {
+    schema_version: 2,
+    kind: 'tmt-pr-rc-catalog',
+    repository: RC_REPOSITORY,
+    pr: identity.pr,
+    head_sha: identity.head,
+    producer,
+    eligibility: after,
+    published_at_ms: publishedAtMs,
+    expires_at_ms: publishedAtMs + RC_TTL_MS,
+    candidates: complete,
+  };
+  const bytes = Buffer.from(`${JSON.stringify(catalog)}\n`);
+  assert(bytes.length <= MiB, 'Catalog exceeds 1 MiB.');
+  return bytes;
 }
+
+/** Only bounded official-repository Actions/PR reads; never token or branch mutation. */
+export function createPRRCAPI(execute = execFileSync) {
+  const read = (route, maximum = 2 * MiB, binary = false) =>
+    execute(
+      'gh',
+      [
+        'api',
+        `repos/${RC_REPOSITORY}/${route}`,
+        '-H',
+        `Accept: ${binary ? 'application/octet-stream' : 'application/vnd.github+json'}`,
+      ],
+      { timeout: 120_000, maxBuffer: maximum }
+    );
+  const metadata = (route) => JSON.parse(read(route).toString('utf8'));
+  const inventory = (runId) => {
+    const result = metadata(`actions/runs/${runId}/artifacts?per_page=100`);
+    assert(
+      Array.isArray(result.artifacts) &&
+        result.total_count === result.artifacts.length &&
+        result.total_count < 100,
+      'Artifact inventory is incomplete.'
+    );
+    return result.artifacts;
+  };
+  const members = (artifact, maximum) => {
+    assert(
+      positive(artifact.id) &&
+        positive(artifact.size_in_bytes) &&
+        artifact.size_in_bytes <= maximum &&
+        artifact.expired === false &&
+        /^sha256:[a-f0-9]{64}$/.test(artifact.digest),
+      'Actions artifact identity/digest unavailable.'
+    );
+    const zip = read(`actions/artifacts/${artifact.id}/zip`, maximum, true);
+    assert.equal(zip.length, artifact.size_in_bytes, 'Actions ZIP size differs.');
+    assert.equal(`sha256:${hash(zip)}`, artifact.digest, 'Actions ZIP digest differs.');
+    // A bounded regular-root ZIP is data, never an executable or a filesystem extraction.
+    const program = `import sys,io,zipfile,json,base64
+z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
+a=z.infolist()
+assert 1<=len(a)<=2 and len({i.filename for i in a})==len(a)
+assert sum(i.file_size for i in a)<=int(sys.argv[1])
+for i in a:
+ assert i.filename and '/' not in i.filename and '\\\\' not in i.filename and i.filename not in ('.','..')
+ assert i.compress_type in (0,8) and not i.flag_bits&1 and (i.external_attr>>16)&0o170000 in (0,0o100000)
+print(json.dumps([{'name':i.filename,'data':base64.b64encode(z.read(i)).decode()} for i in a]))`;
+    const decoded = JSON.parse(
+      execute('python3', ['-c', program, String(maximum)], {
+        input: zip,
+        timeout: 120_000,
+        maxBuffer: 96 * MiB,
+      }).toString('utf8')
+    );
+    return decoded.map((member) => ({
+      name: member.name,
+      bytes: Buffer.from(member.data, 'base64'),
+    }));
+  };
+  return { metadata, inventory, members };
+}
+
+function runtimeIdentity(env) {
+  assert.equal(env.GITHUB_REPOSITORY, RC_REPOSITORY, 'Official repository required.');
+  assert.equal(env.GITHUB_REF, 'refs/heads/main', 'PR RC producer requires refs/heads/main.');
+  const identity = {
+    pr: Number(env.REQUESTED_PR),
+    head: env.REQUESTED_HEAD,
+    head12: env.REQUESTED_HEAD12,
+    runId: Number(env.GITHUB_RUN_ID),
+    attempt: Number(env.GITHUB_RUN_ATTEMPT),
+  };
+  assert(
+    positive(identity.pr) &&
+      sha(identity.head) &&
+      identity.head12 === identity.head.slice(0, 12) &&
+      positive(identity.runId) &&
+      positive(identity.attempt),
+    'Invalid requested identity.'
+  );
+  return identity;
+}
+
+/** Workflow commands use the same owners exercised by the inert controls. */
+export async function runPRRCCommand(command, env = process.env, api = createPRRCAPI()) {
+  if (command === 'report') {
+    const report = capturePRRCVerification({
+      root: env.SOURCE_ROOT,
+      directory: env.BUNDLE_DIRECTORY,
+      target: env.TARGET,
+      snapshot: env.SOURCE_SNAPSHOT,
+      runId: Number(env.GITHUB_RUN_ID),
+      attempt: Number(env.GITHUB_RUN_ATTEMPT),
+      toolingSha: env.GITHUB_SHA,
+    });
+    fs.writeFileSync(env.REPORT_FILE, `${JSON.stringify(report)}\n`);
+    return;
+  }
+  const identity = runtimeIdentity(env);
+  const observe = () => ({
+    pull: api.metadata(`pulls/${identity.pr}`),
+    timeline: api.metadata(`issues/${identity.pr}/timeline?per_page=100`),
+    run: api.metadata(`actions/runs/${identity.runId}/attempts/${identity.attempt}`),
+  });
+  const epoch = validatePRRCEligibility(observe(), identity, Date.now());
+  if (command === 'guard') {
+    fs.appendFileSync(env.GITHUB_OUTPUT, `head=${identity.head}\n`);
+    return;
+  }
+  const selected = (name, maximum) => {
+    const found = api.inventory(identity.runId).filter((artifact) => artifact.name === name);
+    assert.equal(found.length, 1, 'Missing or duplicate Actions artifact.');
+    assert.equal(found[0].workflow_run.id, identity.runId, 'Artifact belongs to another run.');
+    return { artifact: found[0], members: api.members(found[0], maximum) };
+  };
+  const reports = RC_TARGETS.map((target) => {
+    const received = selected(`native-pr-rc-verify-cli-${target}-main`, MiB);
+    assert.deepEqual(
+      received.members.map((member) => member.name),
+      ['report.json'],
+      'Unexpected verification report members.'
+    );
+    return JSON.parse(received.members[0].bytes.toString('utf8'));
+  });
+  const candidates = stagePRRCPayloads({
+    directory: env.BUNDLE_DIRECTORY,
+    reports,
+    output: path.join(env.RUNNER_TEMP, 'pr-rc-payloads'),
+    head: identity.head,
+    runId: identity.runId,
+    attempt: identity.attempt,
+    toolingSha: env.GITHUB_SHA,
+  });
+  const payload = (name) => {
+    const received = selected(name, 69 * MiB);
+    const members = received.members
+      .map((member) => descriptor(member.name, member.bytes))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      id: received.artifact.id,
+      name,
+      zip_sha256: received.artifact.digest.slice(7),
+      zip_bytes: received.artifact.size_in_bytes,
+      members,
+    };
+  };
+  if (command === 'stage') {
+    assert(RC_TARGETS.includes(env.TARGET), 'Unknown payload target.');
+    fs.appendFileSync(
+      env.GITHUB_OUTPUT,
+      `name=${prRCPayloadName(identity.pr, env.TARGET, identity.runId, identity.attempt)}\n`
+    );
+  } else if (command === 'payload') {
+    const received = payload(
+      prRCPayloadName(identity.pr, env.TARGET, identity.runId, identity.attempt)
+    );
+    assert.equal(
+      received.id,
+      Number(env.RETURNED_ARTIFACT_ID),
+      'Returned payload ID differs from authenticated readback.'
+    );
+    const candidate = candidates.find((item) => item.target === env.TARGET);
+    assert.deepEqual(
+      received.members,
+      [candidate.dist_manifest, candidate.archive],
+      'Returned payload bytes differ.'
+    );
+  } else if (command === 'catalog') {
+    const run = observe().run;
+    const bytes = await buildPRRCCatalog(
+      {
+        identity,
+        candidates,
+        publishedAtMs: Date.now(),
+        producer: {
+          workflow_id: run.workflow_id,
+          workflow_path: '.github/workflows/pr-rc.yml',
+          workflow_sha256: hash(readBoundedFile('.github/workflows/pr-rc.yml', MiB)),
+          tooling_sha: env.GITHUB_SHA,
+          run_id: identity.runId,
+          run_attempt: identity.attempt,
+        },
+      },
+      { observe, payload }
+    );
+    fs.writeFileSync(path.join(env.RUNNER_TEMP, 'catalog.json'), bytes);
+  } else if (command === 'finish') {
+    const received = selected(prRCCatalogName(identity.pr), 2 * MiB);
+    assert.equal(
+      received.artifact.id,
+      Number(env.RETURNED_ARTIFACT_ID),
+      'Returned catalog ID differs.'
+    );
+    assert.deepEqual(
+      received.members.map((member) => member.name),
+      ['catalog.json'],
+      'Unexpected catalog members.'
+    );
+    assert.deepEqual(
+      received.members[0].bytes,
+      readBoundedFile(path.join(env.RUNNER_TEMP, 'catalog.json'), MiB),
+      'Catalog readback bytes differ.'
+    );
+  } else throw new Error('Unknown PR RC command.');
+  assert.deepEqual(
+    validatePRRCEligibility(observe(), identity, Date.now()),
+    epoch,
+    'PR opt-in changed during publication.'
+  );
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  await runPRRCCommand(process.argv[2]);

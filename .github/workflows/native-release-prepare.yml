@@ -432,6 +432,25 @@ jobs:
           source-root: release-source
           phase: verify
 
+      - name: Capture the final CLI preparation report
+        if: inputs.product == 'cli'
+        env:
+          SOURCE_ROOT: ${{ github.workspace }}/release-source
+          BUNDLE_DIRECTORY: ${{ github.workspace }}/release-source/target/distrib
+          SOURCE_SNAPSHOT: ${{ runner.temp }}/release-version-state.json
+          TARGET: ${{ matrix.target }}
+          REPORT_FILE: ${{ runner.temp }}/report.json
+        working-directory: ${{ github.workspace }}
+        run: node typescript/scripts/pr-rc-coordinator.mjs report
+      - name: Retain the matching-host verification report
+        if: inputs.product == 'cli'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-pr-rc-verify-cli-${{ matrix.target }}-${{ inputs.tag || 'main' }}
+          path: ${{ runner.temp }}/report.json
+          if-no-files-found: error
+          retention-days: 3
+
   # The rehearsal's upgrade proof. Candidate files come from this run's verified bundle, never a
   # GitHub release, so this fetch is read-only and cannot see or touch draft state; the write-token
   # fetch of `native-release-upgrade.yml` is not called from here.
