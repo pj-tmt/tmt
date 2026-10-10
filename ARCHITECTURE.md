@@ -607,7 +607,7 @@ core discovery or storage access.
   name is publisher-asserted display metadata, never a creator binding or routing authority.
   The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
-  Proposal creation requires canonical caller and machine provenance through these same public observations; retained-ID placement recovery reuses authenticated proposal metadata. Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
+  [Colab proposal provenance](.agents/skills/tmt-colab/references/discussion.md) defines creation and retained-ID recovery.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration. The read-only Agents view
