@@ -916,10 +916,23 @@ determines ordering, revision selection, ownership or admission. The UI shows th
 latest revision's relative time beside the author and marks revised live comments
 as edited; device IDs remain available in a tooltip.
 
+A comment's optional `sequence` (#2442) is its Lamport position in the thread: a canonical
+decimal string from `1` to `9007199254740991` (2^53 - 1). A new comment takes one more than
+the highest sequence the writer has admitted in that thread, tombstones included (capped at the
+maximum), or `1` for a thread's opening comment; every revision of a comment, edits and its tombstone, carries the same
+value, and a chain whose sequence changes is dropped like a changed thread reference. New writes
+always carry it. A comment written before the field has none and reads as `0`. Comments are shown
+and exported in this one order, in live updates, after reload, in Chat, in `conversations.json` and
+`conversations.md`, and in the earlier conversation sent to an agent: ascending sequence, then
+writer ID, then message ID, all by byte order. It is display order only: a writer can claim any
+sequence, so it never grants authority, selects a revision or proves when something was said, and
+`at` never decides it. `vectors/discussion-v1.json` (`sequenceCases`) pins the grammar and the
+order for browser and native.
+
 | Root/key                                       | Additional fields                                                                                                                                                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
-| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                                                                                                                                                              |
+| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`, optional `sequence`                                                                                                                                         |
 | `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
 | `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
@@ -3467,7 +3480,7 @@ newline):
  membershipHead:{revision, statementHash},
  threads:[{writer, id, revision, anchor:null|{exact,prefix,suffix}, resolved, deleted,
            deviceName, at,
-           comments:[{writer, id, revision, deleted, body, deviceName, at}]}],
+           comments:[{writer, id, revision, sequence, deleted, body, deviceName, at}]}],
  asks:[{writer, operationId, deviceName, agentName, agent, machine, thread, messageIds,
         issuedAt, expiresAt, message, state, reason, requestId,
         reply:null|{requestId, agentId, body}}]}
@@ -3483,16 +3496,17 @@ operation-ID byte order. Failures with a missing/unauthorized action or an
 operation outside its frozen recipient list are inert. Normal delivery outcomes
 remain in the existing Ask ledger. The Markdown reading includes the status
 actor/time labels and these failure reasons from the same frozen view. Threads are ordered by
-`writer + ":" + id`, comments inside a thread likewise, asks by `writer + ":" +
+`writer + ":" + id`, comments inside a thread by the sequence order of the discussion records
+(ascending `sequence`, then writer, then ID; a comment without one is `"0"`), asks by `writer + ":" +
 operationId`, all by byte order (never a locale comparison). Bodies and messages are exact
 UTF-8, including controls. Order never depends on `at`.
 
 **`conversations.md`** is a plain reading of the same data and is deterministic: a
 `# Conversations` heading, a header list (page title, page ID, space, epoch, head), one
 line stating that names and times are writer-asserted labels, then `## Threads (n)` and
-`## Asks (n)`. For reading, threads are ordered by their `at` and comments by theirs, asks
-by `issuedAt`, each with ties broken by the `writer:id` key; the number of the thread,
-comment or ask follows that order. A time renders as `YYYY-MM-DD HH:MM:SS UTC` before
+`## Asks (n)`. For reading, threads are ordered by their `at`, comments by the sequence order
+above, asks by `issuedAt`, each `at` or `issuedAt` order with ties broken by the `writer:id`
+key; the number of the thread, comment or ask follows that order. A time renders as `YYYY-MM-DD HH:MM:SS UTC` before
 year 10000 and as `unix ms N` after. Display text is untrusted, so: a label (page title,
 device or agent name) renders as an inline code span whose delimiter is longer than any
 backtick run inside it (padded with one space when it starts or ends with a backtick or

@@ -103,6 +103,8 @@ pub const PUBLISHER_AGENT_BYTES: usize = 128;
 pub const COMMENT_BODY_BYTES: usize = 16 * 1024;
 pub const COMMENT_CONTEXT_BYTES: usize = 128;
 pub const COMMENT_CONTEXT_POINTS: usize = 32;
+/// The largest comment sequence: 2^53 - 1, the largest integer a browser number holds exactly.
+pub const MAX_SEQUENCE: u64 = 9_007_199_254_740_991;
 /// One generic immutable own-record preparation batch.
 pub const OWN_RECORDS: usize = 32;
 /// Frozen status recipients, bounded independently from comment text.

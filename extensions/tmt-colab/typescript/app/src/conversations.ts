@@ -1,7 +1,7 @@
 import { requireValue } from '@tmt/colab-client';
 import { readAskRecords } from './ask-records.js';
 import type { OwnState } from './fold-protocol.js';
-import { readThreads, type Proposal } from './thread-records.js';
+import { compareCommentOrder, readThreads, type Proposal } from './thread-records.js';
 import type {
   ThreadNotificationRecord,
   ThreadStatusView,
@@ -17,6 +17,8 @@ export interface ConversationComment {
   writer: string;
   id: string;
   revision: string;
+  /** Lamport position in the thread, decimal text; "0" for a comment without one. */
+  sequence: string;
   deleted: boolean;
   body: string;
   deviceName: string;
@@ -81,6 +83,11 @@ export interface ConversationsInput {
 // Identifiers are ASCII, so UTF-16 order is byte order; never a locale comparison.
 const byOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const ref = (writer: string, id: string) => `${writer}:${id}`;
+const byCommentOrder = (a: ConversationComment, b: ConversationComment) =>
+  compareCommentOrder(
+    { ...a, sequence: Number(a.sequence) },
+    { ...b, sequence: Number(b.sequence) },
+  );
 
 function captureNotification(value: ThreadNotificationRecord): ThreadNotificationRecord {
   return {
@@ -153,12 +160,13 @@ export async function projectConversations(input: ConversationsInput): Promise<C
           writer: comment.ref.writer,
           id: comment.ref.id,
           revision: comment.revision,
+          sequence: comment.sequence ?? '0',
           deleted: comment.deleted,
           body: comment.body,
           deviceName: comment.deviceName,
           at: comment.at,
         }))
-        .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id))),
+        .sort(byCommentOrder),
       ...(thread.proposal
         ? {
             proposal: {
@@ -372,12 +380,7 @@ export function renderConversationsMarkdown(conversations: Conversations): strin
       );
     if (thread.anchor) lines.push('Quoted text:', '', fence(thread.anchor.exact), '');
     else lines.push('Quoted text: none', '');
-    const comments = [...thread.comments].sort(
-      chronological(
-        (comment) => Number(comment.at),
-        (comment) => ref(comment.writer, comment.id),
-      ),
-    );
+    const comments = [...thread.comments].sort(byCommentOrder);
     comments.forEach((comment, position) => {
       lines.push(
         `#### Comment ${position + 1}`,

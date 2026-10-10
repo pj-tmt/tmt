@@ -30,10 +30,19 @@ pub struct Comment {
     pub writer: String,
     pub id: String,
     pub revision: String,
+    /// Lamport position in the thread, decimal text; "0" for a comment without one.
+    pub sequence: String,
     pub deleted: bool,
     pub body: String,
     pub device_name: String,
     pub at: String,
+}
+impl Comment {
+    /// The one comment order shared with the browser: Lamport sequence, then writer and ID
+    /// bytes. Timestamps never decide.
+    fn order(&self) -> (u64, &str, &str) {
+        (self.sequence.parse().unwrap_or(0), &self.writer, &self.id)
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +124,12 @@ fn owned(value: &Value, key: &str) -> Option<String> {
 fn revision(value: &Value) -> Option<u128> {
     text(value, "revision")?.parse().ok()
 }
+/// A comment's sequence; a record from before the field reads as 0.
+fn sequence(value: &Value) -> u64 {
+    text(value, "sequence")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
 fn pair(value: &Value) -> Option<(&str, &str)> {
     Some((text(value, "writer")?, text(value, "id")?))
 }
@@ -138,7 +153,8 @@ fn latest(mut records: Vec<&Value>) -> Option<&Value> {
         }
         if text(record, "kind") == Some("comment")
             && text(previous, "kind") == Some("comment")
-            && pair(&record["thread"]) != pair(&previous["thread"])
+            && (pair(&record["thread"]) != pair(&previous["thread"])
+                || sequence(record) != sequence(previous))
         {
             return None;
         }
@@ -290,6 +306,7 @@ pub(crate) fn threads(
                         writer: writer.clone(),
                         id,
                         revision: rev,
+                        sequence: sequence(record).to_string(),
                         deleted: record["deleted"] == true,
                         body: owned(record, "body").unwrap_or_default(),
                         device_name,
@@ -342,9 +359,7 @@ pub(crate) fn threads(
                 .notifications
                 .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
         }
-        thread
-            .comments
-            .sort_by(|a, b| (&a.writer, &a.id).cmp(&(&b.writer, &b.id)));
+        thread.comments.sort_by(|a, b| a.order().cmp(&b.order()));
     }
     out
 }
@@ -603,7 +618,7 @@ impl Conversations {
                 None => lines.extend(["Quoted text: none".into(), String::new()]),
             }
             let mut comments: Vec<&Comment> = thread.comments.iter().collect();
-            comments.sort_by_key(|c| (millis(&c.at), format!("{}:{}", c.writer, c.id)));
+            comments.sort_by(|a, b| a.order().cmp(&b.order()));
             for (position, comment) in comments.iter().enumerate() {
                 lines.extend([
                     format!("#### Comment {}", position + 1),

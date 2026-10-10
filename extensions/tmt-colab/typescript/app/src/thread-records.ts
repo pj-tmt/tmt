@@ -91,6 +91,8 @@ export interface CommentRecord extends DiscussionRecordScope {
   messageId: string;
   thread: DiscussionRef;
   body: string;
+  /** Lamport position in the thread (#2442). Absent on a comment from before the field. */
+  sequence?: string;
   attachments?: attachment.AttachmentDescriptor[];
 }
 export type DiscussionRecord =
@@ -184,11 +186,13 @@ export function validateDiscussionRecord(
       'messageId',
       'thread',
       'body',
+      ...(Object.hasOwn(r, 'sequence') ? ['sequence'] : []),
       ...(Object.hasOwn(r, 'attachments') ? ['attachments'] : []),
     ]);
     requireValue(root === 'messages' && r.kind === 'comment');
     generatedId(r.messageId as string);
     validateRef(r.thread);
+    if (Object.hasOwn(r, 'sequence')) validateSequence(r.sequence);
     requireValue(typeof r.body === 'string' && text(r.body).length <= COMMENT_BYTES);
     const attachments = Object.hasOwn(r, 'attachments')
       ? attachment.attachmentList(
@@ -214,6 +218,40 @@ export function validateDiscussionRecord(
   requireValue(decimal(r.at as string, true) <= 8_640_000_000_000_000n);
   requireValue(key === discussionKey(r as unknown as DiscussionRecord));
 }
+export const MAX_SEQUENCE = Number.MAX_SAFE_INTEGER;
+/** A canonical decimal in 1..2^53-1: display order only, never authority. */
+function validateSequence(value: unknown): asserts value is string {
+  requireValue(typeof value === 'string' && /^[1-9][0-9]*$/.test(value));
+  requireValue(BigInt(value) <= BigInt(MAX_SEQUENCE));
+}
+const sequenceOf = (comment: Pick<CommentRecord, 'sequence'>) => Number(comment.sequence ?? 0);
+export interface CommentOrderKey {
+  sequence: number;
+  writer: string;
+  id: string;
+}
+/** The one comment order for live, reload, Chat, export and the Ask context: Lamport
+ * sequence, then writer and ID bytes (identifiers are ASCII, so UTF-16 order is byte
+ * order). A comment without a sequence reads as 0. Timestamps never decide. */
+export function compareCommentOrder(a: CommentOrderKey, b: CommentOrderKey) {
+  return (
+    a.sequence - b.sequence ||
+    (a.writer < b.writer ? -1 : a.writer > b.writer ? 1 : 0) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+}
+const orderKey = (comment: CommentView): CommentOrderKey => ({
+  sequence: sequenceOf(comment),
+  writer: comment.ref.writer,
+  id: comment.ref.id,
+});
+const compareComments = (a: CommentView, b: CommentView) =>
+  compareCommentOrder(orderKey(a), orderKey(b));
+/** The sequence a new comment takes: one past the highest in the thread, tombstones included.
+ * A writer who claimed the maximum cannot block replies; they tie at it and fall to ID order. */
+export function nextSequence(comments: readonly Pick<CommentRecord, 'sequence'>[]) {
+  return String(Math.min(Math.max(0, ...comments.map(sequenceOf)) + 1, MAX_SEQUENCE));
+}
 function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undefined {
   records.sort((a, b) => (BigInt(a.revision) < BigInt(b.revision) ? -1 : 1));
   const first = records[0];
@@ -230,7 +268,9 @@ function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undef
     if (
       record.kind === 'comment' &&
       previous.kind === 'comment' &&
-      (record.thread.writer !== previous.thread.writer || record.thread.id !== previous.thread.id)
+      (record.thread.writer !== previous.thread.writer ||
+        record.thread.id !== previous.thread.id ||
+        sequenceOf(record) !== sequenceOf(previous))
     )
       return;
     previous = record;
@@ -313,6 +353,7 @@ export function readThreads(
     }
   }
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);
+  for (const thread of threads.values()) thread.comments.sort(compareComments);
   for (const thread of threads.values()) {
     if (thread.proposal && !thread.deleted)
       thread.decision = foldProposalDecision(thread.ref, decisions);
