@@ -177,3 +177,181 @@ fn record_squad_tab_boundaries_snapshots() {
     )
     .unwrap();
 }
+
+/// Task-owned evidence only; frozen fixtures are never written by this capture.
+#[test]
+#[ignore = "explicit squad-heading cell/style/hit evidence capture"]
+fn capture_squad_heading_packet() {
+    let output = std::env::var("TMT_SQUAD_HEADING_OUTPUT").expect("task-owned output path");
+    let path = std::env::temp_dir().join(format!("squad-heading-{}.toml", std::process::id()));
+    let mut frames = Vec::new();
+    crate::status::with_now_ms(TEST_NOW as u64, || {
+        for name in [crate::view::ViewName::Team, crate::view::ViewName::Members] {
+            std::fs::write(
+                &path,
+                format!(
+                    "[squad.product]\nlayout = 'team'\n[squad.product.board]\nview = '{}'\n",
+                    name.name()
+                ),
+            )
+            .unwrap();
+            let board = crate::config::Config::read(path.clone())
+                .unwrap()
+                .board("product")
+                .unwrap();
+            for (notes, present) in [
+                (Notes::Text("a note".into()), true),
+                (Notes::Missing, false),
+            ] {
+                for cron in [false, true] {
+                    for width in WIDTHS {
+                        for (base, depth) in [
+                            ("tmt", tmt_cli_style::Depth::TrueColor),
+                            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                            ("NO_COLOR", tmt_cli_style::Depth::None),
+                        ] {
+                            for focus in [0, 1] {
+                                for long_lead in [false, true] {
+                                    let mut app = squad_app(board.clone(), notes.clone(), cron);
+                                    app.focus = focus;
+                                    let view = app.view.as_mut().unwrap();
+                                    view.look = crate::look::Look {
+                                        theme: tmt_cli_style::Theme::new(
+                                            tmt_cli_style::Base::parse(if base == "NO_COLOR" {
+                                                "tmt"
+                                            } else {
+                                                base
+                                            })
+                                            .unwrap(),
+                                        ),
+                                        depth,
+                                    };
+                                    if long_lead {
+                                        view.document["squad"]["lead"]["name"] = json!(
+                                            "a-very-long-lead-name-that-exercises-heading-clipping"
+                                        );
+                                        view.document["squad"]["notesStaleness"] =
+                                            json!({"state":"stale", "ageMs":7_200_000});
+                                    }
+                                    let frame = super::parity::capture(&mut app, width);
+                                    frames.push(json!({"view":name.name(), "notes":present, "cron":cron,
+                                        "width":width, "base":base, "focus":focus, "long_lead":long_lead,
+                                        "frame":frame, "titles":format!("{:?}",app.title_hits.borrow())}));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    std::fs::remove_file(path).unwrap();
+    std::fs::write(output, serde_json::to_vec(&frames).unwrap()).unwrap();
+}
+
+#[test]
+fn squad_headings_keep_the_body_edge_and_whole_row_title_hits() {
+    crate::status::with_now_ms(TEST_NOW as u64, || {
+        for width in WIDTHS {
+            for notes in notebooks() {
+                for members in [false, true] {
+                    for cron in [false, true] {
+                        for (base, depth) in [
+                            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                            (
+                                tmt_cli_style::Base::TmtLight,
+                                tmt_cli_style::Depth::TrueColor,
+                            ),
+                            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+                        ] {
+                            let mut board = split(
+                                Direction::TopBottom,
+                                vec![Pane::Rows, Pane::Notes],
+                                vec![60, 40],
+                            );
+                            board.members = members;
+                            let mut app = squad_app(board, notes.clone(), cron);
+                            app.set_body_width(width);
+                            let view = app.view.as_mut().unwrap();
+                            view.look = crate::look::Look {
+                                theme: tmt_cli_style::Theme::new(base),
+                                depth,
+                            };
+                            view.document["squad"]["lead"]["name"] =
+                                json!("a-very-long-lead-name-that-exercises-heading-clipping");
+                            view.document["squad"]["notesStaleness"] =
+                                json!({"state":"stale", "ageMs":7_200_000});
+                            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+                            terminal.draw(|frame| render(frame, &app)).unwrap();
+                            let buffer = terminal.backend().buffer();
+                            let composition = app.view.as_ref().unwrap().composition.borrow();
+                            let chrome = &composition.as_ref().unwrap().chrome;
+                            for hit in app.title_hits.borrow().iter() {
+                                let geometry = chrome
+                                    .iter()
+                                    .find(|geometry| geometry.pane == hit.pane)
+                                    .unwrap();
+                                assert_eq!(
+                                    hit.area,
+                                    Rect {
+                                        height: 1,
+                                        ..geometry.area
+                                    }
+                                );
+                                if app.collapsed_panes().contains(&hit.pane)
+                                    || geometry.painted.is_none()
+                                {
+                                    continue;
+                                }
+                                let prefix = (hit.area.x..hit.area.x + 3)
+                                    .map(|x| buffer[(x, hit.area.y)].symbol())
+                                    .collect::<String>();
+                                assert_eq!(prefix, "── ", "{members}/{cron}/{width}/{hit:?}");
+                                let dash = &buffer[(hit.area.x + 1, hit.area.y)];
+                                let mut expected = ratatui::buffer::Cell::default();
+                                expected
+                                    .set_style(Style::reset().patch(app.look().role(Role::Dim)));
+                                assert_eq!(
+                                    (dash.fg, dash.bg, dash.modifier),
+                                    (expected.fg, expected.bg, expected.modifier)
+                                );
+                                assert_eq!(
+                                    buffer[(hit.area.right() - 1, hit.area.y)].symbol(),
+                                    "─"
+                                );
+                            }
+                            {
+                                let rows = chrome
+                                    .iter()
+                                    .find(|geometry| geometry.pane == Pane::Rows)
+                                    .unwrap();
+                                let inner = rows.area;
+                                let heading = (0..30).find(|&y| {
+                                    (inner.x..inner.x + 10)
+                                        .map(|x| buffer[(x, y)].symbol())
+                                        .collect::<String>()
+                                        .starts_with("── members")
+                                });
+                                assert!(
+                                    heading.is_some(),
+                                    "members heading is not aligned with its pane body edge at {width}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+#[ignore = "read-only squad-rule snapshot inspection before fixture approval"]
+fn dump_squad_rule_snapshots() {
+    let path = std::env::var("SQUAD_RULES_SNAPSHOTS_OUT").expect("task-owned output path");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}

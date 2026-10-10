@@ -436,7 +436,7 @@ fn measure(scene: &'static str, app: App) -> Report {
             terminal
                 .draw(|frame| {
                     let start = Instant::now();
-                    rows::render_rows(frame, &app, area, Default::default());
+                    rows::render_rows(frame, &app, area, Default::default(), area);
                     if index >= WARMUP {
                         painter.push(start.elapsed());
                     }
@@ -447,7 +447,7 @@ fn measure(scene: &'static str, app: App) -> Report {
         let derived = app.view.as_ref().unwrap().derived.borrow();
         let scene = &derived.grid.as_ref().expect("a prepared grid").scene;
         let paint = time(|| {
-            scene.paint(&mut buffer, area, 0, app.selected, look);
+            scene.paint(&mut buffer, area, area, 0, app.selected, look);
         });
         (painter, paint)
     });

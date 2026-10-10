@@ -20,6 +20,7 @@ Use the resolved terminal theme and its neutral text, dim, muted and selection
 roles. Group member rows, HOME leads and body panes with horizontal rules and
 blank side margins, one rule per boundary: a heading's rule replaces the box top
 under it, and a pane above another pane's heading or the cron heading ends on that rule.
+Every HOME and squad-view rule heading starts with `── ` at its section's left edge.
 No two rules are ever adjacent, whatever the layout, width or notes. Keep the existing measured title, fold controls, inner area
 and hit regions when a side wall is visually absent. Do not add decorative boxes
 around each field, shadows, gradients or a colored background for each state.
@@ -167,8 +168,7 @@ background for the track. NO_COLOR reverses fill and underlines track. Forecast
 only from a positive measured rate: before-reset depletion is `! empties
 ~duration`, at or within 12h is `✗ empties ~duration`. Stale readings show words.
 
-One blank line precedes Leads and Squads. Every HOME rule heading uses `── `;
-one rule separates each boundary. Leads label their age `last exchange` and
+One blank line precedes Leads and Squads; one rule separates each boundary. Leads label their age `last exchange` and
 show squad from 80 cells. Squads has aligned squad/lead/members/token/`lead %`
 headers (`lead %` is the lead's fraction of the squad window), retains the longest observed window/lead percentage at narrow widths and puts
 short windows, model and hidden counts in detail. Sampling-off hides token
