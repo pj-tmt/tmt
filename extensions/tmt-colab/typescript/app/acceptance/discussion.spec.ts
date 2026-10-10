@@ -783,7 +783,8 @@ test('proposal decisions notify the exact proposer once and survive resolution a
     await until(() => agent.received().length === 1, 'proposal decision notification');
     await expect(card.locator('.proposal-state')).toHaveText('Approved');
     const received = agent.received()[0];
-    const delivered = received.body as string;
+    expect(received.identityId).toBe(agent.id);
+    const delivered = received.message as string;
     expect(delivered).toContain('[remote: proposal-author]\nPage: Proposal review\nLink: ');
     expect(delivered).toContain(
       '\n\nQuote:\n\n\nComment:\nApproved: Use a clearer project heading',
@@ -824,6 +825,8 @@ test('proposal decisions notify the exact proposer once and survive resolution a
     expect(conversation.asks).toHaveLength(1);
     const ask = conversation.asks[0];
     expect(ask.thread).toBe(added.proposalId);
+    expect(ask.machine).toBe(rows[0].proposal.proposer.machineId);
+    expect(ask.agent).toBe(rows[0].proposal.proposer.agentId);
     expect(ask.messageIds).toEqual([rows[0].comments[0].id]);
     expect(ask.requestId).toBe(received.requestId);
     expect(delivered).toBe(`[remote: proposal-author]\n${ask.message}`);
