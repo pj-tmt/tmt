@@ -411,8 +411,8 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows counts, needs-you members and a blocked subgroup,
-then grouped leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
+The built-in `all` board shows counts and blocked members, then grouped leads, cron
+and squads. The counts row, the tab marks and the ◆ marks on leads and squads say who waits on you. Squads occupy one full-width column at every width, with one compact table row
 per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
 order (◆ ✗ ◐ ● ◌) and a member count. Each mark has a trailing space. Members
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
@@ -440,10 +440,10 @@ and share when observed. Observed lead models remain visible with sampling off; 
 observation, the model cell is omitted. Home and crew use the same short family names, such as `opus`,
 `sonnet` and `sol`; unfamiliar names truncate to the available column width.
 The squads heading names shared windows once. Mixed `tok` settings label each
-tile's actual windows. Attention rows show only member, squad and available relative
-age; blocked ages say `observed` to identify the task/state observation. Questions
-appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
-blocked disappears. Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
+tile's actual windows. Blocked rows show only member, squad and available relative
+age; ages say `observed` to identify the task/state observation. Questions
+appear in the inline composer after `a`. An empty
+blocked section disappears. Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
 
 Leads show the latest exchange with you in one full-width group between horizontal
 rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
@@ -465,7 +465,7 @@ its operation ID and saved intent for inspection, with no automatic resend.
 
 One cursor spans attention rows, leads, their footer, cron and squads. Arrows or j/k move it; Tab
 keeps its board-wide pane-focus behavior and does not jump between home sections. Home opens on its first row from the top:
-the first needs-you row, else the first blocked row, else the first lead, else the first squad. Switching back to home from
+the first blocked row, else the first lead, else the first squad. Switching back to home from
 another tab returns to the row you left. Squad tabs keep their own start on the lead. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;

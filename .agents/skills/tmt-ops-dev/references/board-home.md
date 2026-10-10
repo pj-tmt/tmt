@@ -10,8 +10,8 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 
 - `board::home::Home` is board-only (`View.home`); acquisition reuses `tab_view` and
   the user-section pipeline. It observes each squad's task/state age under the
-  existing staleness lock/policy before/after its roster read; request age comes
-  from inbox timestamps, while pending alone provides none. Public aggregate
+  existing staleness lock/policy before/after its roster read; the blocked section's
+  age is that observation alone. Public aggregate
   documents and `ls --tab all` retain their separate projection.
 - HOME bypasses ordinary pane composition. The neutral `view::scene` admits literal templates,
   binds display-ready data, computes TUI geometry and lifts a scratch buffer into
@@ -46,12 +46,13 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   regions together. Tiles expose no member names, task/PR fields or question text;
   composing uses the acquired target and ordinary send revalidation.
   `App::shown_changed` places it when HOME comes on screen: `home_left` (the target
-  `go` saved on leaving) if that row still exists, else `place_home_start` (needs-you,
-  blocked, leads, squads; never the cron line). A start on a lead also sets
+  `go` saved on leaving) if that row still exists, else `place_home_start` (blocked,
+  leads, squads; never the cron line). A start on a lead also sets
   `home_start`, so the first deferred lead read, which reorders the leads, places the
   cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
 - `home::leads` projects deferred lead headings into the shared `view::member_list`
-  `Outline` box. Leads and attention members start collapsed. `board::row_detail`
+  `Outline` box; a section whose `head` carries its own rule (HOME's `leads`) draws no
+  box top, so each boundary has one rule. Leads and blocked members start collapsed. `board::row_detail`
   owns their explicit in-place detail and reply blocks; section builders reserve
   those lines and include their presentation data in cache keys. Every block line
   maps to its parent cursor target, while selection styles only the heading.
