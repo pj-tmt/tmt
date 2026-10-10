@@ -1,12 +1,10 @@
-/**
- * A paired owner's open page ends with these refusals when the page epoch advances or an
- * authority recheck drops its sync socket (#2557). None says the device lost access: reopening the
- * page binds the new epoch, and a revoked device is refused by that fresh open, which is terminal.
- */
-const READMITTABLE = ['STALE_EPOCH', 'DENIED', 'EXPIRED'] as const;
+import { classify } from './connection-state.js';
 
-export const readmittable = (error: Error): boolean =>
-  (READMITTABLE as readonly string[]).includes(error.message);
+/**
+ * A paired owner's open page ends with a `reopen` refusal when the page epoch advances or an
+ * authority recheck drops its sync socket (#2557); `connection-state.ts` owns which codes those are.
+ */
+export const readmittable = (error: Error): boolean => classify(error).recovery === 'reopen';
 
 /** At most `limit` automatic reopens inside `windowMs`; a page that keeps failing then stops. */
 export class ReadmitBudget {
@@ -27,10 +25,9 @@ export class ReadmitBudget {
 export const READMIT_DELAYS_MS: readonly number[] = [0, 1000, 3000, 8000, 15_000];
 
 /** A failed reopen worth another attempt: a readmittable refusal or a cause nobody classified. */
-export function retryableReopen(error: Error, causes: Readonly<Record<string, string>>): boolean {
-  if (readmittable(error)) return true;
-  const cause = causes[error.message];
-  return cause === undefined || cause === 'generic';
+export function retryableReopen(error: Error): boolean {
+  const { recovery, cause } = classify(error);
+  return recovery === 'reopen' || cause === 'generic';
 }
 
 export type Reopened<T> = { readonly value: T } | { readonly error: Error };

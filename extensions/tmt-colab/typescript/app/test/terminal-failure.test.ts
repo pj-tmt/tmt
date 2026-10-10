@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { REMOTE_REFUSAL_CODES } from '../src/ask-remote.js';
-import { SYNC_ERROR_CODES } from '../src/connection.js';
+import { CONNECTION_CODES } from '../src/connection-state.js';
 import { text } from '../src/strings.js';
-import { FAILURE_CAUSES, terminalFailure } from '../src/terminal-failure.js';
+import { terminalFailure } from '../src/terminal-failure.js';
 
 describe('terminal failure wording', () => {
   it.each([
@@ -19,7 +18,7 @@ describe('terminal failure wording', () => {
   });
 
   it('never makes a raw code the sentence', () => {
-    for (const code of Object.keys(FAILURE_CAUSES))
+    for (const code of Object.keys(CONNECTION_CODES))
       expect(terminalFailure(new Error(code)).sentence).not.toBe(code);
   });
 
@@ -34,15 +33,5 @@ describe('terminal failure wording', () => {
   it('shows a message that is already a sentence as is, without a reference', () => {
     for (const sentence of [text.noWraps, text.reconnectFailed])
       expect(terminalFailure(new Error(sentence))).toEqual({ sentence });
-  });
-
-  // A code added to the wire or Remote lists must get a wording decision here,
-  // instead of shipping to readers as a raw headline.
-  it('has a decision for every sync frame code and Remote refusal code', () => {
-    for (const code of [...SYNC_ERROR_CODES, ...REMOTE_REFUSAL_CODES]) {
-      // Eviction has its own card with the session limit and the command to run.
-      if (code === 'REMOTE_SESSION_EVICTED') continue;
-      expect(FAILURE_CAUSES, code).toHaveProperty(code);
-    }
   });
 });

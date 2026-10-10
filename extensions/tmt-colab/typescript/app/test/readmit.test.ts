@@ -6,7 +6,6 @@ import {
   reopenWithBackoff,
   retryableReopen,
 } from '../src/readmit.js';
-import { FAILURE_CAUSES } from '../src/terminal-failure.js';
 
 it.each(['STALE_EPOCH', 'DENIED', 'EXPIRED'])('%s on an open page is re-admittable', (code) => {
   expect(readmittable(new Error(code))).toBe(true);
@@ -27,7 +26,7 @@ it('allows three reopens per minute, then stops until the window passes', () => 
   expect(budget.take(60_001)).toBe(true);
 });
 
-const retryable = (error: Error) => retryableReopen(error, FAILURE_CAUSES);
+const retryable = (error: Error) => retryableReopen(error);
 
 it('retries a lagging epoch with growing pauses until the reopen succeeds', async () => {
   const waits: number[] = [];

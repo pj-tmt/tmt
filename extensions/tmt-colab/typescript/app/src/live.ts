@@ -13,6 +13,7 @@ import type { Bootstrap, PageInfo } from './bootstrap.js';
 import type { Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
+import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
@@ -376,7 +377,7 @@ export class Live implements PageBinding {
     // against the old session before deciding whether to reopen or show eviction.
     const remote = open.remote;
     if (
-      error.message === 'Sync disconnected' &&
+      error.message === SYNC_DISCONNECTED &&
       remote &&
       typeof remote.listAgents === 'function' &&
       !(open.pending && open.replaceSession)
@@ -408,8 +409,8 @@ export class Live implements PageBinding {
   #recoverFailure(error: Error) {
     const open = this.#opening;
     if (!open || !this.#owns(open)) return;
-    const sessionEnded =
-      error instanceof SessionEndedError || error.message === 'Remote session ended';
+    const { recovery } = classify(error);
+    const sessionEnded = recovery === 'session';
     if (
       error instanceof SessionEvictedError ||
       (sessionEnded && (!this.sessionOwner || (open.pending && open.replaceSession))) ||
@@ -418,13 +419,7 @@ export class Live implements PageBinding {
       this.#block(error);
       return;
     }
-    if (
-      this.#attempts++ < 3 &&
-      (sessionEnded ||
-        ['Sync disconnected', 'RESYNC_REQUIRED', 'Fresh membership catchup required'].includes(
-          error.message,
-        ))
-    ) {
+    if (this.#attempts++ < 3 && (sessionEnded || recovery === 'resync')) {
       // Retire this attempt before close callbacks or late readiness can run.
       this.#opening = null;
       this.#observation?.abort();
@@ -446,7 +441,7 @@ export class Live implements PageBinding {
     // Connection's single socket.onerror/onclose handler owns this opaque
     // message; keep its normalization here while the sync socket owner evolves.
     if (
-      error.message === 'Sync disconnected' ||
+      error.message === SYNC_DISCONNECTED ||
       (error instanceof SessionEndedError &&
         this.#recovering &&
         this.#opening?.pending &&
@@ -592,7 +587,7 @@ export class Live implements PageBinding {
       return Promise.resolve(false);
     // Keep this binding's projection, composers and write fence until a fresh
     // same-device Session and Connection have admitted the replacement view.
-    if (!this.#error) this.#block(new RecoveryRequiredError(new Error('Sync disconnected')));
+    if (!this.#error) this.#block(new RecoveryRequiredError(new Error(SYNC_DISCONNECTED)));
     const stopped = this.#error;
     this.#recovering = Promise.resolve()
       .then(async () => {

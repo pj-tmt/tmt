@@ -45,7 +45,7 @@ import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import { ConnectionOwner, reconnectAttempt } from './connection-owner.js';
 import { PageReopener, readmittable, ReadmitBudget, retryableReopen } from './readmit.js';
-import { FAILURE_CAUSES, terminalFailure } from './terminal-failure.js';
+import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
@@ -734,7 +734,7 @@ function Page() {
         // exhausted budget, shows the card.
         if (readmittable(error) && !reopener.current.busy && readmit.current.take(Date.now())) {
           reopener.current.start((signal) => transport.page(loaded.id, signal), {
-            retryable: (failure) => retryableReopen(failure, FAILURE_CAUSES),
+            retryable: (failure) => retryableReopen(failure),
             done: (result) => {
               if ('value' in result) {
                 snapshot.binding?.close();

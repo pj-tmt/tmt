@@ -1,0 +1,76 @@
+import { SessionEndedError } from './ask-remote.js';
+
+/** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
+export type FailureCause = 'access' | 'gone' | 'session' | 'large' | 'generic';
+
+/**
+ * What the page does about a failure before it gives up:
+ * - `resync`: the tunnel dropped or the fold needs catchup; reconnect on the same session.
+ * - `session`: the Remote session ended; open a replacement.
+ * - `reopen`: the epoch advanced under a paired owner; bind the new epoch (#2557).
+ * - `none`: nothing recovers it.
+ */
+export type Recovery = 'resync' | 'session' | 'reopen' | 'none';
+
+export interface Classification {
+  readonly recovery: Recovery;
+  /** The sentence the card shows if recovery is exhausted or `none`. */
+  readonly cause: FailureCause;
+}
+
+/** The opaque message Connection gives a socket error or close. */
+export const SYNC_DISCONNECTED = 'Sync disconnected';
+
+const end = (cause: FailureCause): Classification => ({ recovery: 'none', cause });
+const generic = end('generic');
+const recover = (recovery: Recovery, cause: FailureCause = 'generic'): Classification => ({
+  recovery,
+  cause,
+});
+
+/**
+ * Every raw token the live path can fail with, decided once. A token absent here is unknown:
+ * it is not recovered, gets the generic sentence and stays visible as the reference.
+ */
+export const CONNECTION_CODES: Readonly<Record<string, Classification>> = {
+  [SYNC_DISCONNECTED]: recover('resync'),
+  RESYNC_REQUIRED: recover('resync'),
+  'Fresh membership catchup required': recover('resync'),
+  'Remote session ended': recover('session'),
+  // None says the device lost access: reopening binds the new epoch, and a revoked
+  // device is refused by that fresh open, which is terminal.
+  STALE_EPOCH: recover('reopen', 'access'),
+  DENIED: recover('reopen', 'access'),
+  EXPIRED: recover('reopen', 'access'),
+  'Access ended': end('access'),
+  REMOTE_SCOPE_DENIED: end('access'),
+  REMOTE_CLOSED: end('access'),
+  REMOTE_DEVICE_REVOKED: end('access'),
+  REMOTE_DEVICE_NOT_FOUND: end('access'),
+  'Page unavailable': end('gone'),
+  REMOTE_SESSION_ENDED: end('session'),
+  REMOTE_SEQUENCE_UNAVAILABLE: end('session'),
+  CAPACITY: end('large'),
+  'Sync message capacity': end('large'),
+  REMOTE_INPUT_TOO_LARGE: end('large'),
+  // Internal refusals that reach the card only when nothing recovered them.
+  INVALID: generic,
+  GAP: generic,
+  CONFLICT: generic,
+  REMOTE_INPUT_INVALID: generic,
+  REMOTE_RATE_LIMITED: generic,
+  REMOTE_REPLAY: generic,
+  REMOTE_INTENT_CONFLICT: generic,
+  REMOTE_STATE_UNAVAILABLE: generic,
+  REMOTE_CORE_UNAVAILABLE: generic,
+};
+
+/** The single decision for a live-path failure; callers never read raw messages. */
+export function classify(error: Error): Classification {
+  const known = Object.hasOwn(CONNECTION_CODES, error.message)
+    ? CONNECTION_CODES[error.message]!
+    : generic;
+  // A typed session end replaces the session whatever its code; an eviction is not in
+  // the table, so it stays unrecovered and the page shows its own session-limit card.
+  return error instanceof SessionEndedError ? { ...known, recovery: 'session' } : known;
+}
