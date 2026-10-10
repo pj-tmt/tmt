@@ -41,7 +41,7 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | Public Home, retained handbook sources and translations                              |
+| `site/`                   | Public Home, handbook sources and translations                                       |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
@@ -50,10 +50,8 @@ ignored local outputs are outside the tracked-file map. The
 tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-Shared visual tokens live in UX-owned `design/tokens/tokens.json`. Vite and Rust CLI theme tests consume them; `design/browser-ui` projects browser roles, fonts, header metrics and command styles into checked CSS, also imported by Office references/guidance.
-Colab app/reader use the leaf's React/static exports; Colab guidance and Remote pages embed its checked CSS plus product-owned host metrics and viewport styles at compile time, without a generator in Cargo or serving.
-Docker stages preserve those inputs and CI retains native checks.
-The private design-tokens component attributes token changes to Colab and Remote through `releaseConsumers`.
+`tmt-ux-lead` owns shared visual tokens and the private browser leaf.
+[Browser component contracts](design/gui-components.md) point to the leaf's generation and consumer boundaries.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.

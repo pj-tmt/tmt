@@ -24,7 +24,7 @@ and [Remote served pages](../extensions/tmt-remote/rust/tmt-remote/src/pages.rs)
 embed the same checked static asset without requiring a React runtime.
 
 Colab's product-owned choice/action menus, previews and dialogs also use flat
-surfaces and thin shared edges, without hard shadows, following #2406. See its
+surfaces and thin shared edges, without hard shadows. See its
 [action-menu styles](../extensions/tmt-colab/typescript/app/src/components/action-menu.css)
 and [listbox styles](../extensions/tmt-colab/typescript/app/src/components/listbox.css).
 Their placement and product actions remain Colab-owned; flat styling does not
@@ -38,6 +38,18 @@ for Header, Notice, Field, Action, IconAction, Toggle and the other exported
 components, including their inputs and accessibility. Product integration tests retain the
 sending, retry, trusted-action and cleanup boundaries; leaf tests do not replace
 them. Consumer changes require the owning lead's code review and UX review.
+
+### Consumers and build
+
+- Vite's [token projection](tokens/tokens-plugin.ts) and Rust CLI
+  [theme tests](../rust/crates/tmt-cli-style/src/theme/tests.rs) consume `tokens.json`.
+- Office references/guidance import the checked CSS through the retained
+  [app stylesheet](../extensions/tmt-office/typescript/apps/office/src/styles.css).
+- Docker stages must preserve the token and checked-CSS inputs; see the
+  [E2E](../typescript/test/e2e/Dockerfile) and
+  [Office](../extensions/tmt-office/typescript/services/office/Dockerfile) stages.
+- The private `design-tokens` component attributes token changes to Colab and Remote
+  through `releaseConsumers` in the [component map](../.github/components.json).
 
 ## Commands and inline code
 
