@@ -111,33 +111,3 @@ export function ghPublishApi(input: {
     options: object
   ) => { error?: Error; status: number | null; stdout: string; stderr: string };
 }): PublishApi & PublishedApi & IssueApi;
-
-export interface BackfillSelection {
-  product: string;
-  channel: 'alpha' | 'stable';
-  tag: string;
-  releaseId: number;
-  sourceSha: string;
-}
-export function writeVerifiedReleaseIndex(input: {
-  api: PublishedApi;
-  indexApi: import('./release-index.mjs').IndexApi;
-  product: string;
-  tag: string;
-  directory: string;
-}): import('./release-index.mjs').IndexResult;
-export function backfillInventory(input: {
-  api: PublishedApi;
-  product: string;
-  channel: 'alpha' | 'stable';
-}): BackfillSelection;
-export function backfillReleaseIndex(
-  input: BackfillSelection & {
-    api: PublishedApi;
-    indexApi: import('./release-index.mjs').IndexApi;
-    directory: string;
-    attempts?: number;
-    sleep?: (milliseconds: number) => void;
-    clock?: () => number;
-  }
-): import('./release-index.mjs').IndexResult;

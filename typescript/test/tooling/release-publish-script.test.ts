@@ -38,28 +38,7 @@ const fail = (message) => { process.stderr.write(message); process.exit(1); };
 const [command, sub] = args;
 if (command === 'api') {
   const url = args[1];
-  if (url.includes('/git/') || url.includes('/contents/')) {
-    const body = args.includes('--input') ? JSON.parse(fs.readFileSync(0, 'utf8')) : null;
-    const reply = (data, status=200) => out('HTTP/2.0 ' + status + ' Status\\ncontent-type: application/json\\n\\n' + JSON.stringify(data));
-    state.indexFiles ??= {}; state.indexBlobs ??= {};
-    const save = () => fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
-    if (url.endsWith('/git/ref/heads/release-index')) reply({object:{type:'commit',sha:'b'.repeat(40)}});
-    else if (url.includes('/git/commits/') && !body) reply({tree:{sha:'c'.repeat(40)}});
-    else if (url.includes('/contents/')) {
-      const file=url.split('/contents/')[1].split('?')[0]; const content=state.indexFiles[file];
-      if(content===undefined) {reply({message:'Not Found'},404); process.exitCode=1;}
-      else reply({type:'file',encoding:'base64',size:Buffer.from(content,'base64').length,content});
-    } else if (url.endsWith('/git/blobs')) {
-      const sha=require('node:crypto').createHash('sha1').update(body.content).digest('hex');
-      state.indexBlobs[sha]=body.content; save(); reply({sha},201);
-    } else if (url.endsWith('/git/trees')) {state.indexTree=body.tree; save(); reply({sha:'d'.repeat(40)},201);}
-    else if (url.endsWith('/git/commits')) reply({sha:'e'.repeat(40)},201);
-    else if (url.endsWith('/git/refs/heads/release-index')) {
-      if(state.indexRefusal) {reply({message:'Forbidden'},403); process.exitCode=1;}
-      else {for(const entry of state.indexTree) state.indexFiles[entry.path]=state.indexBlobs[entry.sha]; save(); reply({sha:body.sha});}
-    } else fail('unexpected index call: ' + url);
-  }
-  else if (args.includes('--paginate')) out([state.drafts.length ? state.drafts : state.published ? [state.published] : []]);
+  if (args.includes('--paginate')) out([state.drafts.length ? state.drafts : state.published ? [state.published] : []]);
   else if (url.includes('/releases/tags/')) state.published ? out(state.published) : fail('HTTP 404');
   else if (url.includes('/releases/') && args.includes('PATCH')) { state.latest = state.published; fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state)); out(state.latest); }
   else if (url.endsWith('/releases/latest')) state.latest ? out(state.latest) : fail('HTTP 404');
@@ -115,7 +94,6 @@ interface Scenario {
   missingAssets?: string[];
   openIssues?: { number: number; title: string }[];
   issueFails?: boolean;
-  indexRefusal?: boolean;
 }
 
 function scenario(options: Scenario = {}) {
@@ -153,12 +131,12 @@ function scenario(options: Scenario = {}) {
   writeFileSync(summary, '');
   return {
     directory,
-    run(args: string[], repository = 'wkh237/tmt') {
+    run(args: string[]) {
       const result = spawnSync('node', [script, ...args], {
         encoding: 'utf8',
         env: {
           PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-          GITHUB_REPOSITORY: repository,
+          GITHUB_REPOSITORY: 'wkh237/tmt',
           GITHUB_SERVER_URL: 'https://github.com',
           GITHUB_RUN_ID: '42',
           GITHUB_OUTPUT: output,
@@ -546,64 +524,5 @@ describe('release-publish.mjs report', () => {
     expect(fake.run(['report', '--product', 'cli', '--tag', TAG]).stderr).toContain(
       'report needs --directory'
     );
-  });
-});
-
-describe('release-publish.mjs index entry', () => {
-  it('reads the actual verified directory, writes only a non-force pointer and is idempotent', () => {
-    const fixture = scenario();
-    const args = [
-      'index',
-      '--product',
-      'cli',
-      '--tag',
-      TAG,
-      '--directory',
-      path.join(fixture.directory, 'record-fixture'),
-    ];
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
-      status: 0,
-      summary: expect.stringContaining('Release index advanced'),
-    });
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
-      status: 0,
-      summary: expect.stringContaining('Release index unchanged'),
-    });
-    const writes = fixture.calls().filter((args) => args.includes('--input'));
-    expect(writes.map((args) => args[1])).toEqual([
-      'repos/pj-tmt/tmt/git/blobs',
-      'repos/pj-tmt/tmt/git/trees',
-      'repos/pj-tmt/tmt/git/commits',
-      'repos/pj-tmt/tmt/git/refs/heads/release-index',
-    ]);
-    expect(fixture.calls().some((args) => args[0] === 'release')).toBe(false);
-  });
-  it('preserves a write refusal and refuses absent directory bytes before any branch mutation', () => {
-    const fixture = scenario({ indexRefusal: true });
-    const args = [
-      'index',
-      '--product',
-      'cli',
-      '--tag',
-      TAG,
-      '--directory',
-      path.join(fixture.directory, 'record-fixture'),
-    ];
-    expect(fixture.run(args, 'pj-tmt/tmt')).toMatchObject({
-      status: 1,
-      stderr: expect.stringContaining('Index ref update failed (403)'),
-    });
-    const absent = scenario();
-    expect(
-      absent.run([...args.slice(0, -1), path.join(absent.directory, 'absent')], 'pj-tmt/tmt').status
-    ).toBe(1);
-    expect(absent.calls().some((args) => args.includes('--input'))).toBe(false);
-  });
-  it('prints actual newest historical identity for operator review without writes', () => {
-    const fixture = scenario();
-    expect(
-      fixture.run(['backfill-inventory', '--product', 'cli', '--channel', 'alpha']).status
-    ).toBe(0);
-    expect(fixture.calls().some((args) => args.includes('--input'))).toBe(false);
   });
 });
