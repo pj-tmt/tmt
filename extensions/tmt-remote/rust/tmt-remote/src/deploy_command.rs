@@ -224,47 +224,11 @@ pub fn execute_with_hosting(
     } else {
         writeln!(human, "Not authorized; nothing changed in your Firebase project.\nTo deploy this plan{}, run the same command with --authorize {}", if plan.view().rules.replaced_digest.is_some() { " and replace the live Rules" } else { "" }, &plan.digest()[..12]).expect("String write");
     }
-    // Descriptor completion is after the durable Complete save and never alters
-    // the engine outcome. A later explicit deploy can retry this local publication.
-    if authorized
-        && record
-            .run
-            .as_ref()
-            .is_some_and(|r| r.state == deploy_run::RunState::Complete)
-    {
-        append_link(&mut human, &mut json, store, &record);
+    if authorized && let Ok(link) = crate::remote_link::from_record(&record) {
+        writeln!(human, "Remote link: {link}").expect("String write");
+        json["remoteLink"] = Value::String(link);
     }
     Ok(DeployCommandOutput { json, human })
-}
-/// Finish only the local descriptor for an already verified, authorized plan.
-pub(crate) fn complete_saved_link(
-    store: &mut DeployRecordStore<'_>,
-    record: &DeployRecord,
-    extensions: &Plan,
-    envelope: &Value,
-) -> DeployCommandOutput {
-    let mut human = String::new();
-    describe_record(&mut human, record, &store.record_path());
-    let mut json = json!({"authorized":true,"plan":envelope,"planDigest":record.run.as_ref().expect("verified run").plan_digest,"extensions":extensions.view(),"record":record});
-    append_link(&mut human, &mut json, store, record);
-    DeployCommandOutput { json, human }
-}
-fn append_link(
-    human: &mut String,
-    json: &mut Value,
-    store: &mut DeployRecordStore<'_>,
-    record: &DeployRecord,
-) {
-    match store.complete_link(record) {
-        Ok(link) => {
-            writeln!(human, "Remote link: {link}").expect("String write");
-            json["remoteLink"] = Value::String(link);
-        }
-        Err(_) => {
-            human.push_str("Deployment complete, but the remote link is not ready. Rerun the same deployment command to finish it.\n");
-            json["remoteLink"] = Value::Null;
-        }
-    }
 }
 fn readable_bytes(bytes: u64) -> String {
     let (unit, divisor) = if bytes >= 1024 * 1024 {

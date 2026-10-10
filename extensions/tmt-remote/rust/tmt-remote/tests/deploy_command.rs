@@ -294,8 +294,6 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
     )
     .unwrap();
     assert_eq!(done.json["record"]["run"]["state"], "complete");
-    assert!(done.json["remoteLink"].is_null());
-    assert!(done.human.contains("Deployment complete, but the remote link is not ready. Rerun the same deployment command to finish it."));
 }
 fn request_for_foreign<'a>(
     plan: &'a tmt_remote::deploy_plan::Plan,

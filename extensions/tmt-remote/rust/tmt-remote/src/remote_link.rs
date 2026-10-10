@@ -1,6 +1,6 @@
 //! Public configuration carrier, never a device grant or membership credential.
 //! Canonical bytes and a corruption checksum have one owner; no provider I/O.
-use crate::{canonical, deploy_run::DeployRecord, error::RemoteError, limits, wire};
+use crate::{deploy_run::DeployRecord, error::RemoteError, limits, wire};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,14 +18,7 @@ struct PublicConfig {
 struct Descriptor {
     version: u8,
     kind: String,
-    project_id: String,
-    region: String,
-    deployment_id: String,
-    plan_digest: String,
-    hosted_origin: String,
     public_web_config: PublicConfig,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    owner_host: Option<String>,
     checksum: String,
 }
 /// Fixed, credential-free owner guidance. A missing link never triggers deployment.
@@ -38,11 +31,6 @@ pub fn unavailable() -> RemoteError {
 fn hash(bytes: &[u8]) -> String {
     crate::deploy_plan::sha256_hex(bytes)
 }
-fn digest(s: &str) -> bool {
-    s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
 impl Descriptor {
     fn body(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("descriptor serializes");
@@ -53,23 +41,17 @@ impl Descriptor {
     fn valid(&self) -> bool {
         self.version == 1
             && self.kind == "firestore"
-            && crate::deploy_run::project_ok(&self.project_id)
-            && crate::deploy_run::location_ok(&self.region)
-            && canonical::uuid(&self.deployment_id).is_ok()
-            && digest(&self.plan_digest)
-            && self.hosted_origin == format!("https://{}.web.app", self.project_id)
-            && self.public_web_config.project_id == self.project_id
-            && self.public_web_config.auth_domain == format!("{}.firebaseapp.com", self.project_id)
+            && crate::deploy_run::project_ok(&self.public_web_config.project_id)
+            && self.public_web_config.auth_domain
+                == format!("{}.firebaseapp.com", self.public_web_config.project_id)
             && [
                 &self.public_web_config.api_key,
                 &self.public_web_config.app_id,
             ]
             .iter()
-            .all(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control))
-            && self
-                .owner_host
-                .as_ref()
-                .is_none_or(|s| !s.is_empty() && s.len() <= 80 && !s.chars().any(char::is_control))
+            .all(|s| {
+                !s.is_empty() && s.len() <= 256 && s.bytes().all(|b| (0x20..=0x7e).contains(&b))
+            })
             && self.checksum == hash(&serde_json::to_vec(&self.body()).expect("body serializes"))
     }
     fn url(&self) -> Result<String, RemoteError> {
@@ -81,8 +63,8 @@ impl Descriptor {
         value.sort_all_objects();
         let bytes = serde_json::to_vec(&value).expect("value serializes");
         let url = format!(
-            "{}/pair#{}",
-            self.hosted_origin,
+            "https://{}.web.app/pair#{}",
+            self.public_web_config.project_id,
             URL_SAFE_NO_PAD.encode(bytes)
         );
         if url.len() > limits::REMOTE_LINK_BYTES {
@@ -92,27 +74,15 @@ impl Descriptor {
     }
 }
 /// Only the typed final joint verification can produce a new carrier.
-/// No friendly owner label exists in the current admitted projection, so omit it.
+/// The carrier has no administrative identity or friendly-label fields.
 pub fn from_record(record: &DeployRecord) -> Result<String, RemoteError> {
     let publication = record.verified_publication().ok_or_else(unavailable)?;
-    let run = record.run.as_ref().ok_or_else(unavailable)?;
-    let region = run
-        .hosting
-        .as_ref()
-        .and_then(|h| h.envelope["database"]["location"].as_str())
-        .ok_or_else(unavailable)?;
     let public_web_config: PublicConfig =
         serde_json::from_value(publication.public_config().clone()).map_err(|_| unavailable())?;
     let mut descriptor = Descriptor {
         version: 1,
         kind: "firestore".into(),
-        project_id: public_web_config.project_id.clone(),
-        region: region.into(),
-        deployment_id: record.deployment_id.clone(),
-        plan_digest: run.plan_digest.clone(),
-        hosted_origin: publication.entry_url().into(),
         public_web_config,
-        owner_host: None,
         checksum: String::new(),
     };
     descriptor.checksum = hash(&serde_json::to_vec(&descriptor.body()).expect("body serializes"));
@@ -129,7 +99,13 @@ pub fn validate(url: &str) -> Result<(), RemoteError> {
         .map_err(|_| unavailable())?;
     let value = wire::strict_json(&bytes).ok_or_else(unavailable)?;
     let descriptor: Descriptor = serde_json::from_value(value).map_err(|_| unavailable())?;
-    if descriptor.hosted_origin != origin || descriptor.url()? != url {
+    if origin
+        != format!(
+            "https://{}.web.app",
+            descriptor.public_web_config.project_id
+        )
+        || descriptor.url()? != url
+    {
         return Err(unavailable());
     }
     Ok(())
@@ -142,18 +118,12 @@ mod tests {
         let mut d = Descriptor {
             version: 1,
             kind: "firestore".into(),
-            project_id: "demo-remote-1".into(),
-            region: "asia-east1".into(),
-            deployment_id: "3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11".into(),
-            plan_digest: "a".repeat(64),
-            hosted_origin: "https://demo-remote-1.web.app".into(),
             public_web_config: PublicConfig {
                 api_key: "public-key".into(),
                 auth_domain: "demo-remote-1.firebaseapp.com".into(),
                 project_id: "demo-remote-1".into(),
                 app_id: "1:123:web:mine".into(),
             },
-            owner_host: None,
             checksum: String::new(),
         };
         d.checksum = hash(&serde_json::to_vec(&d.body()).unwrap());
@@ -175,14 +145,26 @@ mod tests {
             .decode(url.split_once('#').unwrap().1)
             .unwrap();
         let value: Value = serde_json::from_slice(&bytes).unwrap();
-        assert!(value.get("ownerHost").is_none());
+        assert_eq!(value.as_object().unwrap().len(), 4);
         assert_eq!(value["publicWebConfig"].as_object().unwrap().len(), 4);
-        for key in ["token", "uid", "membership", "deviceKey", "extra"] {
+        for key in [
+            "token",
+            "uid",
+            "membership",
+            "deviceKey",
+            "extra",
+            "region",
+            "deploymentId",
+            "planDigest",
+            "hostedOrigin",
+            "ownerHost",
+            "projectId",
+        ] {
             let mut changed = value.clone();
             changed[key] = Value::String("TOKEN_CANARY".into());
             let invalid = format!(
-                "{}/pair#{}",
-                d.hosted_origin,
+                "https://{}.web.app/pair#{}",
+                d.public_web_config.project_id,
                 URL_SAFE_NO_PAD.encode(serde_json::to_vec(&changed).unwrap())
             );
             let error = validate(&invalid).unwrap_err();
@@ -192,8 +174,8 @@ mod tests {
         for bytes in [b"\xff".as_slice(), b"{\"version\":1,\"version\":1}"] {
             assert!(
                 validate(&format!(
-                    "{}/pair#{}",
-                    d.hosted_origin,
+                    "https://{}.web.app/pair#{}",
+                    d.public_web_config.project_id,
                     URL_SAFE_NO_PAD.encode(bytes)
                 ))
                 .is_err()
@@ -205,19 +187,16 @@ mod tests {
     #[test]
     fn inconsistent_or_unsafe_fields_never_form_a_link() {
         let d = vector();
-        for field in [
-            "checksum",
-            "projectId",
-            "region",
-            "deploymentId",
-            "planDigest",
-            "hostedOrigin",
-        ] {
+        for field in ["checksum", "kind"] {
             let mut value = serde_json::to_value(&d).unwrap();
             value[field] = Value::String("https://evil.invalid/@TOKEN_CANARY".into());
             let changed: Descriptor = serde_json::from_value(value).unwrap();
             assert!(changed.url().is_err(), "{field}");
         }
+        let mut non_ascii = d.clone();
+        non_ascii.public_web_config.api_key = "public-\u{e9}".into();
+        non_ascii.checksum = hash(&serde_json::to_vec(&non_ascii.body()).unwrap());
+        assert!(non_ascii.url().is_err());
         let mut changed = d;
         changed.public_web_config.project_id = "another-project".into();
         changed.checksum = hash(&serde_json::to_vec(&changed.body()).unwrap());

@@ -168,12 +168,10 @@ unassociated sites use the same explicit appId-only configure step; nonempty ass
 repointed. Joint verification binds that association. The contract owns app selection, partial
 availability and the single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
 Colab has no shipped declaration yet; production never substitutes Remote fixture data.
-`remote_link` owns the strict public descriptor, canonical fragment and corruption checksum.
-A distinct post-Complete local completion saves its URL in a v4 deployment document under the
-existing atomic record owner; v1/v2/v3 reads never convert. A failed completion leaves Complete
-intact. Other saves retain link metadata, but a lock-free re-print returns saved bytes only while
-their original typed verified publication remains usable. No label source or credential is added.
-The contract owns the schema and re-print semantics; no provider or browser call belongs here.
+`remote_link` derives the strict public descriptor, canonical fragment and corruption checksum
+only from the record's typed verified Complete publication. Deploy output and the lock-free
+re-print use that pure owner; no second save, schema version, repair, provider or browser call.
+The contract owns the descriptor schema; partial/unknown or unverified records yield no link.
 For offline declaration-vector regeneration, run from `rust/`:
 
 ```sh

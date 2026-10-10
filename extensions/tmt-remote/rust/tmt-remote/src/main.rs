@@ -42,10 +42,10 @@ const STOP: CommandSpec = CommandSpec {
 };
 const LINK: CommandSpec = CommandSpec {
     name: "link",
-    summary: "Print this home's saved remote link",
+    summary: "Print this home's remote link",
     examples: &[Example {
         command: "tmt remote link --json",
-        note: "Read the saved public configuration link",
+        note: "Read the public configuration link",
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Read-only. The link carries public Firebase configuration, not access; pairing still grants access. You can share it again; it is not one-time. Does not deploy or open a browser.",
