@@ -89,12 +89,13 @@ pub enum SettingKey {
     PaneBadge,
     ReplyBatchWindowMs,
     TypingQuietMs,
+    ExperimentalChannel,
     NotesCompactionReminder,
     WorkspaceSnapshotEnabled,
     WorkspaceSnapshotIntervalMs,
 }
 
-pub const EDITABLE_KEYS: [SettingKey; 10] = [
+pub const EDITABLE_KEYS: [SettingKey; 11] = [
     SettingKey::PreambleMode,
     SettingKey::PaneBadge,
     SettingKey::PreambleEvery,
@@ -102,6 +103,7 @@ pub const EDITABLE_KEYS: [SettingKey; 10] = [
     SettingKey::RetentionDays,
     SettingKey::ReplyBatchWindowMs,
     SettingKey::TypingQuietMs,
+    SettingKey::ExperimentalChannel,
     SettingKey::NotesCompactionReminder,
     SettingKey::WorkspaceSnapshotEnabled,
     SettingKey::WorkspaceSnapshotIntervalMs,
@@ -120,6 +122,7 @@ impl SettingKey {
             Self::PaneBadge => "ui.paneBadge",
             Self::ReplyBatchWindowMs => "notifications.replyBatchWindowMs",
             Self::TypingQuietMs => "notifications.typingQuietMs",
+            Self::ExperimentalChannel => "experimental.channel",
             Self::NotesCompactionReminder => "notes.compactionReminder",
             Self::WorkspaceSnapshotEnabled => "workspace.snapshotEnabled",
             Self::WorkspaceSnapshotIntervalMs => "workspace.snapshotIntervalMs",
@@ -138,7 +141,9 @@ impl SettingKey {
             Self::PaneBadge => "'on' or 'off'",
             Self::ReplyBatchWindowMs => "an integer from 0 through 60000 milliseconds",
             Self::TypingQuietMs => "an integer from 0 through 30000 milliseconds",
-            Self::NotesCompactionReminder | Self::WorkspaceSnapshotEnabled => "true or false",
+            Self::ExperimentalChannel
+            | Self::NotesCompactionReminder
+            | Self::WorkspaceSnapshotEnabled => "true or false",
             Self::WorkspaceSnapshotIntervalMs => {
                 "an integer from 0 through 2147483647 milliseconds"
             }
@@ -152,6 +157,7 @@ impl SettingKey {
                 | Self::PaneBadge
                 | Self::ReplyBatchWindowMs
                 | Self::TypingQuietMs
+                | Self::ExperimentalChannel
                 | Self::NotesCompactionReminder
                 | Self::WorkspaceSnapshotEnabled
                 | Self::WorkspaceSnapshotIntervalMs
@@ -192,6 +198,7 @@ pub enum Setting {
     PaneBadge(PaneBadge),
     ReplyBatchWindowMs(u64),
     TypingQuietMs(u64),
+    ExperimentalChannel(bool),
     NotesCompactionReminder(bool),
     WorkspaceSnapshotEnabled(bool),
     WorkspaceSnapshotIntervalMs(u64),
@@ -214,6 +221,9 @@ impl Setting {
 
     pub fn validate(key: SettingKey, value: Scalar<'_>) -> Option<Self> {
         match (key, value) {
+            (SettingKey::ExperimentalChannel, Scalar::Boolean(value)) => {
+                Some(Self::ExperimentalChannel(value))
+            }
             (SettingKey::WorkspaceSnapshotEnabled, Scalar::Boolean(value)) => {
                 Some(Self::WorkspaceSnapshotEnabled(value))
             }
@@ -281,7 +291,9 @@ impl Setting {
     pub fn parse_edit(key: SettingKey, text: &str) -> Result<Self, String> {
         let scalar = if matches!(
             key,
-            SettingKey::NotesCompactionReminder | SettingKey::WorkspaceSnapshotEnabled
+            SettingKey::ExperimentalChannel
+                | SettingKey::NotesCompactionReminder
+                | SettingKey::WorkspaceSnapshotEnabled
         ) {
             match text {
                 "true" => Scalar::Boolean(true),
@@ -310,9 +322,9 @@ impl Setting {
             let expected = match key {
                 SettingKey::PreambleMode => "Valid values: always, disabled",
                 SettingKey::PaneBadge => "Valid values: on, off",
-                SettingKey::NotesCompactionReminder | SettingKey::WorkspaceSnapshotEnabled => {
-                    "Valid values: true, false"
-                }
+                SettingKey::ExperimentalChannel
+                | SettingKey::NotesCompactionReminder
+                | SettingKey::WorkspaceSnapshotEnabled => "Valid values: true, false",
                 _ => "Must be a supported non-negative integer.",
             };
             format!("Invalid value for {}: {text}. {expected}", key.name())
@@ -331,6 +343,7 @@ impl Setting {
             Self::PaneBadge(_) => SettingKey::PaneBadge,
             Self::ReplyBatchWindowMs(_) => SettingKey::ReplyBatchWindowMs,
             Self::TypingQuietMs(_) => SettingKey::TypingQuietMs,
+            Self::ExperimentalChannel(_) => SettingKey::ExperimentalChannel,
             Self::NotesCompactionReminder(_) => SettingKey::NotesCompactionReminder,
             Self::WorkspaceSnapshotEnabled(_) => SettingKey::WorkspaceSnapshotEnabled,
             Self::WorkspaceSnapshotIntervalMs(_) => SettingKey::WorkspaceSnapshotIntervalMs,
@@ -350,6 +363,7 @@ pub struct Settings {
     pub pane_badge: PaneBadge,
     pub reply_batch_window_ms: u64,
     pub typing_quiet_ms: u64,
+    pub experimental_channel: bool,
     pub notes_compaction_reminder: bool,
     pub workspace_snapshot_enabled: bool,
     /// Reserved for command refresh (#2102); event capture does not consult it.
@@ -404,6 +418,7 @@ impl Default for Settings {
             pane_badge: PaneBadge::On,
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
+            experimental_channel: false,
             notes_compaction_reminder: true,
             workspace_snapshot_enabled: true,
             workspace_snapshot_interval_ms: 60_000,
@@ -424,6 +439,7 @@ impl Settings {
             Setting::PaneBadge(value) => self.pane_badge = value,
             Setting::ReplyBatchWindowMs(value) => self.reply_batch_window_ms = value,
             Setting::TypingQuietMs(value) => self.typing_quiet_ms = value,
+            Setting::ExperimentalChannel(value) => self.experimental_channel = value,
             Setting::NotesCompactionReminder(value) => self.notes_compaction_reminder = value,
             Setting::WorkspaceSnapshotEnabled(value) => self.workspace_snapshot_enabled = value,
             Setting::WorkspaceSnapshotIntervalMs(value) => {

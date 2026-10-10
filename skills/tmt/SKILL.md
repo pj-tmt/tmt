@@ -767,12 +767,20 @@ Resume still needs the hook-recorded session; naming preserves it but never gues
 one. Save to keep resume coordinates across pane loss. Naming an enrolled launch
 neither restarts its channel nor enables paste fallback.
 
-Fresh launches use the driver's channel default: Codex and Claude remain opt-in.
+Paste delivery is the default. Message channels are experimental and require
+`tmt config set experimental.channel true --global` before `--channel` is accepted.
+With the setting off (the default), explicit `--channel` refuses; flagless resume
+uses paste without changing the remembered channel choice. Re-enabling the setting
+restores that choice. `--no-channel` remains accepted and remembers plain delivery.
+A still-running channel session must end before another launch for that identity;
+dead prior enrollment records need no manual cleanup for paste resume.
+
+With the setting on, fresh launches use the driver's channel default: Codex and Claude remain opt-in.
 An admitted fresh launch remembers its channel/plain choice. Exact resume
 reuses it; explicit `--channel`/`--no-channel` on resume updates the remembered
 choice after successful admission. Opt in once with `tmt resume --channel <name>`;
 failed Required enrollment leaves the choice unchanged. Resume without flags
-preserves it. A remembered channel
+preserves it. While the setting is on, a remembered channel
 requires successful enrollment and never silently falls back to paste.
 `--no-channel` chooses and remembers plain paste delivery, while `--channel`
 requires enrollment or fails before recording an enabled choice. The flags conflict

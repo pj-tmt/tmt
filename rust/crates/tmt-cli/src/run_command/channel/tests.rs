@@ -576,3 +576,24 @@ fn exact_resume_reuses_preference_unless_a_flag_overrides_it() {
         }
     }
 }
+
+#[test]
+fn explicit_channel_requires_the_experimental_setting() {
+    let error = require_enabled(ChannelMode::Required, false).unwrap_err();
+    assert_eq!(error.code, "CHANNEL_DISABLED");
+    assert_eq!(
+        error.message,
+        "Message channels require experimental.channel=true."
+    );
+    assert_eq!(error.status, 1);
+    for mode in [
+        ChannelMode::Default,
+        ChannelMode::Disabled,
+        ChannelMode::Required,
+    ] {
+        assert!(require_enabled(mode, true).is_ok());
+    }
+    for mode in [ChannelMode::Default, ChannelMode::Disabled] {
+        assert!(require_enabled(mode, false).is_ok());
+    }
+}

@@ -208,6 +208,7 @@ fn show_json(
                 "pasteEnterDelayMs": settings.paste_enter_delay_ms,
             },
             "exchange": { "retentionDays": settings.retention_days },
+            "experimental": { "channel": settings.experimental_channel },
             "notes": { "compactionReminder": settings.notes_compaction_reminder },
             "workspace": { "snapshotEnabled": settings.workspace_snapshot_enabled, "snapshotIntervalMs": settings.workspace_snapshot_interval_ms },
             "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
@@ -219,6 +220,7 @@ fn show_json(
             "preambleEvery": loaded.source(SettingKey::PreambleEvery),
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
+            "experimental": { "channel": loaded.source(SettingKey::ExperimentalChannel) },
             "notes": { "compactionReminder": loaded.source(SettingKey::NotesCompactionReminder) },
             "workspace": { "snapshotEnabled": loaded.source(SettingKey::WorkspaceSnapshotEnabled), "snapshotIntervalMs": loaded.source(SettingKey::WorkspaceSnapshotIntervalMs) },
             "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
@@ -238,6 +240,11 @@ fn show_text(
 ) -> io::Result<()> {
     let settings = &loaded.settings;
     let rows = [
+        (
+            SettingKey::ExperimentalChannel,
+            "experimental.channel",
+            settings.experimental_channel.to_string(),
+        ),
         (
             SettingKey::WorkspaceSnapshotEnabled,
             "workspace.snapshotEnabled",

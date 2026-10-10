@@ -7,6 +7,7 @@ pub(in crate::grammar) fn run() -> Command {
     let command = base(spec!(
         "run",
         "Start a known agent, or bind this pane and run a command",
+        details = "Paste delivery is the default. Experimental message channels require experimental.channel=true in global config.",
         [
             "Start and name an agent" => "tmt run worker claude",
             "Save the agent for later" => "tmt run --save worker claude",
@@ -108,6 +109,7 @@ pub(in crate::grammar) fn resume() -> Command {
     let command = base(spec!(
         "resume",
         "Resume an identity's remembered session in this pane",
+        details = "Paste delivery is the default. With global experimental.channel=true, resume reuses the remembered channel choice.",
         [
             "Resume an identity's last session" => "tmt resume worker",
             "Require a channel for exact resume" => "tmt resume --channel worker",
@@ -178,7 +180,7 @@ fn channel_options(command: Command, forget: bool) -> Command {
         .long("channel")
         .action(ArgAction::SetTrue)
         .conflicts_with("no-channel")
-        .help("Require the agent's message channel; fail if unavailable (put before the name)");
+        .help("Require an experimental message channel (experimental.channel=true; put before the name)");
     let disabled = Arg::new("no-channel")
         .long("no-channel")
         .action(ArgAction::SetTrue)

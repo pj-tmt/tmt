@@ -389,6 +389,10 @@ describe('Remote owner-device operations (#1055)', () => {
 
   it('bullet 6: an enrolled pane receives Remote through its channel and is never pasted to', async () => {
     await withE2EFixture(async (fixture) => {
+      fs.writeFileSync(
+        path.join(fixture.globalDir, 'config.json'),
+        JSON.stringify({ experimental: { channel: true } })
+      );
       const pane = fixture.createShellPane('remote-channel').pane;
       const log = path.join(fixture.root, 'remote-channel.log');
       const status = path.join(fixture.root, 'remote-channel.status');
