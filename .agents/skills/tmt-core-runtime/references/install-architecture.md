@@ -219,7 +219,7 @@ A parent CLI released before Ops registration parses the candidate's upgrade pla
 ## CLI self-upgrade
 
 - Parameterized `pr<N>` channels, current-head resolver, eligibility epoch, application-schema
-  admission and protocol 2 are defined once in [the PR channel contract](../../../../contracts/native-pr-channel.md).
+  admission, protected-main producer trust and protocol 2 are defined once in [the PR channel contract](../../../../contracts/native-pr-channel.md).
   `pr_catalog`, `pr_json`, `pr_zip`, `pr_resolver` and `pr_receipt` are acquisition/receipt
   modules within the existing native installer; they do not create another publisher. Ordinary
   release provenance and protocol 1 remain readable. The CLI receipt bound is 64 KiB, including

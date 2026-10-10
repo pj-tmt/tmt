@@ -3,15 +3,17 @@ use serde_json::Value;
 
 const FIXTURE: &[u8] = include_bytes!("../fixtures/pr-rc-catalog-v2.json");
 const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const POLICY: [ApprovedProducer; 1] = [ApprovedProducer {
-    workflow_id: 701,
-    workflow_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    tooling_sha: "cccccccccccccccccccccccccccccccccccccccc",
-}];
+const WORKFLOW_ID: u64 = 701;
 const NOW: u64 = 1_791_291_600_010;
 
 fn parse(bytes: &[u8]) -> io::Result<Catalog> {
-    Catalog::parse(bytes, PrNumber::parse("234").unwrap(), HEAD, NOW, &POLICY)
+    Catalog::parse(
+        bytes,
+        PrNumber::parse("234").unwrap(),
+        HEAD,
+        NOW,
+        WORKFLOW_ID,
+    )
 }
 
 #[test]
@@ -29,7 +31,7 @@ fn frozen_wire_revision_two_parses_without_registering_synthetic_authority() {
         artifact::digest(FIXTURE),
         "3e1683828ba6c49dba7ecf40f6da49f52e612e8be6192bc3383e7de8cec6f71e"
     );
-    assert!(Catalog::parse(FIXTURE, PrNumber::parse("234").unwrap(), HEAD, NOW, &[]).is_err());
+    assert!(Catalog::parse(FIXTURE, PrNumber::parse("234").unwrap(), HEAD, NOW, 0).is_err());
 }
 
 #[test]
@@ -46,8 +48,8 @@ fn catalog_refuses_wrong_source_trust_schema_and_incomplete_generations() {
             "/producer/workflow_path",
             Value::from(".github/workflows/ci.yml"),
         ),
-        ("/producer/tooling_sha", Value::from("d".repeat(40))),
-        ("/producer/workflow_sha256", Value::from("d".repeat(64))),
+        ("/producer/tooling_sha", Value::from("bad")),
+        ("/producer/workflow_sha256", Value::from("bad")),
         ("/producer/run_id", Value::from(0)),
         ("/producer/run_attempt", Value::from(101)),
         ("/expires_at_ms", Value::from(NOW)),

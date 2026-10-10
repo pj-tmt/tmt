@@ -397,7 +397,7 @@ anchor to the installation prefix, not to configuration roots. Verification prec
 execution, publication runs the release verifier before the receipt so a rejection
 keeps the previous release, and failure or cancellation never leaves a half-published
 current release. CLI self-upgrade delegates to the verified candidate under the
-[handoff contract](contracts/native-install-handoff-v1.md); persisted PR channels,
+[handoff contract](contracts/native-install-handoff-v1.md); PR channel trust,
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and

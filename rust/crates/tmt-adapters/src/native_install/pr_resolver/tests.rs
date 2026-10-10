@@ -10,11 +10,7 @@ use std::{
 const HEAD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const TOOLING: &str = "cccccccccccccccccccccccccccccccccccccccc";
 const WORKFLOW: &[u8] = b"reviewed fixture workflow\n";
-const POLICY: [wire::ApprovedProducer; 1] = [wire::ApprovedProducer {
-    workflow_id: 701,
-    workflow_sha256: "049c31e743140c5ad67e384b341336b1a35c8b8e520e09cfbe83f6b498bf8d58",
-    tooling_sha: TOOLING,
-}];
+const WORKFLOW_ID: u64 = 701;
 pub(in crate::native_install) const TARGET: &str = "aarch64-apple-darwin";
 const NOW: u64 = 1_791_291_600_010;
 const PR: &str = "234";
@@ -164,7 +160,10 @@ impl Fixture {
             api["eligibility_timeline"]["events"].clone(),
         );
         fixture.put("actions/runs/9001", api["producer_run"].clone());
-        fixture.put(&format!("contents/.github/workflows/pr-rc.yml?ref={TOOLING}"), json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(WORKFLOW)}));
+        fixture.put(
+            &format!("actions/workflows/{WORKFLOW_ID}"),
+            json!({"id":WORKFLOW_ID,"path":wire::PRODUCER_WORKFLOW_PATH}),
+        );
         fixture
     }
     fn download(&mut self) -> io::Result<DownloadedRelease> {
@@ -181,7 +180,7 @@ impl Fixture {
             },
             Policy {
                 repository_id: 7001,
-                producers: &POLICY,
+                workflow_id: WORKFLOW_ID,
             },
             |url, _, maximum, _| {
                 let fresh = self.calls.iter().any(|called| called == url);
@@ -340,7 +339,7 @@ fn timeline_refuses_absent_duplicate_tied_noncanonical_and_incomplete_evidence()
 #[test]
 fn unknown_publisher_and_changed_workflow_never_search_old_success() {
     for (route, pointer, value) in [
-        ("actions/runs/9001", "/head_sha", json!("d".repeat(40))),
+        ("actions/runs/9001", "/head_branch", json!("feature")),
         ("actions/runs/9001", "/workflow_id", json!(702)),
         ("actions/runs/9001", "/conclusion", json!("failure")),
         ("actions/runs/9001", "/head_repository/id", json!(7002)),
@@ -357,17 +356,77 @@ fn unknown_publisher_and_changed_workflow_never_search_old_success() {
         );
     }
     let mut fixture = Fixture::new();
-    fixture.modify(
-        &format!("contents/.github/workflows/pr-rc.yml?ref={TOOLING}"),
-        false,
-        |v| {
-            v["content"] = base64::engine::general_purpose::STANDARD
-                .encode(b"unreviewed")
-                .into()
-        },
-    );
+    fixture.modify(&format!("actions/workflows/{WORKFLOW_ID}"), false, |v| {
+        v["path"] = ".github/workflows/ci.yml".into()
+    });
     assert!(fixture.download().is_err());
-    assert!(APPROVED.is_empty());
+}
+
+#[test]
+fn newer_main_producer_run_is_followed_without_a_tooling_rotation() {
+    let mut fixture = Fixture::new();
+    let newer = "dddddddddddddddddddddddddddddddddddddddd";
+    let catalog_url = format!("{ROOT}/actions/artifacts/8201/zip");
+    let mut archive = zip::ZipArchive::new(Cursor::new(&fixture.routes[&catalog_url])).unwrap();
+    let mut catalog = String::new();
+    archive
+        .by_name("catalog.json")
+        .unwrap()
+        .read_to_string(&mut catalog)
+        .unwrap();
+    drop(archive);
+    let bytes = catalog
+        .replace(TOOLING, newer)
+        .replace("9001", "9002")
+        .into_bytes();
+    let catalog_zip = zip(&[("catalog.json", &bytes)]);
+    let old = std::mem::take(&mut fixture.routes);
+    for (url, body) in old {
+        let url = url.replace(TOOLING, newer).replace("9001", "9002");
+        let body = if url.ends_with("/zip") {
+            body
+        } else {
+            String::from_utf8(body)
+                .unwrap()
+                .replace(TOOLING, newer)
+                .replace("9001", "9002")
+                .into_bytes()
+        };
+        fixture.routes.insert(url, body);
+    }
+    fixture.routes.insert(catalog_url, catalog_zip.clone());
+    for route in [
+        "actions/artifacts/8201",
+        "actions/artifacts?name=tmt-pr-rc-catalog-v2-pr234&per_page=100&page=1",
+    ] {
+        fixture.modify(route, false, |value| {
+            let value = if route.contains('?') {
+                &mut value["artifacts"][0]
+            } else {
+                value
+            };
+            value["size_in_bytes"] = catalog_zip.len().into();
+            value["digest"] = format!("sha256:{}", artifact::digest(&catalog_zip)).into();
+        });
+    }
+    let downloaded = fixture.download().unwrap();
+    let Provenance::Pr(proof) = downloaded.provenance else {
+        panic!("PR proof missing");
+    };
+    assert_eq!(proof.producer.run_id, 9002);
+    assert_eq!(proof.producer.tooling_sha, newer);
+    assert!(
+        fixture
+            .calls
+            .iter()
+            .any(|url| url.ends_with("actions/runs/9002"))
+    );
+    assert!(
+        !fixture
+            .calls
+            .iter()
+            .any(|url| url.ends_with("actions/runs/9001"))
+    );
 }
 
 #[test]

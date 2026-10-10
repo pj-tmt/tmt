@@ -33,21 +33,15 @@ pub(super) struct Producer {
     pub run_attempt: u32,
 }
 
-/// Installer-owned immutable authority, never deserialized from a candidate.
-pub(super) struct ApprovedProducer {
-    pub workflow_id: u64,
-    pub workflow_sha256: &'static str,
-    pub tooling_sha: &'static str,
-}
+pub(super) const PRODUCER_WORKFLOW_PATH: &str = ".github/workflows/pr-rc.yml";
 
 impl Producer {
-    pub fn approved(&self, policy: &[ApprovedProducer]) -> bool {
-        self.workflow_path == ".github/workflows/pr-rc.yml"
-            && policy.iter().any(|approved| {
-                self.workflow_id == approved.workflow_id
-                    && self.workflow_sha256 == approved.workflow_sha256
-                    && self.tooling_sha == approved.tooling_sha
-            })
+    pub fn approved(&self, workflow_id: u64) -> bool {
+        self.workflow_path == PRODUCER_WORKFLOW_PATH
+            && self.workflow_id == workflow_id
+            && positive(workflow_id)
+            && git_sha(&self.tooling_sha)
+            && is_sha256(&self.workflow_sha256)
     }
 }
 
@@ -260,23 +254,17 @@ impl Catalog {
         pr: PrNumber,
         head: &str,
         now_ms: u64,
-        policy: &[ApprovedProducer],
+        workflow_id: u64,
     ) -> io::Result<Self> {
         if bytes.len() > CATALOG_LIMIT {
             return Err(invalid("PR catalog exceeds its bound."));
         }
         let catalog: Self = super::pr_json::parse(bytes, CATALOG_LIMIT)?;
-        catalog.validate(pr, head, now_ms, policy)?;
+        catalog.validate(pr, head, now_ms, workflow_id)?;
         Ok(catalog)
     }
 
-    fn validate(
-        &self,
-        pr: PrNumber,
-        head: &str,
-        now_ms: u64,
-        policy: &[ApprovedProducer],
-    ) -> io::Result<()> {
+    fn validate(&self, pr: PrNumber, head: &str, now_ms: u64, workflow_id: u64) -> io::Result<()> {
         self.eligibility.validate()?;
         if self.schema_version != 2
             || self.kind != "tmt-pr-rc-catalog"
@@ -284,7 +272,7 @@ impl Catalog {
             || self.pr != pr.get()
             || self.head_sha != head
             || !git_sha(head)
-            || !self.producer.approved(policy)
+            || !self.producer.approved(workflow_id)
             || !positive(self.producer.run_id)
             || !positive(self.producer.workflow_id)
             || !(1..=100).contains(&self.producer.run_attempt)
