@@ -112,6 +112,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     ),
     ("tmt-ops", "extensions/tmt-ops/rust/tmt-ops/Cargo.toml"),
     (
+        "tmt-digest",
+        "extensions/tmt-digest/rust/tmt-digest/Cargo.toml",
+    ),
+    (
         "tmt-colab-model",
         "extensions/tmt-colab/rust/tmt-colab-model/Cargo.toml",
     ),

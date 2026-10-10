@@ -15,6 +15,7 @@ COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/
 # Workspace member: Cargo must load its manifest even when not building it.
 COPY extensions/tmt-ops/ extensions/tmt-ops/
 COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
+COPY extensions/tmt-digest/rust/ extensions/tmt-digest/rust/
 COPY extensions/tmt-colab/rust/ extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ extensions/tmt-colab/contracts/
 COPY extensions/tmt-colab/firestore/ extensions/tmt-colab/firestore/

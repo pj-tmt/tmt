@@ -2895,6 +2895,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-digest"
+version = "0.1.0-dev"
+dependencies = [
+ "clap",
+ "tmt-cli-style",
+]
+
+[[package]]
 name = "tmt-driver-herdr"
 version = "0.1.0-alpha.0"
 dependencies = [

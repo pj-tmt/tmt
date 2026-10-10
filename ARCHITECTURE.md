@@ -390,9 +390,7 @@ binary activation are warnings with path/cause and partial publication; human an
 JSON summaries retain each product's activation and skills outcome.
 
 Native executable installation is a different owner under `tmt-adapters::native_install`.
-The fixed `Product` policy owns package identity, inventory, namespace, links and optional
-read-only post-upgrade checks for the CLI and extensions (Ops, Remote, Colab and frozen
-Office); archive data never adds a product. Every product uses one acquisition,
+`Product` owns installable products; archive data adds none. Every product uses one acquisition,
 receipt and atomic-publication path with independent links, lock and current
 release, and the active executable is the authority for a managed update: receipts
 anchor to the installation prefix, not to configuration roots. Verification precedes
@@ -408,6 +406,8 @@ upgrade handoff are in the
 [installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
+
+Digest’s unpublished [entry](extensions/tmt-digest/rust/tmt-digest/src/grammar.rs) lives in `extensions/tmt-digest`.
 
 ## Ops extension
 

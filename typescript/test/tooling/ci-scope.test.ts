@@ -122,6 +122,29 @@ describe('native dependency notices selection', () => {
 });
 
 describe('CI area selection', () => {
+  it('keeps the unpublished Digest skeleton private while retaining full native checks', () => {
+    const paths = [
+      'extensions/tmt-digest/rust/tmt-digest/Cargo.toml',
+      'extensions/tmt-digest/rust/tmt-digest/src/main.rs',
+      'extensions/tmt-digest/rust/tmt-digest/tests/cli.rs',
+    ];
+    const map = parseComponentMap(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
+    expect(isReleased(map, 'digest')).toBe(false);
+    for (const file of paths) {
+      expect(ownerOf(file, map)).toBe('digest');
+      expect(releasedComponentsForPath(file, map)).toEqual([]);
+      expect(selectNativeScope([file], map)).toBe('full');
+      expect(selectCiAreas([file], map)).toEqual({
+        native: true,
+        office: false,
+        nativeOffice: false,
+      });
+    }
+    expect(ownerOf('extensions/tmt-digest-other/src/main.rs', map)).toBe('cli');
+  });
+
   it('keeps the extension state leaf privately owned by Remote with full native verification', () => {
     const paths = [
       'rust/crates/tmt-extension-state/Cargo.toml',

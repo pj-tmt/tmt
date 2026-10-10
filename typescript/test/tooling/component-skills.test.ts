@@ -35,6 +35,14 @@ const { components } = parseComponentMap(text);
 const skillsComponents = components.filter((component) => component.skills);
 
 describe('components that ship agent skills', () => {
+  it('keeps the unpublished Digest skeleton out of archive and skills product policy', () => {
+    const digest = components.find((component) => component.name === 'digest');
+    expect(digest).toBeDefined();
+    expect(digest?.package).toBeUndefined();
+    expect(digest?.skills).toBeUndefined();
+    expect(() => shipsSkills('digest')).toThrow('Ambiguous or missing component');
+  });
+
   it('declares at least one, and the reader agrees with the parsed map for every product', () => {
     expect(skillsComponents.length).toBeGreaterThan(0);
     for (const component of components.filter((candidate) => candidate.package)) {
