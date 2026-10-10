@@ -48,7 +48,7 @@ async function give(
 test('an agent sees the files of a Chat message in its request and reads them by the listed IDs', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
-    const agent = await world.startAgent('files-agent');
+    const agent = await world.startAgent('files-agent', { gated: true });
     const author = await pairBrowser(world, 'files-author', { talk: true });
     const created = createPage(world, 'Agent files', '<h1>Agent files</h1>');
     const page = await openPage(door, author, created);
@@ -103,7 +103,21 @@ test('an agent sees the files of a Chat message in its request and reads them by
       const dot = files.find((file) => file.name === 'dot.png')!;
       expect(sha(read(dot.id))).toBe(sha(PNG));
 
-      // The browser's export and the CLI's name the same files in the same bytes.
+      // Receiving the request precedes the reply. Settle the verified Ask before either
+      // snapshot so a late reply cannot make the two conversation exports disagree.
+      const requestId = agent.received()[0].requestId as string;
+      const exchange = panel.getByTestId('ask-entry');
+      await expect(exchange.getByTestId('ask-state')).toContainText('Waiting for');
+      fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
+      const reply = `ask-reply:${sha(Buffer.from(request)).slice(0, 16)}`;
+      await expect(exchange.getByTestId('ask-reply')).toHaveText(reply);
+      await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
+      await expect(exchange.getByTestId('ask-state')).toHaveCount(0);
+
+      // Both snapshots must observe the same settled revision, not just matching file names.
+      const revision = () => colab(['page', 'read', created.pageId]).revision;
+      const settledRevision = revision();
+      expect(settledRevision).toMatch(/^v1:/);
       const exported = colab(['export', created.pageId, '--dir', out]);
       await (await pageAction(page, 'Export page')).click();
       const exportPanel = page.getByRole('region', { name: 'Export page' });
@@ -113,8 +127,22 @@ test('an agent sees the files of a Chat message in its request and reads them by
         await exportPanel.getByRole('button', { name: new RegExp(`Download ${name}`) }).click();
         const saved = await pending;
         const native = fs.readFileSync(path.join(exported.directory as string, name));
-        expect(fs.readFileSync((await saved.path())!).equals(native), name).toBe(true);
+        const browser = fs.readFileSync((await saved.path())!);
+        if (name === 'conversations.json')
+          for (const bytes of [native, browser]) {
+            const conversation = JSON.parse(bytes.toString('utf8')) as {
+              asks: { state: string; requestId: string; reply: { body: string } | null }[];
+            };
+            expect(conversation.asks).toHaveLength(1);
+            expect(conversation.asks[0]).toMatchObject({
+              state: 'accepted',
+              requestId,
+              reply: { body: reply },
+            });
+          }
+        expect(browser.equals(native), name).toBe(true);
       }
+      expect(revision()).toBe(settledRevision);
       expect(
         fs.readFileSync(path.join(exported.directory as string, 'conversations.md'), 'utf8'),
       ).toContain('- Attachment: ');
