@@ -85,11 +85,13 @@ async function captureState(
   themes: readonly ('light' | 'dark')[] = ['light', 'dark'],
   contained?: string,
 ): Promise<void> {
-  const theme = await page.evaluate(() =>
-    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
-  );
-  const controls = await page.locator('button.tmt-ui-action:disabled').evaluateAll((buttons) =>
-    buttons.map((button) => {
+  const { theme, controls } = await page.evaluate(() => ({
+    theme: matchMedia('(prefers-color-scheme: dark)').matches
+      ? ('dark' as const)
+      : ('light' as const),
+    controls: Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button.tmt-ui-action:disabled'),
+    ).map((button) => {
       const style = getComputedStyle(button);
       const form = button.closest('form');
       const input = form?.querySelector('input');
@@ -122,7 +124,7 @@ async function captureState(
         },
       };
     }),
-  );
+  }));
   for (const control of controls)
     expect(control.style, `${state}: ${JSON.stringify(control)}`).toEqual({
       color: tokenRgb('color', 'disabled-text', theme),
@@ -1817,8 +1819,46 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await page.click('#limit-form button');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
   await expect(page.locator('#limit-custom')).toHaveValue('19');
+  const roleRefresh = routeBarrier();
+  const roleRefreshJoined = routeBarrier();
+  let heldRoleRefresh = false;
+  const holdRoleRefresh = async (route: import('@playwright/test').Route) => {
+    const body = route.request().postDataJSON() as { operation?: string };
+    if (body.operation !== 'remote.settings.show' || heldRoleRefresh) {
+      await route.continue();
+      return;
+    }
+    heldRoleRefresh = true;
+    roleRefresh.arrive();
+    try {
+      await roleRefresh.held;
+      await route.continue();
+    } finally {
+      roleRefreshJoined.arrive();
+    }
+  };
+  await page.route('**/append', holdRoleRefresh);
   await page.click('#refresh');
+  await roleRefresh.reached;
+  let roleRefreshSettled = false;
+  const settledRoleRefresh = (async () => {
+    await expect(page.locator('#refresh')).toBeEnabled();
+    await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'false');
+    roleRefreshSettled = true;
+  })();
+  try {
+    await expect(page.locator('#refresh')).toBeDisabled();
+    await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'true');
+    expect(roleRefreshSettled).toBe(false);
+  } finally {
+    roleRefresh.release();
+    await roleRefreshJoined.reached;
+    await settledRoleRefresh;
+    await page.unroute('**/append', holdRoleRefresh);
+  }
   await expect(page.locator('#read-only')).toBeVisible();
+  await expect(page.locator('#limit-custom')).toHaveValue('19');
+  await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
   await descriptions(false);
   await captureState(
     page,
