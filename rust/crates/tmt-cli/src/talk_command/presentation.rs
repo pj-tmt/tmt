@@ -94,7 +94,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         } else if let Some(until) = correlation.digest_until_ms {
             writeln!(
                 stdout,
-                "Queued {}: {} is in digest for {} seconds (until UTC epoch {} ms); delivery is in its next checklist.",
+                "Queued {}: {} is in digest mode for {} seconds (until UTC epoch {} ms); delivery is in its next checklist.",
                 correlation.request_id,
                 correlation.target,
                 until.saturating_sub(wall_time_ms()).div_ceil(1000),

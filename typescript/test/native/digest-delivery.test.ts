@@ -426,7 +426,7 @@ describe('native Digest held delivery and checklist seam', () => {
       ).toBe(0);
       const human = await runCli(sandbox, ['talk', 'Worker', 'Held text']);
       expect(human.status).toBe(0);
-      expect(human.stdout).toContain('is in digest for');
+      expect(human.stdout).toContain('is in digest mode for');
       expect(human.stdout).toContain('delivery is in its next checklist');
       for (const flags of [['--urgent'], ['--identity', 'Owner']]) {
         const talk = await runCli(sandbox, [
