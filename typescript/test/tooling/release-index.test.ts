@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   channelPointer,
   updateReleaseIndex,
@@ -340,7 +340,9 @@ describe('protected release-index updates', () => {
     expect(() => updateReleaseIndex({ api, recordBytes })).toThrow('permission denied');
     expect(calls).toHaveLength(2);
     api.advance = () => 'updated';
-    expect(() => updateReleaseIndex({ api, recordBytes })).toThrow('readback failed');
+    expect(() => updateReleaseIndex({ api, recordBytes, sleep: () => {} })).toThrow(
+      'readback failed'
+    );
   });
 
   it('requires exact post-write pointer bytes unless a validated newer pointer won the race', () => {
@@ -356,6 +358,97 @@ describe('protected release-index updates', () => {
       return result;
     };
     expect(() => updateReleaseIndex({ api, recordBytes })).toThrow('readback bytes failed');
+  });
+
+  it.each([
+    ['older then fresh', 'older', 2, undefined],
+    ['null then fresh', 'absent', 2, undefined],
+    ['persistent older', 'older', 3, 'Index pointer readback bytes failed'],
+    ['persistent null', 'absent', 3, 'Index pointer readback failed'],
+    ['equal bytes conflict', 'bytes', 1, 'Index pointer readback bytes failed'],
+    ['equal identity conflict', 'identity', 1, 'Equal-version index identity conflict'],
+    ['higher concurrent pointer', 'higher', 1, undefined],
+    ['API failure', 'api', 1, 'read refused'],
+    ['invalid JSON', 'invalid', 1, 'invalid'],
+  ] as const)('bounds post-update reads: %s', (name, shape, reads, message) => {
+    const recordBytes = releaseRecordBytes(fixture().record);
+    const wanted = `${JSON.stringify(channelPointer(recordBytes), null, 2)}\n`;
+    const { api, calls } = indexFixture();
+    const readTip = api.readTip;
+    const advance = api.advance;
+    let updated = false;
+    let readbacks = 0;
+    let advances = 0;
+    const tips: string[] = [];
+    const waits: number[] = [];
+    const failure = new Error('read refused');
+    api.advance = (commit) => {
+      advances += 1;
+      updated = true;
+      return advance(commit);
+    };
+    api.readTip = () => {
+      if (!updated) return readTip();
+      const sha = String(++readbacks).padStart(40, '0');
+      tips.push(sha);
+      return { ...readTip(), sha };
+    };
+    api.readFile = (tip) => {
+      if (!updated) return null;
+      expect(tip).toBe(tips.at(-1));
+      if (name.endsWith('then fresh') && readbacks > 1) return Buffer.from(wanted);
+      if (shape === 'api') throw failure;
+      if (shape === 'absent') return null;
+      if (shape === 'older') return Buffer.from(wanted.replaceAll('alpha.9', 'alpha.8'));
+      if (shape === 'higher') return Buffer.from(wanted.replaceAll('alpha.9', 'alpha.10'));
+      if (shape === 'bytes') return Buffer.from(wanted.trim());
+      if (shape === 'invalid') return Buffer.from('{');
+      const pointer = JSON.parse(wanted);
+      pointer.record.sha256 = 'f'.repeat(64);
+      return Buffer.from(JSON.stringify(pointer));
+    };
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const run = () => updateReleaseIndex({ api, recordBytes, sleep: (ms) => waits.push(ms) });
+      if (message) {
+        if (shape === 'api') {
+          let caught: unknown;
+          try {
+            run();
+          } catch (error) {
+            caught = error;
+          }
+          expect(caught).toBe(failure);
+        } else if (shape === 'invalid') {
+          expect(run).toThrow(SyntaxError);
+        } else {
+          expect(run).toThrow(message);
+        }
+      } else {
+        expect(run()).toMatchObject({ changed: true, tip: tips.at(-1), attempts: 1 });
+      }
+      expect(readbacks).toBe(reads);
+      expect(waits).toEqual(reads === 3 ? [1000, 2000] : reads === 2 ? [1000] : []);
+      expect(calls).toHaveLength(1);
+      expect(advances).toBe(1);
+      const staleReads = message ? reads : reads - 1;
+      const diagnostics = stderr.mock.calls.map(([line]) => String(line));
+      if (shape === 'older' || shape === 'absent') {
+        expect(
+          diagnostics.filter((line) => line.startsWith('Index pointer readback tip='))
+        ).toEqual(
+          tips
+            .slice(0, staleReads)
+            .map(
+              (tip) => `Index pointer readback tip=${tip} order=${shape === 'older' ? -1 : null}\n`
+            )
+        );
+      } else {
+        expect(diagnostics).toEqual([]);
+      }
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it('writes the historical record and pointer atomically, retaining immutable record bytes', () => {

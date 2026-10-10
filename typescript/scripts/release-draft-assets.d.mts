@@ -58,13 +58,6 @@ export function readHold(input: {
   tag: string;
   download: (asset: DraftAsset) => string;
 }): { gate: string; reason: string } | null;
-export function retryReleaseRead<T>(
-  read: () => T,
-  options: {
-    label: string;
-    sleep?: (milliseconds: number) => void;
-  }
-): T;
 export function ghApi(input: {
   sleep?: (milliseconds: number) => void;
   repository: string;
