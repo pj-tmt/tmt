@@ -69,6 +69,37 @@ fn help_uses_public_ownership_and_resolves_aliases() {
 }
 
 #[test]
+fn unknown_help_topics_point_to_the_nearest_public_parent() {
+    for (path, parent) in [
+        (vec!["nosuch"], "tmt"),
+        (vec!["office", "not-a-command"], "tmt office"),
+        (
+            vec!["office", "board", "list", "nosuch"],
+            "tmt office board ls",
+        ),
+        (vec!["__native-install"], "tmt"),
+    ] {
+        let topic = path.last().unwrap();
+        let help = format!("tmt help{}", parent.strip_prefix("tmt").unwrap());
+        let expected =
+            format!("Unknown command '{topic}' after {parent}.\nRun {help} to see its commands.");
+        let path: Vec<String> = path.into_iter().map(str::to_owned).collect();
+        assert_eq!(grammar::help_command(&path).unwrap_err(), expected);
+        for json in [false, true] {
+            let mut argv = vec![OsString::from("help")];
+            argv.extend(path.iter().map(OsString::from));
+            if json {
+                argv.push("--json".into());
+            }
+            let error = crate::parser::parse_core(&argv).unwrap_err();
+            assert_eq!(error.code, "USAGE_ERROR");
+            assert_eq!(error.message, expected);
+            assert_eq!(error.mode.json, json);
+        }
+    }
+}
+
+#[test]
 fn notes_help_identifies_the_shared_file_and_explicit_creation_boundary() {
     let text = grammar::help_command(&["notes".into(), "path".into()])
         .unwrap()

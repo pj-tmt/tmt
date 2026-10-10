@@ -12,7 +12,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   other. Each visible core command registers from a `CommandSpec` through
   `tmt_cli_style::apply`; hidden commands have no help page. Every public core option has a
   nonblank single-line description, checked recursively. Core help never enters runtime
-  dispatch or skill-drift inspection.
+  dispatch or skill-drift inspection. Unknown help topics name the nearest resolved public
+  parent's help command; error code, presentation mode and JSON fields stay unchanged.
 - The help scan shares option-value boundaries with error-mode recovery so `-h` bypasses
   required operands without reading payload data as flags. Help with `--json` reaches
   `finish_parse` and returns `JSON_UNSUPPORTED` before operand validation. `OutputMode` holds only JSON;
