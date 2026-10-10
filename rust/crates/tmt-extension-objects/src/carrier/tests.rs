@@ -1,6 +1,7 @@
 //! Frame I/O over real Unix sockets. Every refusal is paired with an accepted twin it
 //! differs from by one token, and every bound is shown on the clock with short budgets
 //! rather than by sleeping for a fixed time.
+use super::handshake::version_one;
 use super::*;
 use crate::{
     Admission, Chunk, Counter, Decision, Method, Outcome, ResultFrame, Success,
@@ -101,7 +102,7 @@ fn raw_link() -> (Link, UnixStream) {
 pub(super) fn linked() -> (Link, Link) {
     let (a, b) = UnixStream::pair().unwrap();
     let accepted = thread::spawn(move || accept(b, &expect(), &quick(), setup()));
-    let initiated = initiate(a, &offer(), setup()).unwrap();
+    let initiated = version_one(a, &offer(), setup()).unwrap();
     (initiated, accepted.join().unwrap().unwrap())
 }
 
@@ -133,7 +134,7 @@ fn a_frame_sent_with_the_reply_is_not_lost() {
         link.write_frame(&admission(GEN, 1), &quick()).unwrap();
         link
     });
-    let mut initiated = initiate(a, &offer(), setup()).unwrap();
+    let mut initiated = version_one(a, &offer(), setup()).unwrap();
     assert_eq!(
         initiated.read_frame(idle(), &quick()).unwrap(),
         admission(GEN, 1)

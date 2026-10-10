@@ -1,13 +1,14 @@
 //! The bus over real Unix sockets: direction and correlation are checked before a frame
 //! is queued or written, the reader never waits on a consumer, every fault is final and
 //! sticky, and ending the bus joins its thread and releases the socket.
+use super::super::handshake::version_one;
 use super::super::tests::{
     GEN, admission, admit, admit_read, answer, big_read_result, done, generation, origin_state_n,
     quick, read_request, request, transfer,
 };
 use super::super::{Caps, Reason, Role};
 use super::*;
-use crate::{Expect, Offer, accept, initiate};
+use crate::{Expect, Offer, accept};
 use std::{
     io::{Read, Write},
     sync::Weak,
@@ -31,7 +32,7 @@ fn buses() -> (Bus, Bus) {
         mount: "colab".into(),
         generation: generation(GEN),
     };
-    let remote = initiate(a, &offer, setup).unwrap();
+    let remote = version_one(a, &offer, setup).unwrap();
     let extension = extension.join().unwrap().unwrap();
     (
         Bus::start(remote, quick(), Caps::contract(), None).unwrap(),

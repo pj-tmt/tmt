@@ -19,7 +19,7 @@ mod handshake;
 mod ledger;
 
 pub use bus::{Bus, StampedObjectFrame};
-pub use handshake::{Expect, Offer, accept, accept_head, initiate, negotiate};
+pub use handshake::{Expect, Offer, accept, accept_head, negotiate};
 pub use ledger::{Budget, Caps, Reason};
 
 /// The reserved route that opens the channel.
@@ -164,21 +164,19 @@ fn supports(version: u8, method: Method) -> bool {
     version == 2 || !matches!(method, Method::RemoveNamespace | Method::Usage)
 }
 /// The consumer-facing hint for an unsupported namespace management action.
-pub fn unsupported_hint(installed_is_newer: bool) -> &'static str {
-    if installed_is_newer {
-        "Restart Remote serve to enable this: tmt remote stop && tmt remote serve"
-    } else {
-        "upgrade Remote"
+pub fn unsupported_hint() -> &'static str {
+    "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still fails, upgrade Remote."
+}
+fn frame_method(frame: &Frame) -> Option<Method> {
+    match frame {
+        Frame::Request(value) => Some(value.call.method()),
+        Frame::Result(value) => Some(value.method),
+        Frame::Admit(value) => Some(value.operation.input.method()),
+        Frame::Admission(_) | Frame::OriginState(_) => None,
     }
 }
 fn frame_supported(version: u8, frame: &Frame) -> bool {
-    let method = match frame {
-        Frame::Request(value) => value.call.method(),
-        Frame::Result(value) => value.method,
-        Frame::Admit(value) => value.operation.input.method(),
-        Frame::Admission(_) | Frame::OriginState(_) => return true,
-    };
-    supports(version, method)
+    frame_method(frame).is_none_or(|method| supports(version, method))
 }
 impl Link {
     pub fn supports(&self, method: Method) -> bool {
