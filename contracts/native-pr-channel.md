@@ -33,9 +33,9 @@ denied requests or pagination refuse. Manual dispatch produces one generation
 only after the operator explicitly adds the label; the producer never adds it.
 Disabling means removing the label. The installer never dispatches or edits labels.
 
-Authenticated Actions acquisition reuses `GITHUB_TOKEN` or `gh auth token` for
-github.com during this invocation. No credential or signed download URL enters
-a receipt, log or diagnostic. Fixed official API routes select the exact named
+Authenticated Actions acquisition uses only nonempty `GH_TOKEN`, then `GITHUB_TOKEN`,
+from the invocation environment; never `gh auth token`, a keychain or a prompt.
+No credential or signed download URL enters a receipt, log or diagnostic. Fixed official API routes select the exact named
 `tmt-pr-rc-catalog-v2-pr<N>` inventory. Discovery is bounded to 32 metadata
 requests, 2 MiB cumulative metadata, eight producer generations, and the existing
 60-second acquisition deadline. Incomplete or ambiguous discovery refuses.
