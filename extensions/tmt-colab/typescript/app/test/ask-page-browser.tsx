@@ -91,6 +91,8 @@ function sessionDrafts(mode: 'session' | 'failing'): DraftStore {
 export async function mount(
   options: {
     creator?: boolean;
+    /** Comment-capable binding without the independent Ask facade. */
+    commentOnly?: boolean;
     /** A bounded preparation fault before any intent exists. */
     prepareFailures?: number;
     checking?: boolean;
@@ -520,7 +522,7 @@ export async function mount(
     },
   };
   presentationAsk = ask;
-  presentationClient = ask;
+  presentationClient = options.commentOnly ? undefined : ask;
   const binding: PageBinding = {
     get ask() {
       return presentationClient;

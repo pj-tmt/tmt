@@ -570,3 +570,32 @@ for (const width of [1440, 390])
       await expect(input).toHaveText(originalDraft!);
     });
   }
+
+test('selection uses admitted comment authority without Ask; a read-only page has no mode or C action', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { commentOnly: true });
+  const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+  await expect(mode).toHaveAttribute('aria-pressed', 'false');
+  await mode.click();
+  await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
+  const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
+  await expect(input).toBeFocused();
+  await input.fill('A comment without Ask authority');
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.evaluate(() => {
+    location.hash = '/pages/notes';
+  });
+  const readonly = page.frameLocator('#ask-page-fixture iframe').locator('#other-page');
+  await expect(readonly).toHaveText('Another fixture page');
+  await expect(mode).toHaveCount(0);
+  await readonly.click();
+  await page.keyboard.press('c');
+  await expect(mode).toHaveCount(0);
+  await expect(page.locator('.annotation-popover')).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+});

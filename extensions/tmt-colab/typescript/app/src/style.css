@@ -1318,8 +1318,6 @@ footer {
   height: 40px;
   min-height: 40px;
   border: 1px solid var(--c-text);
-  background: var(--c-sheet);
-  color: var(--c-text);
 }
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;

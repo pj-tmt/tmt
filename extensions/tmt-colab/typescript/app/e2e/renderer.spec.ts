@@ -1051,7 +1051,7 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await page.goto('/');
   await mount(
     page,
-    '<p id="target">Comment on these words</p><div id="empty" style="width:80px;height:80px"></div>',
+    '<p id="target">Comment on these words</p><div id="empty" style="width:80px;height:80px"></div><p id="drag" style="display:inline-block">Drag these words</p>',
   );
   await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
   const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
@@ -1077,6 +1077,14 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
   await frame.locator('#target').hover();
   await expect(frame.getByRole('status')).toHaveCount(0);
+  const box = (await frame.locator('#drag').boundingBox())!;
+  await page.mouse.move(box.x + 1, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await page.mouse.up();
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Drag these words');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
   await page.evaluate(() => {
     (
       window as unknown as { probe: { handle: { selectionMode(enabled: boolean): void } } }
@@ -1084,5 +1092,5 @@ test('selection mode outlines one target, captures text-bearing clicks and refus
   });
   await expect(frame.locator('[data-colab-selection-outline]')).toHaveCount(0);
   await frame.locator('#target').click();
-  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '1');
+  await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
 });

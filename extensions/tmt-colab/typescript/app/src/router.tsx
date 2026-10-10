@@ -131,7 +131,7 @@ function SelectionMode({
       )}
       <BrowserIconAction
         type="button"
-        variant="text"
+        variant="primary"
         label={text.selectionMode}
         buttonRef={button}
         pressed={enabled}
@@ -1110,11 +1110,7 @@ function Page() {
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
-  const canSelect =
-    !!snapshot.binding?.discussion &&
-    !!snapshot.binding?.ask &&
-    !discussionBlocked &&
-    state === 'ready';
+  const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
   };
