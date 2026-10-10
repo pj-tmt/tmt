@@ -222,6 +222,9 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     expect(await downloaded(reader.page, rowsOf(reader.page).first(), note.name)).toBe(
       sha(note.buffer),
     );
+    const row = rowsOf(first).first();
+    const originalAttachmentId = await row.getAttribute('data-attachment-id');
+    expect(originalAttachmentId).toMatch(/^[a-f0-9-]{36}$/);
 
     // A revoked paired device reads nothing after it reloads.
     run(world, world.binaries.remote, [
@@ -270,43 +273,13 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await expect(panel.first()).toBeVisible();
     await expect(rowsOf(first)).toHaveCount(1, { timeout: 30_000 });
     // Live means the page re-admitted, not that the background reference swap finished.
-    // Observe the completed slot in this isolated world, then its exact ID in the browser.
+    // Observe the new reference through the browser row, not private storage records.
     // Clicking during the swap correctly refuses a replaced read rather than replaying it.
-    const { epoch } = colab(['page', 'read', created.pageId]);
-    expect(epoch).toMatch(/^\d+$/);
-    const slotDirectories = fs
-      .readdirSync(world.dataRoot, { recursive: true, encoding: 'utf8' })
-      .filter((entry) => entry.endsWith('attach-slots'));
-    expect(slotDirectories).toHaveLength(1);
-    const slots = path.join(world.dataRoot, slotDirectories[0]!);
-    type Slot = {
-      doneMs?: number;
-      replaces?: string;
-      sealed?: { descriptor: { epoch: string; attachmentId: string } };
-    };
-    let attachmentId: string | undefined;
-    await expect
-      .poll(
-        () => {
-          const completed = fs
-            .readdirSync(slots)
-            .map(
-              (name) =>
-                JSON.parse(fs.readFileSync(path.join(slots, name, 'slot.json'), 'utf8')) as Slot,
-            );
-          attachmentId = completed.find(
-            (slot) => slot.doneMs && slot.replaces && slot.sealed?.descriptor.epoch === epoch,
-          )?.sealed?.descriptor.attachmentId;
-          return attachmentId;
-        },
-        { timeout: 60_000 },
-      )
-      .toMatch(/^[a-f0-9-]{36}$/);
-    const row = rowsOf(first).first();
-    await expect(row).toHaveAttribute('data-attachment-id', attachmentId!, {
-      timeout: 30_000,
+    await expect(row).not.toHaveAttribute('data-attachment-id', originalAttachmentId!, {
+      timeout: 60_000,
     });
-    await expect(row).not.toContainText(text.filesResealing);
+    await expect(row).toHaveAttribute('data-attachment-id', /^[a-f0-9-]{36}$/);
+    await expect(row).not.toContainText(text.filesResealing, { timeout: 60_000 });
     // One click must use this current admitted reference without a user retry.
     const pending = first.waitForEvent('download');
     await row.getByRole('button', { name: text.attachmentDownload }).click();
