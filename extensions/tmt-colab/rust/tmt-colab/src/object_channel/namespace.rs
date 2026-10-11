@@ -101,8 +101,13 @@ impl ChannelOwner {
                 return Ok(true);
             }
             *after = Some(page.clone());
-            if policy_view(view, &page)?.1 {
-                unfinished |= self.remove_page_namespace(&page, source, deadline) != Storage::Freed;
+            match policy_view(view, &page) {
+                Ok((_, true)) => {
+                    unfinished |=
+                        self.remove_page_namespace(&page, source, deadline) != Storage::Freed;
+                }
+                Ok((_, false)) => {}
+                Err(_) => unfinished = true,
             }
         }
         *after = None;

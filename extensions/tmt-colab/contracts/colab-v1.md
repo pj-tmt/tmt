@@ -112,8 +112,7 @@ affected namespace's `objects.usage` through a native callback owner, carrying `
 `entries`, `activeUploads`, and `retainedIdentities`. The displayed amount is a conservative
 allocation charge, not disk or billing bytes; unknown usage displays no guessed amount.
 
-Paired local browsers
-open archived pages through read-purpose catch-up. A newly committed management
+Paired local browsers open archived pages through read-purpose catch-up. A newly committed management
 archive ends that page's open sync connections with
 `RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
 Writes, Ask, upload and thread status actions are removed; native admission still

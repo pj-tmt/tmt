@@ -102,6 +102,17 @@ test('committed page deletion removes file data while retaining fixed namespace 
       ]);
       expect(repeated.storage).toBe('freed');
       expect(projection()).toEqual({ payload: 0, entries: 0, active: 0, retained: 1 });
+      const human = run(world, world.binaries.colab, [
+        'delete',
+        created.pageId,
+        '--yes',
+        '--operation-id',
+        deleted.operationId,
+        '--expected-revision',
+        deleted.expectedRevision,
+      ]);
+      expect(human).toContain('File data freed. A small fixed record remains.');
+      expect(projection()).toEqual({ payload: 0, entries: 0, active: 0, retained: 1 });
     } finally {
       ledger.close();
     }

@@ -169,12 +169,15 @@ fn pass(
 ) -> Result<bool> {
     // Share the pass snapshot; each actual removal still rechecks fresh admission.
     let view = source()?;
-    let cleanup_waiting = objects.sweep_deletions(
-        source,
-        &view,
-        deletion_after,
-        Instant::now() + Duration::from_secs(5),
-    )?;
+    // Cleanup admission failure must not skip independent epoch work.
+    let cleanup_waiting = objects
+        .sweep_deletions(
+            source,
+            &view,
+            deletion_after,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap_or(true);
     objects.sweep_slots(slots, source, registration::now_ms()?);
     let advanced =
         view.store
@@ -219,5 +222,81 @@ mod tests {
         assert_eq!(waits, [60, 120, 240, 480, 960, 1920, 3600, 3600, 3600]);
         backoff.reset();
         assert_eq!(backoff.next(), RETRY);
+    }
+    #[test]
+    fn failed_cleanup_policies_finish_the_sweep_and_do_not_skip_the_rekey_owner() {
+        use crate::{
+            keyring::Layout,
+            readers::test_support::{Fixture, OTHER, PAGE, decoder_config},
+            transitions::OwnerAction,
+        };
+        use std::sync::atomic::AtomicUsize;
+        let mut fixture = Fixture::new();
+        fixture.apply(OwnerAction::EpochAdvance { page: PAGE });
+        // A signed statement with an inconsistent OTHER-page epoch fails only
+        // that page's policy reduction. PAGE's committed epoch and rekey remain valid.
+        let head = fixture
+            .store
+            .owner_head(&fixture.key.space_id, &fixture.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let envelope = fixture
+            .key
+            .sign_statement(
+                Some(&head),
+                "page.share",
+                &serde_json::to_vec(
+                    &serde_json::json!({"pageId":OTHER,"epoch":"99","mode":"private"}),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let db = rusqlite::Connection::open(fixture.root.join("colab/space.db")).unwrap();
+        db.execute(
+            "INSERT INTO membership_log(revision,hash,envelope) VALUES (?1,?2,?3)",
+            rusqlite::params![
+                format!("{:020}", head.revision + 1),
+                envelope.hash().unwrap().as_slice(),
+                envelope.to_json().unwrap()
+            ],
+        )
+        .unwrap();
+        let root = fixture.root.clone();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let observed = reads.clone();
+        let config = decoder_config(std::env::current_exe().unwrap());
+        let source: SourceOpener = Arc::new(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            crate::page::save::open_source(&root, config.clone())
+        });
+        let layout = Layout::existing(&fixture.root).unwrap().unwrap();
+        let slots = StagingSlots::open(&layout).unwrap();
+        let objects = ChannelOwner::new(Arc::new(|| None));
+        let shared = Shared {
+            due: Mutex::new(false),
+            wake: Condvar::new(),
+            stop: AtomicBool::new(false),
+        };
+        let mut after = None;
+        assert!(
+            pass(
+                &shared,
+                &objects,
+                &slots,
+                &source,
+                &fixture.server,
+                &mut after
+            )
+            .unwrap()
+        );
+        assert!(
+            after.is_none(),
+            "failed policies must not stop at the first page"
+        );
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "the rekey owner still opens its fresh read"
+        );
     }
 }

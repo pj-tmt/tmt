@@ -1154,9 +1154,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&outcome, true);
     }
     let mut rows = page_rows(&reach, &path);
-    if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone())
-        && storage != management::Storage::Freed
-    {
+    if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone()) {
         rows.push(("storage", storage.message()));
     }
     if let Some(reader) = outcome["readerPath"].as_str() {
