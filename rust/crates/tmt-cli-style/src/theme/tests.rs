@@ -179,6 +179,26 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
         terminal.style(Role::Selection, Depth::Ansi16),
         Style::new().invert()
     );
+    // The track is a quieter background, and only the dim effect without one.
+    let track = tmt.style(Role::Track, Depth::TrueColor);
+    assert_eq!(
+        track.get_bg_color(),
+        Some(Color::Rgb(RgbColor(0x2E, 0x2E, 0x2E)))
+    );
+    assert_eq!(track.get_fg_color(), None);
+    assert_eq!(
+        Theme::new(Base::TmtLight)
+            .style(Role::Track, Depth::TrueColor)
+            .get_bg_color(),
+        Some(Color::Rgb(RgbColor(0xE6, 0xE6, 0xE6)))
+    );
+    for style in [
+        terminal.style(Role::Track, Depth::Ansi16),
+        tmt.style(Role::Track, Depth::Ansi16),
+        mono.style(Role::Track, Depth::TrueColor),
+    ] {
+        assert_eq!(style, Style::new().dimmed());
+    }
     // No color means no styling at all, in every theme.
     for base in Base::ALL {
         for role in Role::ALL {
@@ -298,6 +318,9 @@ fn screens_get_the_same_style() {
     assert_eq!(waiting.fg, Some(ScreenColor::Rgb(0xFF, 0x9E, 0x64)));
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
     assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x4A, 0x4A, 0x4A)));
+    let track = screen::style(&tmt, Role::Track, Depth::TrueColor);
+    assert_eq!(track.bg, Some(ScreenColor::Rgb(0x2E, 0x2E, 0x2E)));
+    assert_eq!(track.fg, None);
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
     assert_eq!(dim.fg, None);
     assert!(dim.add_modifier.contains(Modifier::DIM));
@@ -368,7 +391,7 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         let backgrounds = [tokens["surface"]["paper"][mode].as_str().unwrap()];
         for role in Role::ALL
             .into_iter()
-            .filter(|role| *role != Role::Selection)
+            .filter(|role| !matches!(role, Role::Selection | Role::Track))
         {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
                 3.0
@@ -390,6 +413,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         assert!(
             ratio >= 4.5,
             "{mode} text on selection {selection}: {ratio:.2}:1 < 4.5:1"
+        );
+        let track = tokens["color"]["track"][mode].as_str().unwrap();
+        let ratio = contrast(color(Role::Text), track);
+        assert!(
+            ratio >= 4.5,
+            "{mode} text on track {track}: {ratio:.2}:1 < 4.5:1"
         );
         for role in selection_marks {
             let ratio = contrast(color(role), selection);
