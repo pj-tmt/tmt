@@ -37,6 +37,8 @@ const cases = [
   { provider: 'codex', kind: 'held-index' },
   { provider: 'codex', kind: 'unknown-header' },
   { provider: 'codex', kind: 'subagent' },
+  { provider: 'codex', kind: 'hook-subagent' },
+  { provider: 'codex', kind: 'hook-unknown-header' },
 ] as const;
 
 describe('direct provider conversation discovery', { concurrent: false }, () => {
@@ -228,6 +230,168 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
     });
   });
 
+  it.each(['fresh', 'remembered', 'hook-switch'] as const)(
+    'Codex publishes fresh, same-session and switched resume addresses (%s)',
+    async (mode) => {
+      await withE2EFixture(async (fixture) => {
+        const pane = fixture.createShellPane('codex-session-turnover').pane;
+        const identity = expectJsonResult(
+          await fixture.runJsonCli<{ id: string }>(['add', pane, 'Direct', '-s'])
+        );
+        const sessions = [
+          '01234567-89ab-7cde-8fab-0123456789ab',
+          '01234567-89ab-7cde-8fab-0123456789ac',
+        ];
+        const home = path.join(fixture.root, 'provider-home');
+        const codexHome = path.join(home, '.codex');
+        mkdirSync(codexHome, { recursive: true });
+        const index = new Database(path.join(codexHome, 'state_5.sqlite'));
+        try {
+          index.exec(
+            `CREATE TABLE threads (${capturedCodex.index.columns
+              .map(
+                (column) =>
+                  `${column.name} ${column.type} ${column.notNull ? 'NOT NULL' : ''} ${column.primaryKey ? 'PRIMARY KEY' : ''} DEFAULT ${column.type === 'TEXT' ? "''" : '0'}`
+              )
+              .join(',')})`
+          );
+          for (const session of sessions) {
+            const rollout = path.join(codexHome, 'sessions', `${session}.jsonl`);
+            mkdirSync(path.dirname(rollout), { recursive: true });
+            const header = structuredClone(capturedCodex.header);
+            header.payload.id = session;
+            header.payload.session_id = session;
+            writeFileSync(rollout, `${JSON.stringify(header)}\n`);
+            index
+              .prepare('INSERT INTO threads (id, rollout_path, source) VALUES (?, ?, ?)')
+              .run(session, rollout, 'cli');
+          }
+        } finally {
+          index.close();
+        }
+        if (mode === 'remembered') {
+          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+          try {
+            database
+              .prepare(`INSERT INTO identity_session_preferences
+              (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id)
+              VALUES (?, 'codex', 'codex', 'embedded', ?)`)
+              .run(identity.id, sessions[0]);
+          } finally {
+            database.close();
+          }
+        }
+        // Each tool call carries the provider's current thread locator. The
+        // compiled native provider remains the same process across the switch.
+        const cli = path.join(fixture.wrapperDir, 'turnover-cli');
+        writeExecutable(
+          cli,
+          `#!/bin/sh\nexport CODEX_THREAD_ID="$1"\nshift\nexec ${[fixture.executables.cli.executable, ...fixture.executables.cli.args].map(quote).join(' ')} "$@"\n`,
+          0o700
+        );
+        const checkpoint = path.join(fixture.root, 'turnover-complete');
+        const scenario = path.join(fixture.root, 'scenario.json');
+        const report = path.join(fixture.root, 'report.json');
+        const status = path.join(fixture.root, 'provider.status');
+        const sequence = [sessions[0], sessions[0], sessions[1]];
+        writeFileSync(
+          scenario,
+          JSON.stringify([
+            ...(mode === 'hook-switch'
+              ? [
+                  {
+                    args: [sessions[1], '__hook', 'codex'],
+                    input: {
+                      hook_event_name: 'SessionStart',
+                      session_id: sessions[1],
+                      source: 'startup',
+                    },
+                  },
+                  { args: [sessions[1], 'ls', '--json'] },
+                ]
+              : []),
+            ...sequence.flatMap((session) => [
+              { args: [session, 'config', 'show', '--json'] },
+              { args: [session, 'ls', '--json'] },
+            ]),
+            { args: [sessions[1], 'whoami', '--json'], checkpoint },
+          ])
+        );
+        const command = [
+          'env',
+          '-u',
+          'CLAUDE_CODE_SESSION_ID',
+          `HOME=${home}`,
+          `CODEX_HOME=${codexHome}`,
+          'TMT_CALLER_SESSION_DEBUG=1',
+          '/opt/tmt-tests/hook-runtime/codex',
+          cli,
+          scenario,
+          report,
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${command}; printf '%s' "$?" > ${quote(status)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        await waitForFileContent(checkpoint, { description: 'Codex thread turnover complete' });
+        try {
+          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+            readonly: true,
+          });
+          try {
+            expect(
+              database
+                .prepare(`SELECT b.observed_provider_session_id AS observed,
+              p.provider_session_id AS remembered, b.last_transition AS transition FROM bindings b
+              JOIN identity_session_preferences p ON p.identity_id=b.identity_id
+              WHERE b.identity_id=?`)
+                .get(identity.id)
+            ).toEqual({ observed: sessions[1], remembered: sessions[1], transition: 'resumed' });
+          } finally {
+            database.close();
+          }
+        } finally {
+          writeFileSync(checkpoint, 'continue');
+        }
+        expect(
+          await waitForFileContent(status, { description: 'Codex turnover fixture exit' })
+        ).toBe('0');
+        const calls = JSON.parse(readFileSync(report, 'utf8')) as Array<{
+          code: number;
+          stdout: string;
+          stderr: string;
+        }>;
+        const offset = mode === 'hook-switch' ? 2 : 0;
+        expect(calls).toHaveLength(7 + offset);
+        expect(calls.every((call) => call.code === 0)).toBe(true);
+        if (mode === 'hook-switch') {
+          const hooked = JSON.parse(calls[1].stdout) as {
+            identities: Array<{ id: string; address: string }>;
+          };
+          expect(hooked.identities.find((row) => row.id === identity.id)?.address).toBe(
+            `codex:${sessions[1]}`
+          );
+        }
+        for (const [position, session] of sequence.entries()) {
+          expect(calls[offset + position * 2].code).toBe(0);
+          expect(calls[offset + position * 2].stderr).not.toContain('caller session not recorded');
+          const listed = JSON.parse(calls[offset + position * 2 + 1].stdout) as {
+            identities: Array<{ id: string; address: string }>;
+          };
+          expect(listed.identities.find((row) => row.id === identity.id)?.address).toBe(
+            `codex:${session}`
+          );
+        }
+      });
+    }
+  );
+
   it.each(cases)(
     '$provider $kind preserves successful commands and admits only exact main sessions',
     async ({ provider, kind }) => {
@@ -241,10 +405,15 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
         ).identity;
         const home = path.join(fixture.root, 'provider-home');
         mkdirSync(home);
-        const session = '01234567-89ab-7cde-8fab-0123456789ab';
         const hookSession = '01234567-89ab-7cde-8fab-0123456789ac';
-        const expectedSession =
-          kind === 'hook-primary' ? hookSession : kind === 'main' ? session : null;
+        const session =
+          provider === 'codex' && kind === 'hook-primary'
+            ? hookSession
+            : '01234567-89ab-7cde-8fab-0123456789ab';
+        const hasHook =
+          kind === 'hook-primary' || kind === 'hook-subagent' || kind === 'hook-unknown-header';
+        const unknownHeader = kind === 'unknown-header' || kind === 'hook-unknown-header';
+        const expectedSession = hasHook ? hookSession : kind === 'main' ? session : null;
         let providerDatabase: Database.Database | undefined;
         if (provider === 'codex') {
           const codexHome = path.join(home, '.codex');
@@ -260,8 +429,8 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           const header = structuredClone(capturedCodex.header);
           header.payload.id = session;
           header.payload.session_id = session;
-          if (kind === 'unknown-header') header.type = 'new-unknown-shape';
-          if (kind === 'subagent')
+          if (unknownHeader) header.type = 'new-unknown-shape';
+          if (kind === 'subagent' || kind === 'hook-subagent')
             header.payload.source = { subagent: { parent_thread_id: 'parent' } };
           writeFileSync(rollout, `${JSON.stringify(header)}\nignored transcript record\n`);
           providerDatabase = new Database(path.join(codexHome, 'state_5.sqlite'));
@@ -295,7 +464,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
           writeFileSync(
             scenario,
             JSON.stringify([
-              ...(kind === 'hook-primary'
+              ...(hasHook
                 ? [
                     {
                       args: ['__hook', provider],
@@ -327,7 +496,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             'env',
             '-u',
             provider === 'claude' ? 'CODEX_THREAD_ID' : 'CLAUDE_CODE_SESSION_ID',
-            ...(kind === 'unknown-header' ? ['TMT_CALLER_SESSION_DEBUG=1'] : []),
+            ...(unknownHeader ? ['TMT_CALLER_SESSION_DEBUG=1'] : []),
             `HOME=${home}`,
             `CLAUDE_CONFIG_DIR=${path.join(home, '.claude')}`,
             `CODEX_HOME=${path.join(home, '.codex')}`,
@@ -383,9 +552,9 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             stderr: string;
           }>;
           expect(calls.every((call) => call.code === 0)).toBe(true);
-          const ordinaryCalls = kind === 'hook-primary' ? calls.slice(1) : calls;
+          const ordinaryCalls = hasHook ? calls.slice(1) : calls;
           expect(ordinaryCalls).toHaveLength(3);
-          if (!expectedSession) {
+          if (!expectedSession || kind === 'hook-subagent' || kind === 'hook-unknown-header') {
             const cache = JSON.parse(
               readFileSync(path.join(fixture.globalDir, 'caller-session-refusals.json'), 'utf8')
             ) as {
@@ -396,7 +565,7 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
             expect(cache.entries).toHaveLength(1);
             expect(cache.entries[0].key).toMatchObject({ harness: provider, session });
           }
-          if (kind === 'unknown-header') {
+          if (unknownHeader) {
             for (const call of ordinaryCalls) {
               expect(call.stderr).toContain('caller session not recorded: provider-header-shape');
             }

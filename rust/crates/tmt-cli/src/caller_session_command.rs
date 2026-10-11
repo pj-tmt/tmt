@@ -113,10 +113,10 @@ fn observe_candidate(
         deadline,
         now_ms,
     } = discovery;
-    if Storage::remembers_provider_session(database, harness.as_str(), coordinates.session.as_str())
+    if Storage::observes_provider_session(database, harness.as_str(), coordinates.session.as_str())
         .map_err(|_| "storage")?
     {
-        // Selection is stored correlation only: a matching hint authorizes no
+        // Selection is stored correlation only: agreeing observations authorize no
         // effect, so this path needs neither ps nor provider-file evidence.
         return Ok(());
     }

@@ -439,13 +439,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         crate::runtime::lifecycle::CallerSessionRefusal,
     > {
         caller_session::root(coordinates, environment, deadline)?;
-        Ok(Box::new(CodexObservation {
-            session: coordinates.session.clone(),
-            model: None,
-
-            transition: SessionTransition::Started,
-            starting: true,
-        }))
+        Ok(Box::new(caller_session::Observation(
+            coordinates.session.clone(),
+        )))
     }
     fn observe_main_caller(
         &self,

@@ -82,19 +82,21 @@ fn caller_precheck_is_storage_only_and_refuses_unbound_retired_or_ambiguous_pane
 }
 
 #[test]
-fn discovery_shortcut_is_read_only_and_needs_no_current_binding_observation() {
+fn discovery_shortcut_is_read_only_and_requires_current_observed_agreement() {
     let (_directory, path, id) = fixture();
     let connection = Connection::open(&path).unwrap();
     connection.execute("INSERT INTO identity_session_preferences (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id) VALUES (?1, 'claude', 'claude', 'default', 'thread-a')", [&id]).unwrap();
+    assert!(!Storage::observes_provider_session(&path, "claude", "thread-a").unwrap());
+    connection.execute("UPDATE bindings SET runtime_state='running', runtime_pid=20, runtime_start_identity='provider', observed_provider_session_id='thread-a'", []).unwrap();
     let before = fs::read(&path).unwrap();
-    assert!(Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
-    assert!(!Storage::remembers_provider_session(&path, "codex", "thread-a").unwrap());
-    assert!(!Storage::remembers_provider_session(&path, "claude", "changed").unwrap());
+    assert!(Storage::observes_provider_session(&path, "claude", "thread-a").unwrap());
+    assert!(!Storage::observes_provider_session(&path, "codex", "thread-a").unwrap());
+    assert!(!Storage::observes_provider_session(&path, "claude", "changed").unwrap());
     assert_eq!(fs::read(&path).unwrap(), before);
     connection
         .execute("UPDATE identities SET retired_at_ms=1", [])
         .unwrap();
-    assert!(!Storage::remembers_provider_session(&path, "claude", "thread-a").unwrap());
+    assert!(!Storage::observes_provider_session(&path, "claude", "thread-a").unwrap());
 }
 
 #[test]

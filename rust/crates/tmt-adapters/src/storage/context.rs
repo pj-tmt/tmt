@@ -78,8 +78,8 @@ impl Storage {
     }
 
     /// A no-effect shortcut for optional caller discovery, never binding or
-    /// delivery authority. Remembered history suffices to skip rediscovery.
-    pub fn remembers_provider_session(
+    /// delivery authority. Only agreeing current observations can skip rediscovery.
+    pub fn observes_provider_session(
         path: &Path,
         harness: &str,
         session: &str,
@@ -94,8 +94,11 @@ impl Storage {
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM identity_session_preferences p
              JOIN identities i ON i.id = p.identity_id
+             JOIN bindings b ON b.identity_id = p.identity_id
              WHERE i.retired_at_ms IS NULL AND p.remembered_harness = ?1
-             AND p.provider_session_id = ?2)",
+             AND p.provider_session_id = ?2 AND b.runtime_state = 'running'
+             AND b.runtime_pid IS NOT NULL AND b.runtime_start_identity IS NOT NULL
+             AND b.observed_provider_session_id = p.provider_session_id)",
                 params![harness, session],
                 |row| row.get(0),
             )
