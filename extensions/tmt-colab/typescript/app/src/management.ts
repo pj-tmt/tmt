@@ -78,9 +78,25 @@ export interface ManagementPort {
   verify(pending: Pending, ack: Acknowledgment, signal?: AbortSignal): Promise<ManagementView>;
 }
 export class ManagementError extends Error {
-  constructor(readonly code: string) {
-    super(code);
+  constructor(
+    readonly code: string,
+    cause?: Error,
+  ) {
+    super(code, cause ? { cause } : undefined);
   }
+}
+
+/** Keep unexpected failures diagnosable without retaining request or response data. */
+export function managementFailure(error: unknown, prepared: boolean): ManagementError {
+  if (error instanceof ManagementError) return error;
+  const safe = (value: string) =>
+    value
+      .replace(/(?:https?:\/\/|\/)[^\s]+/g, '[redacted]')
+      .replace(/[A-Za-z0-9_+/=-]{24,}/g, '[redacted]')
+      .slice(0, 256);
+  const cause = new Error(error instanceof Error ? safe(error.message) : 'Unexpected exception');
+  cause.name = error instanceof Error ? safe(error.name) : 'UnknownError';
+  return new ManagementError(prepared ? 'UNKNOWN' : 'INVALID', cause);
 }
 
 /** Only an admitted contiguous owner chain supplies policy and assignments. */

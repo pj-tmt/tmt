@@ -2,6 +2,24 @@ import { expect, test, type Page, type BrowserContext, type Locator } from '@pla
 import { mkdir } from 'node:fs/promises';
 import * as c from '@tmt/colab-client';
 
+// Keep only error diagnostics: other console levels can include fixture data.
+const pageErrors = new WeakMap<Page, string[]>();
+test.beforeEach(async ({ page }) => {
+  const errors: string[] = [];
+  pageErrors.set(page, errors);
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+});
+test.afterEach(async ({ page }, info) => {
+  if (info.status !== info.expectedStatus) {
+    await info.attach('page-console-errors', {
+      body: (pageErrors.get(page) ?? []).join('\n'),
+      contentType: 'text/plain',
+    });
+  }
+});
+
 const mount = '/r/abcd/x/colab/';
 const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
