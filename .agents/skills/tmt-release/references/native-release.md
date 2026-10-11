@@ -471,6 +471,17 @@ absence. Unknown ownership, incomplete inventories, unsettled cancellation or la
 uploads fail visibly; retention is the backstop, not proof of physical reclamation.
 Ordinary preparation artifacts, caches, releases and local installations are untouched.
 
+The one-shot `pr-rc-selftest.yml` qualification is dispatch-only on main and installs
+Linux x86_64 with an environment-only read token. Separate main-tooling jobs mutate
+only the standing qualification PR; candidate code never receives write authority.
+It checks head1 receipt provenance, stale-head/disabled/new-epoch/closed refusals,
+unchanged application data and alpha return without a second producer dispatch.
+The label epoch consumes the fixture; a failed run needs owner-directed fresh evidence.
+Always-cleanup records absence of only the five captured RC IDs, preserving ordinary
+artifacts. Token-generated close events do not exercise the automatic close workflow.
+Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes;
+remove or parameterize this one-shot workflow after qualification evidence is recorded.
+
 Focused controls in `test/tooling/pr-rc-coordinator.test.ts` cover catalog bytes,
 final verification binding, bounded ZIP readback and exact-ID cleanup; workflow
 controls pin trusted preparation and catalog-last ordering. Native preparation,
