@@ -349,3 +349,64 @@ fn rejected_placement_option_reports_public_usage() {
     assert!(rejected_option.message.contains("Usage: tmt role show"));
     assert!(rejected_option.message.contains("tmt help role show"));
 }
+
+#[test]
+fn unknown_argument_hints_select_only_the_canonical_public_command() {
+    for (argv, topic) in [
+        (vec!["--bogus-flag"], ""),
+        (vec!["ls", "--bogus-flag"], " ls"),
+        (
+            vec!["identity", "status", "show", "--bogus-flag"],
+            " identity status show",
+        ),
+        (vec!["read", "peer", "--bogus-flag"], " check"),
+        (
+            vec!["learn", "--config", "identity", "--bogus-flag"],
+            " learn",
+        ),
+        (vec!["ls", "--", "identity", "status"], " ls"),
+        (
+            vec!["run", "--bogus-flag", "worker", "identity", "status"],
+            " run",
+        ),
+        (vec!["__hook", "--provider", "claude", "--bogus-flag"], ""),
+    ] {
+        let error = parse_error(&argv);
+        assert_eq!(error.code, "USAGE_ERROR", "{argv:?}");
+        let expected = if topic.is_empty() {
+            "Run tmt help to see the commands and options.".to_owned()
+        } else {
+            format!("Run tmt help{topic} to see its options.")
+        };
+        assert_eq!(error.hint.as_deref(), Some(expected.as_str()), "{argv:?}");
+        assert!(!error.message.contains("Run tmt help"), "{argv:?}");
+    }
+}
+
+#[test]
+fn unknown_argument_json_keeps_the_original_clap_message() {
+    for argv in [
+        vec!["--json", "identity", "status", "show", "--bogus-flag"],
+        vec!["identity", "status", "show", "--bogus-flag", "--json"],
+    ] {
+        let error = parse_error(&argv);
+        let original = crate::grammar::grammar()
+            .try_get_matches_from(std::iter::once(OsString::from("tmt")).chain(args(&argv)))
+            .unwrap_err();
+        assert_eq!(error.message, original.to_string());
+        assert!(error.mode.json);
+        assert_eq!(
+            error.hint.as_deref(),
+            Some("Run tmt help identity status show to see its options.")
+        );
+    }
+    for argv in [vec!["name"], vec!["check", "peer", "--lines", "bad"]] {
+        assert_eq!(parse_error(&argv).hint, None, "{argv:?}");
+    }
+    let Invocation::Run { command, .. } =
+        parsed(&["run", "worker", "identity", "--bogus-flag"]).invocation
+    else {
+        panic!("expected opaque launch arguments");
+    };
+    assert_eq!(command, args(&["identity", "--bogus-flag"]));
+}

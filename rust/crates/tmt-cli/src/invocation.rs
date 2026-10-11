@@ -439,6 +439,7 @@ pub struct Parsed {
 
 #[derive(Debug, PartialEq)]
 pub struct ParseError {
+    pub hint: Option<String>,
     pub code: &'static str,
     pub message: String,
     pub mode: OutputMode,

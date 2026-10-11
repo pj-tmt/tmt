@@ -14,6 +14,10 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   nonblank single-line description, checked recursively. Core help never enters runtime
   dispatch or skill-drift inspection. Unknown help topics name the nearest resolved public
   parent's help command; error code, presentation mode and JSON fields stay unchanged.
+- Unknown-argument diagnostics reuse that scan's nearest canonical public path for a
+  human-only help hint through the existing suggestion renderer. Hidden commands,
+  values, `--` data and launch tails never select the hint topic; JSON keeps the
+  original parser message and fields, and other error kinds stay unchanged.
 - The help scan shares option-value boundaries with error-mode recovery so `-h` bypasses
   required operands without reading payload data as flags. Help with `--json` reaches
   `finish_parse` and returns `JSON_UNSUPPORTED` before operand validation. `OutputMode` holds only JSON;
