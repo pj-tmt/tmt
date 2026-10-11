@@ -319,7 +319,7 @@ supporting CLI alpha before testing a public install or upgrade.
 ## CLI upgrade proof
 
 `native-release-policy.mjs::upgradeSupportFloor` declares the exact published CLI
-floor (alpha.36). For candidates above it, `release-upgrade.mjs` stages both the
+floor (alpha.150). For candidates above it, `release-upgrade.mjs` stages both the
 floor and newest published source below the candidate, deduplicating identical sources, and the candidate
 `install.sh`; every archive, manifest and bootstrap must retain its recorded
 GitHub digest. Candidates at or below the floor keep their historical single-source proof.

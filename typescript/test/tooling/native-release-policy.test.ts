@@ -101,7 +101,7 @@ describe('native release publication policy', () => {
   );
 
   it('declares a single CLI upgrade support floor while extensions retain last-published proof', () => {
-    expect(upgradeSupportFloor('cli')).toBe('v5.0.0-alpha.36');
+    expect(upgradeSupportFloor('cli')).toBe('v5.0.0-alpha.150');
     expect(releasePolicy('cli')).toEqual({
       product: 'cli',
       tagPrefix: 'v',

@@ -45,8 +45,6 @@ fn run(executable: &Path, args: &[OsString], task: &Path) -> Result<CommandOutpu
         OsString::from("-i"),
         assignment("HOME", task),
         assignment("TMT_HOME", task),
-        // Harness only: remove when the prior release is post-rename (#2302).
-        assignment("TMUX_TEAM_HOME", task),
         OsString::from("PATH="),
         OsString::from("LANG=C"),
         executable.as_os_str().to_os_string(),

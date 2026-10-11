@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const PRODUCTS = {
   // Covers the reported pre-companion installation in #1454. Older receipt
   // readability is not a claim that every older release has an upgrade proof.
-  cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.36' },
+  cli: { tagPrefix: 'v', prerelease: false, latest: true, upgradeFloor: 'v5.0.0-alpha.150' },
   office: { tagPrefix: 'tmt-office-v', prerelease: true, latest: false },
   ops: { tagPrefix: 'tmt-ops-v', prerelease: true, latest: false },
   // Retain the predecessor tag/archive identity; no new Squad releases are admitted.

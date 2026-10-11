@@ -79,11 +79,9 @@ export function proveSourceBootstrap({
   fs.mkdirSync(root);
   const prefix = path.join(root, 'source prefix with spaces');
   const state = path.join(root, 'source state');
-  // Harness only: remove when the prior release is post-rename.
   const env = {
     HOME: root,
     TMT_HOME: state,
-    TMUX_TEAM_HOME: state,
     TMPDIR: root,
     PATH: '',
     LANG: 'C',
