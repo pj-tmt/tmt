@@ -1,6 +1,7 @@
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { Send } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
 import type { CommentContext } from './thread-store.js';
 import type { PreviewAttempt } from './ask-preview.js';
@@ -20,16 +21,15 @@ export function AskAgainAction({
   recipient,
   retryOf,
   settled,
-  label,
 }: {
   binding?: AskBinding;
   blocked: boolean;
   input: AskAgainInput;
   recipient: { machine: string; agent: string };
   retryOf: string | null;
-  label?: string;
   settled?(outcome: Awaited<ReturnType<PreviewAttempt['send']>>): void;
 }) {
+  const label = useContext(ConversationPresentation) === 'chat' ? text.chatRetry : undefined;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [uncertain, setUncertain] = useState(false);

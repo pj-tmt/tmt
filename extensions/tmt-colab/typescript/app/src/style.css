@@ -1534,3 +1534,8 @@ footer {
     min-height: 44px;
   }
 }
+
+/* Every Chat identity row reserves the existing 26px message-action slot. */
+.chat-panel .comment-header-end {
+  flex: 0 0 26px;
+}

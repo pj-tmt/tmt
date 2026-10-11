@@ -1,3 +1,5 @@
+import { useContext } from 'react';
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import { AskAgainAction } from './ask-again.js';
 import type { AskBinding } from './ask-panel.js';
 import type { MessageSendFailure } from './comment-send.js';
@@ -9,14 +11,13 @@ export function CommentSendFailures({
   binding,
   blocked,
   settled,
-  chat = false,
 }: {
-  chat?: boolean;
   failures: readonly MessageSendFailure[];
   binding?: AskBinding;
   blocked: boolean;
   settled(failure: MessageSendFailure, result: { adopted?: boolean }): void;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   return (
     <>
       {failures.map((failure, index) => (
@@ -31,7 +32,6 @@ export function CommentSendFailures({
             {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
             {!failure.uncertain && (
               <AskAgainAction
-                label={chat ? text.chatRetry : undefined}
                 binding={binding}
                 blocked={blocked}
                 input={failure.input}

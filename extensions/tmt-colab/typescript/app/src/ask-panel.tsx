@@ -1,3 +1,4 @@
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { CommentContext } from './thread-store.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
@@ -79,7 +80,6 @@ export function AskPanel({
   blocked,
   readOnly = false,
   inline = false,
-  chat = false,
   dayHeadings,
   renderUser,
   retryInput,
@@ -89,11 +89,11 @@ export function AskPanel({
   blocked: boolean;
   readOnly?: boolean;
   inline?: boolean;
-  chat?: boolean;
   dayHeadings?: readonly ReactNode[];
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskAgainInput;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const agents = useContext(AgentPresentation);
   const [now, setNow] = useState(0);
   useEffect(() => {
@@ -237,7 +237,6 @@ export function AskPanel({
               .map((value) => value.operationId)
               .sort()
               .join(':')}
-            label={chat ? text.chatRetry : undefined}
             binding={binding}
             blocked={disabled}
             input={retryInput!}
@@ -316,7 +315,6 @@ export function AskPanel({
     );
     const reply = record.reply !== undefined && (
       <ConversationTurn
-        chat={chat}
         role="agent"
         runningDriver={runningDriverFor(agents, record.machine, record.agent)}
         author={record.agentName || text.askAgentLabel}

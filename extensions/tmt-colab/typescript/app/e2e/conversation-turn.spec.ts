@@ -888,6 +888,7 @@ for (const [width, theme] of [
     const agent = panel.locator('[data-turn-role="agent"]');
     await expect(agent).toHaveCSS('border-left-width', '3px');
     await expect(panel.locator('.conversation-turn')).toHaveCount(3);
+    let sharedTimeEdge: number | undefined;
     for (const row of await panel.locator('.conversation-turn').all()) {
       await expect(row).toHaveCSS('border-bottom-width', '0px');
       const body = await row.locator('.conversation-body').boundingBox();
@@ -896,7 +897,10 @@ for (const [width, theme] of [
       // the remaining identity row rather than staying beside the author.
       expect(byline!.width).toBeGreaterThan(body!.width - 50);
       const time = await row.locator('time').boundingBox();
-      expect(time!.x + time!.width).toBeCloseTo(byline!.x + byline!.width, 0);
+      const edge = time!.x + time!.width;
+      expect(edge).toBeCloseTo(byline!.x + byline!.width, 0);
+      if (sharedTimeEdge !== undefined) expect(edge).toBeCloseTo(sharedTimeEdge, 0);
+      sharedTimeEdge = edge;
     }
     await expect(panel.getByTestId('ask-state')).toHaveCount(0);
     await capture(page, panel, `chat-polish-messages-${width}-${theme}`);
@@ -907,12 +911,14 @@ for (const [width, theme] of [
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await input.fill('A comment without a recipient.');
     await expect(panel.locator('.annotation-status-row')).toContainText(text.messageComment);
+    await expect(panel.locator('.creator-toggle')).toHaveCount(0);
     await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
     await input.fill('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
     await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
     await expect(panel.locator('.annotation-status-row')).not.toContainText(text.messageComment);
+    await expect(panel.locator('.creator-toggle')).toBeVisible();
     await capture(page, panel, `chat-polish-recipient-${width}-${theme}`);
     await panel.getByTestId('attachment-input').setInputFiles([
       { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes') },

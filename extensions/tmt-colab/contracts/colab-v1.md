@@ -2244,7 +2244,9 @@ Spacing separates turns, while local-day headings derive only from admitted
 timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
 that action is admitted. The pinned composer has one top rule, the existing
 Attach and recipient controls at the left and Send at the right;
-`Posts as a comment.` appears only without a recipient. Failed delivery shows
+`Posts as a comment.` appears only without a recipient. In Chat, a manually edited
+draft without the creator mention hides the creator-default toggle; a fresh default-only
+draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows
 `✗ Not delivered` and the existing ask-again action labelled `Retry`; waiting,
 held and uncertain states retain their existing recovery and announcements.
 Thread actions retain their existing Lucide icons and accessible labels. After the existing

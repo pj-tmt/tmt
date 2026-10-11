@@ -1,4 +1,11 @@
-import { useEffect, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
+import { ConversationPresentation } from './conversation-presentation.js';
+import {
+  useContext,
+  useEffect,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from 'react';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
 import { Bot } from 'lucide-react';
@@ -18,11 +25,9 @@ export function ConversationTurn({
   delivery,
   children,
   className = '',
-  chat = false,
   ...attributes
 }: Omit<ComponentPropsWithoutRef<'article'>, 'role'> & {
   role: 'user' | 'agent';
-  chat?: boolean;
   runningDriver?: RunningDriver;
   author: string;
   at: number;
@@ -33,6 +38,7 @@ export function ConversationTurn({
   status?: ReactNode;
   delivery?: ReactNode;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const driver =
     role === 'agent' && (runningDriver === 'claude' || runningDriver === 'codex')
       ? runningDriver
@@ -74,7 +80,7 @@ export function ConversationTurn({
             </time>
             {meta}
           </p>
-          {actions && <span className="comment-header-end">{actions}</span>}
+          {(actions || chat) && <span className="comment-header-end">{actions}</span>}
         </header>
         <div className="conversation-body">{children}</div>
         {status && <div className="conversation-turn-status">{status}</div>}

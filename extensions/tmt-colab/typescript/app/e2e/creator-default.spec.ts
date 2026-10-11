@@ -50,11 +50,24 @@ for (const surface of ['annotation', 'reply', 'chat']) {
     await expect(input).toHaveText('@alpha ', { useInnerText: true });
     await page.getByRole('button', { name: /^Remove mention: @alpha/ }).click();
     await input.pressSequentially('Plain');
+    if (surface === 'chat') {
+      await expect(toggle(page)).toHaveCount(0);
+      await expect(page.locator('.annotation-status-row').first()).toContainText(
+        'Posts as a comment.',
+      );
+    }
     await input.press('Enter');
     await expect
       .poll(() => run(page, 'proof'))
       .toMatchObject({ writes: 2, preparations: 1, commits: 2 });
     await expect(input).toHaveText('@alpha ', { useInnerText: true });
+    if (surface === 'chat') {
+      await expect(toggle(page)).toBeVisible();
+      await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.annotation-status-row').first()).not.toContainText(
+        'Posts as a comment.',
+      );
+    }
     const proof = await run(page, 'editingProof');
     expect(
       proof.captured
