@@ -240,4 +240,61 @@ mod tests {
             [("div", crate::limits::PAGE_DEPTH + 1, "page-too-deep")]
         );
     }
+
+    /// `<img src="{scheme}{filler}">` whose `src` is exactly `bytes` long. These sizes are built
+    /// here, not in the shared vectors: a 32 KiB run of one character in the contract file is a
+    /// poor fit for every scanner that reads the repository.
+    fn image_of(scheme: &str, filler: char, bytes: usize) -> String {
+        let payload = filler.to_string().repeat(bytes - scheme.len());
+        format!(r#"<img src="{scheme}{payload}">"#)
+    }
+
+    fn found(report: &Report) -> Vec<(usize, u64, &'static str)> {
+        report
+            .findings
+            .iter()
+            .map(|f| (f.ordinal, f.line, f.code))
+            .collect()
+    }
+
+    #[test]
+    fn a_data_image_is_reported_only_past_its_own_src_cap() {
+        let png = "data:image/png;base64,";
+        let source = [
+            image_of(png, 'A', crate::limits::DATA_IMAGE_BYTES),
+            image_of(png, 'A', crate::limits::DATA_IMAGE_BYTES + 1),
+            // The scheme and media type match case-insensitively.
+            image_of(
+                "DATA:IMAGE/PNG;base64,",
+                'A',
+                crate::limits::DATA_IMAGE_BYTES + 1,
+            ),
+            // A data: URL that is not an image is not this rule's business, however large.
+            image_of("data:text/plain,", 'a', crate::limits::DATA_IMAGE_BYTES * 2),
+            image_of(png, 'A', 100),
+        ]
+        .join("\n");
+        let report = check(&source).unwrap();
+        assert_eq!(
+            found(&report),
+            [
+                (2, 2, "image-data-oversized"),
+                (3, 3, "image-data-oversized")
+            ]
+        );
+    }
+
+    #[test]
+    fn the_page_wide_data_image_total_is_reported_once_on_the_image_that_crosses_it() {
+        // Eight images at their own cap fill the page total exactly: that is not past it.
+        let full = crate::limits::DATA_IMAGE_BYTES;
+        assert_eq!(8 * full, crate::limits::DATA_IMAGES_TOTAL_BYTES);
+        let png = "data:image/png;base64,";
+        let mut images = vec![image_of(png, 'A', full); 8];
+        assert!(found(&check(&images.join("\n")).unwrap()).is_empty());
+        // The ninth crosses it, and the tenth is not reported again.
+        images.extend([image_of(png, 'A', 100), image_of(png, 'A', 100)]);
+        let report = check(&images.join("\n")).unwrap();
+        assert_eq!(found(&report), [(9, 9, "image-data-total")]);
+    }
 }

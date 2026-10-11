@@ -3671,11 +3671,12 @@ trimmed; limits count code points.
 One rule set, two implementations. The browser client's `inspectQuestions` and this checker
 run the shared vectors `contracts/vectors/page-markup-v1.json`: each case gives a source, the
 questions the page shows and the findings, with `scope:"parser"` cases run by both and
-`scope:"checker"` cases (images, references, depth) by the checker alone. The browser's own
+`scope:"checker"` cases (references, depth) by the checker alone. The browser's own
 parser is the oracle, in headless Chromium; WebKit agrees on every parser case and Firefox
 differs only on `<noscript>`, which Chromium and WebKit parse as markup. The vectors' `limits`
 block must equal each side's named constants, and a test fails when a code in this table has
-no case or a case names an unknown code.
+no case or a case names an unknown code. Four codes have checker unit tests instead: the two
+image sizes need payloads of tens of KiB, and reference resolution needs a page's attachments.
 
 ## Plaintext page export (#1309)
 

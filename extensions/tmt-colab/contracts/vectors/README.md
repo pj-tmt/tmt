@@ -137,8 +137,9 @@ Firestore Rules emulator section).
 check"). A case is a `source` (lines joined with a newline), the `admitted` questions and
 groups the page shows, and the `findings` with reason codes. `scope:"parser"` cases run in the
 browser client (`inspectQuestions`, headless Chromium, the oracle) and in the Rust checker;
-`scope:"checker"` cases (data images, attachment references, nesting depth) run in the checker
-only. Findings are compared as a set by `(element, ordinal, code)`; `line` is asserted by Rust
+`scope:"checker"` cases (attachment references, nesting depth) run in the checker only. Keep
+cases small: a payload of tens of KiB belongs in a unit test that builds it, since every tool
+that reads the repository reads this file. Findings are compared as a set by `(element, ordinal, code)`; `line` is asserted by Rust
 alone, as the DOM has none. The `limits` block must equal each side's named constants. Edit the
 cases by hand and run both runners: the file has no independent generator, because the browser
 is the oracle.

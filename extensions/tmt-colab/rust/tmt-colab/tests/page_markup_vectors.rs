@@ -128,9 +128,15 @@ fn every_reason_code_has_a_case_and_no_case_names_an_unknown_code() {
         .map(|finding| finding["code"].as_str().unwrap())
         .collect();
     let known: BTreeSet<&str> = page_check::codes().into_iter().collect();
-    // Resolution needs the page's attachments, not a source alone: `page_check` unit tests and the
-    // acceptance suite pin those two.
-    let resolved = ["attachment-ref-unresolved", "attachment-ref-ambiguous"];
+    // Resolution needs the page's attachments, not a source alone, and the two image sizes need
+    // payloads of tens of KiB that do not belong in a contract file: the `page_check` unit tests
+    // (and, for resolution, the acceptance suite) pin those four.
+    let resolved = [
+        "attachment-ref-unresolved",
+        "attachment-ref-ambiguous",
+        "image-data-oversized",
+        "image-data-total",
+    ];
     let unknown: Vec<_> = used.difference(&known).collect();
     let uncovered: Vec<_> = known
         .difference(&used)
