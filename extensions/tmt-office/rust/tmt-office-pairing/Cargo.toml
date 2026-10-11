@@ -31,3 +31,6 @@ apple-native-keyring-store.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tmt-adapters = { workspace = true, features = ["test-isolation"] }

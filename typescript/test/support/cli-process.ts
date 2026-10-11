@@ -158,6 +158,9 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
 
     const globalDir = path.join(xdgConfigHome, 'tmt');
     const env: NodeJS.ProcessEnv = {
+      TMT_TEST_ROOT: root,
+      TMT_AGENT: '1',
+      BROWSER: '/usr/bin/true',
       HOME: home,
       XDG_CONFIG_HOME: xdgConfigHome,
       XDG_DATA_HOME: path.join(root, 'xdg-data'),

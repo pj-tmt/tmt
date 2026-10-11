@@ -4,6 +4,8 @@
 mod document;
 mod paths;
 mod rename;
+#[cfg(any(test, feature = "test-isolation"))]
+mod test_isolation;
 
 #[cfg(test)]
 mod initialization_tests;

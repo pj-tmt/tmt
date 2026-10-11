@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Default-off: consumer test builds must admit private invocation paths.
+test-isolation = []
+
 [dependencies]
 # Plain reply-notice columns share the pinned terminal-width implementation.
 unicode-width.workspace = true

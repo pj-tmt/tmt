@@ -447,12 +447,12 @@ each other nor tooling. Scenarios retain assertions; helpers own fixture
 mechanics. Frozen inputs and independent SQL/schema oracles must not derive
 expected results from the implementation under test.
 
-Tests select an explicit task-owned native executable or the checkout build;
-a missing build fails, with no host CLI or retired-runtime fallback. State,
-provider roots, prefixes, sockets and processes remain fixture-owned. Native
-process fixtures isolate caller ancestry and host tmux discovery; Docker supplies
-network-isolated private tmux and deterministic peers. No host tmux server,
-provider installation or global environment mutation is test evidence.
+Tests select a task-owned native executable or the checkout build; missing
+builds fail without host or retired-runtime fallback. State, provider roots,
+prefixes, sockets and processes remain fixture-owned. Adapters' default-off
+`test-isolation` feature admits private discovery paths in consumer test builds.
+Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
+and peers. Host tmux, provider installs and global environment mutation are not evidence.
 
 Cleanup confirms owned child/group absence before deleting fixture state;
 unknown inspection, leaks and false positives fail. Signals target only verified
