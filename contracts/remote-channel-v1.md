@@ -1899,7 +1899,8 @@ entry; those fixtures are not Colab declaration or routed acceptance evidence.
 ### Hosted anonymous bootstrap
 
 The served SDK's explicit `firebaseRemote.connect` verifies the canonical Remote link and
-same-origin `/__/firebase/init.json` equality before lazily loading the hosted Firebase asset.
+checks that `projectId`, `appId` and `authDomain` equal same-origin `/__/firebase/init.json`
+before lazily loading the hosted Firebase asset.
 The caller supplies the frozen extension declaration bytes and their SHA-256; digest or
 resource-grammar disagreement refuses before provider access. The table is data, with no
 extension-specific resource names in Remote. Configuration and authentication grant neither
@@ -1916,10 +1917,11 @@ of device revocation. Missing lazy code is `REMOTE_STATE_UNAVAILABLE`, with no C
 
 Hosting copies `/sdk/remote-v1.js`, `/sdk/remote-firebase-v1.js` and
 `/sdk/THIRD-PARTY-NOTICES-remote.txt` byte-for-byte; the generated asset/notices have reviewed
-build pins. Scripts stay same-origin. Auth's fixed network origins are
-`https://identitytoolkit.googleapis.com` and `https://securetoken.googleapis.com`; the accepted
-hosted connect policy additionally names `https://firestore.googleapis.com` for the later
-transport. The local door's pairing and session path never implicitly loads Firebase.
+build pins. Scripts stay same-origin. A hosted page that calls `connect` must allow
+`https://identitytoolkit.googleapis.com` and `https://securetoken.googleapis.com` in its
+`connect-src`; `https://firestore.googleapis.com` is required once document transport ships.
+Colab owns the hosted shell policy; these are requirements, not its current headers.
+The local door's pairing and session path never implicitly loads Firebase.
 Firestore document transport, cloud agent operations and a machine connector are not shipped
 by this bootstrap.
 

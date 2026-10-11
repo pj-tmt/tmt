@@ -4,6 +4,7 @@ export interface HostedDeclaration {
   readonly bytes: string;
   readonly digest: string;
 }
+// Native declaration.rs owns the grammar; tests/deploy_plan.rs pins its reserved set.
 const name = /^[a-z][a-z0-9-]{0,31}$/;
 const field = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 function require(condition: boolean): asserts condition {

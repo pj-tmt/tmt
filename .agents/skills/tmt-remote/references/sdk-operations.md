@@ -78,6 +78,9 @@ Colab copies them as `/sdk/remote-firebase-v1.js` and
 `/sdk/THIRD-PARTY-NOTICES-remote.txt`, beside `/sdk/remote-v1.js`, and verifies the pin.
 Colab and Infra own their build ordering and copy integration. Only the embedded SDK/page
 assets retain the git-diff regeneration gate. The lazy adapter's bundle check rejects Node
-imports, grpc-js and undici. Its headless fixture pins anonymous-only CSP requests to
-same-origin plus identitytoolkit.googleapis.com, securetoken.googleapis.com and
-firestore.googleapis.com; the local path never imports Firebase implicitly.
+imports, grpc-js and undici. Before loading Auth, `projectId`, `appId` and `authDomain` must
+equal same-origin `/__/firebase/init.json`. A hosted page that calls `connect` must allow
+identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, plus
+firestore.googleapis.com once document transport ships. Colab owns those shell headers;
+the fixture verifies these requirements, not shipped policy. The local path never imports
+Firebase implicitly.
