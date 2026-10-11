@@ -165,10 +165,12 @@ export function AnnotationInput({
     });
   const decision = decide(edit);
   // Manual drafts without a creator mention do not use the stored fresh-draft default.
+  // A blank off control stays available to restore that default.
   const showCreatorToggle =
     !!creator &&
     (!chat ||
       !edit.edited ||
+      (!creatorPreference.enabled && !value.trim()) ||
       decision.agents.some(
         (agent) => agent.machine === creator.machine && agent.agent === creator.agent,
       ));
