@@ -471,17 +471,20 @@ absence. Unknown ownership, incomplete inventories, unsettled cancellation or la
 uploads fail visibly; retention is the backstop, not proof of physical reclamation.
 Ordinary preparation artifacts, caches, releases and local installations are untouched.
 
-The one-shot `pr-rc-selftest.yml` qualification is dispatch-only on main and installs
+The `pr-rc-selftest.yml` qualification is dispatch-only on main and installs
 Linux x86_64 with an environment-only read token. Separate main-tooling jobs mutate
 only the standing qualification PR; candidate code never receives write authority.
-It checks head1 receipt provenance, stale-head/disabled/new-epoch/closed refusals,
+Its required `run` input binds the fixture to a successful main producer catalog,
+matching live PR head and label epoch. It checks receipt provenance and
+stale-head/disabled/new-epoch/closed refusals,
 unchanged application data and alpha return without a second producer dispatch.
 An eligible active-candidate re-run must preserve the receipt, prefix and application data.
+Mutation readbacks poll the PR object at most 20 times, three seconds apart.
 A failure before the stale-head commit retains the five verified artifacts for a rerun
 until expiry. Once consumed, cleanup records their exact-ID absence, preserving ordinary
 artifacts. Token-generated close events do not exercise the automatic close workflow.
-Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes;
-remove or parameterize this one-shot workflow after qualification evidence is recorded.
+Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes.
+Only the standing same-repository PR2715 and its qualification branch may be mutated.
 
 Focused controls in `test/tooling/pr-rc-coordinator.test.ts` cover catalog bytes,
 final verification binding, bounded ZIP readback and exact-ID cleanup; workflow

@@ -1,7 +1,12 @@
 name: PR release candidate reader selftest
-# One-shot head1 qualification: no builds, producer dispatch, or Ben credentials.
+# Run-bound reader qualification: no builds, producer dispatch, or Ben credentials.
 on:
   workflow_dispatch:
+    inputs:
+      run:
+        description: Successful main pr-rc producer run ID for PR2715
+        required: true
+        type: string
 permissions: {}
 concurrency:
   group: pr-rc-selftest-2715
@@ -9,6 +14,7 @@ concurrency:
 
 env:
   GH_TOKEN: ${{ github.token }}
+  PR_RC_SELFTEST_RUN: ${{ inputs.run }}
 
 jobs:
   preflight:

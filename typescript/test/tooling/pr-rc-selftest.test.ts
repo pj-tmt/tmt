@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
-  FIXTURE,
+  QUALIFICATION,
+  producerRunInput,
+  waitForPull,
+  deriveFixture,
   assertOwnedPull,
   assertPRReceipt,
   assertRefusal,
@@ -13,6 +16,15 @@ import {
   readOwnedReceipt,
 } from '../../scripts/pr-rc-selftest.mjs';
 
+const FIXTURE = {
+  ...QUALIFICATION,
+  head: 'a'.repeat(40),
+  run: 1234,
+  catalog: 10,
+  payloads: [11, 12, 13, 14],
+  label: 100,
+  event: 101,
+};
 const pull = (consumed = true) => ({
   number: FIXTURE.pr,
   base: { repo: { full_name: 'pj-tmt/tmt' } },
@@ -22,7 +34,7 @@ const pull = (consumed = true) => ({
     sha: consumed ? 'f'.repeat(40) : FIXTURE.head,
   },
   state: 'open',
-  labels: [{ name: 'rc-build' }],
+  labels: [{ name: 'rc-build', id: FIXTURE.label }],
 });
 const artifact = (id: number) => ({
   id,
@@ -33,6 +45,7 @@ const artifact = (id: number) => ({
 });
 const manifest = () => ({
   run: FIXTURE.run,
+  fixture: FIXTURE,
   rc: [FIXTURE.catalog, ...FIXTURE.payloads].map(artifact),
   ordinary: [20, 21],
 });
@@ -62,6 +75,121 @@ function receipt() {
   };
 }
 describe('one-shot PR RC reader qualification', () => {
+  it('requires a bounded decimal producer run input', () => {
+    expect(producerRunInput('38129567413')).toBe(38129567413);
+    for (const value of [
+      undefined,
+      '',
+      '0',
+      '01',
+      '-1',
+      '1;echo',
+      '1\n',
+      '9999999999999999',
+      '12345678901234567',
+    ])
+      expect(() => producerRunInput(value)).toThrow('Invalid producer run ID');
+  });
+  it('waits through lagging PR objects and keeps the final assertion identity on exhaustion', async () => {
+    let reads = 0;
+    const waits: number[] = [];
+    const current = pull(false);
+    const final = { ...current, head: { ...current.head, sha: 'b'.repeat(40) } };
+    const result = await waitForPull(
+      () => ({ data: ++reads < 3 ? current : final }),
+      (value) => expect(value.head.sha).toBe(final.head.sha),
+      (ms) => {
+        waits.push(ms);
+      }
+    );
+    expect(result).toEqual(final);
+    expect(waits).toEqual([3000, 3000]);
+    const failure = new Error('exact original failure');
+    reads = 0;
+    waits.length = 0;
+    await expect(
+      waitForPull(
+        () => {
+          reads++;
+          return { data: current };
+        },
+        () => {
+          throw failure;
+        },
+        (ms) => {
+          waits.push(ms);
+        }
+      )
+    ).rejects.toBe(failure);
+    expect(reads).toBe(20);
+    expect(waits).toEqual(Array(19).fill(3000));
+    const apiFailure = new Error('read failed');
+    await expect(
+      waitForPull(
+        () => {
+          throw apiFailure;
+        },
+        () => {}
+      )
+    ).rejects.toBe(apiFailure);
+  });
+  it('derives the fixture only from a successful main producer and the current catalog epoch', () => {
+    const producer = {
+      id: FIXTURE.run,
+      workflow_id: FIXTURE.workflow,
+      path: '.github/workflows/pr-rc.yml',
+      run_attempt: 1,
+      status: 'completed',
+      head_branch: 'main',
+      event: 'workflow_dispatch',
+      conclusion: 'success',
+      repository: { full_name: 'pj-tmt/tmt' },
+      display_title: `pr-rc #2715 ${FIXTURE.head.slice(0, 12)}`,
+    };
+    const catalog = {
+      schema_version: 2,
+      kind: 'tmt-pr-rc-catalog',
+      repository: 'pj-tmt/tmt',
+      producer: { workflow_id: FIXTURE.workflow, run_id: FIXTURE.run },
+      pr: FIXTURE.pr,
+      head_sha: FIXTURE.head,
+      eligibility: { label_id: FIXTURE.label, enabled_event_id: FIXTURE.event },
+      candidates: [
+        'aarch64-apple-darwin',
+        'aarch64-unknown-linux-musl',
+        'x86_64-apple-darwin',
+        'x86_64-unknown-linux-musl',
+      ].map((target, index) => ({ target, payload_artifact: { id: FIXTURE.payloads[index] } })),
+    };
+    const row = { ...artifact(FIXTURE.catalog), name: 'tmt-pr-rc-catalog-v2-pr2715' };
+    const timeline = [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event }];
+    const derive = (p = producer, live = pull(false), events = timeline) =>
+      deriveFixture(FIXTURE.run, p, row, catalog, manifest().rc, live, events);
+    expect(derive()).toEqual({
+      head: FIXTURE.head,
+      run: FIXTURE.run,
+      catalog: FIXTURE.catalog,
+      payloads: FIXTURE.payloads,
+      label: FIXTURE.label,
+      event: FIXTURE.event,
+    });
+    for (const delta of [
+      { workflow_id: 9 },
+      { head_branch: 'other' },
+      { conclusion: 'failure' },
+      { event: 'pull_request' },
+      { display_title: 'wrong' },
+      { id: 999 },
+    ])
+      expect(() => derive({ ...producer, ...delta })).toThrow();
+    expect(() => derive(producer, pull())).toThrow();
+    expect(() => derive(producer, { ...pull(false), state: 'closed' })).toThrow();
+    expect(() => derive(producer, { ...pull(false), labels: [] })).toThrow();
+    expect(() =>
+      derive(producer, pull(false), [...timeline, { ...timeline[0], id: 999 }])
+    ).toThrow();
+    expect(() => derive(producer, pull(false), Array(100).fill(timeline[0]))).toThrow();
+  });
   it('reads the real CLI namespace and refuses an active receipt outside the isolated prefix', () => {
     const world = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-rc-selftest-'));
     try {
@@ -89,7 +217,7 @@ describe('one-shot PR RC reader qualification', () => {
     expect(() => assertOwnedPull({ ...owned, head: { ...owned.head, ref: 'main' } })).toThrow();
   });
   it('checks version/channel plus real receipt run/head/catalog/payload provenance', () => {
-    expect(() => assertPRReceipt(receipt(), { candidates: [candidate] })).not.toThrow();
+    expect(() => assertPRReceipt(receipt(), { candidates: [candidate] }, FIXTURE)).not.toThrow();
     for (const modify of [
       (r: ReturnType<typeof receipt>) => (r.source.evidence.head_sha = 'f'.repeat(40)),
       (r: ReturnType<typeof receipt>) => r.source.evidence.producer.run_id++,
@@ -99,10 +227,14 @@ describe('one-shot PR RC reader qualification', () => {
     ]) {
       const value = receipt();
       modify(value);
-      expect(() => assertPRReceipt(value, { candidates: [candidate] })).toThrow();
+      expect(() => assertPRReceipt(value, { candidates: [candidate] }, FIXTURE)).toThrow();
     }
     expect(() =>
-      assertPRReceipt(receipt(), { candidates: [{ ...candidate, payload_artifact: { id: 999 } }] })
+      assertPRReceipt(
+        receipt(),
+        { candidates: [{ ...candidate, payload_artifact: { id: 999 } }] },
+        FIXTURE
+      )
     ).toThrow();
   });
   it('requires the pinned unavailable error and byte-identical state, not just a nonzero exit', () => {
@@ -171,6 +303,7 @@ describe('one-shot PR RC reader qualification', () => {
       rows,
       (method, route) => {
         if (route.startsWith('issues/')) return { status: 204 };
+        if (route.startsWith('pulls/')) return { status: 200, data: { ...pull(), labels: [] } };
         const id = Number(route.split('/').at(-1));
         if (method === 'DELETE') {
           deleted.push(id);
@@ -201,6 +334,7 @@ describe('one-shot PR RC reader qualification', () => {
       rows,
       (method, route) => {
         calls.push(`${method} ${route}`);
+        if (route.startsWith('pulls/')) return { status: 200, data: { ...pull(), labels: [] } };
         if (route.startsWith('actions/artifacts/')) {
           const id = Number(route.split('/').at(-1));
           return rows.ordinary.includes(id) ? { status: 200, data: artifact(id) } : { status: 404 };
@@ -210,7 +344,7 @@ describe('one-shot PR RC reader qualification', () => {
       { ...pull(), state: 'closed' }
     );
     expect(result.retained).toBe(false);
-    expect(calls.slice(0, 2)).toEqual([
+    expect(calls.filter((item) => !item.startsWith('GET')).slice(0, 2)).toEqual([
       `DELETE issues/${FIXTURE.pr}/labels/rc-build`,
       `PATCH pulls/${FIXTURE.pr}`,
     ]);
@@ -233,6 +367,7 @@ describe('one-shot PR RC reader qualification', () => {
         rows,
         (method, route) => {
           if (route.startsWith('issues/')) return { status: 204 };
+          if (route.startsWith('pulls/')) return { status: 200, data: { ...pull(), labels: [] } };
           if (method === 'DELETE') deletes++;
           return { status: 200, data: { ...rows.rc[0], workflow_run: { id: FIXTURE.run } } };
         },
@@ -254,6 +389,9 @@ describe('one-shot PR RC reader qualification', () => {
       'utf8'
     );
     expect(workflow).toMatch(/^on:\n {2}workflow_dispatch:/m);
+    expect(workflow).toContain('PR_RC_SELFTEST_RUN: ${{ inputs.run }}');
+    expect(workflow).toContain('required: true');
+    expect(workflow).not.toMatch(/run:.*\$\{\{ inputs.run/);
     expect(workflow).not.toMatch(
       /workflow_call|workflow run|pull_request:|schedule:|gh auth token|--allow-schema-ahead/
     );

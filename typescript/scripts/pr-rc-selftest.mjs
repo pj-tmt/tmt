@@ -12,16 +12,10 @@ import {
   prRCCatalogName,
 } from './pr-rc-coordinator.mjs';
 
-export const FIXTURE = Object.freeze({
+export const QUALIFICATION = Object.freeze({
   pr: 2715,
-  head: 'c76db6076ddf17ee5e22768bfa373d02ad205b85',
   branch: 'infra-1/1980-live-qualification',
-  run: 38123449041,
   workflow: 380603134,
-  catalog: 11697685804,
-  payloads: Object.freeze([11697002030, 11697221982, 11696957032, 11697316375]),
-  label: 12632788303,
-  event: 32965893026,
 });
 const repository = 'pj-tmt/tmt';
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -40,11 +34,91 @@ export function safeEvidence(value) {
   );
   return text;
 }
+export function producerRunInput(value) {
+  assert(typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value), 'Invalid producer run ID.');
+  const run = Number(value);
+  assert(Number.isSafeInteger(run), 'Invalid producer run ID.');
+  return run;
+}
+export async function waitForPull(
+  read,
+  check,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const { data } = await read();
+    assertOwnedPull(data);
+    try {
+      check(data);
+      return data;
+    } catch (error) {
+      if (attempt === 19) throw error;
+      await sleep(3000);
+    }
+  }
+}
+export function deriveFixture(run, producer, catalogArtifact, catalog, inventory, pull, timeline) {
+  assertOwnedPull(pull);
+  assert.equal(producer.id, run);
+  assert.equal(producer.workflow_id, QUALIFICATION.workflow);
+  assert.equal(producer.path, '.github/workflows/pr-rc.yml');
+  assert.equal(producer.run_attempt, 1);
+  assert.equal(producer.status, 'completed');
+  assert.equal(producer.head_branch, 'main');
+  assert.equal(producer.event, 'workflow_dispatch');
+  assert.equal(producer.conclusion, 'success');
+  assert.equal(producer.repository.full_name, repository);
+  assert.equal(catalog.schema_version, 2);
+  assert.equal(catalog.kind, 'tmt-pr-rc-catalog');
+  assert.equal(catalog.repository, repository);
+  assert.equal(catalog.producer.workflow_id, QUALIFICATION.workflow);
+  assert.equal(catalog.producer.run_id, run);
+  assert.equal(catalog.pr, QUALIFICATION.pr);
+  for (const id of [
+    catalogArtifact.id,
+    catalog.eligibility.label_id,
+    catalog.eligibility.enabled_event_id,
+  ])
+    assert(Number.isSafeInteger(id) && id > 0, 'Invalid fixture identity.');
+  assert.match(catalog.head_sha, /^[a-f0-9]{40}$/);
+  assert.equal(
+    producer.display_title,
+    `pr-rc #${QUALIFICATION.pr} ${catalog.head_sha.slice(0, 12)}`
+  );
+  assert.equal(pull.state, 'open');
+  assert.equal(pull.head.sha, catalog.head_sha);
+  assert.equal(
+    pull.labels.find((label) => label.name === 'rc-build')?.id,
+    catalog.eligibility.label_id
+  );
+  assert(Array.isArray(timeline) && timeline.length < 100);
+  const latest = timeline
+    .filter((item) => item.event === 'labeled' && item.label?.name === 'rc-build')
+    .at(-1);
+  assert.equal(latest?.id, catalog.eligibility.enabled_event_id);
+  assert.equal(catalogArtifact.name, prRCCatalogName(QUALIFICATION.pr));
+  assert.equal(catalogArtifact.workflow_run.id, run);
+  assert.deepEqual(catalog.candidates.map((item) => item.target).sort(), [...RC_TARGETS].sort());
+  const payloads = catalog.candidates.map((candidate) => candidate.payload_artifact.id);
+  assert.equal(new Set([catalogArtifact.id, ...payloads]).size, 5);
+  for (const id of payloads) {
+    assert(Number.isSafeInteger(id) && id > 0, 'Invalid fixture identity.');
+    assert(inventory.some((item) => item.id === id));
+  }
+  return {
+    head: catalog.head_sha,
+    run,
+    catalog: catalogArtifact.id,
+    payloads,
+    label: catalog.eligibility.label_id,
+    event: catalog.eligibility.enabled_event_id,
+  };
+}
 export function assertOwnedPull(pull) {
-  assert.equal(pull.number, FIXTURE.pr);
+  assert.equal(pull.number, QUALIFICATION.pr);
   assert.equal(pull.base?.repo?.full_name, repository);
   assert.equal(pull.head?.repo?.full_name, repository);
-  assert.equal(pull.head.ref, FIXTURE.branch);
+  assert.equal(pull.head.ref, QUALIFICATION.branch);
 }
 export function assertRefusal(result, before, after) {
   assert(
@@ -62,18 +136,18 @@ export function assertPositive(result, before, after) {
   assert.equal(result.status, 0, 'Eligible active candidate upgrade must succeed.');
   assert.deepEqual(after, before, 'Eligible re-run changed receipt, prefix or application data.');
 }
-export function assertPRReceipt(receipt, catalog) {
-  assert.equal(receipt.channel, `pr${FIXTURE.pr}`);
+export function assertPRReceipt(receipt, catalog, fixture) {
+  assert.equal(receipt.channel, `pr${QUALIFICATION.pr}`);
   assert.equal(receipt.source?.kind, 'github-actions');
   const proof = receipt.source.evidence;
   assert.equal(proof.repository, repository);
-  assert.equal(proof.pr, FIXTURE.pr);
-  assert.equal(proof.head_sha, FIXTURE.head);
-  assert.equal(proof.producer.workflow_id, FIXTURE.workflow);
-  assert.equal(proof.producer.run_id, FIXTURE.run);
-  assert.equal(proof.catalog_artifact_id, FIXTURE.catalog);
-  assert.equal(proof.eligibility.label_id, FIXTURE.label);
-  assert.equal(proof.eligibility.enabled_event_id, FIXTURE.event);
+  assert.equal(proof.pr, QUALIFICATION.pr);
+  assert.equal(proof.head_sha, fixture.head);
+  assert.equal(proof.producer.workflow_id, QUALIFICATION.workflow);
+  assert.equal(proof.producer.run_id, fixture.run);
+  assert.equal(proof.catalog_artifact_id, fixture.catalog);
+  assert.equal(proof.eligibility.label_id, fixture.label);
+  assert.equal(proof.eligibility.enabled_event_id, fixture.event);
   const candidate = catalog.candidates.find((item) => item.target === 'x86_64-unknown-linux-musl');
   assert(candidate, 'Matching Linux x86_64 payload missing.');
   assert.equal(receipt.version, candidate.version);
@@ -81,20 +155,32 @@ export function assertPRReceipt(receipt, catalog) {
   assert.equal(receipt.archive_sha256, candidate.archive.sha256);
 }
 export async function cleanupExact(manifest, call, pull) {
+  const fixture = manifest.fixture;
   assertOwnedPull(pull);
-  const retained = pull.state === 'open' && pull.head.sha === FIXTURE.head;
-  assert.equal(manifest.run, FIXTURE.run);
+  const retained = pull.state === 'open' && pull.head.sha === fixture.head;
+  assert.equal(manifest.run, fixture.run);
   assert.equal(manifest.rc.length, 5);
   assert.deepEqual(
     manifest.rc.map((item) => item.id).sort((a, b) => a - b),
-    [FIXTURE.catalog, ...FIXTURE.payloads].sort((a, b) => a - b),
+    [fixture.catalog, ...fixture.payloads].sort((a, b) => a - b),
     'Only the frozen five RC IDs may be deleted.'
   );
-  assert.equal(manifest.rc[0].id, FIXTURE.catalog, 'Catalog must retire first.');
+  assert.equal(manifest.rc[0].id, fixture.catalog, 'Catalog must retire first.');
   if (!retained) {
-    if (pull.labels.some((item) => item.name === 'rc-build'))
-      await call('DELETE', `issues/${FIXTURE.pr}/labels/rc-build`);
-    if (pull.state === 'closed') await call('PATCH', `pulls/${FIXTURE.pr}`, { state: 'open' });
+    if (pull.labels.some((item) => item.name === 'rc-build')) {
+      await call('DELETE', `issues/${QUALIFICATION.pr}/labels/rc-build`);
+      await waitForPull(
+        () => call('GET', `pulls/${QUALIFICATION.pr}`),
+        (value) => assert(!value.labels.some((item) => item.name === 'rc-build'))
+      );
+    }
+    if (pull.state === 'closed') {
+      await call('PATCH', `pulls/${QUALIFICATION.pr}`, { state: 'open' });
+      await waitForPull(
+        () => call('GET', `pulls/${QUALIFICATION.pr}`),
+        (value) => assert.equal(value.state, 'open')
+      );
+    }
   }
   const artifacts = [];
   for (const expected of manifest.rc) {
@@ -103,7 +189,7 @@ export async function cleanupExact(manifest, call, pull) {
     if (current.status !== 404) {
       for (const key of ['id', 'name', 'size_in_bytes', 'digest'])
         assert.equal(current.data[key], expected[key]);
-      assert.equal(current.data.workflow_run.id, FIXTURE.run);
+      assert.equal(current.data.workflow_run.id, fixture.run);
       if (!retained) await call('DELETE', route, null, true);
     }
     if (retained) assert.equal(current.status, 200, 'Unconsumed fixture artifact disappeared.');
@@ -287,7 +373,7 @@ export async function executeSelftest(stage) {
   }
   const manifestFile = path.join(root, 'manifest.json');
   const pull = () => {
-    const value = api('GET', `pulls/${FIXTURE.pr}`).data;
+    const value = api('GET', `pulls/${QUALIFICATION.pr}`).data;
     assertOwnedPull(value);
     return value;
   };
@@ -298,46 +384,37 @@ export async function executeSelftest(stage) {
       'Avoid the daily cleanup window (04:41Z +/-10min).'
     );
     const current = pull();
-    assert.equal(current.state, 'open');
-    assert.equal(current.head.sha, FIXTURE.head);
-    assert.equal(current.labels.find((label) => label.name === 'rc-build')?.id, FIXTURE.label);
+    const run = producerRunInput(process.env.PR_RC_SELFTEST_RUN);
     const reader = createPRRCAPI();
-    const producer = reader.metadata(`actions/runs/${FIXTURE.run}`);
-    assert.equal(producer.workflow_id, FIXTURE.workflow);
-    assert.equal(producer.path, '.github/workflows/pr-rc.yml');
-    assert.equal(producer.run_attempt, 1);
-    assert.equal(producer.status, 'completed');
-    assert.equal(producer.head_branch, 'main');
-    assert.equal(producer.event, 'workflow_dispatch');
-    assert.equal(producer.conclusion, 'success');
-    assert.equal(producer.repository.full_name, repository);
-    assert.equal(producer.display_title, `pr-rc #${FIXTURE.pr} ${FIXTURE.head.slice(0, 12)}`);
-    const inventory = reader.inventory(FIXTURE.run);
-    const catalogArtifact = inventory.find((item) => item.id === FIXTURE.catalog);
-    assert(catalogArtifact);
-    assert.equal(catalogArtifact.name, prRCCatalogName(FIXTURE.pr));
-    assert.equal(catalogArtifact.workflow_run.id, FIXTURE.run);
+    const producer = reader.metadata(`actions/runs/${run}`);
+    const inventory = reader.inventory(run);
+    const catalogs = inventory.filter((item) => item.name === prRCCatalogName(QUALIFICATION.pr));
+    assert.equal(catalogs.length, 1, 'Exactly one catalog required.');
+    const catalogArtifact = catalogs[0];
     const catalogMembers = reader.members(catalogArtifact, 2 * MiB);
     assert.equal(catalogMembers.length, 1);
     assert.equal(catalogMembers[0].name, 'catalog.json');
     const catalog = JSON.parse(catalogMembers[0].bytes);
-    assert.equal(catalog.schema_version, 2);
-    assert.equal(catalog.kind, 'tmt-pr-rc-catalog');
-    assert.equal(catalog.repository, repository);
-    assert.equal(catalog.producer.workflow_id, FIXTURE.workflow);
-    assert.equal(catalog.eligibility.label_id, FIXTURE.label);
-    assert.equal(catalog.head_sha, FIXTURE.head);
-    assert.equal(catalog.pr, FIXTURE.pr);
-    assert.equal(catalog.producer.run_id, FIXTURE.run);
-    assert.equal(catalog.eligibility.enabled_event_id, FIXTURE.event);
-    assert.deepEqual(catalog.candidates.map((item) => item.target).sort(), [...RC_TARGETS].sort());
+    const timeline = api('GET', `issues/${QUALIFICATION.pr}/timeline?per_page=100`).data;
+    const fixture = deriveFixture(
+      run,
+      producer,
+      catalogArtifact,
+      catalog,
+      inventory,
+      current,
+      timeline
+    );
     const rc = [catalogArtifact];
     for (const candidate of catalog.candidates) {
       const artifact = inventory.find((item) => item.id === candidate.payload_artifact.id);
       assert(artifact);
       assert.equal(artifact.name, candidate.payload_artifact.name);
-      assert.equal(artifact.name, prRCPayloadName(FIXTURE.pr, candidate.target, FIXTURE.run, 1));
-      assert.equal(artifact.workflow_run.id, FIXTURE.run);
+      assert.equal(
+        artifact.name,
+        prRCPayloadName(QUALIFICATION.pr, candidate.target, fixture.run, 1)
+      );
+      assert.equal(artifact.workflow_run.id, fixture.run);
       assert.equal(artifact.size_in_bytes, candidate.payload_artifact.zip_bytes);
       assert.equal(artifact.digest, `sha256:${candidate.payload_artifact.zip_sha256}`);
       assert(Date.parse(artifact.created_at) <= Date.parse(catalogArtifact.created_at));
@@ -352,7 +429,8 @@ export async function executeSelftest(stage) {
       rc.push(artifact);
     }
     const manifest = {
-      run: FIXTURE.run,
+      run: fixture.run,
+      fixture,
       catalog,
       rc: rc.map(({ id, name, size_in_bytes, digest }) => ({ id, name, size_in_bytes, digest })),
       ordinary: inventory.filter((item) => !rc.includes(item)).map((item) => item.id),
@@ -362,6 +440,7 @@ export async function executeSelftest(stage) {
     return;
   }
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  const fixture = manifest.fixture;
   const world = path.join(root, 'world');
   if (stage === 'baseline') {
     assert(!fs.existsSync(world), 'Fresh isolated world required.');
@@ -408,10 +487,10 @@ export async function executeSelftest(stage) {
     const binaryRan = binaryIdentity(world, 'published-client');
     const output = checked(
       executable,
-      ['upgrade', '--channel', `pr${FIXTURE.pr}`, '--yes', '--json'],
+      ['upgrade', '--channel', `pr${QUALIFICATION.pr}`, '--yes', '--json'],
       { env: clientEnvironment(world) }
     );
-    assertPRReceipt(readOwnedReceipt(world), manifest.catalog);
+    assertPRReceipt(readOwnedReceipt(world), manifest.catalog, fixture);
     assert.deepEqual(
       snapshot(path.join(world, 'state')),
       dataBefore,
@@ -425,7 +504,7 @@ export async function executeSelftest(stage) {
     const positiveBinary = binaryIdentity(world, 'active-candidate');
     const positive = run(
       executable,
-      ['upgrade', '--channel', `pr${FIXTURE.pr}`, '--yes', '--json'],
+      ['upgrade', '--channel', `pr${QUALIFICATION.pr}`, '--yes', '--json'],
       { env: clientEnvironment(world) }
     );
     save('positive', {
@@ -455,17 +534,17 @@ export async function executeSelftest(stage) {
   }
   if (['stale', 'disabled', 'epoch', 'closed'].includes(stage)) {
     const current = pull();
-    if (stage === 'stale') assert.notEqual(current.head.sha, FIXTURE.head);
+    if (stage === 'stale') assert.notEqual(current.head.sha, fixture.head);
     if (stage === 'disabled') assert(!current.labels.some((item) => item.name === 'rc-build'));
     if (stage === 'epoch') {
       assert(current.labels.some((item) => item.name === 'rc-build'));
-      const timeline = api('GET', `issues/${FIXTURE.pr}/timeline?per_page=100`).data;
+      const timeline = api('GET', `issues/${QUALIFICATION.pr}/timeline?per_page=100`).data;
       assert(timeline.length < 100);
       assert.notEqual(
         timeline
           .filter((item) => item.event === 'labeled' && item.label?.name === 'rc-build')
           .at(-1)?.id,
-        FIXTURE.event
+        fixture.event
       );
     }
     if (stage === 'closed') assert.equal(current.state, 'closed');
@@ -480,7 +559,7 @@ export async function executeSelftest(stage) {
     const binaryRan = binaryIdentity(world, 'active-candidate');
     const result = run(
       path.join(world, 'prefix/bin/tmt'),
-      ['upgrade', '--channel', `pr${FIXTURE.pr}`, '--yes', '--json'],
+      ['upgrade', '--channel', `pr${QUALIFICATION.pr}`, '--yes', '--json'],
       { env: clientEnvironment(world) }
     );
     assertRefusal(result, before, {
@@ -516,28 +595,41 @@ export async function executeSelftest(stage) {
   const current = pull();
   if (stage === 'advance') {
     assert.equal(current.state, 'open');
-    assert.equal(current.head.sha, FIXTURE.head);
-    const parent = api('GET', `git/commits/${FIXTURE.head}`).data;
+    assert.equal(current.head.sha, fixture.head);
+    const parent = api('GET', `git/commits/${fixture.head}`).data;
     const commit = api('POST', 'git/commits', {
       message:
         'docs(infra): #1980 stale-head refusal (never merge)\n\nCo-authored-by: Codex <codex@openai.com>',
       tree: parent.tree.sha,
-      parents: [FIXTURE.head],
+      parents: [fixture.head],
     }).data;
-    api('PATCH', `git/refs/heads/${FIXTURE.branch}`, { sha: commit.sha, force: false });
-    assert.equal(pull().head.sha, commit.sha);
+    api('PATCH', `git/refs/heads/${QUALIFICATION.branch}`, { sha: commit.sha, force: false });
+    await waitForPull(
+      () => ({ data: pull() }),
+      (value) => assert.equal(value.head.sha, commit.sha)
+    );
     save(stage, { head: commit.sha });
   } else if (stage === 'disable') {
-    api('DELETE', `issues/${FIXTURE.pr}/labels/rc-build`);
-    assert(!pull().labels.some((item) => item.name === 'rc-build'));
+    api('DELETE', `issues/${QUALIFICATION.pr}/labels/rc-build`);
+    await waitForPull(
+      () => ({ data: pull() }),
+      (value) => assert(!value.labels.some((item) => item.name === 'rc-build'))
+    );
     save(stage, { disabled: true });
   } else if (stage === 'enable') {
-    api('POST', `issues/${FIXTURE.pr}/labels`, { labels: ['rc-build'] });
-    assert.equal(pull().labels.find((item) => item.name === 'rc-build')?.id, FIXTURE.label);
+    api('POST', `issues/${QUALIFICATION.pr}/labels`, { labels: ['rc-build'] });
+    await waitForPull(
+      () => ({ data: pull() }),
+      (value) =>
+        assert.equal(value.labels.find((item) => item.name === 'rc-build')?.id, fixture.label)
+    );
     save(stage, { enabled: true });
   } else if (stage === 'close') {
-    api('PATCH', `pulls/${FIXTURE.pr}`, { state: 'closed' });
-    assert.equal(pull().state, 'closed');
+    api('PATCH', `pulls/${QUALIFICATION.pr}`, { state: 'closed' });
+    await waitForPull(
+      () => ({ data: pull() }),
+      (value) => assert.equal(value.state, 'closed')
+    );
     save(stage, { closed: true });
   } else if (stage === 'cleanup') {
     save(stage, {
