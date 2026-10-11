@@ -4,6 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { alive, OwnedProcess, until } from './process.js';
+import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(harness, '../../../../../..');
@@ -409,30 +410,7 @@ export class AcceptanceWorld {
   recordColabServe(): void {
     this.live('record Colab serve ownership');
     const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
-    const found = new Set<number>();
-    if (process.platform === 'linux') {
-      for (const entry of fs.readdirSync('/proc')) {
-        if (!/^\d+$/.test(entry)) continue;
-        try {
-          for (const fd of fs.readdirSync(`/proc/${entry}/fd`)) {
-            try {
-              if (fs.readlinkSync(`/proc/${entry}/fd/${fd}`) === lock) found.add(Number(entry));
-            } catch {
-              /* A concurrently closed fd is not ownership evidence. */
-            }
-          }
-        } catch {
-          /* Exited or inaccessible processes cannot attest this lock. */
-        }
-      }
-    } else {
-      const rows = execFileSync('/usr/sbin/lsof', ['-Fpn', lock], { encoding: 'utf8' });
-      let pid = 0;
-      for (const row of rows.split('\n')) {
-        if (row.startsWith('p')) pid = Number(row.slice(1));
-        if (row === `n${lock}` && Number.isSafeInteger(pid) && pid > 0) found.add(pid);
-      }
-    }
+    const found = serveLockOwners(lock);
     if (found.size !== 1) throw new Error('Private Colab serve lock has no unique owner');
     for (const pid of found) this.servePids.add(pid);
     this.lifecycle('serve-owned');
@@ -569,8 +547,8 @@ export class AcceptanceWorld {
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
     for (const pid of this.servePids) {
       await attempt('private Colab serve lock owner', async () => {
-        if (!alive(pid)) return;
-        process.kill(pid, 'SIGTERM');
+        const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
+        if (!signalServeLockOwner(lock, pid, 'SIGTERM')) return;
         await until(() => !alive(pid), 'private Colab serve exit', 5_000);
       });
     }

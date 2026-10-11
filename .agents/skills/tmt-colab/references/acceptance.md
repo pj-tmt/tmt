@@ -162,7 +162,8 @@ All disposal callers join one promise; the world stays registered until cleanup 
 and simultaneous scenario and cleanup failures are both reported. Allowlisted lifecycle
 records link the case/worker to its root and spawned groups, private tmux identity and
 root-attested serve-lock owner without URLs or seeds. Emergency cleanup stops only those
-recorded owners; unrelated processes sharing an executable remain untouched.
+recorded owners, rechecking current serve-lock ownership before signalling a retained PID;
+unrelated processes sharing an executable remain untouched.
 `harness.spec.ts` also runs an excluded child fixture through real Playwright timeouts,
 including a timeout while cleanup is already running, and checks process absence. A worker that Playwright kills
 outright (a hook timeout) can still leave a world behind; no hook can run then.

@@ -309,6 +309,7 @@ interface WorldLifecycle {
 async function cleanupChildWorlds(records: WorldLifecycle[]): Promise<void> {
   const { execFileSync } = await import('node:child_process');
   const { alive, until } = await import('./harness/process.js');
+  const { signalServeLockOwner } = await import('./harness/serve-lock.js');
   for (const root of new Set(records.map((record) => record.root))) {
     // A teardown snapshot or a look-alike executable is never authority to kill.
     const groups = new Set(
@@ -326,8 +327,8 @@ async function cleanupChildWorlds(records: WorldLifecycle[]): Promise<void> {
         .flatMap((record) => record.servePids),
     );
     for (const pid of serves) {
-      if (alive(pid)) process.kill(pid, 'SIGKILL');
-      await until(() => !alive(pid), 'recorded private serve exit', 3_000);
+      if (signalServeLockOwner(`${root}/state/colab/serve.lock`, pid, 'SIGKILL'))
+        await until(() => !alive(pid), 'recorded private serve exit', 3_000);
     }
     const started = records.find((record) => record.root === root && record.stage === 'started');
     if (started && alive(started.tmuxPid))
