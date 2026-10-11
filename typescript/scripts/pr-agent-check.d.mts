@@ -6,5 +6,4 @@ export function checkPrAgents(input: {
   event: unknown;
   reader: QueueReader & { rest(endpoint: string): string };
   repository: string;
-  reportOnly?: boolean;
 }): { checked: number; exempted: number[]; findings: { number: number; findings: string[] }[] };

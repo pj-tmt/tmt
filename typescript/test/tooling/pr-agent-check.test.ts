@@ -208,29 +208,9 @@ describe('current PR and cumulative queue evidence', () => {
       checkPrAgents({ eventName: 'pull_request', event: {}, repository, reader: reader({}) })
     ).toThrow('PR number');
   });
-  it('allows report-only only for merge groups and retains their findings', () => {
-    expect(() =>
-      checkPrAgents({
-        eventName: 'pull_request',
-        event: prEvent,
-        repository,
-        reader: reader({ 1: pull(1) }),
-        reportOnly: true,
-      })
-    ).toThrow('only for merge groups');
-    expect(
-      checkPrAgents({
-        eventName: 'merge_group',
-        event: queueEvent,
-        repository,
-        reader: reader({ 1: pull(1, ''), 2: pull(2) }),
-        reportOnly: true,
-      }).findings
-    ).toHaveLength(1);
-  });
 });
 
-it('real entrypoint keeps PR errors red and queue observation green with visible reports', () => {
+it('real entrypoint enforces PR and queue attribution with visible reports', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'tmt-pr-agents-'));
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   try {
@@ -247,16 +227,13 @@ it('real entrypoint keeps PR errors red and queue observation green with visible
     const eventPath = path.join(dir, 'event');
     const bodyPath = path.join(dir, 'pull');
     const summary = path.join(dir, 'summary');
-    function invoke(eventName: string, body: unknown, reportOnly = false) {
+    function invoke(eventName: string, body: unknown) {
       writeFileSync(eventPath, JSON.stringify(eventName === 'merge_group' ? queueEvent : prEvent));
       writeFileSync(bodyPath, JSON.stringify(body));
       writeFileSync(summary, '');
       const result = spawnSync(
         process.execPath,
-        [
-          path.join(root, 'typescript/scripts/pr-agent-check.mjs'),
-          ...(reportOnly ? ['--report-only'] : []),
-        ],
+        [path.join(root, 'typescript/scripts/pr-agent-check.mjs')],
         {
           env: {
             ...process.env,
@@ -279,13 +256,13 @@ it('real entrypoint keeps PR errors red and queue observation green with visible
     const missing = invoke('pull_request', pull(1, ''));
     expect(missing.status).toBe(1);
     expect(missing.stdout).toContain('No valid visible Agent line.');
-    const observing = invoke('merge_group', pull(1, ''), true);
-    expect(observing.status).toBe(0);
-    expect(observing.stdout).toContain('Findings do not fail this merge group.');
-    const unavailable = invoke('merge_group', {}, true);
-    expect(unavailable.status).toBe(0);
+    expect(invoke('merge_group', pull(1)).status).toBe(0);
+    const missingQueue = invoke('merge_group', pull(1, ''));
+    expect(missingQueue.status).toBe(1);
+    expect(missingQueue.stdout).toContain('No valid visible Agent line.');
+    const unavailable = invoke('merge_group', {});
+    expect(unavailable.status).toBe(1);
     expect(unavailable.stdout).toContain('Agent evidence unavailable');
-    expect(invoke('pull_request', {}, true).status).toBe(1);
     expect(invoke('pull_request', {}).status).toBe(1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
