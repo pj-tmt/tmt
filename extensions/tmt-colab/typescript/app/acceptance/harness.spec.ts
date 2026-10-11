@@ -390,6 +390,21 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
         reporter: [['line'], ['json', { outputFile: path.join(directory, 'report.json') }]],
       })}`,
     );
+    // Reporter environment overrides the config's outputFile. Keep the child's
+    // report private and preserve only the shared browser installation location.
+    const parentReport = path.join(directory, 'parent-report.json');
+    fs.writeFileSync(parentReport, 'parent reporter sentinel');
+    const inherited = {
+      ...process.env,
+      PLAYWRIGHT_JSON_OUTPUT_FILE: parentReport,
+      PLAYWRIGHT_JSON_OUTPUT_DIR: directory,
+      PLAYWRIGHT_JSON_OUTPUT_NAME: 'parent-report.json',
+    };
+    const childEnvironment = Object.fromEntries(
+      Object.entries(inherited).filter(
+        ([name]) => !name.startsWith('PLAYWRIGHT_') || name === 'PLAYWRIGHT_BROWSERS_PATH',
+      ),
+    );
     let records: WorldLifecycle[] = [];
     try {
       let output = '';
@@ -405,7 +420,8 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
           ],
           {
             env: {
-              ...process.env,
+              ...childEnvironment,
+              PLAYWRIGHT_JSON_OUTPUT_FILE: path.join(directory, 'report.json'),
               TMT_AGENT: '1',
               BROWSER: '/usr/bin/true',
               TMT_ACCEPTANCE_KEEP: '0',
@@ -425,6 +441,7 @@ test('harness: child timeouts join teardown and leave no worlds', async () => {
       });
       expect(code, output).toBe(1);
       expect(output).toContain('2 failed');
+      expect(fs.readFileSync(parentReport, 'utf8')).toBe('parent reporter sentinel');
       const report = JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8')) as {
         suites: Array<{ specs: Array<{ tests: Array<{ results: Array<{ status: string }> }> }> }>;
       };
