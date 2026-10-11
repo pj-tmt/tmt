@@ -1,5 +1,14 @@
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import type { mountRenderer } from '../src/renderer.js';
+
+const captureDirectory = process.env.COLAB_DOCUMENT_IMAGE_CAPTURE_DIR;
+async function capture(page: Page, name: string) {
+  if (!captureDirectory) return;
+  mkdirSync(captureDirectory, { recursive: true });
+  await page.screenshot({ path: path.join(captureDirectory, name), fullPage: true });
+}
 
 const PNG =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
@@ -138,10 +147,7 @@ for (const width of [1440, 390])
       expect(
         await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reads),
       ).toEqual(['11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333']);
-      await page.screenshot({
-        path: `/private/tmp/colab-2-2556-evidence/images-${width}-${dark ? 'dark' : 'light'}.png`,
-        fullPage: true,
-      });
+      await capture(page, `images-${width}-${dark ? 'dark' : 'light'}.png`);
       await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reset());
       await expect(frame.locator('img[src^="data:"]')).toHaveCount(0);
       await expect(frame.getByRole('img', { name: 'Verified image' })).toContainText(
@@ -158,10 +164,7 @@ for (const width of [1440, 390])
       await expect(
         page.frameLocator('#image-probe iframe').getByRole('img', { name: 'A document image' }),
       ).toContainText('Image not available here');
-      await page.screenshot({
-        path: `/private/tmp/colab-2-2556-evidence/not-here-${width}-${dark ? 'dark' : 'light'}.png`,
-        fullPage: true,
-      });
+      await capture(page, `not-here-${width}-${dark ? 'dark' : 'light'}.png`);
       await mount(
         page,
         `<style>body{font:16px system-ui;background:${dark ? '#18222b' : '#fff'};color:${dark ? '#eee' : '#17212b'};padding:16px}img{width:100px;height:25px;display:block}</style><h1>Image limit</h1>${Array.from({ length: 9 }, (_, i) => `<img src="colab-attachment:${String(i + 1).repeat(8)}" alt="Image ${i + 1}">`).join('')}`,
@@ -176,10 +179,7 @@ for (const width of [1440, 390])
       expect(
         await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reads),
       ).toHaveLength(8);
-      await page.screenshot({
-        path: `/private/tmp/colab-2-2556-evidence/limit-${width}-${dark ? 'dark' : 'light'}.png`,
-        fullPage: true,
-      });
+      await capture(page, `limit-${width}-${dark ? 'dark' : 'light'}.png`);
     });
   }
 test('a backend without document file access makes no reads and renders not-here placeholders', async ({
