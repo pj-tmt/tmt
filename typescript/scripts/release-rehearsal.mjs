@@ -44,6 +44,15 @@ const CLI_UPGRADE_INPUTS = [
   'rust/crates/tmt-cli/src/native_upgrade_command.rs',
   'rust/crates/tmt-cli/src/native_upgrade_command_tests.rs',
 ];
+// These code and test owners exercise the real-archive CLI upgrade/skill-refresh proof.
+// Trailing slashes select module descendants; file entries select only the named owner.
+const CLI_UPGRADE_INPUTS = [
+  'rust/crates/tmt-adapters/src/native_install/',
+  'rust/crates/tmt-adapters/src/skill_installation/',
+  'rust/crates/tmt-cli/src/native_upgrade_command/',
+  'rust/crates/tmt-cli/src/native_upgrade_command.rs',
+  'rust/crates/tmt-cli/src/native_upgrade_command_tests.rs',
+];
 // Extension manifests belong to one product, so component attribution picks the products.
 const PRODUCT_MANIFEST = /^extensions\/(?:.*\/)?Cargo\.toml$/;
 
