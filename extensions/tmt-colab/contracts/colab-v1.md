@@ -3989,18 +3989,30 @@ a slot that records the attachment it `replaces`, and runs the native attach pip
 the current epoch as the local writer, a new `attachmentId`, upload, creation proof, then one Save
 whose `DocumentChange` removes the old ID and sets the new descriptor, bound to the source digest.
 Readers therefore see the old complete reference or the new complete one, never a half swap.
-An image reference to the replaced ID becomes the normal unavailable placeholder; automatic HTML
-reference repair is deferred to #2746. A descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
+A second ordinary owner Save repairs complete `img src` values containing `colab-attachment:`
+references to the old full ID or unique id8 with the new full ID, from the latest verified source and without an attachment delta.
+Unrelated source bytes remain unchanged, including prose, examples, comments and other attributes;
+ambiguous short references are left alone. If the editable values do not agree with the parsed
+images, the source stays unchanged and the repair waits. A stale Save
+is derived again, and an uncertain reply is settled by reading the current page before another
+Save. Until that repair, an image reference shows the normal unavailable placeholder; it is
+repaired on the next successful maintenance pass. A descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
 record of the new epoch and cannot exist before it.
 
 **Triggers and bounds.** One worker runs at serve start, after any management change, when an
 object channel is established, and after an unfinished pass on a backoff that starts at a minute, doubles to an hour and starts over on any of the other triggers. A pass takes pages whose epoch
 is past 1, at most 4 attachments per page and 120 s per page; the rest wait for the next pass.
-Quota exhaustion, a lost channel, a crash or a serve stop leave the old reference, and the next pass
+Before the swap, quota exhaustion, a lost channel, a crash or a serve stop leave the old attachment
+reference, and the next pass
 resumes the slot's frozen transfer ID without a second upload. A page that moved meanwhile, an edit
 or a further advance, is a terminal stale base for that attempt: the original is discarded and the
 swap is derived again from the new page, at most three times per pass, never over the edit. An
-attachment removed meanwhile is left removed.
+attachment removed meanwhile is left removed. Finished replacement slots retain their small
+old-to-new mapping until a verified no-op, successful reference Save, or removal settles it.
+They count toward the existing 16-slot bound; when full, another replacement waits. Restart
+reconciles committed swaps before age cleanup, including swaps committed before the slot
+finished, and repairs earlier mappings before a further key change replaces their target again.
+Plaintext and ciphertext cleanup is unchanged.
 
 **Status.** Each Files row of a page whose epoch is newer than its file says `Securing after a key
 change. Still available.`; the line is derived from the page and has no state of its own.
