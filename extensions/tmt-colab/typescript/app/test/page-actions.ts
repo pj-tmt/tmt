@@ -8,7 +8,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   const drawer = page.locator('.tmt-ui-drawer[open]');
   if (await drawer.isVisible()) {
     // The first covered-header press dismisses only; the action needs a second press.
-    const button = await header.getByRole('button').first().boundingBox();
+    const button = await page.locator('.tmt-ui-header button').first().boundingBox();
     if (!button) throw new Error('Open drawer has no visible header return target');
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
