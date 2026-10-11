@@ -1390,3 +1390,28 @@ footer {
 .archive-unsent-draft .tmt-ui-action {
   padding-inline: 0;
 }
+
+.selection-mode kbd {
+  font: inherit;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+@media (max-height: 500px) {
+  .selection-mode .tmt-ui-icon-action-icon > span,
+  .selection-mode kbd {
+    display: none;
+  }
+  .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
+    width: 40px;
+    padding: 0;
+  }
+  /* Tiny windows cannot fit history and composer together; keep both scroll-reachable. */
+  .annotation-popover .conversation-window {
+    overflow: auto;
+  }
+  .annotation-popover .conversation-history {
+    flex-shrink: 0;
+    min-height: 120px;
+  }
+}

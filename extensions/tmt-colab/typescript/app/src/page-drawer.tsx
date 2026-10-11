@@ -10,6 +10,7 @@ export function PageDrawer({
   title,
   kind,
   close,
+  escape = close,
   children,
   hideHeader = false,
 }: {
@@ -17,6 +18,7 @@ export function PageDrawer({
   title: string;
   kind: string;
   close(): void;
+  escape?(): void;
   children: ReactNode;
   hideHeader?: boolean;
 }) {
@@ -56,12 +58,24 @@ export function PageDrawer({
       aria-label={hideHeader ? title : undefined}
       onCancel={(event) => {
         event.preventDefault();
-        close();
+        escape();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          close();
+        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        // Even an inert modified/repeated Escape must not fall through to the
+        // modal dialog's native cancel and bypass the parent ladder guards.
+        event.preventDefault();
+        if (
+          event.isTrusted &&
+          !event.repeat &&
+          !event.nativeEvent.isComposing &&
+          event.keyCode !== 229 &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.shiftKey
+        ) {
+          escape();
         }
       }}
     >

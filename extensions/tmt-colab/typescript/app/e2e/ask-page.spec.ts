@@ -367,7 +367,7 @@ for (const theme of ['light', 'dark'] as const)
     // Capture the opened annotation before the separate editing and IME controls type into it.
     await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
     await input.press('c');
-    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+    await expect(page.locator('.selection-mode').getByRole('button')).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -396,7 +396,7 @@ for (const theme of ['light', 'dark'] as const)
       await page.evaluate(() => (window as unknown as { composingKey: unknown }).composingKey),
     ).toEqual({ trusted: true, composing: true });
     await expect(input).toBeFocused();
-    await expect(page.getByRole('button', { name: 'Selection mode', exact: true })).toHaveAttribute(
+    await expect(page.locator('.selection-mode').getByRole('button')).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -505,7 +505,7 @@ for (const width of [1440, 390])
       }, theme);
       await page.goto('/');
       await run(page, 'mount');
-      const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+      const mode = page.locator('.selection-mode').getByRole('button');
       await expect(mode).toHaveAttribute('aria-pressed', 'false');
       await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c');
       await page.screenshot({ path: capturePath(`1923-off-${width}-${theme}.png`) });
@@ -613,7 +613,7 @@ test('selection uses admitted comment authority without Ask; a read-only page ha
 }) => {
   await page.goto('/');
   await run(page, 'mount', { commentOnly: true });
-  const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+  const mode = page.locator('.selection-mode').getByRole('button');
   await expect(mode).toHaveAttribute('aria-pressed', 'false');
   await mode.click();
   await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
@@ -677,7 +677,7 @@ for (const width of [1440, 390])
       const input = window.getByRole('combobox', { name: 'Message' });
       await input.fill('Keep this discussion draft');
       await page.getByRole('button', { name: 'Close thread', exact: true }).click();
-      const mode = page.getByRole('button', { name: 'Selection mode', exact: true });
+      const mode = page.locator('.selection-mode').getByRole('button');
       await mode.click();
       await page.mouse.click(point.x, point.y);
       await expect(input).toHaveText('Keep this discussion draft');
@@ -746,4 +746,181 @@ test('archive keeps an open anchored draft mounted as read-only Copy text', asyn
   await expect(annotation.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
   expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
+for (const [width, height, theme] of [
+  [1440, 900, 'light'],
+  [390, 900, 'dark'],
+  [1440, 500, 'light'],
+  [390, 300, 'dark'],
+  [720, 450, 'light'],
+] as const) {
+  test(`Escape steps the retained thread ladder and keeps the toggle at the content edge ${width} ${height} ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    const scale = width === 720 ? await page.context().newCDPSession(page) : undefined;
+    if (scale) {
+      // The layout/DPR combination of a 1440x900 display at 200% zoom; this is
+      // an explicit metrics control, not manipulation of browser chrome.
+      await scale.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height,
+        deviceScaleFactor: 2,
+        mobile: false,
+      });
+      expect(await page.evaluate(() => devicePixelRatio)).toBe(2);
+    }
+    await page.emulateMedia({ colorScheme: theme });
+    await page.addInitScript((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(
+      page,
+      'change',
+      '<main style="height:1800px"><p id="selected" style="margin-left:calc(100% - 150px);padding-top:1000px">Exact selected text</p></main>',
+    );
+    await run(page, 'conversation', {
+      surface: 'thread',
+      state: 'replied',
+      message: 'Existing discussion. '.repeat(45),
+    });
+    const mode = page.locator('.selection-mode').getByRole('button');
+    await mode.click();
+    await expect(mode).toHaveAccessibleName(text.stopSelecting);
+    await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    await frame.locator('[data-colab-thread]').click();
+    const window = page.locator('.annotation-popover');
+    await expect(page.getByTestId('comment-thread')).toHaveAttribute('data-layout', 'anchored');
+    const input = window.getByRole('combobox', { name: 'Message' });
+    await input.fill('Draft retained @');
+    await expect(page.getByRole('option').first()).toBeVisible();
+    await input.press('Escape');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(window).toBeVisible();
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await expect(input).toHaveText('Draft retained @');
+    for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
+      await input.press(key);
+    await expect(window).toBeVisible();
+    await expect
+      .poll(async () => {
+        const toggle = (await mode.boundingBox())!;
+        const thread = (await window.boundingBox())!;
+        const header = (await page.locator('#ask-page-fixture .tmt-ui-header').boundingBox())!;
+        return (
+          toggle.y >= header.height &&
+          Math.abs(toggle.y + toggle.height - (height - (width <= 640 ? 16 : 24))) <= 1 &&
+          thread.y + thread.height <= toggle.y - 8
+        );
+      })
+      .toBe(true);
+    await expect(mode).toBeVisible();
+    await page.screenshot({ path: capturePath(`2719-thread-${width}-${height}-${theme}.png`) });
+    if (height <= 500) {
+      const send = window.getByRole('button', { name: 'Send', exact: true });
+      await send.scrollIntoViewIfNeeded();
+      await expect
+        .poll(async () => {
+          const action = (await send.boundingBox())!;
+          const shell = (await window.boundingBox())!;
+          return action.y >= shell.y && action.y + action.height <= shell.y + shell.height;
+        })
+        .toBe(true);
+      await page.screenshot({ path: capturePath(`2719-composer-${width}-${height}-${theme}.png`) });
+    }
+    await input.press('Escape');
+    await expect(window).toHaveCount(0);
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    // Collapse returns focus to the opaque frame; its cosmetic Escape notification
+    // must reach the same parent owner, not a second selection-mode ladder.
+    await expect(page.locator('#ask-page-fixture iframe')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await expect(mode).toHaveAccessibleName(text.selectionMode);
+    await frame.locator('[data-colab-thread]').click();
+    await expect(input).toHaveText('Draft retained @');
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    expect((await run(page, 'proof')).actions).toEqual([]);
+    await input.press('Escape');
+    await mode.click();
+    await mode.evaluate((node) => node.blur());
+    for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
+      await page.keyboard.press(key);
+    await page.evaluate(() =>
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    await expect(mode).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.down('Escape');
+    await page.keyboard.down('Escape');
+    await page.keyboard.up('Escape');
+    await expect(mode).toHaveAttribute('aria-pressed', 'false');
+    await scale?.detach();
+  });
+}
+
+for (const width of [1440, 390]) {
+  test(`Escape closes Chat after suggestions, keeps its draft and fences a busy send ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mount(page);
+    const chat = page.getByTestId('chat-panel');
+    const input = chat.getByRole('combobox', { name: 'Message' });
+    await input.fill('Chat draft @');
+    await expect(page.getByRole('option').first()).toBeVisible();
+    await input.press('Escape');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(chat).toBeVisible();
+    const close = chat.getByRole('button', { name: 'Close Chat', exact: true });
+    await close.focus();
+    for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
+      await page.keyboard.press(key);
+    await expect(chat).toBeVisible();
+    await input.press('Escape');
+    await expect(chat).toBeHidden();
+    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    await expect(page.locator('.page-header-actions button:focus')).toHaveCount(1);
+    await (await pageAction(page, 'Chat')).click();
+    await expect(input).toHaveText('Chat draft @');
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    await compose(page);
+    await run(page, 'pausePrepare');
+    await input.press('Enter');
+    await expect(chat.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await chat.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+    await page.keyboard.press('Escape');
+    await expect(chat).toBeVisible();
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    await run(page, 'resumePrepare');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  });
+}
+
+test('Escape does not collapse an anchored thread during its explicit send', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'conversation', {
+    surface: 'thread',
+    state: 'replied',
+    message: 'Existing discussion',
+  });
+  await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
+  const window = page.locator('.annotation-popover');
+  const input = window.getByRole('combobox', { name: 'Message' });
+  await input.fill('@');
+  await page.getByRole('option').first().click();
+  await input.fill('@Agent 1 Anchored busy turn');
+  await run(page, 'pausePrepare');
+  await input.press('Enter');
+  await expect(window.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Close thread', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await expect(window).toBeVisible();
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await run(page, 'resumePrepare');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });

@@ -56,6 +56,8 @@ export async function mountRenderer(
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
+    /** Closed-set cosmetic key request; only trusted chrome decides its admitted action. */
+    onKey?(key: 'Escape' | '@'): void;
     onOpenThread?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
@@ -245,6 +247,16 @@ export async function mountRenderer(
         });
         return;
       }
+    }
+    if (
+      ready &&
+      Object.keys(value).length === 3 &&
+      value.type === 'colab.render.key' &&
+      value.renderId === snapshot.renderId &&
+      (value.key === 'Escape' || value.key === '@')
+    ) {
+      options.onKey?.(value.key);
+      return;
     }
     if (
       ready &&

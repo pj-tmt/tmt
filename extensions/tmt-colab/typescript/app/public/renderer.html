@@ -877,16 +877,16 @@
             },
             { once: true },
           );
-          // Mirror only embed-colab's tiny key predicate: this opaque inline bootstrap
-          // cannot import the site package or fetch scripts through its no-network CSP.
+          // The opaque inline bootstrap mirrors chrome's small key guards; its
+          // no-network CSP cannot import a helper from the parent application.
           const isColabShortcut = (event, editing) =>
             !editing &&
             !event.repeat &&
             !event.isComposing &&
             event.keyCode !== 229 &&
-            event.code === 'KeyC' &&
+            (event.code === 'KeyC' || event.key === 'Escape' || event.key === '@') &&
             !event.altKey &&
-            !event.shiftKey &&
+            (!event.shiftKey || event.key === '@') &&
             !event.ctrlKey &&
             !event.metaKey;
           const annotate = (event) => {
@@ -921,9 +921,15 @@
             }
             if (isColabShortcut(event, editing)) {
               event.preventDefault();
-              const type =
-                !selecting && capture() ? 'colab.render.annotate' : 'colab.render.toggle-selection';
-              parent.postMessage({ type, renderId }, '*');
+              if (event.key === 'Escape' || event.key === '@') {
+                parent.postMessage({ type: 'colab.render.key', renderId, key: event.key }, '*');
+              } else {
+                const type =
+                  !selecting && capture()
+                    ? 'colab.render.annotate'
+                    : 'colab.render.toggle-selection';
+                parent.postMessage({ type, renderId }, '*');
+              }
               return;
             }
             if (

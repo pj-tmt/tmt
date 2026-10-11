@@ -1926,6 +1926,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
+Escape consumes one level: the mention list, then the anchored window (draft retained), then Chat if open (draft retained and busy sends uninterrupted), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.

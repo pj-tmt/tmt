@@ -334,7 +334,17 @@ export function AnnotationInput({
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229) void send(current);
         }}
         onCancel={(event) => {
-          if (event.isTrusted && !event.isComposing && event.keyCode !== 229 && !sending.current)
+          if (
+            event.isTrusted &&
+            !event.repeat &&
+            !event.isComposing &&
+            event.keyCode !== 229 &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            !sending.current
+          )
             cancel();
         }}
       />
