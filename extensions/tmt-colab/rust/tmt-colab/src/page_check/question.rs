@@ -25,7 +25,9 @@ pub(super) struct Candidate {
     nested: bool,
     /// The nearest `tmt-question`/`tmt-questions` ancestor is a group that is not the parent.
     wrapped: bool,
-    /// Whether this question holds its ID in the shared namespace (see [`group::Survey`]).
+    /// Whether this question holds its ID in the shared namespace (see [`group::Survey`]). A
+    /// wrapped question, or one inside a skipped group, holds none, so it is never reported as
+    /// `question-id-duplicate`.
     holder: bool,
     holders: usize,
 }
@@ -189,8 +191,8 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         }
     }
 
-    // The admitted questions in document order, each with its group when it has one.
-    let mut admitted: Vec<(Id, Option<Id>)> = Vec::new();
+    // The group of each admitted question, in document order.
+    let mut admitted: Vec<Option<Id>> = Vec::new();
     let mut direct: HashMap<Id, usize> = HashMap::new();
     for id in questions {
         if survey.silenced(tree, id) {
@@ -241,25 +243,19 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             .has_ancestor(id, "tmt-questions")
             .then(|| tree.parent_element(id))
             .flatten();
-        let (label, number) = match group {
-            None => (None, 0),
-            Some(group) => {
-                let number = direct.entry(group).or_insert(0);
-                *number += 1;
-                let (authored, warnings) = group::label(tree.attr(id, "data-label"));
-                report.findings.extend(
-                    warnings
-                        .iter()
-                        .map(|code| finding(id, Severity::Warning, code, None)),
-                );
-                (
-                    Some(authored.unwrap_or_else(|| format!("Q{number}"))),
-                    *number,
-                )
-            }
-        };
-        debug_assert!(group.is_some() == (number > 0));
-        admitted.push((id, group));
+        let label = group.map(|group| {
+            let number = direct.entry(group).or_insert(0);
+            *number += 1;
+            let number = *number;
+            let (authored, warnings) = group::label(tree.attr(id, "data-label"));
+            report.findings.extend(
+                warnings
+                    .iter()
+                    .map(|code| finding(id, Severity::Warning, code, None)),
+            );
+            authored.unwrap_or_else(|| format!("Q{number}"))
+        });
+        admitted.push(group);
         report.questions.push(Question {
             id: candidate.id,
             kind: candidate.kind,
@@ -274,7 +270,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
 
     // Groups the page shows, and a lone question as the internal group of itself.
     let mut shown: HashMap<Id, usize> = HashMap::new();
-    for ((question, group), admitted_question) in admitted.iter().zip(&report.questions) {
+    for (group, admitted_question) in admitted.iter().zip(&report.questions) {
         match group {
             None => report.groups.push(QuestionGroup {
                 id: admitted_question.id.clone(),
@@ -295,7 +291,6 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                     .push(admitted_question.id.clone());
             }
         }
-        let _ = question;
     }
     // A group that passed but shows nothing: wrapped, invalid or absent questions only.
     for group in &groups {
