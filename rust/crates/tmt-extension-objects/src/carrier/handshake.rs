@@ -119,13 +119,6 @@ fn generation(fields: &[(&'static str, &str)]) -> Result<Uuid4, Refusal> {
         .map_err(|_| Refusal::BadValue("tmt-object-generation"))
 }
 
-/// Open the channel as the initiator on `stream`, which is connected to the
-/// extension's socket. `setup` is the absolute end of the whole setup.
-/// Legacy one-attempt version-1 entry point. New Remote uses [`negotiate`].
-pub fn initiate(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Link, Fault> {
-    initiate_version(stream, offer, setup, 1).map_err(|(fault, _)| fault)
-}
-
 /// Open a fresh stream for each attempt; a pre-reply failure permits one version-1
 /// fallback within the same absolute setup budget. Nothing is cached or replayed.
 pub fn negotiate(
@@ -148,6 +141,16 @@ pub fn negotiate(
         }
     }
     unreachable!("two attempts always return")
+}
+
+/// Keep version-1 wire/refusal fixtures explicit without a public legacy entry point.
+#[cfg(test)]
+pub(super) fn version_one(
+    stream: UnixStream,
+    offer: &Offer,
+    setup: Instant,
+) -> Result<Link, Fault> {
+    initiate_version(stream, offer, setup, 1).map_err(|(fault, _)| fault)
 }
 
 fn initiate_version(

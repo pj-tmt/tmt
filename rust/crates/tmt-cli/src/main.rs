@@ -73,7 +73,7 @@ fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let result = match parser::parse(&args) {
         Ok(parsed) => execute(parsed),
-        Err(error) => failure(error.mode, error.code, &error.message),
+        Err(error) => parser_failure(&error).publish(error.mode),
     };
     match result {
         Ok(code) => ExitCode::from(code),
@@ -457,6 +457,22 @@ fn failure(mode: OutputMode, code: &'static str, message: &str) -> io::Result<u8
     output::Failure::new(code, message, 1).publish(mode)
 }
 
+fn parser_failure(error: &invocation::ParseError) -> output::Failure {
+    // The hint is presentation-only: JSON retains the exact parser message and
+    // existing fields, while human usage errors use the shared styled renderer.
+    if !error.mode.json
+        && error.code == "USAGE_ERROR"
+        && let Some(hint) = &error.hint
+    {
+        let message = error
+            .message
+            .strip_suffix("For more information, try '--help'.\n")
+            .unwrap_or(&error.message);
+        return output::Failure::new(error.code, message, 1).suggestion(hint.clone());
+    }
+    output::Failure::new(error.code, &error.message, 1)
+}
+
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
@@ -470,3 +486,42 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         "Executable or option reference in prose, not a full command suggestion.",
     ),
 ];
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    #[test]
+    fn parser_hints_are_human_only_and_replace_claps_help_footer() {
+        let message = "error: unexpected argument '--bad' found\n\nUsage: tmt [OPTIONS] [COMMAND]\n\nFor more information, try '--help'.\n";
+        let hint = "Run tmt help to see the commands and options.".to_owned();
+        let failure = |mode, code, hint| {
+            parser_failure(&invocation::ParseError {
+                mode,
+                code,
+                message: message.into(),
+                hint,
+            })
+        };
+        let json = failure(OutputMode { json: true }, "USAGE_ERROR", Some(hint.clone()));
+        assert_eq!(
+            json.document(),
+            serde_json::json!({"error": {"code": "USAGE_ERROR", "message": message}})
+        );
+        let human = failure(OutputMode::default(), "USAGE_ERROR", Some(hint.clone()));
+        let mut output = Vec::new();
+        human
+            .write_human(&mut output, tmt_cli_style::Terminal::PLAIN)
+            .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.ends_with("hint: Run tmt help to see the commands and options\n"));
+        assert!(!output.contains("For more information"));
+        assert_eq!(output.matches("hint:").count(), 1);
+        assert!(output.contains("Usage: tmt [OPTIONS] [COMMAND]"));
+        let other = failure(OutputMode::default(), "DRIVER_CALL_REFUSED", Some(hint));
+        assert_eq!(
+            other.document(),
+            serde_json::json!({"error": {"code": "DRIVER_CALL_REFUSED", "message": message}})
+        );
+    }
+}

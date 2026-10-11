@@ -33,6 +33,7 @@ export function ConversationWindow({
   historyClassName = '',
   notice,
   composer,
+  overlay,
   children,
   className = '',
   ...attributes
@@ -45,6 +46,7 @@ export function ConversationWindow({
   historyClassName?: string;
   notice?: ReactNode;
   composer?: ReactNode;
+  overlay?: ReactNode;
 }) {
   const headingId = useId();
   const history = useRef<HTMLDivElement>(null);
@@ -147,6 +149,7 @@ export function ConversationWindow({
         </div>
       </div>
       {composer && <div className="conversation-composer">{composer}</div>}
+      {overlay}
     </section>
   );
 }

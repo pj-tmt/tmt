@@ -639,6 +639,8 @@ describe('ghApi', () => {
       repository: 'pj-tmt/tmt',
       spawn: (_command, args, options) => {
         seen.push({ args, options });
+        if (!args.includes('--allow-escape-sequences'))
+          throw new Error('the response contains terminal escape sequences');
         return { status: 0, stdout: '{"record":true}\n', stderr: '' };
       },
     });
@@ -647,6 +649,7 @@ describe('ghApi', () => {
       {
         args: [
           'api',
+          '--allow-escape-sequences',
           '-H',
           'Accept: application/octet-stream',
           'repos/pj-tmt/tmt/releases/assets/42',

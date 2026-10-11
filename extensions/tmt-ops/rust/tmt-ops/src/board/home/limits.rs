@@ -4,7 +4,7 @@
 use super::scene::{self, Kept, Key, Part};
 use crate::{
     board::{
-        limits::{Figures, Outlook, Standing},
+        limits::{Figures, Outlook, Standing, Trend},
         view::fit,
     },
     look::Look,
@@ -49,13 +49,6 @@ fn percent(value: f64) -> String {
     }
 }
 
-#[derive(Clone, Copy)]
-enum Size {
-    Full,
-    Medium,
-    Short,
-}
-
 fn state(figures: &Figures) -> Role {
     if figures.empties_soon() {
         Role::Blocked
@@ -66,7 +59,7 @@ fn state(figures: &Figures) -> Role {
     }
 }
 
-fn warning(figures: &Figures, short: bool) -> String {
+fn warning(figures: &Figures) -> String {
     if !figures.runs_out_before_reset {
         return String::new();
     }
@@ -74,9 +67,8 @@ fn warning(figures: &Figures, short: bool) -> String {
         return String::new();
     };
     format!(
-        " {} {}~{}",
+        " {} ~{}",
         if figures.empties_soon() { "✗" } else { "!" },
-        if short { "" } else { "empties " },
         reset(ms)
     )
 }
@@ -105,10 +97,10 @@ fn split_label(label: &str, fill: usize) -> (String, String) {
 
 fn rate_text(figures: &Figures) -> String {
     figures.burn.map_or_else(
-        || "rate not known".into(),
+        || "pace not known".into(),
         |rate| {
             if rate == 0.0 {
-                "no measured burn".into()
+                "no use measured".into()
             } else {
                 format!("~{rate:.1}%/h")
             }
@@ -118,18 +110,12 @@ fn rate_text(figures: &Figures) -> String {
 
 fn window_text(figures: &Figures) -> String {
     figures.short.map_or_else(
-        || "5h no reading".into(),
+        || "5h reading not available".into(),
         |left| format!("5h {}", percent(left.percent)),
     )
 }
 
-fn meter(
-    standing: &Standing,
-    now_ms: u64,
-    width: u16,
-    size: Size,
-    show_detail: bool,
-) -> Vec<Value> {
+fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
     let provider = standing.provider.label();
     let figures = match standing.outlook(now_ms) {
         Outlook::Known(figures) => figures,
@@ -147,28 +133,10 @@ fn meter(
             )];
         }
     };
-    let short = matches!(size, Size::Short);
-    let warning = warning(&figures, short);
-    let preferred = match size {
-        Size::Full => 34,
-        Size::Medium => 26,
-        Size::Short => 16,
-    };
-    let cells = preferred.min(usize::from(width).saturating_sub(warning.width()));
-    let critical = if short {
-        format!(" {} ", percent(figures.weekly.percent))
-    } else {
-        format!(
-            " {}{} · {} ",
-            percent(figures.weekly.percent),
-            if matches!(size, Size::Full) {
-                " left"
-            } else {
-                ""
-            },
-            reset(figures.weekly.resets_in_ms)
-        )
-    };
+    let warning = warning(&figures);
+    let reset_text = format!(" │ {}", reset(figures.weekly.resets_in_ms));
+    let cells = 18.min(usize::from(width).saturating_sub(warning.width() + reset_text.width()));
+    let critical = format!(" {} (7d) ", percent(figures.weekly.percent));
     let name = fit(&provider, cells.saturating_sub(critical.width() + 1));
     let label = fit(&format!(" {}{critical}", name.trim_end()), cells);
     let fill = ((cells as f64 * figures.weekly.percent / 100.0).round() as usize)
@@ -182,22 +150,36 @@ fn meter(
     if !warning.is_empty() {
         pieces.push(piece("warning", warning, state(&figures)));
     }
-    if matches!(size, Size::Full) && show_detail {
-        let rate = rate_text(&figures);
-        let window = window_text(&figures);
-        let extra = format!("   {rate} · {window}");
+    pieces.push(piece("reset", reset_text, Role::Muted));
+    if figures
+        .burn
+        .is_some_and(|rate| rate.is_finite() && rate > 0.0)
+    {
+        let extra = format!(" {}", rate_text(&figures));
         let used: usize = pieces
             .iter()
             .map(|piece| piece["text"].as_str().unwrap().width())
             .sum();
         if used + extra.width() <= usize::from(width) {
             pieces.push(piece("detail", extra, Role::Muted));
+            if let Some(trend) = figures.trend {
+                let (arrow, role) = match trend {
+                    Trend::Up => (" ↗", Role::Waiting),
+                    Trend::Same => (" →", Role::Muted),
+                    Trend::Down => (" ↘", Role::Working),
+                };
+                if used + pieces.last().unwrap()["text"].as_str().unwrap().width() + arrow.width()
+                    <= usize::from(width)
+                {
+                    pieces.push(piece("trend", arrow.into(), role));
+                }
+            }
         }
     }
     pieces
 }
 
-fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16, size: Size) -> Value {
+fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     let Some(standings) = standings else {
         return json!([{"id":"pending", "pieces":[piece("missing", PENDING.into(), Role::Muted)]}]);
     };
@@ -214,13 +196,7 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16, size: Size) -> 
             } else {
                 width
             };
-            for mut part in meter(
-                standing,
-                now_ms,
-                available,
-                size,
-                (super::MD.cells..super::WIDE).contains(&width),
-            ) {
+            for mut part in meter(standing, now_ms, available) {
                 let id = part["id"].as_str().unwrap();
                 part["id"] = Value::String(format!("{id}{at}"));
                 pieces.push(part);
@@ -238,13 +214,6 @@ pub(in crate::board) fn hidden_limits(
     now_ms: u64,
     width: u16,
 ) -> Vec<(&'static str, String)> {
-    let size = if width >= super::MD.cells {
-        Size::Full
-    } else if width >= super::SM.cells {
-        Size::Medium
-    } else {
-        Size::Short
-    };
     let available = if width >= super::WIDE {
         width.saturating_sub(7) / 2
     } else {
@@ -253,13 +222,7 @@ pub(in crate::board) fn hidden_limits(
     let mut fields = Vec::new();
     for standing in standings {
         let provider = standing.provider.label();
-        let parts = meter(
-            standing,
-            now_ms,
-            available,
-            size,
-            (super::MD.cells..super::WIDE).contains(&width),
-        );
+        let parts = meter(standing, now_ms, available);
         let shown = parts
             .iter()
             .map(|part| part["text"].as_str().unwrap())
@@ -276,7 +239,7 @@ pub(in crate::board) fn hidden_limits(
             continue;
         };
         let reset = reset(figures.weekly.resets_in_ms);
-        if !label.contains(&reset) {
+        if !shown.contains(&reset) {
             fields.push(("reset", format!("{provider} {reset}")));
         }
         let rate = rate_text(&figures);
@@ -308,13 +271,22 @@ pub(super) fn limits_in(
     const FILE: &str = "squad.home.limits.xml";
     let template = TEMPLATE.get_or_init(|| {
         let piece = Schema::Object(BTreeMap::from([
-            ("id".into(), Schema::StableId), ("text".into(), Schema::Scalar), ("role".into(), Schema::Scalar)]));
+            ("id".into(), Schema::StableId),
+            ("text".into(), Schema::Scalar),
+            ("role".into(), Schema::Scalar),
+        ]));
         let row = Schema::Object(BTreeMap::from([
-            ("id".into(), Schema::StableId), ("pieces".into(), Schema::Collection(Box::new(piece)))]));
-        let schema = Schema::Object(["medium", "compact", "narrow"].into_iter()
-            .map(|name| (name.into(), Schema::Collection(Box::new(row.clone())))).collect());
-        let markup = format!(r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-case min="sm">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            branch("medium"), branch("compact"), branch("narrow"));
+            ("id".into(), Schema::StableId),
+            ("pieces".into(), Schema::Collection(Box::new(piece))),
+        ]));
+        let schema = Schema::Object(BTreeMap::from([(
+            "providers".into(),
+            Schema::Collection(Box::new(row)),
+        )]));
+        let markup = format!(
+            r#"<tmt-view version="1">{}</tmt-view>"#,
+            branch("providers")
+        );
         scene::compile(FILE, &markup, &schema)
     });
     let key = Key {
@@ -322,9 +294,7 @@ pub(super) fn limits_in(
         look,
         selected: None,
         data: json!({
-            "medium":rows(standings, now_ms, width, Size::Full),
-            "compact":rows(standings, now_ms, width, Size::Medium),
-            "narrow":rows(standings, now_ms, width, Size::Short),
+            "providers":rows(standings, now_ms, width),
         }),
     };
     slot.get(key, |key| {
@@ -344,7 +314,7 @@ pub(super) fn limits_in(
                     if look.depth == Depth::None {
                         look.role(Role::Text).add_modifier(Modifier::UNDERLINED)
                     } else {
-                        look.role(Role::Text).patch(look.role(Role::Selection))
+                        look.role(Role::Text).patch(look.role(Role::Track))
                     }
                 } else {
                     look.role(role)

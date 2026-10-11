@@ -17,6 +17,7 @@ fn standing(provider: Provider, reading: Option<Reading>, burn: Option<f64>) -> 
         provider,
         latest: reading,
         burn,
+        trend: None,
     }
 }
 
@@ -81,11 +82,12 @@ fn meters_follow_the_approved_widths_without_clipping_critical_values() {
             assert!(content.contains(value), "{width}: {content}");
         }
         assert!(lines.iter().all(|line| line.width() <= usize::from(width)));
-        assert_eq!(content.contains("~2.1%/h"), width == 100);
-        assert_eq!(content.contains("5h 97%"), width == 100);
-        assert_eq!(content.contains("4d03h"), width >= 80);
-        assert_eq!(content.contains("empties"), width >= 80);
-        assert_eq!(content.contains(" left"), width >= 100);
+        assert!(content.contains("~2.1%/h"));
+        assert!(!content.contains("5h 97%"));
+        assert!(content.contains("│ 4d03h"));
+        assert!(!content.contains("empties"));
+        assert!(!content.contains(" left"));
+        assert!(content.contains("(7d)"));
     }
 }
 
@@ -119,14 +121,15 @@ fn missing_stale_and_reset_readings_say_so_without_historical_numbers() {
 }
 
 #[test]
-fn no_rate_never_invents_a_countdown_and_zero_burn_is_named() {
+fn no_rate_and_zero_never_add_negative_pace_text_or_invent_a_countdown() {
     let mut standings = mock();
     standings[0].burn = None;
     standings[1].burn = Some(0.0);
     let content = painted(Some(&standings), 100).join("\n");
-    assert!(content.contains("rate not known"));
-    assert!(content.contains("no measured burn"));
-    assert!(content.contains("5h no reading"));
+    assert!(!content.contains("pace not known"));
+    assert!(!content.contains("no use measured"));
+    assert!(!content.contains("5h"));
+    assert!(!content.contains("%/h"));
     assert!(!content.contains("empties") && !content.contains("!"));
 }
 
@@ -166,7 +169,7 @@ fn fill_and_track_keep_their_roles_without_selection_even_in_light_and_no_color(
                     if depth == Depth::None {
                         span.style.add_modifier.contains(Modifier::UNDERLINED)
                     } else {
-                        span.style.bg == look.role(Role::Selection).bg
+                        span.style.bg == look.role(Role::Track).bg
                     }
                 })
                 .unwrap();
@@ -177,7 +180,7 @@ fn fill_and_track_keep_their_roles_without_selection_even_in_light_and_no_color(
                     .unwrap_or(ratatui::style::Color::Reset)
             );
             assert!(!track.style.add_modifier.contains(Modifier::REVERSED));
-            assert!(text(&lines[0]).contains("! empties"));
+            assert!(text(&lines[0]).contains("! ~"));
         }
     }
 }
@@ -204,8 +207,8 @@ fn positive_slivers_fill_one_cell_and_zero_fills_none() {
         let expected = match percent {
             0.0 => 0,
             0.4 => 1,
-            44.0 => 7,
-            _ => 16,
+            44.0 => 8,
+            _ => 18,
         };
         assert_eq!(filled, expected, "{percent}");
         let expected_label = if percent == 0.4 {
@@ -263,13 +266,9 @@ fn overview_detail_contains_only_the_values_hidden_at_each_width() {
             .map(|(_, text)| text.as_str())
             .collect::<Vec<_>>()
             .join(" · ");
-        assert_eq!(
-            detail.contains("~2.1%/h"),
-            width != 100,
-            "{width}: {detail}"
-        );
-        assert_eq!(detail.contains("5h 97%"), width != 100, "{width}: {detail}");
-        assert_eq!(detail.contains("4d03h"), width == 60, "{width}: {detail}");
+        assert!(!detail.contains("~2.1%/h"), "{width}: {detail}");
+        assert!(detail.contains("5h 97%"), "{width}: {detail}");
+        assert!(!detail.contains("4d03h"), "{width}: {detail}");
         assert!(!hidden.iter().any(|(label, _)| *label == "provider"));
         assert!(
             !detail.contains("44%"),
@@ -284,4 +283,43 @@ fn overview_detail_contains_only_the_values_hidden_at_each_width() {
             .iter()
             .any(|(label, text)| *label == "provider" && text == "Longprovider")
     );
+}
+
+#[test]
+fn arrows_fit_only_beside_pace_and_use_their_semantic_roles() {
+    for (trend, glyph, role) in [
+        (Trend::Up, "↗", Role::Waiting),
+        (Trend::Same, "→", Role::Muted),
+        (Trend::Down, "↘", Role::Working),
+    ] {
+        let mut standings = mock();
+        standings.truncate(1);
+        standings[0].trend = Some(trend);
+        for width in [160, 100, 80, 60] {
+            let look = crate::look::Look::default();
+            let lines = limits_in(&mut Kept::default(), Some(&standings), NOW, width, look);
+            assert!(text(&lines[0]).ends_with(&format!("~2.1%/h {glyph}")));
+            let arrow = lines[0]
+                .spans
+                .iter()
+                .find(|span| span.content.contains(glyph))
+                .unwrap();
+            assert_eq!(arrow.style.fg, look.role(role).fg);
+            assert!(
+                !arrow
+                    .style
+                    .add_modifier
+                    .intersects(Modifier::REVERSED | Modifier::UNDERLINED)
+            );
+        }
+        for burn in [None, Some(0.0), Some(f64::INFINITY)] {
+            standings[0].burn = burn;
+            assert!(!painted(Some(&standings), 60).join("\n").contains(glyph));
+        }
+        standings[0].burn = Some(2.1);
+        assert!(
+            !painted(Some(&standings), 32).join("\n").contains(glyph),
+            "a hidden pace cannot have an arrow"
+        );
+    }
 }

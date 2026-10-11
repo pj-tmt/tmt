@@ -240,6 +240,9 @@ it('owns the default tmux socket directory and removes it with the sandbox', asy
       expect(result.status).toBe(0);
       const childEnv = JSON.parse(result.stdout);
       expect(childEnv).toMatchObject({
+        TMT_TEST_ROOT: sandbox.root,
+        TMT_AGENT: '1',
+        BROWSER: '/usr/bin/true',
         HOME: sandbox.home,
         XDG_CONFIG_HOME: sandbox.xdgConfigHome,
         XDG_DATA_HOME: path.join(sandbox.root, 'xdg-data'),

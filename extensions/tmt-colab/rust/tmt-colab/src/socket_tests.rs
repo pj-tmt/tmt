@@ -914,3 +914,82 @@ fn mounted_failed_narrowing_keeps_reader_authority_and_retry_cuts_off_twice() {
         assert_eq!(mount.challenge(&f, Some(&f.chain)).0, 403);
     }
 }
+
+#[test]
+fn committed_archive_resyncs_only_its_page_and_fresh_reads_stay_read_only() {
+    use crate::readers::test_support::OTHER;
+    let mut f = reader_fixture(true, false);
+    f.apply(OwnerAction::Share {
+        page: OTHER,
+        mode: ShareMode::Public,
+        publication: crate::transitions::Publication::Loopback,
+    });
+    let mount = ReaderMount::start(&mut f);
+    let first = mount.session(&f, true);
+    let second = mount.session(&f, false);
+    let mut peers = [
+        mount.upgrade(&first).unwrap(),
+        mount.upgrade(&second).unwrap(),
+    ];
+    for (peer, session) in peers.iter_mut().zip([&first, &second]) {
+        bootstrap_reader(peer, session);
+    }
+    let (status, challenge) = mount.post(
+        crate::readers::CHALLENGE_PATH,
+        json!({"kind":"public","space":f.key.space_id,"page":OTHER}),
+    );
+    assert_eq!(status, 200);
+    let (status, other) = mount.post(
+        crate::readers::SESSION_PATH,
+        f.exchange_body(&challenge, false),
+    );
+    assert_eq!(status, 200);
+    let mut other_peer = mount.upgrade(&other).unwrap();
+    bootstrap_reader(&mut other_peer, &other);
+    let revision = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision;
+    let operation = "30000000-0000-4000-8000-000000000091";
+    let mut archive = json!({"space":f.key.space_id,"page":PAGE,"operation":"page.archive",
+        "operationId":operation,"expectedRevision":revision.to_string(),
+        "payload":values::encode_binary(&serde_json::to_vec(&json!({"pageId":PAGE})).unwrap())});
+    let mut stale = archive.clone();
+    stale["expectedRevision"] = json!("1");
+    assert_eq!(mount.post(management::LOCAL_PATH, stale).0, 409);
+    for peer in &mut peers {
+        peer.send(Message::Ping(vec![8].into())).unwrap();
+        assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
+    }
+    assert_eq!(mount.post(management::LOCAL_PATH, archive.clone()).0, 200);
+    for peer in &mut peers {
+        let Message::Close(Some(close)) = peer.read().unwrap() else {
+            panic!("archive close missing")
+        };
+        assert_eq!(close.reason, "RESYNC_REQUIRED");
+    }
+    other_peer.send(Message::Ping(vec![9].into())).unwrap();
+    assert!(matches!(other_peer.read().unwrap(), Message::Pong(_)));
+    let fresh = mount.session(&f, true);
+    let mut fresh_peer = mount.upgrade(&fresh).unwrap();
+    let pages = bootstrap_reader(&mut fresh_peer, &fresh);
+    assert!(pages.iter().any(|page| page["membershipHead"].is_object()));
+    // Exact replay has no new archive transition, so it must not end the new reader.
+    assert_eq!(mount.post(management::LOCAL_PATH, archive.take()).0, 200);
+    fresh_peer.send(Message::Ping(vec![10].into())).unwrap();
+    assert!(matches!(fresh_peer.read().unwrap(), Message::Pong(_)));
+    send_reader(
+        &mut fresh_peer,
+        reader_frame(
+            &fresh,
+            "save",
+            json!({
+                "operationId":"30000000-0000-4000-8000-000000000092","baseSha256":values::encode_binary(&[0;32]),
+                "sourceSha256":values::encode_binary(&[0;32]),"source":"",
+            }),
+        ),
+    );
+    assert_eq!(read_reader(&mut fresh_peer)["code"], "DENIED");
+}

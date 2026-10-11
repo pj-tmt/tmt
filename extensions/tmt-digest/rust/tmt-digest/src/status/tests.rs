@@ -69,6 +69,41 @@ fn row(mode: &str, observation: Option<Observation>, now: u64) -> Value {
 }
 
 #[test]
+fn zero_held_leaves_only_the_mode_choice_and_unknown_evidence_stays_visible() {
+    for (mode, text) in [("auto", "Auto"), ("5m", "Every 5m"), ("off", "Off")] {
+        let observation = Observation {
+            held: 0,
+            observed: 1000,
+            age: None,
+        };
+        let idle = row(mode, Some(observation), 1000);
+        assert_eq!(idle["labels"].as_array().unwrap().len(), 1, "{mode}");
+        assert_eq!(idle["labels"][0]["text"], text);
+        assert_eq!(idle["labels"][0]["action"]["current"], mode);
+        assert_eq!(idle["nextSendAtMs"], Value::Null);
+        assert_eq!(idle["timeToSendMs"], Value::Null);
+
+        let held = row(
+            mode,
+            Some(Observation {
+                held: 3,
+                ..observation
+            }),
+            1000,
+        );
+        assert_eq!(held["labels"][1]["text"], "3 held");
+        let drained = row(mode, Some(observation), 2000);
+        assert_eq!(drained["labels"], idle["labels"]);
+
+        let unknown = row(mode, None, 1000);
+        assert_eq!(unknown["heldCount"], Value::Null);
+        if mode != "off" {
+            assert_eq!(unknown["labels"][1]["text"], "Unknown");
+        }
+    }
+}
+
+#[test]
 fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explicit() {
     for observation in [
         Observation {

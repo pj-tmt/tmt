@@ -35,7 +35,7 @@ requests run outside its Worker executor; historical fetch uses a detached Worke
 Complete committed reads check every range and raw digest before Colab asset crypto.
 The root-local read is the serve's owner-only `attachment-read` route (`attachments/ipc.rs`,
 `socket.rs`): it requires an established channel, never activates storage or opens a backend, and
-answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one worker, woken after admitted management changes and membership-changing device revocations; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. Production Remote declares Colab Local;
+answers only the local CLI (export and `attachment read`). `attachments/media_type.rs` derives bounded raster, PDF and strict UTF-8 text types from bytes, matching the browser and the shared media vector; native sealing and CLI reads use it rather than filename or signed type labels. Native attach (#2291) is its write counterpart: `attachments/slots.rs` (serve-owned staging slots), `attachments/seal.rs`, `attachments/attach_ipc.rs`, `object_channel/attach.rs` (upload protocol over a `Transport` seam, then proof and list change through `Publish`) and `RootWriteAdmission`, all behind `socket.rs`'s `attachment-stage`/`attachment-attach` routes; Remote's hub already admits `LocalExtension` uploads. Rekey (#2293) reuses that pipeline: `rekeyer.rs` is the serve's one maintenance worker, woken after admitted management changes, membership-changing device revocations and new channel generations; it also runs a bounded rotating sweep of signed deletion tombstones through `object_channel/namespace.rs`, whose native-only callbacks recheck the committed deletion before namespace removal; `attachments/rekey.rs` reads what waits from the page, and `object_channel/rekey.rs` re-seals through slots that record the attachment they `replaces`. Production Remote declares Colab Local;
 its routed lifecycle gate uses the three shipped binaries. Snapshot/retained-reference
 persistence is #2299, not a new Store/schema here. Read failures are four reasons
 (`denied`, `not-found`, `changed`, `unavailable`): `object_channel/peer.rs` `error_code` maps
@@ -52,6 +52,19 @@ membership and revocation cuts still apply. Fresh `author()` and the actual call
   `cargo test --offline --locked -p tmt-cli --test architecture`.
 - Regenerate frozen vectors only with their Python oracle in a throwaway virtualenv with
   `cryptography`, never `--write` outside a reviewed regeneration.
+
+## Page markup check
+
+`rust/tmt-colab/src/page_check/` is the pure checker behind `page check` and the warnings of
+`page create` and `page write`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
+`template` fragment context, scripting off, nesting capped at 512 because the tree builder scans
+its open elements on every start tag), and `question.rs` and `image.rs` hold the rule tables. It
+does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
+(`src/questions.ts`) is the other implementation of the question rules. Both run
+`contracts/vectors/page-markup-v1.json`: `e2e/question-vectors.spec.ts` in headless Chromium and
+`tests/page_markup_vectors.rs` natively. Change a rule in both implementations and in the
+vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
+features, listed in the architecture guard); `tmt-colab-model` stays dependency-free.
 
 ## App build entries
 
@@ -338,9 +351,10 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   read-only under the new registration. It never opens another Remote session.
 - `share-dialog.tsx` supplies the trusted modal for share/member/link/history and
   retention/archive/delete controls. `router.tsx` supplies active/archived home
-  filtering and refresh after changes; acknowledged or uncertain policy changes close the old
-  Live binding, including its writer and Ask preview/observer. Local samples have
-  no management capability.
+  filtering and refresh after changes. Archive commits end only that page's sync peers
+  with RESYNC_REQUIRED; paired tabs reopen with read catch-up, retaining drafts for Copy
+  and removing publication controls. Other acknowledged or uncertain policy changes close
+  the old Live binding, including its writer and Ask observer. Local samples have no management capability.
 - Archive verification uses its same readable page. Delete uses another readable
   page's owner log plus discovery absence and the frozen initiating context.
   Without that evidence, last-page deletion remains acknowledged/awaiting

@@ -1,5 +1,6 @@
 import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
+import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
@@ -51,7 +52,7 @@ export function ShareDialog({
   pageId: string;
   title: string;
   close(): void;
-  committed(): void;
+  committed(operation: Pending['operation']): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -145,7 +146,7 @@ export function ShareDialog({
       if (lifetime.current?.signal.aborted) return;
       showView(next);
       setPhase('done');
-      committed();
+      committed(p.operation);
     } catch {
       if (lifetime.current?.signal.aborted) return;
       setError(
@@ -170,7 +171,7 @@ export function ShareDialog({
       setAck(a);
       setUnknown(false);
       // An acknowledged management change closes stale preview/writer state.
-      committed();
+      committed(p.operation);
       await verify(p, a);
     } catch (e) {
       if (lifetime.current?.signal.aborted) return;
@@ -178,7 +179,7 @@ export function ShareDialog({
       setError(errors[code] ?? errors.UNKNOWN);
       setUnknown(code === 'UNKNOWN');
       // A lost acknowledgment can still have changed page policy.
-      if (p && code === 'UNKNOWN') committed();
+      if (p && code === 'UNKNOWN') committed(p.operation);
       setPhase('error');
     } finally {
       submitting.current = false;
@@ -255,6 +256,9 @@ export function ShareDialog({
             <p role="status">
               {pending?.operation === 'page.delete' ? 'Deletion' : 'Change'} verified in the signed
               owner log.
+              {pending?.operation === 'page.delete' && ack?.storage && (
+                <> {text.deletedStorage(ack.storage, ack.storageHint)}</>
+              )}
             </p>
             {pending?.artifact && (
               <div className="bearer">

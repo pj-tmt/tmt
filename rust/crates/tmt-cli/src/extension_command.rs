@@ -15,7 +15,7 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
                 "Put options after the extension name: tmt <name> [options].",
             );
         }
-        let executable_core = std::env::current_exe()?;
+        let executable_core = callback_executable(&std::env::current_exe()?);
         let marker = (!help)
             .then(|| tmt_adapters::workspace::DispatchMarker::prepare(name, args))
             .flatten();
@@ -66,6 +66,23 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
             .push_str(&format!("\nSimilar command: {suggestion}\n"));
     }
     crate::failure(error.mode, error.code, &error.message)
+}
+
+/// Managed callbacks follow activation; uncertain or unmanaged callers keep their path.
+fn callback_executable(executable: &std::path::Path) -> std::path::PathBuf {
+    tmt_adapters::native_install::inspect(executable).map_or_else(
+        |_| executable.to_path_buf(),
+        |installation| installation.prefix().join("bin/tmt"),
+    )
+}
+
+#[cfg(test)]
+mod callback_tests {
+    #[test]
+    fn unmanaged_callback_keeps_the_invoking_absolute_executable() {
+        let executable = std::path::Path::new("/unmanaged/renamed-core");
+        assert_eq!(super::callback_executable(executable), executable);
+    }
 }
 
 /// The `tmt-*` commands on `PATH`, as root help lists them.

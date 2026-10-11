@@ -1,6 +1,7 @@
 mod cli_attachments;
 mod cli_grammar;
 mod cli_management;
+mod cli_page_check;
 mod cli_proposal;
 mod cli_threads;
 mod door;
@@ -13,6 +14,10 @@ mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
 const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
 const SKILL_REFERENCES: &[(&str, &str)] = &[
+    (
+        "attachments",
+        include_str!("../../../skills/tmt-colab/references/attachments.md"),
+    ),
     (
         "links",
         include_str!("../../../skills/tmt-colab/references/links.md"),
@@ -215,7 +220,7 @@ fn grammar() -> Command {
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the page opens in the owner's browser even without a terminal or with --json, unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback; without a door the relative path and the reason are printed.",
+        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the page opens in the owner's browser even without a terminal or with --json, unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback; without a door the relative path and the reason are printed. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is created.",
     };
     const READ: CommandSpec = CommandSpec {
         name: "read",
@@ -235,7 +240,7 @@ fn grammar() -> Command {
             note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -324,15 +329,18 @@ fn grammar() -> Command {
                     .subcommand(
                         open_args(
                             tmt_cli_style::command(&CREATE)
+                                .arg(cli_page_check::strict())
                                 .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                 .arg(Arg::new("file").long("file").value_name("path|-")
                                     .value_parser(clap::value_parser!(std::path::PathBuf))),
                         ),
                     )
+                    .subcommand(cli_page_check::command())
                     .subcommand(tmt_cli_style::command(&READ).arg(cli_grammar::page()))
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
                             .arg(cli_grammar::page())
+                            .arg(cli_page_check::strict())
                             .arg(
                                 Arg::new("file")
                                     .long("file")
@@ -398,6 +406,14 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         output.write_all(b"\n")?;
         output.flush()?;
         return Ok(());
+    }
+    // `page check` is a pure function of its file: it needs no data root, core or local state,
+    // unless --page asks it to resolve attachment references in the store.
+    if command == "page"
+        && let Some(("check", check)) = args.subcommand()
+        && check.get_one::<String>("page").is_none()
+    {
+        return cli_page_check::run(None, check);
     }
     let stop = Arc::new(AtomicBool::new(false));
     let launcher = command == "serve" && serve::is_launcher(args);
@@ -580,7 +596,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             .map(|path| page_source(path))
             .transpose()?
             .unwrap_or_default();
-        return cli_management::create_page(root, args, source);
+        // A new page has no attachments: every reference in its first source is unresolved.
+        let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
+        return cli_management::create_page(root, args, source, &warnings);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
@@ -600,6 +618,27 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         None
     };
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
+    if command == "check" {
+        let result = cli_page_check::run(Some((&store, &key, &id, &mut decoder)), args);
+        let closed = store.close();
+        result?;
+        return closed;
+    }
+    // The check reads the page's attachments before the write takes its snapshot, and refuses a
+    // --strict write before any state changes.
+    let warnings = match &source {
+        Some(source) => cli_page_check::gate(
+            source,
+            args,
+            cli_page_check::Attachments::Page {
+                store: &store,
+                key: &key,
+                page: &id,
+                decoder: &mut decoder,
+            },
+        )?,
+        None => Vec::new(),
+    };
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if let Some(source) = source {
@@ -654,7 +693,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             }
         };
         if json_output {
-            writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
+            let mut value = serde_json::to_value(&receipt)?;
+            value["warnings"] = cli_page_check::warnings_json(&warnings);
+            writeln!(output, "{value}")?;
         } else {
             let terminal = output.terminal();
             tmt_cli_style::detail::write(
@@ -671,6 +712,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     ("epoch", receipt.epoch),
                 ],
             )?;
+            cli_page_check::print_warnings(&warnings)?;
         }
     } else {
         let value = page::read(&store, &key, &id, &mut decoder);
@@ -912,6 +954,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if error.is::<tmt_colab::attachments::CapacityRefusal>() {
+        return "COLAB_CAPACITY";
+    }
     if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
         return error_code(recovery.cause.as_ref());
     }
@@ -1044,6 +1089,17 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some(usage) = error
+                    .downcast_ref::<tmt_colab::page::ipc::WriteError>()
+                    .and_then(|error| error.usage())
+                    .or_else(|| {
+                        error
+                            .downcast_ref::<tmt_colab::attachments::CapacityRefusal>()
+                            .map(|error| &error.0)
+                    })
+                {
+                    value["error"]["usage"] = json!(usage);
+                }
                 if let Some((stored, supported)) =
                     schema.and_then(tmt_colab::store::Fault::schema_versions)
                 {

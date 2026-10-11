@@ -2320,7 +2320,6 @@ fn management_recipient(
 fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
     assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
     let body: Value = serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
-    assert_eq!(body.as_object().unwrap().len(), 2);
     assert_eq!(body["membershipHead"]["revision"], revision);
     assert_eq!(
         values::binary(
@@ -2337,17 +2336,21 @@ fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
         .prepare("SELECT envelope FROM membership_log ORDER BY revision")
         .unwrap();
     let mut head = None;
+    let mut deleted = false;
     for bytes in log.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
         let envelope = tmt_colab_model::statement::Envelope::from_json(&bytes.unwrap()).unwrap();
-        head = Some(
-            envelope
-                .verify_next(&server.space, &key.owner_public(), head.as_ref())
-                .unwrap()
-                .head,
-        );
+        let verified = envelope
+            .verify_next(&server.space, &key.owner_public(), head.as_ref())
+            .unwrap();
+        deleted = verified.header.operation == "page.delete";
+        head = Some(verified.head);
         if head.as_ref().unwrap().revision.to_string() == revision {
             break;
         }
+    }
+    assert_eq!(body.as_object().unwrap().len(), if deleted { 3 } else { 2 });
+    if deleted {
+        assert_eq!(body["storage"], "pending");
     }
     let head = head.unwrap();
     assert_eq!(head.revision.to_string(), revision);
@@ -2793,11 +2796,31 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     );
     let archived = server.event(path, &header, &archive);
     management_response(&server, &archived, "5");
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "RESYNC_REQUIRED"),
+        other => panic!("archive did not invalidate the old page view: {other:?}"),
+    }
+    let mut peer = server.peer(DEVICE);
+    hello(&server, &mut peer, DEVICE);
+    // Replaying the archive does not invalidate the fresh read connection.
     assert_eq!(server.event(path, &header, &archive), archived);
     peer.send(Message::Ping(vec![4].into())).unwrap();
     assert!(
         matches!(peer.read().unwrap(), Message::Pong(_)),
         "archive preserves read access"
+    );
+    let mut writer = server.peer(OTHER);
+    hello(&server, &mut writer, OTHER);
+    let (append, _, _) = server.append(OTHER, 1, [0; 32]);
+    send(&mut writer, append);
+    assert_eq!(receive(&mut writer)["code"], "DENIED");
+    assert_eq!(
+        server
+            .oracle()
+            .query_row("SELECT count(*) FROM receipts", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
     );
     let page_list = server.request(&Running::get("/api/pages", &header));
     let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
@@ -3229,9 +3252,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     use tmt_colab::attachments::attach_ipc;
     let (server, layout, _key, _peer) = publish_fixture();
     let slots = layout.directory.join("attach-slots");
-    let stage = format!(
-        r#"{{"version":1,"page":"{PAGE}","filename":"notes.txt","mediaType":"text/plain"}}"#
-    );
+    let stage = format!(r#"{{"version":1,"page":"{PAGE}","filename":"notes.txt"}}"#);
     let attach = format!(
         r#"{{"version":1,"page":"{PAGE}","slot":"{}","sha256":"{}"}}"#,
         "a".repeat(32),
@@ -3276,7 +3297,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     }
     for malformed in [
         stage.replace("notes.txt", ""),
-        stage.replace("text/plain", "TEXT/plain"),
+        stage.replace(r#""version":1"#, r#""version":1,"mediaType":"text/plain""#),
     ] {
         let refused = server.event(attach_ipc::STAGE_PATH, "", &malformed);
         assert!(
@@ -3293,7 +3314,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     // Every refusal above stages nothing.
     assert_eq!(fs::read_dir(&slots).unwrap().count(), 0);
     // A valid stage opens one private slot named by a random ID, and answers where to stream.
-    let staged = attach_ipc::stage(&layout, PAGE, "notes.txt", "text/plain").unwrap();
+    let staged = attach_ipc::stage(&layout, PAGE, "notes.txt").unwrap();
     assert_eq!(staged.slot.len(), 32);
     let directory = slots.join(&staged.slot);
     assert_eq!(staged.path, directory.join("source").to_string_lossy());

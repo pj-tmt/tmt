@@ -167,9 +167,25 @@ configuration. The owner map is in
 
 ## Configuration and theme
 
+Test builds activate adapters' default-off `test-isolation` feature through
+consumer dev-dependencies. Ambient discovery requires `TMT_TEST_ROOT` and private
+HOME/XDG/provider/temp paths plus cwd beneath that admitted directory, including
+existing symlink targets; local configuration discovery stops at its boundary.
+Missing admission fails plainly, and an indirect unadmitted discovery panics in
+adapter unit tests rather than becoming a swallowed error. Use injected paths in
+unit fixtures. A plain package-scoped release build leaves the feature off.
+`ConfigPaths::resolve` with explicit inputs is not an isolation guard for arbitrary
+paths; callers own those inputs. Other ambient filesystem APIs remain outside
+this first discovery slice. CLI fixtures suppress automatic browser opens.
+
 - `ConfigPaths::discover` owns `TMT_HOME` (an exact explicit directory), the default
   `$XDG_CONFIG_HOME/tmt` or `~/.config/tmt`, and local `tmt.json`. The one-release
-  default-directory cutover checks the new directory once. Only the active managed
+  default-directory cutover checks the new directory and, when present, its database.
+  An absent database permits one no-follow check of the former sibling database; an
+  existing former entry refuses with both paths: move the current directory aside
+  first, then move the former directory as a whole.
+  An existing current database never probes the former store; explicit homes bypass
+  these checks. Only the active managed
   release, verified by the existing native-install receipt owner, may exclusively
   rename the former default into it; other executables refuse with both paths
   and `TMT_HOME` before creating anything. An exclusive rename finding an occupied destination and a remaining

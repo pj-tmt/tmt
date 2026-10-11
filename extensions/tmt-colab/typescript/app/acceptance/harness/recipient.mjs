@@ -6,7 +6,7 @@
 // from these rows, never from terminal echo, so a duplicate wake is visible as
 // a second `received` row for the same request.
 //
-// Usage: recipient.mjs <tmt-executable> <log-path> [gate-dir|-] [claude|codex]
+// Usage: recipient.mjs <tmt-executable> <log-path> [gate-dir|-] [claude|codex] [stop-gate-dir|-]
 // The optional provider fixture executes the installed hook in an isolated world.
 // A gate directory parks the reply until `<gate>/<requestId>.release` exists.
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
-const [tmt, logPath, gateArgument, driver] = process.argv.slice(2);
+const [tmt, logPath, gateArgument, driver, stopGateArgument] = process.argv.slice(2);
 const gateDirectory = gateArgument === '-' ? undefined : gateArgument;
 if (!tmt || !logPath) {
   console.error('usage: recipient.mjs <tmt> <log> [gate-dir]');
@@ -136,6 +136,18 @@ if (driver) {
   });
   if (code !== 0) throw new Error(`Installed SessionStart hook failed: ${stderr}`);
   log({ event: 'provider-started', driver });
+}
+// A teardown regression holds the directly owned provider at its exit boundary.
+// Normal recipients retain their default SIGTERM behavior.
+if (stopGateArgument && stopGateArgument !== '-') {
+  process.once('SIGTERM', () => {
+    log({ event: 'stopping', pid: process.pid });
+    const timer = setInterval(() => {
+      if (!fs.existsSync(path.join(stopGateArgument, 'stop.release'))) return;
+      clearInterval(timer);
+      process.exit(0);
+    }, 25);
+  });
 }
 log({ event: 'ready', pid: process.pid });
 // Deliveries are serialized so the counter order is the delivery order.

@@ -1,5 +1,8 @@
+import { ConversationPresentation } from './components/conversation-presentation.js';
+import { useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import {
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -11,10 +14,10 @@ import {
 import { CreatorToggle, useCreatorDefault } from './creator-default.js';
 import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
-import { AttachButton, AttachmentChips } from './attachment-tray.js';
+import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
-import type { ComposerEdit } from './components/message-composer-edit.js';
+import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
@@ -38,15 +41,16 @@ export function AnnotationInput({
   creationRecipient,
   initialValue,
   initialEdit,
+  activation,
   onDraft,
   onBusy,
   onFailure,
   blocked,
   recoveryRequired = false,
+  archived = false,
   cancel,
   showCancel = false,
   committed,
-  chat = false,
 }: {
   binding?: AskBinding;
   discussion?: ThreadBinding;
@@ -59,6 +63,7 @@ export function AnnotationInput({
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
+  activation?: ComposerActivation;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports a send in flight, which nothing outside may interrupt. */
@@ -68,11 +73,12 @@ export function AnnotationInput({
   blocked: boolean;
   /** Recovery keeps local editing available; blocked still fences every publish. */
   recoveryRequired?: boolean;
+  archived?: boolean;
   cancel(): void;
   showCancel?: boolean;
   committed(ref: DiscussionRef): void;
-  chat?: boolean;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
   const creatorPreference = useCreatorDefault();
@@ -153,11 +159,21 @@ export function AnnotationInput({
   }, [directory, creationRecipient, creatorPreference.enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (current: ComposerEdit) =>
     messageRecipient({
-      writable: !blocked && !!discussion,
+      writable: !archived && !blocked && !!discussion,
       edit: current,
       destinations: agents,
     });
   const decision = decide(edit);
+  // Manual drafts without a creator mention do not use the stored fresh-draft default.
+  // A blank off control stays available to restore that default.
+  const showCreatorToggle =
+    !!creator &&
+    (!chat ||
+      !edit.edited ||
+      (!creatorPreference.enabled && !value.trim()) ||
+      decision.agents.some(
+        (agent) => agent.machine === creator.machine && agent.agent === creator.agent,
+      ));
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
   const audience = decision.agents
     .map((agent) => `@${agent.agentName}${agent.presence === 'offline' ? ' (offline)' : ''}`)
@@ -171,9 +187,13 @@ export function AnnotationInput({
         : decision.unknown.length
           ? text.messageUnknown(decision.unknown[0], audience)
           : audience
-            ? text.messageAsks(audience)
+            ? chat
+              ? ''
+              : text.messageAsks(audience)
             : agents?.length === 0
-              ? text.messageAgentsEmpty
+              ? chat
+                ? text.messageComment
+                : text.messageAgentsEmpty
               : text.messageComment;
   const nextDraft = useRef(freshEdit);
   nextDraft.current = freshEdit;
@@ -183,7 +203,7 @@ export function AnnotationInput({
     setResetKey((key) => key + 1);
   }
   async function send(current: ComposerEdit = edit) {
-    if (sending.current || recorded || blocked || !discussion) return;
+    if (sending.current || recorded || archived || blocked || !discussion) return;
     const admitted = decide(current);
     if (!admitted.allowed || (admitted.agents.length && !binding)) return;
     if (!current.value.trim()) {
@@ -246,7 +266,8 @@ export function AnnotationInput({
       setBusy(false);
     }
   }
-  const attachable = !!discussion?.attachments && !busy && !blocked && !recorded;
+  const attachable = !archived && !!discussion?.attachments && !busy && !blocked && !recorded;
+  const drop = useAttachmentDropTarget(files, attachable);
   const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
     // Adding only makes an inert local chip; the trusted Send is the first effect.
     if (!attachable || !list?.length) return false;
@@ -254,15 +275,26 @@ export function AnnotationInput({
     void files.add([...list]);
     return true;
   };
+  if (archived)
+    return (
+      <section className="annotation-compose" data-testid="annotation-compose">
+        <ArchivedDraft value={value} />
+        <p className="annotation-hint">{text.archivePosting}</p>
+        {error && <p role="alert">{error}</p>}
+      </section>
+    );
   return (
     <section
       className="annotation-compose"
+      data-chat={chat || undefined}
       data-testid="annotation-compose"
       ref={section}
       onDragOver={(event) => {
         if (attachable && event.dataTransfer.types.includes('Files')) event.preventDefault();
       }}
-      onDrop={(event) => takeFiles(event.dataTransfer.files, event)}
+      onDrop={(event) => {
+        if (!drop) takeFiles(event.dataTransfer.files, event);
+      }}
       onPaste={(event) => {
         // A paste that carries text stays a text paste; only a files-only paste attaches.
         if (!event.clipboardData.types.includes('text/plain'))
@@ -270,6 +302,7 @@ export function AnnotationInput({
       }}
     >
       <MessageComposer
+        activation={activation}
         edit={edit}
         onChange={(next) => {
           initialized.current = true;
@@ -299,6 +332,19 @@ export function AnnotationInput({
               }
             : undefined
         }
+        accessory={
+          discussion?.attachments ? (
+            <PendingAttachments
+              draft={files}
+              disabled={!attachable}
+              onRemoved={() => {
+                section.current
+                  ?.querySelector<HTMLElement>('[role="combobox"]')
+                  ?.focus({ preventScroll: true });
+              }}
+            />
+          ) : undefined
+        }
         describedBy={statusId}
         resetKey={resetKey}
         autoFocus
@@ -307,14 +353,30 @@ export function AnnotationInput({
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229) void send(current);
         }}
         onCancel={(event) => {
-          if (event.isTrusted && !event.isComposing && event.keyCode !== 229 && !sending.current)
+          if (
+            event.isTrusted &&
+            !event.repeat &&
+            !event.isComposing &&
+            event.keyCode !== 229 &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            !sending.current
+          )
             cancel();
         }}
       />
-      {discussion?.attachments && <AttachmentChips draft={files} disabled={!attachable} />}
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
-        {creator && <CreatorToggle name={creator.agentName} preference={creatorPreference} />}
-        {discussion?.attachments && <AttachButton draft={files} disabled={!attachable} />}
+        {chat && discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} label={text.messageAttach} />
+        )}
+        {showCreatorToggle && creator && (
+          <CreatorToggle name={creator.agentName} preference={creatorPreference} />
+        )}
+        {!chat && discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
+        )}
         <p id={statusId} role="status" className="annotation-hint">
           {busy
             ? text.messageSending
@@ -422,4 +484,25 @@ export function AnnotationInput({
       )}
     </section>
   );
+}
+
+/** Retained local text has no publication actions once its page is archived. */
+export function ArchivedDraft({ value }: { value: string }) {
+  const [failed, setFailed] = useState(false);
+  return value ? (
+    <div className="archive-unsent-draft">
+      <p>{text.unsentDraft}</p>
+      <pre>{value}</pre>
+      <BrowserAction
+        type="button"
+        variant="text"
+        label={text.copyDraft}
+        onActivate={(event) => {
+          if (event.isTrusted)
+            void navigator.clipboard.writeText(value).catch(() => setFailed(true));
+        }}
+      />
+      {failed && <p role="alert">{text.copyDraftFailed}</p>}
+    </div>
+  ) : null;
 }

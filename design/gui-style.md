@@ -56,8 +56,7 @@ name and a visible tooltip.
   above it. Content columns center at up to 1080 px; the page canvas behind them is
   edge to edge.
 - **Header height:** 56 px, 48 px when compact (`header` tokens).
-- **Overlays** (drawers and panels) open over the page from the right at full
-  height under the header, 400–440 px wide, and full width when compact.
+- **Overlays** open over the page from the right without reflow; see [Overlay](#overlay) for geometry and focus.
 - **Spacing** steps are 4, 8, 12, 16, 24 and 32 px.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
@@ -234,9 +233,10 @@ Short help for an icon or a status item, such as the Remote chip.
 
 The leaf's [IconAction contract](browser-ui/README.md#controlled-input-contracts)
 owns tooltip behavior: real pointer movement or keyboard focus-visible opens
-help; layout-only entry does not. Display-only help repeats the button's
-accessible name, receives no pointer events and is never the only place for
-required information. Activation dismisses it. Escape hides it synchronously
+help; layout-only entry does not. Display-only help defaults to the button's
+accessible name; shortcut help may differ while the button keeps a concise name
+and `aria-keyshortcuts`. It receives no pointer events and is never the only place
+for required information. Activation dismisses it. Escape hides it synchronously
 and still reaches the host's active menu, drawer or dialog.
 
 ### Overlay
@@ -246,7 +246,18 @@ Comments, Chat, Source, Share and settings panels.
 - Opens over the page without moving it, closes with its own `×`, Esc or the
   header action that opened it. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
-- Basis: Radix (Dialog, non-modal for side panels).
+- Basis: Radix (Dialog: non-modal on desktop, modal when compact).
+- Colab shared page drawers (Chat, Source, Agents, Files, Comments and Export) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters and use native modal focus containment; desktop drawers are non-modal. Neither changes the author frame width.
+
+### Page Chat
+
+- One header row: Chat, `○ Everyone with access`, then Collapse. Reuse the shared
+  agent rail; identities come from verified metadata, with muted time at the right.
+  Space separates messages; day rules use admitted timestamps.
+- Center the empty title and teach `@` only where admitted. Keep the composer
+  pinned below one thin rule: editor, then Attach/recipient at left and Send at
+  right. Show `Posts as a comment.` only without a recipient. Failed delivery
+  uses `✗ Not delivered · Retry` with the existing recovery action.
 
 ### Popover composer
 
@@ -296,6 +307,16 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 - Literal markup in a body always renders as text. Basis: own.
 
 ### Message attachments
+
+Pending attachments use one horizontally scrollable row of small raster
+thumbnails or filenames inside the input below its text, each with a named ×
+remove action. They share the text's left edge, with no cards or progress bar.
+The message composer has a visible `Attach` action; Files keeps `Attach files`.
+Dragging files over Chat or an annotation/thread window shows that panel's
+inset 2 px dashed frame, naming `⤓ Drop to attach to Chat` or `to this thread`.
+A refused batch shows `✗` and its reason and adds nothing. Crossing child
+controls keeps the overlay; leave, Escape or drop clears it without moving
+focus. Drop alone never uploads or sends.
 
 Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
 more images use a three-column square grid: up to six show in full; larger groups

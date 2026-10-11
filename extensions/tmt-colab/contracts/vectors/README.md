@@ -132,3 +132,15 @@ are the composed goldens Remote's `compose_firestore` example writes from it; Re
 and the Rules emulator suite read them. Run the oracle without `--write` to verify, and with
 `--write` after a reviewed source edit (then regenerate the goldens, see the colab skill's
 Firestore Rules emulator section).
+
+`page-markup-v1.json` holds the shared cases of the page markup check (colab-v1, "Page markup
+check"). A case is a `source` (lines joined with a newline), the `admitted` questions and
+groups the page shows, and the `findings` with reason codes. `scope:"parser"` cases run in the
+browser client (`inspectQuestions`, headless Chromium, the oracle) and in the Rust checker;
+`scope:"checker"` cases (attachment references, nesting depth) run in the checker only. Keep
+cases small: a payload of tens of KiB belongs in a unit test that builds it, since every tool
+that reads the repository reads this file. Findings are compared as a set by `(element, ordinal, code)`; `line` is asserted by Rust
+alone, as the DOM has none. The `limits` block must equal each side's named constants. Edit the
+cases by hand and run both runners: the file has no independent generator, because the browser
+is the oracle.
+

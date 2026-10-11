@@ -73,6 +73,18 @@ It opens even with automatic-open off, but as an agent it only prints the link u
 you pass `--open`. It never starts or pairs services. `--json` and `--no-open` suppress
 opening. Open browsers only on request.
 
+## Check before publishing
+
+```sh
+tmt colab page check page.html --json
+```
+
+Offline and instant. It lists question blocks the browser would silently ignore, heavy
+`data:` images and `colab-attachment:` references that cannot show, each with a `code` and a
+`line`; exit 1 means fix the page first (`tmt colab skill questions` explains the codes).
+`page create` and `page write` run the same check and report `warnings`; `--strict`
+refuses to publish while any remain.
+
 ## Read before writing
 
 ```sh
@@ -113,10 +125,11 @@ Read [references/page-style.md](references/page-style.md) or `tmt colab skill pa
 
 ## HTML that renders
 
-Use inline styles/scripts, system fonts and `data:` images. The opaque sandbox
-blocks external scripts/styles/images/frames/fonts, fetch/XHR, WebSocket and form
-posts, and has no parent authority/storage. Do not rely on network, cookies or storage. Self-navigation can still cause network requests: never put
-secrets in author HTML.
+Use inline styles/scripts and system fonts. Read [images](references/attachments.md)
+(`tmt colab skill attachments`); tiny `data:` icons only. Opaque sandbox denies
+external scripts/styles/images/frames/fonts and network APIs/forms; no parent
+authority/cookies/storage. Self-navigation can send requests:
+never put secrets in HTML.
 
 Read back saved bytes and verify rendering; a write alone proves neither.
 

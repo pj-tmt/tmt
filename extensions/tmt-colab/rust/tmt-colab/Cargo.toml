@@ -23,6 +23,7 @@ clap.workspace = true
 ed25519-dalek.workspace = true
 flate2.workspace = true
 getrandom.workspace = true
+html5ever.workspace = true
 httparse.workspace = true
 nix = { workspace = true, features = ["resource"] }
 rusqlite.workspace = true

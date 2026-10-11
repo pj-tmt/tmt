@@ -92,7 +92,9 @@ for (const width of [1440, 390])
             'Keep the conversation beside the selected page text.',
           );
           await expect(window.getByRole('combobox')).toHaveCount(0);
-          await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
+          await expect(
+            window.getByRole('button', { name: 'Resolve thread', exact: true }),
+          ).toHaveCount(0);
           await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toHaveCount(0);
           expect(await run(page, 'windowProof')).toEqual({ statusCalls: 0, closes: 0 });
         } else if (state === 'disabled') {
@@ -134,7 +136,9 @@ for (const width of [1440, 390])
           await capture('focus-reopen');
         }
         if (state === 'disabled') {
-          await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
+          await expect(
+            window.getByRole('button', { name: 'Resolve thread', exact: true }),
+          ).toBeDisabled();
           await expect(
             window.getByRole('button', { name: 'Delete thread', exact: true }),
           ).toHaveCount(0);
@@ -145,7 +149,7 @@ for (const width of [1440, 390])
       const input = page.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('Reply draft with a retained caret.');
       await capture('reply');
-      for (const label of ['Resolve', 'Close thread']) {
+      for (const label of ['Resolve thread', 'Collapse thread']) {
         const button = window.getByRole('button', { name: label, exact: true });
         await button.focus();
         await page.keyboard.press('Tab');
@@ -154,7 +158,7 @@ for (const width of [1440, 390])
         if (!before) {
           const tooltip = button.locator('..').locator('.tmt-ui-icon-action-tooltip');
           await expect(tooltip).toBeVisible();
-          await expect(tooltip).toHaveText(label);
+          await expect(tooltip).toHaveText(label === 'Collapse thread' ? 'Collapse · Esc' : label);
           await page.keyboard.press('Escape');
           await expect(tooltip).toBeHidden();
           expect(await run(page, 'windowProof')).toEqual({ statusCalls: 0, closes: 0 });
@@ -162,21 +166,22 @@ for (const width of [1440, 390])
           await page.keyboard.press('Shift+Tab');
           await expect(tooltip).toBeVisible();
         }
-        await capture(`focus-${label === 'Resolve' ? 'resolve' : 'close'}`);
+        await capture(`focus-${label === 'Resolve thread' ? 'resolve' : 'close'}`);
       }
-      await window.getByRole('button', { name: 'Resolve', exact: true }).click();
-      await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
+      await window.getByRole('button', { name: 'Resolve thread', exact: true }).click();
       await expect(
-        window.getByRole('button', { name: 'Close thread', exact: true }),
+        window.getByRole('button', { name: 'Resolve thread', exact: true }),
+      ).toBeDisabled();
+      await expect(
+        window.getByRole('button', { name: 'Collapse thread', exact: true }),
       ).toBeDisabled();
       await expect(window.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(
         0,
       );
       if (!before)
-        await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toHaveAttribute(
-          'aria-busy',
-          'true',
-        );
+        await expect(
+          window.getByRole('button', { name: 'Resolve thread', exact: true }),
+        ).toHaveAttribute('aria-busy', 'true');
       await capture('busy');
       expect(await run(page, 'windowProof')).toEqual({ statusCalls: 1, closes: 0 });
       await run(page, 'finishWindowStatus', 'failed');

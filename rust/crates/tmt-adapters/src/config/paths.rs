@@ -68,6 +68,8 @@ impl ConfigPaths {
     /// Startup file selected by the shell's own conventional environment.
     #[cfg(unix)]
     pub fn shell_startup(shell: crate::completion_install::Shell) -> Result<PathBuf, ConfigError> {
+        #[cfg(any(test, feature = "test-isolation"))]
+        let _root = super::test_isolation::process_root()?;
         use crate::completion_install::Shell;
         let home = env::home_dir()
             .ok_or_else(|| ConfigError::internal("Cannot determine the home directory"))?;
@@ -97,7 +99,12 @@ impl ConfigPaths {
     pub fn discover_with_move_report(
         report: impl FnOnce(&Path, &Path),
     ) -> Result<Self, ConfigError> {
+        #[cfg(any(test, feature = "test-isolation"))]
+        let root = super::test_isolation::process_root()?;
         let cwd = env::current_dir().map_err(|error| ConfigError::internal(error.to_string()))?;
+        #[cfg(any(test, feature = "test-isolation"))]
+        let cwd =
+            std::fs::canonicalize(cwd).map_err(|error| ConfigError::internal(error.to_string()))?;
         let home = env::home_dir()
             .ok_or_else(|| ConfigError::internal("Cannot determine the home directory"))?;
         let explicit = env::var_os("TMT_HOME")
@@ -106,7 +113,21 @@ impl ConfigPaths {
         let xdg = env::var_os("XDG_CONFIG_HOME")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
-        let paths = Self::resolve(&cwd, &home, explicit.as_deref(), xdg.as_deref());
+        #[cfg(not(any(test, feature = "test-isolation")))]
+        let boundary = None;
+        #[cfg(any(test, feature = "test-isolation"))]
+        let boundary = Some(root.as_path());
+        let paths =
+            Self::resolve_bounded(&cwd, &home, explicit.as_deref(), xdg.as_deref(), boundary);
+        #[cfg(any(test, feature = "test-isolation"))]
+        for path in [
+            &paths.global_dir,
+            &paths.global_config,
+            &paths.database,
+            &paths.local_config,
+        ] {
+            super::test_isolation::check_path(path, &root)?;
+        }
         super::rename::prepare(
             &paths.global_dir,
             &home,
@@ -119,6 +140,16 @@ impl ConfigPaths {
 
     /// Inputs are invocation-owned; tests need not mutate process-wide variables.
     pub fn resolve(cwd: &Path, home: &Path, explicit: Option<&Path>, xdg: Option<&Path>) -> Self {
+        Self::resolve_bounded(cwd, home, explicit, xdg, None)
+    }
+
+    fn resolve_bounded(
+        cwd: &Path,
+        home: &Path,
+        explicit: Option<&Path>,
+        xdg: Option<&Path>,
+        boundary: Option<&Path>,
+    ) -> Self {
         let global_dir = if let Some(explicit) = explicit {
             explicit.to_path_buf()
         } else if let Some(xdg) = xdg {
@@ -128,6 +159,7 @@ impl ConfigPaths {
         };
         let local_config = cwd
             .ancestors()
+            .take_while(|directory| boundary.is_none_or(|root| directory.starts_with(root)))
             .map(|directory| directory.join("tmt.json"))
             .find(|candidate| candidate.exists())
             .unwrap_or_else(|| cwd.join("tmt.json"));

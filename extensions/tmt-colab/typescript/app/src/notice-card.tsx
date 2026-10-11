@@ -2,6 +2,28 @@ import { Circle, Diamond, LoaderCircle, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { BrowserNotice } from '@tmt/browser-ui/react';
 import './notice-card.css';
+import { ColabHeader } from './colab-header.js';
+import { text } from './strings.js';
+
+/** Capability refusal happens before either entry opens any space or reader session. */
+export function UnsupportedBrowserNotice() {
+  return (
+    <>
+      <ColabHeader title={text.browserUpdate} />
+      <main>
+        <NoticeCard
+          state="blocked"
+          stateLabel={text.browserUnsupported}
+          eyebrow={text.product}
+          title={text.browserUpdate}
+          testId="unsupported-browser"
+        >
+          <p>{text.browserUpdateBody}</p>
+        </NoticeCard>
+      </main>
+    </>
+  );
+}
 
 /** Colab owns the state and recovery; browser-ui presents the explicit words. */
 export function NoticeCard({

@@ -533,10 +533,32 @@ fn serve(
             apply_management(&request, &browser.space_id, sync)
         };
         match result {
-            Ok(bytes) => {
+            Ok(committed) => {
+                let mut bytes = committed.body;
                 // A change may have advanced an epoch; the worker looks for attachments to re-seal.
                 if let Some(rekey) = rekey {
                     rekey.now();
+                }
+                if let Some(page) = committed.deleted_page
+                    && let Some(source) =
+                        registration.and_then(|service| service.lock().ok()?.save_source())
+                    && let Ok(mut reply) = serde_json::from_slice::<serde_json::Value>(&bytes)
+                {
+                    // The transaction and sync invalidation finished before this
+                    // bounded request; callbacks recheck the signed tombstone.
+                    let storage = objects.remove_page_namespace(
+                        &page,
+                        &source,
+                        request.received + limits::ACQUISITION,
+                    );
+                    reply["storage"] = serde_json::json!(storage);
+                    if storage == management::Storage::Unsupported {
+                        reply["storageHint"] =
+                            serde_json::json!(tmt_extension_objects::unsupported_hint());
+                    }
+                    if let Ok(updated) = serde_json::to_vec(&reply) {
+                        bytes = updated;
+                    }
                 }
                 let _ = response_as(&mut socket, 200, &bytes, "application/json");
             }
@@ -1030,14 +1052,14 @@ fn attach_stage(
     source: &crate::page::save::SourceOpener,
 ) -> Result<Vec<u8>> {
     use crate::attachments::attach_ipc::{Staged, parse_stage, stage_reply};
-    let (page, filename, media_type) = parse_stage(&request.body)?;
+    let (page, filename) = parse_stage(&request.body)?;
     let now = registration::now_ms()?;
     objects.sweep_slots(slots, source, now);
     {
         let view = source()?;
         crate::page::snapshot(&view.store, &view.keyring, &page, true)?;
     }
-    let slot = slots.create(&page, &filename, &media_type, now)?;
+    let slot = slots.create(&page, &filename, now)?;
     stage_reply(&Staged {
         slot: slot.id().to_owned(),
         path: slot.source_path().to_string_lossy().into_owned(),
@@ -1101,31 +1123,24 @@ fn apply_management(
     request: &Request,
     space: &str,
     server: Option<&Server<OwnerAdmission>>,
-) -> std::result::Result<Vec<u8>, management::Code> {
+) -> std::result::Result<management::Applied, management::Code> {
     use management::Code;
-    let mut result = Err(Code::Unavailable);
-    server
-        .ok_or(Code::Unavailable)?
-        .update_admission(|admission| {
-            result = (|| {
-                let mut service = admission.0.lock().map_err(|_| Code::Unavailable)?;
-                let now = registration::now_ms().map_err(|_| Code::Unavailable)?;
-                if request.path == management::LOCAL_PATH {
-                    // Authority is this owned private Unix socket, not context headers.
-                    management::local(&mut service, space, &request.body, now)
-                } else {
-                    management::browser(
-                        &mut service,
-                        space,
-                        request.context.as_deref(),
-                        &request.body,
-                        now,
-                    )
-                }
-            })();
-        })
-        .map_err(|_| Code::Unavailable)?;
-    result
+    server.ok_or(Code::Unavailable)?.manage(|admission| {
+        let mut service = admission.0.lock().map_err(|_| Code::Unavailable)?;
+        let now = registration::now_ms().map_err(|_| Code::Unavailable)?;
+        if request.path == management::LOCAL_PATH {
+            // Authority is this owned private Unix socket, not context headers.
+            management::local(&mut service, space, &request.body, now)
+        } else {
+            management::browser(
+                &mut service,
+                space,
+                request.context.as_deref(),
+                &request.body,
+                now,
+            )
+        }
+    })
 }
 /// Count inbound bytes, including partial frames, for the existing idle bound.
 struct Transport {

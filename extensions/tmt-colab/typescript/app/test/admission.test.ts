@@ -607,3 +607,68 @@ it('uses the signed sealed epoch cut before a later revoke, never unsealed or be
     a.closeKeys();
   }
 });
+
+it('admits archived reads from signed policy while writes and deleted reads stay refused', async () => {
+  records.clear();
+  vi.useFakeTimers();
+  vi.setSystemTime(50);
+  try {
+    const a = admission();
+    await a.membership(head(), true);
+    await a.chains([{ deviceId: v.page, chain: transport(v.chain) }]);
+    const signer = await crypto.subtle.importKey(
+      'pkcs8',
+      c.concat(hex('302e020100300506032b657004220420'), hex(v.seed)),
+      'Ed25519',
+      false,
+      ['sign'],
+    );
+    for (const operation of ['page.share', 'page.archive', 'page.delete'] as const) {
+      const payload = c.text(
+        JSON.stringify(
+          operation === 'page.share'
+            ? { pageId: v.page, epoch: '1', mode: 'private' }
+            : { pageId: v.page },
+        ),
+      );
+      const revision = (a.head!.revision + 1n).toString();
+      const input = c.statement.input({
+        space: v.space,
+        operation,
+        revision,
+        previousHash: a.head!.hash,
+        payloadDigest: await c.digest(payload),
+      });
+      const envelope = c.statement.Envelope.fromJson(
+        c.text(
+          JSON.stringify({
+            statement: c.encodeBinary(input),
+            payload: c.encodeBinary(payload),
+            signature: c.encodeBinary(await c.sign(signer, input)),
+          }),
+        ),
+      );
+      await a.membership(
+        {
+          revision,
+          statementHash: c.encodeBinary(await envelope.hash()),
+          ownerKey: c.encodeBinary(root),
+          statements: [c.encodeBinary(envelope.toJson())],
+          more: false,
+        },
+        true,
+      );
+      if (operation === 'page.share') {
+        expect(a.archived).toBe(false);
+        expect(() => a.validateRead('private')).not.toThrow();
+        continue;
+      }
+      expect(a.archived).toBe(true);
+      expect(() => a.validatePage('private')).toThrow('Page unavailable');
+      if (operation === 'page.archive') expect(() => a.validateRead('private')).not.toThrow();
+      else expect(() => a.validateRead('private')).toThrow('Page unavailable');
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});

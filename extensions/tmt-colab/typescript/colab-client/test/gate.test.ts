@@ -13,17 +13,72 @@ const reports = ['chromium', 'firefox', 'webkit'].map((engine) => ({
   engine,
   version: 'fixture',
   checks: true,
-  rows: corpus.map((v) => ({ name: v.name, accepted: v.nativePolicy, raw: v.nativePolicy })),
+  rows: corpus.map((v) => ({
+    name: v.name,
+    accepted: v.nativePolicy,
+    rawProbed: v.nativePolicy,
+    raw: v.nativePolicy,
+  })),
 }));
-function run(report: unknown, cases: unknown = corpus, engines?: string[]): number | null {
+function run(
+  report: unknown,
+  cases: unknown = corpus,
+  engines?: string[],
+  failure?: RegExp,
+): number | null {
   const script = `import {validateReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};validateReport(${JSON.stringify(report)},${JSON.stringify(cases)},${JSON.stringify(engines)});`;
-  return spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     timeout: 10000,
     encoding: 'utf8',
-  }).status;
+  });
+  if (failure) expect(result.stderr).toMatch(failure);
+  return result.status;
 }
 describe('differential report gate', () => {
   it('accepts complete controls and exact row correspondence', () => expect(run(reports)).toBe(0));
+  it('requires a rawProbed boolean for every row', () => {
+    for (const rawProbed of [undefined, null, 0, 'true'])
+      expect(
+        run(
+          reports.map((r) => ({
+            ...r,
+            rows: r.rows.map((row, i) => (i === 1 ? { ...row, rawProbed } : row)),
+          })),
+          corpus,
+          undefined,
+          /missing rawProbed boolean/,
+        ),
+      ).toBe(1);
+  });
+  it('requires every native positive to be raw-probed and accepted by WebCrypto', () => {
+    for (const control of corpus.filter((v) => v.nativePolicy))
+      for (const change of [{ rawProbed: false }, { raw: false }])
+        expect(
+          run(
+            reports.map((r) => ({
+              ...r,
+              rows: r.rows.map((row) => (row.name === control.name ? { ...row, ...change } : row)),
+            })),
+            corpus,
+            undefined,
+            /missing raw positive control/,
+          ),
+        ).toBe(1);
+  });
+  it('refuses admission or a raw result when the point guard prevented probing', () => {
+    for (const change of [{ accepted: true }, { raw: true }])
+      expect(
+        run(
+          reports.map((r) => ({
+            ...r,
+            rows: r.rows.map((row, i) => (i === 1 ? { ...row, ...change } : row)),
+          })),
+          corpus,
+          undefined,
+          /guard-rejected raw probe must refuse/,
+        ),
+      ).toBe(1);
+  });
   it('exits nonzero for missing, skipped, unavailable, duplicate or incomplete engines', () => {
     const mutations = [
       reports.slice(0, 2),
@@ -107,5 +162,74 @@ describe('explicit engine selection', () => {
       expect(run(report, corpus, ['chromium'])).toBe(1);
     expect(run([reports[0]], corpus, [])).toBe(1);
     expect(run([reports[0]], corpus, ['unknown'])).toBe(1);
+  });
+});
+
+describe('explicit Linux WebKit refusal', () => {
+  const call = (source: string) =>
+    spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import {parseRefused,validateRefusal,validateExpectedReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};${source}`,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+  const refusal = {
+    version: 'fixture',
+    diagnostics: { cleanup: 'closed' },
+    probeRefused: true,
+    policyMismatches: 8,
+    notices: 1,
+    heading: 'Update your browser',
+    body: 'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.',
+    sdkRequests: 0,
+    iframes: 0,
+    actions: 0,
+  };
+  it('keeps strict default and admits only explicit selected Linux WebKit', () => {
+    expect(call("parseRefused(undefined,['webkit'],'darwin')").status).toBe(0);
+    expect(call("parseRefused('webkit',['webkit'],'linux')").status).toBe(0);
+    for (const args of [
+      ['webkit', ['webkit'], 'darwin'],
+      ['firefox', ['firefox'], 'linux'],
+      ['webkit', ['chromium'], 'linux'],
+      ['webkit,webkit', ['webkit'], 'linux'],
+      ['unknown', ['webkit'], 'linux'],
+    ])
+      expect(call(`parseRefused(...${JSON.stringify(args)})`).status).toBe(1);
+  });
+  it('cannot omit or duplicate an expected-refused engine', () => {
+    const report = [...reports.slice(0, 2), { ...refusal, engine: 'webkit' }];
+    const verify = (result: unknown) =>
+      call(
+        `validateExpectedReport(${JSON.stringify(result)},${JSON.stringify(corpus)},['chromium','firefox','webkit'],['webkit'])`,
+      );
+    expect(verify(report).status).toBe(0);
+    expect(verify(report.slice(0, 2)).status).toBe(1);
+    expect(verify([...report, report[2]]).status).toBe(1);
+    expect(verify(reports).status).toBe(1);
+    expect(run(report)).toBe(1); // The same refusal cannot satisfy default strict mode.
+  });
+  it('requires real policy refusal and one notice without activation or actions', () => {
+    expect(call(`validateRefusal(${JSON.stringify(refusal)})`).status).toBe(0);
+    for (const change of [
+      { diagnostics: { cleanup: 'failed' } },
+      { probeRefused: false },
+      { policyMismatches: 0 },
+      { policyMismatches: null },
+      { notices: 0 },
+      { notices: 2 },
+      { heading: 'wrong' },
+      { body: 'wrong' },
+      { sdkRequests: 1 },
+      { iframes: 1 },
+      { actions: 1 },
+      { error: 'crashed' },
+      { skipped: true },
+      { version: '' },
+    ])
+      expect(call(`validateRefusal(${JSON.stringify({ ...refusal, ...change })})`).status).toBe(1);
   });
 });

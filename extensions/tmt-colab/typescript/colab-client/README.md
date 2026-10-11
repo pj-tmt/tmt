@@ -22,13 +22,14 @@ to `shared` and enforce the 64-most-recent-epochs forward-wrap cap and atomic
 join lists of at most 512 sorted unique entries. Earlier-epoch wraps use the
 existing epoch-key grammar at the current membership revision.
 
-Subject-key admission deliberately differs: browser syntax checks canonical
-encoding and torsion; native admission additionally decompresses the point.
-The owner admits keys natively before signing, and enrolled devices prove
-sign-in possession. A backend cannot inject an unusable subject without the
-owner/issuer signature. Syntax grants nothing: every authority use still requires
-a successful strict native signature. No custom curve or extra possession step
-is introduced.
+Browser subject-key admission checks canonical encoding, torsion and public-point
+decompression, matching native public-key admission. The same bounded guard rejects
+non-decompressible public keys and signature R before WebCrypto import. Its fixed
+exponentiation chain handles only public 32-byte points; signing, verification and
+secret-key operations remain native. Valid mixed-order points remain admissible.
+Syntax grants nothing: every authority use still requires a successful strict native
+signature, the owner admits keys before signing, and enrolled devices prove sign-in
+possession. No alternate verifier or extra possession step is introduced.
 
 Strict JSON scans string and primitive tokens with a cursor before JSON.parse
 validates their grammar; malformed tokens retain the Colab admission error. It admits large flat strings within the caller's byte
@@ -63,6 +64,10 @@ append `--engines chromium` for a Chromium-only diagnostic (or a comma-separated
 known set). Empty/unknown/duplicate sets reject, and every requested engine must
 pass. Reports use `{engines, results}` and explicitly name the selected engines;
 a scoped run is not full L1 evidence. Developers run the default full set before handoff.
+Each Ed25519 row records `rawProbed`: raw WebCrypto verification runs only when
+both public points pass the shared guard. Unprobed rows must refuse admission and
+record `raw: false`; all nine native-positive controls must be probed and return
+`raw: true` in every engine.
 
 The test-only harness checks WebCrypto snapshots, opaque keys, independent known
 answers and fresh ciphertext interoperability both ways with the Rust model
@@ -77,3 +82,10 @@ product inputs. The independent frozen-vector generators remain documented in
 CI runs the library check and unit tests on every pull request. The separate
 advisory three-engine workflow follows the scope and cache policy in
 [the CI architecture](../../../../ARCHITECTURE.md#ci-selection-and-worker-model).
+
+The differential defaults to strict conformance for every selected engine. On Linux only,
+`COLAB_EXPECT_REFUSED_ENGINES=webkit` requires real native-policy capability refusal and
+exactly one update-browser notice from the built app, with no SDK activation or page actions.
+Build the app first; this explicit refusal is not a corpus conformance pass. macOS WebKit
+continues to run strict with the variable unset. Generic failures and unexpected acceptance
+fail both modes; Infra owns the advisory runner topology in #2716.

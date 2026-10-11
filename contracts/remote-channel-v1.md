@@ -1459,7 +1459,9 @@ Version 1 supports exactly the seven calls above, with unchanged bytes. Version 
 | `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace`   |
 
 Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
-Callers check the negotiated link's support before either call; an unsupported call is never written on version 1.
+Callers check the negotiated link's support before either call; an unsupported call is never written on version 1. A version-1
+link reports: "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still
+fails, upgrade Remote." Support comes only from the negotiated link, never an installed receipt or CLI.
 Removal is idempotent for unknown or already removed namespaces. It commits the existing namespace fence, drains
 in-flight work and retains deleted original identities; a loss after invocation is `unknown`, without replay or rollback.
 Usage is the existing ledger projection for the selected namespace or this extension, never the installation; its charge is rounded payload plus retained records and fences, plus the fixed tree base once if any namespace exists
@@ -1894,6 +1896,35 @@ Remote's mirror reads those files and requires every golden when the vector exis
 supplies that vector, the mirror reports pending and only Remote-authored fixtures qualify the
 entry; those fixtures are not Colab declaration or routed acceptance evidence.
 
+### Hosted anonymous bootstrap
+
+The served SDK's explicit `firebaseRemote.connect` verifies the canonical Remote link and
+checks that `projectId`, `appId` and `authDomain` equal same-origin `/__/firebase/init.json`
+before lazily loading the hosted Firebase asset.
+The caller supplies the frozen extension declaration bytes and their SHA-256; digest or
+resource-grammar disagreement refuses before provider access. The table is data, with no
+extension-specific resource names in Remote. Configuration and authentication grant neither
+space admission nor operations authority. Colab owns its admission protocol.
+
+One Firebase App/Auth is shared by owners of the same verified public configuration. V1
+supports anonymous sign-in only, initialized without a popup/redirect resolver; no GAPI or
+Auth iframe is required. An anonymous uid persists per browser origin/profile; clearing site
+data requires pairing/admission again. Bootstrap and Auth observation are bounded to ten
+seconds. Closing releases that owner and suppresses late identity publication; the last owner
+closes the app. Explicit sign-out affects the shared identity. Provider-disabled and rate
+refusals use Remote's typed vocabulary, not a machine-signed local-session receipt or proof
+of device revocation. Missing lazy code is `REMOTE_STATE_UNAVAILABLE`, with no CDN fallback.
+
+Hosting copies `/sdk/remote-v1.js`, `/sdk/remote-firebase-v1.js` and
+`/sdk/THIRD-PARTY-NOTICES-remote.txt` byte-for-byte; the generated asset/notices have reviewed
+build pins. Scripts stay same-origin. A hosted page that calls `connect` must allow
+`https://identitytoolkit.googleapis.com` and `https://securetoken.googleapis.com` in its
+`connect-src`; `https://firestore.googleapis.com` is required once document transport ships.
+Colab owns the hosted shell policy; these are requirements, not its current headers.
+The local door's pairing and session path never implicitly loads Firebase.
+Firestore document transport, cloud agent operations and a machine connector are not shipped
+by this bootstrap.
+
 ### Proposal: authorized deploy
 
 `tmt remote deploy <backend>` composes Remote's resources and all enabled extension declarations
@@ -1998,7 +2029,7 @@ read. Missing declarations are unavailable, never substituted. Colab's
 `tmt colab deploy-declaration --json` command shipped in #2516 with compiled-in immutable bytes;
 its [declaration section](../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration)
 owns that contract. Installed end-to-end acceptance and real-project proof (#2166) still require
-separate owner authorization; no cloud relay, machine connector, browser sign-in or Firestore transport is shipped (deploy
+separate owner authorization; no cloud relay, machine connector or Firestore transport is shipped (deploy
 provisions only the project, Rules, sign-in providers and Hosting). The adapter
 resolves firebase-tools from
 the installed `firebase` executable's realpath and Node from its supported launcher; both

@@ -20,6 +20,7 @@ pub mod limits;
 pub mod management;
 mod object_channel;
 pub mod page;
+pub mod page_check;
 pub mod publication;
 pub mod readers;
 pub mod registration;

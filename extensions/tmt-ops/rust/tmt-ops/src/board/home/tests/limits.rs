@@ -56,6 +56,7 @@ fn standings() -> Vec<Standing> {
             short: None,
         }),
         burn: Some(0.4),
+        trend: None,
     }]
 }
 
@@ -103,7 +104,7 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     let rows = rows(&app, 100);
     assert_eq!(
         rows[index_of(&rows, "Codex 78%")],
-        " Codex 78% left · 2d10h              ~0.4%/h · 5h no reading"
+        " Codex 78% (7d)    │ 2d10h ~0.4%/h"
     );
     assert!(index_of(&rows, "product-lead") > index_of(&rows, "Codex 78%"));
 }

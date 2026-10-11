@@ -54,9 +54,12 @@ fn validate(path: &Path) -> io::Result<()> {
             return Err(io::Error::other("Invalid provider plugin directory."));
         }
     }
-    // Generated editor types are inert; additional provider-readable assets are not.
+    // Engine-generated editor configuration and types are inert, never provider assets.
     for (directory, allowed) in [
-        (path.to_path_buf(), &[".claude-plugin", "hooks"][..]),
+        (
+            path.to_path_buf(),
+            &[".claude-plugin", "hooks", "tsconfig.json"][..],
+        ),
         (path.join("hooks"), &["hooks.json", "register.mjs"][..]),
         (path.join(".claude-plugin"), &["plugin.json", "types"][..]),
     ] {
@@ -65,6 +68,23 @@ fn validate(path: &Path) -> io::Result<()> {
             if !allowed.iter().any(|name| entry.file_name() == *name) {
                 return Err(io::Error::other("Unexpected provider plugin asset."));
             }
+        }
+    }
+    for (generated, directory) in [
+        (path.join("tsconfig.json"), false),
+        (path.join(".claude-plugin/types"), true),
+    ] {
+        let metadata = match fs::symlink_metadata(generated) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if (directory && !metadata.is_dir())
+            || (!directory && !metadata.is_file())
+            || metadata.uid() != nix::unistd::geteuid().as_raw()
+            || metadata.mode() & 0o7022 != 0
+        {
+            return Err(io::Error::other("Invalid generated provider editor entry."));
         }
     }
     for (name, expected) in FILES {
@@ -83,7 +103,19 @@ fn validate(path: &Path) -> io::Result<()> {
 }
 
 pub(super) fn materialize(paths: &ConfigPaths) -> io::Result<PathBuf> {
-    publish(paths, env!("CARGO_PKG_VERSION"))
+    let version = env!("CARGO_PKG_VERSION");
+    let present = paths
+        .provider_plugin_directory(super::NAME, version)
+        .try_exists()?;
+    let published = publish(paths, version)?;
+    if !present
+        && let Ok(protected) = std::env::current_exe()
+            .and_then(|executable| crate::native_install::retained_cli_versions(&executable))
+    {
+        // A cache cleanup problem never removes the picker from a successful launch.
+        let _ = prune(&published, version, &protected);
+    }
+    Ok(published)
 }
 
 fn publish(paths: &ConfigPaths, version: &str) -> io::Result<PathBuf> {
@@ -131,6 +163,41 @@ fn publish(paths: &ConfigPaths, version: &str) -> io::Result<PathBuf> {
         fs::remove_dir_all(&staged)?;
     }
     result
+}
+
+fn prune(
+    active: &Path,
+    version: &str,
+    protected: &std::collections::BTreeSet<semver::Version>,
+) -> io::Result<()> {
+    let version = semver::Version::parse(version).map_err(io::Error::other)?;
+    let parent = active
+        .parent()
+        .ok_or_else(|| io::Error::other("Missing plugin parent."))?;
+    if !fs::symlink_metadata(parent)?.is_dir() {
+        return Err(io::Error::other("Plugin inventory is not a directory."));
+    }
+    let mut older = Vec::new();
+    for entry in fs::read_dir(parent)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Ok(candidate) = semver::Version::parse(name) else {
+            continue;
+        };
+        if candidate.to_string() != name || candidate >= version || validate(&path).is_err() {
+            continue;
+        }
+        older.push((candidate, path));
+    }
+    older.sort_by(|a, b| b.0.cmp(&a.0));
+    for (candidate, path) in older.into_iter().skip(1) {
+        if !protected.contains(&candidate) {
+            fs::remove_dir_all(path)?;
+        }
+    }
+    File::open(parent)?.sync_all()
 }
 
 #[cfg(test)]

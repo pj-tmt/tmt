@@ -77,7 +77,7 @@ Selection capture waits for pointer/keyboard release; the parent Annotate contro
 its focus end. With mode off, C annotates a completed selection; otherwise it toggles mode.
 It stays outside text entry, IME, repeats and modifiers;
 Alt+Enter keeps its explicit annotation action. The parent-only bottom-right toggle clears
-open panels and composers spatially, independently of their state. In mode, one outline
+open panels spatially; overlapping anchored windows fit above its reserved bottom strip. Escape closes the mention list, collapses the anchored window with its draft kept, closes Chat with its draft kept if open, then exits mode, one level per press. Busy sends are not collapsed by Escape. In mode, one outline
 marks the hovered target; text-bearing clicks and completed selections open the retained
 anchored discussion. Textless targets show a temporary hint and create nothing. Readers
 have no toggle. No selection navigation prepares, publishes or sends an Ask.
@@ -153,10 +153,11 @@ subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
-the right on an opaque square surface, flush to the viewport's right and bottom
-edges directly below the header with only a left border; mobile uses a full-screen native modal sheet. Neither
-changes renderer width or content layout. The desktop drawer covers the annotation
-margin marks at the page edge without clipping or resizing the author frame.
+the right on an opaque square surface with a 1 px border on every edge. Chat,
+Source, Agents, Files, Comments and Export leave 8 px below the header and at the
+right and bottom edges (4 px through 480 px), plus top/bottom safe-area insets. Compact drawers
+use native modal focus containment within these gutters. Neither changes renderer
+width or content layout; the header and page edge remain visible.
 Panel bodies scroll independently except
 Chat: its bounded flex body keeps the shared header and non-shrinking composer
 visible, with only message history scrolling in the remaining height.

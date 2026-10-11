@@ -63,7 +63,7 @@ for (const width of [1440, 390]) {
     const input = await annotationInput(composer, 'Agent 1');
     const draft = '@Agent 1 Multiline\n文 draft with 🐈 that reload must keep.';
     await input.fill(draft);
-    await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+    await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
     await stored(page, 'Multiline');
 
     await reload(page, 'session');
@@ -146,7 +146,7 @@ test('failed device storage says drafts are not saved and keeps the in-tab draft
   await input.fill('@Agent 1 Only in this tab.');
   await expect(composer.getByText(text.draftsNotSaved)).toBeVisible();
   await expect(input).toHaveText('@Agent 1 Only in this tab.', { useInnerText: true });
-  await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   await select(page);
   await expect(input).toHaveText('@Agent 1 Only in this tab.', { useInnerText: true });
   expect((await call(page, 'proof')).sends).toEqual([]);

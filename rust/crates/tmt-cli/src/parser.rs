@@ -32,8 +32,16 @@ pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     let matches = match parser.try_get_matches_from_mut(arguments) {
         Ok(matches) => matches,
         Err(error) => {
-            let mode = crate::diagnostics::error_mode(&definition, argv);
+            let (mode, path) = crate::diagnostics::error_context(&definition, argv);
+            let hint = (error.kind() == clap::error::ErrorKind::UnknownArgument).then(|| {
+                if path.is_empty() {
+                    "Run tmt help to see the commands and options.".to_owned()
+                } else {
+                    format!("Run tmt help {} to see its options.", path.join(" "))
+                }
+            });
             return Err(ParseError {
+                hint,
                 code: "USAGE_ERROR",
                 message: error.to_string(),
                 mode,
@@ -42,6 +50,7 @@ pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     };
     let mode = mode(&matches);
     let fail = |message: String| ParseError {
+        hint: None,
         code: "USAGE_ERROR",
         message,
         mode,
@@ -64,6 +73,7 @@ pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     validate_options(command, &chain, &path).map_err(fail)?;
     if path.first() == Some(&"team") || text(leaf, "team").is_some() {
         return Err(ParseError {
+            hint: None,
             code: "UNSUPPORTED_TEAM",
             message: "Team workflows are not supported.".into(),
             mode,
@@ -93,6 +103,7 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
         )
     {
         return Err(ParseError {
+            hint: None,
             code: "JSON_UNSUPPORTED",
             message: "This command does not support --json.".into(),
             mode,
@@ -147,6 +158,7 @@ fn validate_options(command: &Command, chain: &[&ArgMatches], path: &[&str]) -> 
 
 fn help(path: Vec<String>, mode: OutputMode) -> Result<Parsed, ParseError> {
     crate::grammar::help_command(&path).map_err(|message| ParseError {
+        hint: None,
         code: "USAGE_ERROR",
         message,
         mode,
@@ -856,6 +868,16 @@ fn channel_mode(matches: &ArgMatches) -> ChannelMode {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "Run tmt help to see the commands and options.",
+        &[" to see the commands and options."],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Run tmt help {} to see its options.",
+        &[" to see its options."],
+        &[("{}", "identity status show")],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "The command must not start with '-'. TMT options go before the name: tmt run -s Alice <command>.",
         &["."],

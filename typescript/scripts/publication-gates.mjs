@@ -387,6 +387,7 @@ function assetText({ repository }) {
   return (asset) => {
     const result = spawn('gh', [
       'api',
+      '--allow-escape-sequences',
       '-H',
       'Accept: application/octet-stream',
       `repos/${repository}/releases/assets/${asset.id}`,

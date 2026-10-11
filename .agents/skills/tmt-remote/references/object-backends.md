@@ -28,7 +28,9 @@ owner above these: it opens `LocalFs` only when a static declaration enables an 
 nothing for an all-Disabled declaration list), keeps at most one active bus and one setup candidate per extension and
 eight buses in all, and opens a channel only on an explicit `activate` (no operation retry or
 polling). The carrier offers version 2 and permits one version-1 fallback only before a complete reply head,
-within the same setup budget; no downgrade is cached. Link/Bus support gates the new management methods. Its extension names come only from the declaration list and it names no
+within the same setup budget; no downgrade is cached. Link/Bus support gates the new management methods. Version-1 links use the
+[contract's provenance-free restart/upgrade hint](../../../../contracts/remote-channel-v1.md#object-channel-frames),
+not an installed-version comparison. Its extension names come only from the declaration list and it names no
 extension itself. Serve attempts each static Local declaration once after constructing
 Site/Mounts and device events, before remembering the port and publishing door readiness.
 An absent or refusing listener is silent; unsafe, malformed or storage failures warn

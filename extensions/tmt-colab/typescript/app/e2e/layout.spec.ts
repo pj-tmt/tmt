@@ -98,8 +98,8 @@ for (const width of [1440, 390])
       expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
       expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
       if (width === 390) {
-        expect((await comments.boundingBox())?.width).toBe(390);
-        expect((await comments.boundingBox())?.y).toBe(0);
+        expect((await comments.boundingBox())?.width).toBe(382);
+        expect((await comments.boundingBox())?.y).toBe(52);
       }
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-comments.png` });
       await comments.getByRole('button', { name: 'Close Comments', exact: true }).click();
@@ -108,7 +108,7 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Chat')).click();
       const asks = page.locator('.page-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
-      await asks.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+      await asks.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(asks).not.toBeVisible();
       await (await pageAction(page, 'Source')).click();
@@ -213,7 +213,7 @@ for (const width of [1440, 390])
     await chat.press('Enter');
     const drawer = page.locator('.page-drawer[data-panel=chat][open]');
     await expect(drawer).toBeVisible();
-    const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
+    const close = drawer.getByRole('button', { name: 'Collapse Chat', exact: true });
     await close.focus();
     const closeTooltip = close.locator('..').locator('.tmt-ui-icon-action-tooltip');
     await expect(closeTooltip).toBeVisible();
@@ -243,7 +243,7 @@ for (const width of [1440, 390])
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`drawer edge ${width}px ${theme}: margin marker is covered without resizing the page`, async ({
+    test(`drawer edge ${width}px ${theme}: gutters preserve header and page geometry`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -270,13 +270,13 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Comments')).click();
       const drawer = page.locator('.page-drawer[data-panel=comments][open]');
       await expect(drawer).toBeVisible();
-      if (width > 640) {
-        const edge = (await drawer.boundingBox())!;
-        expect(edge.x + edge.width).toBe(width);
-        expect(edge.y + edge.height).toBe(900);
-        expect(edge.y).toBe(56);
-        await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
-      }
+      const edge = (await drawer.boundingBox())!;
+      const gutter = width <= 480 ? 4 : 8;
+      expect(edge.x + edge.width).toBe(width - gutter);
+      expect(edge.y + edge.height).toBe(900 - gutter);
+      expect(edge.y).toBe((width <= 480 ? 48 : 56) + gutter);
+      await expect(drawer).toHaveCSS('border-right-width', '1px');
+      await expect(page.locator('.frame-host:visible')).toHaveCSS('clip-path', 'none');
       const capture = process.env.COLAB_DRAWER_CAPTURE_DIR;
       if (capture) {
         mkdirSync(capture, { recursive: true });
@@ -289,8 +289,8 @@ for (const width of [1440, 390])
       const exposed = { x: box.x + box.width - 2, y: box.y + box.height / 2 };
       const frameAt = () =>
         page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName === 'IFRAME', exposed);
-      // The desktop drawer covers the page edge; the mobile modal covers the page.
-      await expect.poll(frameAt).toBe(false);
+      // The 8 px page edge is visible; the annotation marker sits farther in and remains covered.
+      if (width > 640) await expect.poll(frameAt).toBe(false);
       await drawer.getByRole('button', { name: 'Close Comments', exact: true }).click();
       await expect(drawer).not.toBeVisible();
       await expect.poll(frameAt).toBe(true);

@@ -536,3 +536,209 @@ fn receipt_symlinks_extra_files_and_nonexecutable_payloads_are_not_ownership() {
         assert!(release.exists());
     }
 }
+
+#[test]
+fn retention_keeps_the_active_release_and_exact_predecessor() {
+    let (_directory, layout, oldest) = published_layout();
+    let middle_artifact = synthetic_artifact("1.2.4", b"middle");
+    let middle = Receipt::new(&middle_artifact, state("1.2.4", None));
+    publish(&layout, &middle_artifact, &middle);
+    let latest_artifact = synthetic_artifact("1.2.5", b"latest");
+    let latest = Receipt::new(&latest_artifact, state("1.2.5", None));
+    publish(&layout, &latest_artifact, &latest);
+    let releases = layout.root.join("releases");
+    assert!(!releases.join(oldest.id.to_string()).exists());
+    for receipt in [&middle, &latest] {
+        Receipt::read_product(
+            layout.product,
+            &releases.join(receipt.id.to_string()),
+            &layout.prefix,
+            receipt.id,
+        )
+        .unwrap();
+    }
+    assert_eq!(layout.current().unwrap().unwrap().id, latest.id);
+}
+
+#[test]
+fn retention_prunes_historical_pins_but_preserves_damaged_and_foreign_generations() {
+    let (_directory, layout, oldest) = published_layout();
+    let releases = layout.root.join("releases");
+    let pinned_artifact = synthetic_artifact("1.2.4", b"pinned");
+    let pinned = Receipt::new(&pinned_artifact, state("1.2.4", Some("1.2.4")));
+    publish(&layout, &pinned_artifact, &pinned);
+    let damaged = releases.join(oldest.id.to_string());
+    fs::write(damaged.join("tmt"), b"damaged retained bytes").unwrap();
+    let foreign = releases.join("user-backup");
+    fs::create_dir(&foreign).unwrap();
+    fs::write(foreign.join("notes"), b"user bytes").unwrap();
+    for version in ["1.2.5", "1.2.6"] {
+        let artifact = synthetic_artifact(version, b"next");
+        publish(
+            &layout,
+            &artifact,
+            &Receipt::new(&artifact, state(version, None)),
+        );
+    }
+    assert_eq!(
+        fs::read(damaged.join("tmt")).unwrap(),
+        b"damaged retained bytes"
+    );
+    assert_eq!(fs::read(foreign.join("notes")).unwrap(), b"user bytes");
+    assert!(!releases.join(pinned.id.to_string()).exists());
+}
+
+#[test]
+fn retention_failure_does_not_fail_a_completed_activation() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_directory, layout, oldest) = published_layout();
+    let middle_artifact = synthetic_artifact("1.2.4", b"middle");
+    let middle = Receipt::new(&middle_artifact, state("1.2.4", None));
+    publish(&layout, &middle_artifact, &middle);
+    let releases = layout.root.join("releases");
+    let artifact = synthetic_artifact("1.2.5", b"latest");
+    let latest = Receipt::new(&artifact, state("1.2.5", None));
+    let result = layout.publish_with_finalization(
+        &artifact,
+        &latest,
+        Some(middle.id),
+        None,
+        &mut || Ok(()),
+        || {
+            layout.ensure_links()?;
+            fs::set_permissions(&releases, fs::Permissions::from_mode(0o300))
+        },
+    );
+    fs::set_permissions(&releases, fs::Permissions::from_mode(0o700)).unwrap();
+    result.unwrap();
+    let current = layout.current().unwrap().unwrap().id;
+    assert_eq!(current, latest.id);
+    assert!(releases.join(oldest.id.to_string()).is_dir());
+    super::retention::prune(&layout, latest.id, middle.id).unwrap();
+    assert!(!releases.join(oldest.id.to_string()).exists());
+}
+
+#[test]
+fn failed_finalization_never_retires_the_rollback_history() {
+    let (_directory, layout, oldest) = published_layout();
+    let middle_artifact = synthetic_artifact("1.2.4", b"middle");
+    let middle = Receipt::new(&middle_artifact, state("1.2.4", None));
+    publish(&layout, &middle_artifact, &middle);
+    let artifact = synthetic_artifact("1.2.5", b"latest");
+    let latest = Receipt::new(&artifact, state("1.2.5", None));
+    assert!(
+        layout
+            .publish_with_finalization(
+                &artifact,
+                &latest,
+                Some(middle.id),
+                None,
+                &mut || Ok(()),
+                || Err(io::Error::other("finalization refused")),
+            )
+            .is_err()
+    );
+    for id in [oldest.id, middle.id] {
+        assert!(layout.root.join("releases").join(id.to_string()).is_dir());
+    }
+}
+
+#[test]
+fn retention_never_follows_a_generation_symlink() {
+    let (_directory, layout, _) = published_layout();
+    let outside = layout.prefix.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("user"), b"untouched").unwrap();
+    let alias = layout
+        .root
+        .join("releases")
+        .join(uuid::Uuid::new_v4().to_string());
+    symlink(&outside, &alias).unwrap();
+    for version in ["1.2.4", "1.2.5"] {
+        let artifact = synthetic_artifact(version, b"next");
+        publish(
+            &layout,
+            &artifact,
+            &Receipt::new(&artifact, state(version, None)),
+        );
+    }
+    assert!(
+        fs::symlink_metadata(alias)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(outside.join("user")).unwrap(), b"untouched");
+}
+
+#[test]
+fn provider_retention_protects_all_retained_cli_versions_and_refuses_uncertain_receipts() {
+    let (_directory, layout, oldest) = published_layout();
+    let pinned_artifact = synthetic_artifact("1.2.4", b"pinned");
+    publish(
+        &layout,
+        &pinned_artifact,
+        &Receipt::new(&pinned_artifact, state("1.2.4", Some("1.2.4"))),
+    );
+    for version in ["1.2.5", "1.2.6"] {
+        let artifact = synthetic_artifact(version, b"next");
+        publish(
+            &layout,
+            &artifact,
+            &Receipt::new(&artifact, state(version, None)),
+        );
+    }
+    let executable = layout.root.join("current/tmt");
+    let versions = super::retained_cli_versions(&executable).unwrap();
+    assert_eq!(
+        versions,
+        ["1.2.5", "1.2.6"]
+            .into_iter()
+            .map(|v| Version::parse(v).unwrap())
+            .collect()
+    );
+    assert!(
+        !layout
+            .root
+            .join("releases")
+            .join(oldest.id.to_string())
+            .exists()
+    );
+    let uncertain = layout
+        .root
+        .join("releases")
+        .join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir(uncertain).unwrap();
+    assert!(super::retained_cli_versions(&executable).is_err());
+}
+
+#[test]
+fn replaced_retention_inventory_does_not_authorize_removal_outside_the_managed_directory() {
+    let (_directory, layout, oldest) = published_layout();
+    let middle_artifact = synthetic_artifact("1.2.4", b"middle");
+    let middle = Receipt::new(&middle_artifact, state("1.2.4", None));
+    publish(&layout, &middle_artifact, &middle);
+    let releases = layout.root.join("releases");
+    let outside = layout.prefix.join("outside-releases");
+    let artifact = synthetic_artifact("1.2.5", b"latest");
+    let latest = Receipt::new(&artifact, state("1.2.5", None));
+    layout
+        .publish_with_finalization(
+            &artifact,
+            &latest,
+            Some(middle.id),
+            None,
+            &mut || Ok(()),
+            || {
+                layout.ensure_links()?;
+                fs::rename(&releases, &outside)?;
+                symlink(&outside, &releases)
+            },
+        )
+        .unwrap();
+    assert_eq!(layout.current().unwrap().unwrap().id, latest.id);
+    for id in [oldest.id, middle.id, latest.id] {
+        assert!(outside.join(id.to_string()).is_dir());
+    }
+    assert!(super::retention::prune(&layout, latest.id, middle.id).is_err());
+}

@@ -8,7 +8,7 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 the root and named references. `tmt colab skill` prints the exact root bytes;
-`tmt colab skill <name>` reads a compile-time key (`links`, `page-style`), never a path. Both work without core, state or a checkout.
+`tmt colab skill <name>` reads a compile-time key (`attachments`, `links`, `page-style`, `questions`), never a path. Both work without core, state or a checkout.
 The Page look starter in `references/page-style.md` is generated from `design/tokens/tokens.json`. After changing
 those tokens or the starter generator, run
 `node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.
@@ -216,6 +216,18 @@ is `acceptance/one-command.spec.ts` (needs `tmt`, `tmt-remote` and `tmt-colab` b
 [acceptance.md](acceptance.md)); it links the extensions onto the world's PATH so the real core
 resolves `tmt remote`.
 
+## Page markup check
+
+The vectors `extensions/tmt-colab/contracts/vectors/page-markup-v1.json` are edited by hand; each
+side proves them. From `rust/`: `cargo +1.97.0 test --offline --locked -p tmt-colab --test
+page_markup_vectors --lib page_check`. For the browser side, with `TMT_AGENT=1` and a no-op
+`BROWSER`: `corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app exec playwright test
+e2e/question-vectors.spec.ts` (headless Chromium, the oracle) and the app's unit test
+`test/question-vectors.test.ts` (limits and code coverage). A new rule is a row in
+`QUESTION_RULES` (`questions.ts`) and in `RULES` (`page_check/question.rs`), a reason-code row in
+colab-v1 and at least one vector case. The native CLI cases are in `tests/cli.rs`
+(`page_check_*`); they need no serve and no Remote.
+
 ## App and browser client
 
 Without `TMT_COLAB_APP_DIR` the executable serves the checkout's
@@ -300,6 +312,12 @@ three-engine pass. The report retains source/toolchain/browser identity, frozen 
 hashes, lifecycle timings, last started/completed checks and failure stacks. Progress
 markers are synchronous test-only console messages; they do not replace assertions.
 Cleanup is bounded separately from crypto execution and its failure refuses the gate.
+The standalone `node test/raw-ed25519.mjs` diagnostic runs raw Ed25519 import/verify
+against the frozen authority certificate with its valid root and off-curve `02` key, in
+fresh contexts. `COLAB_RAW_ED25519_REPORT` selects its report path. It retains operation
+markers, input hashes and installed Linux libgcrypt identity; it is not the conformance
+report or a substitute for the three-engine gate.
+
 For an explicitly approved Linux closure diagnostic, retain `DEBUG=pw:browser` stderr
 alongside the report and exact runner image; a later pass does not explain an older
 closure. Do not retry automatically or infer crash/OOM from a generic target error.

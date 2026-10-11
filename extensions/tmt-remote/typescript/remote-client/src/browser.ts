@@ -1,3 +1,19 @@
+import type { HostedDeclaration } from './firebase-declaration.js';
+export type { HostedDeclaration } from './firebase-declaration.js';
+import { connectHosted, type HostedAuth } from './firebase-auth.js';
+export type { HostedAuth } from './firebase-auth.js';
+
+/** Explicit hosted bootstrap; ordinary local SDK imports never load Firebase. */
+export const firebaseRemote = {
+  connect(link: string, declaration: HostedDeclaration): Promise<HostedAuth> {
+    return connectHosted(link, declaration, {
+      origin: location.origin,
+      fetch: globalThis.fetch.bind(globalThis),
+      load: () => import(/* @vite-ignore */ '/sdk/remote-firebase-v1.js'),
+    });
+  },
+};
+
 import {
   active,
   boundedAdmission,

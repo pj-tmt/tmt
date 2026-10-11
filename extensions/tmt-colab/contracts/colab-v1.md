@@ -93,18 +93,49 @@ reader does not hold).
 | Delete                         | Denied; the page's ciphertext is removed. See below.                            |
 | Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
 
-Warning-only page expiry never deletes completed objects, and Colab runs no garbage
-collection of Remote objects. Deleting a page keeps its encrypted objects charged to
-the space until Remote's deletion lands (follow-up #2294). The browser does not open
-an archived page in local v1 (follow-up #2298), so an already-open session ends in the
-existing `changed` or `unavailable` state.
+Warning-only page expiry never deletes completed objects. After a committed page delete,
+Colab removes its derived object namespace through the negotiated object channel. The
+native callback owner rechecks the retained signed deletion, independently of the deleted
+payloads; browser peers cannot relay namespace removal or usage calls. Removal is idempotent.
+Removal frees the page's file data; a small fixed record per retained identity and the
+namespace fence remain, and the capacity charge keeps counting them. Only a definite
+`Removed` means file data is freed: CLI delete reports `storage` as `freed`,
+`pending` (no established channel), `unsupported` (a v1 channel), or `unknown` (no definite
+removal answer). A bounded rotating sweep in the serve's maintenance worker retries retained
+committed deletions on channel establishment/replacement and unfinished maintenance passes;
+an offline delete remains pending until that channel exists. Neither cleanup nor a lost
+cleanup reply reverses the committed page deletion.
+
+Both removal and usage check negotiated `Bus::supports` before requesting them; unsupported
+methods write nothing and show `unsupported_hint()` verbatim. Capacity refusals query the
+affected namespace's `objects.usage` through a native callback owner, carrying `chargedBytes`,
+`entries`, `activeUploads`, and `retainedIdentities`. The displayed amount is a conservative
+allocation charge, not disk or billing bytes; unknown usage displays no guessed amount.
+
+Paired local browsers open archived pages through read-purpose catch-up. A newly committed management
+archive ends that page's open sync connections with
+`RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
+Writes, Ask, upload and thread status actions are removed; native admission still
+refuses their stale captures. Retained unsent drafts remain selectable with Copy.
+Archived export stays refused, and there is no unarchive operation.
 
 ### Attaching files in Chat and annotation conversations (#1854)
 
 The owner browser's shared composer can attach files to a Chat, annotation or reply
 message. Picking, pasting or dropping only adds an inert local chip: nothing is stored,
 sent or prepared, an Ask is never created and the message text is neither read nor
-replaced. The explicit Send is the first effect. A message still needs text. Attachment bytes are
+replaced. Local pending raster previews recheck already-picked bytes through
+`previewType` and the pixel bound, without reading a Remote object or preparing
+an upload. The draft caches display URLs until removal, publication or disposal;
+late preview/file reads cannot repopulate a replaced or disposed draft.
+The [attachment presentation rule](../../../design/gui-style.md#message-attachments)
+owns pending row and panel overlay appearance. Each panel registers its mounted
+composer's existing draft and current attachable fence; replacement/unmount
+invalidates stale registration. The local composer drop and full-panel drop
+use one add route, never two. Readable count/size metadata is checked during
+drag; protected native file data is rechecked as a complete batch on drop.
+Rejected batches add nothing. A blocked or archived panel cannot add or publish.
+The explicit Send is the first remote effect. A message still needs text. Attachment bytes are
 never part of an Ask payload; the frozen message lists their metadata (#2464): after the comment
 text, a blank line and `Attachments sent with this comment on "<quote>":` (or `... in the page chat:`
 when the thread has no anchor), then one line per file of the sent message in its own order,
@@ -291,15 +322,17 @@ The joint documented browser feature floor is Chromium 137, Firefox 130 and
 Safari 17. These are not tested minimum binaries. Probe generate/sign/strict
 verify, X25519 generate/derive and secure-context availability before use; fail
 closed with an update-browser explanation, with no weaker fallback.
+The probe also requires every frozen mixed-order signature known answer to match native policy.
 
 ### Strict signature admission
 
 Every enrollment, statement, certificate, object, intent, wrap and pairing
 signature MUST use one strict verifier. Browser admission requires A32/R32/S32,
 masked Edwards y < p for both A and R, rejection of all eight torsion encodings
-including sign-bit/negative-zero variants, and little-endian S < L, followed by
-native WebCrypto verification. Byte comparisons implement guards; curve
-operations stay native. Rust requires canonical recompressed non-weak public
+including sign-bit/negative-zero variants, public-point decompression for A and R,
+and little-endian S < L, followed by native WebCrypto verification. The bounded
+decompression guard uses only public 32-byte inputs and a fixed exponentiation chain;
+signing, verification and secret-key operations stay native. Rust requires canonical recompressed non-weak public
 keys and `verify_strict`, with no legacy, hazmat or batch path. Raw browser
 verification alone MUST NOT authorize anything. Valid mixed-order positives in
 the accepted corpus MUST NOT be categorically rejected.
@@ -741,8 +774,9 @@ identity or agent access. The [reader link](#read-only-reader-link-1545) opens t
 canonical base64url of the model's exact link-device chain JSON (at most 16 KiB).
 The server resolves the current local page/epoch, public or live assigned-link
 policy, pinned `link.add` keys and statement, certificate lifetime and device
-revocation. A private or deleted page denies readers; archive retains native reads. The browser does not open
-an archived page in local v1 (follow-up #2298).
+revocation. A private or deleted page denies readers; archive retains native reads.
+Paired local browsers also admit archived reads;
+bearer reader entry is unchanged by that paired-page behavior.
 The response is exactly `{challengeId,nonce,space,page,epoch,chainDigest,expiresAt}`:
 UUIDv4 challenge ID, nonce32, canonical scope, digest32, and safe-integer UTC
 milliseconds. Public uses zero32 chainDigest. Challenge lifetime is 60 seconds.
@@ -1815,6 +1849,18 @@ source editor bound to content; page scripts cannot edit content or change
 sharing. Dashboard record
 storage is deferred.
 
+Document image sources may be `colab-attachment:<full attachment ID or unique id8>`. The trusted
+host resolves them only against the current page's verified document descriptors, using the
+same admitted `document-current` read as Files (including reader tickets). Only byte-checked PNG,
+JPEG and WebP data URLs enter the existing renderer port; no object URL, key or new network
+permission enters the frame. A host-generated image request ID and render ID fence every reply.
+References are resolved in document order, at most 128 unique references and 64 MiB of declared
+plaintext per render; aliases share one read/charge. Unknown, ambiguous, non-raster, unreadable
+and over-budget references produce inert alt-text placeholders, never a fetch fallback. Scope or
+binding changes clear display copies and suppress late replies. The Local object backend supports
+this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
+reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
+
 On a content change, debounce about 300 ms and replace the frame with a fresh
 renderId/port, tearing down the old ones. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
@@ -1908,6 +1954,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
+Escape consumes one level: the mention list, then the anchored window (draft retained), then Chat if open (draft retained and busy sends uninterrupted), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2030,7 +2077,7 @@ no nonblank message is typed; none of these interrupts a send in flight. Typed t
 for the page (see Draft retention) together with bound mention UUIDs and restored, with a "Draft kept"
 note, when the same selection is annotated again or its known thread is reopened.
 After a thread exists, an outside page press collapses it even with a typed draft;
-Close never resolves or sends. Existing writer-owned Resolve collapses only after
+Close never resolves or sends. The anchored collapse action uses ChevronUp with accessible name "Collapse thread" and help "Collapse · Esc"; Resolve uses CircleCheck, named "Resolve thread" in the anchored window and "Resolve" in the drawer. Existing writer-owned Resolve collapses only after
 a successful explicit action; failure retains the window and draft. A live source revision preserves the mounted composer, its unsent text and frozen
 quote/rectangle, even when the quote no longer exists in the updated page. Explicit
 Send uses that captured quote; cosmetic resolution may then show the thread as
@@ -2129,6 +2176,17 @@ the window to its anchor and expands that thread inside the overlay; a margin ma
 reopens the same thread in its anchored window. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
+Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px
+header/right/bottom gutter (4 px through 480 px), with top/bottom safe-area insets, an opaque
+square surface and a 1 px border. The header remains visible; compact drawers
+retain native modal focus containment.
+A trusted non-editing `@` key opens the existing Chat under the same admission as
+the header Discussion action: a mounted, unarchived page and no other menu or
+dialog. An anchored annotation does not block it. Only a mounted editable composer
+receives focus and one literal `@` on opening; an already open Chat only receives
+focus. Modified keys other than Shift, repeat and IME confirmation are ignored.
+The existing draft, mentions and Send admission remain unchanged; no talk-scope
+probe or dispatch occurs on opening.
 
 #### Draft retention (#1924)
 
@@ -2191,9 +2249,19 @@ threads share one turn component and attribution: each reply has one agent-name,
 agent-role and time byline followed by plain reply text. Pending, held and failed
 outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
-Chat uses sided square tinted turns; annotation threads use one column with square
-User/Bot avatars and an ink rail on the agent body. Resolve/Reopen/Close thread
-controls have visible text, Lucide icons and accessible labels. After the existing
+Chat and annotation threads share flat, unboxed turns and the existing 3px agent
+rail. Chat uses a one-row `Chat` / `○ Everyone with access` header and a
+`Collapse Chat` action; its identity row places the muted time at the right.
+Spacing separates turns, while local-day headings derive only from admitted
+timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
+that action is admitted. The pinned composer has one top rule, the existing
+Attach and recipient controls at the left and Send at the right;
+`Posts as a comment.` appears only without a recipient. In Chat, a manually edited
+draft without the creator mention hides the creator-default toggle; a fresh default-only
+draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows
+`✗ Not delivered` and the existing ask-again action labelled `Retry`; waiting,
+held and uncertain states retain their existing recovery and announcements.
+Thread actions retain their existing Lucide icons and accessible labels. After the existing
 two-hour observation window, an accepted turn awaiting a reply shows a display-only
 reply timeout; it keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters
@@ -2679,8 +2747,7 @@ changes access or writes content. Explicit opening ignores the automatic-open se
 and noninteractive-terminal suppression, using the shared `tmt-invoke` opener; like every
 browser handoff it only prints the link under an agent (nonempty `TMT_AGENT`) unless
 `--open` is passed. `--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
-before opening. Archived pages still print their link, but the browser does not open an
-archived page in local v1 (follow-up #2298). An unavailable
+before opening. Archived pages print their link and open read-only in the paired local browser. An unavailable
 service prints the current link/path and next step. Opener failure warns once and
 retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
 `opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
@@ -3295,9 +3362,9 @@ most 512 missing wraps per transaction and rejects capacity atomically. Exact
 registration retries reuse existing device/epoch wraps without growth or fresh
 signing; revoked devices receive nothing. These wraps confer no new Remote rights.
 
-JSON success is `{spaceId,pageId,title,path,operationId,membershipHead}` with
+JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
-hash32). `path` is relative to the Remote door address:
+hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is relative to the Remote door address:
 `x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
 browser router's existing fragment format. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
@@ -3368,7 +3435,7 @@ every signed encrypted append of the batch and the scoped terminal outcome toget
 records a terminal rejection and no content; a commit never splits a batch. Exact frozen
 retries return the original outcome bytes without re-signing, re-appending or overwriting
 later content; changed bytes conflict. JSON success is
-`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed}` plus,
+`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed,warnings}` plus,
 when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
@@ -3535,6 +3602,81 @@ legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes s
 existing page count/byte budgets across epochs; exact replay adds no charge or page time.
 There is no expiry, eviction or pending UNKNOWN row. Browser Save/Writer adoption,
 recovery/fold barriers and gzip parity remain unintegrated.
+
+## Page markup check (#2753)
+
+`tmt colab page check <file|-> [--page <page>] [--json]` reports what is wrong with an
+agent-written page source before anyone opens it. It is a pure function of the source: it
+reads one file (or bounded stdin, with the page-write reader's 2 MiB UTF-8 limit and
+five-second EOF deadline) and needs no running serve, no local state, no core and no data
+root. `--page` additionally resolves `colab-attachment:` references against that page's current
+document attachments in the local store (read only; it starts nothing).
+
+The source is parsed with the HTML tree-construction algorithm in a `template` fragment
+context with scripting off, which is what `template.innerHTML` does, so every verdict is on
+the browser's tree: implied end tags, formatting-element reconstruction, foster parenting,
+foreign content and entity decoding land where the browser puts them. A source nested deeper
+than 512 elements stops the parse with one `page-too-deep` finding, because a browser stops
+nesting there and nothing past it can be judged.
+
+A finding is `{code, severity, element, ordinal, id, line, message}`. `element` is the
+lowercase tag name and `ordinal` the element's 1-based index among elements with that tag in
+document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
+`line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
+(the browser drops the block today) or `warning` (the block is admitted, or the problem is not
+about a block). `message` is wording that may change; `code` is the stable part. Findings are
+ordered by line, element, ordinal and code.
+
+Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
+findings}`. With no finding it exits 0. With any finding the command exits 1 with
+`COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
+`{error:{code,message}}` attached; human output lists each finding with its line first.
+
+`page create` and `page write` run the same check on the source before any state changes. The
+findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
+`[]` when clean) in the JSON result, also for a write that changes nothing. A page being
+created has no attachments, so every well-formed reference in its first source is
+`attachment-ref-unresolved`. `--strict` turns any finding into a `COLAB_PAGE_CHECK` refusal
+before anything is committed; the JSON error carries the report.
+
+Reason codes (a block fails every rule listed; title rules wait for exactly one heading and
+the choice-shape rules for a valid kind, so one defect is not reported twice):
+
+| Code                                                              | Severity | When                                                                                                                                                                                      |
+| ----------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page-too-deep`                                                   | warning  | an element nests past 512 levels; nothing after it is checked                                                                                                                             |
+| `question-page-limit`                                             | ignored  | more than 50 `tmt-question` on the page; the browser shows none of them, and this is the only finding (on the 51st)                                                                       |
+| `question-id-invalid`                                             | ignored  | `data-id` missing, or not a canonical lowercase UUID                                                                                                                                      |
+| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared by two or more questions; every holder is ignored                                                                                                          |
+| `question-nested`                                                 | ignored  | inside another `tmt-question`                                                                                                                                                             |
+| `question-heading-missing` / `-multiple`                          | ignored  | not exactly one direct child with `data-question`                                                                                                                                         |
+| `question-title-empty` / `-too-long` / `-control`                 | ignored  | the heading text, whitespace-normalized, is empty, over 200 code points, or has a control character (below U+0020 or U+007F)                                                              |
+| `question-kind-invalid`                                           | ignored  | `data-kind` is not `single`, `multiple`, `short` or `long`                                                                                                                                |
+| `question-choices-too-many`                                       | ignored  | more than 20 direct `data-choice` children                                                                                                                                                |
+| `question-choice-empty` / `-too-long` / `-control` / `-duplicate` | ignored  | a choice fails the same text bounds (200 code points), or two are equal after normalization                                                                                               |
+| `question-choices-missing`                                        | ignored  | `single` or `multiple` without a choice                                                                                                                                                   |
+| `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
+| `question-agent-invalid`                                          | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
+| `question-marker-misplaced`                                       | warning  | an element with `data-question` or `data-choice` whose parent is not a `tmt-question`: plain content to the browser                                                                       |
+| `image-data-oversized`                                            | warning  | an `<img>` whose `src` is a `data:image/` URL over 32 KiB                                                                                                                                 |
+| `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
+| `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
+| `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
+| `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+
+Text is normalized as the browser client does: every run of JavaScript whitespace (`\s`,
+which includes U+00A0 and U+FEFF and excludes U+0085) becomes one space and the ends are
+trimmed; limits count code points.
+
+One rule set, two implementations. The browser client's `inspectQuestions` and this checker
+run the shared vectors `contracts/vectors/page-markup-v1.json`: each case gives a source, the
+questions the page shows and the findings, with `scope:"parser"` cases run by both and
+`scope:"checker"` cases (references, depth) by the checker alone. The browser's own
+parser is the oracle, in headless Chromium; WebKit agrees on every parser case and Firefox
+differs only on `<noscript>`, which Chromium and WebKit parse as markup. The vectors' `limits`
+block must equal each side's named constants, and a test fails when a code in this table has
+no case or a case names an unknown code. Four codes have checker unit tests instead: the two
+image sizes need payloads of tens of KiB, and reference resolution needs a page's attachments.
 
 ## Plaintext page export (#1309)
 
@@ -3710,15 +3852,17 @@ using the same raster/PDF/UTF-8 rules as the browser; no declared type or filena
 `--type` is refused. An existing staging slot's type label does not override byte detection when
 it is resumed.
 
-**Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename,mediaType}`
-opens a slot (`mediaType` is inert staging metadata, not the sealed type): a random 32-hex ID and a private 0700 directory under the serve's root, answered as
+**Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename}`
+opens a slot: a random 32-hex ID and a private 0700 directory under the serve's root, answered as
 `{slot,path}`; no route accepts a path. The CLI prints the slot to stderr, copies the file into
 `path` (create-new, 0600, bounded while streaming) and reports its SHA-256 to
 `POST /.tmt/colab/local/attachment-attach` with `{version:1,page,slot,sha256?}`. The serve re-hashes
 the copy, seals it under the page's current epoch as the local writer (the descriptor and object of
 a browser upload), and writes the ciphertext, descriptor, base and a fresh transfer ID to the slot
-before the first request leaves, removing the plaintext. Both routes deny a Remote context or event
-header.
+before the first request leaves, removing the plaintext. A slot stores no media-type label; the
+serve derives it when sealing. Existing version-1 slots still resume: the obsolete `mediaType`
+key is accepted and ignored, never written again; other unknown keys are refused. Both routes
+deny a Remote context or event header.
 
 **Upload and publication.** The serve's native owner admits `LocalExtension` only, for the upload
 methods of that one frozen original and the verify reads of its committed bytes: the creator is the
@@ -3759,8 +3903,9 @@ Until then the old object stays and is charged; this contract makes no erasure c
 a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under
 the current epoch as the local writer, a new `attachmentId`, upload, creation proof, then one Save
 whose `DocumentChange` removes the old ID and sets the new descriptor, bound to the source digest.
-Readers therefore see the old complete reference or the new complete one, never a half swap. A
-descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
+Readers therefore see the old complete reference or the new complete one, never a half swap.
+An image reference to the replaced ID becomes the normal unavailable placeholder; automatic HTML
+reference repair is deferred to #2746. A descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
 record of the new epoch and cannot exist before it.
 
 **Triggers and bounds.** One worker runs at serve start, after any management change, when an

@@ -91,7 +91,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   header-only PNG/JPEG/WebP parse; `attachment-service.ts` (`AttachmentService`, held by
   `ThreadStore.attachments`) owns seal, begin/part/commit, status resume, discard, the
   publication records and the admitted read; `attachment-draft.ts` is one composer's chip
-  state machine (no effect before Send, no automatic retry); `attachment-tray.tsx` and
+  state machine (no remote effect before Send, no automatic retry), including
+  cached local raster previews and a message-lifetime fence for late file reads.
+  `attachment-drop.tsx` owns one panel-scoped registration and inert file-drop
+  routing; `attachment-tray.tsx` and
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
@@ -165,7 +168,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
-  access. `draft-store.ts` persists them per device behind that map (encrypted record per
+  access. Archived paired pages retain local text as Unsent draft with Copy, removing
+  compose, Ask, status, edit and upload actions; their verified content remains readable.
+  `draft-store.ts` persists them per device behind that map (encrypted record per
   space/device/page, `DraftSession` coalescing, page restore on mount); `saved-drafts.tsx`
   lists selection drafts and replies to vanished threads under Comments. Restore only fills
   composers; the Ask ledger is untouched. Failed storage shows `Drafts are not saved on this

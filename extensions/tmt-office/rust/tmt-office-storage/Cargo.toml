@@ -31,4 +31,5 @@ uuid = { workspace = true, features = ["v4"] }
 workspace = true
 
 [dev-dependencies]
+tmt-adapters = { workspace = true, features = ["test-isolation"] }
 png.workspace = true

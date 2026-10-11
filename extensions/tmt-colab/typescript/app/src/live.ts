@@ -305,6 +305,8 @@ export class Live implements PageBinding {
         (error) => {
           if (this.#owns(open) && open.connection === c) this.#failed(error);
         },
+        ['colab-sync-v1'],
+        true,
       );
       this.#connection = open.connection = c;
       await c.ready;
@@ -345,6 +347,12 @@ export class Live implements PageBinding {
             (writer) => connection.objects.ownSigningKey(writer),
             (writer) => connection.objects.statusWriter(writer),
           );
+          if (value.archived) {
+            this.#observation?.abort();
+            this.#observation = null;
+            this.ask?.close();
+            this.ask = undefined;
+          }
           this.#projection = {
             ...value,
             asks,

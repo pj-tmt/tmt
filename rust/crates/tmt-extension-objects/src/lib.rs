@@ -15,7 +15,7 @@ pub mod limits;
 #[cfg(unix)]
 pub use carrier::{
     Budget, Budgets, Bus, Caps, Expect, Fault, Idle, Link, Offer, Reason, Refusal, Role, Stage,
-    StampedObjectFrame, accept, accept_head, initiate, negotiate, unsupported_hint,
+    StampedObjectFrame, accept, accept_head, negotiate, unsupported_hint,
 };
 pub use codec::decode_length;
 pub use error::ErrorClass;

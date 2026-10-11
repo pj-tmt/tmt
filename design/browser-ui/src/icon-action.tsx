@@ -10,6 +10,9 @@ const escapeFocus = new WeakSet<Document>();
 
 export type BrowserIconActionProps = BrowserActionProps & {
   icon: ReactNode;
+  /** Optional shortcut help; the button name remains independently sufficient. */
+  tooltipLabel?: string;
+  ariaKeyShortcuts?: string;
   buttonRef?: Ref<HTMLButtonElement>;
   hasPopup?: 'menu' | 'dialog';
   onKeyDown?: KeyboardEventHandler<HTMLButtonElement>;
@@ -21,6 +24,8 @@ export type BrowserIconActionProps = BrowserActionProps & {
 export function BrowserIconAction({
   type,
   label,
+  tooltipLabel,
+  ariaKeyShortcuts,
   variant,
   icon,
   pressed,
@@ -95,6 +100,7 @@ export function BrowserIconAction({
           data-variant={variant}
           disabled={disabled || busy}
           aria-label={label}
+          aria-keyshortcuts={ariaKeyShortcuts}
           aria-haspopup={hasPopup}
           aria-pressed={pressed}
           aria-expanded={expanded}
@@ -128,7 +134,7 @@ export function BrowserIconAction({
           )}
         </button>
         <span ref={tooltip} className={c.iconActionTooltip} popover="manual" aria-hidden="true">
-          <span className={c.iconActionTooltipLabel}>{label}</span>
+          <span className={c.iconActionTooltipLabel}>{tooltipLabel ?? label}</span>
         </span>
       </span>
       {disabledReason !== undefined && (

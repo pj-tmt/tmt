@@ -17,7 +17,7 @@ use std::{
 use tmt_colab::{
     Result, inspection,
     keyring::{Keyring, Layout, StateFault},
-    management,
+    management, page_check,
     registration::Registration,
     store::Store,
 };
@@ -467,6 +467,10 @@ fn selection(
 struct Acknowledgment {
     operation_id: String,
     membership_head: AcknowledgedHead,
+    #[serde(default)]
+    storage: Option<management::Storage>,
+    #[serde(default)]
+    storage_hint: Option<String>,
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -628,7 +632,7 @@ fn offline(store: Store, key: Keyring, space: &str, body: &[u8]) -> Result<Vec<u
         management::local(&mut service, space, body, now).map_err(|c| management_error(c.text()));
     let closed = service.close();
     // The service call may have committed before close failed.
-    let bytes = result?;
+    let bytes = result?.body;
     closed.map_err(|_| {
         fail(
             "COLAB_OUTCOME_UNKNOWN",
@@ -651,7 +655,12 @@ fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
     }
 }
 /// Creation is the only CLI command that initializes missing local state.
-pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()> {
+pub fn create_page(
+    root: &Path,
+    args: &ArgMatches,
+    source: String,
+    checks: &[page_check::Finding],
+) -> Result<()> {
     let title = text(args, "title");
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
@@ -762,6 +771,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
+        result["warnings"] = crate::cli_page_check::warnings_json(checks);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
@@ -778,6 +788,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         let terminal = err.terminal();
         tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
     }
+    crate::cli_page_check::print_warnings(checks)?;
     Ok(())
 }
 /// Names a page's title, or, when that page cannot be opened, records why on that page alone so
@@ -1051,6 +1062,10 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         let mut value = json!({"pageId":id,"operationId":ack.operation_id,
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
+        if operation == "page.delete" {
+            value["storage"] = json!(ack.storage.unwrap_or(management::Storage::Unknown));
+            if let Some(hint) = ack.storage_hint { value["storageHint"] = json!(hint); }
+        }
         if let Some(id) = link_id { value["linkId"] = id.clone(); }
         // The one place a seed leaves the CLI: inside the reader link's fragment.
         let created = match operation {
@@ -1146,6 +1161,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&outcome, true);
     }
     let mut rows = page_rows(&reach, &path);
+    if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone()) {
+        rows.push(("storage", storage.message()));
+    }
     if let Some(reader) = outcome["readerPath"].as_str() {
         rows.push(("reader link", reach.text(reader)));
     }

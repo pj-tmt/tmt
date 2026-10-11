@@ -5552,6 +5552,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     assert!(output.stdout.len() <= 10_000);
     for (name, expected) in [
         (
+            "attachments",
+            include_bytes!("../../../skills/tmt-colab/references/attachments.md").as_slice(),
+        ),
+        (
             "questions",
             include_bytes!("../../../skills/tmt-colab/references/questions.md").as_slice(),
         ),
@@ -5583,7 +5587,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         assert!(!refused.status.success(), "{name}");
         assert!(refused.stdout.is_empty());
         let message = String::from_utf8(refused.stderr).unwrap();
-        for valid in ["links", "page-style", "questions"] {
+        for valid in ["links", "page-style", "questions", "attachments"] {
             assert!(message.contains(valid), "{message}");
         }
     }
@@ -5897,4 +5901,275 @@ fn foreground_serve_says_how_to_run_in_the_background_next_time() {
     assert!(text.contains("tmt colab serve"), "{text}");
     assert!(!text.contains("running in the background"), "{text}");
     serving.stop(Signal::SIGTERM);
+}
+const CHECK_ID: &str = "10000000-0000-4000-8000-000000000001";
+/// A page with one question the browser shows and one it ignores twice over: the id repeats and
+/// the kind is unknown. Lines 2 and 3 carry the findings.
+fn dirty_page() -> String {
+    format!(
+        "<p>Intro</p>\n\
+         <tmt-question data-id=\"{CHECK_ID}\" data-kind=\"short\"><p data-question>One?</p></tmt-question>\n\
+         <tmt-question data-id=\"{CHECK_ID}\" data-kind=\"radio\"><p data-question>Two?</p></tmt-question>\n"
+    )
+}
+fn finding_codes(findings: &Value) -> Vec<(String, u64)> {
+    findings
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| {
+            (
+                f["code"].as_str().unwrap().to_owned(),
+                f["line"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+fn expected_dirty() -> Vec<(String, u64)> {
+    vec![
+        ("question-id-duplicate".to_owned(), 2),
+        ("question-id-duplicate".to_owned(), 3),
+        ("question-kind-invalid".to_owned(), 3),
+    ]
+}
+#[test]
+fn page_check_is_offline_and_names_every_ignored_block_with_its_line() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("page.html");
+    fs::write(&file, dirty_page()).unwrap();
+    let path = file.to_str().unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["format"], "tmt-colab-page-check");
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["error"]["code"], "COLAB_PAGE_CHECK");
+    assert_eq!(report["bytes"], dirty_page().len());
+    assert_eq!(report["questions"], json!({"admitted": 0, "ignored": 2}));
+    assert_eq!(finding_codes(&report["findings"]), expected_dirty());
+    assert_eq!(report["findings"][0]["id"], CHECK_ID);
+    assert_eq!(report["findings"][0]["element"], "tmt-question");
+    assert_eq!(report["findings"][0]["severity"], "ignored");
+    assert!(
+        report["findings"][2]["message"]
+            .as_str()
+            .unwrap()
+            .contains("data-kind")
+    );
+    assert!(
+        !pilot.root.join("selected").exists() && !pilot.root.join("calls").exists(),
+        "check invoked core or created application state"
+    );
+
+    // Human output lists the lines on stdout and refuses on stderr.
+    let human = pilot
+        .command()
+        .args(["page", "check", path])
+        .output()
+        .unwrap();
+    assert_eq!(human.status.code(), Some(1));
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        shown.contains("PAGE CHECK") && shown.contains("line 3"),
+        "{shown}"
+    );
+    assert!(shown.contains("question-kind-invalid"), "{shown}");
+    assert!(String::from_utf8_lossy(&human.stderr).contains("3 markup problems"));
+
+    // A clean page succeeds with no findings, from a file and from stdin.
+    fs::write(&file, "<p>Plain</p>").unwrap();
+    let clean = pilot.call(&["page", "check", path, "--json"]);
+    assert_eq!(clean["ok"], true);
+    assert_eq!(clean["findings"], json!([]));
+    assert!(clean.get("error").is_none());
+    let mut child = pilot
+        .command()
+        .args(["page", "check", "-", "--json"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn_owned()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(dirty_page().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(finding_codes(&report["findings"]), expected_dirty());
+    assert!(!pilot.root.join("selected").exists());
+}
+#[test]
+fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("bad.html");
+    fs::write(&file, [0xff]).unwrap();
+    let invalid = failure_args(&pilot, &["page", "check", file.to_str().unwrap(), "--json"]);
+    assert_ne!(invalid["error"]["code"], "COLAB_PAGE_CHECK");
+    let missing = failure_args(&pilot, &["page", "check", "absent.html", "--json"]);
+    assert_ne!(missing["error"]["code"], "COLAB_PAGE_CHECK");
+    // Resolving references against a page needs the local state; none exists.
+    fs::write(&file, "<p>Plain</p>").unwrap();
+    let no_state = failure_args(
+        &pilot,
+        &[
+            "page",
+            "check",
+            file.to_str().unwrap(),
+            "--page",
+            CHECK_ID,
+            "--json",
+        ],
+    );
+    assert_ne!(no_state["error"]["code"], "COLAB_PAGE_CHECK");
+    assert!(!pilot.root.join("selected/colab").exists());
+}
+#[test]
+fn create_and_write_warn_with_the_same_findings_and_strict_commits_nothing() {
+    let pilot = Pilot::new(None);
+    let dirty = pilot.root.join("dirty.html");
+    fs::write(&dirty, dirty_page()).unwrap();
+    let dirty = dirty.to_str().unwrap();
+    // --strict stops a first create before it initializes any state.
+    let strict = failure_args(
+        &pilot,
+        &[
+            "page", "create", "--title", "Strict", "--file", dirty, "--strict", "--json",
+        ],
+    );
+    assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
+    assert_eq!(finding_codes(&strict["findings"]), expected_dirty());
+    assert!(
+        !pilot.root.join("selected/colab").exists(),
+        "strict create left state"
+    );
+
+    // Without --strict the page is created and the findings are warnings.
+    let created = pilot.call(&[
+        "page", "create", "--title", "Warned", "--file", dirty, "--json",
+    ]);
+    assert_eq!(finding_codes(&created["warnings"]), expected_dirty());
+    let id = created["pageId"].as_str().unwrap();
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        dirty_page()
+    );
+    let clean_file = pilot.root.join("clean.html");
+    fs::write(&clean_file, "<p>Plain</p>").unwrap();
+    let plain = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Plain",
+        "--file",
+        clean_file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(plain["warnings"], json!([]));
+    let human = pilot
+        .command()
+        .args(["page", "create", "--title", "Human", "--file", dirty])
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    let warned = String::from_utf8(human.stderr).unwrap();
+    assert!(
+        warned.contains("line 3") && warned.contains("question-kind-invalid"),
+        "{warned}"
+    );
+
+    // A write reports the same findings, also when it changes nothing.
+    fs::write(&clean_file, "<p>Edited</p>").unwrap();
+    let written = pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        clean_file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(written["changed"], true);
+    assert_eq!(written["warnings"], json!([]));
+    let again = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
+    assert_eq!(again["changed"], true);
+    assert_eq!(finding_codes(&again["warnings"]), expected_dirty());
+    let unchanged = pilot.call(&["page", "write", id, "--file", dirty, "--json"]);
+    assert_eq!(unchanged["changed"], false);
+    assert_eq!(finding_codes(&unchanged["warnings"]), expected_dirty());
+
+    // --strict refuses before the write prepares anything: the page stays as it was.
+    let stable = pilot.call(&["page", "read", id, "--json"]);
+    fs::write(&clean_file, "<p>Strict edit</p>").unwrap();
+    let ok = pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        clean_file.to_str().unwrap(),
+        "--strict",
+        "--json",
+    ]);
+    assert_eq!(ok["warnings"], json!([]));
+    let after_ok = pilot.call(&["page", "read", id, "--json"]);
+    assert_eq!(after_ok["source"], "<p>Strict edit</p>");
+    let refused = failure_args(
+        &pilot,
+        &["page", "write", id, "--file", dirty, "--strict", "--json"],
+    );
+    assert_eq!(refused["error"]["code"], "COLAB_PAGE_CHECK");
+    assert_eq!(pilot.call(&["page", "read", id, "--json"]), after_ok);
+    assert_ne!(stable["source"], after_ok["source"]);
+}
+#[test]
+fn a_new_page_has_no_attachments_so_every_reference_in_it_is_unresolved() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("refs.html");
+    fs::write(
+        &file,
+        "<img src=\"colab-attachment:0123abcd\" alt=\"a\">\n\
+         <img src=\"colab-attachment:0123ABCD\" alt=\"b\">\n\
+         <img src=\"data:image/png;base64,AAAA\" alt=\"c\">\n",
+    )
+    .unwrap();
+    let path = file.to_str().unwrap();
+    let created = pilot.call(&[
+        "page", "create", "--title", "Refs", "--file", path, "--json",
+    ]);
+    let mut codes = finding_codes(&created["warnings"]);
+    codes.sort();
+    assert_eq!(
+        codes,
+        vec![
+            ("attachment-ref-invalid".to_owned(), 2),
+            ("attachment-ref-unresolved".to_owned(), 1)
+        ]
+    );
+    // On an existing page with no document attachments the same reference stays unresolved.
+    let id = created["pageId"].as_str().unwrap();
+    let written = pilot.call(&["page", "write", id, "--file", path, "--json"]);
+    let mut codes = finding_codes(&written["warnings"]);
+    codes.sort();
+    assert_eq!(
+        codes,
+        vec![
+            ("attachment-ref-invalid".to_owned(), 2),
+            ("attachment-ref-unresolved".to_owned(), 1)
+        ]
+    );
+    // Without a page, `check` validates the grammar only.
+    let checked = failure_args(&pilot, &["page", "check", path, "--json"]);
+    assert_eq!(
+        finding_codes(&checked["findings"]),
+        vec![("attachment-ref-invalid".to_owned(), 2)]
+    );
+    let resolved = failure_args(&pilot, &["page", "check", path, "--page", id, "--json"]);
+    assert_eq!(finding_codes(&resolved["findings"]).len(), 2);
 }

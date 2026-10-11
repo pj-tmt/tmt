@@ -39,7 +39,7 @@ Manifest assembly retries its required exact-key tool-cache restore once; a fina
 shared release input changes (lockfiles, workspace/toolchain/notice/dist configuration, the
 component map and parity manifest, packaging and verification scripts, the prepare, bundle,
 upgrade and rehearsal workflows and their local actions, and Cargo manifests under `rust/`), and
-only the owning products for an extension Cargo manifest. Native-install and managed-skill
+only the owning products for an extension or driver Cargo manifest. Native-install and managed-skill
 installation modules, plus the CLI native-upgrade command and its tests, select CLI only for the
 existing real-archive upgrade proof. Other ordinary source and bundled-frontend edits never
 select it; their own jobs cover them, and a frontend-only change that needs packaging proof uses
@@ -471,6 +471,21 @@ absence. Unknown ownership, incomplete inventories, unsettled cancellation or la
 uploads fail visibly; retention is the backstop, not proof of physical reclamation.
 Ordinary preparation artifacts, caches, releases and local installations are untouched.
 
+The `pr-rc-selftest.yml` qualification is dispatch-only on main and installs
+Linux x86_64 with an environment-only read token. Separate main-tooling jobs mutate
+only the standing qualification PR; candidate code never receives write authority.
+Its required `run` input binds the fixture to a successful main producer catalog,
+matching live PR head and label epoch. It checks receipt provenance and
+stale-head/disabled/new-epoch/closed refusals,
+unchanged application data and alpha return without a second producer dispatch.
+An eligible active-candidate re-run must preserve the receipt, prefix and application data.
+Mutation readbacks poll the PR object at most 20 times, three seconds apart.
+A failure before the stale-head commit retains the five verified artifacts for a rerun
+until expiry. Once consumed, cleanup records their exact-ID absence, preserving ordinary
+artifacts. Token-generated close events do not exercise the automatic close workflow.
+Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes.
+Only the standing same-repository PR2715 and its qualification branch may be mutated.
+
 Focused controls in `test/tooling/pr-rc-coordinator.test.ts` cover catalog bytes,
 final verification binding, bounded ZIP readback and exact-ID cleanup; workflow
 controls pin trusted preparation and catalog-last ordering. Native preparation,
@@ -518,9 +533,8 @@ is exempt. The maintainer's account and other bots are not exempt.
 Code quality reads the current PR body through REST, including on reruns. The
 small Conventional PR title job also checks attribution on body edits; correcting
 that feedback does not replace an earlier failed Code quality result, which needs
-an authorized rerun. Merge-group checks initially report findings and unavailable
-evidence without failing; queue enforcement is a separate rollout after open PRs
-have been attributed. No required-check name or workflow permission changes.
+an authorized rerun. Merge-group checks also fail on invalid attribution or
+unavailable evidence. No required-check name or workflow permission changes.
 
 ## Conventional PR titles
 

@@ -28,6 +28,9 @@ pub fn command(root: &Path, args: &[&str]) -> Command {
     command
         .args(args)
         .env_clear()
+        .env("TMT_TEST_ROOT", root)
+        .env("TMT_AGENT", "1")
+        .env("BROWSER", "/usr/bin/true")
         .env("HOME", root.join("home"))
         .env("XDG_CONFIG_HOME", root.join("xdg-config"))
         .env("XDG_DATA_HOME", root.join("xdg-data"))

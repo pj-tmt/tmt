@@ -204,7 +204,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         );
         lifetime.signal.throwIfAborted();
         if (bound !== current) throw new Error('Remote session replaced');
-        const page = boot.pages.find((page) => page.pageId === id && !page.archived);
+        const page = boot.pages.find((page) => page.pageId === id);
         if (!page) throw new Error('Page unavailable');
         const live = new Live(
           mount,

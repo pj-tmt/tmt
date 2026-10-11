@@ -9,6 +9,7 @@ ARG PRODUCT=cli
 RUN test -n "$TARGET_TRIPLE" && rustup target add "$TARGET_TRIPLE"
 WORKDIR /workspace
 COPY rust/ rust/
+COPY drivers/herdr/rust/ drivers/herdr/rust/
 COPY extensions/tmt-office/rust/ extensions/tmt-office/rust/
 COPY skills/ skills/
 COPY extensions/tmt-office/skills/ extensions/tmt-office/skills/

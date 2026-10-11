@@ -26,9 +26,8 @@ of native schema and application state.
 
 ## Repository layout
 
-Infra reviews the layout map and its machine-readable allowlist,
-[`.github/repository-layout.json`](.github/repository-layout.json). Component
-ownership comes separately from [`.github/components.json`](.github/components.json).
+Infra reviews the [layout map/allowlist](.github/repository-layout.json).
+[Component ownership](.github/components.json) is separate.
 
 | Home                      | Responsibility                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------------ |
@@ -38,22 +37,21 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
 | `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
 | `extensions/<extension>/` | Product-owned runtimes, contracts, skills, docs and assets                           |
+| `drivers/<driver>/`       | Product-owned driver runtimes, contracts and assets                                  |
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
 | `site/`                   | Public Home, handbook sources and translations                                       |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
-New homes or exceptions need infra review and coordinated map/allowlist changes;
-ignored local outputs are outside the tracked-file map. The
-[layout skill](.agents/skills/tmt-layout/SKILL.md) owns add/move procedures and the
-tracked-file guard. Handbook language exceptions belong to
+New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
+are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
+owns moves and the tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-`tmt-ux-lead` owns shared visual tokens and the private browser leaf.
-[Browser component contracts](design/gui-components.md) point to the leaf's generation and consumer boundaries.
-Release procedures belong to the
-[release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
+`tmt-ux-lead` owns shared visual tokens and the private browser leaf;
+[its contracts](design/gui-components.md) own generation and consumer boundaries.
+[Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## TypeScript workspace boundary
@@ -185,7 +183,8 @@ Command dispatch, help and completion rules are in the
 An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH;
 core wins every collision. On Unix the adapter `exec`s, so the extension inherits
 stdio, TTY and signals and its exit status is the command's. `TMT_EXECUTABLE` names
-the invoking executable. Core keeps no registry, manifest, daemon or extension
+the managed stable launcher following activation, otherwise the invoking executable.
+Core keeps no registry, manifest, daemon or extension
 state. Only arguments after the name are passed, verbatim. Completion v1 is
 optional, bounded and falls back to file completion on any failure.
 
@@ -290,7 +289,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 
 ### Settings and configuration
 
-`tmt-adapters::config::ConfigPaths` is the sole application path and managed-release-only default-directory cutover owner;
+`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
 opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by
@@ -401,8 +400,7 @@ current release. CLI self-upgrade delegates to the verified candidate under the
 compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and
-requires consent; install and upgrade accept `--to`. Index discovery, receipts, companions, skills, repair and the
-handoff are in the
+requires consent; install and upgrade accept `--to`. Retention, discovery, receipts, skills, repair and handoff are in the
 [installer architecture reference](.agents/skills/tmt-core-runtime/references/install-architecture.md);
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
@@ -447,12 +445,12 @@ each other nor tooling. Scenarios retain assertions; helpers own fixture
 mechanics. Frozen inputs and independent SQL/schema oracles must not derive
 expected results from the implementation under test.
 
-Tests select an explicit task-owned native executable or the checkout build;
-a missing build fails, with no host CLI or retired-runtime fallback. State,
-provider roots, prefixes, sockets and processes remain fixture-owned. Native
-process fixtures isolate caller ancestry and host tmux discovery; Docker supplies
-network-isolated private tmux and deterministic peers. No host tmux server,
-provider installation or global environment mutation is test evidence.
+Tests select a task-owned native executable or the checkout build; missing
+builds fail without host or retired-runtime fallback. State, provider roots,
+prefixes, sockets and processes remain fixture-owned. Adapters' default-off
+`test-isolation` feature admits private discovery paths in consumer test builds.
+Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
+and peers. Host tmux, provider installs and global environment mutation are not evidence.
 
 Cleanup confirms owned child/group absence before deleting fixture state;
 unknown inspection, leaks and false positives fail. Signals target only verified
@@ -566,8 +564,8 @@ skills. Publication gates belong to the [release skill](.agents/skills/tmt-relea
 sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
 discovery shapes, and the [hard lines and standing guarantees](contracts/remote-channel-v1.md#user-path)
 that open it. Remote owns authority; shared components supply presentation only. The door serves
-the browser SDK `remote-v1.js` (built from `remote-client`, whose README owns re-admission
-rules) and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
+`remote-client`'s `remote-v1.js` (README owns re-admission and lazy hosted Auth)
+and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.
 
@@ -603,7 +601,7 @@ bytes without core and storage access.
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write and proposal operations. Its optional caller
   name is publisher-asserted display metadata, never a creator binding or routing authority.
-  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
+  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model and `html5ever`,
   and that only `decoder/child.rs` imports `yrs`.
   [Colab discussion](.agents/skills/tmt-colab/references/discussion.md) defines trusted cards, provenance and shared inline slots.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
@@ -616,24 +614,24 @@ bytes without core and storage access.
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
-  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words and trusted action/recovery. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
+  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words, trusted recovery and archived read views. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
   One `tmt colab serve` is enough for a browser: it attaches to a running door through
   `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
-  in its own process group, reading pairing from `tmt remote devices --json`. This optional
+  in its own process group, reading pairing from `tmt remote devices --json`. This
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
-  dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
+  dependency. Colab stops only a door it started, with its group, after closing its own
+  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals).
 - **Message editing.** The Colab-local shared Lexical 0.52.0 rich input owns plaintext/history and an optional presentation slot; its MessageComposer wrapper owns mentions and send policy, following the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
-  highlights and known-thread marker clicks are cosmetic untrusted claims; only parent
+  highlights, thread clicks and closed-set key requests are cosmetic claims; only parent
   controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
-- **Attachments.** Colab implements [descriptor/manifest/reference grammar and internal read/publication capture](extensions/tmt-colab/contracts/attachment-v1.md) with existing crypto, authenticated cuts and fold metadata.
+- **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use existing crypto, authenticated cuts and fold metadata.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission/accounting.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns it.

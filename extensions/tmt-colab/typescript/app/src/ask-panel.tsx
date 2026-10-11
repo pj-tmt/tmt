@@ -1,3 +1,4 @@
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { CommentContext } from './thread-store.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
@@ -77,17 +78,22 @@ export function AskPanel({
   records,
   binding,
   blocked,
+  readOnly = false,
   inline = false,
+  dayHeadings,
   renderUser,
   retryInput,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
+  readOnly?: boolean;
   inline?: boolean;
+  dayHeadings?: readonly ReactNode[];
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskAgainInput;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const agents = useContext(AgentPresentation);
   const [now, setNow] = useState(0);
   useEffect(() => {
@@ -217,7 +223,7 @@ export function AskPanel({
         <span role="status" data-testid="ask-state" data-state={record.state}>
           <span className="ask-state" data-tone={deliveryState.tone}>
             <span className="ask-state-mark" aria-hidden>
-              {deliveryState.mark}
+              {chat && deliveryState.label === text.askNotDelivered ? '✗' : deliveryState.mark}
             </span>
             {records.length > 1 && !timedOut && !waitingForAgent
               ? text.askRecipientPrefix(agent)
@@ -225,7 +231,7 @@ export function AskPanel({
             {deliveryState.label}
           </span>
         </span>
-        {canAskAgain && (
+        {!readOnly && canAskAgain && (
           <AskAgainAction
             key={recipientRecords
               .map((value) => value.operationId)
@@ -238,7 +244,7 @@ export function AskPanel({
             retryOf={record.operationId}
           />
         )}
-        {canRecheck && (
+        {!readOnly && canRecheck && (
           <>
             <BrowserIconAction
               type="button"
@@ -352,6 +358,7 @@ export function AskPanel({
             key={`${record.writer}:${record.operationId}`}
             aria-label={`${text.ask} ${record.operationId}`}
           >
+            {dayHeadings?.[index]}
             {renderUser ? (
               index === 0 &&
               renderUser(

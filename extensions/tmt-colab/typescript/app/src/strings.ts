@@ -16,6 +16,41 @@ function humanSize(bytes: number): string {
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
+  archiveReadOnly: 'Archived · Read only',
+  archiveReadOnlyHint: 'Archived pages can be read, not changed.',
+  archivePosting: 'Archived page: read only. Nothing can be posted.',
+  archiveAnnouncement: 'This page was archived. It is now read only.',
+  unsentDraft: 'Unsent draft',
+  copyDraft: 'Copy',
+  copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
+
+  deletedStorage: (
+    state: 'freed' | 'pending' | 'unsupported' | 'unknown',
+    hint?: string,
+  ): string => {
+    switch (state) {
+      case 'freed':
+        return 'Its stored file data was removed. A small fixed record remains.';
+      case 'pending':
+        return 'Its stored file data will be removed when Remote reconnects.';
+      case 'unsupported':
+        return `Its stored file data was not removed. ${hint ?? ''}`;
+      case 'unknown':
+        return 'Removing its stored file data was not confirmed. Colab checks again when Remote reconnects.';
+    }
+  },
+  storageFull: (usage?: import('./attachment-channel.js').UsageDetails): string => {
+    if (!usage || usage.state === 'unknown')
+      return 'Storage is full. Usage details are unavailable right now.';
+    if (usage.state === 'unsupported')
+      return `Storage is full. Usage details are unavailable.\n${usage.hint}`;
+    const parts = [
+      ...(usage.entries ? [`${usage.entries} ${usage.entries === 1 ? 'file' : 'files'}`] : []),
+      ...(usage.activeUploads ? [`${usage.activeUploads} uploading`] : []),
+      ...(usage.retainedIdentities ? ['small fixed records'] : []),
+    ];
+    return `Storage is full. Charged ${humanSize(usage.chargedBytes)}${parts.length ? ` (${parts.join(', ')})` : ''}. This is a conservative allocation, not disk or billing bytes.`;
+  },
   proposalOpen: 'Proposal',
   proposalsOnly: 'Proposals only',
   proposalsEmpty: 'No proposals yet.',
@@ -29,6 +64,10 @@ export const text = {
     'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
 
+  browserUnsupported: 'Unsupported browser',
+  browserUpdate: 'Update your browser',
+  browserUpdateBody:
+    'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.',
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   headerByAuthor: (name: string) => `by ${name}`,
@@ -54,7 +93,7 @@ export const text = {
   newMessages: 'New messages',
   selectionMode: 'Selection mode',
   selecting: 'Selecting',
-  selectionModeHint: 'Click an element or select text to comment · C to stop',
+  selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',
@@ -84,6 +123,16 @@ export const text = {
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
   attachFiles: 'Attach files',
+  messageAttach: 'Attach',
+  attachDropTarget: { chat: 'Chat', thread: 'this thread' },
+  attachDropPrompt: (target: string) => `⤓ Drop to attach to ${target}`,
+  attachDropRefusal: {
+    unavailable: 'Attachments are unavailable here.',
+    filesOnly: 'Only files can be attached.',
+    empty: 'Empty files cannot be attached.',
+    tooLarge: `This file is larger than ${humanSize(8 * 1024 * 1024)}, the limit per file.`,
+    tooMany: 'A message holds up to 16 files.',
+  },
   attachFilesHint: 'Files upload when you send. Nothing is sent until then.',
   attachListLabel: 'Attachments to send',
   attachReady: 'Uploads on send',
@@ -187,6 +236,9 @@ export const text = {
   threadUnseen: 'New',
   threadNotNotified: (names: string) => `Not notified: ${names}`,
   threadClose: 'Close thread',
+  threadResolveAction: 'Resolve thread',
+  threadCollapse: 'Collapse thread',
+  threadCollapseHelp: 'Collapse · Esc',
   conversationAgent: 'agent',
   reconnect: 'Reconnect',
   disconnected: 'Disconnected',
@@ -212,7 +264,13 @@ export const text = {
   askOffline: 'Your machine or page connection is offline. Reconnect and review a new preview.',
   askExpired: 'This preview has expired. Create a new preview before sending.',
   askRecheck: 'Check again',
-  chatVisible: 'Visible to everyone with page access.',
+  chatVisible: '○ Everyone with access',
+  chatCollapse: 'Collapse Chat',
+  chatCollapseHint: 'Collapse Chat · Esc',
+  chatEmpty: 'No messages yet',
+  chatEmptyHint: 'Press @ to ask an agent, or write a comment below.',
+  chatToday: 'Today',
+  chatRetry: 'Retry',
   askWaiting: (agent: string) => `Waiting for ${agent}`,
   askNoReply: (agent: string) => `No reply yet from ${agent}`,
   askApproval: 'Waiting for approval',

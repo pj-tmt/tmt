@@ -13,6 +13,7 @@ import {
   type StoredAttachment,
 } from './attachment-service.js';
 import type { MessageAttachments } from './thread-store.js';
+import { rasterDataUrl } from './attachment-raster.js';
 
 export type ChipState =
   | { kind: 'ready' }
@@ -22,7 +23,11 @@ export type ChipState =
   | { kind: 'again'; why: 'page-changed' | 'not-stored'; old?: FrozenAttachmentUpload }
   /** Possibly stored. Only status of this same original, or removal, resolves it. */
   | { kind: 'unknown'; original: FrozenAttachmentUpload }
-  | { kind: 'refused'; reason: RefusalReason };
+  | {
+      kind: 'refused';
+      reason: RefusalReason;
+      usage?: import('./attachment-channel.js').UsageDetails;
+    };
 
 export interface Chip {
   id: string;
@@ -55,6 +60,7 @@ export class AttachmentDraft {
   #messageId = crypto.randomUUID();
   #listeners = new Set<() => void>();
   #snapshot: DraftSnapshot;
+  #previews = new Map<string, Promise<string | undefined>>();
   /** The binding is read at each use: it may appear or be replaced while the composer lives. */
   constructor(
     private source: () => AttachmentBinding | undefined,
@@ -92,7 +98,21 @@ export class AttachmentDraft {
   get uploading() {
     return this.#chips.some((c) => c.state.kind === 'uploading');
   }
+  /** A display copy of already-picked bytes, never a read/upload or a snapshot byte field.
+   * The chip lifetime owns it: removal, publication or disposal invalidates late results. */
+  preview(id: string): Promise<string | undefined> {
+    const chip = this.#chips.find((value) => value.id === id);
+    if (!chip) return Promise.resolve(undefined);
+    const held = this.#previews.get(id);
+    if (held) return held;
+    const work = rasterDataUrl(chip.mediaType, chip.bytes)
+      .then((url) => (this.#chips.includes(chip) ? url : undefined))
+      .catch(() => undefined);
+    this.#previews.set(id, work);
+    return work;
+  }
   async add(files: readonly File[]) {
+    const messageId = this.#messageId;
     for (const file of files) {
       const id = crypto.randomUUID(),
         filename = attachmentFilename(file.name),
@@ -104,6 +124,7 @@ export class AttachmentDraft {
       }
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
+        if (this.#messageId !== messageId) return;
         // The file may have changed since it was picked; the bytes read are the truth.
         const again = refuseFile(bytes.length, this.#chips.length);
         if (again) throw new Error(again);
@@ -116,6 +137,7 @@ export class AttachmentDraft {
           state: { kind: 'ready' },
         });
       } catch {
+        if (this.#messageId !== messageId) return;
         this.#notices.push({ id, filename, reason: 'unreadable' });
       }
       this.#emit();
@@ -130,6 +152,7 @@ export class AttachmentDraft {
     const chip = this.#chips.find((c) => c.id === id);
     if (!chip || chip.state.kind === 'uploading') return;
     this.#chips = this.#chips.filter((c) => c !== chip);
+    this.#previews.delete(id);
     this.#release(chip.state);
     this.#emit();
   }
@@ -205,6 +228,7 @@ export class AttachmentDraft {
   }
   /** The message and its references were published: the chips are done, not released. */
   committed() {
+    this.#previews.clear();
     this.#chips = [];
     this.#notices = [];
     this.#messageId = crypto.randomUUID();
@@ -212,6 +236,8 @@ export class AttachmentDraft {
   }
   /** Leaving the composer unsent releases what it stored; local bytes simply drop. */
   dispose() {
+    this.#messageId = crypto.randomUUID();
+    this.#previews.clear();
     for (const chip of this.#chips) this.#release(chip.state);
     this.#chips = [];
   }
@@ -220,7 +246,8 @@ export class AttachmentDraft {
 function failed(error: unknown, original?: FrozenAttachmentUpload): ChipState {
   if (error instanceof AttachmentUploadError) {
     const { failure } = error;
-    if (failure.kind === 'refused') return { kind: 'refused', reason: failure.reason };
+    if (failure.kind === 'refused')
+      return { kind: 'refused', reason: failure.reason, usage: failure.usage };
     if (failure.kind === 'gone') return { kind: 'again', why: 'not-stored' };
     return { kind: 'unknown', original: failure.original };
   }

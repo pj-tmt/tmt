@@ -1,4 +1,11 @@
-import { useEffect, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
+import { ConversationPresentation } from './conversation-presentation.js';
+import {
+  useContext,
+  useEffect,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from 'react';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
 import { Bot } from 'lucide-react';
@@ -31,6 +38,7 @@ export function ConversationTurn({
   status?: ReactNode;
   delivery?: ReactNode;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const driver =
     role === 'agent' && (runningDriver === 'claude' || runningDriver === 'codex')
       ? runningDriver
@@ -54,17 +62,25 @@ export function ConversationTurn({
             )}
             <span className="conversation-author">{author}</span>
             {driver ? (
-              <span className="conversation-driver"> {driver}</span>
+              <>
+                {chat && <span className="conversation-agent-label">{text.conversationAgent}</span>}
+                <span className="conversation-driver"> {driver}</span>
+              </>
             ) : (
-              role === 'agent' && ` · ${text.conversationAgent}`
+              role === 'agent' && (
+                <span className="conversation-agent-label">
+                  <span className="conversation-time-separator"> · </span>
+                  {text.conversationAgent}
+                </span>
+              )
             )}{' '}
-            ·{' '}
+            <span className="conversation-time-separator">· </span>
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>
               {compactRelativeTime(at, now)}
             </time>
             {meta}
           </p>
-          {actions && <span className="comment-header-end">{actions}</span>}
+          {(actions || chat) && <span className="comment-header-end">{actions}</span>}
         </header>
         <div className="conversation-body">{children}</div>
         {status && <div className="conversation-turn-status">{status}</div>}

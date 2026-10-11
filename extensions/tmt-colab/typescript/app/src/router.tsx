@@ -1,3 +1,4 @@
+import type { Selection } from './management.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -87,8 +88,8 @@ function SelectionMode({
     visibility: 'visible' | 'hidden';
   }>({ right: 24, bottom: 24, visibility: 'hidden' });
   useEffect(() => {
-    button.current?.setAttribute('aria-keyshortcuts', 'c');
-  }, []);
+    button.current?.setAttribute('aria-keyshortcuts', enabled ? 'c Escape' : 'c');
+  }, [enabled]);
   useEffect(() => {
     const place = () => {
       const box = host?.getBoundingClientRect();
@@ -100,23 +101,11 @@ function SelectionMode({
         .querySelector<HTMLDialogElement>('.page-drawer[open]')
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
-      const composer = document.querySelector('.annotation-popover')?.getBoundingClientRect();
-      const edge = Math.min(innerHeight, box.bottom);
-      const width = button.current?.offsetWidth ?? 40;
-      const obstructed =
-        composer &&
-        composer.right > right - width - margin &&
-        composer.left < right - margin &&
-        composer.bottom > edge - margin - 40 &&
-        composer.top < edge;
-      const bottom = obstructed ? Math.min(edge, composer.top) : edge;
+      const bottom = Math.min(innerHeight, box.bottom);
       setPlacement({
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
-        visibility:
-          right - box.left >= 80 && bottom - margin - 40 >= Math.max(0, box.top)
-            ? 'visible'
-            : 'hidden',
+        visibility: 'visible',
       });
     };
     place();
@@ -149,7 +138,12 @@ function SelectionMode({
         icon={
           <>
             <MousePointer2 />
-            {enabled && <span>{text.selecting}</span>}
+            {enabled && (
+              <>
+                <span>{text.selecting}</span>
+                <kbd>Esc</kbd>
+              </>
+            )}
           </>
         }
         onActivate={(event) => {
@@ -165,6 +159,7 @@ function SelectionAnnotation({
   rectangle,
   inset,
   noticeVisible,
+  toggleVisible,
   open,
   children,
 }: {
@@ -172,6 +167,7 @@ function SelectionAnnotation({
   rectangle: SelectionRect | null;
   inset: number;
   noticeVisible: boolean;
+  toggleVisible: boolean;
   open(): void;
   children?: React.ReactNode;
 }) {
@@ -190,7 +186,33 @@ function SelectionAnnotation({
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
       const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const placementHeight = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
+      // Parent chrome reserves the toggle's bottom strip only for overlapping windows.
+      const margin = innerWidth <= 640 ? 16 : 24;
+      const leftEdge =
+        rectangle && frame
+          ? Math.max(
+              8,
+              Math.min(
+                innerWidth - width - 8,
+                frame.right - width - 8,
+                frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
+              ),
+            )
+          : (element.current?.getBoundingClientRect().left ?? innerWidth - width - 8);
+      const toggle = document.querySelector('.selection-mode')?.getBoundingClientRect();
+      const overlaps =
+        toggleVisible &&
+        expanded &&
+        toggle &&
+        leftEdge + width > toggle.left &&
+        leftEdge < toggle.right;
+      const edge = overlaps
+        ? Math.min(innerHeight, host?.getBoundingClientRect().bottom ?? innerHeight) -
+          margin -
+          40 -
+          8
+        : innerHeight - 8;
+      const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 38;
       if (!frame || !rectangle) {
         // Keep the failure notice readable while retaining the mounted draft.
         const belowNotice = notice?.getBoundingClientRect().bottom;
@@ -201,15 +223,12 @@ function SelectionAnnotation({
               ? Math.max(inset + 4, belowNotice + 8)
               : Math.max(
                   inset + 4,
-                  Math.min(
-                    innerHeight - placementHeight - 8,
-                    element.current!.getBoundingClientRect().top,
-                  ),
+                  Math.min(edge - placementHeight, element.current!.getBoundingClientRect().top),
                 );
           return {
             left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
             top,
-            maxHeight: Math.max(0, innerHeight - top - 8),
+            maxHeight: Math.max(0, edge - top),
           };
         });
         return;
@@ -225,18 +244,18 @@ function SelectionAnnotation({
       }
       // A completed selection can end outside the viewport. Its open draft still
       // needs bounded history and a visible composer, including when opened by C.
-      const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(innerHeight - 8, value));
+      const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(edge, value));
       const top = expanded ? clampAnchor(selectionTop) : selectionTop;
       const bottom = expanded ? clampAnchor(selectionBottom) : selectionBottom;
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
-      const below = bottom + placementHeight + 8 <= innerHeight - 8;
+      const below = bottom + placementHeight + 8 <= edge;
       // Choose the edge using stable placement clearance, not the changing content
       // height. CSS fits the shell; first Send grows away from the same anchor edge.
       const above = expanded && !below && top - placementHeight - 6 >= inset + 4;
       const windowTop = Math.max(
         inset + 4,
         Math.min(
-          innerHeight - placementHeight - 8,
+          edge - placementHeight,
           beside ? top : below ? bottom + 6 : top - placementHeight - 6,
         ),
       );
@@ -247,7 +266,7 @@ function SelectionAnnotation({
         ),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
-          : { top: windowTop, maxHeight: Math.max(0, innerHeight - windowTop - 8) }),
+          : { top: windowTop, maxHeight: Math.max(0, edge - windowTop) }),
       });
     };
     place();
@@ -261,7 +280,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded, noticeVisible, children]);
+  }, [host, rectangle, inset, expanded, noticeVisible, toggleVisible, children]);
   return (
     <div
       ref={element}
@@ -545,7 +564,7 @@ function ManagePage({
   title: string;
   open: boolean;
   close(): void;
-  changed?(): void;
+  changed?(operation: Selection['operation']): void;
 }) {
   const port = root.useRouteContext().transport.management;
   const router = useRouter();
@@ -556,9 +575,9 @@ function ManagePage({
           port={port}
           pageId={pageId}
           title={title}
-          committed={() => {
+          committed={(operation) => {
             touched.current = true;
-            changed?.();
+            changed?.(operation);
           }}
           close={() => {
             close();
@@ -672,13 +691,9 @@ function Home() {
                 key={p.id}
                 data-page-id={p.id}
                 title={
-                  p.archived ? (
-                    <span title={title}>{title}</span>
-                  ) : (
-                    <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
-                      {title}
-                    </Link>
-                  )
+                  <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
+                    {title}
+                  </Link>
                 }
                 metadata={
                   updated.dateTime ? (
@@ -730,11 +745,19 @@ function Page() {
   const toolbar = useRef<HTMLElement>(null);
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
+  const [chatActivation, setChatActivation] = useState<{ id: string; insertMention: boolean }>();
+  const activateChat = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    if (panel !== 'chat') setChatActivation(undefined);
+  }, [panel]);
+  useEffect(() => setChatActivation(undefined), [snapshot.binding]);
+
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
+    archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
     originalAuthor: snapshot.originalAuthor,
@@ -766,6 +789,13 @@ function Page() {
       (view.asks ?? []).map(({ writer, operationId }) => [writer, operationId]).sort(),
     ),
   );
+  const archived = view.archived ?? snapshot.archived ?? false;
+  const wasArchived = useRef(archived);
+  const [archiveAnnouncement, setArchiveAnnouncement] = useState('');
+  useEffect(() => {
+    if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
+    wasArchived.current = archived;
+  }, [archived]);
   const recoveryRequired = liveError instanceof RecoveryRequiredError;
   const readmit = useRef(new ReadmitBudget());
   // A route reload brings its own binding: a reopened one and an attempt in flight end with it.
@@ -804,6 +834,7 @@ function Page() {
     base.current = snapshot.source;
     setDraft(snapshot.source);
     setView({
+      archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
       originalAuthor: snapshot.originalAuthor,
@@ -917,7 +948,14 @@ function Page() {
     return () => owner.stop();
   }, [recoveryRequired, snapshot.binding]);
   const [selectionMode, setSelectionMode] = useState(false);
+  useEffect(() => {
+    if (!archived) return;
+    setSelectionMode(false);
+    setPanel((current) => (current === 'agents' || current === 'export' ? null : current));
+  }, [archived]);
   const toggleSelectionMode = useRef<() => void>(() => {});
+  const escapeAnnotation = useRef<() => void>(() => {});
+  const chatBusy = useRef(false);
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
@@ -970,6 +1008,7 @@ function Page() {
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
+    setChatActivation(undefined);
   }, [snapshot.id]);
   useEffect(() => {
     const store = transport.drafts;
@@ -1032,7 +1071,7 @@ function Page() {
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
-    liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
+    archived || liveError?.message === managementChanged ? undefined : snapshot.binding?.status;
   const annotationKey = (value: NonNullable<typeof annotation>) =>
     value.thread ? `${value.thread.writer}:${value.thread.id}` : JSON.stringify(value.selector);
   /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
@@ -1118,10 +1157,43 @@ function Page() {
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const imageBinding = snapshot.binding?.files?.attachments;
+  const imageScope = imageBinding?.scope?.();
+  const imageDescriptors = JSON.stringify(view.attachments ?? []);
+  const imageInput = useRef({ binding: imageBinding, descriptors: view.attachments ?? [] });
+  imageInput.current = { binding: imageBinding, descriptors: view.attachments ?? [] };
+  useEffect(() => {
+    renderer.current?.images(imageInput.current);
+  }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
-  const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
+  const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
+  activateChat.current = () => {
+    if (
+      archived ||
+      (panel !== null && panel !== 'chat') ||
+      [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
+        (node) => node.getClientRects().length > 0 && node.dataset.panel !== 'chat',
+      )
+    )
+      return false;
+    const insertMention = panel !== 'chat';
+    setChatOpened(true);
+    setPanel('chat');
+    setChatActivation(
+      !discussionBlocked && !recoveryRequired && !chatBusy.current
+        ? { id: crypto.randomUUID(), insertMention }
+        : undefined,
+    );
+    return true;
+  };
+  escapeAnnotation.current = () => {
+    if (annotationRef.current) closeRef.current(true);
+    else if (panel === 'chat') {
+      if (!chatBusy.current) setPanel(null);
+    } else if (canSelect) setSelectionMode(false);
+  };
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
   };
@@ -1141,16 +1213,21 @@ function Page() {
         event.repeat ||
         event.isComposing ||
         event.keyCode === 229 ||
-        event.code !== 'KeyC' ||
+        (event.code !== 'KeyC' && event.key !== 'Escape' && event.key !== '@') ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey ||
-        event.shiftKey ||
-        !canSelect
+        (event.shiftKey && event.key !== '@') ||
+        (event.key !== '@' && !canSelect)
       )
         return;
+      if (event.key === '@') {
+        if (activateChat.current()) event.preventDefault();
+        return;
+      }
       event.preventDefault();
-      if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
+      if (event.key === 'Escape') escapeAnnotation.current();
+      else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
       else toggleSelectionMode.current();
     };
     document.addEventListener('keydown', key);
@@ -1224,6 +1301,10 @@ function Page() {
       },
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
+      onKey: (key) => {
+        if (key === 'Escape') escapeAnnotation.current();
+        else activateChat.current();
+      },
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
@@ -1233,7 +1314,10 @@ function Page() {
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
-        else renderer.current = handle;
+        else {
+          renderer.current = handle;
+          handle.images(imageInput.current);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -1314,24 +1398,28 @@ function Page() {
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={
-                recoveryRequired
-                  ? text.connectionLost
-                  : state === 'ready'
-                    ? text.loaded
-                    : state === 'loading'
-                      ? text.loading
-                      : text.blocked
+                archived
+                  ? text.archiveReadOnlyHint
+                  : recoveryRequired
+                    ? text.connectionLost
+                    : state === 'ready'
+                      ? text.loaded
+                      : state === 'loading'
+                        ? text.loading
+                        : text.blocked
               }
             >
-              {text[snapshot.sharing]} ·{' '}
+              {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">
-                {recoveryRequired
-                  ? text.connectionLost
-                  : state === 'ready'
-                    ? text.live
-                    : state === 'loading'
-                      ? text.loading
-                      : text.blocked}
+                {archived
+                  ? text.archiveReadOnly
+                  : recoveryRequired
+                    ? text.connectionLost
+                    : state === 'ready'
+                      ? text.live
+                      : state === 'loading'
+                        ? text.loading
+                        : text.blocked}
               </span>
             </span>
           </div>
@@ -1342,13 +1430,17 @@ function Page() {
             comments={openThreads}
             files={fileCount}
             unseen={unseenThreads}
-            canExport={!!snapshot.binding && !liveError}
+            readOnly={archived}
+            canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
             onSelect={toggle}
           />
         }
       />
+      <p role="status" className="archive-announcement">
+        {archiveAnnouncement}
+      </p>
       <ExportPanel
         key={`export:${snapshot.id}`}
         binding={snapshot.binding}
@@ -1362,7 +1454,9 @@ function Page() {
         title={view.title || snapshot.title}
         open={panel === 'manage'}
         close={() => setPanel(null)}
-        changed={() => {
+        changed={(operation) => {
+          // Archive commits invalidate sync; verified read catch-up keeps this draft owner mounted.
+          if (operation === 'page.archive') return;
           snapshot.binding?.close();
           setLiveError(new Error(managementChanged));
         }}
@@ -1475,6 +1569,7 @@ function Page() {
             rectangle={annotation?.rectangle ?? rectangle}
             inset={toolbar.current?.offsetHeight ?? 0}
             noticeVisible={state === 'navigation' || state === 'failed'}
+            toggleVisible={canSelect}
             open={annotate}
           >
             {annotation && (
@@ -1485,13 +1580,25 @@ function Page() {
                 aria-label="Annotate selection"
                 ref={popover}
                 onKeyDown={(event) => {
-                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                  if (
+                    event.key === 'Escape' &&
+                    event.isTrusted &&
+                    !event.defaultPrevented &&
+                    !event.repeat &&
+                    !event.nativeEvent.isComposing &&
+                    event.keyCode !== 229 &&
+                    !event.altKey &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.shiftKey
+                  ) {
                     event.preventDefault();
-                    closeAnnotation(true);
+                    escapeAnnotation.current();
                   }
                 }}
               >
                 <ThreadWindow
+                  archived={archived}
                   thread={annotationThread}
                   anchor={annotation.selector ?? undefined}
                   layout="anchored"
@@ -1532,6 +1639,7 @@ function Page() {
                       {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
+                        archived={archived}
                         creationRecipient={
                           annotationThread?.proposal?.proposer ?? view.creationRecipient
                         }
@@ -1578,6 +1686,7 @@ function Page() {
           <FilesPanel
             descriptors={view.attachments ?? []}
             files={snapshot.binding.files}
+            readOnly={archived}
             disabled={!!liveError || saving}
           />
         </PageDrawer>
@@ -1591,7 +1700,7 @@ function Page() {
         <div className="source">
           <span>
             <label htmlFor="source-edit">{text.source}</label>
-            {snapshot.binding && (
+            {snapshot.binding && !archived && (
               <button
                 disabled={saving || !!liveError || draft === base.current}
                 onClick={() => void save()}
@@ -1603,7 +1712,7 @@ function Page() {
           {editError && <SaveNotice problem={editError} />}
           <textarea
             id="source-edit"
-            readOnly={!snapshot.binding || saving || !!liveError}
+            readOnly={archived || !snapshot.binding || saving || !!liveError}
             spellCheck={false}
             value={draft}
             onChange={(event) => {
@@ -1620,6 +1729,7 @@ function Page() {
         close={() => setPanel(null)}
       >
         <SavedDrafts
+          archived={archived}
           drafts={savedDrafts(drafts.current, view.threads)}
           discard={(key) => keepDraft(key, null)}
         />
@@ -1629,6 +1739,7 @@ function Page() {
           </p>
         )}
         <ThreadPanel
+          archived={archived}
           reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
           hideHeader
@@ -1680,12 +1791,32 @@ function Page() {
         kind="chat"
         hideHeader
         close={() => setPanel(null)}
+        escape={() => escapeAnnotation.current()}
       >
         {chatOpened && (
           <ChatPanel
+            archived={archived}
             creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}:${draftsReady}`}
             initialEdit={drafts.current.get(CHAT_DRAFT)}
+            activation={
+              panel === 'chat' &&
+              draftsReady &&
+              chatActivation &&
+              !discussionBlocked &&
+              !chatBusy.current
+                ? {
+                    ...chatActivation,
+                    consumed: () =>
+                      setChatActivation((current) =>
+                        current?.id === chatActivation.id ? undefined : current,
+                      ),
+                  }
+                : undefined
+            }
+            onBusy={(busy) => {
+              chatBusy.current = busy;
+            }}
             onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
             unsaved={draftsUnsaved}
             observationUnavailable={view.askUnavailable}
@@ -1699,6 +1830,7 @@ function Page() {
             blocked={discussionBlocked}
             recoveryRequired={recoveryRequired}
             close={() => setPanel(null)}
+            escape={() => escapeAnnotation.current()}
           />
         )}
       </PageDrawer>

@@ -56,6 +56,12 @@ async function mount(page: Page, source: string) {
         onToggleSelectionMode: () => {
           host.dataset.toggles = String(Number(host.dataset.toggles ?? '0') + 1);
         },
+        onKey: (key: string) => {
+          host.dataset.keys = JSON.stringify([
+            ...(JSON.parse(host.dataset.keys ?? '[]') as string[]),
+            key,
+          ]);
+        },
         onAnnotate: () => {
           host.dataset.annotates = String(Number(host.dataset.annotates ?? '0') + 1);
         },
@@ -1257,8 +1263,8 @@ test('highlight hover coalesces trusted pointer bursts and cancels pending geome
   const quote = frame.locator('#quote');
   await quote.scrollIntoViewIfNeeded();
   const box = (await quote.boundingBox())!;
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
   await quote.evaluate(() => {
     const original = Range.prototype.getClientRects;
     let count = 0;
@@ -1306,4 +1312,51 @@ test('highlight hover coalesces trusted pointer bursts and cancels pending geome
   await quote.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide')));
   await page.clock.runFor(20);
   expect(await reads()).toBe(3);
+});
+
+test('cosmetic key notifications admit only the current render and closed Escape/@ set', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const snapshot = await mount(page, '<p id="quote" tabindex="0">Quote</p><input id="edit">');
+  const probe = page.locator('#probe');
+  await expect(probe).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((frame) => frame.url().endsWith('/renderer.html'))!;
+  const send = (value: unknown) => frame.evaluate((value) => parent.postMessage(value, '*'), value);
+  for (const value of [
+    { type: 'colab.render.key', renderId: snapshot.renderId, key: 'Enter' },
+    { type: 'colab.render.key', renderId: 'old', key: 'Escape' },
+    { type: 'colab.render.key', renderId: snapshot.renderId, key: 'Escape', extra: true },
+  ])
+    await send(value);
+  // A later admitted message is an ordering fence for the preceding refusals.
+  await send({ type: 'colab.render.key', renderId: snapshot.renderId, key: '@' });
+  await expect(probe).toHaveAttribute('data-keys', '["@"]');
+  await frame.locator('#quote').focus();
+  for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
+    await page.keyboard.press(key);
+  await page.keyboard.down('Escape');
+  await page.keyboard.down('Escape');
+  await page.keyboard.up('Escape');
+  await expect(probe).toHaveAttribute('data-keys', '["@","Escape"]');
+  await frame.locator('#edit').focus();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('@');
+  const client = await page.context().newCDPSession(page);
+  await frame.locator('#quote').focus();
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 229,
+  });
+  await client.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key: 'Escape',
+    code: 'Escape',
+    windowsVirtualKeyCode: 229,
+  });
+  await client.detach();
+  await page.keyboard.press('@');
+  await expect(probe).toHaveAttribute('data-keys', '["@","Escape","@"]');
 });

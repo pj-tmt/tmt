@@ -557,7 +557,7 @@ describe('immutable plans and independent cuts', () => {
     );
     const driver = source.components['driver-herdr'];
     expect(driver).toMatchObject({
-      owns: ['rust/crates/tmt-driver-herdr'],
+      owns: ['drivers/herdr'],
       package: 'tmt-driver-herdr',
       release: true,
       bootstrapSha: '6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd',
@@ -573,7 +573,7 @@ describe('immutable plans and independent cuts', () => {
     fixture.metadata.releases = [];
     const original = fixture.git.getMockImplementation()!;
     fixture.git.mockImplementation((args) =>
-      args[0] === 'diff' ? 'rust/crates/tmt-driver-herdr/src/main.rs\0' : original(args)
+      args[0] === 'diff' ? 'drivers/herdr/rust/tmt-driver-herdr/src/main.rs\0' : original(args)
     );
     const plan = (definition: typeof driver) =>
       planReleaseCuts({

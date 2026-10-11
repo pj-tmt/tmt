@@ -128,6 +128,7 @@ export function useProposalLayer({
     const status = presentationOf(view.threadPresentations, thread.ref)?.status;
     return (
       <ProposalCard
+        readOnly={!!view.archived}
         thread={thread}
         outcome={outcome}
         statusError={proposalStatusErrors.has(id)}
@@ -156,6 +157,7 @@ export function useProposalLayer({
           proposalComposer?.id === id &&
           proposalComposer.location === location && (
             <AnnotationInput
+              archived={view.archived}
               key={proposalComposer.key}
               showCancel
               creationRecipient={thread.proposal.proposer}
@@ -193,6 +195,7 @@ export function useProposalLayer({
       >
         {thread.comments.map((comment) => (
           <CommentExchange
+            readOnly={view.archived}
             key={`${comment.ref.writer}:${comment.messageId}`}
             comment={comment}
             thread={thread}

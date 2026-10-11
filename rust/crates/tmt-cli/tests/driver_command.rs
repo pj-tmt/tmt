@@ -3,6 +3,9 @@
 //! `--yes`, or an answer on a terminal (typescript/test/e2e covers the
 //! question); anything refused leaves the registry untouched.
 #![cfg(unix)]
+// This fixture uses only the shared private command environment.
+#[allow(dead_code)]
+mod support;
 
 use serde_json::Value;
 use std::{
@@ -59,11 +62,8 @@ impl Fixture {
     }
 
     fn tmt_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmt"))
-            .args(args)
-            .env_clear()
+        support::command(&self.root, args)
             .envs(env.iter().copied())
-            .env("HOME", self.root.join("home"))
             .env("TMT_HOME", self.root.join("state"))
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("TMUX_TMPDIR", self.root.join("tmux"))

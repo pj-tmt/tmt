@@ -1,3 +1,4 @@
+import { ConversationPresentation } from '../src/components/conversation-presentation.js';
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
 import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
@@ -257,7 +258,6 @@ export function mount(
         initialEdit={initialEdit}
         binding={talk ? binding : undefined}
         discussion={discussion}
-        chat={surface === 'chat'}
         thread={surface === 'reply' ? replyThread : undefined}
         anchor={surface === 'chat' ? null : { exact: 'Selected text', prefix: '', suffix: '' }}
         asks={records}
@@ -277,11 +277,11 @@ export function mount(
       />
     );
     return (
-      <>
+      <ConversationPresentation value={surface === 'chat' ? 'chat' : 'thread'}>
         {composer}
         {surface === 'linked' && composer}
         <AskPanel inline records={records} binding={binding} blocked={false} />
-      </>
+      </ConversationPresentation>
     );
   }
   root = createRoot(host);

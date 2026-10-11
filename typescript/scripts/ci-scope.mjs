@@ -433,7 +433,7 @@ export function selectNativeNotices(paths) {
       (path) =>
         inputs.has(path) ||
         path.startsWith('rust/licenses/') ||
-        /^(rust|extensions)\/(?:.*\/)?Cargo\.toml$/.test(path)
+        /^(rust|extensions|drivers)\/(?:.*\/)?Cargo\.toml$/.test(path)
     )
   );
 }

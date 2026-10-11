@@ -9,6 +9,7 @@ RUN curl --fail --location https://github.com/LukeMathWalker/cargo-chef/releases
 FROM ci-chef AS ci-planner
 WORKDIR /native/rust
 COPY rust/ /native/rust/
+COPY drivers/herdr/rust/ /native/drivers/herdr/rust/
 COPY extensions/tmt-office/rust/ /native/extensions/tmt-office/rust/
 COPY extensions/tmt-ops/rust/ /native/extensions/tmt-ops/rust/
 COPY extensions/tmt-digest/rust/ /native/extensions/tmt-digest/rust/

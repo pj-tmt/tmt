@@ -139,6 +139,53 @@ fn cuts_bind_namespace_and_reject_impossible_boundaries() {
     assert!(stream_cut::decode(&trailing).is_err());
 }
 #[test]
+fn browser_public_point_boundaries_match_native_admission() {
+    // The matching client.test.ts table records this native public_key oracle.
+    for (name, encoded, accepted) in [
+        (
+            "negative-zero",
+            "0100000000000000000000000000000000000000000000000000000000000080",
+            false,
+        ),
+        (
+            "y-one",
+            "0100000000000000000000000000000000000000000000000000000000000000",
+            false,
+        ),
+        (
+            "y-p-minus-one",
+            "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+            false,
+        ),
+        (
+            "non-square",
+            "0200000000000000000000000000000000000000000000000000000000000000",
+            false,
+        ),
+        (
+            "small-order",
+            "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+            false,
+        ),
+        (
+            "mixed-order",
+            "9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245",
+            true,
+        ),
+        (
+            "normal",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+            true,
+        ),
+    ] {
+        assert_eq!(
+            crypto::public_key(&bytes(encoded)).is_ok(),
+            accepted,
+            "{name}"
+        );
+    }
+}
+#[test]
 fn every_829_signature_corpus_row_obeys_strict_policy_including_mixed_order() {
     let corpus = include_str!("../../../contracts/vectors/ed25519-829.jsonl");
     let rows: Vec<Value> = corpus

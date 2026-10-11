@@ -7,16 +7,17 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc --noEmit && vp build && vp build --config vite.page.config.ts",
-    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src test e2e vitest.config.ts vite.config.ts vite.page.config.ts playwright.config.ts && vp fmt --config vite.config.ts --check .",
-    "test": "python3 test/reference.py --check && vp test run --config vitest.config.ts",
-    "test:browser": "vp exec playwright test"
+    "build": "tsc --noEmit && vp build && vp build --config vite.page.config.ts && vp build --config vite.firebase.config.ts",
+    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src test e2e vitest.config.ts vite.config.ts vite.page.config.ts vite.firebase.config.ts playwright.config.ts && vp fmt --config vite.config.ts --check .",
+    "test": "python3 test/reference.py --check && vp build --config vite.firebase.config.ts && vp test run --config vitest.config.ts",
+    "test:browser": "vp build --config vite.firebase.config.ts && vp exec playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "^25.0.3",
     "typescript": "^5.3.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
-    "vite-plus": "1.0.0"
+    "vite-plus": "1.0.0",
+    "firebase": "13.0.0"
   }
 }

@@ -1,4 +1,4 @@
-// PR-body attribution; queue enforcement follows its explicit report-only rollout.
+// Current PR-body attribution for pull requests and merge groups.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { pendingQueueSubjects } from './pr-title-check.mjs';
@@ -87,11 +87,9 @@ function currentPull(number, reader, repository) {
 }
 
 /** Current REST evidence replaces a stale rerun event body; queue subjects supply only PR IDs. */
-export function checkPrAgents({ eventName, event, reader, repository, reportOnly = false }) {
+export function checkPrAgents({ eventName, event, reader, repository }) {
   if (!['pull_request', 'merge_group'].includes(eventName))
     throw new Error('Agent checks require a pull request or merge group.');
-  if (reportOnly && eventName !== 'merge_group')
-    throw new Error('--report-only is available only for merge groups.');
   const numbers =
     eventName === 'pull_request'
       ? [event?.pull_request?.number]
@@ -117,32 +115,27 @@ function report(text) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const reportOnly = process.argv.length === 3 && process.argv[2] === '--report-only';
-  const observation = reportOnly && process.env.GITHUB_EVENT_NAME === 'merge_group';
   try {
-    if (process.argv.length !== 2 && !reportOnly)
-      throw new Error('Usage: pr-agent-check.mjs [--report-only]');
+    if (process.argv.length !== 2) throw new Error('Usage: pr-agent-check.mjs');
     const run = (command, args) =>
       runPackedCommand(command, args, { cwd: ROOT, env: process.env, timeoutMs: 30_000 });
     const result = checkPrAgents({
       eventName: process.env.GITHUB_EVENT_NAME,
       event: JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')),
       repository: process.env.GITHUB_REPOSITORY,
-      reportOnly,
       reader: {
         git: (args) => run('git', args).trim(),
         rest: (endpoint) => run('gh', ['api', endpoint]),
       },
     });
     report(
-      `### PR Agent attribution${observation ? ' (report-only)' : ''}\n\n${JSON.stringify(result)}\n${observation ? 'Findings do not fail this merge group.' : 'Every non-exempt PR needs a valid visible Agent line.'}\n`
+      `### PR Agent attribution\n\n${JSON.stringify(result)}\nEvery non-exempt PR needs a valid visible Agent line.\n`
     );
-    if (result.findings.length && !observation) process.exitCode = 1;
+    if (result.findings.length) process.exitCode = 1;
   } catch (error) {
-    // Report-only applies solely to the queue rollout; PR failures remain visible and failing.
     report(
-      `### PR Agent attribution${observation ? ' (report-only)' : ''}\n\nAgent evidence unavailable: ${JSON.stringify(error.message)}\n`
+      `### PR Agent attribution\n\nAgent evidence unavailable: ${JSON.stringify(error.message)}\n`
     );
-    if (!observation) process.exitCode = 1;
+    process.exitCode = 1;
   }
 }

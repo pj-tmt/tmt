@@ -120,6 +120,22 @@ pub const PROPOSAL_TITLE_POINTS: usize = 200;
 pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
 pub const PROPOSAL_LABEL_POINTS: usize = 64;
 pub const PAGE_PROPOSALS: usize = 200;
+/// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
+/// `contracts/vectors/page-markup-v1.json` fail when they differ).
+/// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the
+/// checker's tree builder scans its open elements on every start tag, so deeper is not judged.
+pub const PAGE_DEPTH: usize = 512;
+pub const QUESTION_PAGE: usize = 50;
+pub const QUESTION_TITLE_POINTS: usize = 200;
+pub const QUESTION_CHOICES: usize = 20;
+pub const QUESTION_CHOICE_POINTS: usize = 200;
+pub const QUESTION_AGENT_POINTS: usize = 64;
+/// Page images worth a warning: one `data:` image above `DATA_IMAGE_BYTES`, or all of them above
+/// `DATA_IMAGES_TOTAL_BYTES`. A reference (`colab-attachment:`) is the way to carry anything larger.
+pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
+pub const DATA_IMAGES_TOTAL_BYTES: usize = 256 * 1024;
+/// Unique `colab-attachment:` references one render resolves (`IMAGE_REFERENCES` in the app).
+pub const ATTACHMENT_REFS: usize = 128;
 #[cfg(test)]
 mod tests {
     use super::*;

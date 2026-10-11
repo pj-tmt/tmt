@@ -1269,14 +1269,14 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     }
   }
   await capture('recovery-draft');
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
   await capture('recovery-card');
   await capture('recovery-focus', true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await (await pageAction(page, 'Chat')).click();
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
   // Explicit recovery before the door returns stays retryable and read-only.
   const attemptsBefore = opens;
   pendingOpen = new Promise<void>((resolve) => {
@@ -1321,7 +1321,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await f.settled();
   expect(f.entries).toHaveLength(6);
   // The anchored composer shares draft editing but cannot publish Ask or Post.
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
   async function annotate() {
     await heading.evaluate((node) => {
       const range = node.ownerDocument.createRange();
@@ -1638,7 +1638,7 @@ for (const width of [1440, 390])
         await expect(input).toHaveText('');
         await expect(page.getByTestId('ask-reply')).toHaveText('Draft recovery reply');
         if (surface === 'Chat' && width === 390)
-          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+          await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
         await page.getByRole('link', { name: 'Space home' }).click();
         await expect.poll(() => f.connections).toBe(0);
       });
@@ -1711,7 +1711,7 @@ test('an upgraded server shows the update row under the header without covering 
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
     }
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
     // The annotate window opens below the row as well.
     await heading.evaluate((node) => {
       const range = document.createRange();

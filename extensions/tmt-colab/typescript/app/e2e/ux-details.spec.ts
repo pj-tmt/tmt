@@ -127,7 +127,7 @@ for (const width of [1440, 390])
       await page.getByTestId('selection-ask').click();
       await page.getByRole('combobox', { name: 'Message', exact: true }).fill('Review this image.');
       const chooser = page.waitForEvent('filechooser');
-      await page.getByRole('button', { name: 'Attach files' }).click();
+      await page.getByRole('button', { name: 'Attach', exact: true }).click();
       await (
         await chooser
       ).setFiles({
