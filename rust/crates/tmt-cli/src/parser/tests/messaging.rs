@@ -479,3 +479,22 @@ fn inbox_and_answer_select_an_identity_and_one_body_source() {
         assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
     }
 }
+
+#[test]
+fn exchange_flow_has_a_bounded_window_and_no_identity_selector() {
+    for values in [
+        vec!["x", "flow", "--json"],
+        vec!["x", "flow", "--since", "30d", "--json"],
+    ] {
+        assert!(parsed(&values).mode.json);
+    }
+    for values in [
+        vec!["x", "flow", "--since", "0"],
+        vec!["x", "flow", "--since", "31d"],
+        vec!["x", "flow", "--identity", "Reader"],
+        vec!["x", "--identity", "Reader", "flow"],
+        vec!["x", "flow", "--limit", "1"],
+    ] {
+        assert_eq!(parse_error(&values).code, "USAGE_ERROR");
+    }
+}

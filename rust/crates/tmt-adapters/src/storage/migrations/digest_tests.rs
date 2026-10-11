@@ -54,7 +54,7 @@ fn digest_stats_migration_is_atomic_and_seeds_only_retained_successes() {
         .execute_batch("DROP TRIGGER refuse_digest_stats")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 51);
+    assert_eq!(storage.health().unwrap().schema_version, 52);
     assert_eq!(oracle.query_row("SELECT due_through_sequence,delivered_digests FROM digest_counters WHERE identity_id='receiver'",[],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,i64>(1)?))).unwrap(),(0,1));
     assert_eq!(
         oracle

@@ -162,6 +162,22 @@ describe('Exchange attention through the real Docker/tmux fixture', { concurrent
           submittedAtMs: expect.any(Number),
           expiresAtMs: expect.any(Number),
         });
+        expectJsonResult(await fixture.runJsonCli(['result', requestId], { withoutTmux: true }));
+        const flow = expectJsonResult<{
+          rows: Array<{ kind: string; count: number; bytes: number }>;
+        }>(await fixture.runJsonCli(['x', 'flow'], { withoutTmux: true }));
+        expect(
+          flow.rows
+            .map(({ kind, count, bytes }) => ({ kind, count, bytes }))
+            .sort((a, b) => a.kind.localeCompare(b.kind))
+        ).toEqual([
+          { kind: 'ack', count: 1, bytes: 0 },
+          { kind: 'reply', count: 1, bytes: Buffer.byteLength(submitted.body!) },
+          { kind: 'result', count: 1, bytes: 0 },
+          { kind: 'talk', count: 1, bytes: Buffer.byteLength('late attention final') },
+        ]);
+        expect(JSON.stringify(flow)).not.toContain('late attention final');
+        expect(JSON.stringify(flow)).not.toContain(requestId);
         expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
 
         // Bind the same durable identity and prove omitted --identity uses verified caller

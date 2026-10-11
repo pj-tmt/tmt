@@ -4,6 +4,7 @@
 mod answers;
 mod attention;
 mod digest;
+mod flow;
 mod history;
 mod lifecycle;
 mod notification;
@@ -309,6 +310,14 @@ fn prepare_records<E>(
         expires_at_ms: prompt_expiry,
     };
     records.create_attempt(&attempt, &prompt, revision)?;
+    flow::record(
+        records,
+        &attempt,
+        super::flow::FlowKind::Talk,
+        false,
+        prompt.message_bytes,
+        now,
+    )?;
     records.write_delivery_policy(&attempt.request_id, delivery)?;
     if digest_until_ms.is_some() {
         if let Some(policy) = notification {
@@ -478,6 +487,9 @@ fn cleanup_records<E>(
             }
             _ => {}
         }
+    }
+    if let Some(through) = now.checked_sub(super::flow::RETENTION_MS + super::flow::BUCKET_MS) {
+        records.prune_flow(through, CLEANUP_BATCH_SIZE)?;
     }
     records.clear_expired_prompts(now, CLEANUP_BATCH_SIZE)?;
     records.delete_expired_responses(now, CLEANUP_BATCH_SIZE)?;

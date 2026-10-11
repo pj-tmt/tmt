@@ -2914,6 +2914,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "syn 2.0.119",
+ "time",
  "tmt-adapters",
  "tmt-cli-style",
  "tmt-command-output",

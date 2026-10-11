@@ -22,6 +22,7 @@ mod driver_command;
 mod driver_registry_tests;
 mod driver_style;
 mod exchange_command;
+mod exchange_flow_command;
 mod extension_command;
 mod extension_hooks_command;
 mod extension_install_command;
@@ -352,6 +353,9 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::NotesPath { identity } => {
             return notes_command::execute(identity, parsed.mode);
+        }
+        Invocation::ExchangeFlow { window_ms } => {
+            return exchange_flow_command::execute(window_ms, parsed.mode);
         }
         Invocation::Exchange {
             identity,
