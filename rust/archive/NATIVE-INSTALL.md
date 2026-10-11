@@ -37,6 +37,11 @@ Installing or replacing a `tmt` binary never migrates, deletes or downgrades you
 data. State migrations only move forward, so stop older TMT commands before you
 switch.
 
+Successful managed updates keep the active release, its immediately previous
+release for rollback, and pinned releases. Older verified releases are removed
+automatically; damaged or unrecognized content is preserved. Cleanup problems do
+not fail an update, and repair does not prune.
+
 ## Install an extension archive
 
 An installed `tmt` installs an extension from a local archive and its manifest:

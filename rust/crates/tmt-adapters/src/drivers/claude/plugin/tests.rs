@@ -137,3 +137,76 @@ fn generated_editor_entries_cannot_be_group_writable() {
         assert!(entry.exists());
     }
 }
+
+#[test]
+fn retention_keeps_active_previous_and_assets_for_retained_cli_versions() {
+    let directory = TestDirectory::new();
+    let paths = paths(&directory);
+    let oldest = publish(&paths, "1.2.1").unwrap();
+    let pinned = publish(&paths, "1.2.2").unwrap();
+    let previous = publish(&paths, "1.2.3").unwrap();
+    let active = publish(&paths, "1.2.4").unwrap();
+    let protected = [semver::Version::parse("1.2.2").unwrap()]
+        .into_iter()
+        .collect();
+    prune(&active, "1.2.4", &protected).unwrap();
+    assert!(!oldest.exists());
+    for path in [&pinned, &previous, &active] {
+        validate(path).unwrap();
+    }
+}
+
+#[test]
+fn retention_preserves_foreign_damaged_generated_and_symlinked_plugin_content() {
+    let directory = TestDirectory::new();
+    let paths = paths(&directory);
+    let damaged = publish(&paths, "1.2.0").unwrap();
+    fs::write(damaged.join("hooks/register.mjs"), b"user edit").unwrap();
+    let generated = publish(&paths, "1.2.1").unwrap();
+    fs::create_dir(generated.join(".claude-plugin/types")).unwrap();
+    fs::write(generated.join(".claude-plugin/types/user"), b"generated").unwrap();
+    let previous = publish(&paths, "1.2.2").unwrap();
+    let active = publish(&paths, "1.2.3").unwrap();
+    let parent = active.parent().unwrap();
+    let foreign = parent.join("user-backup");
+    fs::create_dir(&foreign).unwrap();
+    fs::write(foreign.join("notes"), b"user bytes").unwrap();
+    let alias = parent.join("1.1.0");
+    std::os::unix::fs::symlink(&foreign, &alias).unwrap();
+    prune(&active, "1.2.3", &Default::default()).unwrap();
+    assert_eq!(
+        fs::read(damaged.join("hooks/register.mjs")).unwrap(),
+        b"user edit"
+    );
+    assert_eq!(
+        fs::read(generated.join(".claude-plugin/types/user")).unwrap(),
+        b"generated"
+    );
+    assert_eq!(fs::read(foreign.join("notes")).unwrap(), b"user bytes");
+    assert!(
+        fs::symlink_metadata(alias)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    validate(&previous).unwrap();
+    validate(&active).unwrap();
+}
+
+#[test]
+fn retention_refuses_a_replaced_plugin_inventory() {
+    let directory = TestDirectory::new();
+    let paths = paths(&directory);
+    let oldest = publish(&paths, "1.2.1").unwrap();
+    publish(&paths, "1.2.2").unwrap();
+    let active = publish(&paths, "1.2.3").unwrap();
+    let parent = active.parent().unwrap();
+    let outside = directory.path.join("outside-plugins");
+    fs::rename(parent, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, parent).unwrap();
+    assert!(prune(&active, "1.2.3", &Default::default()).is_err());
+    assert!(oldest.exists());
+    for version in ["1.2.1", "1.2.2", "1.2.3"] {
+        validate(&outside.join(version)).unwrap();
+    }
+}

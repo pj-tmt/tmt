@@ -41,6 +41,12 @@ existing exact-upgrade policy (including downgrade refusal) when already install
 [Release-index v1](../../../../contracts/release-index-v1.md) owns the publication-side
 record contract and the fixed-origin API-free native resolver.
 
+After successful publication, the native installer retains the active release and
+its exact predecessor, plus pinned releases. It best-effort removes only older
+generations whose complete receipt and payload still verify; unknown, damaged,
+foreign and legacy content stays intact. Cleanup never fails activation, and
+repair does not prune.
+
 The one-release Core-name cutover is owned by `skill_installation::retired` and
 `native_upgrade_command::rename`. Install and the upgrade skill-refresh child
 replace the former main skill only after checking the entire digest-tracked
