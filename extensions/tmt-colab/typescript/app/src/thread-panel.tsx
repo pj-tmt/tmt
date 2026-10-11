@@ -1,3 +1,4 @@
+import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
@@ -418,169 +419,171 @@ export function ThreadWindow({
       });
   };
   return (
-    <ConversationWindow
-      className="comment-thread"
-      data-layout={layout}
-      data-testid={thread ? 'comment-thread' : 'annotation-window'}
-      data-thread-id={thread?.threadId}
-      data-writer={thread?.ref.writer}
-      data-anchor={
-        thread?.deleted || !anchor
-          ? 'page'
-          : thread?.resolved
-            ? 'resolved'
-            : attached
-              ? 'attached'
-              : 'detached'
-      }
-      title={
-        <span className="thread-state">
-          {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
-          <span>
-            {!thread
-              ? text.annotationTitle
-              : thread.deleted
-                ? text.threadDeleted
-                : thread.resolved
-                  ? resolvedLabel(status)
-                  : text.threadOpen}
-          </span>
-        </span>
-      }
-      actions={
-        <>
-          {tracked && thread && (
-            <span className="comment-status">
-              {attached ? text.commentAnchored : text.commentDetached}
+    <AttachmentDropPanel target="thread">
+      <ConversationWindow
+        className="comment-thread"
+        data-layout={layout}
+        data-testid={thread ? 'comment-thread' : 'annotation-window'}
+        data-thread-id={thread?.threadId}
+        data-writer={thread?.ref.writer}
+        data-anchor={
+          thread?.deleted || !anchor
+            ? 'page'
+            : thread?.resolved
+              ? 'resolved'
+              : attached
+                ? 'attached'
+                : 'detached'
+        }
+        title={
+          <span className="thread-state">
+            {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+            <span>
+              {!thread
+                ? text.annotationTitle
+                : thread.deleted
+                  ? text.threadDeleted
+                  : thread.resolved
+                    ? resolvedLabel(status)
+                    : text.threadOpen}
             </span>
-          )}
+          </span>
+        }
+        actions={
+          <>
+            {tracked && thread && (
+              <span className="comment-status">
+                {attached ? text.commentAnchored : text.commentDetached}
+              </span>
+            )}
 
-          {thread && onStatusChange && status?.controllable && !thread.deleted && (
+            {thread && onStatusChange && status?.controllable && !thread.deleted && (
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                disabled={blocked}
+                busy={busy}
+                label={thread.resolved ? text.threadReopen : text.threadResolve}
+                icon={thread.resolved ? <RotateCcw /> : <Check />}
+                onActivate={(event) => {
+                  if (event.isTrusted) changeStatus(!thread.resolved);
+                }}
+              />
+            )}
             <BrowserIconAction
               type="button"
               variant="text"
-              disabled={blocked}
+              label={thread ? text.threadClose : text.annotationClose}
+              icon={<X />}
               busy={busy}
-              label={thread.resolved ? text.threadReopen : text.threadResolve}
-              icon={thread.resolved ? <RotateCcw /> : <Check />}
               onActivate={(event) => {
-                if (event.isTrusted) changeStatus(!thread.resolved);
+                if (event.isTrusted) close();
               }}
             />
-          )}
-          <BrowserIconAction
-            type="button"
-            variant="text"
-            label={thread ? text.threadClose : text.annotationClose}
-            icon={<X />}
-            busy={busy}
-            onActivate={(event) => {
-              if (event.isTrusted) close();
-            }}
-          />
-        </>
-      }
-      notice={
-        observationUnavailable && (
-          <p role="status" className="annotation-hint">
-            {text.askObservationUnavailable}
-          </p>
-        )
-      }
-      messageIds={messageIds}
-      ownWriter={binding?.deviceId}
-      historyClassName="thread-messages"
-      composer={
-        composer !== undefined
-          ? composer
-          : thread &&
-            !thread.deleted &&
-            binding && (
-              <AnnotationInput
-                creationRecipient={creationRecipient}
-                binding={ask}
-                discussion={binding}
-                anchor={thread.anchor}
-                thread={thread}
-                asks={asks}
-                title={title}
-                blocked={blocked || busy}
-                initialEdit={initialEdit}
-                onDraft={(_value, edit) => onDraft?.(edit)}
-                cancel={close}
-                committed={() => {}}
-              />
-            )
-      }
-    >
-      {anchor && <blockquote>{anchor.exact}</blockquote>}
-      {tracked && anchorsChecked && !attached && (
-        <p className="annotation-hint">{text.commentQuoteChanged}</p>
-      )}
-      {thread?.comments.map((comment) => (
-        <CommentExchange
-          key={`${comment.ref.writer}:${comment.messageId}`}
-          comment={comment}
-          thread={thread}
-          binding={binding}
-          ask={ask}
-          asks={asks}
-          blocked={blocked || busy}
-          title={title}
-        />
-      ))}
-      {binding &&
-        thread &&
-        !thread.proposal &&
-        !thread.deleted &&
-        owned &&
-        tracked &&
-        !attached && (
-          <div className="comment-actions">
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={text.commentReattach}
-              disabled={blocked || busy || !selection}
-              onActivate={(event) => {
-                if (event.isTrusted && selection) setReattach(structuredClone(selection));
-              }}
-            />
-          </div>
+          </>
+        }
+        notice={
+          observationUnavailable && (
+            <p role="status" className="annotation-hint">
+              {text.askObservationUnavailable}
+            </p>
+          )
+        }
+        messageIds={messageIds}
+        ownWriter={binding?.deviceId}
+        historyClassName="thread-messages"
+        composer={
+          composer !== undefined
+            ? composer
+            : thread &&
+              !thread.deleted &&
+              binding && (
+                <AnnotationInput
+                  creationRecipient={creationRecipient}
+                  binding={ask}
+                  discussion={binding}
+                  anchor={thread.anchor}
+                  thread={thread}
+                  asks={asks}
+                  title={title}
+                  blocked={blocked || busy}
+                  initialEdit={initialEdit}
+                  onDraft={(_value, edit) => onDraft?.(edit)}
+                  cancel={close}
+                  committed={() => {}}
+                />
+              )
+        }
+      >
+        {anchor && <blockquote>{anchor.exact}</blockquote>}
+        {tracked && anchorsChecked && !attached && (
+          <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
-      {reattach && thread && !thread.deleted && (
-        <section className="comment-compose">
-          <blockquote>{reattach.exact}</blockquote>
-          <div className="comment-actions">
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={text.commentConfirmReattach}
-              disabled={blocked}
-              busy={busy}
-              onActivate={(event) => {
-                if (event.isTrusted) action({ anchor: reattach });
-              }}
-            />
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={text.commentCancel}
-              busy={busy}
-              onActivate={(event) => {
-                if (event.isTrusted) setReattach(null);
-              }}
-            />
-          </div>
-        </section>
-      )}
-      {notNotified.length > 0 && (
-        <p role="status" className="annotation-hint">
-          {text.threadNotNotified(notNotified.join(', '))}
-        </p>
-      )}
-      {error && <p role="alert">{text.commentFailed}</p>}
-    </ConversationWindow>
+        {thread?.comments.map((comment) => (
+          <CommentExchange
+            key={`${comment.ref.writer}:${comment.messageId}`}
+            comment={comment}
+            thread={thread}
+            binding={binding}
+            ask={ask}
+            asks={asks}
+            blocked={blocked || busy}
+            title={title}
+          />
+        ))}
+        {binding &&
+          thread &&
+          !thread.proposal &&
+          !thread.deleted &&
+          owned &&
+          tracked &&
+          !attached && (
+            <div className="comment-actions">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentReattach}
+                disabled={blocked || busy || !selection}
+                onActivate={(event) => {
+                  if (event.isTrusted && selection) setReattach(structuredClone(selection));
+                }}
+              />
+            </div>
+          )}
+        {reattach && thread && !thread.deleted && (
+          <section className="comment-compose">
+            <blockquote>{reattach.exact}</blockquote>
+            <div className="comment-actions">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentConfirmReattach}
+                disabled={blocked}
+                busy={busy}
+                onActivate={(event) => {
+                  if (event.isTrusted) action({ anchor: reattach });
+                }}
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentCancel}
+                busy={busy}
+                onActivate={(event) => {
+                  if (event.isTrusted) setReattach(null);
+                }}
+              />
+            </div>
+          </section>
+        )}
+        {notNotified.length > 0 && (
+          <p role="status" className="annotation-hint">
+            {text.threadNotNotified(notNotified.join(', '))}
+          </p>
+        )}
+        {error && <p role="alert">{text.commentFailed}</p>}
+      </ConversationWindow>
+    </AttachmentDropPanel>
   );
 }
 

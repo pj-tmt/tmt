@@ -1,3 +1,4 @@
+import { useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import {
   useEffect,
@@ -11,7 +12,7 @@ import {
 import { CreatorToggle, useCreatorDefault } from './creator-default.js';
 import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
-import { AttachButton, AttachmentChips } from './attachment-tray.js';
+import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -247,6 +248,7 @@ export function AnnotationInput({
     }
   }
   const attachable = !!discussion?.attachments && !busy && !blocked && !recorded;
+  const drop = useAttachmentDropTarget(files, attachable);
   const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
     // Adding only makes an inert local chip; the trusted Send is the first effect.
     if (!attachable || !list?.length) return false;
@@ -262,7 +264,9 @@ export function AnnotationInput({
       onDragOver={(event) => {
         if (attachable && event.dataTransfer.types.includes('Files')) event.preventDefault();
       }}
-      onDrop={(event) => takeFiles(event.dataTransfer.files, event)}
+      onDrop={(event) => {
+        if (!drop) takeFiles(event.dataTransfer.files, event);
+      }}
       onPaste={(event) => {
         // A paste that carries text stays a text paste; only a files-only paste attaches.
         if (!event.clipboardData.types.includes('text/plain'))
@@ -299,6 +303,19 @@ export function AnnotationInput({
               }
             : undefined
         }
+        accessory={
+          discussion?.attachments ? (
+            <PendingAttachments
+              draft={files}
+              disabled={!attachable}
+              onRemoved={() => {
+                section.current
+                  ?.querySelector<HTMLElement>('[role="combobox"]')
+                  ?.focus({ preventScroll: true });
+              }}
+            />
+          ) : undefined
+        }
         describedBy={statusId}
         resetKey={resetKey}
         autoFocus
@@ -311,10 +328,11 @@ export function AnnotationInput({
             cancel();
         }}
       />
-      {discussion?.attachments && <AttachmentChips draft={files} disabled={!attachable} />}
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
         {creator && <CreatorToggle name={creator.agentName} preference={creatorPreference} />}
-        {discussion?.attachments && <AttachButton draft={files} disabled={!attachable} />}
+        {discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
+        )}
         <p id={statusId} role="status" className="annotation-hint">
           {busy
             ? text.messageSending

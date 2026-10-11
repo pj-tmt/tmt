@@ -33,7 +33,7 @@ export async function attach(
   files: { name: string; mimeType: string; buffer: Buffer }[],
 ) {
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: text.attachFiles }).click();
+  await page.getByRole('button', { name: text.messageAttach }).click();
   await (await chooser).setFiles(files);
 }
 export const send = (page: Page) => page.getByRole('button', { name: text.askSend, exact: true });
