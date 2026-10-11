@@ -20,7 +20,7 @@ export function writeReleaseWorkspace(root: string, products: string[] = []): vo
   for (const product of products) {
     const directory =
       product === 'driver-herdr'
-        ? 'rust/crates/tmt-driver-herdr'
+        ? 'drivers/herdr/rust/tmt-driver-herdr'
         : `extensions/tmt-${product}/rust/tmt-${product}`;
     packages.push({
       name: `tmt-${product}`,

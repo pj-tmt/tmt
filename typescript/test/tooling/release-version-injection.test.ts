@@ -31,7 +31,7 @@ function fixture(product = 'cli', releaseHerdr = false) {
     'rust/crates/tmt-cli/Cargo.toml': '[package]\nname = "tmt-cli"\nversion.workspace = true\n',
     'rust/crates/tmt-core/Cargo.toml': '[package]\nname = "tmt-core"\nversion.workspace = true\n',
     // #1278's private independent boundary; activation belongs to owner-authorized #1418.
-    'rust/crates/tmt-driver-herdr/Cargo.toml':
+    'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml':
       '[package]\nname = "tmt-driver-herdr"\nversion = "0.1.0-dev"\n',
     'extensions/ops/Cargo.toml': '[package]\nname = "tmt-ops"\nversion = "0.1.0-dev"\n',
     'rust/Cargo.lock':
@@ -58,9 +58,11 @@ function fixture(product = 'cli', releaseHerdr = false) {
         root,
         name === 'tmt-ops'
           ? 'extensions/ops/Cargo.toml'
-          : ['tmt-remote', 'tmt-colab'].includes(name)
-            ? `extensions/${name}/rust/${name}/Cargo.toml`
-            : `rust/crates/${name}/Cargo.toml`
+          : name === 'tmt-driver-herdr'
+            ? 'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml'
+            : ['tmt-remote', 'tmt-colab'].includes(name)
+              ? `extensions/${name}/rust/${name}/Cargo.toml`
+              : `rust/crates/${name}/Cargo.toml`
       ),
     })),
   };
@@ -73,7 +75,7 @@ function fixture(product = 'cli', releaseHerdr = false) {
         'tmt-colab': { package: 'tmt-colab', owns: ['extensions/tmt-colab'] },
         'driver-herdr': {
           package: 'tmt-driver-herdr',
-          owns: ['rust/crates/tmt-driver-herdr'],
+          owns: ['drivers/herdr/rust/tmt-driver-herdr'],
           release: releaseHerdr,
           bootstrapSha: 'a'.repeat(40),
         },
@@ -289,7 +291,7 @@ describe('mechanical version injection', () => {
         product === 'cli' ? ['tmt-cli', 'tmt-core'] : [`tmt-${product}`]
       );
       expect(
-        readFileSync(join(f.root, 'rust/crates/tmt-driver-herdr/Cargo.toml'), 'utf8')
+        readFileSync(join(f.root, 'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml'), 'utf8')
       ).toContain('version = "0.1.0-dev"');
       expect(gate.changed).toEqual(['rust/Cargo.lock', f.snapshot.manifest].sort());
     }
@@ -370,7 +372,7 @@ describe('mechanical version injection', () => {
       if (change === 'comment')
         edit('rust/Cargo.toml', (s) => s.replace('fixed main version', 'unreviewed comment edit'));
       if (change === 'driver')
-        edit('rust/crates/tmt-driver-herdr/Cargo.toml', (s) =>
+        edit('drivers/herdr/rust/tmt-driver-herdr/Cargo.toml', (s) =>
           s.replace('0.1.0-dev', '5.0.0-alpha.999')
         );
       expect(() => verifyVersionState(f.root, f.snapshot, f.resolveMetadata())).toThrow();

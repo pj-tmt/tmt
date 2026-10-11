@@ -137,7 +137,7 @@ it.each([
 });
 it('preserves Herdr attribution and CI selection', () => {
   expect(
-    affectedProducts(['rust/crates/tmt-driver-herdr/src/lib.rs'], map, workspace).products
+    affectedProducts(['drivers/herdr/rust/tmt-driver-herdr/src/lib.rs'], map, workspace).products
   ).toEqual(['driver-herdr']);
   const before = JSON.parse(source);
   delete before.components.office.releaseStatus;
@@ -412,7 +412,7 @@ describe('extension objects leaf attribution', () => {
     'tmt-digest': 'extensions/tmt-digest/rust/tmt-digest',
     'tmt-office': 'extensions/tmt-office/rust/tmt-office',
     'tmt-ops': 'stubs/tmt-ops',
-    'tmt-driver-herdr': 'rust/crates/tmt-driver-herdr',
+    'tmt-driver-herdr': 'drivers/herdr/rust/tmt-driver-herdr',
     'tmt-extension-objects': leaf,
   };
   type Edge = [consumer: string, kind: 'normal' | 'build' | 'dev'];

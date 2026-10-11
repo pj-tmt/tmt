@@ -91,7 +91,7 @@ channels and the driver protocol. The owner map is in
   uncertain. Raw input is paste with `enter: false`, core's paste-to-Enter delay, then Enter,
   each call with its own deadline. Without `input`, a send is `Unsupported`, the request is
   kept and `--inbox` queues.
-- `rust/crates/tmt-driver-herdr` depends only on the protocol crate, `tmt-invoke`, `serde_json`
+- `drivers/herdr/rust/tmt-driver-herdr` depends only on the protocol crate, `tmt-invoke`, `serde_json`
   and `semver`, never on core or adapters, and has no `tmt-cli` edge. The CLI
   product still admits `tmt-driver-herdr` as an optional archive companion; Herdr
   also has independent alpha archives. Its marker tokens match

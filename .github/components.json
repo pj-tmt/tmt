@@ -30,7 +30,7 @@
         "rust/crates/tmt-extension-serve",
         "rust/crates/tmt-extension-objects",
         "rust/crates/tmt-test-support",
-        "rust/crates/tmt-driver-herdr",
+        "drivers/herdr",
         "rust/crates/tmt-release-tool"
       ],
       "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"],
@@ -202,7 +202,7 @@
     },
     "driver-herdr": {
       "package": "tmt-driver-herdr",
-      "owns": ["rust/crates/tmt-driver-herdr"],
+      "owns": ["drivers/herdr"],
       "release": true,
       "bootstrapSha": "6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd",
       "initialVersion": "0.1.0-alpha.1"

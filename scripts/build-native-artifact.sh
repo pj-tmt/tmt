@@ -115,14 +115,14 @@ $vendored_licenses
 EOF_LICENSES
 case "$product" in
   cli) product_manifest="crates/tmt-cli/Cargo.toml" ;;
-  driver-herdr) product_manifest="crates/tmt-driver-herdr/Cargo.toml" ;;
+  driver-herdr) product_manifest="../drivers/herdr/rust/tmt-driver-herdr/Cargo.toml" ;;
   *) product_manifest="../extensions/tmt-$product/rust/tmt-$product/Cargo.toml" ;;
 esac
 cargo-about generate --manifest-path "$product_manifest" \
   --config target/native-notices/about.toml --target "$target" --locked --offline --fail about.hbs \
   --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
 if [ "$product" = cli ]; then
-  cargo-about generate --manifest-path crates/tmt-driver-herdr/Cargo.toml \
+  cargo-about generate --manifest-path ../drivers/herdr/rust/tmt-driver-herdr/Cargo.toml \
     --config target/native-notices/about.toml --target "$target" --locked --offline --fail about.hbs \
     --output-file target/native-notices/HERDR-NOTICES.txt 1>&2
   cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt

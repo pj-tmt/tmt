@@ -61,6 +61,7 @@ RUN --network=none pnpm office:check && pnpm office:test \
 FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS native-office
 WORKDIR /workspace
 COPY rust rust
+COPY drivers/herdr/rust drivers/herdr/rust
 COPY extensions/tmt-office/rust extensions/tmt-office/rust
 COPY skills skills
 COPY extensions/tmt-office/skills extensions/tmt-office/skills

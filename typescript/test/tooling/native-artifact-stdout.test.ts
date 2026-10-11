@@ -50,7 +50,7 @@ function artifactFixture(product: string, omitted = '') {
     product === 'cli'
       ? 'crates/tmt-cli/Cargo.toml'
       : product === 'driver-herdr'
-        ? 'crates/tmt-driver-herdr/Cargo.toml'
+        ? '../drivers/herdr/rust/tmt-driver-herdr/Cargo.toml'
         : `../extensions/tmt-${product}/rust/tmt-${product}/Cargo.toml`;
   const manifestPath = path.resolve(root, 'rust', manifest);
   mkdirSync(path.dirname(manifestPath), { recursive: true });
@@ -84,7 +84,7 @@ printf 'vite diagnostics\\n'`
     'cargo-about',
     `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else
 test "$2" = --manifest-path
-if [ '${product}' = cli ] && [ "$3" = crates/tmt-driver-herdr/Cargo.toml ]; then :; else test "$3" = '${manifest}'; fi
+if [ '${product}' = cli ] && [ "$3" = ../drivers/herdr/rust/tmt-driver-herdr/Cargo.toml ]; then :; else test "$3" = '${manifest}'; fi
 test -f "$3"
 test "$4" = --config
 test "$5" = target/native-notices/about.toml
@@ -95,7 +95,7 @@ printf 'Rust license notice\\n' > "$output"
 printf 'notice diagnostics\\n'
 fi`
   );
-  const driverManifest = path.join(root, 'rust/crates/tmt-driver-herdr/Cargo.toml');
+  const driverManifest = path.join(root, 'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml');
   mkdirSync(path.dirname(driverManifest), { recursive: true });
   writeFileSync(driverManifest, '# Companion package fixture\n');
   tool(

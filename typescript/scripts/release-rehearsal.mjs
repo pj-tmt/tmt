@@ -44,8 +44,8 @@ const CLI_UPGRADE_INPUTS = [
   'rust/crates/tmt-cli/src/native_upgrade_command.rs',
   'rust/crates/tmt-cli/src/native_upgrade_command_tests.rs',
 ];
-// Extension manifests belong to one product, so component attribution picks the products.
-const PRODUCT_MANIFEST = /^extensions\/(?:.*\/)?Cargo\.toml$/;
+// Product manifests belong to one product, so component attribution picks the products.
+const PRODUCT_MANIFEST = /^(?:extensions|drivers)\/(?:.*\/)?Cargo\.toml$/;
 
 /** Released native products, from the component map and native release policy. */
 export function activeProducts(map = componentMap()) {
