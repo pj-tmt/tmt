@@ -1341,12 +1341,20 @@ describe('ghAssetDownloader', () => {
     const seen: string[][] = [];
     const spawn = (_command: string, args: string[]) => {
       seen.push(args);
+      if (!args.includes('--allow-escape-sequences'))
+        throw new Error('the response contains terminal escape sequences');
       return { status: 0, stdout: Buffer.from([0, 255, 10, 65]), stderr: Buffer.from('') };
     };
     const file = path.join(mkdtempSync(path.join(root, 'download-')), 'archive');
     ghAssetDownloader({ repository: 'wkh237/tmt', spawn })({ id: 42, name: 'a.tar.gz' }, file);
     expect(seen).toEqual([
-      ['api', '-H', 'Accept: application/octet-stream', 'repos/wkh237/tmt/releases/assets/42'],
+      [
+        'api',
+        '--allow-escape-sequences',
+        '-H',
+        'Accept: application/octet-stream',
+        'repos/wkh237/tmt/releases/assets/42',
+      ],
     ]);
     expect([...readFileSync(file)]).toEqual([0, 255, 10, 65]);
   });
@@ -1377,7 +1385,13 @@ describe('ghAssetDownloader', () => {
       expect(spawn.mock.calls).toEqual(
         Array.from({ length: 3 }, () => [
           'gh',
-          ['api', '-H', 'Accept: application/octet-stream', 'repos/wkh237/tmt/releases/assets/42'],
+          [
+            'api',
+            '--allow-escape-sequences',
+            '-H',
+            'Accept: application/octet-stream',
+            'repos/wkh237/tmt/releases/assets/42',
+          ],
           { env, encoding: 'buffer', timeout: 300_000, maxBuffer: 80 * 1024 * 1024 },
         ])
       );

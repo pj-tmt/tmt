@@ -620,6 +620,8 @@ sys.stdout.buffer.write(b.getvalue())`,
       const api = createPRRCAPI((file, args, options) => {
         if (file === 'python3') return execFileSync(file, args, options);
         calls.push(args);
+        if (!args.includes('--allow-escape-sequences'))
+          throw new Error('the response contains terminal escape sequences');
         return zip;
       });
       expect(
@@ -631,6 +633,7 @@ sys.stdout.buffer.write(b.getvalue())`,
       expect(calls).toEqual([
         [
           'api',
+          '--allow-escape-sequences',
           'repos/pj-tmt/tmt/actions/artifacts/17/zip',
           '-H',
           'Accept: application/octet-stream',
@@ -682,6 +685,22 @@ sys.stdout.buffer.write(b.getvalue())`,
       expect(() => api.members(artifact, kind === 'oversize' ? zip.length - 1 : 1024)).toThrow();
     }
   );
+  it('keeps metadata reads unchanged without allowing terminal escapes', () => {
+    const calls: string[][] = [];
+    const api = createPRRCAPI((_file, args) => {
+      calls.push(args);
+      return Buffer.from('{"total_count":0,"artifacts":[]}');
+    });
+    expect(api.inventory(8001)).toEqual([]);
+    expect(calls).toEqual([
+      [
+        'api',
+        'repos/pj-tmt/tmt/actions/runs/8001/artifacts?per_page=100',
+        '-H',
+        'Accept: application/vnd.github+json',
+      ],
+    ]);
+  });
   it('fails closed on truncated authenticated inventories and never retries reads', () => {
     let calls = 0;
     const api = createPRRCAPI(() => {

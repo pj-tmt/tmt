@@ -78,6 +78,10 @@ if (method === 'POST') {
   fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
   out('{}');
 } else if (joined.includes('releases/assets/')) {
+  if (!args.includes('--allow-escape-sequences')) {
+    process.stderr.write('the response contains terminal escape sequences');
+    process.exit(1);
+  }
   out(state.assetTexts[joined.split('releases/assets/')[1]] ?? '');
 } else if (joined.includes('/check-runs')) {
   out([{ check_runs: state.checkRuns }]);

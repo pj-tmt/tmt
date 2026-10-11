@@ -364,6 +364,7 @@ export function createPRRCAPI(execute = execFileSync) {
       'gh',
       [
         'api',
+        ...(binary ? ['--allow-escape-sequences'] : []),
         `repos/${RC_REPOSITORY}/${route}`,
         '-H',
         `Accept: ${binary ? 'application/octet-stream' : 'application/vnd.github+json'}`,
