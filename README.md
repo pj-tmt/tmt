@@ -16,3 +16,4 @@ Installing and upgrading need no GitHub token. The first upgrade from an older r
 ## License
 
 [MIT](LICENSE)
+<!-- #1980 CLI-only qualification head 1; never merge this PR. -->
