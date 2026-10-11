@@ -1,3 +1,4 @@
+import { ConversationPresentation } from '../src/components/conversation-presentation.js';
 /** Chat composer and row-menu doubles: prefill sources, a blocked Enter, IME, and the ⋯ menu. */
 import { createRoot, type Root } from 'react-dom/client';
 import { AnnotationInput } from '../src/annotation-input.js';
@@ -49,18 +50,19 @@ export function mountComposer(options: { agents: string[] }) {
   } as unknown as ThreadBinding;
   root = createRoot(host());
   root.render(
-    <AnnotationInput
-      chat
-      binding={binding}
-      discussion={discussion}
-      anchor={null}
-      asks={[]}
-      title="Chat page"
-      initialEdit={{ value: '', edited: true }}
-      blocked={false}
-      cancel={() => {}}
-      committed={() => {}}
-    />,
+    <ConversationPresentation value="chat">
+      <AnnotationInput
+        binding={binding}
+        discussion={discussion}
+        anchor={null}
+        asks={[]}
+        title="Chat page"
+        initialEdit={{ value: '', edited: true }}
+        blocked={false}
+        cancel={() => {}}
+        committed={() => {}}
+      />
+    </ConversationPresentation>,
   );
 }
 
