@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { Question, QuestionFinding } from '../src/questions.js';
+import type { Question, QuestionFinding, QuestionInspection } from '../src/questions.js';
 
 /** The shared page markup vectors (contracts/vectors/page-markup-v1.json), as the TS side reads them. */
 export interface VectorQuestion extends Question {
@@ -30,20 +30,9 @@ export const vectors = JSON.parse(
 ) as Vectors;
 
 /** The vector projection of one inspection: a lone question is an internal group of one. */
-export function project(inspection: { questions: Question[]; findings: QuestionFinding[] }) {
+export function project(inspection: QuestionInspection) {
   return {
-    admitted: {
-      questions: inspection.questions.map((question) => ({
-        ...question,
-        group: null,
-        label: null,
-      })),
-      groups: inspection.questions.map((question) => ({
-        id: question.id,
-        title: null,
-        questions: [question.id],
-      })),
-    },
+    admitted: { questions: inspection.questions, groups: inspection.groups },
     findings: sortFindings(inspection.findings),
   };
 }
