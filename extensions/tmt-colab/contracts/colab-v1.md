@@ -1833,6 +1833,18 @@ source editor bound to content; page scripts cannot edit content or change
 sharing. Dashboard record
 storage is deferred.
 
+Document image sources may be `colab-attachment:<full attachment ID or unique id8>`. The trusted
+host resolves them only against the current page's verified document descriptors, using the
+same admitted `document-current` read as Files (including reader tickets). Only byte-checked PNG,
+JPEG and WebP data URLs enter the existing renderer port; no object URL, key or new network
+permission enters the frame. A host-generated image request ID and render ID fence every reply.
+References are resolved in document order, at most 128 unique references and 64 MiB of declared
+plaintext per render; aliases share one read/charge. Unknown, ambiguous, non-raster, unreadable
+and over-budget references produce inert alt-text placeholders, never a fetch fallback. Scope or
+binding changes clear display copies and suppress late replies. The Local object backend supports
+this path; Firebase MVP has no blob resource and displays the not-here placeholder. `data:` is
+reserved in author guidance for tiny icons, not a workaround for the 2 MiB HTML cap.
+
 On a content change, debounce about 300 ms and replace the frame with a fresh
 renderId/port, tearing down the old ones. A viewer may pause live updates. Bind
 each renderId to SHA256 of the exact captured source UTF-8 bytes; a Yjs state
@@ -3779,8 +3791,9 @@ Until then the old object stays and is charged; this contract makes no erasure c
 a slot that records the attachment it `replaces`, and runs the native attach pipeline: seal under
 the current epoch as the local writer, a new `attachmentId`, upload, creation proof, then one Save
 whose `DocumentChange` removes the old ID and sets the new descriptor, bound to the source digest.
-Readers therefore see the old complete reference or the new complete one, never a half swap. A
-descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
+Readers therefore see the old complete reference or the new complete one, never a half swap.
+An image reference to the replaced ID becomes the normal unavailable placeholder; automatic HTML
+reference repair is deferred to #2746. A descriptor is swapped inside the baseline neither now nor later: its creation proof is an own
 record of the new epoch and cannot exist before it.
 
 **Triggers and bounds.** One worker runs at serve start, after any management change, when an

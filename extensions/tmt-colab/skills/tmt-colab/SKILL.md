@@ -113,10 +113,11 @@ Read [references/page-style.md](references/page-style.md) or `tmt colab skill pa
 
 ## HTML that renders
 
-Use inline styles/scripts, system fonts and `data:` images. The opaque sandbox
-blocks external scripts/styles/images/frames/fonts, fetch/XHR, WebSocket and form
-posts, and has no parent authority/storage. Do not rely on network, cookies or storage. Self-navigation can still cause network requests: never put
-secrets in author HTML.
+Use inline styles/scripts and system fonts. Read [images](references/attachments.md)
+(`tmt colab skill attachments`); tiny `data:` icons only. Opaque sandbox denies
+external scripts/styles/images/frames/fonts and network APIs/forms; no parent
+authority/cookies/storage. Self-navigation can send requests:
+never put secrets in HTML.
 
 Read back saved bytes and verify rendering; a write alone proves neither.
 

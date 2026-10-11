@@ -152,6 +152,11 @@ and `limits.rs`; do not restate them.
 
 ## Browser containment
 
+- `document-images.ts` resolves only verified current document descriptors through the existing
+  `AttachmentBinding.open` read owner; `renderer.ts` fences the bounded raster copies by render,
+  image request and disclosure scope. The opaque port carries display copies/placeholders, never
+  keys or object authority. ReaderApp uses the same read-only binding; Firebase has no blob path.
+
 - The fold runs in a dedicated Worker, with bounds on state and projection; the parent checks every projection and terminates the Worker on failure or
   deadline. No key or transport capability enters it. Treat it as resource containment.
 - Parent chrome policy and renderer policy are two constants in `assets.rs` (`POLICY`,

@@ -14,6 +14,10 @@ const IPC_RESPONSE_BYTES: usize = 8192;
 const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
 const SKILL_REFERENCES: &[(&str, &str)] = &[
     (
+        "attachments",
+        include_str!("../../../skills/tmt-colab/references/attachments.md"),
+    ),
+    (
         "links",
         include_str!("../../../skills/tmt-colab/references/links.md"),
     ),

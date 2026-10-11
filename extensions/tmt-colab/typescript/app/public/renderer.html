@@ -13,7 +13,8 @@
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
           const utf8 = new TextEncoder();
-          const excluded = 'head,script,style,template,noscript,[hidden],[data-colab-highlight]';
+          const excluded =
+            'head,script,style,template,noscript,[hidden],[data-colab-highlight],[data-colab-image]';
           const validQuote = (v) =>
             v &&
             typeof v === 'object' &&
@@ -36,6 +37,84 @@
             slotRequestId = '';
           const spacers = new Map();
           const vanished = new Set();
+          let imageRequestId = '';
+          const images = new Map();
+          const imageReasons = {
+            unavailable: 'Image unavailable',
+            unsupported: 'Not shown: unsupported image type',
+            'not-here': 'Image not available here',
+            limit: 'Not shown: image limit reached',
+          };
+          function imagePlaceholder(item, reason) {
+            const { image } = item;
+            image.removeAttribute('src');
+            const node = document.createElement('span');
+            node.setAttribute('data-colab-image', '');
+            node.setAttribute('role', 'img');
+            const alt = image.getAttribute('alt') ?? '';
+            node.setAttribute('aria-label', alt || imageReasons[reason]);
+            if (image.hasAttribute('alt') && !alt) node.hidden = true;
+            node.style.cssText =
+              'display:inline-block;box-sizing:border-box;max-width:100%;border:1px dashed color-mix(in srgb,currentColor 50%,transparent);padding:8px;vertical-align:middle;overflow-wrap:anywhere';
+            node.style.display = item.display;
+            node.style.margin = item.margin;
+            if (node.hidden) node.style.display = 'none';
+            for (const dimension of ['width', 'height']) {
+              const value = image.getAttribute(dimension);
+              if (value && /^\d{1,6}$/.test(value)) node.style[dimension] = `${value}px`;
+            }
+            if (alt) {
+              const label = document.createElement('span');
+              label.textContent = alt;
+              node.append(label);
+            }
+            const line = document.createElement('span');
+            line.style.cssText = 'display:block;opacity:.65;font-size:.875em';
+            line.textContent = imageReasons[reason];
+            node.append(line);
+            (item.placeholder?.isConnected ? item.placeholder : image).replaceWith(node);
+            item.placeholder = node;
+          }
+          function configureImages(next) {
+            imageRequestId = next;
+            // Retain original image attributes across authority/generation resets.
+            for (const items of images.values())
+              for (const item of items) imagePlaceholder(item, 'unavailable');
+            const references = [];
+            for (const image of document.querySelectorAll('img[src^="colab-attachment:"]')) {
+              const reference = image.getAttribute('src');
+              const layout = getComputedStyle(image);
+              const item = {
+                image,
+                placeholder: null,
+                display: layout.display === 'inline' ? 'inline-block' : layout.display,
+                margin: layout.margin,
+              };
+              const items = images.get(reference) ?? [];
+              items.push(item);
+              images.set(reference, items);
+              imagePlaceholder(item, 'unavailable');
+            }
+            for (const [reference, items] of images) {
+              if (!items.some((item) => item.placeholder?.isConnected)) continue;
+              if (
+                /^colab-attachment:(?:[0-9a-f]{8}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
+                  reference,
+                ) &&
+                references.length < 128
+              )
+                references.push(reference);
+              else if (references.length >= 128)
+                for (const item of items) imagePlaceholder(item, 'limit');
+            }
+            port.postMessage({
+              type: 'colab.render.images',
+              renderId,
+              requestId: next,
+              references,
+            });
+            scheduleHeight();
+          }
           let heightTimer,
             height = 0,
             innerScroll = false;
@@ -677,6 +756,43 @@
           };
           port.onmessage = (event) => {
             const v = event.data;
+            if (
+              v?.type === 'colab.render.images' &&
+              Object.keys(v).length === 3 &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId)
+            ) {
+              configureImages(v.requestId);
+              return;
+            }
+            if (
+              v?.type === 'colab.render.image' &&
+              Object.keys(v).length === 5 &&
+              v.renderId === renderId &&
+              v.requestId === imageRequestId &&
+              typeof v.reference === 'string' &&
+              images.has(v.reference)
+            ) {
+              const url =
+                typeof v.url === 'string' &&
+                /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v.url) &&
+                v.url.length <= 12 * 1024 * 1024
+                  ? v.url
+                  : undefined;
+              if (!url && !Object.hasOwn(imageReasons, v.reason)) return;
+              for (const item of images.get(v.reference)) {
+                if (!item.placeholder?.isConnected) continue;
+                if (url) {
+                  item.image.src = url;
+                  item.image.style.maxWidth = '100%';
+                  item.placeholder.replaceWith(item.image);
+                  item.placeholder = null;
+                } else imagePlaceholder(item, v.reason);
+              }
+              scheduleHeight();
+              return;
+            }
             if (
               v?.type === 'colab.render.questions' &&
               v.renderId === renderId &&

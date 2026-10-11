@@ -1149,6 +1149,14 @@ function Page() {
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const imageBinding = snapshot.binding?.files?.attachments;
+  const imageScope = imageBinding?.scope?.();
+  const imageDescriptors = JSON.stringify(view.attachments ?? []);
+  const imageInput = useRef({ binding: imageBinding, descriptors: view.attachments ?? [] });
+  imageInput.current = { binding: imageBinding, descriptors: view.attachments ?? [] };
+  useEffect(() => {
+    renderer.current?.images(imageInput.current);
+  }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
@@ -1274,7 +1282,10 @@ function Page() {
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
-        else renderer.current = handle;
+        else {
+          renderer.current = handle;
+          handle.images(imageInput.current);
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
