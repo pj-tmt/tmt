@@ -386,7 +386,7 @@ test('archive commit reopens paired tabs read-only while retaining unsent Chat d
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: info.outputPath(`archived-draft-${width}-${theme}.png`) });
     }
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
     for (const [width, theme] of [
       [1440, 'light'],
       [390, 'dark'],

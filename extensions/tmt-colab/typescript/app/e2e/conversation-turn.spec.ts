@@ -929,3 +929,24 @@ for (const [width, theme] of [
     await capture(page, panel, `chat-polish-pending-${width}-${theme}`);
     expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
   });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`archived empty Chat has no @ invitation ${width} ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'chatPolish', 'empty');
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
+    const chat = page.getByTestId('chat-panel');
+    await expect(chat.getByText(text.chatEmptyHint, { exact: true })).toBeVisible();
+    await run(page, 'archive');
+    await expect(page.locator('#ask-page-fixture .status')).toContainText(text.archiveReadOnly);
+    await expect(chat.locator('.chat-empty h3')).toHaveText(text.chatEmpty);
+    await expect(chat.getByText(text.chatEmptyHint, { exact: true })).toHaveCount(0);
+    await expect(chat.getByRole('combobox')).toHaveCount(0);
+    expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
+  });

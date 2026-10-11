@@ -183,7 +183,9 @@ export function ChatPanel({
             <div className="chat-empty">
               <span aria-hidden="true">○</span>
               <h3>{text.chatEmpty}</h3>
-              {!archived && !blocked && !!discussion && !recoveryRequired && <p>{text.chatEmptyHint}</p>}
+              {!archived && !blocked && !!discussion && !recoveryRequired && (
+                <p>{text.chatEmptyHint}</p>
+              )}
             </div>
           )}
           {history}
