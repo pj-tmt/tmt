@@ -31,11 +31,13 @@
             stopped = false,
             timer;
           let questionBlocks = [],
+            questionGroups = [],
             questionThreads = [],
             questionRequestId = '';
           let slots = [],
             slotRequestId = '';
           const spacers = new Map();
+          const beforeSpacers = new Map();
           const vanished = new Set();
           let imageRequestId = '';
           const images = new Map();
@@ -191,7 +193,16 @@
           const anchorRanges = new Map();
           const sheet = document.createElement('style');
           const highlightStyle =
-            '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}';
+            '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}' +
+            `
+            [data-colab-question-group]{display:block!important}
+            [data-colab-question-group]>p[data-title]{font-size:22px!important;font-weight:700!important;line-height:1.35!important}
+            [data-colab-question-group]>p[data-title]::before{content:"Q: ";color:color-mix(in srgb,currentColor 45%,transparent)}
+            [data-colab-question]{display:block!important;box-sizing:border-box!important;width:calc(100vw - 32px)!important;margin:0!important;padding:16px!important;background:#fff!important;color:#343434!important;font:16px/1.5 sans-serif!important;overflow-wrap:anywhere}
+            [data-colab-question]>[data-question]{margin:0!important;font:inherit!important;font-weight:500!important;color:inherit!important}
+            [data-colab-question]>[data-question][data-colab-question-number]::before{content:attr(data-colab-question-number) " ";font-weight:400;color:color-mix(in srgb,currentColor 55%,transparent)}
+            [data-colab-question-active="false"]{display:none!important}
+          `;
           sheet.textContent = highlightStyle;
           document.head.append(sheet);
           function collect() {
@@ -523,32 +534,82 @@
             const positions = [];
             for (const slot of slots) {
               const matches = document.querySelectorAll(
-                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"]`,
+                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"]`,
               );
+              const group = questionGroups.find((group) => group.id === slot.id);
+              const active =
+                group && document.querySelector(`tmt-question[data-id="${group.active}"]`);
+              const target = group ? active : matches[0];
+              let before = beforeSpacers.get(slot.id);
               let spacer = spacers.get(slot.id);
-              if (spacer && (!spacer.isConnected || spacer.previousElementSibling !== matches[0])) {
+              if (
+                spacer &&
+                group &&
+                spacer.isConnected &&
+                target &&
+                spacer.previousElementSibling !== target
+              )
+                target.after(spacer);
+              if (
+                before &&
+                group &&
+                before.isConnected &&
+                target &&
+                before.nextElementSibling !== target
+              )
+                target.before(before);
+              if (spacer && (!spacer.isConnected || spacer.previousElementSibling !== target)) {
                 spacer.remove();
                 spacers.delete(slot.id);
                 vanished.add(slot.id);
               }
-              if (innerScroll || matches.length !== 1 || vanished.has(slot.id)) {
+              if (innerScroll || matches.length !== 1 || !target || vanished.has(slot.id)) {
                 spacer?.remove();
                 spacers.delete(slot.id);
+                before?.remove();
+                beforeSpacers.delete(slot.id);
                 continue;
               }
               if (!spacer) {
                 spacer = document.createElement('div');
                 spacer.dataset.colabProposalSlot = '';
                 spacer.setAttribute('aria-hidden', 'true');
-                matches[0].after(spacer);
+                target.after(spacer);
                 spacers.set(slot.id, spacer);
+              }
+              if (slot.before !== undefined && group) {
+                if (!before) {
+                  before = document.createElement('div');
+                  before.dataset.colabProposalSlot = '';
+                  before.setAttribute('aria-hidden', 'true');
+                  target.before(before);
+                  beforeSpacers.set(slot.id, before);
+                }
+                const amount = `${slot.before}px`;
+                if (before.style.minHeight !== amount) before.style.minHeight = amount;
+                before.style.display = 'block';
+              } else {
+                before?.remove();
+                beforeSpacers.delete(slot.id);
               }
               const height = `${slot.height}px`;
               if (spacer.style.minHeight !== height) spacer.style.minHeight = height;
               spacer.style.display = 'block';
               const top = spacer.getBoundingClientRect().top + scrollY;
               if (Number.isFinite(top) && top >= 0 && top <= 1000000)
-                positions.push({ id: slot.id, top });
+                positions.push({
+                  id: slot.id,
+                  top,
+                  ...(before
+                    ? {
+                        beforeTop: before.getBoundingClientRect().top + scrollY,
+                        descriptionHeight: Math.min(
+                          2000,
+                          Math.ceil(target.getBoundingClientRect().height),
+                        ),
+                      }
+                    : {}),
+                });
             }
             port.postMessage({
               type: 'colab.render.slots',
@@ -591,6 +652,40 @@
             if (stopped || !questionRequestId) return;
             const questions = [];
             try {
+              for (const group of questionGroups) {
+                if (group.title !== null) {
+                  const groups = document.querySelectorAll(`tmt-questions[data-id="${group.id}"]`);
+                  if (groups.length === 1) groups[0].setAttribute('data-colab-question-group', '');
+                }
+                for (const id of group.questions) {
+                  const members = document.querySelectorAll(`tmt-question[data-id="${id}"]`);
+                  if (members.length !== 1) continue;
+                  members[0].setAttribute('data-colab-question', '');
+                  members[0].setAttribute(
+                    'data-colab-question-active',
+                    String(id === group.active),
+                  );
+                  const heading = [...members[0].children].find((child) =>
+                    child.hasAttribute('data-question'),
+                  );
+                  if (heading && group.title !== null)
+                    heading.setAttribute(
+                      'data-colab-question-number',
+                      `Q${group.questions.indexOf(id) + 1}`,
+                    );
+                  if (id === group.active) {
+                    // Match the trusted card's 16px page gutter, even with authored body margins.
+                    const element = members[0],
+                      left = element.getBoundingClientRect().left;
+                    if (Math.abs(left - 16) > 0.5)
+                      element.style.setProperty(
+                        'margin-left',
+                        `${(parseFloat(getComputedStyle(element).marginLeft) || 0) + 16 - left}px`,
+                        'important',
+                      );
+                  }
+                }
+              }
               // Parent-admitted choices render as trusted controls, not concatenated author labels.
               // Keep the question itself visible and selectable for the normal quote owner.
               for (const block of questionBlocks) {
@@ -675,7 +770,10 @@
                 if (item.id === '') continue;
                 ranges.push(range);
                 anchorRanges.set(item.id, { range, length: [...item.selector.exact].length });
-                const top = Math.max(0, range.getBoundingClientRect().top + scrollY);
+                const box = range.getBoundingClientRect();
+                // Inactive questions stay resolved in canonical text, without an origin marker.
+                if (!box.width || !box.height) continue;
+                const top = Math.max(0, box.top + scrollY);
                 if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
               }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
@@ -804,6 +902,7 @@
             }
             if (
               v?.type === 'colab.render.questions' &&
+              Object.keys(v).length === 6 &&
               v.renderId === renderId &&
               typeof v.requestId === 'string' &&
               /^[0-9a-f-]{36}$/.test(v.requestId) &&
@@ -816,6 +915,30 @@
                   typeof block.title === 'string' &&
                   [...block.title].length <= 200,
               ) &&
+              Array.isArray(v.groups) &&
+              v.groups.length <= 50 &&
+              new Set(v.groups.map((group) => group?.id)).size === v.groups.length &&
+              v.groups.every(
+                (group) =>
+                  group &&
+                  Object.keys(group).length === 4 &&
+                  typeof group.id === 'string' &&
+                  /^[0-9a-f-]{36}$/.test(group.id) &&
+                  (group.title === null ||
+                    (typeof group.title === 'string' &&
+                      group.title &&
+                      [...group.title].length <= 200)) &&
+                  Array.isArray(group.questions) &&
+                  group.questions.length >= 1 &&
+                  group.questions.length <= 12 &&
+                  new Set(group.questions).size === group.questions.length &&
+                  group.questions.includes(group.active) &&
+                  (group.title !== null ||
+                    (group.questions.length === 1 && group.id === group.questions[0])) &&
+                  group.questions.every((id) => v.blocks.some((block) => block.id === id)),
+              ) &&
+              v.groups.flatMap((group) => group.questions).length === v.blocks.length &&
+              new Set(v.groups.flatMap((group) => group.questions)).size === v.blocks.length &&
               Array.isArray(v.threads) &&
               v.threads.length <= 1000 &&
               v.threads.every(
@@ -827,9 +950,13 @@
               )
             ) {
               questionBlocks = v.blocks;
+              questionGroups = v.groups;
               questionThreads = v.threads;
               questionRequestId = v.requestId;
               resolveQuestions();
+              resolveSlots();
+              schedule();
+              scheduleHeight();
               return;
             }
             if (
@@ -862,7 +989,12 @@
                   s &&
                   typeof s === 'object' &&
                   !Array.isArray(s) &&
-                  Object.keys(s).length === 2 &&
+                  (Object.keys(s).length === 2 ||
+                    (Object.keys(s).length === 3 &&
+                      Object.keys(s).includes('before') &&
+                      Number.isInteger(s.before) &&
+                      s.before >= 0 &&
+                      s.before <= 2000)) &&
                   typeof s.id === 'string' &&
                   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.id) &&
                   Number.isInteger(s.height) &&
@@ -874,11 +1006,14 @@
                 if (!v.slots.some((s) => s.id === id)) {
                   spacer.remove();
                   spacers.delete(id);
+                  beforeSpacers.get(id)?.remove();
+                  beforeSpacers.delete(id);
                   vanished.delete(id);
                 }
               slots = v.slots;
               slotRequestId = v.requestId;
               resolveSlots();
+              schedule();
               scheduleHeight();
               return;
             }

@@ -628,8 +628,8 @@ bytes without core and storage access.
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
   highlights, thread clicks and closed-set key requests are cosmetic claims; only parent
-  controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
-  author HTML and passes no application capability. Parent highlight messages carry only
+  controls admit discussion or sends. The bootstrap bounds DOM resolution before
+  author HTML and grants no application capability. Groups share slots and retain inactive quote context. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use existing crypto, authenticated cuts and fold metadata.

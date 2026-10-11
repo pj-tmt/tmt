@@ -8,7 +8,7 @@ import { browserUiClasses as c } from './static.js';
 // Keep that focus return from opening a replacement tooltip in the same frame.
 const escapeFocus = new WeakSet<Document>();
 
-export type BrowserIconActionProps = BrowserActionProps & {
+export type BrowserIconActionProps = Omit<BrowserActionProps, 'visibleLabel'> & {
   icon: ReactNode;
   /** Optional shortcut help; the button name remains independently sufficient. */
   tooltipLabel?: string;

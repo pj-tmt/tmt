@@ -22,6 +22,7 @@ import { ArchivedDraft } from '../annotation-input.js';
 import { MessageComposer } from './message-composer.js';
 import type { ComposerEdit } from './message-composer-edit.js';
 import { text } from '../strings.js';
+import { compactRelativeTime } from '../display-time.js';
 
 /** All controls and answer state live in the parent. Markup names never grant routing authority. */
 export function QuestionCard({
@@ -34,6 +35,9 @@ export function QuestionCard({
   title,
   blocked,
   readOnly = false,
+  descriptionHeight = 0,
+  sendNext = false,
+  onVerified,
 }: {
   question: Question;
   selector?: QuoteSelector;
@@ -44,6 +48,9 @@ export function QuestionCard({
   title: string;
   blocked: boolean;
   readOnly?: boolean;
+  descriptionHeight?: number;
+  sendNext?: boolean;
+  onVerified?(): void;
 }) {
   const heading = useId();
   const [choices, setChoices] = useState<string[]>([]);
@@ -77,21 +84,21 @@ export function QuestionCard({
       ],
     });
   }, [agents, question.agent]);
-  useEffect(() => {
-    if (
-      recorded &&
-      threads.some((thread) =>
-        thread.comments.some(
-          (comment) =>
-            comment.ref.writer === recorded.message.writer &&
-            comment.ref.id === recorded.message.id,
-        ),
-      )
-    )
-      setRecorded(undefined);
-  }, [recorded, threads]);
   const thread = canonicalQuestionThread(question, threads);
   const answer = currentAnswer(question, thread?.comments ?? []);
+  const [now, setNow] = useState(0);
+  useEffect(() => setNow(Date.now()), [answer]);
+  useEffect(() => {
+    if (
+      !recorded ||
+      !answer ||
+      answer.ref.writer !== recorded.message.writer ||
+      answer.ref.id !== recorded.message.id
+    )
+      return;
+    setRecorded(undefined);
+    onVerified?.();
+  }, [recorded, answer, onVerified]);
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const decision = messageRecipient({
@@ -153,212 +160,279 @@ export function QuestionCard({
   const disabled = blocked || busy || !!recorded || !discussion;
   const compose = !answer || changing;
   return (
-    <section className="question-card" aria-label={question.title} ref={section} tabIndex={-1}>
+    <section
+      className="question-card"
+      aria-label={question.title}
+      ref={section}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (
+          !event.isTrusted ||
+          event.defaultPrevented ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey
+        )
+          return;
+        const target = event.target as HTMLElement;
+        if (
+          event.key === 'Enter' &&
+          question.kind === 'short' &&
+          target.id === `${heading}-answer`
+        ) {
+          event.preventDefault();
+          void send();
+        }
+      }}
+    >
       <p className="question-state" role="status">
-        {answer ? `✓ ${answer.deviceName} answered` : '◆ Waiting for you'}
+        <span
+          className="question-state-mark"
+          data-tone={answer ? 'working' : 'waiting'}
+          aria-hidden="true"
+        >
+          {answer ? '✓' : '◆'}
+        </span>{' '}
+        {answer
+          ? `${answer.deviceName} answered · ${
+              Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
+                ? compactRelativeTime(Number(answer.at), now)
+                : 'time unknown'
+            }`
+          : `Waiting for you${question.agent ? ` · from ${question.agent}` : ''}`}
       </p>
-      {answer && (
-        <>
-          <p className="question-answer">
-            {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
-          </p>
-          {!readOnly && !changing && (
-            <BrowserAction
-              label="Change answer"
-              type="button"
-              variant="text"
-              disabled={disabled}
-              onActivate={(event) => {
-                if (event.isTrusted) {
-                  setChanging(true);
-                  queueMicrotask(() =>
-                    section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
-                  );
-                }
-              }}
-            />
-          )}
-        </>
-      )}
-      {readOnly && compose && body && <ArchivedDraft value={body} />}
-      {!readOnly && compose && (
-        <>
-          {(question.kind === 'single' || question.kind === 'multiple') && (
-            <fieldset disabled={disabled}>
-              <legend>{question.kind === 'single' ? 'Choose one' : 'Choose any that apply'}</legend>
-              {question.choices.map((choice) => (
-                <label key={choice}>
-                  <input
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    checked={choices.includes(choice)}
-                    onChange={(event) => {
-                      if (question.kind === 'single') {
-                        setChoices([choice]);
-                        setOther(false);
-                      } else
-                        setChoices((previous) =>
-                          event.target.checked
-                            ? [...previous, choice]
-                            : previous.filter((item) => item !== choice),
-                        );
-                    }}
-                  />
-                  {choice}
-                </label>
-              ))}
-              {question.other && (
-                <label>
-                  <input
-                    type={question.kind === 'single' ? 'radio' : 'checkbox'}
-                    name={heading}
-                    checked={other}
-                    onChange={(event) => {
-                      setOther(event.target.checked);
-                      if (question.kind === 'single') setChoices([]);
-                    }}
-                  />
-                  Other
-                </label>
-              )}
-            </fieldset>
-          )}
-          {(question.kind === 'short' || question.kind === 'long' || other) && (
-            <div className="question-text">
-              <label htmlFor={`${heading}-answer`}>{other ? 'Other answer' : 'Your answer'}</label>
-              {question.kind === 'short' ? (
-                <input
-                  id={`${heading}-answer`}
-                  value={value}
-                  disabled={disabled}
-                  onChange={(event) => setValue(event.target.value)}
-                  maxLength={QUESTION_SHORT_POINTS * 2}
-                />
-              ) : (
-                <textarea
-                  id={`${heading}-answer`}
-                  value={value}
-                  disabled={disabled}
-                  onChange={(event) => setValue(event.target.value)}
-                  maxLength={QUESTION_LONG_BYTES}
-                  rows={question.kind === 'long' ? 4 : 2}
-                />
-              )}
-            </div>
-          )}
-          <MessageComposer
-            edit={recipient}
-            onChange={(edit) => {
-              editedRecipient.current = true;
-              setRecipient(edit);
-            }}
-            label="Answer recipient"
-            placeholder="Choose an @agent, or leave blank for the thread only"
-            candidates={agents}
-            disabled={disabled}
-          />
-          {!audience ||
-          directory.state !== 'ready' ||
-          decision.ambiguous.length ||
-          decision.unavailable.length ||
-          decision.unknown.length ? (
-            <p className="annotation-hint" role="status">
-              {directory.state === 'failed'
-                ? text.messageAgentsUnavailable
-                : directory.state === 'loading' && ask
-                  ? text.messageAgentsChecking
-                  : decision.ambiguous.length
-                    ? text.messageAmbiguous(decision.ambiguous[0])
-                    : decision.unavailable.length
-                      ? text.messageRecipientUnavailable(decision.unavailable[0])
-                      : decision.unknown.length
-                        ? text.messageUnknown(decision.unknown[0], audience)
-                        : audience
-                          ? text.messageAsks(audience)
-                          : text.messageComment}
+      <div
+        className="question-description-space"
+        style={{ height: descriptionHeight }}
+        aria-hidden="true"
+      />
+      <div className="question-controls">
+        {answer && (
+          <>
+            <p className="question-answer">
+              {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
             </p>
-          ) : null}
-          {directory.state === 'failed' && (
+            {!readOnly && !changing && (
+              <BrowserAction
+                label="Change answer"
+                type="button"
+                variant="text"
+                disabled={disabled}
+                onActivate={(event) => {
+                  if (event.isTrusted) {
+                    setChanging(true);
+                    queueMicrotask(() =>
+                      section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
+                    );
+                  }
+                }}
+              />
+            )}
+          </>
+        )}
+        {readOnly && compose && body && <ArchivedDraft value={body} />}
+        {!readOnly && compose && (
+          <>
+            {(question.kind === 'single' || question.kind === 'multiple') && (
+              <fieldset disabled={disabled}>
+                <legend>
+                  {question.kind === 'single' ? 'Choose one' : 'Choose any that apply'}
+                </legend>
+                {question.choices.map((choice, index) => (
+                  <label
+                    key={choice}
+                    className="question-option"
+                    data-selected={choices.includes(choice)}
+                    data-choice-index={index + 1}
+                  >
+                    <span className="question-option-key" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <input
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      aria-label={choice}
+                      checked={choices.includes(choice)}
+                      onChange={(event) => {
+                        if (question.kind === 'single') {
+                          setChoices([choice]);
+                          setOther(false);
+                        } else
+                          setChoices((previous) =>
+                            event.target.checked
+                              ? [...previous, choice]
+                              : previous.filter((item) => item !== choice),
+                          );
+                      }}
+                    />
+                    {choice}
+                  </label>
+                ))}
+                {question.other && (
+                  <label
+                    className="question-option"
+                    data-selected={other}
+                    data-choice-index={question.choices.length + 1}
+                  >
+                    <span className="question-option-key" aria-hidden="true">
+                      {question.choices.length + 1}
+                    </span>
+                    <input
+                      type={question.kind === 'single' ? 'radio' : 'checkbox'}
+                      name={heading}
+                      aria-label="Other"
+                      checked={other}
+                      onChange={(event) => {
+                        setOther(event.target.checked);
+                        if (question.kind === 'single') setChoices([]);
+                      }}
+                    />
+                    Other
+                  </label>
+                )}
+              </fieldset>
+            )}
+            {(question.kind === 'short' || question.kind === 'long' || other) && (
+              <div className="question-text">
+                <label htmlFor={`${heading}-answer`}>
+                  {other ? 'Other answer' : 'Your answer'}
+                </label>
+                {question.kind === 'short' ? (
+                  <input
+                    id={`${heading}-answer`}
+                    value={value}
+                    disabled={disabled}
+                    onChange={(event) => setValue(event.target.value)}
+                    maxLength={QUESTION_SHORT_POINTS * 2}
+                  />
+                ) : (
+                  <textarea
+                    id={`${heading}-answer`}
+                    value={value}
+                    disabled={disabled}
+                    onChange={(event) => setValue(event.target.value)}
+                    maxLength={QUESTION_LONG_BYTES}
+                    rows={question.kind === 'long' ? 4 : 2}
+                  />
+                )}
+              </div>
+            )}
+            <MessageComposer
+              edit={recipient}
+              onChange={(edit) => {
+                editedRecipient.current = true;
+                setRecipient(edit);
+              }}
+              label="Answer recipient"
+              placeholder="Choose an @agent, or leave blank for the thread only"
+              candidates={agents}
+              disabled={disabled}
+            />
+            {!audience ||
+            directory.state !== 'ready' ||
+            decision.ambiguous.length ||
+            decision.unavailable.length ||
+            decision.unknown.length ? (
+              <p className="annotation-hint" role="status">
+                {directory.state === 'failed'
+                  ? text.messageAgentsUnavailable
+                  : directory.state === 'loading' && ask
+                    ? text.messageAgentsChecking
+                    : decision.ambiguous.length
+                      ? text.messageAmbiguous(decision.ambiguous[0])
+                      : decision.unavailable.length
+                        ? text.messageRecipientUnavailable(decision.unavailable[0])
+                        : decision.unknown.length
+                          ? text.messageUnknown(decision.unknown[0], audience)
+                          : audience
+                            ? text.messageAsks(audience)
+                            : text.messageComment}
+              </p>
+            ) : null}
+            {directory.state === 'failed' && (
+              <BrowserAction
+                label={text.messageAgentsRetry}
+                variant="text"
+                type="button"
+                disabled={busy}
+                onActivate={(event) => {
+                  if (event.isTrusted) retry();
+                }}
+              />
+            )}
             <BrowserAction
-              label={text.messageAgentsRetry}
-              variant="text"
+              label={`Send answer · to ${audience || 'thread only'}`}
+              visibleLabel={sendNext ? 'Send & next' : 'Send answer'}
               type="button"
-              disabled={busy}
+              variant="primary"
+              busy={busy}
+              disabled={disabled || !selector || !body || !decision.allowed}
               onActivate={(event) => {
-                if (event.isTrusted) retry();
+                if (event.isTrusted) void send();
               }}
             />
-          )}
-          <BrowserAction
-            label={`Send answer · to ${audience || 'thread only'}`}
-            type="button"
-            variant="primary"
-            busy={busy}
-            disabled={disabled || !selector || !body || !decision.allowed}
-            onActivate={(event) => {
-              if (event.isTrusted) void send();
-            }}
+          </>
+        )}
+        {recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
+        {error && <p role="alert">{error}</p>}
+        {!readOnly && (
+          <CommentSendFailures
+            failures={failures.filter(
+              (failure) =>
+                !asks.some(
+                  (record) =>
+                    record.messageIds?.includes(failure.message) &&
+                    record.agent === failure.recipient.agent &&
+                    record.machine === failure.recipient.machine,
+                ),
+            )}
+            binding={ask}
+            blocked={blocked || busy}
+            settled={(failure, outcome) =>
+              setFailures((previous) =>
+                outcome.adopted === true
+                  ? previous.filter((item) => item !== failure)
+                  : outcome.adopted === false
+                    ? previous
+                    : previous.map((item) =>
+                        item === failure ? { ...item, uncertain: true } : item,
+                      ),
+              )
+            }
           />
-        </>
-      )}
-      {recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
-      {error && <p role="alert">{error}</p>}
-      {!readOnly && (
-        <CommentSendFailures
-          failures={failures.filter(
-            (failure) =>
-              !asks.some(
+        )}
+        {threads.some((thread) => thread.comments.length) && (
+          <div className="question-history">
+            <h3>
+              Conversation
+              {asks.some(
                 (record) =>
-                  record.messageIds?.includes(failure.message) &&
-                  record.agent === failure.recipient.agent &&
-                  record.machine === failure.recipient.machine,
-              ),
-          )}
-          binding={ask}
-          blocked={blocked || busy}
-          settled={(failure, outcome) =>
-            setFailures((previous) =>
-              outcome.adopted === true
-                ? previous.filter((item) => item !== failure)
-                : outcome.adopted === false
-                  ? previous
-                  : previous.map((item) =>
-                      item === failure ? { ...item, uncertain: true } : item,
-                    ),
-            )
-          }
-        />
-      )}
-      {threads.some((thread) => thread.comments.length) && (
-        <details className="question-history">
-          <summary>
-            Conversation
-            {asks.some(
-              (record) =>
-                record.reply && threads.some((thread) => thread.threadId === record.thread),
-            )
-              ? ' · Agent replied'
-              : ''}
-          </summary>
-          {threads.map((thread) => (
-            <div key={`${thread.ref.writer}:${thread.ref.id}`} className="question-history">
-              {thread.comments.map((comment) => (
-                <CommentExchange
-                  readOnly={readOnly}
-                  key={`${comment.ref.writer}:${comment.ref.id}`}
-                  comment={comment}
-                  thread={thread}
-                  binding={discussion}
-                  ask={ask}
-                  asks={asks}
-                  blocked={blocked}
-                  title={title}
-                />
-              ))}
-            </div>
-          ))}
-        </details>
-      )}
+                  record.reply && threads.some((thread) => thread.threadId === record.thread),
+              )
+                ? ' · Agent replied'
+                : ''}
+            </h3>
+            {threads.map((thread) => (
+              <div key={`${thread.ref.writer}:${thread.ref.id}`} className="question-history">
+                {thread.comments.map((comment) => (
+                  <CommentExchange
+                    readOnly={readOnly}
+                    key={`${comment.ref.writer}:${comment.ref.id}`}
+                    comment={comment}
+                    thread={thread}
+                    binding={discussion}
+                    ask={ask}
+                    asks={asks}
+                    blocked={blocked}
+                    title={title}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -84,6 +84,13 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 
 ## Message editing boundary
 
+The answer-block path uses parent `questions.ts` admission, `question-layer.tsx`
+group selection and verified-thread projection, and `components/question-card.tsx`
+controls. It reuses the shared BrowserTabs leaf. `inline-slots.ts` owns the one
+measurement batch for proposal and answer cards; renderer-managed visual collapse
+keeps inactive authored questions in the canonical quote text map. The render-bound
+group/slot shapes and publication rules live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
+
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,
 completion and message submission for Chat, annotations, agent follow-ups, plain

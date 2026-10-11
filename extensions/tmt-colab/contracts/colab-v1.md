@@ -1044,18 +1044,33 @@ HTML is untrusted position data, never record, destination or activation authori
 A missing or duplicate placeholder leaves the authenticated proposal detached;
 a placeholder without a record supplies no proposal. The trusted parent draws the
 card from admitted records; labels and author HTML never choose a destination.
-The shared inline renderer channel carries admitted proposal/question IDs and integer
-heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 questions),
-scoped to the render ID and request ID. The iframe inserts a spacer with that minimum height immediately after exactly
-one matching live `tmt-proposal[data-id]` or `tmt-question[data-id]`, and reports only ID/top pairs. Unknown,
+The shared inline renderer channel carries admitted proposal/question-group IDs and integer
+heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
+scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
+`{id,height,before}`; both heights have the same bound. The iframe inserts the after spacer
+beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]` or
+`tmt-questions[data-id]`. A group uses its parent-selected active question for placement.
+Its before spacer reserves the trusted tabs/state band above the authored description;
+the after spacer reserves controls below it. Responses are closed `{id,top}` objects or
+`{id,top,beforeTop,descriptionHeight}` for requested answer-card geometry. Top values are
+finite and within 0–1,000,000; `beforeTop` is at most `top`, and `descriptionHeight` is
+finite within 0–2000. Unknown,
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
 removed or moved spacers and inner-scroll fallback detach cards into Comments.
-Parent ResizeObserver measurement coalesces to one update per animation frame and
+The parent leaves a transparent description gap between its trusted bands; authored text
+stays in the frame. Parent ResizeObserver measurement coalesces to one update per animation frame and
 only sends changed integer heights. Height requests retain admitted positions and
 composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
 changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
+
+Changing the parent-selected question retires that group's old answer geometry and requests
+fresh split geometry on the existing ordered port. Controls stay detached until a
+current response arrives; a stale description cannot be paired with newly selected
+controls. The tab strip retains its last admitted position and focus during this
+refresh. Trusted strip digits can update local draft choices, while Send requires
+current placement. The renderer aligns the description to the card's 16px page gutter.
 
 Approve/Decline is an explicit trusted parent activation. An in-flight fence and
 live proposal/finality admission precede decision publication. The immutable
@@ -2015,22 +2030,45 @@ supply no controls. Choice kinds require choices; text kinds have neither choice
 nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
+Wrap related questions in `<tmt-questions data-id="UUID">` with exactly one direct
+`<p data-title>` heading and up to 12 direct question children. The heading has the
+question text bounds. A question's optional `data-label` names its tab (24 normalized
+code points, no control characters); missing, empty or invalid labels use `Q<n>` in
+admitted order. The page markup check below owns the complete admission rules and
+the shared question/group ID namespace. A lone question is an internal group of one
+with no group title. One-member groups and lone questions omit the tab strip.
+
 The authored question remains the only visible title and selectable quote text;
 admitted author choice children are hidden while the trusted parent draws controls
-and current answer, with conversation history in an explicit disclosure. It resolves the untrusted
+and current answer, with conversation history and agent replies expanded. Groups use
+the shared controlled BrowserTabs leaf: Arrow keys wrap, Home/End select endpoints,
+and native Enter/Space activates a tab. Inactive trusted panels remain mounted to retain
+drafts. Answered/waiting marks include state words, with an answered/total count.
+The group heading inherits authored ink; its `Q:` prefix uses currentColor at 45%.
+The card, tabs and controls retain the pinned light palette; selected controls and
+primary actions use the existing link color role. It resolves the untrusted
 agent name through the existing mention directory. A unique match preselects its
 bound identity; absent or ambiguous names use the normal recipient field. Send
-shows `to` and the visible recipient, or `thread only` for an ordinary comment.
-Question/choice text cannot add recipients. Only trusted explicit Send publishes
+has the accessible name `Send answer · to <recipient>` or `thread only`, while its
+visible text is `Send & next` when another question is unanswered and `Send answer`
+otherwise. Question/choice text cannot add recipients. Only trusted explicit Send,
+or Enter in a short-answer field, publishes
 one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
 and the visible recipient text, then attempts the existing Ask. Multiple choices
 retain authored order; Other uses `Other: <text>`. Delivery failure retains the
 comment and uses existing unadopted/uncertain retry rules; render, reload and sync
-never send.
+never send. Enter in a long-answer field inserts a newline. Digits select choice tiles
+only from a tablist, panel or tile, never while typing in a text or recipient control.
+The next unanswered question is selected only after the recorded message appears as
+the current verified device answer; a local send callback or frame claim cannot advance.
+An explicit tab choice made while verification is pending is retained.
 
 The renderer's existing text-map owner produces a normal QuoteSelector for the
 rendered question text and its surrounding context. The UUID never appears as a
-synthetic quote. Existing verified annotation threads whose selectors resolve
+synthetic quote. Inactive authored questions collapse through a renderer-managed
+visual attribute, never `[hidden]`, and remain in this canonical text map. Switching
+tabs and reloading therefore preserve quote context and verified answer association.
+Existing verified annotation threads whose selectors resolve
 inside that block are associated cosmetically; the frame cannot supply comments,
 answer state or recipients. Concurrent first answers may create sibling threads.
 The canonical thread prefers associated threads holding a nondeleted verified
@@ -2043,7 +2081,20 @@ Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
 one proposal/question measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
-Review sections and answer-count summaries are not implemented here.
+The tab count summarizes verified answers within each admitted group.
+
+The existing `colab.render.questions` parent request is a closed
+`{type,renderId,requestId,blocks,threads,groups}` object, at most 256 KiB.
+Blocks are `{id,title}` (at most 50); threads are `{id,selector}` (at most 1000).
+Groups are closed `{id,title,questions,active}` objects (at most 50), with a
+canonical UUID, a bounded title or `null`, and 1–12 unique admitted question IDs.
+Each block belongs to exactly one group; `active` is one of its members. An internal
+lone group has its member's ID and a `null` title. The frame neither parses nor
+supplies authoritative groups. Its closed response is
+`{type,renderId,requestId,questions}`, with unique `{id,selector,threads}` objects
+drawn only from the current request, exact quote text equal to the admitted title,
+and only requested thread IDs. Unknown fields, stale IDs and over-budget responses
+are ignored. No answer, recipient, count or activation authority enters this channel.
 
 ### Inline annotation conversations (#1587)
 
