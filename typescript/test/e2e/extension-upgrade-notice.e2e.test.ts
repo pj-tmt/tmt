@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync, symlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
@@ -70,6 +70,7 @@ describe('post-upgrade Remote notice', () => {
           const approval = await owner.approval(operationId);
           const before = requestAttempts(fixture);
 
+          let previousRelease = oldRelease;
           for (const [version, json] of [
             ['0.1.0-alpha.2', true],
             ['0.1.0-alpha.3', false],
@@ -90,9 +91,16 @@ describe('post-upgrade Remote notice', () => {
               operationId,
             });
             expect(requestAttempts(fixture)).toEqual(before);
-            expect(readFileSync(path.join(oldRelease, 'tmt-remote')).equals(expectedRemote)).toBe(
-              true
+            const activeRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
+            expect(readdirSync(path.join(prefix, 'lib/tmt-remote/releases')).sort()).toEqual(
+              [path.basename(previousRelease), path.basename(activeRelease)].sort()
             );
+            for (const retained of [previousRelease, activeRelease])
+              expect(readFileSync(path.join(retained, 'tmt-remote')).equals(expectedRemote)).toBe(
+                true
+              );
+            expect(existsSync(oldRelease)).toBe(previousRelease === oldRelease);
+            previousRelease = activeRelease;
           }
           const ended = await approval.finish('confirm');
           expect(ended).toMatchObject({ event: 'ended', state: 'accepted', operationId });

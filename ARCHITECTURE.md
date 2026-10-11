@@ -185,7 +185,8 @@ Command dispatch, help and completion rules are in the
 An unknown root command named `[a-z0-9][a-z0-9-]*` resolves `tmt-<name>` on PATH;
 core wins every collision. On Unix the adapter `exec`s, so the extension inherits
 stdio, TTY and signals and its exit status is the command's. `TMT_EXECUTABLE` names
-the invoking executable. Core keeps no registry, manifest, daemon or extension
+the managed stable launcher following activation, otherwise the invoking executable.
+Core keeps no registry, manifest, daemon or extension
 state. Only arguments after the name are passed, verbatim. Completion v1 is
 optional, bounded and falls back to file completion on any failure.
 

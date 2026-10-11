@@ -37,8 +37,8 @@ Installing or replacing a `tmt` binary never migrates, deletes or downgrades you
 data. State migrations only move forward, so stop older TMT commands before you
 switch.
 
-Successful managed updates keep the active release, its immediately previous
-release for rollback. Older verified releases are removed
+Successful managed updates keep the active release and the one before it, for
+rollback. Older verified releases are removed
 automatically; damaged or unrecognized content is preserved. Cleanup problems do
 not fail an update, and repair does not prune.
 
