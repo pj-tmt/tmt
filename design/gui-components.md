@@ -23,12 +23,13 @@ static CSS; [Colab native chrome](../extensions/tmt-colab/rust/tmt-colab/src/chr
 and [Remote served pages](../extensions/tmt-remote/rust/tmt-remote/src/pages.rs)
 embed the same checked static asset without requiring a React runtime.
 
-Colab's product-owned choice/action menus, previews and dialogs also use flat
-surfaces and thin shared edges, without hard shadows. See its
-[action-menu styles](../extensions/tmt-colab/typescript/app/src/components/action-menu.css)
-and [listbox styles](../extensions/tmt-colab/typescript/app/src/components/listbox.css).
-Their placement and product actions remain Colab-owned; flat styling does not
-make them shared leaf components.
+Colab uses `BrowserMenu` for choice/action menus and `BrowserDrawer` for shared
+page drawers. The leaf's [Drawer and Menu contract](browser-ui/README.md#drawer-and-menu)
+owns their presentation, placement and dismissal. Colab retains commands,
+checked values, admission and draft lifetimes. Input autocomplete remains a
+Colab-owned [listbox](../extensions/tmt-colab/typescript/app/src/components/listbox.css);
+specialized transactional and attachment-viewer dialogs retain their product
+owners. These surfaces use flat styling and thin edges without hard shadows.
 
 The leaf is presentation-only and must not import product code. Products retain
 routing, page geometry, persistence, authority, sessions, drafts and operation
