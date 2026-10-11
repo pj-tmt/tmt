@@ -1,7 +1,12 @@
-import { $richInputText as $messageText } from './rich-input-document.js';
+import {
+  $replaceRichInput,
+  $richInputText as $messageText,
+  $richInputTokens,
+  $selectRichInputRange as $selectMessageRange,
+  $richInputCaret as $messageCaret,
+} from './rich-input-document.js';
 import {
   $createParagraphNode,
-  $createRangeSelection,
   $getSelection,
   $getNodeByKey,
   $isElementNode,
@@ -9,7 +14,6 @@ import {
   $setSelection,
   $createTextNode,
   $getRoot,
-  $isTextNode,
   DecoratorNode,
   type LexicalNode,
   type NodeKey,
@@ -95,57 +99,25 @@ export class MessageMentionNode extends DecoratorNode<ReactNode> {
 export { $richInputText as $messageText } from './rich-input-document.js';
 
 export function $replaceMessage(value: string, mentions: ComposerEdit['mentions'] = []) {
-  const root = $getRoot();
-  root.clear();
-  let offset = 0;
-  for (const line of value.split('\n')) {
-    const paragraph = $createParagraphNode();
-    let cursor = 0;
-    for (const mention of mentions) {
-      const start = mention.range.start - offset,
-        end = mention.range.end - offset;
-      if (start < cursor || end <= start || end > line.length) continue;
-      if (start > cursor) paragraph.append($createTextNode(line.slice(cursor, start)));
-      paragraph.append(
-        new MessageMentionNode(
-          line.slice(start, end),
-          mention.key,
-          undefined,
-          mention.defaultCreator === true,
-        ),
-      );
-      cursor = end;
-    }
-    if (cursor < line.length) paragraph.append($createTextNode(line.slice(cursor)));
-    root.append(paragraph);
-    offset += line.length + 1;
-  }
-  root.selectEnd();
+  $replaceRichInput(
+    value,
+    mentions.map((mention) => ({
+      range: mention.range,
+      create: (token) =>
+        new MessageMentionNode(token, mention.key, undefined, mention.defaultCreator === true),
+    })),
+  );
 }
 
 /** Node identity/history retains every intact token through surrounding edits. */
 export function $messageMentions(): NonNullable<ComposerEdit['mentions']> {
-  let offset = 0;
-  const mentions: NonNullable<ComposerEdit['mentions']> = [];
-  function visit(node: LexicalNode) {
-    if (node instanceof MessageMentionNode || $isTextNode(node)) {
-      if (node instanceof MessageMentionNode)
-        mentions.push({
-          key: node.__recipient,
-          ...(node.__defaultCreator ? { defaultCreator: true as const } : {}),
-          range: { start: offset, end: offset + node.getTextContentSize() },
-        });
-      offset += node.getTextContentSize();
-    } else if ($isElementNode(node)) node.getChildren().forEach(visit);
-    else offset += node.getTextContentSize();
-  }
-  $getRoot()
-    .getChildren()
-    .forEach((node, index) => {
-      if (index) offset++;
-      visit(node);
-    });
-  return mentions;
+  return $richInputTokens(
+    (node): node is MessageMentionNode => node instanceof MessageMentionNode,
+  ).map(({ node, range }) => ({
+    key: node.__recipient,
+    ...(node.__defaultCreator ? { defaultCreator: true as const } : {}),
+    range,
+  }));
 }
 
 /** A preference transition edits only its own atomic token, preserving all surrounding text. */
@@ -239,71 +211,7 @@ export function fuzzyMessageCandidates<T extends { agentName: string; machineNam
     .map(({ candidate }) => candidate);
 }
 
-export function $messageCaret() {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
-  const anchor = selection.anchor;
-  let offset = 0;
-  let caret: number | undefined;
-  function visit(node: LexicalNode) {
-    if (node.getKey() === anchor.key) {
-      caret =
-        offset +
-        (anchor.type === 'text'
-          ? anchor.offset
-          : $isElementNode(node)
-            ? node
-                .getChildren()
-                .slice(0, anchor.offset)
-                .reduce((sum, child) => sum + child.getTextContentSize(), 0)
-            : 0);
-    }
-    if ($isElementNode(node)) node.getChildren().forEach(visit);
-    else offset += node.getTextContentSize();
-  }
-  $getRoot()
-    .getChildren()
-    .forEach((node, index) => {
-      if (index) offset++;
-      visit(node);
-    });
-  return caret;
-}
-
-export function $selectMessageRange(start: number, end: number) {
-  const selection = $createRangeSelection();
-  function setPoint(point: typeof selection.anchor, target: number) {
-    let offset = 0;
-    const paragraphs = $getRoot().getChildren();
-    for (const paragraph of paragraphs) {
-      const size = paragraph.getTextContentSize();
-      if (target <= offset + size && $isElementNode(paragraph)) {
-        function within(element: LexicalNode, local: number) {
-          if (!$isElementNode(element)) return;
-          const children = element.getChildren();
-          for (let index = 0; index < children.length; index++) {
-            const child = children[index];
-            const length = child.getTextContentSize();
-            if (local <= length) {
-              if ($isTextNode(child)) point.set(child.getKey(), local, 'text');
-              else if ($isElementNode(child)) within(child, local);
-              else point.set(element.getKey(), index + (local > 0 ? 1 : 0), 'element');
-              return;
-            }
-            local -= length;
-          }
-          point.set(element.getKey(), children.length, 'element');
-        }
-        within(paragraph, target - offset);
-        return;
-      }
-      offset += size + 1;
-    }
-    const last = paragraphs.at(-1);
-    if ($isElementNode(last)) point.set(last.getKey(), last.getChildrenSize(), 'element');
-  }
-  setPoint(selection.anchor, start);
-  setPoint(selection.focus, end);
-  $setSelection(selection);
-  return selection;
-}
+export {
+  $richInputCaret as $messageCaret,
+  $selectRichInputRange as $selectMessageRange,
+} from './rich-input-document.js';
