@@ -1,21 +1,34 @@
 import type { RCPayload } from './pr-rc-coordinator.mjs';
-export const FIXTURE: Readonly<{
-  pr: number;
+export const QUALIFICATION: Readonly<{ pr: number; branch: string; workflow: number }>;
+interface Fixture {
   head: string;
-  branch: string;
   run: number;
-  workflow: number;
   catalog: number;
   payloads: readonly number[];
   label: number;
   event: number;
-}>;
+}
+export function producerRunInput(value: unknown): number;
+export function waitForPull(
+  read: () => { data: Pull } | Promise<{ data: Pull }>,
+  check: (pull: Pull) => void,
+  sleep?: (ms: number) => void | Promise<void>
+): Promise<Pull>;
+export function deriveFixture(
+  run: number,
+  producer: unknown,
+  catalogArtifact: unknown,
+  catalog: unknown,
+  inventory: unknown[],
+  pull: Pull,
+  timeline: unknown[]
+): Fixture;
 interface Pull {
   number: number;
   base: { repo: { full_name: string } };
   head: { repo: { full_name: string }; ref: string; sha: string };
   state: string;
-  labels: { name: string }[];
+  labels: { name: string; id?: number }[];
 }
 interface Candidate {
   target: string;
@@ -61,17 +74,15 @@ export function assertPositive(
   before: unknown,
   after: unknown
 ): void;
-export function assertPRReceipt(receipt: Receipt, catalog: Catalog): void;
+export function assertPRReceipt(receipt: Receipt, catalog: Catalog, fixture: Fixture): void;
 export function cleanupExact(
-  manifest: { run: number; rc: Artifact[]; ordinary: number[] },
+  manifest: { run: number; fixture: Fixture; rc: Artifact[]; ordinary: number[] },
   call: (
     method: string,
     route: string,
     data?: unknown,
     absent?: boolean
-  ) =>
-    | { status: number; data?: Artifact & { workflow_run: { id: number } } }
-    | Promise<{ status: number; data?: Artifact & { workflow_run: { id: number } } }>,
+  ) => { status: number; data?: unknown } | Promise<{ status: number; data?: unknown }>,
   pull: Pull
 ): Promise<{
   retained: boolean;
