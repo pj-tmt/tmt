@@ -218,7 +218,9 @@ test('an agent sees the files of a Chat message in its request and reads them by
       expect(
         fs.readFileSync(path.join(exported.directory as string, 'conversations.md'), 'utf8'),
       ).toContain('- Attachment: ');
-      await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+      await page
+        .locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button')
+        .click();
 
       // Unknown, too short and malformed IDs are refused without writing anything.
       expect(() => read('ffffffff')).toThrow(/COLAB_STATE_MISSING/);

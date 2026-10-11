@@ -464,6 +464,8 @@ manual dispatch and post-publication retirement. It has only `actions:write` and
 identifies its artifacts through the authenticated `pr-rc.yml` main run and exact
 `pr-rc #<PR> <head12>` run-name, then records exact artifact IDs before deletion.
 At most two current successful catalog-bearing generations remain live per PR.
+Without `keep-run`, reconciliation also leaves eligible current-head in-flight
+generations untouched; the producer handles its own post-publication retirement.
 Close, missing label, changed head or three-day expiry retires catalog discovery
 first; an owned pending run is cancelled and observed settled before payload cleanup.
 A fresh inventory catches late uploads, and each deletion requires authenticated
@@ -476,13 +478,15 @@ Linux x86_64 with an environment-only read token. Separate main-tooling jobs mut
 only the standing qualification PR; candidate code never receives write authority.
 Its required `run` input binds the fixture to a successful main producer catalog,
 matching live PR head and label epoch. It checks receipt provenance and
-stale-head/disabled/new-epoch/closed refusals,
+bounded `NATIVE_UPGRADE_FAILED` refusals with exact per-stage messages,
 unchanged application data and alpha return without a second producer dispatch.
 An eligible active-candidate re-run must preserve the receipt, prefix and application data.
 Mutation readbacks poll the PR object at most 20 times, three seconds apart.
-A failure before the stale-head commit retains the five verified artifacts for a rerun
-until expiry. Once consumed, cleanup records their exact-ID absence, preserving ordinary
-artifacts. Token-generated close events do not exercise the automatic close workflow.
+The chain checks disabled and fresh-head new-epoch refusals before advancing the head
+for stale and closed refusals. A fixture is retained only while the PR is open at its
+captured head with rc-build present in the original label epoch; a failure before
+label removal retains the five verified artifacts for a rerun until expiry. Once
+consumed, cleanup records their exact-ID absence, preserving ordinary artifacts. Token-generated close events do not exercise the automatic close workflow.
 Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes.
 Only the standing same-repository PR2715 and its qualification branch may be mutated.
 

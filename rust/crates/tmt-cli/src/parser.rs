@@ -638,6 +638,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 _ => unreachable!(),
             },
         },
+        ["x", "flow"] => Invocation::ExchangeFlow {
+            window_ms: text(m, "since").map(|value| {
+                tmt_core::request::flow::parse_window(&value)
+                    .ok_or_else(|| "--since must be a positive integer duration no greater than 30d (ms/s/m/h/d).".to_owned())
+            }).transpose()?.unwrap_or(tmt_core::request::flow::DEFAULT_WINDOW_MS),
+        },
         ["x"] | ["x", "ls"] => Invocation::Exchange {
             identity: text(m, "identity"),
             operation: ExchangeOperation::List {

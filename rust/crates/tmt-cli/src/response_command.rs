@@ -200,7 +200,7 @@ fn run_at(paths: Option<&ConfigPaths>, request: Invocation) -> Result<Report, Fa
             })
         }
         None => RequestService::new(&mut storage, wall_time_ms)
-            .get_response_by_prefix(&request_id)
+            .retrieve_response_by_prefix(&request_id)
             .map_err(|error| response_failure(error, &paths.global_dir, false))
             .and_then(|(resolved_id, record)| match record {
                 ResponseLookup::Withdrawn(withdrawal) => {

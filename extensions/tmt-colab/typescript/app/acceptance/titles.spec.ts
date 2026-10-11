@@ -86,8 +86,12 @@ test('native page titles become durable browser-local labels after their first v
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
-    await row().locator('summary').click();
-    await expect(row().getByText(`Page ID: ${created.pageId}`, { exact: true })).toBeVisible();
+    await row()
+      .getByRole('button', { name: /^Actions for/ })
+      .click();
+    await expect(
+      page.getByRole('menu').getByText(`Page ID: ${created.pageId}`, { exact: true }),
+    ).toBeVisible();
     const other = await pairBrowser(world, 'other-title-browser');
     const otherPage = await openColab(door, other);
     await expect(

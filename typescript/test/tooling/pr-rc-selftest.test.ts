@@ -4,12 +4,14 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   QUALIFICATION,
+  api,
   producerRunInput,
   waitForPull,
   deriveFixture,
   assertOwnedPull,
   assertPRReceipt,
   assertRefusal,
+  REFUSAL_MESSAGES,
   assertPositive,
   cleanupExact,
   safeEvidence,
@@ -190,6 +192,57 @@ describe('one-shot PR RC reader qualification', () => {
     ).toThrow();
     expect(() => derive(producer, pull(false), Array(100).fill(timeline[0]))).toThrow();
   });
+  it('reports the bounded 403 message and accepted permission using the real API parser', () => {
+    const spawn = (file: string, args: string[]) => {
+      expect(file).toBe('gh');
+      expect(args).toContain('DELETE');
+      expect(args).toContain('repos/pj-tmt/tmt/issues/2715/labels/rc-build');
+      return {
+        stdout:
+          'HTTP/2.0 403 Forbidden\r\nX-Accepted-GitHub-Permissions: pull_requests=write\r\n\r\n{"message":"Resource not accessible by integration"}',
+      };
+    };
+    expect(() => api('DELETE', 'issues/2715/labels/rc-build', null, false, spawn)).toThrow(
+      'API DELETE failed (403): Resource not accessible by integration; x-accepted-github-permissions: pull_requests=write'
+    );
+  });
+  it('bounds decoded API diagnostics and rejects credentials or signed URLs before truncation', () => {
+    const response =
+      (message: string, permissions = 'pull_requests=write') =>
+      () => ({
+        stdout: `HTTP/2.0 403 Forbidden\nX-Accepted-GitHub-Permissions: ${permissions}\n\n${JSON.stringify({ message })}`,
+      });
+    expect(() => api('DELETE', 'owned', null, false, response('x'.repeat(300)))).toThrow(
+      `API DELETE failed (403): ${'x'.repeat(200)}; x-accepted-github-permissions: pull_requests=write`
+    );
+    expect(() => api('DELETE', 'owned', null, false, response('safe', 'y'.repeat(300)))).toThrow(
+      `x-accepted-github-permissions: ${'y'.repeat(200)}`
+    );
+    for (const unsafe of [
+      'ghp_' + 'x'.repeat(30),
+      'https://download.example/?X-Amz-Signature=secret',
+    ]) {
+      expect(() => api('DELETE', 'owned', null, false, response('x'.repeat(300) + unsafe))).toThrow(
+        'possible credential'
+      );
+      expect(() => api('DELETE', 'owned', null, false, response('safe', unsafe))).toThrow(
+        'possible credential'
+      );
+    }
+    expect(() =>
+      api('DELETE', 'owned', null, false, () => ({ stdout: 'HTTP/2.0 403 Forbidden\n\nnot JSON' }))
+    ).toThrow('API DELETE failed (403): not reported; x-accepted-github-permissions: not reported');
+  });
+  it('keeps successful JSON and allowed 404 API reads unchanged', () => {
+    expect(
+      api('GET', 'owned', null, false, () => ({ stdout: 'HTTP/2.0 200 OK\n\n{"id":123}' }))
+    ).toEqual({ status: 200, data: { id: 123 } });
+    expect(
+      api('GET', 'owned', null, true, () => ({
+        stdout: 'HTTP/2.0 404 Not Found\n\n{"message":"Not Found"}',
+      }))
+    ).toEqual({ status: 404, data: { message: 'Not Found' } });
+  });
   it('reads the real CLI namespace and refuses an active receipt outside the isolated prefix', () => {
     const world = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-rc-selftest-'));
     try {
@@ -237,19 +290,46 @@ describe('one-shot PR RC reader qualification', () => {
       )
     ).toThrow();
   });
-  it('requires the pinned unavailable error and byte-identical state, not just a nonzero exit', () => {
+  it.each([
+    ['disabled', 'PR is closed, disabled, ineligible or outside the official repository.'],
+    ['closed', 'PR is closed, disabled, ineligible or outside the official repository.'],
+    ['epoch', 'Catalog producer or eligibility epoch does not match current API evidence.'],
+    ['stale', 'PR catalog source, producer or availability evidence does not match.'],
+  ] as const)('pins the %s JSON failure code/message and identical state', (stage, message) => {
+    expect(REFUSAL_MESSAGES[stage]).toBe(message);
     const state = { receipt: 'original', links: { tmt: 'original' }, sentinel: 'untouched' };
     const result = {
       status: 1,
-      stdout: '{"error":{"code":"NATIVE_PR_CHANNEL_UNAVAILABLE"}}',
+      stdout: JSON.stringify({ error: { code: 'NATIVE_UPGRADE_FAILED', message } }),
       stderr: '',
     };
-    expect(() => assertRefusal(result, state, structuredClone(state))).not.toThrow();
-    expect(() => assertRefusal({ ...result, status: 0 }, state, state)).toThrow();
-    expect(() => assertRefusal({ ...result, status: null }, state, state)).toThrow();
-    expect(() => assertRefusal({ ...result, stdout: 'network error' }, state, state)).toThrow();
-    expect(() => assertRefusal(result, state, { ...state, receipt: 'changed' })).toThrow();
-    expect(() => assertRefusal(result, state, { ...state, sentinel: 'changed' })).toThrow();
+    expect(() => assertRefusal(stage, result, state, structuredClone(state))).not.toThrow();
+    for (const status of [0, null])
+      expect(() => assertRefusal(stage, { ...result, status }, state, state)).toThrow();
+    for (const otherMessage of new Set(Object.values(REFUSAL_MESSAGES))) {
+      if (otherMessage === message) continue;
+      expect(() =>
+        assertRefusal(
+          stage,
+          {
+            ...result,
+            stdout: JSON.stringify({
+              error: { code: 'NATIVE_UPGRADE_FAILED', message: otherMessage },
+            }),
+          },
+          state,
+          state
+        )
+      ).toThrow();
+    }
+    for (const stdout of [
+      'network error',
+      JSON.stringify({ error: { code: 'NATIVE_PR_CHANNEL_UNAVAILABLE', message } }),
+      JSON.stringify({ error: { code: 'NATIVE_UPGRADE_FAILED' } }),
+    ])
+      expect(() => assertRefusal(stage, { ...result, stdout }, state, state)).toThrow();
+    expect(() => assertRefusal(stage, result, state, { ...state, receipt: 'changed' })).toThrow();
+    expect(() => assertRefusal(stage, result, state, { ...state, sentinel: 'changed' })).toThrow();
   });
   it('requires eligible success and identical receipt, prefix and application data before mutation', () => {
     const before = { receipt: receipt(), prefix: { binary: 'bytes' }, data: { sentinel: 'kept' } };
@@ -267,17 +347,27 @@ describe('one-shot PR RC reader qualification', () => {
     const alive = new Map([...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item]));
     const read = (method: string, route: string) => {
       calls.push(method);
+      if (route.includes('/timeline?'))
+        return {
+          status: 200,
+          data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event }],
+        };
       return { status: 200, data: alive.get(Number(route.split('/').at(-1)))! };
     };
     const result = await cleanupExact(rows, read, pull(false));
     expect(result.retained).toBe(true);
     expect(result.artifacts.map((item) => item.id)).toEqual(rows.rc.map((item) => item.id));
-    expect(calls).toEqual(Array(7).fill('GET'));
+    expect(calls).toEqual(Array(8).fill('GET'));
     alive.delete(FIXTURE.catalog);
     await expect(
       cleanupExact(
         rows,
         (method, route) => {
+          if (route.includes('/timeline?'))
+            return {
+              status: 200,
+              data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event }],
+            };
           const data = alive.get(Number(route.split('/').at(-1)));
           return data ? { status: 200, data } : { status: 404 };
         },
@@ -285,6 +375,44 @@ describe('one-shot PR RC reader qualification', () => {
       )
     ).rejects.toThrow('Unconsumed fixture artifact disappeared');
   });
+  it.each(['removed', 'readded'] as const)(
+    'consumes a same-head fixture when its label is %s',
+    async (labelState) => {
+      const rows = manifest();
+      const alive = new Map(
+        [...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item])
+      );
+      const deleted: number[] = [];
+      const current = {
+        ...pull(false),
+        labels: labelState === 'removed' ? [] : pull(false).labels,
+      };
+      const result = await cleanupExact(
+        rows,
+        (method, route) => {
+          if (route.includes('/timeline?'))
+            return {
+              status: 200,
+              data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event + 1 }],
+            };
+          if (route.startsWith('issues/')) return { status: 204 };
+          if (route.startsWith('pulls/')) return { status: 200, data: { ...current, labels: [] } };
+          const id = Number(route.split('/').at(-1));
+          if (method === 'DELETE') {
+            deleted.push(id);
+            alive.delete(id);
+            return { status: 204 };
+          }
+          const data = alive.get(id);
+          return data ? { status: 200, data } : { status: 404 };
+        },
+        current
+      );
+      expect(result.retained).toBe(false);
+      expect(deleted).toEqual(rows.rc.map((item) => item.id));
+      expect([...alive.keys()]).toEqual(rows.ordinary);
+    }
+  );
   it('rejects token/signed-url evidence without retaining it', () => {
     expect(safeEvidence({ result: 'safe' })).toBe('{"result":"safe"}');
     for (const value of [
@@ -405,6 +533,33 @@ describe('one-shot PR RC reader qualification', () => {
         expect(job).not.toContain('tar -xzf');
         expect(job).not.toMatch(/pr-rc-selftest.mjs (baseline|stale|disabled|epoch|closed)\b/);
       } else expect(job).toContain('actions: read');
+    }
+    const expected = {
+      baseline: 'preflight',
+      disable: 'baseline',
+      disabled: 'disable',
+      enable: 'disabled',
+      epoch: 'enable',
+      advance: 'epoch',
+      stale: 'advance',
+      close: 'stale',
+      closed: 'close',
+    };
+    for (const [name, dependency] of Object.entries(expected)) {
+      const job = jobs.find((block) => block.startsWith(`${name}:`));
+      expect(job).toContain(`needs: [${dependency}]`);
+    }
+    for (const [name, scope] of [
+      ['disable', 'issues'],
+      ['enable', 'issues'],
+      ['advance', 'contents'],
+      ['close', 'pull-requests'],
+    ])
+      expect(jobs.find((block) => block.startsWith(`${name}:`))).toContain(`${scope}: write`);
+    for (const name of ['disable', 'enable']) {
+      const job = jobs.find((block) => block.startsWith(`${name}:`));
+      expect(job).toContain('issues: write');
+      expect(job).toContain('pull-requests: write');
     }
     expect(jobs.length).toBe(11);
     expect(workflow).toContain("always() && needs.preflight.result == 'success'");

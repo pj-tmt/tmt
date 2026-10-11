@@ -120,12 +120,21 @@ export function assertOwnedPull(pull) {
   assert.equal(pull.head?.repo?.full_name, repository);
   assert.equal(pull.head.ref, QUALIFICATION.branch);
 }
-export function assertRefusal(result, before, after) {
+export const REFUSAL_MESSAGES = Object.freeze({
+  disabled: 'PR is closed, disabled, ineligible or outside the official repository.',
+  closed: 'PR is closed, disabled, ineligible or outside the official repository.',
+  epoch: 'Catalog producer or eligibility epoch does not match current API evidence.',
+  stale: 'PR catalog source, producer or availability evidence does not match.',
+});
+export function assertRefusal(stage, result, before, after) {
+  assert(Object.hasOwn(REFUSAL_MESSAGES, stage), 'Unknown refusal stage.');
   assert(
     Number.isInteger(result.status) && result.status !== 0,
     'Expected a completed nonzero refusal.'
   );
-  assert.match(`${result.stdout}\n${result.stderr}`, /NATIVE_PR_CHANNEL_UNAVAILABLE/);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.error?.code, 'NATIVE_UPGRADE_FAILED');
+  assert.equal(report.error?.message, REFUSAL_MESSAGES[stage]);
   assert.deepEqual(
     after,
     before,
@@ -157,7 +166,18 @@ export function assertPRReceipt(receipt, catalog, fixture) {
 export async function cleanupExact(manifest, call, pull) {
   const fixture = manifest.fixture;
   assertOwnedPull(pull);
-  const retained = pull.state === 'open' && pull.head.sha === fixture.head;
+  let retained = false;
+  if (
+    pull.state === 'open' &&
+    pull.head.sha === fixture.head &&
+    pull.labels.some((label) => label.name === 'rc-build' && label.id === fixture.label)
+  ) {
+    const timeline = (await call('GET', `issues/${QUALIFICATION.pr}/timeline?per_page=100`)).data;
+    assert(Array.isArray(timeline) && timeline.length < 100);
+    retained =
+      timeline.filter((item) => item.event === 'labeled' && item.label?.name === 'rc-build').at(-1)
+        ?.id === fixture.event;
+  }
   assert.equal(manifest.run, fixture.run);
   assert.equal(manifest.rc.length, 5);
   assert.deepEqual(
@@ -209,7 +229,9 @@ export async function cleanupExact(manifest, call, pull) {
     );
   return {
     retained,
-    reason: retained ? 'PR is open at head1; fixture is unconsumed.' : 'Fixture consumed.',
+    reason: retained
+      ? 'PR is open at the captured head with the original rc-build epoch; fixture is unconsumed.'
+      : 'Fixture consumed.',
     artifacts,
   };
 }
@@ -238,28 +260,42 @@ function checked(file, args, options) {
   );
   return result.stdout;
 }
-function api(method, route, data = null, absent = false) {
+export function api(method, route, data = null, absent = false, execute = run) {
   const args = ['api', '--include', '--method', method, `repos/${repository}/${route}`];
   if (data) args.push('--input', '-');
-  const result = run('gh', args, {
+  const result = execute('gh', args, {
     input: data ? JSON.stringify(data) : undefined,
     timeout: 30_000,
     maxBuffer: 2 * MiB,
   });
+  safeEvidence(result.stdout);
   const status = /^HTTP\/\S+ (\d+)/.exec(result.stdout);
   assert(status, 'Missing authenticated API status.');
   const code = Number(status[1]);
-  assert(
-    (code >= 200 && code < 300) || (absent && code === 404),
-    `API ${method} failed (${code}).`
-  );
-  const text = result.stdout
-    .split(/\r?\n\r?\n/)
-    .slice(1)
-    .join('\n\n')
-    .trim();
+  const sections = result.stdout.split(/\r?\n\r?\n/);
+  const headers = sections.shift();
+  const text = sections.join('\n\n').trim();
+  if (!((code >= 200 && code < 300) || (absent && code === 404))) {
+    let message;
+    try {
+      message = JSON.parse(text).message;
+    } catch {
+      /* No JSON message to retain. */
+    }
+    const permissions = /^x-accepted-github-permissions:[ \t]*([^\r\n]*)/im.exec(headers)?.[1];
+    const bounded = (value) =>
+      typeof value === 'string'
+        ? safeEvidence(value)
+            .replace(/[\x00-\x1f\x7f]/g, ' ')
+            .slice(0, 200)
+        : 'not reported';
+    throw new Error(
+      `API ${method} failed (${code}): ${bounded(message)}; x-accepted-github-permissions: ${bounded(permissions)}`
+    );
+  }
   return { status: code, data: text ? JSON.parse(text) : null };
 }
+
 function snapshot(directory) {
   const result = {};
   const visit = (root, relative = '') => {
@@ -537,6 +573,7 @@ export async function executeSelftest(stage) {
     if (stage === 'stale') assert.notEqual(current.head.sha, fixture.head);
     if (stage === 'disabled') assert(!current.labels.some((item) => item.name === 'rc-build'));
     if (stage === 'epoch') {
+      assert.equal(current.head.sha, fixture.head);
       assert(current.labels.some((item) => item.name === 'rc-build'));
       const timeline = api('GET', `issues/${QUALIFICATION.pr}/timeline?per_page=100`).data;
       assert(timeline.length < 100);
@@ -562,7 +599,7 @@ export async function executeSelftest(stage) {
       ['upgrade', '--channel', `pr${QUALIFICATION.pr}`, '--yes', '--json'],
       { env: clientEnvironment(world) }
     );
-    assertRefusal(result, before, {
+    assertRefusal(stage, result, before, {
       prefix: snapshot(path.join(world, 'prefix')),
       data: snapshot(path.join(world, 'state')),
     });

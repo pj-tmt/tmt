@@ -80,9 +80,11 @@ export function useAttachmentDropTarget(draft: AttachmentDraft, attachable: bool
 /** File drags belong to this panel alone; moving between descendants never clears the overlay. */
 export function AttachmentDropPanel({
   target,
+  active = true,
   children,
 }: {
   target: keyof typeof text.attachDropTarget;
+  active?: boolean;
   children: ReactElement<HTMLAttributes<HTMLElement> & { overlay?: ReactNode }>;
 }) {
   const [owner] = useState(() => new AttachmentDropOwner());
@@ -94,7 +96,23 @@ export function AttachmentDropPanel({
     depth.current = 0;
     setOverlay(undefined);
   };
+  useLayoutEffect(() => {
+    if (!active) {
+      depth.current = 0;
+      setOverlay(undefined);
+      setFeedback(undefined);
+    }
+  }, [active]);
+  const admits = (event: DragEvent) => {
+    if (!active) return false;
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    if (target.closest('[role="menu"]')) return false;
+    const dialog = target.closest('dialog');
+    return !dialog || dialog === event.currentTarget;
+  };
   const inspect = (event: DragEvent) => {
+    if (!admits(event)) return false;
     if (!event.dataTransfer.types.includes('Files')) return false;
     event.preventDefault();
     const files = [...event.dataTransfer.files];
@@ -149,7 +167,7 @@ export function AttachmentDropPanel({
           if (--depth.current <= 0) clear();
         },
         onDrop: (event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
+          if (!admits(event) || !event.dataTransfer.types.includes('Files')) return;
           event.preventDefault();
           event.stopPropagation();
           const refusal = owner.add([...event.dataTransfer.files]);
@@ -157,7 +175,11 @@ export function AttachmentDropPanel({
           setFeedback(refusal);
         },
         onKeyDownCapture: (event) => {
-          if (event.key === 'Escape' && overlay) {
+          if (
+            event.key === 'Escape' &&
+            overlay &&
+            !(event.target instanceof Element && event.target.closest('[role="menu"]'))
+          ) {
             clear();
             event.preventDefault();
             event.stopPropagation();

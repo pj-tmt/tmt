@@ -265,8 +265,6 @@ export const text = {
   askExpired: 'This preview has expired. Create a new preview before sending.',
   askRecheck: 'Check again',
   chatVisible: '○ Everyone with access',
-  chatCollapse: 'Collapse Chat',
-  chatCollapseHint: 'Collapse Chat · Esc',
   chatEmpty: 'No messages yet',
   chatEmptyHint: 'Press @ to ask an agent, or write a comment below.',
   chatToday: 'Today',

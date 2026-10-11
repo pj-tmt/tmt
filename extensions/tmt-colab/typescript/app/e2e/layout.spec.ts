@@ -92,7 +92,7 @@ for (const width of [1440, 390])
       const beforePanel = await frame.boundingBox(),
         scrollBeforePanel = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
-      const comments = page.locator('.page-drawer[data-panel=comments]');
+      const comments = page.locator('.tmt-ui-drawer[data-panel=comments]');
       await expect(comments).toBeVisible();
       expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
       expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
@@ -106,13 +106,13 @@ for (const width of [1440, 390])
       await expect(comments).not.toBeVisible();
       await expect(page.getByRole('button', { name: /^Discussion \(/ })).toBeFocused();
       await (await pageAction(page, 'Chat')).click();
-      const asks = page.locator('.page-drawer[data-panel=chat]');
+      const asks = page.locator('.tmt-ui-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
-      await asks.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
+      await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(asks).not.toBeVisible();
       await (await pageAction(page, 'Source')).click();
-      const editor = page.locator('.page-drawer[data-panel=source]');
+      const editor = page.locator('.tmt-ui-drawer[data-panel=source]');
       await expect(editor.getByLabel('Source', { exact: true })).toHaveValue(source(true));
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await editor.getByRole('button', { name: 'Close Source', exact: true }).focus();
@@ -137,12 +137,12 @@ test('narrow desktop menus switch floating panels and keep About readable', asyn
   await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
   const before = await frame.boundingBox();
   await (await pageAction(page, 'Source')).click();
-  await expect(page.locator('.page-drawer[data-panel=source]')).toBeVisible();
+  await expect(page.locator('.tmt-ui-drawer[data-panel=source]')).toBeVisible();
   await (await pageAction(page, 'Comments')).click();
-  await expect(page.locator('.page-drawer[data-panel=comments]')).toBeVisible();
-  await expect(page.locator('.page-drawer[data-panel=source]')).not.toBeVisible();
+  await expect(page.locator('.tmt-ui-drawer[data-panel=comments]')).toBeVisible();
+  await expect(page.locator('.tmt-ui-drawer[data-panel=source]')).not.toBeVisible();
   await (await pageAction(page, 'About this page')).click();
-  const information = page.locator('.page-drawer[data-panel=about]');
+  const information = page.locator('.tmt-ui-drawer[data-panel=about]');
   await expect(information).toBeVisible();
   const box = (await information.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);
@@ -211,9 +211,9 @@ for (const width of [1440, 390])
     await expect(discussion).toBeFocused();
     await discussion.press('Space');
     await chat.press('Enter');
-    const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
     await expect(drawer).toBeVisible();
-    const close = drawer.getByRole('button', { name: 'Collapse Chat', exact: true });
+    const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
     await close.focus();
     const closeTooltip = close.locator('..').locator('.tmt-ui-icon-action-tooltip');
     await expect(closeTooltip).toBeVisible();
@@ -268,7 +268,7 @@ for (const width of [1440, 390])
       const before = await frame.boundingBox();
       const scroll = await page.evaluate(() => window.scrollY);
       await (await pageAction(page, 'Comments')).click();
-      const drawer = page.locator('.page-drawer[data-panel=comments][open]');
+      const drawer = page.locator('.tmt-ui-drawer[data-panel=comments][open]');
       await expect(drawer).toBeVisible();
       const edge = (await drawer.boundingBox())!;
       const gutter = width <= 480 ? 4 : 8;
@@ -309,7 +309,7 @@ for (const width of [1440, 390])
         await (await import(path)).mount({ exportAttachments: true });
       });
       await (await pageAction(page, 'Export page')).click();
-      const drawer = page.locator('.page-drawer[data-panel=export][open]');
+      const drawer = page.locator('.tmt-ui-drawer[data-panel=export][open]');
       await expect(drawer).toBeVisible();
       for (const name of ['page.html', 'conversations.json', 'conversations.md', 'manifest.json']) {
         const action = drawer.getByRole('button', { name: `Download ${name}`, exact: true });

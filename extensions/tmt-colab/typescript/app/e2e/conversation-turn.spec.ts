@@ -106,15 +106,24 @@ async function flat(message: Locator) {
   expect(Math.abs(bounds.width)).toBeLessThan(1);
 }
 async function shell(window: Locator) {
-  await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(1);
+  const chat = (await window.getAttribute('data-testid')) === 'chat-panel';
+  await expect(
+    chat
+      ? window.page().locator('.tmt-ui-drawer[data-panel=chat][open] > .tmt-ui-drawer-header')
+      : window.locator(':scope > .conversation-window-bar'),
+  ).toHaveCount(1);
+  if (chat) await expect(window.locator(':scope > .conversation-window-bar')).toHaveCount(0);
   await expect(window.locator(':scope > .conversation-composer')).toHaveCount(1);
   await expect(window.locator('.conversation-composer .annotation-compose')).toHaveCount(1);
   await expect(window.locator('.conversation-composer')).toHaveCSS('padding', '10px 14px');
   for (const button of await window.locator('.conversation-composer button').all())
     await expect(button).toBeInViewport();
   const bounds = await window.evaluate((node) => {
-    const header = node.querySelector('.conversation-window-bar')!.getBoundingClientRect();
-    const actions = node.querySelector('.thread-bar-actions')!.getBoundingClientRect();
+    const drawerHeader = node.closest('.tmt-ui-drawer')?.querySelector('.tmt-ui-drawer-header');
+    const header = (drawerHeader ??
+      node.querySelector('.conversation-window-bar'))!.getBoundingClientRect();
+    const actions = (drawerHeader?.querySelector('button') ??
+      node.querySelector('.thread-bar-actions'))!.getBoundingClientRect();
     const history = node.querySelector('.conversation-messages')!.getBoundingClientRect();
     const composer = node.querySelector('.conversation-composer')!.getBoundingClientRect();
     return { header, actions, history, composer };
@@ -141,14 +150,17 @@ for (const width of [1440, 390]) {
         await shell(window);
         if (surface === 'chat') {
           await expect(page.locator('.chat-visibility')).toHaveCount(0);
-          await expect(page.locator('.page-drawer[data-panel="chat"] > .drawer-bar')).toHaveCount(
-            0,
+          await expect(
+            page.locator('.tmt-ui-drawer[data-panel="chat"][open] > .tmt-ui-drawer-header'),
+          ).toHaveCount(1);
+          const header = page.locator(
+            '.tmt-ui-drawer[data-panel=chat][open] > .tmt-ui-drawer-header',
           );
-          await expect(window.locator('.conversation-caption')).toHaveText(text.chatVisible);
-          const caption = (await window.locator('.conversation-caption').boundingBox())!;
-          const title = (await window.locator('.conversation-title').boundingBox())!;
-          expect(caption.x).toBeGreaterThan(title.x + title.width);
-          expect(Math.abs(caption.y - title.y)).toBeLessThan(5);
+          await expect(header.locator('.tmt-ui-drawer-caption')).toHaveText(text.chatVisible);
+          await expect(header.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible();
+          await expect(
+            header.getByRole('button', { name: 'Close Chat', exact: true }),
+          ).toBeVisible();
         }
         const user = window.locator('.conversation-turn[data-turn-role="user"]');
         const agent = window.locator('.conversation-turn[data-turn-role="agent"]');
@@ -250,7 +262,7 @@ async function chatGeometry(window: Locator) {
     const history = find('.conversation-messages');
     return {
       drawer: rect(drawer),
-      header: rect(find('.conversation-window-bar')),
+      header: rect(drawer.querySelector('.tmt-ui-drawer-header')!),
       composer: rect(composer),
       field: rect(find('[role="combobox"]')),
       status: rect(find('.annotation-status-row')),
@@ -876,7 +888,7 @@ for (const [width, theme] of [
     await run(page, 'chatPolish', 'empty');
     await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
     const panel = page.getByTestId('chat-panel');
-    await expect(panel.getByRole('button', { name: text.chatCollapse, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Close Chat', exact: true })).toBeVisible();
     await expect(panel.locator('.chat-empty h3')).toHaveText(text.chatEmpty);
     await expect(panel.locator('.chat-empty p')).toHaveText(text.chatEmptyHint);
     mkdirSync(captureDir, { recursive: true });

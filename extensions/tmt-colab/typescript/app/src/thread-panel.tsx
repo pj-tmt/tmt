@@ -11,7 +11,7 @@ import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
-import { ActionMenu } from './components/action-menu.js';
+import { BrowserMenu } from '@tmt/browser-ui/react';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
@@ -171,7 +171,7 @@ export function DiscussionComment({
         menu.length > 0 &&
         !comment.deleted &&
         !editing && (
-          <ActionMenu
+          <BrowserMenu
             label="Message actions"
             items={menu}
             onSelect={(key) => {

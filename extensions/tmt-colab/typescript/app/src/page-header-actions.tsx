@@ -1,6 +1,6 @@
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
-import { ActionMenu } from './components/action-menu.js';
+import { BrowserMenu } from '@tmt/browser-ui/react';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
 
@@ -70,7 +70,7 @@ function isCompact() {
   return matchMedia(compactQuery).matches;
 }
 
-/** Page-local menus compose shared icon/tooltip presentation and the existing action-menu owner. */
+/** Page-local commands use the shared Menu presentation owner. */
 export function PageHeaderActions({
   active,
   comments,
@@ -96,7 +96,7 @@ export function PageHeaderActions({
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
-      <ActionMenu
+      <BrowserMenu
         label={`${text.discussion} (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
         icon={<PageHeaderIcon name="discussion" count={comments} unseen={unseen} />}
         items={[
@@ -135,7 +135,7 @@ export function PageHeaderActions({
               if (event.isTrusted) onSelect('files');
             }}
           />
-          <ActionMenu
+          <BrowserMenu
             label={text.sourceAndExport}
             icon={<PageHeaderIcon name="source" />}
             items={[
@@ -146,7 +146,7 @@ export function PageHeaderActions({
           />
         </>
       )}
-      <ActionMenu
+      <BrowserMenu
         label={text.more}
         icon={<PageHeaderIcon name="more" />}
         items={[

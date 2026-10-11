@@ -114,7 +114,7 @@ for (const placement of ['missing', 'duplicate'])
     await expect(page.locator('[data-inline-proposal]')).toHaveAttribute('data-detached', 'true');
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
     await page.locator('[data-testid="annotation-row"]').click();
-    const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
+    const card = page.locator('.tmt-ui-drawer[data-panel="comments"][open] .proposal-card');
     await expect(card).toBeVisible();
     await expect(card.locator('.proposal-author')).toContainText('Detached');
     expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -214,7 +214,7 @@ for (const width of [1440, 390])
         await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
       await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
       await page.getByTestId('annotation-row').click();
-      const card = page.locator('.page-drawer[data-panel="comments"][open] .proposal-card');
+      const card = page.locator('.tmt-ui-drawer[data-panel="comments"][open] .proposal-card');
       await expect(card).toBeVisible();
       // The same card in Comments continues to follow the app chrome theme.
       await expect(card).toHaveCSS(
@@ -284,7 +284,7 @@ for (const [width, theme] of [
       await page.screenshot({ path: `${captureDir}/header-count-${width}-${theme}.png` });
     }
     await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-    const panel = page.locator('.page-drawer[data-panel="comments"][open]');
+    const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
     await expect(panel.getByTestId('annotation-row')).toHaveCount(4);
     await expect(panel).toContainText('Review the supporting notes.');
     for (const row of await panel.getByTestId('annotation-row').all())
@@ -350,7 +350,7 @@ test('folded proposal keeps agent resolution unseen until its history is opened'
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   await run(page, 'agentResolves');
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
-  const panel = page.locator('.page-drawer[data-panel="comments"][open]');
+  const panel = page.locator('.tmt-ui-drawer[data-panel="comments"][open]');
   const folded = panel.locator('.annotation-list-item[data-resolved]');
   await expect(folded.getByTestId('thread-row-status')).toHaveText(
     'Proposal · Resolved by Atlas · New',

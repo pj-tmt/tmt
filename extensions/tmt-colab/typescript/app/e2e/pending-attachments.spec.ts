@@ -196,7 +196,8 @@ for (const surface of ['chat', 'thread'] as const)
         return data;
       });
       const overlay = panel.getByTestId('attachment-drop-overlay');
-      await panel.dispatchEvent('dragenter', { dataTransfer: drag });
+      const dropSurface = surface === 'chat' ? panel.locator('.tmt-ui-drawer-header') : panel;
+      await dropSurface.dispatchEvent('dragenter', { dataTransfer: drag });
       await expect(overlay).toHaveText(
         `⤓ Drop to attach to ${surface === 'chat' ? 'Chat' : 'this thread'}`,
       );
@@ -206,9 +207,11 @@ for (const surface of ['chat', 'thread'] as const)
         });
       // Enter the child before leaving the old child: a native nested crossing stays visible.
       await input.dispatchEvent('dragenter', { dataTransfer: drag });
-      await panel
-        .locator('.conversation-window-bar')
-        .dispatchEvent('dragleave', { dataTransfer: drag });
+      await (
+        surface === 'chat'
+          ? panel.locator(':scope > .tmt-ui-drawer-header')
+          : panel.locator('.conversation-window-bar')
+      ).dispatchEvent('dragleave', { dataTransfer: drag });
       await expect(overlay).toBeVisible();
       await input.dispatchEvent('drop', { dataTransfer: drag });
       await expect(overlay).toHaveCount(0);
@@ -315,3 +318,55 @@ for (const surface of ['chat', 'thread'] as const)
     expect(await actions(page)).toEqual(effects);
     await drag.dispose();
   });
+
+test('Chat drop routing clears on close and never admits another surface', async ({ page }) => {
+  await mount(page);
+  await page.evaluate(async () => {
+    const fixture = '/test/ask-page-browser.tsx';
+    (await import(fixture)).chatPolish('messages');
+  });
+  const { panel, input } = await openChat(page);
+  const before = await actions(page);
+  const drag = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['local'], 'retained.txt', { type: 'text/plain' }));
+    return data;
+  });
+  await panel.dispatchEvent('drop', { dataTransfer: drag });
+  await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+  await panel.getByRole('button', { name: 'Message actions', exact: true }).click();
+  const menu = panel.getByRole('menu');
+  await menu.dispatchEvent('dragenter', { dataTransfer: drag });
+  await menu.dispatchEvent('drop', { dataTransfer: drag });
+  await expect(panel.getByTestId('attachment-drop-overlay')).toHaveCount(0);
+  await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+  await menu.press('Escape');
+  await panel.dispatchEvent('dragenter', { dataTransfer: drag });
+  await expect(panel.getByTestId('attachment-drop-overlay')).toBeVisible();
+  await panel.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await expect(panel).toBeHidden();
+  await expect(panel.getByTestId('attachment-drop-overlay')).toHaveCount(0);
+  await panel.dispatchEvent('drop', { dataTransfer: drag });
+  await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+  const host = page.locator('#ask-page-fixture');
+  const { pageAction } = await import('../test/page-actions.js');
+  await (await pageAction(host, 'Files')).click();
+  const files = host.locator('.tmt-ui-drawer[data-panel=files][open]');
+  await files.dispatchEvent('drop', { dataTransfer: drag });
+  await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+  await files.getByRole('button', { name: 'Close Files', exact: true }).click();
+  await (await pageAction(host, 'Chat')).click();
+  await expect(panel.getByTestId('attachment-drop-overlay')).toHaveCount(0);
+  await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+  await expect(input).toBeVisible();
+  expect(await actions(page)).toEqual(before);
+  await page.evaluate(() => {
+    location.hash = '/pages/notes';
+  });
+  await expect(panel).toBeHidden();
+  await (await pageAction(host, 'Chat')).click();
+  const next = host.locator('.tmt-ui-drawer[data-panel=chat][open]');
+  await expect(next.getByTestId('attachment-chip')).toHaveCount(0);
+  await expect(next.getByTestId('attachment-drop-overlay')).toHaveCount(0);
+  await drag.dispose();
+});

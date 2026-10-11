@@ -6,6 +6,7 @@
 
 mod attention;
 mod digest;
+mod flow;
 mod history;
 mod notification;
 mod reply_batch;
@@ -157,6 +158,31 @@ fn checked_now(value: u64, label: &str) -> Result<i64, StorageError> {
 
 impl RequestRecords for RequestRows<'_> {
     type Error = StorageError;
+    fn increment_flow(
+        &mut self,
+        row: &tmt_core::request::flow::FlowRow,
+    ) -> Result<(), Self::Error> {
+        flow::increment(self.0, row)
+    }
+    fn flow_rows(
+        &self,
+        since: u64,
+        now: u64,
+    ) -> Result<Vec<tmt_core::request::flow::FlowRow>, Self::Error> {
+        flow::read(self.0, since, now)
+    }
+    fn prune_flow(&mut self, through: u64, limit: u64) -> Result<(), Self::Error> {
+        flow::prune(self.0, through, limit)
+    }
+    fn record_ackall_flow(
+        &mut self,
+        identity: &str,
+        incoming: bool,
+        latest: u64,
+        now: u64,
+    ) -> Result<(), Self::Error> {
+        flow::ackall(self.0, identity, incoming, latest, now)
+    }
 
     fn digest_policy(
         &self,

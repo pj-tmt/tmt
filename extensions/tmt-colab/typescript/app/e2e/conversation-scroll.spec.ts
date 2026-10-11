@@ -208,9 +208,9 @@ for (const surface of ['chat', 'thread'] as const) {
     await run(page, 'scrollArrival');
     await expect(jump).toBeVisible();
     await scroll(history, 0);
-    await window
+    await (surface === 'chat' ? page : window)
       .getByRole('button', {
-        name: surface === 'chat' ? 'Collapse Chat' : 'Collapse thread',
+        name: surface === 'chat' ? 'Close Chat' : 'Collapse thread',
         exact: true,
       })
       .click();

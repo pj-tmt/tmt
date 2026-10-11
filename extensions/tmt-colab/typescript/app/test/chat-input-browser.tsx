@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { AnnotationInput } from '../src/annotation-input.js';
 import type { AskBinding } from '../src/ask-panel.js';
 import { ConversationTurn } from '../src/components/conversation-turn.js';
-import { ActionMenu } from '../src/components/action-menu.js';
+import { BrowserMenu } from '@tmt/browser-ui/react';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { destination, id } from './ask-fixtures.js';
 
@@ -79,7 +79,7 @@ export function mountMenu(options: { tight?: boolean; spaceAbove?: boolean } = {
       actions={
         <>
           <span role="status">replied</span>
-          <ActionMenu
+          <BrowserMenu
             label="Message actions"
             items={[
               { key: 'edit', label: 'Edit' },

@@ -4,8 +4,7 @@ The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
 SPA foundation lives in `extensions/tmt-office/typescript/apps/office`; it is not a CLI fallback or a
 shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
 and release-verification tooling; the repository root has no Node package.
-Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace
-is not a second CLI runtime, an npm product, or a source-install fallback. A native source checkout selects
+Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace is not a second CLI runtime, npm product or source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
 native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
@@ -20,9 +19,7 @@ child; it listens on no network port. The independently installed Office compani
 run one explicit loopback-only browser service; it does not execute CLI work or change
 the CLI's invocation-owned storage policy.
 
-Any retained `better-sqlite3` use belongs to private developer tooling as an
-independent oracle. It is not a Rust runtime dependency or an alternate owner
-of native schema and application state.
+`better-sqlite3` is a private tooling oracle, never a Rust dependency or native state owner.
 
 ## Repository layout
 
@@ -51,6 +48,7 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 
 `tmt-ux-lead` owns shared visual tokens and the private browser leaf;
 [its contracts](design/gui-components.md) own generation and consumer boundaries.
+[Drawer/Menu](design/browser-ui/README.md#drawer-and-menu) are presentation-only.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
@@ -310,7 +308,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
-`request::digest` owns [delivery](contracts/extension-api.md#digest-policy-and-checklist).
+`request::digest` owns [delivery](contracts/extension-api.md#digest-policy-and-checklist); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
 Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient

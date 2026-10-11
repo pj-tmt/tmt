@@ -131,6 +131,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "clap",
             "clap_complete",
             "serde_json",
+            "time", // UTC human time formatting
         ],
         "tmt-command-output" => &["tmt-core", "tmt-adapters", "tmt-cli-style", "serde_json"],
         "tmt-digest" => &[

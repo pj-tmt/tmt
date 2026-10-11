@@ -76,7 +76,7 @@ test('the row menu sits in the byline row, appears on hover and focus, and keeps
   const items = page.getByRole('menuitem');
   await expect(items).toHaveText(['Edit', 'Delete']);
   // Opens below the trigger with right edges aligned, never over its own message.
-  const list = (await page.getByRole('menu').boundingBox())!;
+  const list = (await page.getByRole('dialog', { name: 'Message actions' }).boundingBox())!;
   expect(list.y).toBeGreaterThan(box.y + box.height - 1);
   expect(Math.round(list.x + list.width)).toBe(Math.round(box.x + box.width));
   await expect(items.first()).toBeFocused();
@@ -96,15 +96,16 @@ test('the row menu sits in the byline row, appears on hover and focus, and keeps
   expect((await run(page, 'proof')).selected).toEqual(['delete']);
 });
 
-test('the row menu flips above its trigger only when it would leave a short scrolling container', async ({
+test('the top-layer row menu flips above its trigger when it would leave the visual viewport', async ({
   page,
 }) => {
   await page.goto('/');
+  await page.setViewportSize({ width: 600, height: 430 });
   await run(page, 'mountMenu', { tight: true, spaceAbove: true });
   const trigger = page.getByRole('button', { name: 'Message actions' });
   await trigger.hover();
   await trigger.click();
-  const list = (await page.getByRole('menu').boundingBox())!;
+  const list = (await page.getByRole('dialog', { name: 'Message actions' }).boundingBox())!;
   const box = (await trigger.boundingBox())!;
   expect(list.y + list.height).toBeLessThanOrEqual(box.y + 1);
   await expect(page.getByRole('menuitem').first()).toBeInViewport({ ratio: 1 });
@@ -114,18 +115,17 @@ test('the row menu flips above its trigger only when it would leave a short scro
   expect((await run(page, 'proof')).selected).toEqual(['edit']);
 });
 
-test('a row menu remains clickable inside a scroll viewport when neither side of its row fits', async ({
-  page,
-}) => {
+test('a top-layer row menu remains clickable outside its short row container', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mountMenu', { tight: true });
   const trigger = page.getByRole('button', { name: 'Message actions' });
   await trigger.hover();
   await trigger.click();
-  const list = (await page.getByRole('menu').boundingBox())!;
+  const list = (await page.getByRole('dialog', { name: 'Message actions' }).boundingBox())!;
   const viewport = (await page.getByTestId('menu-viewport').boundingBox())!;
   expect(list.y).toBeGreaterThanOrEqual(viewport.y);
-  expect(list.y + list.height).toBeLessThanOrEqual(viewport.y + viewport.height);
+  expect(list.y + list.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  expect(list.y + list.height).toBeGreaterThan(viewport.y + viewport.height);
   await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeInViewport({
     ratio: 1,
   });

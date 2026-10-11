@@ -78,6 +78,17 @@ configuration. The owner map is in
   Talk renders `<tmt-reply from="…">` with the resolved originator's display name or `unknown`:
   XML-escaped presentation, not authentication.
 
+## Exchange flow
+
+`request::flow` defines content-free UTC bucket values and bounds; `RequestService`
+records accepted preparation/final, explicit successful retrieval and effective
+acknowledgment events in their existing transactions. `storage::requests::flow`
+owns aggregate SQL and bounded pruning inside request housekeeping. Observers and
+notices use ordinary response reads, never the explicit retrieval operation.
+`tmt x flow` reads all local pairs in an observation transaction, without caller
+selection, body loading or housekeeping. The [request contract](../../../../contracts/request-response-v1.md#content-free-exchange-flow)
+owns event cardinality, direction, window rounding and independent 30-day retention.
+
 ## Room and dispatch composition
 
 - `tmt-core::room::RoomRepository` is the shared CLI/HTTP roster boundary.

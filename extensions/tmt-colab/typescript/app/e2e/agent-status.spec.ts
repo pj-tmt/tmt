@@ -27,7 +27,7 @@ async function command(
 }
 async function openStatus(page: Page) {
   await (await pageAction(page, 'Agents')).click();
-  return page.locator('.page-drawer[data-panel=agents]');
+  return page.locator('.tmt-ui-drawer[data-panel=agents]');
 }
 async function proof(page: Page) {
   return page.evaluate(async () => {
@@ -160,9 +160,9 @@ test('replaced binding drops the old pending directory and retains a Chat draft'
 }) => {
   await page.goto(fixture);
   await (await pageAction(page, 'Chat')).click();
-  const chat = page.locator('.page-drawer[data-panel=chat]');
+  const chat = page.locator('.tmt-ui-drawer[data-panel=chat]');
   await chat.getByRole('combobox', { name: 'Message', exact: true }).fill('Retain this draft');
-  await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   const panel = await openStatus(page);
   await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
   await command(page, 'setMode', 'pending');
