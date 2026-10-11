@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEven
 import { X } from 'lucide-react';
 import { BrowserAction } from './action.js';
 import { BrowserIconAction } from './icon-action.js';
-import { admitsOverlayEscape } from './overlay.js';
+import { admitsOverlayEscape, restoreOverlayFocus } from './overlay.js';
 import { NotificationQueue, type BrowserNotificationData } from './notification-queue.js';
 
 export interface BrowserNotification extends BrowserNotificationData {
@@ -24,10 +24,18 @@ export function BrowserNotifications(props: BrowserNotificationsProps) {
 function NotificationSurface({ events, suspended, isEligible }: BrowserNotificationsProps) {
   const [queue] = useState(() => new NotificationQueue<BrowserNotification>());
   const surface = useRef<HTMLDivElement>(null);
+  const focusOrigin = useRef<Element | null>(null);
   const host = useRef({ suspended, isEligible });
   host.current = { suspended, isEligible };
   const [announcements, setAnnouncements] = useState<readonly BrowserNotification[]>([]);
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
+  function dismiss(id: string, target: HTMLElement) {
+    const focused = target
+      .closest('.tmt-ui-notification')!
+      .contains(target.ownerDocument.activeElement);
+    queue.remove(id);
+    if (focused) restoreOverlayFocus(focusOrigin.current);
+  }
 
   useLayoutEffect(() => {
     queue.start();
@@ -72,7 +80,17 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
             <span key={event.id}>{`${event.destination}: ${event.firstLine}\n`}</span>
           ))}
       </div>
-      <div ref={surface} popover="manual" className="tmt-ui-notifications">
+      <div
+        ref={surface}
+        popover="manual"
+        className="tmt-ui-notifications"
+        onFocusCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            focusOrigin.current =
+              event.relatedTarget instanceof Element ? event.relatedTarget : null;
+          }
+        }}
+      >
         {snapshot.visible.map((event) => (
           <article
             key={event.id}
@@ -94,7 +112,7 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
               ) {
                 keyEvent.preventDefault();
                 keyEvent.stopPropagation();
-                queue.remove(event.id);
+                dismiss(event.id, keyEvent.currentTarget);
               }
             }}
           >
@@ -106,7 +124,7 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
                 label={`Dismiss ${event.destination} reply`}
                 icon={<X />}
                 onActivate={(activation) => {
-                  if (activation.isTrusted) queue.remove(event.id);
+                  if (activation.isTrusted) dismiss(event.id, activation.currentTarget);
                 }}
               />
             </div>

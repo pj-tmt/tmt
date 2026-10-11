@@ -307,6 +307,7 @@ does not resume presentation. Header counts remain independent.
 The top layer sits below the shared header at the right, without a catching
 backdrop or autofocus. Arrival preserves focus. Natural Tab reaches controls;
 plain Escape in a focused card dismisses that card and consumes its event.
+Escape or Dismiss restores the connected, visible focus origin from before entry into the surface; Open leaves focus to the host.
 Other owners retain Escape. Opaque square cards use shared roles, a 1px edge,
 no shadow and no animation. Visual line clamps retain the complete text in the
 accessibility tree. A separate persistent polite status announces each newly

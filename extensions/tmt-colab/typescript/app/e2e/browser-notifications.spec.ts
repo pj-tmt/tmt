@@ -98,6 +98,33 @@ for (const [width, theme] of [
   });
 }
 
+for (const key of ['Escape', 'Enter']) {
+  test(`focused ${key === 'Escape' ? 'Escape' : 'Dismiss'} restores the field focus origin`, async ({
+    page,
+  }) => {
+    await mount(page);
+    // This case puts the field directly before the surface in the Tab route.
+    // The other scenarios retain the authored frame's normal keyboard/pointer behavior.
+    await page.locator('iframe').evaluate((node: HTMLIFrameElement) => {
+      node.tabIndex = -1;
+    });
+    const typing = page.getByRole('textbox', { name: 'Retained focus' });
+    await typing.focus();
+    await page
+      .getByRole('button', { name: 'Admit one', exact: true })
+      .evaluate((node: HTMLButtonElement) => node.click());
+    await page.keyboard.press('Tab');
+    await expect(
+      page.getByRole('button', { name: 'Dismiss Chat reply', exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press(key);
+    await expect(cards(page)).toHaveCount(0);
+    await expect(typing).toBeFocused();
+    await expect(page.getByTestId('activations')).toBeEmpty();
+    await expect(page.getByTestId('outer-escapes')).toHaveText('0');
+  });
+}
+
 test('FIFO expiry, deduplication, trusted activation and page lifetime', async ({ page }) => {
   await mount(page);
   await page.getByRole('button', { name: 'Admit five', exact: true }).click();
