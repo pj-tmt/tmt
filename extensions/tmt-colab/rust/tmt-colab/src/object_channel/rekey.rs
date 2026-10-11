@@ -291,8 +291,11 @@ fn repair(
         if slot.record.done_ms.is_none() {
             slot.finish(crate::registration::now_ms()?)?;
         }
-        let repaired =
-            rekey::repair_source(&folded.source, &old, &descriptor.attachment_id, &listed);
+        let Some(repaired) =
+            rekey::repair_source(&folded.source, &old, &descriptor.attachment_id, &listed)
+        else {
+            return Err(page::Fault::Unavailable.into());
+        };
         if repaired == folded.source {
             slot.repaired()?;
             return Ok(true);

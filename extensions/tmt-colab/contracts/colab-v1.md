@@ -3908,9 +3908,11 @@ a slot that records the attachment it `replaces`, and runs the native attach pip
 the current epoch as the local writer, a new `attachmentId`, upload, creation proof, then one Save
 whose `DocumentChange` removes the old ID and sets the new descriptor, bound to the source digest.
 Readers therefore see the old complete reference or the new complete one, never a half swap.
-A second ordinary owner Save repairs exact `colab-attachment:` references to the old full ID or
-unique id8 with the new full ID, from the latest verified source and without an attachment delta.
-Unrelated source bytes remain unchanged; ambiguous short references are left alone. A stale Save
+A second ordinary owner Save repairs complete `img src` values containing `colab-attachment:`
+references to the old full ID or unique id8 with the new full ID, from the latest verified source and without an attachment delta.
+Unrelated source bytes remain unchanged, including prose, examples, comments and other attributes;
+ambiguous short references are left alone. If the editable values do not agree with the parsed
+images, the source stays unchanged and the repair waits. A stale Save
 is derived again, and an uncertain reply is settled by reading the current page before another
 Save. Until that repair, an image reference shows the normal unavailable placeholder; it is
 repaired on the next successful maintenance pass. A descriptor is swapped inside the baseline neither now nor later: its creation proof is an own

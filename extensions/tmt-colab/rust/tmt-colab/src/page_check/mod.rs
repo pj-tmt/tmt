@@ -10,6 +10,8 @@ mod image;
 mod question;
 mod tree;
 
+pub(crate) use image::repair_references;
+
 use crate::decoder::BASELINE_BYTES;
 
 /// What a finding means for the block it names.

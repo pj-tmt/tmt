@@ -371,7 +371,7 @@ fn an_ambiguous_short_reference_is_left_untouched_but_the_full_reference_is_repa
     let new = "30000000-0000-4000-8000-000000000092";
     assert_eq!(
         pending::repair_source(&html, &old.attachment_id, new, &[another]),
-        html.replace(&old.attachment_id, new)
+        Some(html.replace(&old.attachment_id, new))
     );
 }
 
@@ -641,4 +641,36 @@ fn a_rekey_pass_swaps_at_most_a_batch_and_the_rest_wait_for_the_next_pass() {
     assert_eq!(flow.rekey().swapped, 1);
     assert!(flow.waiting().is_empty());
     assert_eq!(flow.listed().len(), rekey::BATCH + 1);
+}
+
+#[test]
+fn a_source_parse_mismatch_waits_without_saving_and_can_resume_after_an_owner_edit() {
+    let mut flow = Flow::new();
+    let old = flow.attached();
+    let html = format!("<img src='colab-attachment&#58;{}'>", old.attachment_id);
+    flow.write_source(html.clone());
+    flow.forget_transfer();
+    flow.advance();
+    let before = flow.published();
+    assert_eq!(flow.rekey().waiting, 1);
+    assert_eq!(
+        flow.published() - before,
+        2,
+        "proof and attachment swap only"
+    );
+    assert_eq!(flow.source_text(), html);
+    assert_eq!(flow.slots.repairs(PAGE).unwrap().len(), 1);
+    assert_eq!(flow.rekey().waiting, 1);
+    assert_eq!(flow.published() - before, 2);
+    flow.write_source(format!(
+        "<img src='colab-attachment:{}'>",
+        old.attachment_id
+    ));
+    assert_eq!(flow.rekey().waiting, 0);
+    let new = &flow.listed()[0].attachment_id;
+    assert_eq!(
+        flow.source_text(),
+        format!("<img src='colab-attachment:{new}'>")
+    );
+    assert!(flow.slots.repairs(PAGE).unwrap().is_empty());
 }

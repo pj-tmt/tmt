@@ -5,41 +5,18 @@ use crate::{Result, page};
 use std::time::Instant;
 use tmt_colab_model::attachment::Descriptor;
 
-/// Replace complete attachment references, leaving every unrelated byte untouched. The old ID
+/// Replace complete image source references, leaving every unrelated byte untouched. The old ID
 /// remains a candidate for its short prefix even though the swap removed it from the list.
-pub(crate) fn repair_source(source: &str, old: &str, new: &str, listed: &[Descriptor]) -> String {
-    const PREFIX: &str = "colab-attachment:";
-    let short = &old[..8];
+pub(crate) fn repair_source(
+    source: &str,
+    old: &str,
+    new: &str,
+    listed: &[Descriptor],
+) -> Option<String> {
     let unique = !listed
         .iter()
-        .any(|item| item.attachment_id != old && item.attachment_id.starts_with(short));
-    let mut result = String::with_capacity(source.len());
-    let mut rest = source;
-    while let Some(start) = rest.find(PREFIX) {
-        if rest[..start]
-            .chars()
-            .next_back()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || "-_.:/?#%+=&;~@!$*".contains(c))
-        {
-            result.push_str(&rest[..start + PREFIX.len()]);
-            rest = &rest[start + PREFIX.len()..];
-            continue;
-        }
-        result.push_str(&rest[..start + PREFIX.len()]);
-        rest = &rest[start + PREFIX.len()..];
-        let end = rest
-            .find(|c: char| !c.is_ascii_alphanumeric() && !"-_.:/?#%+=&;~@!$*".contains(c))
-            .unwrap_or(rest.len());
-        let token = &rest[..end];
-        result.push_str(if token == old || (unique && token == short) {
-            new
-        } else {
-            token
-        });
-        rest = &rest[end..];
-    }
-    result.push_str(rest);
-    result
+        .any(|item| item.attachment_id != old && item.attachment_id.starts_with(&old[..8]));
+    crate::page_check::repair_references(source, old, new, unique)
 }
 
 /// The document attachments sealed under an earlier epoch, in a stable order, and the epoch they
@@ -94,10 +71,43 @@ mod tests {
                 &format!("\"colab-attachment:{NEW}\""),
                 1,
             );
-        assert_eq!(repair_source(&source, OLD, NEW, &[]), expected);
+        assert_eq!(repair_source(&source, OLD, NEW, &[]), Some(expected));
         assert_eq!(
             repair_source("unrelated é 🦀", OLD, NEW, &[]),
-            "unrelated é 🦀"
+            Some("unrelated é 🦀".into())
         );
+    }
+    #[test]
+    fn prose_examples_other_attributes_and_comments_are_unchanged() {
+        for other in [
+            format!("<p>colab-attachment:{OLD}</p>"),
+            format!("<code>&lt;img src='colab-attachment:{OLD}'&gt;</code>"),
+            format!("<img alt='colab-attachment:{OLD}' data-src='colab-attachment:{OLD}'>"),
+            format!("<!-- <img src='colab-attachment:{OLD}'> -->"),
+            format!("<script>const example = \"<img src='colab-attachment:{OLD}'>\";</script>"),
+            format!("<textarea><img src='colab-attachment:{OLD}'></textarea>"),
+            format!("<a src='colab-attachment:{OLD}'>sample</a>"),
+            format!(
+                "<img src='colab-attachment:{OLD}.png'><img src='prefixcolab-attachment:{OLD}'>"
+            ),
+            format!("<!DOCTYPE html PUBLIC \"<img src='colab-attachment:{OLD}'>\">"),
+        ] {
+            let source = format!("{other}<IMG SRC=colab-attachment:{OLD}>");
+            assert_eq!(
+                repair_source(&source, OLD, NEW, &[]),
+                Some(format!("{other}<IMG SRC=colab-attachment:{NEW}>"))
+            );
+        }
+    }
+
+    #[test]
+    fn parsed_and_editable_image_counts_must_match() {
+        for source in [
+            format!("<template><img src='colab-attachment:{OLD}'></template>"),
+            format!("<img src='colab-attachment&#58;{OLD}'>"),
+            format!("<img src='colab-attachment:{OLD}' src='colab-attachment:{OLD}'>"),
+        ] {
+            assert_eq!(repair_source(&source, OLD, NEW, &[]), None);
+        }
     }
 }
