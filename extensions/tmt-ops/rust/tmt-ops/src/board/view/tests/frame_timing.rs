@@ -161,10 +161,10 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     };
     if let Some(mut line) = usage {
         app.home_counters.borrow_mut().place_header(meter_status);
-        if overview == Some(app.selected) {
-            if let Some(first) = line.spans.first_mut() {
-                first.content = format!("> {}", first.content.trim_start()).into();
-            }
+        if overview == Some(app.selected)
+            && let Some(first) = line.spans.first_mut()
+        {
+            first.content = format!("> {}", first.content.trim_start()).into();
         }
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
