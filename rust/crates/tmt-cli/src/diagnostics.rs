@@ -4,22 +4,26 @@ use clap::{Arg, Command};
 
 use crate::invocation::OutputMode;
 
-/// Recover only presentation mode after Clap rejects an invocation. Clap stops
+/// Recover presentation mode and a public help path after Clap rejects input. Clap stops
 /// at unknown options, whereas the reference parser can retain later flags.
 /// Arity and scope come from the same grammar; this never constructs requests,
 /// repairs invalid input, dispatches commands or inspects option-value contents.
-pub fn error_mode(definition: &Command, argv: &[OsString]) -> OutputMode {
-    inspect(definition, argv).0
+pub fn error_context(definition: &Command, argv: &[OsString]) -> (OutputMode, Vec<String>) {
+    let (mode, _, path) = inspect(definition, argv);
+    (mode, path)
 }
 
 /// Help intent uses the same grammar-aware value boundaries as error mode.
 /// It never treats an option value or data after `--` as a help request.
 pub fn help_intent(definition: &Command, argv: &[OsString]) -> Option<(Vec<String>, OutputMode)> {
-    let (mode, path) = inspect(definition, argv);
+    let (mode, path, _) = inspect(definition, argv);
     path.map(|path| (path, mode))
 }
 
-fn inspect(definition: &Command, argv: &[OsString]) -> (OutputMode, Option<Vec<String>>) {
+fn inspect(
+    definition: &Command,
+    argv: &[OsString],
+) -> (OutputMode, Option<Vec<String>>, Vec<String>) {
     let mut mode = OutputMode::default();
     let mut help = None;
     let mut valid = true;
@@ -130,7 +134,13 @@ fn inspect(definition: &Command, argv: &[OsString]) -> (OutputMode, Option<Vec<S
             })
         });
     }
-    (mode, if valid { help } else { None })
+    let public_path = commands
+        .iter()
+        .skip(1)
+        .take_while(|command| !command.is_hide_set())
+        .map(|command| command.get_name().to_owned())
+        .collect();
+    (mode, if valid { help } else { None }, public_path)
 }
 
 fn find_option<'a>(commands: &[&'a Command], predicate: impl Fn(&Arg) -> bool) -> Option<&'a Arg> {
