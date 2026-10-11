@@ -235,16 +235,181 @@ test('harness: teardown waits for the recipient and its tmt run pane before stop
 
 // A slow pane remains a failure even though the rest of cleanup still runs.
 test('harness: an unfinished recipient pane is reported without relaxing the leak guard', async () => {
-  await withWorld(async (world) => {
-    world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
-    const recipient = await world.startAgent('claude-unfinished', {
-      driver: 'claude',
-      stopGated: true,
-    });
-    const leaks = await world.dispose();
-    expect(leaks).toContain(
-      `agent pane ${recipient.pane}: Timed out: agent pane ${recipient.pane} completion`,
-    );
-    expect(fs.existsSync(world.root)).toBe(false);
+  await expect(
+    withWorld(async (world) => {
+      world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
+      const recipient = await world.startAgent('claude-unfinished', {
+        driver: 'claude',
+        stopGated: true,
+      });
+      const leaks = await world.dispose();
+      expect(leaks).toContain(
+        `agent pane ${recipient.pane}: Timed out: agent pane ${recipient.pane} completion`,
+      );
+      expect(fs.existsSync(world.root)).toBe(false);
+    }),
+  ).rejects.toThrow(/agent pane %\d+: Timed out: agent pane %\d+ completion/);
+});
+
+// Re-entrant disposal must join the first owner, including its leak report.
+test('harness: concurrent disposal joins cleanup and preserves its report', async () => {
+  const { AcceptanceWorld } = await import('./harness/world.js');
+  const world = new AcceptanceWorld();
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  world.onDispose(async () => {
+    await gate;
+    throw new Error('injected closer failure');
   });
+  const first = world.dispose();
+  const second = world.dispose();
+  expect(second).toBe(first);
+  let finished = false;
+  void second.then(() => (finished = true));
+  await Promise.resolve();
+  expect(finished).toBe(false);
+  expect(fs.existsSync(world.root)).toBe(true);
+  release();
+  const report = await first;
+  expect(await second).toBe(report);
+  expect(report).toEqual(['closer: injected closer failure']);
+  expect(fs.existsSync(world.root)).toBe(false);
+});
+
+test('harness: scenario and cleanup failures are both retained', async () => {
+  let failure: unknown;
+  try {
+    await withWorld(async (world) => {
+      world.onDispose(async () => {
+        throw new Error('injected cleanup failure');
+      });
+      throw new Error('injected scenario failure');
+    });
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(AggregateError);
+  const errors = (failure as AggregateError).errors as Error[];
+  expect(errors.map((error) => error.message).join('\n')).toContain('injected scenario failure');
+  expect(errors.map((error) => error.message).join('\n')).toContain('injected cleanup failure');
+});
+
+// Actual Playwright cancellation, including timeout while withWorld is already disposing.
+test('harness: child timeouts join teardown and leave no worlds', async () => {
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const { execFile, execFileSync } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { alive } = await import('./harness/process.js');
+  const directory = fs.mkdtempSync(path.join(fs.realpathSync('/tmp'), 'colab-timeout-proof-'));
+  const harness = fileURLToPath(new URL('./harness/', import.meta.url));
+  const config = path.join(directory, 'playwright.config.cjs');
+  fs.writeFileSync(
+    config,
+    `module.exports = ${JSON.stringify({
+      testDir: harness,
+      testMatch: 'timeout.fixture.ts',
+      workers: 1,
+      retries: 0,
+      timeout: 30_000,
+      outputDir: path.join(directory, 'results'),
+      reporter: [['line'], ['json', { outputFile: path.join(directory, 'report.json') }]],
+    })}`,
+  );
+  let records: Array<{
+    root: string;
+    case: string;
+    stage: string;
+    leaks: number;
+    pids: number[];
+    tmuxPid: number;
+    tmuxSocket: string;
+  }> = [];
+  try {
+    let output = '';
+    let code: unknown;
+    try {
+      await promisify(execFile)(
+        process.execPath,
+        [
+          fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url)),
+          'test',
+          '--config',
+          config,
+        ],
+        {
+          env: {
+            ...process.env,
+            TMT_AGENT: '1',
+            BROWSER: '/usr/bin/true',
+            TMT_ACCEPTANCE_KEEP: '0',
+          },
+          timeout: 60_000,
+          maxBuffer: 2_000_000,
+        },
+      );
+    } catch (error) {
+      const result = error as Error & { code: unknown; stdout: string; stderr: string };
+      code = result.code;
+      output = result.stdout + result.stderr;
+    }
+    records = output.split('\n').flatMap((line) => {
+      const match = line.match(/colab-world (\{.*\})/);
+      return match
+        ? [
+            JSON.parse(match[1]) as {
+              root: string;
+              case: string;
+              stage: string;
+              leaks: number;
+              pids: number[];
+              tmuxPid: number;
+              tmuxSocket: string;
+            },
+          ]
+        : [];
+    });
+    expect(code, output).toBe(1);
+    expect(output).toContain('2 failed');
+    const report = JSON.parse(fs.readFileSync(path.join(directory, 'report.json'), 'utf8')) as {
+      suites: Array<{ specs: Array<{ tests: Array<{ results: Array<{ status: string }> }> }> }>;
+    };
+    expect(report.suites[0].specs.map((spec) => spec.tests[0].results[0].status)).toEqual([
+      'timedOut',
+      'timedOut',
+    ]);
+    await test.info().attach('child-timeout-lifecycle', {
+      body: JSON.stringify(records),
+      contentType: 'application/json',
+    });
+    const completed = records.filter((record) => record.stage === 'complete');
+    expect(completed, output).toHaveLength(2);
+    for (const record of completed) {
+      expect(record.case).toMatch(/^child timeout:/);
+      expect(record.leaks).toBe(0);
+      expect(fs.existsSync(record.root)).toBe(false);
+      expect(record.pids.every((pid) => !alive(pid) && !alive(-pid))).toBe(true);
+      expect(alive(record.tmuxPid)).toBe(false);
+    }
+    // Lifecycle output uses only identities, never the paired URL, seed or arguments.
+    expect(JSON.stringify(records)).not.toMatch(/https?:|#|seed|capability|argv/);
+    console.log(`Child timeout qualification: ${completed.length} worlds cleaned`);
+  } finally {
+    // Failure/sensitivity cleanup is restricted to the child-recorded owned identities.
+    // Assertions above still fail: emergency cleanup never qualifies a leaking run.
+    for (const record of records.filter((record) => record.stage === 'begin')) {
+      for (const pid of record.pids) {
+        if (
+          alive(pid) &&
+          execFileSync('/bin/ps', ['-p', String(pid), '-o', 'command='], {
+            encoding: 'utf8',
+          }).includes(record.root)
+        )
+          process.kill(-pid, 'SIGKILL');
+      }
+      if (alive(record.tmuxPid)) execFileSync('tmux', ['-S', record.tmuxSocket, 'kill-server']);
+      fs.rmSync(record.root, { recursive: true, force: true });
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

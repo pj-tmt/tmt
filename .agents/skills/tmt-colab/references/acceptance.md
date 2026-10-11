@@ -158,7 +158,11 @@ a stand-in. Assert the recipient's text equals the disclosed bytes captured on E
 timeout. Playwright abandons a timed-out scenario without cancelling it, so a disposed world
 refuses new children, tmux calls and closers (the scenario then fails on its own), each closer is
 bounded to 10 s, and `disposeActiveWorlds` throws the leak report instead of dropping it.
-`harness.spec.ts` drives those paths without a real timeout. A worker that Playwright kills
+All disposal callers join one promise; the world stays registered until cleanup settles,
+and simultaneous scenario and cleanup failures are both reported. Allowlisted lifecycle
+records link the case/worker to its root and process/tmux identities without URLs or seeds.
+`harness.spec.ts` also runs an excluded child fixture through real Playwright timeouts,
+including a timeout while cleanup is already running, and checks process absence. A worker that Playwright kills
 outright (a hook timeout) can still leave a world behind; no hook can run then.
 
 `reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page write`

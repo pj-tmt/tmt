@@ -110,10 +110,16 @@ export class AcceptanceWorld {
   private sessionId = '';
   private hostPane = '';
   private disposed = false;
+  private disposal?: Promise<string[]>;
+  private readonly caseIdentity: { case: string; worker: number };
   private readonly closerBoundMs: number;
 
-  constructor(binaries = resolveBinaries(), options: { closerBoundMs?: number } = {}) {
+  constructor(
+    binaries = resolveBinaries(),
+    options: { closerBoundMs?: number; caseIdentity?: { case: string; worker: number } } = {},
+  ) {
     this.binaries = binaries;
+    this.caseIdentity = options.caseIdentity ?? { case: 'direct world', worker: -1 };
     this.closerBoundMs = options.closerBoundMs ?? CLOSER_BOUND_MS;
     for (const directory of [
       this.home,
@@ -445,9 +451,31 @@ export class AcceptanceWorld {
    * runs fully; the leak report is thrown afterwards so an injected assertion
    * failure in the scenario still exercises the same checks.
    */
-  async dispose(): Promise<string[]> {
-    if (this.disposed) return [];
-    this.disposed = true;
+  dispose(): Promise<string[]> {
+    if (!this.disposal) {
+      this.disposed = true;
+      this.disposal = this.teardown();
+    }
+    return this.disposal;
+  }
+
+  /** Only allowlisted identity fields: never child argv, browser URLs or error text. */
+  private lifecycle(stage: string, leaks = 0): void {
+    console.log(
+      `colab-world ${JSON.stringify({
+        ...this.caseIdentity,
+        root: this.root,
+        stage,
+        leaks,
+        pids: [...this.processes].map((owned) => owned.pid),
+        tmuxPid: this.serverPid,
+        tmuxSocket: this.socketPath,
+      })}`,
+    );
+  }
+
+  private async teardown(): Promise<string[]> {
+    this.lifecycle('begin');
     const leaks: string[] = [];
     const attempt = async (what: string, action: () => Promise<void> | void) => {
       try {
@@ -500,6 +528,7 @@ export class AcceptanceWorld {
         );
       });
     }
+    this.lifecycle('processes');
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
     if (this.serverPid) {
       await attempt('tmux server', async () => {
@@ -520,6 +549,7 @@ export class AcceptanceWorld {
     // TMT_ACCEPTANCE_KEEP=1 keeps the root (logs, stderr, counters) for diagnosis.
     if (process.env.TMT_ACCEPTANCE_KEEP !== '1')
       fs.rmSync(this.root, { recursive: true, force: true });
+    this.lifecycle('complete', leaks.length);
     return leaks;
   }
 

@@ -1,3 +1,4 @@
+import { test } from '@playwright/test';
 import { AcceptanceWorld } from './world.js';
 
 const active = new Set<AcceptanceWorld>();
@@ -7,7 +8,10 @@ const active = new Set<AcceptanceWorld>();
  * cleanup and the leak report always run; a leak fails an otherwise green run.
  */
 export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise<T>): Promise<T> {
-  const world = new AcceptanceWorld();
+  const info = test.info();
+  const world = new AcceptanceWorld(undefined, {
+    caseIdentity: { case: info.title, worker: info.workerIndex },
+  });
   active.add(world);
   let result: T | undefined;
   let failure: unknown;
@@ -19,10 +23,19 @@ export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise
     failed = true;
     failure = error;
   }
-  const leaks = await world.dispose();
-  active.delete(world);
-  if (failed) throw failure;
-  if (leaks.length > 0) throw new Error(`Acceptance world leaked:\n${leaks.join('\n')}`);
+  const failures: unknown[] = failed ? [failure] : [];
+  try {
+    const leaks = await world.dispose();
+    if (leaks.length > 0)
+      failures.push(new Error(`Acceptance world ${world.root} leaked:\n${leaks.join('\n')}`));
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    active.delete(world);
+  }
+  if (failures.length > 1)
+    throw new AggregateError(failures, 'Scenario failed and acceptance cleanup leaked');
+  if (failures.length === 1) throw failures[0];
   return result as T;
 }
 
@@ -34,8 +47,13 @@ export async function withWorld<T>(scenario: (world: AcceptanceWorld) => Promise
 export async function disposeActiveWorlds(): Promise<void> {
   const leaks: string[] = [];
   for (const world of active) {
-    active.delete(world);
-    for (const leak of await world.dispose()) leaks.push(`${world.root}: ${leak}`);
+    try {
+      for (const leak of await world.dispose()) leaks.push(`${world.root}: ${leak}`);
+    } catch (error) {
+      leaks.push(`${world.root}: teardown failed: ${String(error)}`);
+    } finally {
+      active.delete(world);
+    }
   }
   if (leaks.length > 0) throw new Error(`Acceptance world leaked:\n${leaks.join('\n')}`);
 }

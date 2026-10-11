@@ -101,7 +101,7 @@ export interface PairedBrowser {
 /** Close each page, then the browser, naming the stage so a bounded overrun reports where it stopped. */
 async function closeContext(context: BrowserContext, stage: (name: string) => void) {
   for (const page of context.pages()) {
-    stage(`closing page ${page.url().slice(0, 80)}`);
+    stage('closing page');
     await page.close({ runBeforeUnload: false });
   }
   stage('closing the browser context');
