@@ -325,7 +325,7 @@ export function QuestionCard({
                 setRecipient(edit);
               }}
               label="Answer recipient"
-              placeholder="Choose an @agent, or leave blank for the thread only"
+              placeholder="Choose an @agent (optional)"
               candidates={agents}
               disabled={disabled}
             />
