@@ -32,9 +32,9 @@ import type { AcceptanceWorld } from './harness/world.js';
 
 const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence for the agent.</p>';
 
-/** Arm before Remote dies; a fresh mounted registration proves post-restart recovery. */
+/** Arm before Remote dies; a fresh mounted registration proves post-restart recovery. The page
+ * reconnects by itself (#2572): there is nothing to click. */
 function restartRecovery(page: Page) {
-  const control = page.getByRole('button', { name: 'Reconnect', exact: true });
   const content = page.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' });
   let registered = false;
   const observe = (response: Response) => {
@@ -48,12 +48,11 @@ function restartRecovery(page: Page) {
   page.on('response', observe);
   return async () => {
     try {
-      await expect
-        .poll(async () => registered || (await control.isVisible()), { timeout: 60_000 })
-        .toBe(true);
-      if (await control.isVisible()) await control.click();
-      await expect.poll(() => registered, { timeout: 60_000 }).toBe(true);
-      await expect(page.locator('.status.live .status-label')).toHaveText('Live');
+      await expect.poll(() => registered, { timeout: 90_000 }).toBe(true);
+      await expect(page.locator('.status.live .status-label')).toHaveText('Live', {
+        timeout: 60_000,
+      });
+      await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
       await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toHaveCount(
         0,
       );
@@ -228,7 +227,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
 
   for (const width of [1440, 390])
     for (const surface of ['Chat', 'annotation'] as const) {
-      test(`explicit Reconnect retains the mounted ${surface} draft and caret at ${width} without resending`, async ({
+      test(`automatic reconnect retains the mounted ${surface} draft and caret at ${width} without resending`, async ({
         browserName,
       }, testInfo) => {
         expect(browserName).toBe('chromium');
@@ -263,8 +262,15 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             exact: true,
           });
           await s.door.remote.kill();
-          const reconnect = s.askerPage.getByRole('button', { name: 'Reconnect', exact: true });
-          await expect(reconnect).toHaveCount(1, { timeout: 60000 });
+          // The page keeps trying on its own: the chip says so and nothing asks for a click.
+          await expect(s.askerPage.locator('.status')).toHaveText(/Reconnecting…/, {
+            timeout: 60_000,
+          });
+          await expect(
+            s.askerPage.getByRole('button', { name: 'Reconnect', exact: true }),
+          ).toHaveCount(0);
+          // Reconnecting is silent in the open drawer too; only an ended connection speaks there.
+          await expect(s.askerPage.locator('.drawer-recovery')).toHaveCount(0);
           const draft = `Keep this draft typed while disconnected. @${s.recipient.name}`;
           await input.fill(draft);
           await input.evaluate((node) => {
@@ -308,20 +314,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             await expect(
               container.getByRole('button', { name: 'Send', exact: true }),
             ).toBeDisabled();
-          await reconnect.click(); // Door still down: retry remains available, without reload.
-          await expect(reconnect).toBeEnabled();
-          if (surface === 'Chat') {
-            const notice = s.askerPage.locator('.tmt-ui-drawer[data-panel=chat] .drawer-recovery');
-            await expect(notice).toContainText('✗ Connection lost');
-            await expect(
-              notice.getByRole('button', { name: 'Reconnect', exact: true }),
-            ).toBeVisible();
-          } else {
-            await expect(
-              s.askerPage.getByRole('heading', { name: 'Connection lost', exact: true }),
-            ).toBeVisible();
-          }
-          if (surface === 'Chat') await openChat(s.askerPage);
+          // Door still down: the owner keeps retrying behind the draft, with no card in the way.
+          await expect(
+            s.askerPage.getByRole('heading', { name: 'Connection lost', exact: true }),
+          ).toHaveCount(0);
           await input.focus();
           await expect.poll(selection).toEqual(before);
           await expect(input).toHaveText(draft);
@@ -346,9 +342,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             Object.assign(window, { __holdFreshDirectory: true });
           });
           await restartRemote(world, s.door);
-          await reconnect.click();
-          await expect(reconnect).toHaveCount(0);
-          await expect(s.askerPage.locator('.status.live .status-label')).toHaveText('Live');
+          // The owner's next attempt admits the replacement without a click or a reload.
+          await expect(s.askerPage.locator('.status.live .status-label')).toHaveText('Live', {
+            timeout: 90_000,
+          });
           await expect(
             s.askerPage.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' }),
           ).toBeVisible();

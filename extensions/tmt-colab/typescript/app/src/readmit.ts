@@ -1,11 +1,5 @@
 import { classify } from './connection-state.js';
 
-/**
- * A paired owner's open page ends with a `reopen` refusal when the page epoch advances or an
- * authority recheck drops its sync socket (#2557); `connection-state.ts` owns which codes those are.
- */
-export const readmittable = (error: Error): boolean => classify(error).recovery === 'reopen';
-
 /** At most `limit` automatic reopens inside `windowMs`; a page that keeps failing then stops. */
 export class ReadmitBudget {
   #times: number[] = [];

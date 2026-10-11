@@ -1,7 +1,6 @@
 import type { Selection } from './management.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
-  BrowserAction,
   BrowserCommand,
   BrowserIconAction,
   BrowserList,
@@ -10,7 +9,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ArrowUpRight, LoaderCircle, Moon, MousePointer2, Sun } from 'lucide-react';
+import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -47,12 +46,11 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
-import { ConnectionOwner, reconnectAttempt } from './connection-owner.js';
-import { PageReopener, readmittable, ReadmitBudget, retryableReopen } from './readmit.js';
+import type { EndedAction } from './connection-model.js';
+import { useConnection } from './use-connection.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
-import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
 import { BrowserDrawer, BrowserMenu } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
@@ -322,13 +320,19 @@ function ReconnectFailure() {
 }
 
 /** A terminal refusal as a sentence; its raw code stays as a small reference. */
-function TerminalFailure({ error }: { error: Error }) {
+function TerminalFailure({
+  error,
+  reference: showReference = true,
+}: {
+  error: Error;
+  reference?: boolean;
+}) {
   if (error.message === managementChanged) return <p>{managementChanged}</p>;
   const { sentence, reference } = terminalFailure(error);
   return (
     <>
       <p>{sentence === text.reconnectFailed ? <ReconnectFailure /> : sentence}</p>
-      {reference && (
+      {showReference && reference && (
         <p>
           <small className="failure-reference">
             {text.failureCodeLabel}{' '}
@@ -340,6 +344,50 @@ function TerminalFailure({ error }: { error: Error }) {
       )}
     </>
   );
+}
+
+/** The sentence and the one action of an ended connection, shared by the page card and the drawer row; the row leaves out the failure code. */
+function EndedBody({
+  error,
+  action,
+  compact,
+}: {
+  error: Error;
+  action: EndedAction;
+  compact?: boolean;
+}) {
+  if (error instanceof SessionEvictedError)
+    return (
+      <>
+        <p>{text.sessionEvicted(error.limit)}</p>
+        <p>{text.sessionLimitCommand} </p>
+        <BrowserCommand text={`tmt remote settings sessions-per-device ${error.limit + 1}`} />
+        {error.settingsUrl && (
+          <p>
+            <a href={error.settingsUrl}>{text.remoteSettings}</a>
+          </p>
+        )}
+      </>
+    );
+  return (
+    <>
+      <TerminalFailure error={error} reference={!compact} />
+      {action === 'pair' && (
+        <>
+          <p>{text.pairAgain}</p>
+          <BrowserCommand text={text.reconnectCommand} />
+        </>
+      )}
+    </>
+  );
+}
+
+function EndedLink({ action }: { action: EndedAction }) {
+  return action === 'pages' ? (
+    <Link className={ui.action} data-variant="text" to="/">
+      {text.retry}
+    </Link>
+  ) : null;
 }
 
 const root = createRootRouteWithContext<{ transport: PageTransport; space?: string }>()({
@@ -742,9 +790,20 @@ function Page() {
     base = useRef(snapshot.source);
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
-  const [liveError, setLiveError] = useState<Error | null>(null),
-    [eviction, setEviction] = useState<SessionEvictedError | null>(null),
-    [editError, setEditError] = useState<SaveProblem | null>(null);
+  const [editError, setEditError] = useState<SaveProblem | null>(null);
+  const { state: connection, controller: connectionOwner } = useConnection({
+    loaded,
+    binding: () => snapshot.binding,
+    reopen: (signal) => transport.page(loaded.id, signal),
+    // A reopened binding replaces the loaded snapshot until the route loads a newer one.
+    opened: (next) => setReopened({ from: loaded, next }),
+    failed: () => void buildWatch.check(),
+  });
+  // Anything not connected holds writes; only an ended connection replaces the page with a card.
+  const liveError = connection.phase === 'connected' ? null : connection.error;
+  const endedError = connection.phase === 'ended' ? connection.error : null;
+  const recoveryRequired = connection.phase === 'reconnecting';
+  const endedAction = connection.phase === 'ended' ? connection.action : 'none';
   const agents = useAgentPresentation(
     snapshot.binding?.ask,
     snapshot.id,
@@ -760,40 +819,7 @@ function Page() {
     if (archived && !wasArchived.current) setArchiveAnnouncement(text.archiveAnnouncement);
     wasArchived.current = archived;
   }, [archived]);
-  const recoveryRequired = liveError instanceof RecoveryRequiredError;
-  const readmit = useRef(new ReadmitBudget());
-  // A route reload brings its own binding: a reopened one and an attempt in flight end with it.
-  const reopener = useRef(new PageReopener<typeof loaded>());
-  useEffect(() => () => reopener.current.reset(), [loaded]);
-  const liveErrorRef = useRef<Error | null>(null);
-  const recoverySelection = useRef<{ node: HTMLElement; range: Range; backward: boolean } | null>(
-    null,
-  );
-  function keepRecoverySelection() {
-    if (!recoveryRequired) return;
-    const node = document.activeElement;
-    const selection = document.getSelection();
-    if (
-      !(node instanceof HTMLElement) ||
-      !node.matches('[contenteditable="true"]') ||
-      !node.closest('.annotation-compose') ||
-      !selection?.rangeCount
-    )
-      return;
-    const range = selection.getRangeAt(0);
-    if (!node.contains(range.startContainer) || !node.contains(range.endContainer)) return;
-    recoverySelection.current = {
-      node,
-      range: range.cloneRange(),
-      backward:
-        selection.anchorNode === range.endContainer && selection.anchorOffset === range.endOffset,
-    };
-  }
   useEffect(() => {
-    keepRecoverySelection();
-  }, [recoveryRequired]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    recoverySelection.current = null;
     dirty.current = false;
     base.current = snapshot.source;
     setDraft(snapshot.source);
@@ -808,9 +834,7 @@ function Page() {
       asks: snapshot.asks,
       threads: snapshot.threads,
     });
-    liveErrorRef.current = null;
-    setLiveError(null);
-    setEviction(null);
+    connectionOwner.reset();
     setEditError(null);
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -822,38 +846,12 @@ function Page() {
           setDraft(value.source);
         }
       },
-      (error) => {
-        // An epoch advance or authority recheck is not a lost grant: reopen the page for the
-        // new epoch without a reload, retrying a lagging epoch. A refused fresh open, or an
-        // exhausted budget, shows the card.
-        if (readmittable(error) && !reopener.current.busy && readmit.current.take(Date.now())) {
-          reopener.current.start((signal) => transport.page(loaded.id, signal), {
-            retryable: (failure) => retryableReopen(failure),
-            done: (result) => {
-              if ('value' in result) {
-                snapshot.binding?.close();
-                setReopened({ from: loaded, next: result.value });
-                return;
-              }
-              void buildWatch.check();
-              liveErrorRef.current = result.error;
-              setLiveError(result.error);
-              setEviction(result.error instanceof SessionEvictedError ? result.error : null);
-            },
-          });
-          return;
-        }
-        if (reopener.current.busy) return;
-        void buildWatch.check();
-        liveErrorRef.current = error;
-        setLiveError(error);
-        setEviction(error instanceof SessionEvictedError ? error : null);
-      },
+      (error) => connectionOwner.report(error),
     );
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport]);
+  }, [snapshot, loaded, transport, connectionOwner]);
   async function save() {
     if (!snapshot.binding || saving) return;
     setSaving(true);
@@ -872,45 +870,6 @@ function Page() {
       setSaving(false);
     }
   }
-  const [reconnecting, setReconnecting] = useState(false);
-  const [reconnectFailed, setReconnectFailed] = useState(false);
-  async function reconnect() {
-    if (reconnecting) return;
-    const interrupted = liveError;
-    setReconnecting(true);
-    setReconnectFailed(false);
-    try {
-      if (await snapshot.binding?.reconnect?.()) {
-        if (liveErrorRef.current === interrupted) liveErrorRef.current = null;
-        setLiveError((error) => (error === interrupted ? null : error));
-      } else setReconnectFailed(true);
-    } catch {
-      setReconnectFailed(true);
-    } finally {
-      if (document.activeElement === recoverySelection.current?.node)
-        recoverySelection.current = null;
-      setReconnecting(false);
-    }
-  }
-  // The connection owner reconnects an interrupted page on its own (#2572), silently: the card and
-  // its Reconnect button are unchanged, and the button is the same attempt on demand.
-  useEffect(() => {
-    const binding = snapshot.binding;
-    if (!recoveryRequired || !binding?.reconnect) return;
-    const owner = new ConnectionOwner({
-      attempt: reconnectAttempt({
-        reconnect: async () => (await binding.reconnect?.()) ?? false,
-        failure: () => liveErrorRef.current,
-        recovered: (interrupted) => {
-          liveErrorRef.current = null;
-          setLiveError((error) => (error === interrupted ? null : error));
-        },
-        recoverable: (failure) => failure instanceof RecoveryRequiredError,
-      }),
-    });
-    void owner.reconnect();
-    return () => owner.stop();
-  }, [recoveryRequired, snapshot.binding]);
   const [selectionMode, setSelectionMode] = useState(false);
   useEffect(() => {
     if (!archived) return;
@@ -1067,14 +1026,13 @@ function Page() {
       if (
         target instanceof Element &&
         !popover.current?.contains(target) &&
-        !target.closest('[role="listbox"]') &&
-        !(recoveryRequired && target.closest('[data-colab-reconnect]'))
+        !target.closest('[role="listbox"]')
       )
         closeRef.current(false);
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [annotation, recoveryRequired]);
+  }, [annotation]);
   function openThread(ref: DiscussionRef | null) {
     if (annotationBusy.current || statusBusy.current) return;
     if (!ref) {
@@ -1236,7 +1194,7 @@ function Page() {
   });
   useEffect(() => {
     const controller = new AbortController();
-    if (liveError) {
+    if (endedError) {
       host.current?.replaceChildren();
       setState('failed');
       return () => controller.abort();
@@ -1297,7 +1255,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, liveError, inlineSlots.onSlots, questionLayer.onQuestions]);
+  }, [view.source, endedError, inlineSlots.onSlots, questionLayer.onQuestions]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -1315,76 +1273,20 @@ function Page() {
       annotation?.selector ?? undefined,
     );
   }, [state, view.threads, annotation]);
-  // Both presentations use the existing connection owner and preserve the mounted draft.
-  const recoveryAction = (variant: 'primary' | 'text') => (
-    <div
-      data-colab-reconnect
-      onPointerDown={(event) => {
-        // A pointer recovery action does not end the active draft's
-        // focus/selection. Keyboard activation keeps button policy.
-        if (event.isTrusted && document.activeElement?.matches('[contenteditable="true"]'))
-          event.preventDefault();
-      }}
-    >
-      <BrowserAction
-        type="button"
-        label={reconnecting ? text.reconnecting : text.reconnect}
-        variant={variant}
-        busy={reconnecting}
-        busyMark={<LoaderCircle />}
-        onActivate={(event) => {
-          if (event.isTrusted) void reconnect();
-        }}
-      />
-    </div>
-  );
-  const drawerRecovery = recoveryRequired && snapshot.binding?.reconnect && (
+  // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
+  // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
+  const endedNotice = endedError && (
     <div className="drawer-recovery" role="status">
       <span className="drawer-recovery-state">
         <span aria-hidden="true">✗ </span>
-        {text.connectionLost}
+        {text.blocked}
       </span>
-      {recoveryAction('text')}
+      <EndedBody error={endedError} action={endedAction} compact />
+      <EndedLink action={endedAction} />
     </div>
   );
-  const recoveryInDrawer = [
-    'about',
-    'files',
-    'source',
-    'comments',
-    'agents',
-    'chat',
-    'export',
-  ].includes(panel ?? '');
   const content = (
-    <section
-      className="page"
-      onPointerDownCapture={keepRecoverySelection}
-      onKeyDownCapture={(event) => {
-        if (event.key === 'Escape' || event.key === 'Tab') keepRecoverySelection();
-      }}
-      onFocusCapture={(event) => {
-        const kept = recoverySelection.current;
-        if (!kept || event.target !== kept.node) return;
-        recoverySelection.current = null;
-        const { node, range, backward } = kept;
-        if (
-          !node.isConnected ||
-          !node.contains(range.startContainer) ||
-          !node.contains(range.endContainer)
-        )
-          return;
-        // Restore the retained selection only when this same composer regains focus.
-        document
-          .getSelection()
-          ?.setBaseAndExtent(
-            backward ? range.endContainer : range.startContainer,
-            backward ? range.endOffset : range.startOffset,
-            backward ? range.startContainer : range.endContainer,
-            backward ? range.startOffset : range.endOffset,
-          );
-      }}
-    >
+    <section className="page">
       <ReplyAnnouncer key={snapshot.id} initialRecords={snapshot.asks} records={view.asks} />
       <ColabHeader
         headerRef={toolbar}
@@ -1406,7 +1308,7 @@ function Page() {
                 archived
                   ? text.archiveReadOnlyHint
                   : recoveryRequired
-                    ? text.connectionLost
+                    ? text.reconnecting
                     : state === 'ready'
                       ? text.loaded
                       : state === 'loading'
@@ -1419,7 +1321,7 @@ function Page() {
                 {archived
                   ? text.archiveReadOnly
                   : recoveryRequired
-                    ? text.connectionLost
+                    ? text.reconnecting
                     : state === 'ready'
                       ? text.live
                       : state === 'loading'
@@ -1451,7 +1353,7 @@ function Page() {
         binding={snapshot.binding}
         blocked={!!liveError}
         drawer
-        notice={drawerRecovery}
+        notice={endedNotice}
         opened={panel === 'export'}
         changeOpen={(open) => setPanel(open ? 'export' : null)}
       />
@@ -1464,11 +1366,11 @@ function Page() {
           // Archive commits invalidate sync; verified read catch-up keeps this draft owner mounted.
           if (operation === 'page.archive') return;
           snapshot.binding?.close();
-          setLiveError(new Error(managementChanged));
+          connectionOwner.report(new Error(managementChanged));
         }}
       />
       <BrowserDrawer
-        notice={drawerRecovery}
+        notice={endedNotice}
         focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'about'}
         title={text.aboutPage}
@@ -1488,50 +1390,21 @@ function Page() {
           {questionLayer.inline}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
-              state={recoveryRequired ? 'waiting' : 'blocked'}
-              stateLabel={recoveryRequired ? text.disconnected : undefined}
+              state="blocked"
               eyebrow={text.product}
-              title={recoveryRequired ? text.connectionLost : text.blocked}
-              actions={
-                recoveryRequired &&
-                snapshot.binding?.reconnect &&
-                !recoveryInDrawer &&
-                recoveryAction('primary')
-              }
+              title={text.blocked}
+              actions={<EndedLink action={endedAction} />}
             >
-              {recoveryRequired ? (
-                <p>{text.recoveryRequired}</p>
-              ) : eviction ? (
-                <>
-                  <p>{text.sessionEvicted(eviction.limit)}</p>
-                  <p>{text.sessionLimitCommand} </p>
-                  <BrowserCommand
-                    text={`tmt remote settings sessions-per-device ${eviction.limit + 1}`}
-                  />
-                  {eviction.settingsUrl && (
-                    <p>
-                      <a href={eviction.settingsUrl}>{text.remoteSettings}</a>
-                    </p>
-                  )}
-                </>
+              {endedError ? (
+                <EndedBody error={endedError} action={endedAction} />
               ) : (
                 <>
-                  {liveError ? (
-                    <TerminalFailure error={liveError} />
-                  ) : (
-                    <p>{state === 'navigation' ? text.navigation : text.failed}</p>
-                  )}
-                  {!liveError &&
-                    state === 'failed' &&
+                  <p>{state === 'navigation' ? text.navigation : text.failed}</p>
+                  {state === 'failed' &&
                     new TextEncoder().encode(view.source).length > MAX_RENDER_SOURCE_BYTES && (
                       <p>{text.limit}</p>
                     )}
                 </>
-              )}
-              {!recoveryRequired && reconnectFailed && (
-                <p>
-                  <ReconnectFailure />
-                </p>
               )}
             </NoticeCard>
           )}
@@ -1664,7 +1537,7 @@ function Page() {
         )}
       {snapshot.binding?.files && (
         <BrowserDrawer
-          notice={drawerRecovery}
+          notice={endedNotice}
           focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={panel === 'files'}
           title={text.files}
@@ -1680,7 +1553,7 @@ function Page() {
         </BrowserDrawer>
       )}
       <BrowserDrawer
-        notice={drawerRecovery}
+        notice={endedNotice}
         focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'source'}
         title={text.source}
@@ -1714,7 +1587,7 @@ function Page() {
         </div>
       </BrowserDrawer>
       <BrowserDrawer
-        notice={drawerRecovery}
+        notice={endedNotice}
         focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'comments'}
         title={text.comments}
@@ -1766,7 +1639,7 @@ function Page() {
         />
       </BrowserDrawer>
       <BrowserDrawer
-        notice={drawerRecovery}
+        notice={endedNotice}
         focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'agents'}
         title={text.agentStatus}
@@ -1782,7 +1655,7 @@ function Page() {
       </BrowserDrawer>
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserDrawer
-          notice={drawerRecovery}
+          notice={endedNotice}
           focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={panel === 'chat'}
           title="Chat"

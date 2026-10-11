@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { REMOTE_REFUSAL_CODES, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { SYNC_ERROR_CODES } from '../src/connection.js';
 import { classify, CONNECTION_CODES, SYNC_DISCONNECTED } from '../src/connection-state.js';
+import { ReopenFailedError } from '../src/registration.js';
 
 const of = (code: string) => classify(new Error(code));
 
@@ -18,7 +19,10 @@ describe('connection classifier', () => {
     ['EXPIRED', 'reopen', 'access'],
     ['Access ended', 'none', 'access'],
     ['REMOTE_SCOPE_DENIED', 'none', 'access'],
-    ['REMOTE_CLOSED', 'none', 'access'],
+    // Remote's legacy close is never revoke proof (#2619): one silent re-admission first.
+    ['REMOTE_CLOSED', 'session', 'access'],
+    ['REMOTE_GRANT_CHANGED', 'session', 'access'],
+    ['REMOTE_SERVE_STOPPED', 'session', 'generic'],
     ['REMOTE_DEVICE_REVOKED', 'none', 'access'],
     ['REMOTE_DEVICE_NOT_FOUND', 'none', 'access'],
     ['Page unavailable', 'none', 'gone'],
@@ -48,6 +52,24 @@ describe('connection classifier', () => {
     });
     expect(classify(new SessionEndedError('REMOTE_SEQUENCE_UNAVAILABLE')).recovery).toBe('session');
   });
+
+  // Remote's typed fresh-open refusal (R2): a transient reason keeps trying, a named one ends.
+  it.each([
+    ['unreachable', 'retry', 'generic'],
+    ['unconfirmed', 'retry', 'generic'],
+    ['transient', 'retry', 'generic'],
+    ['unpaired', 'none', 'unpaired'],
+    ['mismatch', 'none', 'unpaired'],
+    ['revoked', 'none', 'access'],
+    ['expired', 'none', 'access'],
+    // The cap notice is C1c (#2625): until then it stays a plain ended page.
+    ['capacity', 'none', 'generic'],
+  ] as const)(
+    'classifies a fresh open refused as %s: %s, ends as %s',
+    (reason, recovery, cause) => {
+      expect(classify(new ReopenFailedError(reason))).toEqual({ recovery, cause });
+    },
+  );
 
   it('never recovers an eviction: the session limit has its own card', () => {
     expect(classify(new SessionEvictedError(8)).recovery).toBe('none');

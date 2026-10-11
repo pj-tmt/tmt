@@ -20,9 +20,47 @@ interface CertifiedKey {
   signature: string;
 }
 export interface RemoteSdk {
-  reopenSession(): Promise<unknown>;
+  /** With `previous` and `retry: 'bounded'` the SDK admits again for that Session and throws its
+   * typed `ReopenSessionError`; without options it is the one-shot boot reopen. */
+  reopenSession(
+    previous?: unknown,
+    options?: { retry?: 'bounded'; signal?: AbortSignal },
+  ): Promise<unknown>;
   certifyKey(purpose: 'sign' | 'enc', publicKey: Uint8Array): Promise<CertifiedKey>;
   transportUrl(session: unknown, url: string | URL): string;
+}
+/** Why the SDK's bounded re-admission failed (Remote R2, `ReopenSessionError.reason`). */
+export const REOPEN_REASONS = [
+  'unreachable',
+  'unconfirmed',
+  'transient',
+  'unpaired',
+  'mismatch',
+  'revoked',
+  'expired',
+  'capacity',
+] as const;
+export type ReopenReason = (typeof REOPEN_REASONS)[number];
+/** The SDK's typed refusal of a fresh open, normalized here because its class arrives at run time. */
+export class ReopenFailedError extends Error {
+  constructor(
+    readonly reason: ReopenReason,
+    cause?: unknown,
+  ) {
+    super(`REMOTE_REOPEN_${reason.toUpperCase()}`, { cause });
+  }
+}
+function reopenFailure(error: unknown): unknown {
+  if (!(error instanceof Error) || error.name !== 'ReopenSessionError') return error;
+  const { reason } = error as Error & { reason?: unknown };
+  return REOPEN_REASONS.find((known) => known === reason)
+    ? new ReopenFailedError(reason as ReopenReason, error)
+    : error;
+}
+/** Re-admission of a Session that ended while the device is still paired. */
+export interface Readmission {
+  previous: unknown;
+  signal?: AbortSignal;
 }
 export interface Registration {
   remoteSession?: unknown;
@@ -67,8 +105,18 @@ export async function jsonResponse(response: Response, cap: number) {
 }
 /** Remote alone pairs/reopens sessions. GET session is the Colab-owned echo
  * endpoint, not permission to inspect the Remote SDK's persistence schema. */
-export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration> {
-  const remoteSession = await sdk.reopenSession();
+export async function register(
+  mount: URL,
+  sdk: RemoteSdk,
+  readmit?: Readmission,
+): Promise<Registration> {
+  const remoteSession = readmit
+    ? await sdk
+        .reopenSession(readmit.previous, { retry: 'bounded', signal: readmit.signal })
+        .catch((error: unknown) => {
+          throw reopenFailure(error);
+        })
+    : await sdk.reopenSession();
   const sync = new URL('sync', mount);
   sync.protocol = sync.protocol === 'https:' ? 'wss:' : 'ws:';
   const syncUrl = sdk.transportUrl(remoteSession, sync);

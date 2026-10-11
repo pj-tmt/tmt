@@ -10,7 +10,7 @@ import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
-import type { Registration } from './registration.js';
+import { ReopenFailedError, type Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
@@ -272,7 +272,13 @@ export class Live implements PageBinding {
       if (open.replaceSession) {
         if (!this.sessionOwner) throw new Error('Session replacement unavailable');
         const session = await this.sessionOwner.reconnect(open.registration).catch((error) => {
-          if (error instanceof TypeError) throw new RecoveryRequiredError(error);
+          // A network failure, or a refusal that may pass, waits for the page's silent retry;
+          // any other refusal of the fresh open ends the page with its typed reason.
+          if (
+            error instanceof TypeError ||
+            (error instanceof ReopenFailedError && classify(error).recovery === 'retry')
+          )
+            throw new RecoveryRequiredError(error);
           throw error;
         });
         requireValue(this.#owns(open));
