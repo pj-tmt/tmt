@@ -183,14 +183,14 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
     let track = tmt.style(Role::Track, Depth::TrueColor);
     assert_eq!(
         track.get_bg_color(),
-        Some(Color::Rgb(RgbColor(0x2E, 0x2E, 0x2E)))
+        Some(Color::Rgb(RgbColor(0x38, 0x38, 0x38)))
     );
     assert_eq!(track.get_fg_color(), None);
     assert_eq!(
         Theme::new(Base::TmtLight)
             .style(Role::Track, Depth::TrueColor)
             .get_bg_color(),
-        Some(Color::Rgb(RgbColor(0xE6, 0xE6, 0xE6)))
+        Some(Color::Rgb(RgbColor(0xE0, 0xE0, 0xE0)))
     );
     for style in [
         terminal.style(Role::Track, Depth::Ansi16),
@@ -319,7 +319,7 @@ fn screens_get_the_same_style() {
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
     assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x4A, 0x4A, 0x4A)));
     let track = screen::style(&tmt, Role::Track, Depth::TrueColor);
-    assert_eq!(track.bg, Some(ScreenColor::Rgb(0x2E, 0x2E, 0x2E)));
+    assert_eq!(track.bg, Some(ScreenColor::Rgb(0x38, 0x38, 0x38)));
     assert_eq!(track.fg, None);
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
     assert_eq!(dim.fg, None);
@@ -420,6 +420,14 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
             ratio >= 4.5,
             "{mode} text on track {track}: {ratio:.2}:1 < 4.5:1"
         );
+        // The empty part of a meter must stay visible on the board backgrounds.
+        for background in backgrounds.iter().chain(terminals) {
+            let ratio = contrast(track, background);
+            assert!(
+                ratio >= 1.15,
+                "{mode} track {track} on {background}: {ratio:.2}:1 < 1.15:1"
+            );
+        }
         for role in selection_marks {
             let ratio = contrast(color(role), selection);
             assert!(
