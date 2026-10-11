@@ -65,6 +65,8 @@ async function mount(page: Page, source: string, backend = true, budget = false)
           host.dataset.state = state;
         },
       });
+      // This fixture owns the host width; exercise authored wide columns as well.
+      host.querySelector('iframe')!.style.width = '100%';
       Object.assign(window, {
         imageProbe: {
           handle,
@@ -91,13 +93,14 @@ for (const width of [1440, 390])
       await page.setViewportSize({ width, height: 900 });
       await mount(
         page,
-        `<style>body{font:16px system-ui;background:${dark ? '#18222b' : '#fff'};color:${dark ? '#eee' : '#17212b'};padding:16px}img{display:block;margin:12px 0}</style>
+        `<style>body{font:16px system-ui;background:${dark ? '#18222b' : '#fff'};color:${dark ? '#eee' : '#17212b'};padding:16px}img{display:block;margin:12px 0}p img{display:inline;margin:0}</style>
       <h1>Document images</h1>
       <a href="#example"><img id="resolved" src="colab-attachment:11111111" alt="Verified image" width="240" height="120"></a>
       <img id="unknown" src="colab-attachment:99999999" alt="An unavailable image with a long description that wraps safely across narrow authored pages" width="240" height="100">
       <img src="colab-attachment:22222222" alt="A PDF is not an image" width="240" height="90">
       <p>Unsized inline: <img src="colab-attachment:99999998" alt="Inline image"></p>
       <img src="colab-attachment:99999997" alt="">
+      <img src="colab-attachment:99999996" alt="Small icon" width="80" height="40">
       <img src="colab-attachment:33333333" alt="Loading image" width="240" height="90">`,
       );
       const frame = page.frameLocator('#image-probe iframe');
@@ -110,9 +113,26 @@ for (const width of [1440, 390])
       await expect(frame.getByRole('img', { name: 'A PDF is not an image' })).toContainText(
         'Not shown: unsupported image type',
       );
-      await expect(frame.getByRole('img', { name: 'Loading image' })).toContainText(
-        'Image unavailable',
+      await expect(frame.getByRole('img', { name: 'Loading image', exact: true })).toHaveText(
+        'Loading image',
       );
+      await expect(
+        frame.getByRole('img', { name: 'Small icon. Image unavailable', exact: true }),
+      ).toHaveText('');
+      await expect(
+        frame.getByRole('img', {
+          name: 'A PDF is not an image. Not shown: unsupported image type',
+          exact: true,
+        }),
+      ).toBeVisible();
+      const unknown = frame.getByRole('img', { name: /^An unavailable image/ });
+      expect(await unknown.evaluate((node) => getComputedStyle(node).overflow)).toBe('hidden');
+      expect(
+        await unknown
+          .locator('span')
+          .first()
+          .evaluate((node) => getComputedStyle(node).webkitLineClamp),
+      ).toBe('3');
       await expect(frame.locator('[data-colab-image][hidden]')).toHaveCount(1);
       await expect(frame.locator('[data-colab-image][hidden]')).toBeHidden();
       expect(
@@ -149,7 +169,9 @@ for (const width of [1440, 390])
         true,
       );
       await expect(
-        page.frameLocator('#image-probe iframe').getByRole('img', { name: 'Image 9', exact: true }),
+        page
+          .frameLocator('#image-probe iframe')
+          .getByRole('img', { name: 'Image 9. Not shown: image limit reached', exact: true }),
       ).toContainText('Not shown: image limit reached');
       expect(
         await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reads),
@@ -170,4 +192,18 @@ test('a backend without document file access makes no reads and renders not-here
   expect(
     await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.reads),
   ).toEqual([]);
+});
+
+test('a delayed document read stays alt-only until a definite host response', async ({ page }) => {
+  await mount(
+    page,
+    '<img src="colab-attachment:33333333" alt="Pending image" width="240" height="90">',
+  );
+  const frame = page.frameLocator('#image-probe iframe');
+  const pending = frame.getByRole('img', { name: 'Pending image', exact: true });
+  await expect(pending).toHaveText('Pending image');
+  await expect(pending.locator('span')).toHaveCount(1);
+  await page.evaluate(() => (window as unknown as { imageProbe: Probe }).imageProbe.finish());
+  await expect(frame.locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(frame.locator('[data-colab-image]')).toHaveCount(0);
 });

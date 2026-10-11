@@ -52,10 +52,11 @@
             node.setAttribute('data-colab-image', '');
             node.setAttribute('role', 'img');
             const alt = image.getAttribute('alt') ?? '';
-            node.setAttribute('aria-label', alt || imageReasons[reason]);
+            const outcome = imageReasons[reason];
+            node.setAttribute('aria-label', outcome ? (alt ? `${alt}. ${outcome}` : outcome) : alt);
             if (image.hasAttribute('alt') && !alt) node.hidden = true;
             node.style.cssText =
-              'display:inline-block;box-sizing:border-box;max-width:100%;border:1px dashed color-mix(in srgb,currentColor 50%,transparent);padding:8px;vertical-align:middle;overflow-wrap:anywhere';
+              'display:inline-block;box-sizing:border-box;max-width:100%;border:1px dashed color-mix(in srgb,currentColor 50%,transparent);padding:8px;vertical-align:middle;overflow-wrap:anywhere;overflow:hidden';
             node.style.display = item.display;
             node.style.margin = item.margin;
             if (node.hidden) node.style.display = 'none';
@@ -63,15 +64,22 @@
               const value = image.getAttribute(dimension);
               if (value && /^\d{1,6}$/.test(value)) node.style[dimension] = `${value}px`;
             }
-            if (alt) {
+            const small =
+              (node.style.width && parseFloat(node.style.width) < 96) ||
+              (node.style.height && parseFloat(node.style.height) < 48);
+            if (alt && !small) {
               const label = document.createElement('span');
+              label.style.cssText =
+                'display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden';
               label.textContent = alt;
               node.append(label);
             }
-            const line = document.createElement('span');
-            line.style.cssText = 'display:block;opacity:.65;font-size:.875em';
-            line.textContent = imageReasons[reason];
-            node.append(line);
+            if (outcome && !small) {
+              const line = document.createElement('span');
+              line.style.cssText = 'display:block;opacity:.65;font-size:.875em';
+              line.textContent = outcome;
+              node.append(line);
+            }
             (item.placeholder?.isConnected ? item.placeholder : image).replaceWith(node);
             item.placeholder = node;
           }
@@ -93,7 +101,7 @@
               const items = images.get(reference) ?? [];
               items.push(item);
               images.set(reference, items);
-              imagePlaceholder(item, 'unavailable');
+              imagePlaceholder(item);
             }
             for (const [reference, items] of images) {
               if (!items.some((item) => item.placeholder?.isConnected)) continue;
@@ -104,8 +112,9 @@
                 references.length < 128
               )
                 references.push(reference);
-              else if (references.length >= 128)
-                for (const item of items) imagePlaceholder(item, 'limit');
+              else
+                for (const item of items)
+                  imagePlaceholder(item, references.length >= 128 ? 'limit' : 'unavailable');
             }
             port.postMessage({
               type: 'colab.render.images',
