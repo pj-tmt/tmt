@@ -374,7 +374,9 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   session replacement refuses old mutations, while acknowledgment verification is
   read-only under the new registration. It never opens another Remote session.
 - `share-dialog.tsx` supplies the trusted modal for share/member/link/history and
-  retention/archive/delete controls. `router.tsx` supplies active/archived home
+  retention/archive/delete controls. Unexpected failures retain a bounded, redacted
+  name/message cause and report it once without changing the displayed error code.
+  `router.tsx` supplies active/archived home
   filtering and refresh after changes. Archive commits end only that page's sync peers
   with RESYNC_REQUIRED; paired tabs reopen with read catch-up, retaining drafts for Copy
   and removing publication controls. Other acknowledged or uncertain policy changes close

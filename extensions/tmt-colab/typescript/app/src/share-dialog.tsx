@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import {
-  ManagementError,
+  managementFailure,
   newLink,
   type Acknowledgment,
   type ManagementPort,
@@ -181,7 +181,12 @@ export function ShareDialog({
       await verify(p, a);
     } catch (e) {
       if (lifetime.current?.signal.aborted) return;
-      const code = e instanceof ManagementError ? e.code : p ? 'UNKNOWN' : 'INVALID';
+      const failure = managementFailure(e, !!p);
+      if (failure.cause instanceof Error) {
+        // Only the bounded summary is reported; never the request, stack or original object.
+        console.error('Management failed', failure.code, failure.cause.name, failure.cause.message);
+      }
+      const code = failure.code;
       setError(errors[code] ?? errors.UNKNOWN);
       setUnknown(code === 'UNKNOWN');
       // A lost acknowledgment can still have changed page policy.

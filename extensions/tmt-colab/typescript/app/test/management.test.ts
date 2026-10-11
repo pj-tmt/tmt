@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import {
   ManagementClient,
+  managementFailure,
   managementLog,
   newLink,
   project,
@@ -614,4 +615,21 @@ it('keeps delete file-data outcomes separate from the committed membership ackno
     );
     await expect(f.client.send(pending)).rejects.toMatchObject({ code: 'UNKNOWN' });
   }
+});
+
+it('unexpected management failures retain a safe cause while mapping to INVALID', () => {
+  const failure = managementFailure(new TypeError('Signing context is unavailable'), false);
+  expect(failure.code).toBe('INVALID');
+  expect(failure.cause).toMatchObject({
+    name: 'TypeError',
+    message: 'Signing context is unavailable',
+  });
+  const sensitive = managementFailure(
+    new Error(`Request https://example.test/p/private failed: ${'A'.repeat(64)}`),
+    false,
+  );
+  expect((sensitive.cause as Error).message).not.toContain('https://');
+  expect((sensitive.cause as Error).message).not.toContain('/p/private');
+  expect((sensitive.cause as Error).message).not.toContain('A'.repeat(64));
+  expect(managementFailure(new Error('Reply lost'), true).code).toBe('UNKNOWN');
 });
