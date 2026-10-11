@@ -37,9 +37,10 @@ fn prepare_with(
     if explicit.is_some() {
         return Ok(());
     }
-    // The normal path costs exactly one stat and never reads the former store.
+    // Existing defaults also check their database; only a missing database
+    // permits a former-sibling probe. Explicit homes bypass both checks.
     match fs::symlink_metadata(current) {
-        Ok(_) => return Ok(()),
+        Ok(_) => return guard_new_database(current, |path| fs::symlink_metadata(path).map(|_| ())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(ConfigError::internal(format!(
@@ -107,6 +108,38 @@ fn prepare_with(
     }
 }
 
+/// The cutover owner alone knows the relation between the default roots.
+fn guard_new_database(
+    current: &Path,
+    mut inspect: impl FnMut(&Path) -> io::Result<()>,
+) -> Result<(), ConfigError> {
+    let database = current.join("tmux-team.db");
+    let inspect_error = |path: &Path, error: io::Error| {
+        ConfigError::internal(format!("Cannot inspect {}: {error}", path.display()))
+    };
+    match inspect(&database) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(inspect_error(&database, error)),
+    }
+    let former = current
+        .parent()
+        .expect("a resolved default directory has a parent")
+        .join("tmux-team");
+    let former_database = former.join("tmux-team.db");
+    match inspect(&former_database) {
+        Ok(()) => Err(ConfigError::internal(format!(
+            "Refusing to initialize {} while the former database {} exists. Move the former Core data directory {} to {} as a whole before retrying.",
+            database.display(),
+            former_database.display(),
+            former.display(),
+            current.display(),
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(inspect_error(&former_database, error)),
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
     tmt_sys::rename_exclusive(from, to)
@@ -145,6 +178,166 @@ pub(crate) fn relocated_skill_source(current: &Path, source: &Path) -> Option<Pa
 mod tests {
     use super::*;
     use crate::{config::ConfigPaths, test_support::TestDirectory};
+
+    #[test]
+    fn empty_current_default_refuses_a_former_database_without_mutating_either_root() {
+        for use_xdg in [false, true] {
+            let temp = TestDirectory::new();
+            let base = temp.path.join(if use_xdg { "xdg" } else { ".config" });
+            let current = base.join("tmt");
+            let former = base.join("tmux-team");
+            fs::create_dir_all(&current).unwrap();
+            fs::create_dir(&former).unwrap();
+            fs::write(former.join("tmux-team.db"), b"retained database").unwrap();
+            let error = prepare_with(
+                &current,
+                &temp.path,
+                None,
+                use_xdg.then_some(base.as_path()),
+                || panic!("existing root must not request move admission"),
+                |_, _| panic!("must not move either root"),
+                |_, _| panic!("must not report a move"),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains(&current.join("tmux-team.db").display().to_string())
+            );
+            assert!(
+                error
+                    .message
+                    .contains(&former.join("tmux-team.db").display().to_string())
+            );
+            assert!(
+                error
+                    .message
+                    .contains("Move the former Core data directory")
+            );
+            assert_eq!(fs::read_dir(&current).unwrap().count(), 0);
+            assert_eq!(fs::read_dir(&former).unwrap().count(), 1);
+            assert_eq!(
+                fs::read(former.join("tmux-team.db")).unwrap(),
+                b"retained database"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_database_never_inspects_the_former_sibling() {
+        let current = Path::new("/owned/config/tmt");
+        let mut inspected = Vec::new();
+        guard_new_database(current, |path| {
+            assert_eq!(path, current.join("tmux-team.db"));
+            inspected.push(path.to_path_buf());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(inspected, vec![current.join("tmux-team.db")]);
+    }
+
+    #[test]
+    fn fresh_database_checks_the_former_sibling_once_and_inspection_errors_refuse() {
+        let current = Path::new("/owned/config/tmt");
+        for failure_at in [None, Some(0), Some(1)] {
+            let mut inspected = Vec::new();
+            let result = guard_new_database(current, |path| {
+                let index = inspected.len();
+                inspected.push(path.to_path_buf());
+                Err(io::Error::from(if failure_at == Some(index) {
+                    io::ErrorKind::PermissionDenied
+                } else {
+                    io::ErrorKind::NotFound
+                }))
+            });
+            assert_eq!(inspected[0], current.join("tmux-team.db"));
+            if failure_at == Some(0) {
+                assert_eq!(inspected.len(), 1);
+            } else {
+                assert_eq!(
+                    inspected,
+                    vec![
+                        current.join("tmux-team.db"),
+                        PathBuf::from("/owned/config/tmux-team/tmux-team.db"),
+                    ]
+                );
+            }
+            if let Some(index) = failure_at {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .message
+                        .contains(&inspected[index].display().to_string())
+                );
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn former_database_symlinks_refuse_without_following_their_targets() {
+        use std::os::unix::fs::symlink;
+        for exists in [false, true] {
+            let temp = TestDirectory::new();
+            let current = temp.path.join(".config/tmt");
+            let former = temp.path.join(".config/tmux-team");
+            let target = temp.path.join("target");
+            fs::create_dir_all(&current).unwrap();
+            fs::create_dir(&former).unwrap();
+            if exists {
+                fs::write(&target, b"not a database").unwrap();
+            }
+            symlink(&target, former.join("tmux-team.db")).unwrap();
+            let error = prepare_with(
+                &current,
+                &temp.path,
+                None,
+                None,
+                || panic!("must not admit a move"),
+                |_, _| panic!("must not move a symlink"),
+                |_, _| panic!("must not report a move"),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains(&former.join("tmux-team.db").display().to_string())
+            );
+            assert_eq!(fs::read_link(former.join("tmux-team.db")).unwrap(), target);
+            assert_eq!(fs::read_dir(&current).unwrap().count(), 0);
+            assert_eq!(target.exists(), exists);
+            if exists {
+                assert_eq!(fs::read(target).unwrap(), b"not a database");
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_existing_home_ignores_a_populated_former_database() {
+        let temp = TestDirectory::new();
+        let current = temp.path.join(".config/tmt");
+        let former = temp.path.join(".config/tmux-team");
+        fs::create_dir_all(&current).unwrap();
+        fs::create_dir(&former).unwrap();
+        fs::write(former.join("tmux-team.db"), b"independent store").unwrap();
+        prepare_with(
+            &current,
+            &temp.path,
+            Some(&current),
+            None,
+            || panic!("explicit admission"),
+            |_, _| panic!("explicit move"),
+            |_, _| panic!("explicit report"),
+        )
+        .unwrap();
+        assert_eq!(fs::read_dir(current).unwrap().count(), 0);
+        assert_eq!(
+            fs::read(former.join("tmux-team.db")).unwrap(),
+            b"independent store"
+        );
+    }
 
     #[test]
     fn moves_the_complete_default_once_and_keeps_open_file_incarnations() {

@@ -65,6 +65,42 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn empty_default_refuses_a_former_database_before_creating_sqlite_files() {
+    let mut fixture = Fixture::new("former-database");
+    let current = support::state_dir(&fixture.root);
+    let former = fixture.root.join("xdg-config/tmux-team");
+    fs::create_dir_all(&current).unwrap();
+    fs::create_dir(&former).unwrap();
+    fs::write(former.join("tmux-team.db"), b"retained database").unwrap();
+    fixture.child = Some(
+        support::command(&fixture.root, &["ls", "--json"])
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let output = support::wait(&mut fixture.child, Duration::from_secs(5))
+        .wait_with_output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let message = value.to_string();
+    assert!(message.contains(&current.join("tmux-team.db").display().to_string()));
+    assert!(message.contains(&former.join("tmux-team.db").display().to_string()));
+    assert!(message.contains("Move the former Core data directory"));
+    assert_eq!(fs::read_dir(current).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(&former).unwrap().count(), 1);
+    assert_eq!(
+        fs::read(former.join("tmux-team.db")).unwrap(),
+        b"retained database"
+    );
+}
+
+#[test]
 fn native_export_has_exact_compiled_source_closure_without_storage_or_credentials() {
     let mut fixture = Fixture::new("export");
     let source = "a".repeat(40);
