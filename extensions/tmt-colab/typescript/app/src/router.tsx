@@ -1163,7 +1163,7 @@ function Page() {
   const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
   activateChat.current = () => {
     if (
-      snapshot.archived ||
+      archived ||
       (panel !== null && panel !== 'chat') ||
       [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
         (node) => node.getClientRects().length > 0 && node.dataset.panel !== 'chat',

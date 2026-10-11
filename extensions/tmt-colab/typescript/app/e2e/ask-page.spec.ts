@@ -1071,3 +1071,19 @@ for (const closeEarly of [false, true]) {
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 }
+
+for (const width of [1440, 390])
+  test(`@ refuses a live archived page ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'archive');
+    await expect(page.locator('#ask-page-fixture .status')).toContainText(text.archiveReadOnly);
+    await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
+    await page.keyboard.press('Shift+@');
+    await expect(page.getByTestId('chat-panel')).toHaveCount(0);
+    await page.locator('#ask-page-fixture iframe').focus();
+    await page.keyboard.press('Shift+@');
+    await expect(page.getByTestId('chat-panel')).toHaveCount(0);
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
