@@ -65,3 +65,22 @@ as revoked/expired; opaque or unverifiable admission stays non-terminal. Pin ter
 nonce/request/run correlation, prior-bundle uncertainty and no publication after abort.
 After admission, original-outcome observation must prove one core send total even when
 its original acknowledgment was lost. Never make helper recovery silently resend.
+
+## Hosted Firebase asset
+
+The hosted-only adapter is built from exact `firebase@13.0.0` in the workspace lockfile.
+`remote-client/dist/remote-firebase-v1.js` and `dist/THIRD-PARTY-NOTICES.txt` are generated,
+not committed or embedded by Cargo. `firebase-build-pin.json` owns their relative paths,
+SHA-256, byte lengths and Firebase version; the package tests compare built bytes with it.
+Build twice and compare both hashes before changing the reviewed pin. Keep source maps,
+timestamps and absolute paths out of output. Preserve the generated Firebase license text.
+Colab copies them as `/sdk/remote-firebase-v1.js` and
+`/sdk/THIRD-PARTY-NOTICES-remote.txt`, beside `/sdk/remote-v1.js`, and verifies the pin.
+Colab and Infra own their build ordering and copy integration. Only the embedded SDK/page
+assets retain the git-diff regeneration gate. The lazy adapter's bundle check rejects Node
+imports, grpc-js and undici. Before loading Auth, `projectId`, `appId` and `authDomain` must
+equal same-origin `/__/firebase/init.json`. A hosted page that calls `connect` must allow
+identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, plus
+firestore.googleapis.com once document transport ships. Colab owns those shell headers;
+the fixture verifies these requirements, not shipped policy. The local path never imports
+Firebase implicitly.

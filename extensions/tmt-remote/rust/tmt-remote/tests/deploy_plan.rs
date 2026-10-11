@@ -460,6 +460,19 @@ fn size_and_json_strictness_are_checked_before_meaning() {
 }
 
 #[test]
+fn hosted_sdk_reserved_segments_match_the_native_grammar_owner() {
+    // src/firebase-declaration.ts mirrors this set; grammar changes must update that twin.
+    let reserved: Vec<_> = std::iter::once(tmt_remote::mount::MOUNT_SEGMENT)
+        .chain(
+            routes::ROUTES
+                .iter()
+                .map(|route| route.trim_start_matches('/')),
+        )
+        .collect();
+    assert_eq!(reserved, ["x", "append", "subscribe", "ack", "pair"]);
+}
+
+#[test]
 fn reserved_segments_follow_the_binding_routes() {
     for route in routes::ROUTES {
         assert!(

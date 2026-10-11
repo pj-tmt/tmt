@@ -10,108 +10,8 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
-//#region src/session-reopen.ts
-var ReopenSessionError = class extends Error {
-	reason;
-	detail;
-	cause;
-	constructor(reason, detail, cause) {
-		super(`Remote session admission: ${reason} (${detail}).`);
-		this.reason = reason;
-		this.detail = detail;
-		this.name = "ReopenSessionError";
-		this.cause = cause;
-	}
-};
-var DEADLINE = 2e4;
-var ATTEMPT = 4e3;
-var DELAYS = [
-	250,
-	500,
-	1e3
-];
-var runtime = {
-	now: () => performance.now(),
-	later: (callback, ms) => setTimeout(callback, ms),
-	clear: (timer) => clearTimeout(timer),
-	jitter: () => crypto.getRandomValues(/* @__PURE__ */ new Uint32Array(1))[0] / 4294967296
-};
-function active(signal) {
-	if (signal?.aborted) throw new ReopenSessionError("transient", "cancelled");
-}
-/** Bounds even a provider that ignores AbortSignal; abandoned work cannot publish a Session. */
-function bounded(action, ms, owner, clock) {
-	return new Promise((resolve, reject) => {
-		const child = new AbortController();
-		const end = clock.now() + ms;
-		let settled = false;
-		let timer;
-		const finish = (value, error) => {
-			if (settled) return;
-			settled = true;
-			if (timer !== void 0) clock.clear(timer);
-			owner?.removeEventListener("abort", cancel);
-			child.abort();
-			if (error !== void 0) reject(error);
-			else if (clock.now() >= end) reject(new ReopenSessionError("unreachable", "budget-exhausted"));
-			else resolve(value);
-		};
-		const cancel = () => finish(void 0, new ReopenSessionError("transient", "cancelled"));
-		if (owner?.aborted) return cancel();
-		owner?.addEventListener("abort", cancel, { once: true });
-		timer = clock.later(() => finish(void 0, new ReopenSessionError("unreachable", "budget-exhausted")), ms);
-		Promise.resolve().then(() => action(child.signal)).then((value) => finish(value), (error) => finish(void 0, error));
-	});
-}
-async function boundedAdmission(attempt, signal, clock = runtime) {
-	const end = clock.now() + DEADLINE;
-	let last = new ReopenSessionError("unreachable", "budget-exhausted");
-	let ambiguous = false;
-	for (let index = 0; index < 4; index++) {
-		active(signal);
-		const remaining = end - clock.now();
-		if (remaining <= 0) break;
-		try {
-			const value = await bounded(attempt, Math.min(ATTEMPT, remaining), signal, clock);
-			active(signal);
-			return value;
-		} catch (error) {
-			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
-			if ([
-				"capacity",
-				"mismatch",
-				"unpaired",
-				"revoked",
-				"expired"
-			].includes(error.reason) || ["cancelled", "unverifiable-response"].includes(error.detail)) throw error;
-			last = error;
-			ambiguous ||= error.reason === "unconfirmed";
-		}
-		const delay = DELAYS[index];
-		if (delay === void 0) break;
-		const wait = Math.min(Math.floor(delay + delay * .25 * clock.jitter()), end - clock.now());
-		if (wait <= 0) break;
-		try {
-			await bounded((waiting) => new Promise((resolve) => {
-				const timer = clock.later(() => {
-					waiting.removeEventListener("abort", cancel);
-					resolve();
-				}, wait);
-				const cancel = () => clock.clear(timer);
-				waiting.addEventListener("abort", cancel, { once: true });
-			}), end - clock.now(), signal, clock);
-		} catch (error) {
-			active(signal);
-			if (!(error instanceof ReopenSessionError) || error.detail === "cancelled") throw error;
-			break;
-		}
-	}
-	active(signal);
-	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
-}
-//#endregion
 //#region src/canonical-bytes.ts
-var encoder = new TextEncoder();
+var encoder$1 = new TextEncoder();
 var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
@@ -128,7 +28,7 @@ function text(value) {
 			requireValue$1(next >= 56320 && next <= 57343, "UTF-8 surrogate");
 		} else requireValue$1(unit < 56320 || unit > 57343, "UTF-8 surrogate");
 	}
-	return encoder.encode(value);
+	return encoder$1.encode(value);
 }
 function count(value) {
 	requireValue$1(Number.isInteger(value) && value >= 0 && value <= 4294967295, "u32 length");
@@ -486,38 +386,38 @@ var requestId = (value) => typeof value === "string" && value.startsWith("req_")
 var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$1(condition) {
+function valid$2(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$2(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$1(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$2(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 function sendState(value, id) {
 	const state = record(value);
-	valid$1(state.operationId === id);
+	valid$2(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$1(requestId(state.requestId));
+			valid$2(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$1(state.requestId === void 0 || requestId(state.requestId));
+			valid$2(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -534,14 +434,14 @@ function sendState(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$1(state.requestId === id);
+	valid$2(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
 			requestId: id
 		};
 		case "replied":
-			valid$1(typeof state.message === "string");
+			valid$2(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -557,10 +457,10 @@ function resultState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$1(Array.isArray(rows));
+	valid$2(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$1(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$2(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		return {
 			id: row.id,
 			name: row.name,
@@ -573,24 +473,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$1(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$2(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$1(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$2(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$1(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$1(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$2(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$2(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$1(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$2(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$1(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$2(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$1(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$2(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$1(PRE_EFFECT.has(error.code) || [
+	valid$2(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -712,8 +612,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$1(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$1(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$2(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$2(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -827,6 +727,390 @@ function operations(session, options = {}) {
 			return call("result", crypto.randomUUID(), { requestId: id }, (value) => resultState(value, id));
 		}
 	};
+}
+//#endregion
+//#region src/firebase-bootstrap.ts
+/** Hosted public configuration is a corruption-checked carrier, never an access grant. */
+var encoder = new TextEncoder();
+var decoder = new TextDecoder("utf-8", { fatal: true });
+var LINK_BYTES = 8192;
+var HOSTED_BOOTSTRAP_MS = 1e4;
+function valid$1(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+function object$2(value, keys) {
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	const record = value;
+	valid$1(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	return record;
+}
+function config(value) {
+	const r = object$2(value, [
+		"apiKey",
+		"appId",
+		"authDomain",
+		"projectId"
+	]);
+	valid$1(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$1(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$1(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	return Object.freeze(r);
+}
+function canonical(value) {
+	if (typeof value !== "object" || value === null) return JSON.stringify(value);
+	const r = value;
+	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical(r[k])}`).join(",")}}`;
+}
+async function verifyHostedLink(link, origin) {
+	try {
+		valid$1(typeof link === "string" && encoder.encode(link).length <= LINK_BYTES);
+		const url = new URL(link);
+		valid$1(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		const fragment = url.hash.slice(1);
+		valid$1(/^[A-Za-z0-9_-]+$/.test(fragment));
+		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+		const text = decoder.decode(bytes);
+		const r = object$2(JSON.parse(text), [
+			"version",
+			"kind",
+			"publicWebConfig",
+			"checksum"
+		]);
+		valid$1(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		const publicConfig = config(r.publicWebConfig);
+		valid$1(origin === `https://${publicConfig.projectId}.web.app`);
+		const body = {
+			kind: r.kind,
+			publicWebConfig: publicConfig,
+			version: r.version
+		};
+		valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(canonical(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical(r));
+		valid$1(link === `${origin}/pair#${base64url(bytes)}`);
+		return publicConfig;
+	} catch {
+		throw new RefusalError("REMOTE_INPUT_INVALID");
+	}
+}
+/** A bounded same-origin read cannot follow a redirect into another configuration source. */
+async function confirmHostedConfig(expected, origin, fetcher, signal) {
+	const response = await fetcher(`${origin}/__/firebase/init.json`, {
+		signal,
+		redirect: "error",
+		credentials: "omit",
+		cache: "no-store"
+	});
+	if (!response.ok || response.url !== "" && response.url !== `${origin}/__/firebase/init.json`) throw new ClientError("unverifiable_response", "Hosted configuration could not be confirmed.");
+	const reader = response.body?.getReader();
+	if (!reader) throw new ClientError("unverifiable_response", "Hosted configuration could not be confirmed.");
+	let text = "";
+	let size = 0;
+	const streamDecoder = new TextDecoder("utf-8", { fatal: true });
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (signal.aborted) throw new ClientError("timeout", "Hosted configuration check timed out.");
+			if (done) break;
+			size += value.byteLength;
+			if (size > LINK_BYTES) throw new ClientError("unverifiable_response", "Hosted configuration exceeds its bound.");
+			text += streamDecoder.decode(value, { stream: true });
+		}
+		text += streamDecoder.decode();
+		const actual = JSON.parse(text);
+		if (typeof actual !== "object" || actual === null || Array.isArray(actual)) throw new Error("invalid");
+		const r = actual;
+		for (const key of [
+			"projectId",
+			"appId",
+			"authDomain"
+		]) if (r[key] !== expected[key]) throw new ClientError("unverifiable_response", "Hosted configuration does not match this remote link.");
+	} finally {
+		await reader.cancel();
+		reader.releaseLock();
+	}
+}
+//#endregion
+//#region src/firebase-declaration.ts
+/** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
+var name = /^[a-z][a-z0-9-]{0,31}$/;
+var field = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+function require$1(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+function members(value, keys) {
+	require$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	const row = value;
+	require$1(Object.keys(row).sort().join(",") === keys.sort().join(","));
+	return row;
+}
+async function verifyHostedDeclaration(input) {
+	try {
+		require$1(typeof input.bytes === "string" && typeof input.digest === "string");
+		const bytes = new TextEncoder().encode(input.bytes);
+		require$1(bytes.length <= 65536 && /^[a-f0-9]{64}$/.test(input.digest));
+		require$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === input.digest);
+		const value = JSON.parse(input.bytes);
+		require$1(typeof value === "object" && value !== null && !Array.isArray(value));
+		const row = value;
+		members(row, [
+			"version",
+			"extension",
+			"backend",
+			"resources",
+			"admission",
+			...Object.hasOwn(row, "hosting") ? ["hosting"] : []
+		]);
+		require$1(row.version === 1 && row.backend === "firestore" && typeof row.extension === "string" && name.test(row.extension));
+		require$1(Array.isArray(row.resources) && row.resources.length <= 64);
+		const names = /* @__PURE__ */ new Set();
+		for (const value of row.resources) {
+			const r = members(value, [
+				"name",
+				"kind",
+				"path",
+				"limits",
+				"ttlField",
+				"indexes"
+			]);
+			require$1(typeof r.name === "string" && name.test(r.name) && !names.has(r.name));
+			names.add(r.name);
+			require$1(typeof r.kind === "string" && [
+				"log",
+				"checkpoint",
+				"blob",
+				"awareness"
+			].includes(r.kind));
+			require$1(typeof r.path === "string");
+			const segments = r.path.split("/");
+			require$1(segments.length <= 8 && segments.every((s) => /^[a-z0-9_-]{1,64}$/.test(s)));
+			require$1(![
+				"x",
+				"append",
+				"subscribe",
+				"ack",
+				"pair"
+			].includes(segments[0]));
+			const limits = members(r.limits, [
+				"maxObjectBytes",
+				"maxNamespaceBytes",
+				"maxEntries"
+			]);
+			require$1(Object.values(limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0));
+			require$1(Number(limits.maxObjectBytes) <= Number(limits.maxNamespaceBytes));
+			require$1(r.ttlField === null || typeof r.ttlField === "string" && field.test(r.ttlField));
+			require$1(Array.isArray(r.indexes) && r.indexes.length <= 64);
+			const indexes = /* @__PURE__ */ new Set();
+			for (const value of r.indexes) {
+				const index = members(value, ["field", "direction"]);
+				require$1(typeof index.field === "string" && field.test(index.field) && typeof index.direction === "string" && ["asc", "desc"].includes(index.direction));
+				const key = `${index.field}:${index.direction}`;
+				require$1(!indexes.has(key));
+				indexes.add(key);
+			}
+			require$1(r.kind !== "awareness" || r.ttlField === null && r.indexes.length === 0);
+		}
+		const admission = members(row.admission, [
+			"artifact",
+			"digest",
+			"entryPoint"
+		]);
+		require$1(typeof admission.artifact === "string" && admission.artifact.split("/").length <= 8 && admission.artifact.split("/").every((s) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(s)));
+		require$1(typeof admission.digest === "string" && /^[a-f0-9]{64}$/.test(admission.digest));
+		require$1(typeof admission.entryPoint === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(admission.entryPoint));
+	} catch {
+		throw new RefusalError("REMOTE_INPUT_INVALID");
+	}
+}
+//#endregion
+//#region src/firebase-auth.ts
+/** One hosted Auth owner; provider-native answers are not local machine-signed receipts. */
+function mapped(error) {
+	if (error instanceof ClientError || error instanceof RefusalError) return error;
+	const code = typeof error === "object" && error !== null && "code" in error ? error.code : void 0;
+	if (code === "remote/auth-pending") return new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	if (code === "auth/operation-not-allowed") return new RefusalError("REMOTE_SCOPE_DENIED");
+	if (code === "auth/too-many-requests") return new RefusalError("REMOTE_RATE_LIMITED");
+	return new ClientError("transport_failure", "Firebase authentication could not be confirmed.");
+}
+async function bounded$1(action) {
+	const controller = new AbortController();
+	let timer;
+	const deadline = new Promise((_, reject) => {
+		timer = setTimeout(() => {
+			controller.abort();
+			reject(new ClientError("timeout", "Firebase authentication check timed out."));
+		}, HOSTED_BOOTSTRAP_MS);
+	});
+	try {
+		return await Promise.race([action(controller.signal), deadline]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+/** Ports are internal test edges; the browser entry supplies same-origin fetch and lazy import. */
+async function connectHosted(link, declaration, deps) {
+	let port;
+	try {
+		port = await bounded$1(async (signal) => {
+			await verifyHostedDeclaration(declaration);
+			const config = await verifyHostedLink(link, deps.origin);
+			await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
+			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			const module = await deps.load().catch(() => {
+				throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+			});
+			if (signal.aborted) throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			const initialized = await module.initialize(config);
+			if (signal.aborted) {
+				await initialized.close();
+				throw new ClientError("timeout", "Hosted bootstrap timed out.");
+			}
+			return initialized;
+		});
+	} catch (error) {
+		throw mapped(error);
+	}
+	let closed = false;
+	let pending;
+	let closing;
+	const live = () => {
+		if (closed) throw new RefusalError("REMOTE_CLOSED");
+	};
+	return {
+		signInAnonymous() {
+			live();
+			if (!pending) pending = bounded$1(async (signal) => {
+				try {
+					const uid = await port.signInAnonymous();
+					live();
+					if (signal.aborted) throw new ClientError("timeout", "Firebase authentication check timed out.");
+					if (typeof uid !== "string" || uid.length === 0 || uid.length > 128) throw new ClientError("unverifiable_response", "Firebase identity could not be confirmed.");
+					return uid;
+				} catch (error) {
+					throw mapped(error);
+				}
+			}).finally(() => {
+				pending = void 0;
+			});
+			return pending;
+		},
+		async signOut() {
+			live();
+			if (pending) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+			try {
+				await bounded$1(() => port.signOut());
+				live();
+			} catch (error) {
+				throw mapped(error);
+			}
+		},
+		close() {
+			closed = true;
+			closing ??= port.close().catch((error) => {
+				throw mapped(error);
+			});
+			return closing;
+		}
+	};
+}
+//#endregion
+//#region src/session-reopen.ts
+var ReopenSessionError = class extends Error {
+	reason;
+	detail;
+	cause;
+	constructor(reason, detail, cause) {
+		super(`Remote session admission: ${reason} (${detail}).`);
+		this.reason = reason;
+		this.detail = detail;
+		this.name = "ReopenSessionError";
+		this.cause = cause;
+	}
+};
+var DEADLINE = 2e4;
+var ATTEMPT = 4e3;
+var DELAYS = [
+	250,
+	500,
+	1e3
+];
+var runtime = {
+	now: () => performance.now(),
+	later: (callback, ms) => setTimeout(callback, ms),
+	clear: (timer) => clearTimeout(timer),
+	jitter: () => crypto.getRandomValues(/* @__PURE__ */ new Uint32Array(1))[0] / 4294967296
+};
+function active(signal) {
+	if (signal?.aborted) throw new ReopenSessionError("transient", "cancelled");
+}
+/** Bounds even a provider that ignores AbortSignal; abandoned work cannot publish a Session. */
+function bounded(action, ms, owner, clock) {
+	return new Promise((resolve, reject) => {
+		const child = new AbortController();
+		const end = clock.now() + ms;
+		let settled = false;
+		let timer;
+		const finish = (value, error) => {
+			if (settled) return;
+			settled = true;
+			if (timer !== void 0) clock.clear(timer);
+			owner?.removeEventListener("abort", cancel);
+			child.abort();
+			if (error !== void 0) reject(error);
+			else if (clock.now() >= end) reject(new ReopenSessionError("unreachable", "budget-exhausted"));
+			else resolve(value);
+		};
+		const cancel = () => finish(void 0, new ReopenSessionError("transient", "cancelled"));
+		if (owner?.aborted) return cancel();
+		owner?.addEventListener("abort", cancel, { once: true });
+		timer = clock.later(() => finish(void 0, new ReopenSessionError("unreachable", "budget-exhausted")), ms);
+		Promise.resolve().then(() => action(child.signal)).then((value) => finish(value), (error) => finish(void 0, error));
+	});
+}
+async function boundedAdmission(attempt, signal, clock = runtime) {
+	const end = clock.now() + DEADLINE;
+	let last = new ReopenSessionError("unreachable", "budget-exhausted");
+	let ambiguous = false;
+	for (let index = 0; index < 4; index++) {
+		active(signal);
+		const remaining = end - clock.now();
+		if (remaining <= 0) break;
+		try {
+			const value = await bounded(attempt, Math.min(ATTEMPT, remaining), signal, clock);
+			active(signal);
+			return value;
+		} catch (error) {
+			if (!(error instanceof ReopenSessionError)) throw new ReopenSessionError("transient", "admission-unconfirmed");
+			if ([
+				"capacity",
+				"mismatch",
+				"unpaired",
+				"revoked",
+				"expired"
+			].includes(error.reason) || ["cancelled", "unverifiable-response"].includes(error.detail)) throw error;
+			last = error;
+			ambiguous ||= error.reason === "unconfirmed";
+		}
+		const delay = DELAYS[index];
+		if (delay === void 0) break;
+		const wait = Math.min(Math.floor(delay + delay * .25 * clock.jitter()), end - clock.now());
+		if (wait <= 0) break;
+		try {
+			await bounded((waiting) => new Promise((resolve) => {
+				const timer = clock.later(() => {
+					waiting.removeEventListener("abort", cancel);
+					resolve();
+				}, wait);
+				const cancel = () => clock.clear(timer);
+				waiting.addEventListener("abort", cancel, { once: true });
+			}), end - clock.now(), signal, clock);
+		} catch (error) {
+			active(signal);
+			if (!(error instanceof ReopenSessionError) || error.detail === "cancelled") throw error;
+			break;
+		}
+	}
+	active(signal);
+	throw new ReopenSessionError(ambiguous ? "unconfirmed" : last.reason, "budget-exhausted");
 }
 //#endregion
 //#region src/firestore.ts
@@ -1671,6 +1955,17 @@ async function certify(key, value, issuedAtMs = Date.now()) {
 }
 //#endregion
 //#region src/browser.ts
+/** Explicit hosted bootstrap; ordinary local SDK imports never load Firebase. */
+var firebaseRemote = { connect(link, declaration) {
+	return connectHosted(link, declaration, {
+		origin: location.origin,
+		fetch: globalThis.fetch.bind(globalThis),
+		load: () => import(
+			/* @vite-ignore */
+			"/sdk/remote-firebase-v1.js"
+)
+	});
+} };
 /**
 * Browser entry of the device SDK, served by the door as `/sdk/remote-v1.js`.
 * On the pairing page it runs the ceremony; mounted extension pages import it
@@ -2179,4 +2474,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, ReopenSessionError, budget_exports as budget, certifyKey, landingPage, management, operations, pairingPage, reopenSession, transportUrl };
+export { ClientError, RefusalError, ReopenSessionError, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, reopenSession, transportUrl };
