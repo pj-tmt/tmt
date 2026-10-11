@@ -318,6 +318,7 @@ fn trend_thresholds_are_strict_including_the_absolute_and_relative_floors() {
     assert_eq!(compare_rates(10.0, 7.99, 2.0), Trend::Down);
     // Eight points in six hours versus three in the latest 1.5 h is exactly
     // one reading step apart; subtracting rounded rates must not flip it.
+    // Pins the IEEE result: 8/6 + 1/1.5 equals 2.0 exactly in f64.
     let fractional = [reading(0.0, 90.0), reading(4.5, 85.0), reading(6.0, 82.0)];
     assert_eq!(pace(&fractional), (Some(8.0 / 6.0), Some(Trend::Same)));
 }

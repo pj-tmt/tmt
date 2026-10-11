@@ -10,7 +10,9 @@ const URGENT_EMPTY_MS: u64 = 12 * HOUR_MS;
 const BURN_SPAN_MS: u64 = 6 * HOUR_MS;
 /// Samples spanning less than this say nothing about a rate.
 const MIN_SPAN_MS: u64 = HOUR_MS;
+/// The displayed baseline must cover this much history before comparing it.
 const MIN_TREND_SPAN_MS: u64 = 5 * HOUR_MS;
+/// The recent anchor is the oldest observation inside this window.
 const RECENT_SPAN_MS: u64 = 2 * HOUR_MS;
 /// Precision is not retained; assume whole percent.
 const READING_STEP_PERCENT: f64 = 1.0;

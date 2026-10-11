@@ -266,9 +266,9 @@ fn overview_detail_contains_only_the_values_hidden_at_each_width() {
             .map(|(_, text)| text.as_str())
             .collect::<Vec<_>>()
             .join(" · ");
-        assert_eq!(detail.contains("~2.1%/h"), false, "{width}: {detail}");
-        assert_eq!(detail.contains("5h 97%"), true, "{width}: {detail}");
-        assert_eq!(detail.contains("4d03h"), false, "{width}: {detail}");
+        assert!(!detail.contains("~2.1%/h"), "{width}: {detail}");
+        assert!(detail.contains("5h 97%"), "{width}: {detail}");
+        assert!(!detail.contains("4d03h"), "{width}: {detail}");
         assert!(!hidden.iter().any(|(label, _)| *label == "provider"));
         assert!(
             !detail.contains("44%"),

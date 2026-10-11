@@ -39,6 +39,8 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   is not retained, so a single step cannot flip the arrow. `Standing` carries
   this derived observation; `outlook` omits it when stale, reset or without a
   positive finite pace. No new acquisition or persisted field is added.
+  Width-hidden pace also hides its arrow; shared detail discloses the rate, not
+  the trend.
 - `App::home_usage` supplies observed totals, model attribution and longest-window
   lead share; `tiles` only formats them. Missing differs from measured zero, partial
   evidence propagates to shares, and disabled sampling supplies no token cells.
