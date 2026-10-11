@@ -4,6 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { alive, OwnedProcess, until } from './process.js';
+import { serveLockOwners, signalServeLockOwner } from './serve-lock.js';
 
 const harness = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(harness, '../../../../../..');
@@ -102,6 +103,7 @@ export class AcceptanceWorld {
   /** One line per call of a host browser opener; a world must never write here. */
   readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
+  private readonly servePids = new Set<number>();
   private readonly agentPanes = new Set<string>();
   private readonly closers: Closer[] = [];
   private tmuxPath = '';
@@ -110,10 +112,16 @@ export class AcceptanceWorld {
   private sessionId = '';
   private hostPane = '';
   private disposed = false;
+  private disposal?: Promise<string[]>;
+  private readonly caseIdentity: { case: string; worker: number };
   private readonly closerBoundMs: number;
 
-  constructor(binaries = resolveBinaries(), options: { closerBoundMs?: number } = {}) {
+  constructor(
+    binaries = resolveBinaries(),
+    options: { closerBoundMs?: number; caseIdentity?: { case: string; worker: number } } = {},
+  ) {
     this.binaries = binaries;
+    this.caseIdentity = options.caseIdentity ?? { case: 'direct world', worker: -1 };
     this.closerBoundMs = options.closerBoundMs ?? CLOSER_BOUND_MS;
     for (const directory of [
       this.home,
@@ -198,6 +206,7 @@ export class AcceptanceWorld {
     ]);
     this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
     this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
+    this.lifecycle('started');
     // TMUX carries the session number without the `$` prefix of #{session_id}.
     this.sessionId = this.tmux(['display-message', '-p', '-t', 'acceptance', '#{session_id}'])
       .trim()
@@ -393,7 +402,18 @@ export class AcceptanceWorld {
       stderrPath: path.join(this.root, `${label}.stderr`),
     });
     this.processes.add(owned);
+    this.lifecycle('spawned');
     return owned;
+  }
+
+  /** The private root's open serve lock attests ownership even across a new process group. */
+  recordColabServe(): void {
+    this.live('record Colab serve ownership');
+    const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
+    const found = serveLockOwners(lock);
+    if (found.size !== 1) throw new Error('Private Colab serve lock has no unique owner');
+    for (const pid of found) this.servePids.add(pid);
+    this.lifecycle('serve-owned');
   }
 
   /** Register cleanup that must run before the process checks (browsers, pages). */
@@ -445,9 +465,32 @@ export class AcceptanceWorld {
    * runs fully; the leak report is thrown afterwards so an injected assertion
    * failure in the scenario still exercises the same checks.
    */
-  async dispose(): Promise<string[]> {
-    if (this.disposed) return [];
-    this.disposed = true;
+  dispose(): Promise<string[]> {
+    if (!this.disposal) {
+      this.disposed = true;
+      this.disposal = this.teardown();
+    }
+    return this.disposal;
+  }
+
+  /** Only allowlisted identity fields: never child argv, browser URLs or error text. */
+  private lifecycle(stage: string, leaks = 0): void {
+    console.log(
+      `colab-world ${JSON.stringify({
+        ...this.caseIdentity,
+        root: this.root,
+        stage,
+        leaks,
+        pids: [...this.processes].map((owned) => owned.pid),
+        servePids: [...this.servePids],
+        tmuxPid: this.serverPid,
+        tmuxSocket: this.socketPath,
+      })}`,
+    );
+  }
+
+  private async teardown(): Promise<string[]> {
+    this.lifecycle('begin');
     const leaks: string[] = [];
     const attempt = async (what: string, action: () => Promise<void> | void) => {
       try {
@@ -500,7 +543,15 @@ export class AcceptanceWorld {
         );
       });
     }
+    this.lifecycle('processes');
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
+    for (const pid of this.servePids) {
+      await attempt('private Colab serve lock owner', async () => {
+        const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
+        if (!signalServeLockOwner(lock, pid, 'SIGTERM')) return;
+        await until(() => !alive(pid), 'private Colab serve exit', 5_000);
+      });
+    }
     if (this.serverPid) {
       await attempt('tmux server', async () => {
         try {
@@ -520,6 +571,7 @@ export class AcceptanceWorld {
     // TMT_ACCEPTANCE_KEEP=1 keeps the root (logs, stderr, counters) for diagnosis.
     if (process.env.TMT_ACCEPTANCE_KEEP !== '1')
       fs.rmSync(this.root, { recursive: true, force: true });
+    this.lifecycle('complete', leaks.length);
     return leaks;
   }
 
