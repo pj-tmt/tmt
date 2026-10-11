@@ -36,18 +36,16 @@ pub(super) fn prune(layout: &Layout, active: Uuid, previous: Uuid) -> io::Result
         if id == active || id == previous || !fs::symlink_metadata(&path)?.is_dir() {
             continue;
         }
-        let Ok(receipt) = Receipt::read_product(layout.product, &path, &layout.prefix, id) else {
+        let Ok(_) = Receipt::read_product(layout.product, &path, &layout.prefix, id) else {
             // Damage, foreign inventory and historical formats are not deletion authority.
             continue;
         };
-        if receipt.state.pinned_version.is_none() {
-            fs::remove_dir_all(path)?;
-        }
+        fs::remove_dir_all(path)?;
     }
     fs::File::open(releases)?.sync_all()
 }
 
-/// Provider assets for retained CLI releases (including pins) remain available.
+/// Provider assets for retained CLI releases remain available.
 /// An unmanaged/stale executable or uncertain retained receipt grants no cleanup authority.
 pub(crate) fn retained_cli_versions(executable: &Path) -> io::Result<BTreeSet<Version>> {
     super::with_active_product(Product::Cli, executable, |installation| {

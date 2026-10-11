@@ -277,8 +277,8 @@ beside `src`, outside the TypeScript package workspace. Native publication stage
 `<dataRoot>/provider-plugins/claude/<tmt-version>`. Concurrent launches reuse the
 same complete version. Publishing a new version best-effort prunes verified older
 assets while retaining the active and preceding version and every retained CLI
-version (including pins). Unmanaged or stale executables and uncertain release
-receipts skip cleanup; changed, generated or foreign plugin content stays intact.
+version. Unmanaged or stale executables and uncertain release
+receipts skip cleanup; changed or foreign plugin content stays intact.
 Claude-generated root `tsconfig.json` and `.claude-plugin/types/` are inert:
 validation checks ownership and regular file/directory shapes, not their bytes.
 Fresh and resumed Claude launches add this directory with `--plugin-dir` alongside

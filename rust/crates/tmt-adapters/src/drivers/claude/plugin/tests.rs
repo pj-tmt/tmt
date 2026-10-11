@@ -143,7 +143,7 @@ fn retention_keeps_active_previous_and_assets_for_retained_cli_versions() {
     let directory = TestDirectory::new();
     let paths = paths(&directory);
     let oldest = publish(&paths, "1.2.1").unwrap();
-    let pinned = publish(&paths, "1.2.2").unwrap();
+    let retained_cli = publish(&paths, "1.2.2").unwrap();
     let previous = publish(&paths, "1.2.3").unwrap();
     let active = publish(&paths, "1.2.4").unwrap();
     let protected = [semver::Version::parse("1.2.2").unwrap()]
@@ -151,18 +151,19 @@ fn retention_keeps_active_previous_and_assets_for_retained_cli_versions() {
         .collect();
     prune(&active, "1.2.4", &protected).unwrap();
     assert!(!oldest.exists());
-    for path in [&pinned, &previous, &active] {
+    for path in [&retained_cli, &previous, &active] {
         validate(path).unwrap();
     }
 }
 
 #[test]
-fn retention_preserves_foreign_damaged_generated_and_symlinked_plugin_content() {
+fn retention_prunes_loaded_versions_but_preserves_foreign_damaged_and_symlinked_content() {
     let directory = TestDirectory::new();
     let paths = paths(&directory);
     let damaged = publish(&paths, "1.2.0").unwrap();
     fs::write(damaged.join("hooks/register.mjs"), b"user edit").unwrap();
     let generated = publish(&paths, "1.2.1").unwrap();
+    fs::write(generated.join("tsconfig.json"), "{}").unwrap();
     fs::create_dir(generated.join(".claude-plugin/types")).unwrap();
     fs::write(generated.join(".claude-plugin/types/user"), b"generated").unwrap();
     let previous = publish(&paths, "1.2.2").unwrap();
@@ -178,10 +179,7 @@ fn retention_preserves_foreign_damaged_generated_and_symlinked_plugin_content() 
         fs::read(damaged.join("hooks/register.mjs")).unwrap(),
         b"user edit"
     );
-    assert_eq!(
-        fs::read(generated.join(".claude-plugin/types/user")).unwrap(),
-        b"generated"
-    );
+    assert!(!generated.exists(), "loaded old version must be pruned");
     assert_eq!(fs::read(foreign.join("notes")).unwrap(), b"user bytes");
     assert!(
         fs::symlink_metadata(alias)

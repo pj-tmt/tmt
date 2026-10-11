@@ -189,11 +189,6 @@ fn prune(
         if candidate.to_string() != name || candidate >= version || validate(&path).is_err() {
             continue;
         }
-        // Generated or unrecognized files are retained, not swept with provider assets.
-        match fs::symlink_metadata(path.join(".claude-plugin/types")) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            _ => continue,
-        }
         older.push((candidate, path));
     }
     older.sort_by(|a, b| b.0.cmp(&a.0));

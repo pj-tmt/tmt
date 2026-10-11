@@ -561,7 +561,7 @@ fn retention_keeps_the_active_release_and_exact_predecessor() {
 }
 
 #[test]
-fn retention_preserves_pinned_damaged_and_foreign_generations() {
+fn retention_prunes_historical_pins_but_preserves_damaged_and_foreign_generations() {
     let (_directory, layout, oldest) = published_layout();
     let releases = layout.root.join("releases");
     let pinned_artifact = synthetic_artifact("1.2.4", b"pinned");
@@ -585,13 +585,7 @@ fn retention_preserves_pinned_damaged_and_foreign_generations() {
         b"damaged retained bytes"
     );
     assert_eq!(fs::read(foreign.join("notes")).unwrap(), b"user bytes");
-    Receipt::read_product(
-        layout.product,
-        &releases.join(pinned.id.to_string()),
-        &layout.prefix,
-        pinned.id,
-    )
-    .unwrap();
+    assert!(!releases.join(pinned.id.to_string()).exists());
 }
 
 #[test]
@@ -698,7 +692,7 @@ fn provider_retention_protects_all_retained_cli_versions_and_refuses_uncertain_r
     let versions = super::retained_cli_versions(&executable).unwrap();
     assert_eq!(
         versions,
-        ["1.2.4", "1.2.5", "1.2.6"]
+        ["1.2.5", "1.2.6"]
             .into_iter()
             .map(|v| Version::parse(v).unwrap())
             .collect()
