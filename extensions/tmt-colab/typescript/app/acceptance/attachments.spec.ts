@@ -73,7 +73,7 @@ test('committed page deletion removes file data while retaining fixed namespace 
       );
       expect(fs.existsSync(directory)).toBe(true);
 
-      const deleted = colab(['page', 'delete', created.pageId, '--yes']);
+      const deleted = colab(['delete', created.pageId, '--yes']);
       expect(deleted.storage).toBe('freed');
       expect(
         ledger
@@ -92,7 +92,6 @@ test('committed page deletion removes file data while retaining fixed namespace 
       expect(charge).toBe(8192 + 4608);
       expect(charge).toBeLessThan(Number(before.payload) + 8192 + 4608);
       const repeated = colab([
-        'page',
         'delete',
         created.pageId,
         '--yes',
