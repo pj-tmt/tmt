@@ -1954,7 +1954,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: the mention list, then the anchored window (draft retained), then Chat if open (draft retained and busy sends uninterrupted), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2177,9 +2177,13 @@ reopens the same thread in its anchored window. Page-owned per-thread drafts als
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
 Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px
-header/right/bottom gutter (4 px through 480 px), with top/bottom safe-area insets, an opaque
-square surface and a 1 px border. The header remains visible; compact drawers
-retain native modal focus containment.
+header/right/bottom gutter (4 px through 480 px), with top/right/bottom safe-area insets, an opaque
+square surface and a 1 px border. The header remains visible behind the scrim. All drawers use the shared leaf
+Drawer with native modal focus containment at every width. The first header or
+author-frame backdrop press dismisses only, without click-through; a second press
+acts. The shared Close button retains draft/attempt owners; Chat keeps its audience
+caption. Action and Manage radio menus use the shared top-layer Menu; autocomplete
+remains a listbox. A nested menu consumes Escape before its drawer.
 A trusted non-editing `@` key opens the existing Chat under the same admission as
 the header Discussion action: a mounted, unarchived page and no other menu or
 dialog. An anchored annotation does not block it. Only a mounted editable composer
@@ -2250,8 +2254,8 @@ agent-role and time byline followed by plain reply text. Pending, held and faile
 outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
 Chat and annotation threads share flat, unboxed turns and the existing 3px agent
-rail. Chat uses a one-row `Chat` / `○ Everyone with access` header and a
-`Collapse Chat` action; its identity row places the muted time at the right.
+rail. Chat uses the shared Drawer header with `Chat`, a `○ Everyone with access` caption and
+a `Close Chat` action; its identity row places the muted time at the right.
 Spacing separates turns, while local-day headings derive only from admitted
 timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
 that action is admitted. The pinned composer has one top rule, the existing

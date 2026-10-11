@@ -78,43 +78,6 @@ footer {
   font-size: 16px;
 }
 /* The leaf owns list rows; Colab owns the trusted row disclosure. */
-.page-row-menu {
-  position: relative;
-  color: var(--tmt-ui-color-text);
-  font-size: var(--tmt-ui-header-action-size);
-  line-height: var(--tmt-ui-header-action-line-height);
-}
-.page-row-menu > summary {
-  display: flex;
-  align-items: center;
-  min-height: var(--tmt-ui-host-icon-action-size);
-  padding: 0 var(--tmt-ui-toggle-gap);
-  cursor: pointer;
-  list-style: none;
-}
-.page-row-menu > summary::-webkit-details-marker {
-  display: none;
-}
-.page-row-menu > summary:hover {
-  text-decoration: underline;
-}
-.page-row-menu-body {
-  position: absolute;
-  z-index: 20;
-  top: 100%;
-  right: 0;
-  width: min(
-    calc(var(--tmt-ui-header-wordmark-size) * 20),
-    calc(100vw - var(--tmt-ui-list-padding-inline) * 2)
-  );
-  padding: var(--tmt-ui-list-padding-block) var(--tmt-ui-list-padding-inline);
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
-}
-.page-row-menu-body p {
-  margin: 0 0 var(--tmt-ui-toggle-gap);
-}
 .chip {
   font: 11px var(--f-mono);
   border: 1.5px solid var(--c-text);
@@ -185,7 +148,7 @@ footer {
 .page-header-unseen {
   color: var(--c-waiting);
 }
-.page-header-actions .tmt-action-menu-check {
+.page-header-actions .tmt-ui-menu-check {
   float: right;
   margin-left: 8px;
 }
@@ -206,19 +169,19 @@ footer {
 .workspace {
   min-height: 0;
 }
-.drawer-body > .ask-control {
+.tmt-ui-drawer-body > .ask-control {
   margin: 0;
 }
-.drawer-body .ask-panel,
-.drawer-body .ask-compose,
-.drawer-body .ask-preview,
-.drawer-body .export-panel {
+.tmt-ui-drawer-body .ask-panel,
+.tmt-ui-drawer-body .ask-compose,
+.tmt-ui-drawer-body .ask-preview,
+.tmt-ui-drawer-body .export-panel {
   border: 0;
   box-shadow: none;
   padding: 0;
   margin: 20px 0;
 }
-.drawer-body .ask-panel > h2 {
+.tmt-ui-drawer-body .ask-panel > h2 {
   margin-top: 24px;
 }
 @media (max-width: 640px) {
@@ -741,7 +704,7 @@ footer {
   min-width: 0;
 }
 
-.page-drawer[data-panel='chat'] .drawer-body {
+.tmt-ui-drawer[data-panel='chat'] .tmt-ui-drawer-body {
   display: flex;
   padding: 0;
   overflow: hidden;
@@ -1535,7 +1498,46 @@ footer {
   }
 }
 
-/* Every Chat identity row reserves the existing 26px message-action slot. */
+/* Every Chat identity row reserves the shared 34px message-action slot. */
 .chat-panel .comment-header-end {
-  flex: 0 0 26px;
+  flex: 0 0 34px;
+}
+.tmt-ui-drawer
+  button:not(.tmt-ui-action):not([data-testid='ask-send']):not(.tmt-ui-menu-item):not(
+    .tmt-ui-menu-trigger
+  ) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.tmt-ui-drawer[data-panel='source'] .tmt-ui-drawer-body {
+  display: flex;
+  padding: 0;
+}
+
+.comment .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control,
+.chat-user-turn .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control {
+  opacity: 0;
+}
+.comment:hover .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control,
+.chat-user-turn:hover .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control,
+.tmt-ui-menu:focus-within > .tmt-ui-icon-action > .tmt-ui-icon-action-control {
+  opacity: 1;
+}
+@media (hover: none) {
+  .comment .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control,
+  .chat-user-turn .tmt-ui-menu > .tmt-ui-icon-action > .tmt-ui-icon-action-control {
+    opacity: 1;
+  }
+}
+
+.drawer-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.drawer-recovery-state {
+  color: var(--tmt-ui-color-blocked);
 }

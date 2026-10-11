@@ -48,16 +48,18 @@ for (const width of [1440, 390])
       await page.keyboard.press('Tab');
       await expect(first.getByRole('link', { name: 'Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
-      const actions = first.locator('summary');
+      const actions = first.getByRole('button', { name: /^Actions for/ });
       await expect(actions).toBeFocused();
       await page.keyboard.press('Tab');
       await expect(rows.nth(1).getByRole('link', { name: 'Beta update' })).toBeFocused();
       await actions.click();
-      await expect(first.getByRole('button', { name: 'Manage page' })).toBeVisible();
-      await expect(first).toContainText('Page ID: c0000002-1111-4111-8111-000000000001');
-      await expect(first.locator('.retention-hint')).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
+      await expect(page.getByRole('menu')).toContainText(
+        'Page ID: c0000002-1111-4111-8111-000000000001',
+      );
+      await expect(page.getByRole('menu').locator('.retention-hint')).toBeVisible();
       await page.keyboard.press('Escape');
-      await expect(first.locator('details')).not.toHaveAttribute('open');
+      await expect(page.getByRole('menu')).toHaveCount(0);
       await expect(actions).toBeFocused();
       await page.screenshot({ path: await capturePath(`2168-few-${width}-${theme}.png`) });
       await toggle.click();
@@ -144,7 +146,7 @@ test('leaf row insets, height and controls stay equal while metadata stacks at 3
         const style = getComputedStyle(node);
         const title = node.querySelector('.tmt-ui-list-title')!.getBoundingClientRect();
         const meta = node.querySelector('.tmt-ui-list-meta')!.getBoundingClientRect();
-        const action = node.querySelector('summary')!.getBoundingClientRect();
+        const action = node.querySelector('.tmt-ui-menu button')!.getBoundingClientRect();
         return {
           height: node.getBoundingClientRect().height,
           padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
@@ -230,7 +232,9 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
     '/#/pages/c0000005-1111-4111-8111-000000000001',
   );
   await expect(row.getByText('Untitled page', { exact: true })).toBeVisible();
-  await expect(row.locator('summary')).toHaveAccessibleName('Actions for Untitled page');
+  await expect(row.getByRole('button', { name: /^Actions for/ })).toHaveAccessibleName(
+    'Actions for Untitled page',
+  );
 });
 
 test('the first committed index render uses the actual time snapshot', async ({ page }) => {

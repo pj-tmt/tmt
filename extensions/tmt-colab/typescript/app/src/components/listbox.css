@@ -7,30 +7,6 @@
   display: block;
   margin-bottom: 4px;
 }
-.tmt-listbox .tmt-listbox-trigger {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0;
-  border: 1px solid var(--c-text);
-  padding: 8px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: none;
-  text-align: left;
-}
-.tmt-listbox-trigger:hover,
-.tmt-listbox-trigger[aria-expanded='true'] {
-  color: var(--c-text);
-  border-color: var(--c-accent);
-}
-.tmt-listbox-chevron {
-  flex: none;
-  color: var(--c-muted);
-  font: 16px/1 var(--f-mono);
-}
 .tmt-listbox-options {
   position: absolute;
   z-index: 30;

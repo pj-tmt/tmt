@@ -141,7 +141,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect.poll(() => agent.rows().find((row) => row.event === 'replied')?.body).toBeTruthy();
     const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(popover.getByTestId('ask-reply')).toHaveText(reply);
-    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     // Sending clears the old body; the enabled toggle seeds the next fresh message.
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await expect(input.locator('.message-mention-chip')).toHaveCount(1);
@@ -198,7 +198,7 @@ for (const [width, theme] of [
       await input.press('Escape');
       await input.fill('An unsent served draft');
       await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
-      await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
+      await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
       await page.keyboard.press('Shift+@');
       await expect(input).toBeFocused();
       await expect(input).toHaveText('An unsent served draft');

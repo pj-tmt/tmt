@@ -1,7 +1,4 @@
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import { AttachmentDropPanel } from './attachment-drop.js';
-import { BrowserIconAction } from '@tmt/browser-ui/react';
-import { ChevronUp } from 'lucide-react';
 import { Fragment } from 'react';
 import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { text } from './strings.js';
@@ -121,86 +118,73 @@ export function ChatPanel({
   const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
   return (
     <ConversationPresentation value="chat">
-      <AttachmentDropPanel target="chat">
-        <ConversationWindow
-          className="chat-panel"
-          data-testid="chat-panel"
-          aria-label="Page chat"
-          title="Chat"
-          caption={text.chatVisible}
-          actions={
-            <BrowserIconAction
-              type="button"
-              label={text.chatCollapse}
-              tooltipLabel={text.chatCollapseHint}
-              ariaKeyShortcuts="Escape"
-              variant="text"
-              icon={<ChevronUp />}
-              onActivate={(event) => {
-                if (event.isTrusted) close();
-              }}
-            />
-          }
-          messageIds={messageIds}
-          ownWriter={discussion?.deviceId}
-          historyClassName="chat-messages"
-          notice={
-            <>
-              {observationUnavailable && (
-                <p role="status" className="annotation-hint">
-                  {text.askObservationUnavailable}
-                </p>
-              )}
-              {unsaved && (
-                <p role="status" className="annotation-hint">
-                  {text.draftsNotSaved}
-                </p>
-              )}
-            </>
-          }
-          composer={
-            <AnnotationInput
-              archived={archived}
-              onBusy={onBusy}
-              binding={binding}
-              discussion={discussion}
-              anchor={null}
-              thread={own}
-              asks={asks}
-              title={title}
-              creationRecipient={creationRecipient}
-              initialEdit={initialEdit}
-              activation={activation}
-              onDraft={(_value, edit) => onDraft?.(edit)}
-              blocked={blocked || !!own?.deleted}
-              recoveryRequired={recoveryRequired && !own?.deleted}
-              cancel={escape}
-              committed={() => {}}
-            />
-          }
-        >
-          {!chats.length && !legacy.length && (
-            <div className="chat-empty">
-              <span aria-hidden="true">○</span>
-              <h3>{text.chatEmpty}</h3>
-              {!archived && !blocked && !!discussion && !recoveryRequired && (
-                <p>{text.chatEmptyHint}</p>
-              )}
-            </div>
-          )}
-          {history}
-          {legacy.length > 0 && (
-            <AskPanel
-              readOnly={archived}
-              dayHeadings={legacyDays}
-              records={legacy}
-              binding={binding}
-              blocked={blocked}
-              inline
-            />
-          )}
-        </ConversationWindow>
-      </AttachmentDropPanel>
+      <ConversationWindow
+        className="chat-panel"
+        data-testid="chat-panel"
+        aria-label="Page chat"
+        title="Chat"
+        hideHeader
+        historyLabel="Chat"
+        actions={null}
+        messageIds={messageIds}
+        ownWriter={discussion?.deviceId}
+        historyClassName="chat-messages"
+        notice={
+          <>
+            {observationUnavailable && (
+              <p role="status" className="annotation-hint">
+                {text.askObservationUnavailable}
+              </p>
+            )}
+            {unsaved && (
+              <p role="status" className="annotation-hint">
+                {text.draftsNotSaved}
+              </p>
+            )}
+          </>
+        }
+        composer={
+          <AnnotationInput
+            archived={archived}
+            onBusy={onBusy}
+            binding={binding}
+            discussion={discussion}
+            anchor={null}
+            thread={own}
+            asks={asks}
+            title={title}
+            creationRecipient={creationRecipient}
+            initialEdit={initialEdit}
+            activation={activation}
+            onDraft={(_value, edit) => onDraft?.(edit)}
+            blocked={blocked || !!own?.deleted}
+            recoveryRequired={recoveryRequired && !own?.deleted}
+            cancel={escape}
+            committed={() => {}}
+          />
+        }
+      >
+        {!chats.length && !legacy.length && (
+          <div className="chat-empty">
+            <span aria-hidden="true">○</span>
+            <h3>{text.chatEmpty}</h3>
+            {!archived && !blocked && !!discussion && !recoveryRequired && (
+              <p>{text.chatEmptyHint}</p>
+            )}
+          </div>
+        )}
+        {history}
+        {legacy.length > 0 && (
+          <AskPanel
+            readOnly={archived}
+            dayHeadings={legacyDays}
+            records={legacy}
+            binding={binding}
+            blocked={blocked}
+            inline
+          />
+        )}
+      </ConversationWindow>
     </ConversationPresentation>
   );
 }

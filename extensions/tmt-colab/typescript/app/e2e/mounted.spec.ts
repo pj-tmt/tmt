@@ -8,8 +8,11 @@ const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
 const json = (v: unknown) => c.text(JSON.stringify(v));
 async function choose(dialog: Locator, label: string, option: string) {
-  await dialog.getByRole('combobox', { name: new RegExp(`^${label}`) }).click();
-  await dialog.getByRole('listbox', { name: label }).getByRole('option', { name: option }).click();
+  await dialog.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+  await dialog
+    .getByRole('menu', { name: label })
+    .getByRole('menuitemradio', { name: option })
+    .click();
 }
 async function captureListbox(page: Page, name: string) {
   const directory = process.env.COLAB_LISTBOX_CAPTURE_DIR;
@@ -437,10 +440,13 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     } else await route.fulfill({ json: result });
   });
   await page.goto(mount);
-  await page.locator('.pages li summary').click();
-  await page.getByRole('button', { name: 'Manage page' }).click();
+  await page
+    .locator('.pages li')
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
-  const audience = dialog.getByRole('combobox', { name: /^Audience/ });
+  const audience = dialog.getByRole('button', { name: /^Audience/ });
   await expect(audience).toBeVisible();
   const managementBody = dialog.locator('.management-dialog-body');
   const closeManagement = dialog.getByRole('button', { name: 'Close', exact: true });
@@ -468,40 +474,36 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     // The visible action must actually close the scrolled dialog and restore its trigger.
     await closeManagement.click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Manage page' })).toBeFocused();
-    await page.getByRole('button', { name: 'Manage page' }).click();
+    await expect(page.getByRole('button', { name: /^Actions for/ })).toBeFocused();
+    await page.getByRole('button', { name: /^Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage page' }).click();
     await expect(audience).toBeVisible();
   }
   await page.setViewportSize(originalViewport);
   await expect(dialog.locator('select')).toHaveCount(0);
   await audience.click();
-  const menu = dialog.getByRole('listbox', { name: 'Audience' });
+  const menu = dialog.getByRole('menu', { name: 'Audience' });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('option')).toHaveCount(3);
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(3);
   await captureListbox(page, 'open-list');
-  await audience.press('End');
-  await expect(menu.getByRole('option', { name: 'Public (loopback only)' })).toHaveAttribute(
-    'data-active',
-    'true',
-  );
+  await menu.press('End');
+  await expect(menu.getByRole('menuitemradio', { name: 'Public (loopback only)' })).toBeFocused();
   await captureListbox(page, 'keyboard-focus');
-  await audience.press('ArrowUp');
-  await expect(menu.getByRole('option', { name: 'Link' })).toHaveAttribute('data-active', 'true');
-  await audience.press('Home');
-  await expect(menu.getByRole('option', { name: 'Private' })).toHaveAttribute(
-    'data-active',
-    'true',
-  );
-  await audience.press('Escape');
+  await menu.press('ArrowUp');
+  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toBeFocused();
+  await menu.press('Home');
+  await expect(menu.getByRole('menuitemradio', { name: 'Private' })).toBeFocused();
+  await menu.press('Escape');
   await expect(menu).toBeHidden();
   await audience.click();
-  await dialog.getByRole('heading', { name: 'Sharing' }).click();
+  // The top menu catches a press outside both layers; Manage must remain open.
+  await page.mouse.click(1, 1);
   await expect(menu).toBeHidden();
-  const history = dialog.getByRole('combobox', { name: /^History mode/ });
+  const history = dialog.getByRole('button', { name: /^History mode/ });
   await history.click();
-  await expect(dialog.getByRole('listbox', { name: 'History mode' })).toBeVisible();
-  await history.press('Escape');
-  const memberRole = dialog.getByRole('combobox', { name: /^New member or link role/ });
+  await expect(dialog.getByRole('menu', { name: 'History mode' })).toBeVisible();
+  await dialog.getByRole('menu', { name: 'History mode' }).press('Escape');
+  const memberRole = dialog.getByRole('button', { name: /^New member or link role/ });
   await choose(dialog, 'New member or link role', 'editor');
   await expect(memberRole).toContainText('editor');
   await captureListbox(page, 'selected');
@@ -523,9 +525,12 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   }
   await audience.press('ArrowDown');
   await audience.press('ArrowDown');
-  await expect(menu.getByRole('option', { name: 'Link' })).toHaveAttribute('data-active', 'true');
-  await expect(audience).toHaveAttribute('aria-activedescendant', /-option-1$/);
-  await audience.press('Enter');
+  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toHaveAttribute(
+    'aria-checked',
+    'false',
+  );
+  await menu.getByRole('menuitemradio', { name: 'Link' }).press('Enter');
   await dialog.getByRole('button', { name: 'Confirm make link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('unavailable');
   await dialog.getByRole('button', { name: 'Refresh and review' }).click();
@@ -550,7 +555,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await page.screenshot({ path: testInfo.outputPath('share-mobile.png') });
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Manage page' })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^Actions for/ })).toBeFocused();
 });
 
 test('trusted home manages retention, archive and verified or awaiting deletion', async ({
@@ -657,9 +662,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     });
   });
   await page.goto(mount);
-  const row = (id: string) => page.locator('.pages li').filter({ hasText: id });
-  await row(pageId).locator('summary').click();
-  const manage = row(pageId).getByRole('button', { name: 'Manage page' });
+  const row = (id: string) => page.locator(`.pages li[data-page-id="${id}"]`);
+  await row(pageId)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
+  const manage = page.getByRole('menuitem', { name: 'Manage page' });
   await manage.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('expiry starts after the next edit');
@@ -673,13 +680,19 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(close).toHaveCSS('outline-width', '2px');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
-  await expect(manage).toBeFocused();
+  await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
+  await row(pageId)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
   await manage.click();
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(close).toBeEnabled();
   await close.click();
   await expect(dialog).toHaveCount(0);
-  await expect(manage).toBeFocused();
+  await expect(row(pageId).getByRole('button', { name: /^Actions for/ })).toBeFocused();
+  await row(pageId)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
   await manage.click();
   await expect(dialog.getByLabel('Retention days')).toBeVisible();
   await dialog.getByLabel('Retention days').fill('14');
@@ -713,14 +726,20 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     'true',
   );
   await expect(row(pageId)).toContainText('Archived');
-  await expect(row(pageId).locator('.retention-hint')).toHaveText('kept forever');
+  await row(pageId)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
+  await expect(page.getByRole('menu').locator('.retention-hint')).toHaveText('kept forever');
+  await page.getByRole('menu').press('Escape');
   await expect(row(pageId).getByRole('link')).toHaveCount(1);
   await expect(row(pageId).getByRole('link')).toHaveAttribute(
     'href',
     `${mount}#space=${f.space}&path=%2Fpages%2F${pageId}`,
   );
-  await row(pageId).locator('summary').click();
-  await row(pageId).getByRole('button', { name: 'Manage page' }).click();
+  await row(pageId)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Manage page' }).click();
   await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => {
@@ -756,8 +775,10 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     'aria-pressed',
     'false',
   );
-  await row(other).locator('summary').click();
-  await row(other).getByRole('button', { name: 'Manage page' }).click();
+  await row(other)
+    .getByRole('button', { name: /^Actions for/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Manage page' }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
@@ -813,9 +834,9 @@ test.describe('relative retention evidence', () => {
       }),
     );
     await page.goto(mount);
-    const row = page.locator('.pages li').filter({ hasText: pageId });
-    const hint = row.locator('.retention-hint');
-    await row.locator('summary').click();
+    const row = page.locator(`.pages li[data-page-id="${pageId}"]`);
+    const hint = page.getByRole('menu').locator('.retention-hint');
+    await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveClass(/lucide-clock/);
@@ -831,27 +852,31 @@ test.describe('relative retention evidence', () => {
         await page.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        if (!(await row.locator('details').evaluate((node) => (node as HTMLDetailsElement).open)))
-          await row.locator('summary').click();
+        if (
+          (await row
+            .getByRole('button', { name: /^Actions for/ })
+            .getAttribute('aria-expanded')) !== 'true'
+        )
+          await row.getByRole('button', { name: /^Actions for/ }).click();
         await page.screenshot({
           path: testInfo.outputPath(`expiry-home-${width}-${theme}.png`),
           fullPage: true,
         });
-        await row.getByRole('button', { name: 'Manage page' }).click();
+        await page.getByRole('menuitem', { name: 'Manage page' }).click();
         await expect(dialog.locator('.retention-hint')).toHaveText('expires in 6 days');
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
         await expect(dialog).toContainText('Last edit: Thu 09-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
-        await dialog.getByRole('combobox', { name: /^Audience/ }).click();
-        await expect(dialog.getByRole('listbox', { name: 'Audience', exact: true })).toBeVisible();
+        await dialog.getByRole('button', { name: /^Audience/ }).click();
+        await expect(dialog.getByRole('menu', { name: 'Audience', exact: true })).toBeVisible();
         await expect(dialog.locator('select')).toHaveCount(0);
         expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
         await page.screenshot({
           path: testInfo.outputPath(`expiry-dialog-${width}-${theme}.png`),
           fullPage: true,
         });
-        await dialog.getByRole('combobox', { name: /^Audience/ }).press('Escape');
+        await dialog.getByRole('button', { name: /^Audience/ }).press('Escape');
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       }
     }
@@ -859,10 +884,10 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await row.locator('summary').click();
+    await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expired 2 days ago');
     await expect(row.getByRole('link')).toBeVisible();
-    await row.getByRole('button', { name: 'Manage page' }).click();
+    await page.getByRole('menuitem', { name: 'Manage page' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('expired 2 days ago');
     await expect(dialog.getByRole('button', { name: 'Set retention', exact: true })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
@@ -870,7 +895,7 @@ test.describe('relative retention evidence', () => {
     now = expires - 10 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await row.locator('summary').click();
+    await row.getByRole('button', { name: /^Actions for/ }).click();
     await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
     await expect(hint).toHaveCSS(

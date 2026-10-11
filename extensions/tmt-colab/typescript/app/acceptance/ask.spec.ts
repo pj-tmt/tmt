@@ -245,7 +245,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           await s.askerPage.setViewportSize({ width, height: 900 });
           if (surface === 'annotation') {
-            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
             await selectInRenderer(s.askerPage, '#quote');
             await s.askerPage.getByTestId('selection-ask').click();
             await annotationInput(
@@ -293,17 +293,34 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             Object.assign(window, { recoveryDraftNode: node });
           });
           await expect(action).toBeDisabled();
+          if (surface === 'Chat') {
+            await s.askerPage.evaluate(
+              (theme) => {
+                document.documentElement.dataset.theme = theme;
+              },
+              width === 1440 ? 'light' : 'dark',
+            );
+            await s.askerPage.screenshot({
+              path: testInfo.outputPath(`drawer-disconnected-${width}.png`),
+            });
+          }
           if (surface === 'annotation')
             await expect(
               container.getByRole('button', { name: 'Send', exact: true }),
             ).toBeDisabled();
-          if (surface === 'Chat' && width === 390)
-            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
           await reconnect.click(); // Door still down: retry remains available, without reload.
           await expect(reconnect).toBeEnabled();
-          await expect(
-            s.askerPage.getByRole('heading', { name: 'Connection lost', exact: true }),
-          ).toBeVisible();
+          if (surface === 'Chat') {
+            const notice = s.askerPage.locator('.tmt-ui-drawer[data-panel=chat] .drawer-recovery');
+            await expect(notice).toContainText('✗ Connection lost');
+            await expect(
+              notice.getByRole('button', { name: 'Reconnect', exact: true }),
+            ).toBeVisible();
+          } else {
+            await expect(
+              s.askerPage.getByRole('heading', { name: 'Connection lost', exact: true }),
+            ).toBeVisible();
+          }
           if (surface === 'Chat') await openChat(s.askerPage);
           await input.focus();
           await expect.poll(selection).toEqual(before);
@@ -329,8 +346,6 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             Object.assign(window, { __holdFreshDirectory: true });
           });
           await restartRemote(world, s.door);
-          if (surface === 'Chat' && width === 390)
-            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
           await reconnect.click();
           await expect(reconnect).toHaveCount(0);
           await expect(s.askerPage.locator('.status.live .status-label')).toHaveText('Live');
@@ -338,6 +353,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             s.askerPage.frameLocator('iframe').getByRole('heading', { name: 'Ask acceptance' }),
           ).toBeVisible();
           await expect.poll(() => registrations).toBe(1);
+          if (surface === 'Chat') {
+            await expect(s.askerPage.locator('.drawer-recovery')).toHaveCount(0);
+            await s.askerPage.screenshot({
+              path: testInfo.outputPath(`drawer-reconnected-${width}.png`),
+            });
+          }
           if (surface === 'Chat') await openChat(s.askerPage);
           await input.focus();
           await expect.poll(selection).toEqual(before);

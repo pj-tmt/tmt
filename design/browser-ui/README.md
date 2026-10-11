@@ -14,7 +14,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand` and their prop types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu` and their prop types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
 
 The browser color, surface and shared metric roles live in the `browser` group
@@ -39,8 +39,7 @@ Links, essential edges, selection indicators and keyboard focus are separate.
 The leaf preserves differing product metrics through explicit custom properties;
 it does not guess a product profile or replace them with fallback values. The
 host defines every property used by its chosen components. Header sizes are
-56px/48px below the existing 479px threshold. Page positioning, safe areas,
-z-index, body offset, scrolling and full attribution disclosure remain host-owned.
+56px/48px below the existing 479px threshold. Page positioning, body offset and full attribution disclosure remain host-owned; Drawer and Menu own their top-layer geometry and dismissal.
 
 | Host property suffix after `--tmt-ui-host-`                                             | Existing product values retained for adoption                                                           |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -61,7 +60,7 @@ z-index, body offset, scrolling and full attribution disclosure remain host-owne
 
 Thin notice/action borders use the accepted 1px browser metric; field/header
 borders remain 1px. This supersedes earlier shadow and opacity proposals only.
-No native select, listbox, page geometry or new font loading enters this leaf.
+Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
 ## Controlled input contracts
 
@@ -199,6 +198,8 @@ using checked CSS and a small fixture-only static host. The hover/focus examples
 are labeled CSS demonstrations; all icons also support actual hover/keyboard focus.
 `/test/fixtures/react.html` runs observable editor/action/tooltip lifecycle assertions
 with **Run lifecycle checks**, then retains interactive React controls.
+`/test/fixtures/overlays.html` exercises Drawer/Menu focus, retained drafts, iframe/header scrims and bottom-anchor placement.
+
 **Run field focus checks** in the static fixture and the React lifecycle checks
 both exercise native and textbox fields: contained focus paint, unchanged geometry
 within 1px, a visible contiguous 1px-to-2px edge change, and restoration on blur.
@@ -214,3 +215,34 @@ Package-local verification after owning workspace integration:
 pnpm --filter @tmt/browser-ui --fail-if-no-match check
 pnpm --filter @tmt/browser-ui --fail-if-no-match test
 ```
+
+## Drawer and Menu
+
+Drawer and Menu render in place; native top-layer promotion keeps ancestor overflow and transforms from clipping them. Keep the mount point visible. Drawer uses native modal containment at every width, without body scroll locking.
+Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
+8px below the shared header and at the right/bottom edges, 4px through 480px,
+including safe-area insets. Regular width is at most 440px; wide is 660px; compact
+fills the available width. The opaque square surface has one 1px edge and no
+shadow or animation. Its scrim covers the header and iframe: a first outside
+press dismisses only, a second press acts on the uncovered control. Browser-only
+`scrim` starts at black 12% light / 32% dark.
+
+The host supplies `open`, title/caption, children and `onDismiss(reason, event)`.
+It owns busy admission, drafts, attempts and commands. An optional `notice` slot
+presents host-owned status and recovery actions below the header. Standard surface
+DOM handlers and an optional `overlay` slot let the host present a full-surface drag
+target without a second owner inside the drawer body. `keepMounted` retains
+children while closed. Escape respects a child's `defaultPrevented`; repeated,
+modified or composing keys do not dismiss. Close, backdrop and Escape requests
+carry their original events. Focus returns to the connected visible opener, or
+the host's supplied fallback when the opener disappears.
+
+Menu uses a native top-layer surface with a transparent catching backdrop and
+one open menu per document. It closes before invoking the host command, returning
+focus before another dialog opens. Arrows, Home/End and typeahead move among
+enabled items; Tab closes. The host owns checked state, command keys, disabled
+reasons and menuitem/radio/checkbox semantics. Description content is informational.
+Placement uses the visual viewport: below, then above if more room, then constrained
+scrolling when neither side fits; right edges align and horizontal placement clamps.
+A menu inside a drawer dismisses before that drawer on Escape. Input autocomplete
+and anchored annotation windows retain their existing owners.

@@ -1269,14 +1269,14 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     }
   }
   await capture('recovery-draft');
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await capture('recovery-card');
   await capture('recovery-focus', true);
   await page.setViewportSize({ width: 1440, height: 900 });
   await (await pageAction(page, 'Chat')).click();
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   // Explicit recovery before the door returns stays retryable and read-only.
   const attemptsBefore = opens;
   pendingOpen = new Promise<void>((resolve) => {
@@ -1321,7 +1321,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await f.settled();
   expect(f.entries).toHaveLength(6);
   // The anchored composer shares draft editing but cannot publish Ask or Post.
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   async function annotate() {
     await heading.evaluate((node) => {
       const range = node.ownerDocument.createRange();
@@ -1521,7 +1521,7 @@ for (const width of [1440, 390])
         const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
         await expect(heading).toBeVisible();
         async function openChat() {
-          if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
+          if (await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible()) return;
           const toggle = await pageAction(page, 'Chat');
           await toggle.click();
         }
@@ -1550,9 +1550,15 @@ for (const width of [1440, 390])
         await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
         const draft = 'Keep this exact recovery draft. @Draft agent';
         await input.fill(draft);
-        await input.press('Home');
-        for (let i = 0; i < 5; i++) await input.press('ArrowRight');
-        if (selected) for (let i = 0; i < 4; i++) await input.press('Shift+ArrowRight');
+        await input.evaluate((node, selected) => {
+          const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT).nextNode()!;
+          const range = document.createRange();
+          range.setStart(text, 5);
+          range.setEnd(text, selected ? 9 : 5);
+          const selection = getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }, selected);
         await input.evaluate((node) => {
           Object.assign(window, { recoveryDraftNode: node });
         });
@@ -1637,8 +1643,8 @@ for (const width of [1440, 390])
         await expect.poll(() => f.sends).toBe(1);
         await expect(input).toHaveText('');
         await expect(page.getByTestId('ask-reply')).toHaveText('Draft recovery reply');
-        if (surface === 'Chat' && width === 390)
-          await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+        if (surface === 'Chat')
+          await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
         await page.getByRole('link', { name: 'Space home' }).click();
         await expect.poll(() => f.connections).toBe(0);
       });
@@ -1698,7 +1704,7 @@ test('an upgraded server shows the update row under the header without covering 
     expect(mainBox.y).toBeGreaterThanOrEqual(rowBox.y + rowBox.height - 1);
     // Chat open: the composer's actions stay reachable, not under the row.
     const toggle = await pageAction(page, 'Chat');
-    if (!(await page.locator('.page-drawer[data-panel=chat][open]').isVisible())) {
+    if (!(await page.locator('.tmt-ui-drawer[data-panel=chat][open]').isVisible())) {
       await toggle.click();
     }
     const panel = page.getByTestId('chat-panel');
@@ -1711,7 +1717,7 @@ test('an upgraded server shows the update row under the header without covering 
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: testInfo.outputPath(`update-chat-${theme}-${width}.png`) });
     }
-    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     // The annotate window opens below the row as well.
     await heading.evaluate((node) => {
       const range = document.createRange();
@@ -2053,6 +2059,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   expect(requested).toBe(0);
   await page.screenshot({ path: capturePath('export-light.png'), fullPage: true });
   await (await pageAction(page, 'Theme: Dark')).click();
+  await (await pageAction(page, 'Export page')).click();
   await page.screenshot({ path: capturePath('export-dark.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: capturePath('export-mobile.png'), fullPage: true });
@@ -2128,7 +2135,9 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await expect.poll(urlCount).toBe(0);
   await download('page.html');
   await expect(panel.getByRole('button', { name: 'Close export', exact: true })).toHaveCount(0);
-  const closeExport = page.locator('.page-drawer[data-panel="export"] .drawer-bar button');
+  const closeExport = page.locator(
+    '.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button',
+  );
   await closeExport.focus();
   await closeExport.press('Enter');
   await expect.poll(urlCount).toBe(0);
@@ -2139,6 +2148,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await download('page.html');
+  await closeExport.click();
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(urlCount).toBe(0);
   await expect.poll(() => f.connections).toBe(0);
@@ -2166,7 +2176,7 @@ test('failed export preparation requests no files and closing clears pending pre
   await expect(panel.getByRole('status')).toContainText('Could not prepare');
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeDisabled();
   expect(downloads).toBe(0);
-  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+  await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
   await page.evaluate(() => {
     const original = crypto.subtle.digest.bind(crypto.subtle);
     crypto.subtle.digest = async (...args) => {
@@ -2186,7 +2196,7 @@ test('failed export preparation requests no files and closing clears pending pre
       ),
     )
     .toBe('function');
-  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+  await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
   await page.evaluate(() =>
     (window as unknown as { releaseExportHash(): void }).releaseExportHash(),
   );
@@ -2194,7 +2204,7 @@ test('failed export preparation requests no files and closing clears pending pre
   expect(downloads).toBe(0);
   await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
-  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+  await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
   await page.getByRole('link', { name: 'Space home' }).click();
 });
 

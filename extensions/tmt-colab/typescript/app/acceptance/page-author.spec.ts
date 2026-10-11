@@ -18,7 +18,7 @@ test('original author survives later publishing and owner reload and reads to a 
     await expect(caption).toHaveText(`by ${creator.name}`);
     // Browser Save carries no CLI label, so it removes the previous one; the original stays.
     await (await pageAction(page, 'Source')).click();
-    const source = page.locator('.page-drawer[data-panel=source]');
+    const source = page.locator('.tmt-ui-drawer[data-panel=source]');
     await source
       .getByRole('textbox', { name: 'Source', exact: true })
       .fill('<h1>Browser source</h1>');
@@ -78,7 +78,7 @@ test('original author survives later publishing and owner reload and reads to a 
     const manifest = JSON.parse(readFileSync((await downloaded.path())!, 'utf8'));
     expect(manifest.originalAuthor).toBe(creator.name);
     expect(manifest.publisherAgent).toBe(publisher.name);
-    await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+    await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
     run(world, world.binaries.colab, ['share', 'mode', created.pageId, 'link', '--yes', '--json']);
     const link = JSON.parse(
       run(world, world.binaries.colab, ['share', 'link', 'add', created.pageId, '--yes', '--json']),

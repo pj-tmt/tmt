@@ -645,7 +645,9 @@ test('export and attachment read return the same bytes as the browser, and say w
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
-      await first.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+      await first
+        .locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button')
+        .click();
 
       // attachment read returns one file from its manifest reference, and only that file.
       const referenceOf = (name: string) => {
@@ -968,7 +970,7 @@ for (const surface of ['chat', 'thread'] as const)
       }
       const panel =
         surface === 'chat'
-          ? page.getByTestId('chat-panel')
+          ? page.locator('.tmt-ui-drawer[data-panel=chat]')
           : page.getByTestId('comment-thread').first();
       const input = panel.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('A posted image at the message edge.');

@@ -10,7 +10,7 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 async function manage(page: Page) {
   await (await pageAction(page, 'Manage page')).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('combobox', { name: /^Audience/ })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /^Audience/ })).toBeVisible();
   return dialog;
 }
 
@@ -20,8 +20,11 @@ const managementStatus = (dialog: Locator) =>
   dialog.locator('.management-dialog-body').getByRole('status');
 
 async function choose(dialog: Locator, label: string, option: string) {
-  await dialog.getByRole('combobox', { name: new RegExp(`^${label}`) }).click();
-  await dialog.getByRole('listbox', { name: label }).getByRole('option', { name: option }).click();
+  await dialog.getByRole('button', { name: new RegExp(`^${label}`) }).click();
+  await dialog
+    .getByRole('menu', { name: label })
+    .getByRole('menuitemradio', { name: option })
+    .click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -36,7 +39,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const page = await openPage(door, device, first);
     await composeChat(page, recipient, 'Do not send this draft');
     // Narrow page actions must open outside the header menu and return focus there.
-    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'More', exact: true }).click();
     let dialog = await manage(page);
@@ -179,10 +182,10 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
-    const row = page.locator('ul.pages li').filter({ hasText: first.pageId });
+    const row = page.locator(`ul.pages li[data-page-id="${first.pageId}"]`);
     await expect(row).toContainText('Archived');
-    await row.locator('summary').click();
-    await row.getByRole('button', { name: 'Manage page' }).click();
+    await row.getByRole('button', { name: /^Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
@@ -191,9 +194,9 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(managementStatus(dialog)).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Show archived', exact: true }).click();
-    const remaining = page.locator('ul.pages li').filter({ hasText: second.pageId });
-    await remaining.locator('summary').click();
-    await remaining.getByRole('button', { name: 'Manage page' }).click();
+    const remaining = page.locator(`ul.pages li[data-page-id="${second.pageId}"]`);
+    await remaining.getByRole('button', { name: /^Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Manage page' }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('button', { name: 'Delete page', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
@@ -386,7 +389,7 @@ test('archive commit reopens paired tabs read-only while retaining unsent Chat d
       await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
       await page.screenshot({ path: info.outputPath(`archived-draft-${width}-${theme}.png`) });
     }
-    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     for (const [width, theme] of [
       [1440, 'light'],
       [390, 'dark'],

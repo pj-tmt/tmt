@@ -15,3 +15,7 @@ export type { BrowserToggleProps } from './toggle';
 export { BrowserList, BrowserListRow } from './list.js';
 export type { BrowserListProps, BrowserListRowProps } from './list.js';
 export type { BrowserNoticeTone, BrowserActionVariant, BrowserAnnouncement } from './static';
+export { BrowserDrawer } from './drawer.js';
+export type { BrowserDrawerProps, BrowserDrawerDismissReason } from './drawer.js';
+export { BrowserMenu } from './menu.js';
+export type { BrowserMenuProps, BrowserMenuItem } from './menu.js';

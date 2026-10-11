@@ -1,0 +1,77 @@
+.tmt-ui-menu {
+  display: inline-flex;
+}
+.tmt-ui-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  padding: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.tmt-ui-menu-field-label {
+  color: var(--tmt-ui-color-muted);
+}
+.tmt-ui-menu-surface {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  min-width: 160px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-paper);
+  border: 1px solid var(--tmt-ui-surface-rule);
+  box-shadow: none;
+}
+.tmt-ui-menu-surface::backdrop {
+  background: transparent;
+}
+.tmt-ui-menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tmt-ui-menu-item:hover:not(:disabled),
+.tmt-ui-menu-item:focus-visible {
+  background: var(--tmt-ui-surface-selection);
+}
+.tmt-ui-menu-item:focus-visible,
+.tmt-ui-menu-trigger:focus-visible {
+  outline: 1px solid var(--tmt-ui-color-text);
+  outline-offset: -2px;
+}
+.tmt-ui-menu-item:disabled {
+  color: var(--tmt-ui-color-muted);
+  cursor: default;
+}
+.tmt-ui-menu-description {
+  padding: 12px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-muted);
+  font-size: 12px;
+}
+.tmt-ui-menu-description p {
+  margin: 0 0 4px;
+}
+.tmt-ui-menu-reason {
+  display: block;
+  padding: 0 12px 8px;
+  color: var(--tmt-ui-color-muted);
+  font-size: 12px;
+}

@@ -39,7 +39,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
 }) => {
   await mount(page);
   const input = await compose(page);
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   expect((await run(page, 'proof')).sends).toEqual([]);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await expect(input).toHaveText('@Agent 1 Explain exactly', { useInnerText: true });
@@ -83,7 +83,7 @@ test('closing a pending explicit send retains it and never dispatches again on r
   await run(page, 'pausePrepare');
   await input.press('Enter');
   await expect(input).toHaveAttribute('contenteditable', 'false');
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
@@ -194,7 +194,7 @@ test('mobile modal Chat keeps the shared autocomplete visible and clickable in i
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
   expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
@@ -221,14 +221,14 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
 }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
-  const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+  const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await expect(drawer.getByRole('option')).toHaveCount(5);
-  const close = drawer.getByRole('button', { name: 'Collapse Chat' });
+  const close = drawer.getByRole('button', { name: 'Close Chat' });
   await close.focus();
   await close.press('Enter');
-  await expect(page.locator('.page-drawer[data-panel=chat][open]')).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-drawer[data-panel=chat][open]')).toHaveCount(0);
   const more = page.locator('#ask-page-fixture').getByRole('button', { name: /^Discussion \(/ });
   await more.focus();
   await more.press('Enter');
@@ -259,7 +259,7 @@ for (const selected of [false, true]) {
   }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await mount(page);
-    const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+    const drawer = page.locator('.tmt-ui-drawer[data-panel=chat][open]');
     const input = drawer.getByRole('combobox', { name: 'Message', exact: true });
     const draft = 'Before draft after';
     await input.fill(draft);
@@ -278,9 +278,16 @@ for (const selected of [false, true]) {
       });
     for (const width of [1440, 390]) {
       await input.focus();
-      await input.press('Home');
-      for (let index = 0; index < 7; index++) await input.press('ArrowRight');
-      if (selected) for (let index = 0; index < 5; index++) await input.press('Shift+ArrowRight');
+      await input.evaluate((node, selected) => {
+        const walker = node.ownerDocument.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode()!;
+        const range = node.ownerDocument.createRange();
+        range.setStart(text, 7);
+        range.setEnd(text, selected ? 12 : 7);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }, selected);
       const before = await selection();
       expect(before).toEqual({
         anchor: draft,
@@ -293,10 +300,8 @@ for (const selected of [false, true]) {
       await page.evaluate((width) => {
         document.documentElement.dataset.theme = width === 390 ? 'dark' : 'light';
       }, width);
-      // Wait for the real native mode transition, not just updated CSS geometry.
-      await expect
-        .poll(() => drawer.evaluate((node) => node.matches(':modal')))
-        .toBe(width === 390);
+      // The same modal owner stays mounted across the geometry change.
+      await expect.poll(() => drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
       await expect(input).toBeFocused();
       await expect(input).toHaveAttribute('id', editorId!);
       await expect(input).toHaveText(draft, { useInnerText: true });
@@ -308,7 +313,14 @@ for (const selected of [false, true]) {
     });
     expect((await run(page, 'proof')).sends).toEqual([]);
     expect(await run(page, 'discussionProof')).toEqual([]);
-    await input.press('End');
+    await input.evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
     await input.pressSequentially(' @');
     await drawer.getByRole('option').first().click();
     await input.press('Enter');
@@ -418,8 +430,7 @@ for (const width of [1440, 390]) {
     await expect(live).toHaveCount(1);
     await expect(live).toHaveAttribute('role', 'status');
     await expect(live).toHaveAttribute('aria-live', 'polite');
-    if (width === 390)
-      await expect(page.locator('dialog:modal .reply-announcement')).toHaveCount(1);
+    await expect(page.locator('dialog:modal .reply-announcement')).toHaveCount(1);
     await page.evaluate(() => {
       const events: string[] = [];
       Object.assign(window, { replyAnnouncements: events });
@@ -444,10 +455,10 @@ for (const width of [1440, 390]) {
     await expect(live).toHaveText('Agent 1 replied.');
     await expect(input).toBeFocused();
     await expect.poll(events).toEqual(['Agent 2 replied.', 'Agent 1 replied.']);
-    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).press('Enter');
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
     await (await pageAction(page, 'Chat')).click();
     await expect(live).toHaveCount(1);
-    await expect(live).toHaveText(width === 390 ? '' : 'Agent 1 replied.');
+    await expect(live).toHaveText(''); // Every reopened modal baselines admitted history.
     await run(page, 'syncRecords', 'accepted');
     await page.evaluate(
       () =>
@@ -490,7 +501,7 @@ test('initial admitted reply history stays silent after loading and reopening', 
   await (await pageAction(page, 'Chat')).click();
   await expect(page.getByTestId('ask-reply')).toHaveText('A reply from before this page opened.');
   await expect(live).toHaveText('');
-  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).press('Enter');
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
   await (await pageAction(page, 'Chat')).click();
   await expect(live).toHaveText('');
   expect((await run(page, 'proof')).sends).toEqual([]);
@@ -520,7 +531,7 @@ for (const width of [1440, 390])
       await page.keyboard.up('c');
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toBeVisible();
-      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       // C above is a keyboard guard case. Capture the ordinary pointer activation separately.
       await expect(mode).toBeFocused();
       expect(await mode.evaluate((node) => node.matches(':focus-visible'))).toBe(true);
@@ -581,12 +592,12 @@ for (const width of [1440, 390])
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
-        await expect(page.locator('.page-drawer[open]')).toHaveCount(1);
+        await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(1);
         await expect(mode).toHaveAttribute('aria-pressed', 'true');
         await expect
           .poll(async () => {
             const controlBox = (await mode.boundingBox())!;
-            const panelBox = (await page.locator('.page-drawer[open]').boundingBox())!;
+            const panelBox = (await page.locator('.tmt-ui-drawer[open]').boundingBox())!;
             return controlBox.x + controlBox.width <= panelBox.x - 24;
           })
           .toBe(true);
@@ -878,14 +889,14 @@ for (const width of [1440, 390]) {
     await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
     await expect(chat).toBeVisible();
-    const close = chat.getByRole('button', { name: 'Collapse Chat', exact: true });
+    const close = page.getByRole('button', { name: 'Close Chat', exact: true });
     await close.focus();
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
       await page.keyboard.press(key);
     await expect(chat).toBeVisible();
     await input.press('Escape');
     await expect(chat).toBeHidden();
-    await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+    await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
     await expect(page.locator('.page-header-actions button:focus')).toHaveCount(1);
     await (await pageAction(page, 'Chat')).click();
     await expect(input).toHaveText('Chat draft @');
@@ -894,7 +905,7 @@ for (const width of [1440, 390]) {
     await run(page, 'pausePrepare');
     await input.press('Enter');
     await expect(chat.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-    await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
     await page.keyboard.press('Escape');
     await expect(chat).toBeVisible();
     expect((await run(page, 'proof')).sends).toEqual([]);
@@ -977,7 +988,7 @@ for (const [width, theme] of [
     await input.press('Escape');
     await input.fill('Retained Chat draft');
     await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
-    const close = chat.getByRole('button', { name: 'Collapse Chat', exact: true });
+    const close = page.getByRole('button', { name: 'Close Chat', exact: true });
     await close.focus();
     await page.keyboard.press('Shift+@');
     await expect(input).toBeFocused();
@@ -1035,7 +1046,7 @@ for (const [width, theme] of [
       ['Export page', 'export'],
     ]) {
       await (await pageAction(page, action!)).click();
-      const drawer = page.locator(`.page-drawer[data-panel=${panel}][open]`);
+      const drawer = page.locator(`.tmt-ui-drawer[data-panel=${panel}][open]`);
       await expect(drawer).toBeVisible();
       const box = (await drawer.boundingBox())!;
       const gap = width <= 480 ? 4 : 8;
@@ -1046,7 +1057,7 @@ for (const [width, theme] of [
       expect((await frame.boundingBox())?.width).toBe(before?.width);
       await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });
       await drawer
-        .getByRole('button', { name: panel === 'chat' ? 'Collapse Chat' : /^Close / })
+        .getByRole('button', { name: panel === 'chat' ? 'Close Chat' : /^Close / })
         .click();
       await expect(drawer).toBeHidden();
     }
@@ -1063,7 +1074,7 @@ for (const closeEarly of [false, true]) {
     const input = chat.getByRole('combobox', { name: 'Message' });
     await expect(chat).toBeVisible();
     await expect(input).toHaveText('');
-    if (closeEarly) await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+    if (closeEarly) await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await run(page, 'finishDraftRead');
     if (closeEarly) {
       await expect(chat).toBeHidden();

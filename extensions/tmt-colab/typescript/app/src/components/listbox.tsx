@@ -42,13 +42,12 @@ export function Listbox<Value extends string>({
   renderOption?(option: ListboxOption<Value>): ReactNode;
   disabled?: boolean;
   /** Text input owns its value; this same listbox owns option navigation. */
-  inputTrigger?: {
+  inputTrigger: {
     open: boolean;
     onOpenChange(open: boolean): void;
     render(props: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> }): ReactNode;
   };
 }) {
-  const isInput = inputTrigger !== undefined;
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement>(null);
@@ -62,11 +61,9 @@ export function Listbox<Value extends string>({
     width: number;
     maxHeight: number;
   }>();
-  const [buttonOpen, setButtonOpen] = useState(false);
-  const open = inputTrigger?.open ?? buttonOpen;
-  const setOpen = inputTrigger?.onOpenChange ?? setButtonOpen;
+  const open = inputTrigger.open;
+  const setOpen = inputTrigger.onOpenChange;
   const [activeValue, setActiveValue] = useState<Value | null>(null);
-  const selected = options.find((option) => option.value === value);
   const selectedIndex = options.findIndex((option) => option.value === value && !option.disabled);
   const firstIndex = options.findIndex((option) => !option.disabled);
   const activeIndex = options.findIndex(
@@ -75,7 +72,6 @@ export function Listbox<Value extends string>({
   const focusIndex =
     activeIndex >= 0 ? activeIndex : selectedIndex >= 0 ? selectedIndex : firstIndex;
   const labelId = `${id}-label`;
-  const valueId = `${id}-value`;
   const listId = `${id}-list`;
 
   useEffect(() => {
@@ -97,14 +93,14 @@ export function Listbox<Value extends string>({
   }, [open, setOpen]);
 
   useEffect(() => {
-    if (!isInput || !list.current) return;
+    if (!list.current) return;
     const node = list.current;
     if (open && trigger.current?.getClientRects().length) node.showPopover();
     else if (node.matches(':popover-open')) node.hidePopover();
     return () => {
       if (node.matches(':popover-open')) node.hidePopover();
     };
-  }, [open, isInput]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || focusIndex < 0) return;
@@ -112,7 +108,7 @@ export function Listbox<Value extends string>({
   }, [open, focusIndex]);
 
   useEffect(() => {
-    if (!open || !isInput) return;
+    if (!open) return;
     const place = () => {
       const box = trigger.current?.getBoundingClientRect();
       if (!box) return;
@@ -165,7 +161,7 @@ export function Listbox<Value extends string>({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [open, isInput, options.length]);
+  }, [open, options.length]);
 
   function openList(index = selectedIndex >= 0 ? selectedIndex : firstIndex) {
     if (disabled || index < 0) return;
@@ -186,22 +182,18 @@ export function Listbox<Value extends string>({
   function choose(option: ListboxOption<Value>) {
     if (option.disabled) return;
     setOpen(false);
-    if (inputTrigger || option.value !== value) onChange(option.value);
+    onChange(option.value);
     trigger.current?.focus();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (
-      inputTrigger &&
-      ((!open && (!['ArrowDown', 'ArrowUp'].includes(event.key) || firstIndex < 0)) ||
-        event.key === ' ' ||
-        event.nativeEvent.isComposing)
+      (!open && (!['ArrowDown', 'ArrowUp'].includes(event.key) || firstIndex < 0)) ||
+      event.key === ' ' ||
+      event.nativeEvent.isComposing
     )
       return;
-    if (
-      inputTrigger &&
-      ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Tab', 'Escape'].includes(event.key)
-    )
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Tab', 'Escape'].includes(event.key))
       event.stopPropagation();
     switch (event.key) {
       case 'ArrowDown':
@@ -230,7 +222,7 @@ export function Listbox<Value extends string>({
         }
         break;
       case 'Tab':
-        if (inputTrigger && open && focusIndex >= 0) {
+        if (open && focusIndex >= 0) {
           event.preventDefault();
           choose(options[focusIndex]);
         } else setOpen(false);
@@ -241,11 +233,9 @@ export function Listbox<Value extends string>({
   const optionList = (
     <div
       ref={list}
-      popover={inputTrigger ? 'manual' : undefined}
-      className={`tmt-listbox-options${inputTrigger ? ' tmt-listbox-input-list' : ''}`}
-      style={
-        inputTrigger ? { ...placement, visibility: placement ? 'visible' : 'hidden' } : undefined
-      }
+      popover="manual"
+      className="tmt-listbox-options tmt-listbox-input-list"
+      style={{ ...placement, visibility: placement ? 'visible' : 'hidden' }}
       role="listbox"
       id={listId}
       aria-labelledby={labelId}
@@ -264,10 +254,10 @@ export function Listbox<Value extends string>({
           tabIndex={-1}
           onPointerMove={() => setActiveValue(option.value)}
           onPointerDown={(event) => {
-            if (inputTrigger) event.preventDefault();
+            event.preventDefault();
           }}
           onClick={(event) => {
-            if (!inputTrigger || event.isTrusted) choose(option);
+            if (event.isTrusted) choose(option);
           }}
         >
           {renderOption ? renderOption(option) : option.label}
@@ -277,50 +267,22 @@ export function Listbox<Value extends string>({
   );
 
   return (
-    <div className={`tmt-listbox${inputTrigger ? ' tmt-listbox-input' : ''}`} ref={root}>
+    <div className="tmt-listbox tmt-listbox-input" ref={root}>
       <span className="tmt-listbox-label" id={labelId}>
         {label}
       </span>
-      {inputTrigger ? (
-        inputTrigger.render({
-          ref: setTrigger,
-          role: 'combobox',
-          'aria-label': label,
-          'aria-autocomplete': 'list',
-          'aria-haspopup': 'listbox',
-          'aria-controls': listId,
-          'aria-expanded': open,
-          'aria-activedescendant':
-            open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined,
-          onKeyDown,
-        })
-      ) : (
-        <button
-          ref={(node) => {
-            trigger.current = node;
-          }}
-          type="button"
-          className="tmt-listbox-trigger"
-          role="combobox"
-          id={`${id}-trigger`}
-          aria-labelledby={`${labelId} ${valueId}`}
-          aria-haspopup="listbox"
-          aria-controls={listId}
-          aria-expanded={open}
-          aria-activedescendant={open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined}
-          disabled={disabled || firstIndex < 0}
-          onClick={() => (open ? setOpen(false) : openList())}
-          onKeyDown={onKeyDown}
-        >
-          <span id={valueId}>{selected?.label ?? 'Choose an option'}</span>
-          <span className="tmt-listbox-chevron" aria-hidden="true">
-            ⌄
-          </span>
-        </button>
-      )}
-      {inputTrigger
-        ? createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)
-        : optionList}
+      {inputTrigger.render({
+        ref: setTrigger,
+        role: 'combobox',
+        'aria-label': label,
+        'aria-autocomplete': 'list',
+        'aria-haspopup': 'listbox',
+        'aria-controls': listId,
+        'aria-expanded': open,
+        'aria-activedescendant': open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined,
+        onKeyDown,
+      })}
+      {createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)}
     </div>
   );
 }

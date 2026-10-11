@@ -32,7 +32,7 @@ async function browserExport(page: Page): Promise<Record<string, Buffer>> {
     files[name] = readFileSync((await received.path())!);
   }
   await expect(panel.getByRole('status')).toContainText('All downloads requested');
-  await page.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+  await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
   return files;
 }
 
