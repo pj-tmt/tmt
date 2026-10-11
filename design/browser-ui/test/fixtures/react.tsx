@@ -184,7 +184,15 @@ async function run() {
   );
   check(original.getAttribute('aria-describedby') === 'live-access', 'Absent error ID remained');
 
-  const action = (state: { pressed?: boolean; disabled?: boolean; busy?: boolean } = {}) => (
+  const action = (
+    state: {
+      pressed?: boolean;
+      disabled?: boolean;
+      busy?: boolean;
+      tooltipLabel?: string;
+      ariaKeyShortcuts?: string;
+    } = {},
+  ) => (
     <BrowserIconAction
       type="button"
       label="Show details"
@@ -260,11 +268,23 @@ async function run() {
   check(!tooltip.matches(':popover-open'), 'Entry alone restored Escape-dismissed help');
   await act(() => button.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
   check(tooltip.matches(':popover-open'), 'Pointer return and movement did not reopen the tooltip');
-  await act(() => root.render(<div className="fixture-bottom-action">{action()}</div>));
+  await act(() =>
+    root.render(
+      <div className="fixture-bottom-action">
+        {action({ tooltipLabel: 'Collapse · Esc', ariaKeyShortcuts: 'Escape' })}
+      </div>,
+    ),
+  );
   const bottomButton = host.querySelector('button')!;
   const bottomTooltip = host.querySelector<HTMLElement>('[popover]')!;
   await act(() => bottomButton.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })));
   check(bottomTooltip.matches(':popover-open'), 'Bottom action did not show help');
+  check(
+    bottomButton.getAttribute('aria-label') === 'Show details',
+    'Tooltip replaced the action name',
+  );
+  check(bottomButton.getAttribute('aria-keyshortcuts') === 'Escape', 'Shortcut is not exposed');
+  check(bottomTooltip.textContent?.includes('Collapse · Esc'), 'Shortcut tooltip is missing');
   const bottomBounds = bottomTooltip.getBoundingClientRect();
   const anchorBounds = bottomButton.getBoundingClientRect();
   check(bottomBounds.bottom <= anchorBounds.top, 'Bottom action tooltip did not flip above');
@@ -403,6 +423,8 @@ async function run() {
             <BrowserIconAction
               type="button"
               label="Bottom action details"
+              tooltipLabel="Bottom action · Esc"
+              ariaKeyShortcuts="Escape"
               variant="text"
               icon="+"
               onActivate={onActivate}

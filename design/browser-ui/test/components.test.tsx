@@ -219,6 +219,17 @@ describe('presentation contracts', () => {
       if (pressed === undefined) expect(html).not.toContain('aria-pressed');
       else expect(html).toContain(`aria-pressed="${pressed}"`);
     }
+    const shortcut = renderToStaticMarkup(
+      <BrowserIconAction
+        {...props}
+        label="Collapse thread"
+        tooltipLabel="Collapse · Esc"
+        ariaKeyShortcuts="Escape"
+      />,
+    );
+    expect(shortcut).toContain('aria-label="Collapse thread"');
+    expect(shortcut).toContain('aria-keyshortcuts="Escape"');
+    expect(shortcut).toContain('tmt-ui-icon-action-tooltip-label">Collapse · Esc');
     for (const variant of ['text', 'primary', 'destructive'] as const) {
       expect(renderToStaticMarkup(<BrowserIconAction {...props} variant={variant} />)).toContain(
         `data-variant="${variant}"`,
