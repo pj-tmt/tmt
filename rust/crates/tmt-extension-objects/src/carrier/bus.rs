@@ -8,7 +8,7 @@
 //! failed write or the end of the stream is final: the first such fault is kept, the
 //! socket is shut down and every later call reports it.
 use super::{
-    Budget, Budgets, Caps, Fault, Idle, Link, Role, Stage, bounded, frame_supported,
+    Budget, Budgets, Caps, Fault, Idle, Link, Role, Stage, bounded, frame_method, frame_supported,
     ledger::Ledger, prepared, read_checked, supports,
 };
 use crate::{Frame, Method, Uuid4};
@@ -154,13 +154,9 @@ impl Bus {
             return Err(fault);
         }
         let deadline = until.min(Instant::now() + self.shared.budgets.write);
-        if !frame_supported(self.shared.version, frame) {
-            let method = match frame {
-                Frame::Request(value) => value.call.method(),
-                Frame::Result(value) => value.method,
-                Frame::Admit(value) => value.operation.input.method(),
-                _ => unreachable!("non-method frames are supported"),
-            };
+        if let Some(method) = frame_method(frame)
+            && !supports(self.shared.version, method)
+        {
             return Err(Fault::Unsupported(method));
         }
         let bytes = prepared(self.shared.generation, frame)?;

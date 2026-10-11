@@ -267,7 +267,7 @@ fn scripted(server: UnixStream, reply: String) -> thread::JoinHandle<String> {
 fn the_initiator_writes_the_canonical_request_and_accepts_the_canonical_reply() {
     let (client, server) = UnixStream::pair().unwrap();
     let peer = scripted(server, reply());
-    let link = initiate(client, &offer(), setup()).unwrap();
+    let link = version_one(client, &offer(), setup()).unwrap();
     assert_eq!(peer.join().unwrap(), request());
     assert_eq!(link.generation(), generation(GEN));
 }
@@ -296,12 +296,12 @@ fn the_initiator_refuses_every_one_token_change_to_the_reply() {
     // The accepted twin of every row.
     let (client, server) = UnixStream::pair().unwrap();
     let peer = scripted(server, reply());
-    assert!(initiate(client, &offer(), setup()).is_ok());
+    assert!(version_one(client, &offer(), setup()).is_ok());
     peer.join().unwrap();
     for (name, text, fault) in rows {
         let (client, server) = UnixStream::pair().unwrap();
         let peer = scripted(server, text);
-        let result = initiate(client, &offer(), setup());
+        let result = version_one(client, &offer(), setup());
         assert_eq!(result.err(), Some(fault), "{name}");
         peer.join().unwrap();
     }
@@ -311,7 +311,7 @@ fn the_initiator_refuses_every_one_token_change_to_the_reply() {
 fn the_initiator_ends_at_the_setup_bound_and_never_sends_an_unsafe_offer() {
     let (client, server) = UnixStream::pair().unwrap();
     let started = Instant::now();
-    let result = initiate(client, &offer(), started + Duration::from_millis(150));
+    let result = version_one(client, &offer(), started + Duration::from_millis(150));
     assert_eq!(result.err(), Some(Fault::Timeout(Stage::Head)));
     let took = started.elapsed();
     assert!(
@@ -323,7 +323,7 @@ fn the_initiator_ends_at_the_setup_bound_and_never_sends_an_unsafe_offer() {
     // A request the peer will not read.
     let (client, server) = UnixStream::pair().unwrap();
     fill(&client);
-    let result = initiate(
+    let result = version_one(
         client,
         &offer(),
         Instant::now() + Duration::from_millis(150),
@@ -339,7 +339,7 @@ fn the_initiator_ends_at_the_setup_bound_and_never_sends_an_unsafe_offer() {
             ..offer()
         };
         assert_eq!(
-            initiate(client, &unsafe_offer, setup()).err(),
+            version_one(client, &unsafe_offer, setup()).err(),
             Some(refused(Refusal::BadValue("host"))),
             "{host:?}"
         );
@@ -364,7 +364,7 @@ fn the_handshake_works_over_a_bound_socket_path() {
         accept(stream, &expect(), &quick(), setup())
     });
     let client = UnixStream::connect(&path).unwrap();
-    let mut initiated = initiate(client, &offer(), setup()).unwrap();
+    let mut initiated = version_one(client, &offer(), setup()).unwrap();
     let mut accepted = acceptor.join().unwrap().unwrap();
     std::fs::remove_file(&path).unwrap();
     let frame = super::super::tests::admission(GEN, 3);
@@ -506,10 +506,10 @@ fn negotiation_down_peer_has_two_attempts_but_a_complete_reply_never_retries() {
 }
 
 #[test]
-fn legacy_initiator_keeps_version_one_and_new_calls_are_never_sent() {
+fn version_one_refuses_new_calls_without_writing_and_gives_provenance_free_advice() {
     let (client, server) = UnixStream::pair().unwrap();
     let accepted = thread::spawn(move || accept(server, &expect(), &quick(), setup()).unwrap());
-    let link = initiate(client, &offer(), setup()).unwrap();
+    let link = version_one(client, &offer(), setup()).unwrap();
     let server = accepted.join().unwrap();
     let mut raw = link.reader.duplicate_stream().unwrap();
     assert!(!link.supports(crate::Method::RemoveNamespace));
@@ -535,10 +535,9 @@ fn legacy_initiator_keeps_version_one_and_new_calls_are_never_sent() {
         "unsupported call wrote no byte"
     );
     assert_eq!(
-        super::super::unsupported_hint(true),
-        "Restart Remote serve to enable this: tmt remote stop && tmt remote serve"
+        super::super::unsupported_hint(),
+        "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still fails, upgrade Remote."
     );
-    assert_eq!(super::super::unsupported_hint(false), "upgrade Remote");
 }
 
 #[test]

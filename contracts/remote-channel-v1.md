@@ -1459,7 +1459,9 @@ Version 1 supports exactly the seven calls above, with unchanged bytes. Version 
 | `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace`   |
 
 Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
-Callers check the negotiated link's support before either call; an unsupported call is never written on version 1.
+Callers check the negotiated link's support before either call; an unsupported call is never written on version 1. A version-1
+link reports: "Restart Remote serve to enable this (tmt remote stop && tmt remote serve); if it still
+fails, upgrade Remote." Support comes only from the negotiated link, never an installed receipt or CLI.
 Removal is idempotent for unknown or already removed namespaces. It commits the existing namespace fence, drains
 in-flight work and retains deleted original identities; a loss after invocation is `unknown`, without replay or rollback.
 Usage is the existing ledger projection for the selected namespace or this extension, never the installation; its charge is rounded payload plus retained records and fences, plus the fixed tree base once if any namespace exists
