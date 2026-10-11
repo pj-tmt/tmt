@@ -141,7 +141,7 @@ retains window scrolling; the list does not establish a scroll container.
 
 IconAction accepts Action's props plus a decorative `icon` node and optional
 controlled `pressed`. The nonempty `label` is the button's `aria-label` and
-the visual tooltip copy; icon and tooltip are `aria-hidden`, so the name is
+the default visual tooltip copy; icon and tooltip are `aria-hidden`, so the name is
 announced once. `pressed` is omitted when absent; supplied false/true becomes
 `aria-pressed`, and activation never changes it. Pressed uses selection colors
 and a 1px text-colored edge; disabled/busy styling and event fences take priority.
@@ -153,6 +153,11 @@ and keyboard handling; the leaf does not own the menu. The type contract
 requires `expanded` with `controls` and excludes `pressed` from disclosure actions.
 Expanded uses the same selection treatment as pressed. While expanded, the tooltip
 stays hidden and installs no Escape listener; the host owns menu dismissal.
+
+An optional `tooltipLabel` adds shortcut help while `label` remains the required,
+independently sufficient accessible name. `ariaKeyShortcuts` exposes the same
+shortcut to assistive technology. Omitted tooltip text defaults to `label`;
+help is display-only and never replaces the button name.
 
 The tooltip is a manual native popover bounded by the visual viewport. It opens
 below the button, flips above when its measured height does not fit below and

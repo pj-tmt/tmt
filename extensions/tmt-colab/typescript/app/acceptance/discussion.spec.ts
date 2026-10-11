@@ -423,7 +423,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.setViewportSize({ width, height: 900 });
       await first.evaluate(() => window.scrollTo(0, 0));
       await expect(t1).toHaveAttribute('data-anchor', 'attached');
-      await t1.getByRole('button', { name: text.threadClose, exact: true }).click();
+      await t1.getByRole('button', { name: text.threadCollapse, exact: true }).click();
       await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-markers.png` });
       await marker.click();
       await expect(first.locator('.page-drawer[open]')).toHaveCount(0);

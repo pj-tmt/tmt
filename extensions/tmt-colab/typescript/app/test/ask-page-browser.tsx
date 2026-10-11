@@ -68,12 +68,18 @@ export function finishMentionDirectory() {
   finishDirectory?.();
 }
 /** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
-function sessionDrafts(mode: 'session' | 'failing'): DraftStore {
+let releaseDraftRead: (() => void) | undefined;
+export function finishDraftRead() {
+  releaseDraftRead?.();
+  releaseDraftRead = undefined;
+}
+function sessionDrafts(mode: 'session' | 'failing', wait?: Promise<void>): DraftStore {
   const name = (page: string) => `colab-fixture-drafts:${page}`;
   const read = (page: string) =>
     new Map<string, ComposerEdit>(JSON.parse(sessionStorage.getItem(name(page)) ?? '[]'));
   return {
     async load(page) {
+      await wait;
       return read(page);
     },
     async apply(page, changes) {
@@ -99,6 +105,8 @@ export async function mount(
     /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
     agents?: AgentDestination[];
     drafts?: 'session' | 'failing';
+    /** Hold the existing draft-store read to test shortcut lifetime fences. */
+    holdDraftRead?: boolean;
     /** In-memory storage; a file name steers the outcome: `refuse`, `unknown`, `stale`. */
     attachments?: boolean;
     /** An Export panel with one included attachment and one of each outcome that includes none. */
@@ -611,10 +619,15 @@ export async function mount(
     close() {},
   };
   root = createRoot(host);
+  const draftRead = options.holdDraftRead
+    ? new Promise<void>((resolve) => {
+        releaseDraftRead = resolve;
+      })
+    : undefined;
   root.render(
     <RouterProvider
       router={createAppRouter({
-        drafts: options.drafts ? sessionDrafts(options.drafts) : undefined,
+        drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
         },

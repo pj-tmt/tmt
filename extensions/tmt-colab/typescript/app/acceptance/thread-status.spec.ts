@@ -44,7 +44,7 @@ test('thread status reaches the other device and the CLI, and an agent resolutio
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
-    await window.getByRole('button', { name: text.threadClose, exact: true }).click();
+    await window.getByRole('button', { name: text.threadCollapse, exact: true }).click();
     await expect(markers(first)).toHaveCount(1);
 
     const second = await openPage(door, viewer, created);
@@ -201,7 +201,7 @@ test('status states captured for the UX look', async () => {
     const window = compose.getByTestId('comment-thread');
     await expect(window).toBeVisible();
     const threadId = (await window.getAttribute('data-thread-id'))!;
-    await window.getByRole('button', { name: text.threadClose, exact: true }).click();
+    await window.getByRole('button', { name: text.threadCollapse, exact: true }).click();
     const row2 = second.getByTestId('annotation-row').filter({ hasText: 'Quoted passage' });
     await expect(row2).toContainText(text.threadOpen);
     await toggleCopy(second, `${text.comments} 1`, 'open');

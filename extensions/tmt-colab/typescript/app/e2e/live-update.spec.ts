@@ -249,7 +249,7 @@ for (const width of [1440, 390]) {
         page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
       ).toHaveCount(1);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - threadScroll)).toBeLessThan(2);
-      await thread.getByRole('button', { name: text.threadClose, exact: true }).click();
+      await thread.getByRole('button', { name: text.threadCollapse, exact: true }).click();
       await panel(page, 'chat');
       const chat = await annotationInput(page.getByTestId('chat-panel'), 'Agent 1');
       const chatDraft = '@Agent 1 A Chat draft during another edit.';
@@ -273,7 +273,7 @@ for (const width of [1440, 390]) {
       await change(page, source);
       await select(page);
       await input.fill('@Agent 1 This belongs to the previous page only.');
-      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       await page.evaluate(() => (location.hash = '/pages/notes'));
       await expect(
         page.frameLocator('#ask-page-fixture iframe').locator('#other-page'),
@@ -451,10 +451,10 @@ for (const width of [1440, 390]) {
       expect(frameText).not.toContain('Exact associated agent reply');
       expect(frameText).not.toContain('Exact unsent draft');
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reopened.png` });
-      const resolve = thread.getByRole('button', { name: text.threadResolve, exact: true });
+      const resolve = thread.getByRole('button', { name: text.threadResolveAction, exact: true });
       await resolve.focus();
       await resolve.press('Tab');
-      const close = thread.getByRole('button', { name: text.threadClose, exact: true });
+      const close = thread.getByRole('button', { name: text.threadCollapse, exact: true });
       await expect(close).toBeFocused();
       await expect(close.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeVisible();
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-header-focus.png` });

@@ -327,10 +327,17 @@ for (const width of [1440, 390])
       expect(resized.history.height).toBeLessThan(long.history.height);
       expect(resized.historyOverflow).toBeGreaterThan(0);
       if (width === 390) {
-        // With room for only the stationary controls, history yields all its height.
+        // Include the visible page header, gutters and 1 px drawer border before measuring stationary controls.
+        // With room for only those controls, history yields all its height.
         await page.setViewportSize({
           width,
-          height: Math.ceil(resized.header.height + resized.composer.height),
+          height: Math.ceil(
+            resized.drawer.top +
+              (resized.viewport.height - resized.drawer.bottom) +
+              resized.header.height +
+              resized.composer.height +
+              2,
+          ),
         });
         const minimum = await chatGeometry(window);
         visibleChatComposer(minimum);
@@ -411,7 +418,7 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   await expect(window.getByText(text.askEmptyReply)).toBeVisible();
   await expect(window.getByTestId('ask-state')).toHaveCount(0);
   await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(0);
-  await window.getByRole('button', { name: text.threadResolve, exact: true }).click();
+  await window.getByRole('button', { name: text.threadResolveAction, exact: true }).click();
   await expect(page.getByTestId('comment-thread')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
@@ -588,7 +595,7 @@ for (const width of [1440, 390])
       const longQuote = 'This selected passage must scroll inside the annotation window. '
         .repeat(50)
         .trim();
-      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       const frame = page.locator('#ask-page-fixture iframe');
       const render = await frame.getAttribute('data-render-id');
       await run(

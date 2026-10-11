@@ -1,6 +1,6 @@
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
-import { Check, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -476,8 +476,14 @@ export function ThreadWindow({
                 variant="text"
                 disabled={blocked}
                 busy={busy}
-                label={thread.resolved ? text.threadReopen : text.threadResolve}
-                icon={thread.resolved ? <RotateCcw /> : <Check />}
+                label={
+                  thread.resolved
+                    ? text.threadReopen
+                    : layout === 'anchored'
+                      ? text.threadResolveAction
+                      : text.threadResolve
+                }
+                icon={thread.resolved ? <RotateCcw /> : <CircleCheck />}
                 onActivate={(event) => {
                   if (event.isTrusted) changeStatus(!thread.resolved);
                 }}
@@ -486,8 +492,16 @@ export function ThreadWindow({
             <BrowserIconAction
               type="button"
               variant="text"
-              label={thread ? text.threadClose : text.annotationClose}
-              icon={<X />}
+              label={
+                layout === 'anchored'
+                  ? text.threadCollapse
+                  : thread
+                    ? text.threadClose
+                    : text.annotationClose
+              }
+              tooltipLabel={layout === 'anchored' ? text.threadCollapseHelp : undefined}
+              ariaKeyShortcuts={layout === 'anchored' ? 'Escape' : undefined}
+              icon={layout === 'anchored' ? <ChevronUp /> : <X />}
               busy={busy}
               onActivate={(event) => {
                 if (event.isTrusted) close();

@@ -305,7 +305,7 @@ for (const width of [1440, 390]) {
       await capture('reply-busy');
       await run('resumePrepare');
       await expect(input).toHaveAttribute('contenteditable', 'true');
-      await dialog.getByRole('button', { name: 'Close thread', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       const toggle = await pageAction(page.locator('#ask-page-fixture'), 'Chat');
       await toggle.click();
       const chat = page.getByTestId('chat-panel');
