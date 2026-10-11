@@ -486,6 +486,8 @@ test('files added to the page reach another device and a read-only link byte-ide
     await check(reader.page, false);
     await expect(reader.page.getByRole('button', { name: text.attachFiles })).toHaveCount(0);
 
+    // Reading the covered header count dismissed Files; reopen before its next action.
+    await openFiles(first);
     // Removing a file removes its row for every device, live.
     await panel
       .getByTestId('file-row')
@@ -500,6 +502,7 @@ test('files added to the page reach another device and a read-only link byte-ide
       timeout: 30_000,
     });
 
+    await (await pageAction(reader.page, 'Files')).click();
     // Removing a reference ended the earlier display lifetime. Read the remaining picture
     // under the new reference before testing that ending the link disposes its preview.
     await expect(reader.page.getByTestId('file-preview')).toHaveCount(0);
