@@ -8,6 +8,8 @@
 //! attachment, so its frozen transfer, resume and stale-base rules are the attach rules. A foreign
 //! write between the advance and the swap makes the attempt stale; it is derived again from the
 //! new page under a fixed bound and never overwrites the edit.
+//! A second ordinary owner Save repairs page references from the current source. The slot keeps
+//! its replacement mapping until that Save is settled, including after a crash or lost reply.
 use super::{
     ChannelOwner,
     attach::{Attached, Error, Publish, is},
@@ -34,11 +36,11 @@ const STALE_TRIES: usize = 3;
 /// What a pass found and did, for the page's status.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Pass {
-    /// Attachments swapped to the current epoch.
+    /// Attachments swapped to the current epoch with their reference repair settled.
     pub swapped: usize,
-    /// Attachments still on an earlier epoch after the pass.
+    /// Attachment replacements or reference repairs still waiting after the pass.
     pub waiting: usize,
-    /// Attachments whose attempt failed and kept their old reference.
+    /// Attachment replacements or reference Saves whose attempt failed.
     pub failed: usize,
 }
 
@@ -46,6 +48,11 @@ pub(crate) struct Pass {
 pub(super) trait Lane {
     fn plaintext(&self, selector: &AttachmentSelector) -> Result<Vec<u8>>;
     fn attach(&self, slot: StagingSlot, expected: Option<[u8; 32]>) -> Result<Attached>;
+    fn publish(
+        &self,
+        key: &crate::keyring::Keyring,
+        frozen: &page::FrozenPublication,
+    ) -> Result<page::Published>;
 }
 /// The serve's established channel.
 struct Established<'a> {
@@ -56,6 +63,13 @@ struct Established<'a> {
     deadline: Instant,
 }
 impl Lane for Established<'_> {
+    fn publish(
+        &self,
+        key: &crate::keyring::Keyring,
+        frozen: &page::FrozenPublication,
+    ) -> Result<page::Published> {
+        self.publisher.publish(key, frozen)
+    }
     fn plaintext(&self, selector: &AttachmentSelector) -> Result<Vec<u8>> {
         Ok(self
             .owner
@@ -74,8 +88,9 @@ impl Lane for Established<'_> {
 }
 
 impl ChannelOwner {
-    /// One bounded pass over a page. A failure of one attachment keeps its old reference and does
-    /// not stop the others; nothing here can revert the advance.
+    /// One bounded pass over a page. Unfinished reference repairs precede further attachment
+    /// replacements; otherwise a failed replacement does not stop the others. Nothing reverts
+    /// the page's key change.
     pub(crate) fn rekey_page(
         &self,
         page_id: &str,
@@ -103,11 +118,27 @@ pub(super) fn pass(
     deadline: Instant,
 ) -> Result<Pass> {
     let mut pass = Pass::default();
+    let mut repaired = 0;
+    for id in slots.repairs(page_id)? {
+        if repaired >= BATCH || Instant::now() >= deadline {
+            pass.waiting += 1;
+            continue;
+        }
+        match repair(lane, slots, &id, source, deadline) {
+            Ok(true) => repaired += 1,
+            Ok(false) => {} // Its attachment swap has not committed yet.
+            Err(_) => pass.waiting += 1,
+        }
+    }
+    // An earlier mapping must be settled before another swap can replace its new ID.
+    if pass.waiting > 0 {
+        return Ok(pass);
+    }
     for (index, old) in rekey::pending(source, page_id, deadline)?
         .iter()
         .enumerate()
     {
-        if index >= BATCH || Instant::now() >= deadline {
+        if index + repaired >= BATCH || Instant::now() >= deadline {
             pass.waiting += 1;
         } else if one(lane, page_id, old, slots, source, deadline).is_ok() {
             pass.swapped += 1;
@@ -142,7 +173,10 @@ fn one(
         let result = lane.attach(slot, expected);
         drop(claim);
         match result {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                repair(lane, slots, &id, source, deadline)?;
+                return Ok(());
+            }
             // The old entry left the list meanwhile: nothing is left to re-seal.
             Err(error) if is(&error, page::Fault::Missing) => return Ok(()),
             // The page moved and the slot is gone: derive the swap again from the new page.
@@ -151,6 +185,161 @@ fn one(
         }
     }
     Err(last)
+}
+/// Read the current page before every attempt. A lost Save reply keeps the mapping; the next
+/// read observes either the repaired source or the latest edit, never blindly repeats a Save.
+fn repair(
+    lane: &dyn Lane,
+    slots: &StagingSlots,
+    id: &str,
+    source: &page::save::SourceOpener,
+    deadline: Instant,
+) -> Result<bool> {
+    let _claim = slots.claim(id, deadline)?;
+    let mut slot = slots.load(id)?;
+    let old = slot.record.replaces.clone().ok_or(page::Fault::Invalid)?;
+    tmt_colab_model::values::generated_id(&old)?;
+    let descriptor = slot
+        .record
+        .sealed
+        .as_ref()
+        .ok_or(page::Fault::Invalid)?
+        .descriptor
+        .clone();
+    for _ in 0..STALE_TRIES {
+        if Instant::now() >= deadline {
+            return Err(page::Fault::Unavailable.into());
+        }
+        let mut view = source()?;
+        let deleted =
+            view.store
+                .owner_read(&view.keyring.space_id, &view.keyring.owner_public(), |tx| {
+                    Ok(tx
+                        .page_policy_at(
+                            &slot.record.page,
+                            tx.head().ok_or(page::Fault::Invalid)?.revision,
+                        )?
+                        .deleted)
+                })?;
+        if deleted {
+            slot.dispose()?;
+            return Ok(true);
+        }
+        // Source equality alone cannot detect an attachment-only removal. Keep the complete
+        // page revision as the ordinary publication's preparation fence as well.
+        let revision = page::revision(&view.store, &view.keyring, &slot.record.page)?;
+        let snapshot = page::snapshot(&view.store, &view.keyring, &slot.record.page, true)?;
+        let folded = snapshot.materialize_until(
+            &view.keyring,
+            &slot.record.page,
+            &mut view.decoder,
+            deadline,
+        )?;
+        let listed: Vec<_> = folded
+            .meta
+            .get("attachments")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|item| -> Result<Descriptor> {
+                Ok(Descriptor::from_json(&serde_json::to_vec(item)?)?)
+            })
+            .collect::<Result<_>>()?;
+        let Some(current) = listed
+            .iter()
+            .find(|item| item.attachment_id == descriptor.attachment_id)
+        else {
+            if listed.iter().any(|item| item.attachment_id == old) {
+                // This original never swapped and outlived Remote's upload expiry. Normal age
+                // cleanup can discard it; a later pass derives a fresh replacement.
+                if crate::registration::now_ms()?.saturating_sub(slot.record.created_ms)
+                    >= crate::attachments::slots::STARTED_AGE_MS
+                {
+                    slot.repaired()?;
+                }
+                return Ok(false);
+            }
+            // Both attachments were removed; no references may be recreated.
+            slot.dispose()?;
+            return Ok(true);
+        };
+        if current != &descriptor {
+            return Err(page::Fault::Invalid.into());
+        }
+        // The replacement may itself now be from an earlier epoch. Reuse attachment read
+        // admission, which checks its original creation proof and the current page reference.
+        let admitted = crate::attachments::capture_root_local(
+            &view.store,
+            &view.keyring,
+            &slot.record.page,
+            &AttachmentSelector::DocumentCurrent {
+                attachment_id: descriptor.attachment_id.clone(),
+                descriptor_hash: descriptor
+                    .hash()?
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect(),
+                content_revision: revision.clone(),
+            },
+            &mut view.decoder,
+            deadline,
+        )?;
+        if admitted.descriptor() != &descriptor {
+            return Err(page::Fault::Invalid.into());
+        }
+        // Recover a swap committed before finish, dropping any leftover file bytes first.
+        if slot.record.done_ms.is_none() {
+            slot.finish(crate::registration::now_ms()?)?;
+        }
+        let repaired =
+            rekey::repair_source(&folded.source, &old, &descriptor.attachment_id, &listed);
+        if repaired == folded.source {
+            slot.repaired()?;
+            return Ok(true);
+        }
+        let result = (|| -> Result<()> {
+            match page::prepare_publication_with_clock(
+                &view.store,
+                &view.keyring,
+                &slot.record.page,
+                crate::decoder::ContentEdit {
+                    source: &repaired,
+                    publisher_agent: None,
+                    attachments: None,
+                },
+                page::PublishOptions {
+                    expected_revision: Some(&revision),
+                    base_source_sha256: Some(crypto::digest(folded.source.as_bytes())),
+                    operation_id: Some(&page::fresh_id()?),
+                },
+                &mut view.decoder,
+                &|| Ok(crate::registration::now_ms()?),
+            )? {
+                page::PublicationPreparation::Noop { .. } => Ok(()),
+                page::PublicationPreparation::Write(frozen) => {
+                    let published = lane.publish(&view.keyring, &frozen)?;
+                    match published.record.outcome {
+                        crate::publication::Outcome::Committed { .. } => Ok(()),
+                        crate::publication::Outcome::Rejected { code, .. } => {
+                            Err(page::Fault::from(code).into())
+                        }
+                        crate::publication::Outcome::Unknown { .. } => {
+                            Err(page::Fault::Unavailable.into())
+                        }
+                    }
+                }
+            }
+        })();
+        match result {
+            Ok(()) => {
+                slot.repaired()?;
+                return Ok(true);
+            }
+            Err(error) if is(&error, page::Fault::StaleBase) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(page::Fault::StaleBase.into())
 }
 /// A slot holding the old attachment's plaintext, read back through the root-local read.
 fn stage(

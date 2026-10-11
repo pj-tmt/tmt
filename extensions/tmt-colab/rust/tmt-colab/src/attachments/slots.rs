@@ -5,7 +5,8 @@
 //! recorded transfer ID a slot is disposable; after, only an explicit resume or an aged sweep
 //! (which discards the original first) removes it. A finished attach keeps its small record for a
 //! while, so a reply lost after success is answered again by the same slot, never by a second
-//! upload.
+//! upload. A replacement also keeps its small old-to-new mapping until the page's references
+//! are settled; pending mappings count toward the existing slot cap.
 use crate::{Result, keyring::Layout, page::Fault};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -57,6 +58,9 @@ pub struct Record {
     /// is swapped for the new one in the same write, never added beside it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replaces: Option<String>,
+    /// A replacing slot keeps its mapping until an admitted source read settles the HTML repair.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub references_repaired: bool,
 }
 /// The frozen upload: once recorded, the same ciphertext, descriptor, base and transfer ID are
 /// used by every retry, so a lost reply can never turn into a second object.
@@ -250,6 +254,38 @@ impl StagingSlots {
         }
         Ok(None)
     }
+    /// Frozen replacement mappings, including a swap committed before `finish` reached disk.
+    pub(crate) fn repairs(&self, page: &str) -> Result<Vec<String>> {
+        let mut ids: Vec<_> = self
+            .ids()?
+            .into_iter()
+            .filter(|id| {
+                self.load(id).is_ok_and(|slot| {
+                    slot.record.page == page
+                        && slot.record.replaces.is_some()
+                        && slot.record.sealed.is_some()
+                        && !slot.record.references_repaired
+                })
+            })
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+    pub(crate) fn repair_pages(&self) -> Result<Vec<String>> {
+        let mut pages = Vec::new();
+        for id in self.ids()? {
+            if let Ok(slot) = self.load(&id)
+                && slot.record.replaces.is_some()
+                && slot.record.sealed.is_some()
+                && !slot.record.references_repaired
+            {
+                pages.push(slot.record.page);
+            }
+        }
+        pages.sort();
+        pages.dedup();
+        Ok(pages)
+    }
     fn open_slot(
         &self,
         page: &str,
@@ -257,13 +293,15 @@ impl StagingSlots {
         replaces: Option<&str>,
         now_ms: u64,
     ) -> Result<StagingSlot> {
-        // Finished slots hold only a small record, so only unfinished ones count against the cap.
+        // Pending repairs retain their mapping under the same cap, even after the upload finished.
         let active = self
             .ids()?
             .iter()
             .filter(|id| {
-                self.load(id)
-                    .is_ok_and(|slot| slot.record.done_ms.is_none())
+                self.load(id).is_ok_and(|slot| {
+                    slot.record.done_ms.is_none()
+                        || (slot.record.replaces.is_some() && !slot.record.references_repaired)
+                })
             })
             .count();
         if active >= MAX_SLOTS {
@@ -283,6 +321,7 @@ impl StagingSlots {
             sealed: None,
             done_ms: None,
             replaces: replaces.map(str::to_owned),
+            references_repaired: false,
         };
         let slot = StagingSlot {
             id,
@@ -324,6 +363,7 @@ impl StagingSlots {
     /// no readable record at all: a crashed create), and return the started slots past
     /// [`STARTED_AGE_MS`]. Their originals must be discarded by the caller before disposal; a
     /// recent started slot is never touched, because it is what restart recovery resumes.
+    /// An unresolved replacement stays until maintenance checks whether its swap committed.
     pub fn sweep(&self, now_ms: u64) -> Result<Vec<Aged<'_>>> {
         let mut aged = Vec::new();
         for id in self.ids()? {
@@ -334,6 +374,8 @@ impl StagingSlots {
             };
             match self.load(&id) {
                 Ok(slot) => match &slot.record.sealed {
+                    Some(_)
+                        if slot.record.replaces.is_some() && !slot.record.references_repaired => {}
                     _ if slot
                         .record
                         .done_ms
@@ -429,6 +471,11 @@ impl StagingSlot {
             }
         }
         Ok(())
+    }
+    /// Only the maintenance owner, after an admitted read or committed Save, releases the map.
+    pub(crate) fn repaired(&mut self) -> Result<()> {
+        self.record.references_repaired = true;
+        self.write_record()
     }
     /// Remove the slot with everything in it. A slot holds only files this serve wrote, so the
     /// removal never follows a link out of it.
@@ -725,6 +772,33 @@ mod tests {
         assert!(slots.sweep(2_000 + DONE_AGE_MS).unwrap().is_empty());
         assert!(finished.iter().all(|id| slots.load(id).is_err()));
         assert!(slots.load(open.id()).is_ok());
+    }
+    #[test]
+    fn pending_reference_repairs_stay_bounded_and_release_capacity_only_when_settled() {
+        let root = Root::new("repairs");
+        let slots = root.slots();
+        let mut ids = Vec::new();
+        for _ in 0..MAX_SLOTS {
+            let mut slot = slots.create_replacing(PAGE, "a", "old", 1000).unwrap();
+            sealed(&mut slot);
+            slot.finish(2000).unwrap();
+            ids.push(slot.id().to_owned());
+        }
+        assert_eq!(slots.repairs(PAGE).unwrap().len(), MAX_SLOTS);
+        assert_eq!(
+            slots
+                .create_replacing(PAGE, "a", "old", 3000)
+                .unwrap_err()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::Capacity)
+        );
+        slots.sweep(2000 + STARTED_AGE_MS).unwrap();
+        assert!(ids.iter().all(|id| slots.load(id).is_ok()));
+        slots.load(&ids[0]).unwrap().repaired().unwrap();
+        slots.create_replacing(PAGE, "a", "old", 3000).unwrap();
+        slots.sweep(2000 + DONE_AGE_MS).unwrap();
+        assert!(slots.load(&ids[0]).is_err());
+        assert!(ids[1..].iter().all(|id| slots.load(id).is_ok()));
     }
     #[test]
     fn a_second_attach_on_a_slot_waits_for_the_first_and_gives_up_at_its_deadline() {

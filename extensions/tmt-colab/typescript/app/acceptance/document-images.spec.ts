@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, freePort, openPage, run } from './harness/ask.js';
+import { clientId, createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -72,5 +72,64 @@ test('document image references disclose verified page files to paired and reade
     ).toBeVisible();
     await expect(reader.page.locator('iframe')).toHaveCount(0);
     await expect(reader.page.locator('img[src^="data:"]')).toHaveCount(0);
+  });
+});
+
+test('page images keep their attachment references after a key change and the second Save', async () => {
+  test.setTimeout(180_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'image-rekey-author');
+    const viewer = await pairBrowser(world, 'image-rekey-viewer');
+    const created = createPage(world, 'Rekey images', '<h1>Rekey images</h1>');
+    const authorPage = await openPage(door, author, created);
+    await expect(
+      authorPage.frameLocator('iframe').getByRole('heading', { name: 'Rekey images' }),
+    ).toBeVisible();
+    const page = await openPage(door, viewer, created);
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Rekey images' }),
+    ).toBeVisible();
+    const colab = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const file = path.join(world.root, 'image.png');
+    fs.writeFileSync(file, PNG);
+    const old = colab(['attachment', 'attach', created.pageId, file]).attachment
+      .attachmentId as string;
+    const html = (id: string, short: string) =>
+      `<h1>Rekey images</h1>é<img id="full" src="colab-attachment:${id}" alt="Full"><img id="short" src="colab-attachment:${short}" alt="Short">🦀`;
+    colab(['page', 'write', created.pageId, '--file', '-'], html(old, old.slice(0, 8)));
+    const check = async () => {
+      for (const id of ['full', 'short']) {
+        const image = page.frameLocator('iframe').locator(`#${id}`);
+        await expect(image).toHaveAttribute('src', /^data:image\/png;base64,/, { timeout: 30_000 });
+        const url = (await image.getAttribute('src'))!;
+        expect(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64')).toEqual(PNG);
+        await expect
+          .poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth))
+          .toBe(1);
+      }
+    };
+    await check();
+    run(world, world.binaries.remote, [
+      'devices',
+      'revoke',
+      clientId(world, author.name),
+      '--json',
+    ]);
+    let current = old;
+    await expect
+      .poll(
+        () => {
+          const read = colab(['page', 'read', created.pageId]).source as string;
+          const match = read.match(/id="full" src="colab-attachment:([0-9a-f-]+)"/);
+          current = match?.[1] ?? old;
+          return current !== old && read === html(current, current);
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(true);
+    await check();
+    expect(colab(['page', 'read', created.pageId]).source).toBe(html(current, current));
   });
 });

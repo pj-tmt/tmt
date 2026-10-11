@@ -1,5 +1,6 @@
 //! The serve's one object-maintenance worker: re-seal document attachments after epoch
-//! advances and remove namespaces behind retained committed deletions. Serve start, management
+//! advances, repair their page references with a second Save, and remove namespaces behind
+//! retained committed deletions. Serve start, management
 //! changes, a new channel generation and bounded retries wake it. Work is derived from signed
 //! page state, so reconnects recover unfinished cleanup without delaying an owner transition.
 use crate::{
@@ -178,8 +179,7 @@ fn pass(
             Instant::now() + Duration::from_secs(5),
         )
         .unwrap_or(true);
-    objects.sweep_slots(slots, source, registration::now_ms()?);
-    let advanced =
+    let mut advanced =
         view.store
             .owner_read(&view.keyring.space_id, &view.keyring.owner_public(), |tx| {
                 let mut pages = Vec::new();
@@ -198,6 +198,9 @@ fn pass(
                 Ok(pages)
             })?;
     drop(view);
+    advanced.extend(slots.repair_pages()?);
+    advanced.sort();
+    advanced.dedup();
     let publisher = ServePublish(sync);
     let mut unfinished = cleanup_waiting;
     for page in advanced {
@@ -208,6 +211,8 @@ fn pass(
             .rekey_page(&page, slots, source, &publisher, PAGE_BUDGET)
             .map_or(true, |pass| pass.waiting > 0);
     }
+    // Reconcile committed attachment swaps before age cleanup can remove their reference maps.
+    objects.sweep_slots(slots, source, registration::now_ms()?);
     Ok(unfinished)
 }
 

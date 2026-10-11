@@ -632,7 +632,7 @@ bytes without core and storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
-- **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use existing crypto, authenticated cuts and fold metadata.
+- **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) reuse crypto, authenticated cuts, fold metadata and reference Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
 - **Firestore admission/accounting.** Hidden `tmt colab deploy-declaration --json`; the [declaration subsection](extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration) owns it.
