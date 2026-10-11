@@ -62,6 +62,17 @@ interface Artifact {
   size_in_bytes: number;
   digest: string;
 }
+export function api(
+  method: string,
+  route: string,
+  data?: unknown,
+  absent?: boolean,
+  execute?: (
+    file: string,
+    args: string[],
+    options: { input?: string; timeout: number; maxBuffer: number }
+  ) => { stdout: string }
+): { status: number; data: unknown };
 export function safeEvidence(value: unknown): string;
 export function assertOwnedPull(pull: Pull): void;
 export const REFUSAL_MESSAGES: Readonly<Record<'disabled' | 'closed' | 'epoch' | 'stale', string>>;

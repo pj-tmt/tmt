@@ -260,28 +260,42 @@ function checked(file, args, options) {
   );
   return result.stdout;
 }
-function api(method, route, data = null, absent = false) {
+export function api(method, route, data = null, absent = false, execute = run) {
   const args = ['api', '--include', '--method', method, `repos/${repository}/${route}`];
   if (data) args.push('--input', '-');
-  const result = run('gh', args, {
+  const result = execute('gh', args, {
     input: data ? JSON.stringify(data) : undefined,
     timeout: 30_000,
     maxBuffer: 2 * MiB,
   });
+  safeEvidence(result.stdout);
   const status = /^HTTP\/\S+ (\d+)/.exec(result.stdout);
   assert(status, 'Missing authenticated API status.');
   const code = Number(status[1]);
-  assert(
-    (code >= 200 && code < 300) || (absent && code === 404),
-    `API ${method} failed (${code}).`
-  );
-  const text = result.stdout
-    .split(/\r?\n\r?\n/)
-    .slice(1)
-    .join('\n\n')
-    .trim();
+  const sections = result.stdout.split(/\r?\n\r?\n/);
+  const headers = sections.shift();
+  const text = sections.join('\n\n').trim();
+  if (!((code >= 200 && code < 300) || (absent && code === 404))) {
+    let message;
+    try {
+      message = JSON.parse(text).message;
+    } catch {
+      /* No JSON message to retain. */
+    }
+    const permissions = /^x-accepted-github-permissions:[ \t]*([^\r\n]*)/im.exec(headers)?.[1];
+    const bounded = (value) =>
+      typeof value === 'string'
+        ? safeEvidence(value)
+            .replace(/[\x00-\x1f\x7f]/g, ' ')
+            .slice(0, 200)
+        : 'not reported';
+    throw new Error(
+      `API ${method} failed (${code}): ${bounded(message)}; x-accepted-github-permissions: ${bounded(permissions)}`
+    );
+  }
   return { status: code, data: text ? JSON.parse(text) : null };
 }
+
 function snapshot(directory) {
   const result = {};
   const visit = (root, relative = '') => {

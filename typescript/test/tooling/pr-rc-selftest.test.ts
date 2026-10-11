@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   QUALIFICATION,
+  api,
   producerRunInput,
   waitForPull,
   deriveFixture,
@@ -190,6 +191,57 @@ describe('one-shot PR RC reader qualification', () => {
       derive(producer, pull(false), [...timeline, { ...timeline[0], id: 999 }])
     ).toThrow();
     expect(() => derive(producer, pull(false), Array(100).fill(timeline[0]))).toThrow();
+  });
+  it('reports the bounded 403 message and accepted permission using the real API parser', () => {
+    const spawn = (file: string, args: string[]) => {
+      expect(file).toBe('gh');
+      expect(args).toContain('DELETE');
+      expect(args).toContain('repos/pj-tmt/tmt/issues/2715/labels/rc-build');
+      return {
+        stdout:
+          'HTTP/2.0 403 Forbidden\r\nX-Accepted-GitHub-Permissions: pull_requests=write\r\n\r\n{"message":"Resource not accessible by integration"}',
+      };
+    };
+    expect(() => api('DELETE', 'issues/2715/labels/rc-build', null, false, spawn)).toThrow(
+      'API DELETE failed (403): Resource not accessible by integration; x-accepted-github-permissions: pull_requests=write'
+    );
+  });
+  it('bounds decoded API diagnostics and rejects credentials or signed URLs before truncation', () => {
+    const response =
+      (message: string, permissions = 'pull_requests=write') =>
+      () => ({
+        stdout: `HTTP/2.0 403 Forbidden\nX-Accepted-GitHub-Permissions: ${permissions}\n\n${JSON.stringify({ message })}`,
+      });
+    expect(() => api('DELETE', 'owned', null, false, response('x'.repeat(300)))).toThrow(
+      `API DELETE failed (403): ${'x'.repeat(200)}; x-accepted-github-permissions: pull_requests=write`
+    );
+    expect(() => api('DELETE', 'owned', null, false, response('safe', 'y'.repeat(300)))).toThrow(
+      `x-accepted-github-permissions: ${'y'.repeat(200)}`
+    );
+    for (const unsafe of [
+      'ghp_' + 'x'.repeat(30),
+      'https://download.example/?X-Amz-Signature=secret',
+    ]) {
+      expect(() => api('DELETE', 'owned', null, false, response('x'.repeat(300) + unsafe))).toThrow(
+        'possible credential'
+      );
+      expect(() => api('DELETE', 'owned', null, false, response('safe', unsafe))).toThrow(
+        'possible credential'
+      );
+    }
+    expect(() =>
+      api('DELETE', 'owned', null, false, () => ({ stdout: 'HTTP/2.0 403 Forbidden\n\nnot JSON' }))
+    ).toThrow('API DELETE failed (403): not reported; x-accepted-github-permissions: not reported');
+  });
+  it('keeps successful JSON and allowed 404 API reads unchanged', () => {
+    expect(
+      api('GET', 'owned', null, false, () => ({ stdout: 'HTTP/2.0 200 OK\n\n{"id":123}' }))
+    ).toEqual({ status: 200, data: { id: 123 } });
+    expect(
+      api('GET', 'owned', null, true, () => ({
+        stdout: 'HTTP/2.0 404 Not Found\n\n{"message":"Not Found"}',
+      }))
+    ).toEqual({ status: 404, data: { message: 'Not Found' } });
   });
   it('reads the real CLI namespace and refuses an active receipt outside the isolated prefix', () => {
     const world = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-rc-selftest-'));
@@ -504,6 +556,11 @@ describe('one-shot PR RC reader qualification', () => {
       ['close', 'pull-requests'],
     ])
       expect(jobs.find((block) => block.startsWith(`${name}:`))).toContain(`${scope}: write`);
+    for (const name of ['disable', 'enable']) {
+      const job = jobs.find((block) => block.startsWith(`${name}:`));
+      expect(job).toContain('issues: write');
+      expect(job).toContain('pull-requests: write');
+    }
     expect(jobs.length).toBe(11);
     expect(workflow).toContain("always() && needs.preflight.result == 'success'");
     expect(workflow).toContain('pr-rc-selftest.mjs seal');
