@@ -108,8 +108,9 @@ failure raises `TypeError` before publishing. A plain copied or fabricated
 
 `pnpm build` bundles the browser entry with Vite+ on the aliased Vite core (library mode, unminified) into
 `../../rust/tmt-remote/assets/remote-v1.js`, which the door embeds; commit the
-result. `pnpm test:browser` uses `vp exec playwright test` to run the Playwright Chromium pairing smoke against
-`rust/target/debug/tmt-remote` (or `TMT_REMOTE_BINARY`).
+result. `pnpm test:browser` first builds the lazy Firebase asset with `vp build --config vite.firebase.config.ts`,
+then runs the Playwright Chromium tests with `vp exec playwright test`. Pairing uses
+`rust/target/debug/tmt-remote` (or `TMT_REMOTE_BINARY`); hosted Auth uses an intercepted fixture.
 
 Network access goes through an injected fetch. The caller persists the device
 key's opaque `CryptoKey` (the browser page uses IndexedDB structured clone); the
