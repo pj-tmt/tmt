@@ -340,8 +340,12 @@ impl Command {
         Ok(Self {
             page: decoded.page.into(),
             operation_id: decoded.operation_id.into(),
-            expected_revision: values::decimal(decoded.expected_revision, false)
-                .map_err(|_| Code::Invalid)?,
+            expected_revision: auth::management_revision(
+                decoded.operation,
+                decoded.expected_revision,
+            )
+            .map_err(|_| Code::Invalid)?
+            .unwrap_or(0),
             transport_digest: digest,
             action: selected,
         })
@@ -356,7 +360,11 @@ impl Command {
             values::generated_id(&value.page)?;
             values::generated_id(&value.operation_id)?;
             let creating = value.operation == "page.create";
-            let revision = values::decimal(&value.expected_revision, creating)?;
+            let revision = if value.operation == "page.labels" {
+                auth::management_revision(&value.operation, &value.expected_revision)?.unwrap_or(0)
+            } else {
+                values::decimal(&value.expected_revision, creating)?
+            };
             let cap = if creating {
                 crate::limits::LOCAL_CREATE_PAYLOAD_BYTES
             } else {
@@ -479,7 +487,7 @@ fn apply(
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
-    // Labels are display-only owner-store state: no statement, no revision fence, no receipt.
+    // Labels are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
     if let Action::Labels(changes) = &command.action {
         let head = service.set_labels(changes).map_err(|error| error.code)?;
         let reply = serde_json::json!({"operationId":command.operation_id,
@@ -628,12 +636,16 @@ mod tests {
     const DEVICE: &str = "20000000-0000-4000-8000-000000000001";
     const OTHER: &str = "20000000-0000-4000-8000-000000000002";
     const OP: &str = "30000000-0000-4000-8000-000000000001";
+    /// Labels carry an empty revision field; every other operation names a membership head.
+    fn revision(operation: &str) -> &'static str {
+        if operation == "page.labels" { "" } else { "1" }
+    }
     fn signed(operation: &str, payload: &[u8], sender: &str, issued: u64) -> Vec<u8> {
         let input = auth::management_input(&auth::Management {
             space: SPACE,
             page: PAGE,
             operation_id: OP,
-            expected_revision: "1",
+            expected_revision: revision(operation),
             operation,
             payload,
             sender_device: sender,
@@ -655,7 +667,7 @@ mod tests {
         )
     }
     fn local(operation: &str, payload: Value) -> Vec<u8> {
-        serde_json::to_vec(&json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":"1",
+        serde_json::to_vec(&json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":revision(operation),
             "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload).unwrap())})).unwrap()
     }
     #[test]
@@ -792,6 +804,56 @@ mod tests {
             json!({"pages":[{"pageId":PAGE,"labels":[]}],"extra":1}),
         );
         assert_eq!(Command::local(&top, SPACE).err(), Some(Code::Invalid));
+    }
+    #[test]
+    fn labels_carry_an_empty_revision_and_log_operations_a_positive_one() {
+        let payload =
+            serde_json::to_vec(&json!({"pages":[{"pageId":PAGE,"labels":["a"]}]})).unwrap();
+        let history = serde_json::to_vec(&json!({"pageId":PAGE,"mode":"all"})).unwrap();
+        // A revision on a label request is refused, signed in the browser frame or local.
+        let with_revision = |value: &str| {
+            let input = auth::Management {
+                space: SPACE,
+                page: PAGE,
+                operation_id: OP,
+                expected_revision: value,
+                operation: "page.labels",
+                payload: &payload,
+                sender_device: DEVICE,
+                issued_at: 100,
+                expires_at: 200,
+            };
+            auth::management_input(&input).is_ok()
+        };
+        assert!(with_revision("") && !with_revision("1") && !with_revision("0"));
+        let local_with = |value: &str| {
+            serde_json::to_vec(
+                &json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":value,
+                "operation":"page.labels","payload":values::encode_binary(&payload)}),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            Command::local(&local_with("1"), SPACE).err(),
+            Some(Code::Invalid)
+        );
+        assert_eq!(
+            Command::local(&local_with("0"), SPACE).err(),
+            Some(Code::Invalid)
+        );
+        assert_eq!(
+            Command::local(&local_with(""), SPACE)
+                .unwrap()
+                .expected_revision,
+            0
+        );
+        // A log operation with the empty field is refused, so the empty field cannot widen a fence.
+        let empty = serde_json::to_vec(
+            &json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":"",
+            "operation":"page.history","payload":values::encode_binary(&history)}),
+        )
+        .unwrap();
+        assert_eq!(Command::local(&empty, SPACE).err(), Some(Code::Invalid));
     }
     #[test]
     fn local_dto_is_purpose_separated_and_canonical_scope_is_bounded() {

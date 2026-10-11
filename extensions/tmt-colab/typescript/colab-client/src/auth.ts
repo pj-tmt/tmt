@@ -86,6 +86,16 @@ const OPERATIONS = [
 export function operation(value: string): void {
   requireValue(OPERATIONS.includes(value));
 }
+/** Display-only operations change owner-store state without a log statement; only management requests name them. */
+const DISPLAY_ONLY_OPERATIONS = ['page.labels'];
+export function managementOperation(value: string): void {
+  requireValue(OPERATIONS.includes(value) || DISPLAY_ONLY_OPERATIONS.includes(value));
+}
+/** A log operation names the membership head it was prepared against; a display-only one has none, so its signed field is empty. */
+function managementRevision(operationName: string, value: string): void {
+  if (DISPLAY_ONLY_OPERATIONS.includes(operationName)) requireValue(value === '');
+  else decimal(value);
+}
 export interface Management {
   space: string;
   page: string;
@@ -101,8 +111,8 @@ export interface Management {
 export async function managementInput(v: Management): Promise<Bytes> {
   spaceId(v.space);
   for (const id of [v.page, v.operationId, v.senderDevice]) generatedId(id);
-  decimal(v.expectedRevision);
-  operation(v.operation);
+  managementOperation(v.operation);
+  managementRevision(v.operation, v.expectedRevision);
   time(v.issuedAt);
   time(v.expiresAt);
   requireValue(

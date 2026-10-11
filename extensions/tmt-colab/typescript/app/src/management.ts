@@ -17,6 +17,7 @@ import type { statement } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
+import { labelNameError, LABEL_REQUEST_PAGES, type LabelChange } from './labels.js';
 import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
 
 export interface Recipient {
@@ -77,6 +78,8 @@ export interface ManagementPort {
   prepare(view: ManagementView, selection: Selection): Promise<Pending>;
   send(pending: Pending): Promise<Acknowledgment>;
   verify(pending: Pending, ack: Acknowledgment, signal?: AbortSignal): Promise<ManagementView>;
+  /** One display-only `page.labels` request: no view, revision or verification (contract: Page labels). */
+  setLabels(changes: readonly LabelChange[]): Promise<void>;
 }
 export class ManagementError extends Error {
   constructor(
@@ -391,6 +394,20 @@ function validateLink(value: LinkSelection) {
   binary(value.seed, 32, 32);
 }
 
+/** The request payload: pages ascending, the first initiates, every set valid and bounded. */
+function labelPages(changes: readonly LabelChange[]) {
+  requireValue(changes.length >= 1 && changes.length <= LABEL_REQUEST_PAGES);
+  const pages = changes.map((change) => {
+    generatedId(change.pageId);
+    requireValue(
+      new Set(change.labels).size === change.labels.length &&
+        change.labels.every((name) => labelNameError(name) === undefined),
+    );
+    return { pageId: change.pageId, labels: [...change.labels] };
+  });
+  requireValue(pages.every((page, index) => !index || pages[index - 1].pageId < page.pageId));
+  return pages;
+}
 export class ManagementClient implements ManagementPort {
   constructor(
     readonly mount: URL,
@@ -459,14 +476,83 @@ export class ManagementClient implements ManagementPort {
       ...(link ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed }) } : {}),
     });
   }
+  /** A signed label request: the owner applies the named pages in one store transaction. */
+  async setLabels(changes: readonly LabelChange[]): Promise<void> {
+    const pages = labelPages(changes);
+    const bytes = text(JSON.stringify({ pages }));
+    const id = crypto.randomUUID(),
+      issuedAt = Date.now(),
+      cert = this.registration.chain.certificate(),
+      expiresAt = Math.min(issuedAt + 600000, cert.expiresAt);
+    requireValue(cert.issuedAt <= issuedAt && cert.expiresAt > issuedAt);
+    const request = await managementInput({
+      space: cert.space,
+      page: pages[0].pageId,
+      expectedRevision: '',
+      operationId: id,
+      operation: 'page.labels',
+      payload: bytes,
+      senderDevice: this.registration.deviceId,
+      issuedAt,
+      expiresAt,
+    });
+    const signature = await sign(this.registration.keys.sign, request);
+    const v = await this.post(
+      JSON.stringify({
+        request: encodeBinary(request),
+        payload: encodeBinary(bytes),
+        signature: encodeBinary(signature),
+      }),
+      expiresAt,
+    );
+    try {
+      exactKeys(v, ['operationId', 'membershipHead']);
+      exactKeys(v.membershipHead, ['revision', 'statementHash']);
+      requireValue(v.operationId === id && typeof v.membershipHead.revision === 'string');
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+  }
   async send(pending: Pending): Promise<Acknowledgment> {
-    if (Date.now() >= pending.expiresAt) throw new ManagementError('EXPIRED');
+    const v = await this.post(pending.body, pending.expiresAt);
+    try {
+      const keys = ['operationId', 'membershipHead'];
+      if (
+        pending.operation === 'page.delete' &&
+        v !== null &&
+        typeof v === 'object' &&
+        'storage' in v
+      ) {
+        keys.push('storage');
+        if ('storageHint' in v) keys.push('storageHint');
+      }
+      exactKeys(v, keys);
+      if ('storage' in v)
+        requireValue(['freed', 'pending', 'unsupported', 'unknown'].includes(v.storage as string));
+      if ('storageHint' in v)
+        requireValue(
+          v.storage === 'unsupported' &&
+            typeof v.storageHint === 'string' &&
+            v.storageHint.length > 0 &&
+            v.storageHint.length <= 1024,
+        );
+      exactKeys(v.membershipHead, ['revision', 'statementHash']);
+      requireValue(v.operationId === pending.id && typeof v.membershipHead.revision === 'string');
+      decimal(v.membershipHead.revision);
+      binary(v.membershipHead.statementHash, 32, 32);
+    } catch {
+      throw new ManagementError('UNKNOWN');
+    }
+    return v as unknown as Acknowledgment;
+  }
+  private async post(body: string, expiresAt: number) {
+    if (Date.now() >= expiresAt) throw new ManagementError('EXPIRED');
     let response: Response;
     try {
       response = await fetch(new URL('api/management', this.mount), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: pending.body,
+        body,
         signal: AbortSignal.timeout(10_000),
       });
     } catch {
@@ -503,35 +589,7 @@ export class ManagementClient implements ManagementPort {
       }
       throw new ManagementError(code);
     }
-    try {
-      const keys = ['operationId', 'membershipHead'];
-      if (
-        pending.operation === 'page.delete' &&
-        v !== null &&
-        typeof v === 'object' &&
-        'storage' in v
-      ) {
-        keys.push('storage');
-        if ('storageHint' in v) keys.push('storageHint');
-      }
-      exactKeys(v, keys);
-      if ('storage' in v)
-        requireValue(['freed', 'pending', 'unsupported', 'unknown'].includes(v.storage as string));
-      if ('storageHint' in v)
-        requireValue(
-          v.storage === 'unsupported' &&
-            typeof v.storageHint === 'string' &&
-            v.storageHint.length > 0 &&
-            v.storageHint.length <= 1024,
-        );
-      exactKeys(v.membershipHead, ['revision', 'statementHash']);
-      requireValue(v.operationId === pending.id && typeof v.membershipHead.revision === 'string');
-      decimal(v.membershipHead.revision);
-      binary(v.membershipHead.statementHash, 32, 32);
-    } catch {
-      throw new ManagementError('UNKNOWN');
-    }
-    return v as unknown as Acknowledgment;
+    return v;
   }
   async verify(
     pending: Pending,

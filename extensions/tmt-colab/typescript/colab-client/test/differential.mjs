@@ -829,6 +829,25 @@ try {
             legacyAccepted = true;
           } catch {}
           assert(!legacyAccepted, 'legacy management operation accepted');
+          // Display-only labels sign an empty revision field; no log operation may.
+          const labels = {
+            ...management,
+            expectedRevision: '',
+            operation: 'page.labels',
+            payload: hex(fixture.labelsPayload),
+          };
+          assert(same(await c.managementInput(labels), fixture.managementLabels));
+          for (const bad of [
+            { ...labels, expectedRevision: '1' },
+            { ...management, expectedRevision: '' },
+          ]) {
+            let accepted = false;
+            try {
+              await c.managementInput(bad);
+              accepted = true;
+            } catch {}
+            assert(!accepted, 'management revision rule not enforced');
+          }
           progress('completed', 'signin-and-management');
           return {
             capabilityMs,

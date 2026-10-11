@@ -116,6 +116,10 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         return view;
       });
     },
+    setLabels(changes) {
+      const client = managementClient;
+      return managed(client, () => client.setLabels(changes));
+    },
   };
   clearRecovery(mount);
   const owner: LiveSessionOwner = {

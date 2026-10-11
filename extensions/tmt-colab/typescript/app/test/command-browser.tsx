@@ -42,6 +42,7 @@ const port: ManagementPort = {
     membershipHead: { revision: '2', statementHash: 'fixture' },
   }),
   verify: async () => view,
+  setLabels: async () => {},
 };
 createRoot(document.getElementById('root')!).render(
   <ShareDialog

@@ -104,7 +104,7 @@ fn write(layout: &Layout, key: &Keyring, changes: &[(String, Vec<String>)]) -> R
         let payload = json!({"pages":chunk.iter().map(|(page, names)| json!({"pageId":page,"labels":names})).collect::<Vec<_>>()});
         let operation_id = fresh_id()?;
         let body = serde_json::to_vec(&json!({"space":key.space_id,"page":chunk[0].0,
-            "expectedRevision":"1","operationId":operation_id,"operation":"page.labels",
+            "expectedRevision":"","operationId":operation_id,"operation":"page.labels",
             "payload":values::encode_binary(&serde_json::to_vec(&payload)?)}))?;
         let reply: Value =
             serde_json::from_slice(&mutate(layout, &key.space_id, &body)?).map_err(|_| {
