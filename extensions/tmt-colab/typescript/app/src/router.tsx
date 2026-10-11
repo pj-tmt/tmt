@@ -35,7 +35,7 @@ import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
-import { readQuestions } from './questions.js';
+import { inspectQuestions } from './questions.js';
 import { ReplyAnnouncer } from './reply-announcer.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
@@ -1157,7 +1157,7 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const questions = useMemo(() => readQuestions(view.source), [view.source]);
+  const { questions, groups } = useMemo(() => inspectQuestions(view.source), [view.source]);
   const inlineSlots = useInlineSlots({
     renderer,
     host,
@@ -1166,10 +1166,11 @@ function Page() {
     identity: `${(view.threads ?? [])
       .filter((thread) => thread.proposal && !thread.deleted)
       .map((thread) => thread.threadId)
-      .join(',')}|${questions.map((question) => question.id).join(',')}`,
+      .join(',')}|${groups.map((group) => group.id).join(',')}`,
   });
   const questionLayer = useQuestionLayer({
     questions,
+    groups,
     snapshot,
     view,
     renderer,

@@ -13,6 +13,8 @@ const question: Question = {
   choices: ['Blue', 'Green'],
   other: true,
   agent: 'Agent 1',
+  group: null,
+  label: null,
 };
 it('bounds fixed plain text answers for every kind and keeps choices in authored order', () => {
   expect(answerComment(question, ['Blue'], '', false, 'Page', '@Agent 1')).toBe(

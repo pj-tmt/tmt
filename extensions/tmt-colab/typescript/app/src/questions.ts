@@ -6,6 +6,8 @@ import {
 } from './thread-records.js';
 
 export const QUESTION_LIMIT = 50;
+export const QUESTION_GROUP_LIMIT = 12;
+export const QUESTION_LABEL_POINTS = 24;
 export const QUESTION_TITLE_POINTS = 200;
 export const QUESTION_CHOICES = 20;
 export const QUESTION_CHOICE_POINTS = 200;
@@ -20,6 +22,13 @@ export interface Question {
   choices: string[];
   other: boolean;
   agent: string;
+  group: string | null;
+  label: string | null;
+}
+export interface QuestionGroup {
+  id: string;
+  title: string | null;
+  questions: string[];
 }
 const bytes = (value: string) => new TextEncoder().encode(value).length;
 export const questionText = (value: string) => value.replace(/\s+/gu, ' ').trim();
@@ -52,7 +61,20 @@ export type QuestionFindingCode =
   | 'question-choices-unexpected'
   | 'question-other-unexpected'
   | 'question-agent-invalid'
-  | 'question-marker-misplaced';
+  | 'question-marker-misplaced'
+  | 'question-group-child-invalid'
+  | 'group-id-invalid'
+  | 'group-id-duplicate'
+  | 'group-nested'
+  | 'group-title-missing'
+  | 'group-title-multiple'
+  | 'group-title-empty'
+  | 'group-title-too-long'
+  | 'group-title-control'
+  | 'group-questions-too-many'
+  | 'group-empty'
+  | 'group-label-too-long'
+  | 'group-label-control';
 export interface QuestionFinding {
   /** Lowercase tag name, and the 1-based index among elements with that tag in document order. */
   element: string;
@@ -62,9 +84,12 @@ export interface QuestionFinding {
   /** `ignored`: the block is dropped. `warning`: admitted, but something is off. */
   severity: 'ignored' | 'warning';
   code: QuestionFindingCode;
+  /** All question descendants excluded by a structural group failure. */
+  questionsSkipped?: number;
 }
 export interface QuestionInspection {
   questions: Question[];
+  groups: QuestionGroup[];
   findings: QuestionFinding[];
 }
 
@@ -78,6 +103,7 @@ interface Candidate {
   choices: string[];
   nested: boolean;
   holders: number;
+  groupChildInvalid: boolean;
 }
 const over = (value: string, points: number) => [...value].length > points;
 const sibling = (candidate: Candidate) => candidate.headings === 1;
@@ -92,6 +118,7 @@ const QUESTION_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: Candidate
   ['question-id-invalid', (c) => !uuid.test(c.id)],
   ['question-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
   ['question-nested', (c) => c.nested],
+  ['question-group-child-invalid', (c) => c.groupChildInvalid],
   ['question-heading-missing', (c) => c.headings === 0],
   ['question-heading-multiple', (c) => c.headings > 1],
   ['question-title-empty', (c) => sibling(c) && !c.title],
@@ -111,26 +138,57 @@ const QUESTION_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: Candidate
   ['question-other-unexpected', (c) => kinds.includes(c.kind) && !choiceKind(c) && c.other],
   ['question-agent-invalid', (c) => over(c.agent, QUESTION_AGENT_POINTS) || hasControl(c.agent)],
 ];
+interface GroupCandidate {
+  id: string;
+  headings: number;
+  title: string;
+  nested: boolean;
+  count: number;
+  holders: number;
+}
+/** Structural group rules report only the first failure and silence the subtree. */
+const GROUP_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: GroupCandidate) => boolean]> = [
+  ['group-id-invalid', (c) => !uuid.test(c.id)],
+  ['group-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
+  ['group-nested', (c) => c.nested],
+  ['group-title-missing', (c) => c.headings === 0],
+  ['group-title-multiple', (c) => c.headings > 1],
+  ['group-title-empty', (c) => c.headings === 1 && !c.title],
+  ['group-title-too-long', (c) => c.headings === 1 && over(c.title, QUESTION_TITLE_POINTS)],
+  ['group-title-control', (c) => c.headings === 1 && hasControl(c.title)],
+  ['group-questions-too-many', (c) => c.count > QUESTION_GROUP_LIMIT],
+];
+const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) => boolean]> = [
+  ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
+  ['group-label-control', hasControl],
+];
 /** Every code the checks can report, for the vector coverage test. */
 export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   'question-page-limit',
   ...QUESTION_RULES.map(([code]) => code),
   'question-marker-misplaced',
+  ...GROUP_RULES.map(([code]) => code),
+  'group-empty',
+  ...LABEL_RULES.map(([code]) => code),
 ];
 
 /**
- * Parse with the browser's own HTML tree builder and report which `tmt-question` blocks are
- * admitted and why the others are not. Author-supplied structure is inert. Only admitted source,
- * never a frame message, supplies it.
+ * Parent-parse inert authored source. Group IDs and candidate question IDs use one fixed holder
+ * snapshot after non-duplicate structural checks. Duplicate failures never retract holders.
+ * Structural failures silence descendants; group-empty preserves evaluated child findings.
  */
 export function inspectQuestions(source: string): QuestionInspection {
   const template = document.createElement('template');
   template.innerHTML = source;
-  const nodes = [...template.content.querySelectorAll('tmt-question')];
+  const root = template.content;
+  const nodes = [...root.querySelectorAll('tmt-question')];
+  const groupNodes = [...root.querySelectorAll('tmt-questions')];
   const authored = (node: Element | undefined) => node?.getAttribute('data-id') ?? null;
+  const idOf = (node: Element) => authored(node) ?? '';
   if (nodes.length > QUESTION_LIMIT)
     return {
       questions: [],
+      groups: [],
       findings: [
         {
           element: 'tmt-question',
@@ -141,15 +199,75 @@ export function inspectQuestions(source: string): QuestionInspection {
         },
       ],
     };
-  const holders = new Map<string, number>();
-  for (const node of nodes) {
-    const id = node.getAttribute('data-id') ?? '';
-    holders.set(id, (holders.get(id) ?? 0) + 1);
+  const groupCandidates = new Map<Element, GroupCandidate>();
+  for (const node of groupNodes) {
+    const headings = [...node.children].filter((child) => child.matches('p[data-title]'));
+    groupCandidates.set(node, {
+      id: idOf(node),
+      headings: headings.length,
+      title: questionText(headings[0]?.textContent ?? ''),
+      nested: !!node.parentElement?.closest('tmt-questions, tmt-question'),
+      count: [...node.children].filter((child) => child.matches('tmt-question')).length,
+      holders: 0,
+    });
   }
+  const nonDuplicateFailure = (node: Element) =>
+    GROUP_RULES.some(
+      ([code, fails]) => code !== 'group-id-duplicate' && fails(groupCandidates.get(node)!),
+    );
+  const holders = new Map<string, number>();
+  const hold = (node: Element) => {
+    const id = idOf(node);
+    holders.set(id, (holders.get(id) ?? 0) + 1);
+  };
+  // Every group's own ID participates, including structurally invalid groups. Direct children
+  // hold IDs only when non-duplicate structural rules passed; wrapped children never hold IDs.
+  groupNodes.forEach(hold);
+  const questionHolders = new Set<Element>();
+  for (const node of nodes) {
+    const group = node.parentElement?.closest('tmt-questions');
+    if (!group || (node.parentElement === group && !nonDuplicateFailure(group))) {
+      hold(node);
+      questionHolders.add(node);
+    }
+  }
+  const groupFailures = new Map<Element, QuestionFindingCode>();
+  for (const node of groupNodes) {
+    const candidate = groupCandidates.get(node)!;
+    candidate.holders = holders.get(candidate.id) ?? 0;
+    const failed = GROUP_RULES.find(([, fails]) => fails(candidate));
+    if (failed) groupFailures.set(node, failed[0]);
+  }
+  const suppressed = (node: Element) => {
+    for (
+      let group = node.parentElement?.closest('tmt-questions');
+      group;
+      group = group.parentElement?.closest('tmt-questions')
+    ) {
+      if (groupFailures.has(group)) return true;
+    }
+    return false;
+  };
   const questions: Question[] = [];
+  const admittedNodes = new Map<Element, Question>();
   const findings: QuestionFinding[] = [];
+  groupNodes.forEach((node, index) => {
+    const code = groupFailures.get(node);
+    if (code && !suppressed(node))
+      findings.push({
+        element: 'tmt-questions',
+        ordinal: index + 1,
+        id: authored(node),
+        severity: 'ignored',
+        code,
+        questionsSkipped: node.querySelectorAll('tmt-question').length,
+      });
+  });
   nodes.forEach((node, index) => {
-    const id = node.getAttribute('data-id') ?? '';
+    if (suppressed(node)) return;
+    const id = idOf(node);
+    const group = node.parentElement?.closest('tmt-questions') ?? null;
+    const nested = !!node.parentElement?.closest('tmt-question');
     const headings = [...node.children].filter((child) => child.hasAttribute('data-question'));
     const candidate: Candidate = {
       id,
@@ -161,8 +279,9 @@ export function inspectQuestions(source: string): QuestionInspection {
       choices: [...node.children]
         .filter((child) => child.hasAttribute('data-choice'))
         .map((child) => questionText(child.textContent ?? '')),
-      nested: !!node.parentElement?.closest('tmt-question'),
-      holders: holders.get(id) ?? 0,
+      nested,
+      holders: questionHolders.has(node) ? (holders.get(id) ?? 0) : 0,
+      groupChildInvalid: !!group && node.parentElement !== group && !nested,
     };
     const failed = QUESTION_RULES.filter(([, fails]) => fails(candidate));
     for (const [code] of failed)
@@ -173,28 +292,75 @@ export function inspectQuestions(source: string): QuestionInspection {
         severity: 'ignored',
         code,
       });
-    if (!failed.length)
-      questions.push({
-        id,
-        title: candidate.title,
-        kind: candidate.kind as QuestionKind,
-        choices: candidate.choices,
-        other: candidate.other,
-        agent: candidate.agent,
-      });
+    if (failed.length) return;
+    let label: string | null = null;
+    if (group) {
+      const authoredLabel = questionText(node.getAttribute('data-label') ?? '');
+      const badLabel = LABEL_RULES.filter(([, fails]) => fails(authoredLabel));
+      for (const [code] of badLabel)
+        findings.push({
+          element: 'tmt-question',
+          ordinal: index + 1,
+          id: authored(node),
+          severity: 'warning',
+          code,
+        });
+      label =
+        authoredLabel && !badLabel.length
+          ? authoredLabel
+          : `Q${questions.filter((question) => question.group === idOf(group)).length + 1}`;
+    }
+    const question: Question = {
+      id,
+      title: candidate.title,
+      kind: candidate.kind as QuestionKind,
+      choices: candidate.choices,
+      other: candidate.other,
+      agent: candidate.agent,
+      group: group ? idOf(group) : null,
+      label,
+    };
+    questions.push(question);
+    admittedNodes.set(node, question);
   });
-  // A marker outside a question is plain content to the browser: nothing is ignored, nothing shows.
-  for (const marker of template.content.querySelectorAll('[data-question], [data-choice]')) {
-    if (marker.parentElement?.matches('tmt-question')) continue;
+  const groups: QuestionGroup[] = [];
+  // Preserve authored group/lone-question order. Empty is a post-child result, never structural.
+  for (const node of root.querySelectorAll('tmt-questions, tmt-question')) {
+    if (node.matches('tmt-questions')) {
+      if (groupFailures.has(node) || suppressed(node)) continue;
+      const members = questions.filter((question) => question.group === idOf(node));
+      if (!members.length)
+        findings.push({
+          element: 'tmt-questions',
+          ordinal: groupNodes.indexOf(node) + 1,
+          id: authored(node),
+          severity: 'ignored',
+          code: 'group-empty',
+        });
+      else
+        groups.push({
+          id: idOf(node),
+          title: groupCandidates.get(node)!.title,
+          questions: members.map((question) => question.id),
+        });
+    } else {
+      const question = admittedNodes.get(node);
+      if (question && !question.group)
+        groups.push({ id: question.id, title: null, questions: [question.id] });
+    }
+  }
+  // Marker warnings in a structurally skipped subtree are also silent.
+  for (const marker of root.querySelectorAll('[data-question], [data-choice]')) {
+    if (suppressed(marker) || marker.parentElement?.matches('tmt-question')) continue;
     findings.push({
       element: marker.localName,
-      ordinal: [...template.content.querySelectorAll(marker.localName)].indexOf(marker) + 1,
+      ordinal: [...root.querySelectorAll(marker.localName)].indexOf(marker) + 1,
       id: authored(marker),
       severity: 'warning',
       code: 'question-marker-misplaced',
     });
   }
-  return { questions, findings };
+  return { questions, groups, findings };
 }
 
 export const readQuestions = (source: string): Question[] => inspectQuestions(source).questions;

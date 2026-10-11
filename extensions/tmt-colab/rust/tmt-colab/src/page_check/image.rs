@@ -35,6 +35,7 @@ pub(super) fn check(tree: &Tree, images: &[(Id, usize)], report: &mut Report) {
         line: tree.line(id),
         severity: Severity::Warning,
         code,
+        questions_skipped: None,
     };
     let mut total = 0;
     let mut over_total = false;

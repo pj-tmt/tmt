@@ -48,8 +48,24 @@ export const browserUiClasses = Object.freeze({
   listUpdated: 'tmt-ui-list-updated',
   listState: 'tmt-ui-list-state',
   listActions: 'tmt-ui-list-actions',
+  tabs: 'tmt-ui-tabs',
+  tabsHeader: 'tmt-ui-tabs-header',
+  tabList: 'tmt-ui-tab-list',
+  tab: 'tmt-ui-tab',
+  tabMark: 'tmt-ui-tab-mark',
+  tabLabel: 'tmt-ui-tab-label',
+  tabsStatus: 'tmt-ui-tabs-status',
+  tabPanel: 'tmt-ui-tab-panel',
 } as const);
 
 export type BrowserNoticeTone = 'waiting' | 'blocked' | 'working' | 'review' | 'muted';
+export interface BrowserTab {
+  id: string;
+  tabId: string;
+  panelId: string;
+  label: string;
+  state?: { mark: string; word: string; tone: BrowserNoticeTone };
+}
+export type BrowserTabSelectReason = 'keyboard' | 'activation';
 export type BrowserActionVariant = 'text' | 'primary' | 'destructive';
 export type BrowserAnnouncement = 'status' | 'alert' | 'none';

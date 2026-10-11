@@ -35,10 +35,20 @@ export function useInlineSlots({
             nodes.findIndex((other) => other.dataset.inlineSlot === node.dataset.inlineSlot) ===
             index,
         )
-        .map((node) => ({
-          id: node.dataset.inlineSlot!,
-          height: Math.min(2000, Math.ceil(node.getBoundingClientRect().height)),
-        }));
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          const gap = [...node.querySelectorAll<HTMLElement>('.question-description-space')].find(
+            (gap) => !gap.closest('[hidden]'),
+          );
+          if (!gap)
+            return { id: node.dataset.inlineSlot!, height: Math.min(2000, Math.ceil(box.height)) };
+          const description = gap.getBoundingClientRect();
+          return {
+            id: node.dataset.inlineSlot!,
+            before: Math.min(2000, Math.max(0, Math.ceil(description.top - box.top))),
+            height: Math.min(2000, Math.max(0, Math.ceil(box.bottom - description.bottom))),
+          };
+        });
       const next = JSON.stringify(heights);
       if (next !== previous) {
         previous = next;

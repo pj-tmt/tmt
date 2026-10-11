@@ -233,9 +233,7 @@ for (const width of [1440, 390, 320])
             await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
             await expect(card.getByRole('button', { name: /^Actions for/ })).toBeVisible();
             await card.getByRole('button', { name: /^Actions for/ }).click();
-            await expect(page.getByRole('menu').locator('.management-id')).toContainText(
-              'a19c0460',
-            );
+            await expect(page.getByRole('menu').getByText(/^Page ID:/)).toContainText('a19c0460');
             await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
             await page.getByRole('menu').press('Escape');
             await expect(
@@ -392,8 +390,11 @@ for (const width of [1440, 390, 320])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         }
       }
-      await expect(menu).toHaveCSS('box-shadow', 'none');
-      await expect(menu).toHaveCSS('border-top-width', '1px');
+      const surface = actions.getByRole('dialog', { name: 'More', exact: true });
+      expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
+      await expect(surface).toHaveCSS('box-shadow', 'none');
+      await expect(surface).toHaveCSS('border-width', '1px');
+      await expect(surface).toHaveCSS('border-radius', '0px');
       await page.screenshot({ path: `/tmp/2314-${width}-${theme}-header-menu.png` });
       await page.keyboard.press('Escape');
       await expect(menu).toHaveCount(0);

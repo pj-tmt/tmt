@@ -50,6 +50,9 @@ async function mount(page: Page, source: string) {
         onSlots: (slots: unknown[]) => {
           host.dataset.slots = JSON.stringify(slots);
         },
+        onQuestions: (questions: unknown[]) => {
+          host.dataset.questions = JSON.stringify(questions);
+        },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
@@ -987,6 +990,138 @@ test('keyboard selection waits for key release; C annotates a completed selectio
     await expect(page.locator('#probe')).toHaveAttribute('data-annotates', '2');
     await expect(page.locator('#probe')).toHaveAttribute('data-toggles', '2');
   }
+});
+
+test('question groups and split slot geometry admit only the current closed response', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          Object.assign(window, { questionPort: this.port1 });
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (value: { type?: string }) => {
+            if (value.type === 'colab.render.questions')
+              Object.assign(window, { questionRequest: value });
+            if (value.type === 'colab.render.slots') Object.assign(window, { splitRequest: value });
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>No admitted markup</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: {
+        handle: Pick<
+          Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>>,
+          'questions' | 'slots'
+        >;
+      };
+      questionPort: MessagePort;
+      questionRequest: { renderId: string; requestId: string; groups: unknown[] };
+      splitRequest: {
+        renderId: string;
+        requestId: string;
+        slots: { before: number; height: number }[];
+      };
+    };
+    const id = '80000000-0000-4000-8000-000000000001';
+    const group = '80000000-0000-4000-8000-000000000002';
+    const blocks = [{ id, title: 'Which heading?' }];
+    const groups = [{ id: group, title: 'Review', questions: [id], active: id }];
+    w.probe.handle.questions(blocks, [], groups);
+    const stale = w.questionRequest.requestId;
+    w.probe.handle.questions(blocks, [], groups);
+    const current = {
+      type: 'colab.render.questions',
+      renderId: w.questionRequest.renderId,
+      requestId: w.questionRequest.requestId,
+      questions: [
+        { id, selector: { exact: 'Which heading?', prefix: '', suffix: '' }, threads: [] },
+      ],
+    };
+    const emit = (value: unknown) =>
+      w.questionPort.dispatchEvent(new MessageEvent('message', { data: value }));
+    const read = () => document.getElementById('probe')!.dataset.questions;
+    const rejected = [];
+    for (const bad of [
+      { ...current, requestId: stale },
+      { ...current, renderId: 'old' },
+      { ...current, groups },
+      { ...current, questions: [{ ...current.questions[0], answered: true }] },
+      { ...current, questions: [{ ...current.questions[0], id: group }] },
+      { ...current, questions: [{ ...current.questions[0], threads: ['foreign'] }] },
+      { ...current, questions: [current.questions[0], current.questions[0]] },
+      {
+        ...current,
+        questions: [
+          { ...current.questions[0], selector: { exact: 'Forged', prefix: '', suffix: '' } },
+        ],
+      },
+    ]) {
+      emit(bad);
+      rejected.push(read());
+    }
+    emit(current);
+    const admitted = read();
+    w.probe.handle.slots([{ id: group, height: 99999, before: 99999 }]);
+    const slot = { id: group, top: 100, beforeTop: 20, descriptionHeight: 80 };
+    const placement = {
+      type: 'colab.render.slots',
+      renderId: w.splitRequest.renderId,
+      requestId: w.splitRequest.requestId,
+      slots: [slot],
+    };
+    const geometry = () => document.getElementById('probe')!.dataset.slots;
+    const rejectedGeometry = [];
+    for (const bad of [
+      { ...placement, requestId: stale },
+      { ...placement, slots: [{ ...slot, beforeTop: 101 }] },
+      { ...placement, slots: [{ ...slot, descriptionHeight: 2001 }] },
+      { ...placement, slots: [{ ...slot, descriptionHeight: NaN }] },
+      { ...placement, slots: [{ ...slot, beforeTop: -1 }] },
+      { ...placement, slots: [{ ...slot, answer: true }] },
+      { ...placement, slots: [slot, slot] },
+    ]) {
+      emit(bad);
+      rejectedGeometry.push(geometry());
+    }
+    emit(placement);
+    return {
+      rejected,
+      admitted,
+      groups: w.questionRequest.groups,
+      rejectedGeometry,
+      clamped: w.splitRequest.slots[0],
+      geometry: geometry(),
+    };
+  });
+  expect(result.rejected).toEqual(Array(8).fill('[]'));
+  expect(JSON.parse(result.admitted!)).toHaveLength(1);
+  expect(result.groups).toEqual([
+    {
+      id: '80000000-0000-4000-8000-000000000002',
+      title: 'Review',
+      questions: ['80000000-0000-4000-8000-000000000001'],
+      active: '80000000-0000-4000-8000-000000000001',
+    },
+  ]);
+  expect(result.rejectedGeometry).toEqual(Array(7).fill('[]'));
+  expect(result.clamped).toEqual({
+    id: '80000000-0000-4000-8000-000000000002',
+    height: 2000,
+    before: 2000,
+  });
+  expect(JSON.parse(result.geometry!)).toEqual([
+    { id: '80000000-0000-4000-8000-000000000002', top: 100, beforeTop: 20, descriptionHeight: 80 },
+  ]);
 });
 
 test('proposal slots admit only bounded current unique geometry and cap convergence', async ({

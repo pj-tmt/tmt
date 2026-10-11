@@ -4,6 +4,7 @@ import type { BrowserActionVariant } from './static';
 export interface BrowserActionProps {
   type: 'button' | 'submit' | 'reset';
   label: string;
+  visibleLabel?: string;
   variant: BrowserActionVariant;
   disabled?: boolean;
   disabledReason?: string;
@@ -15,6 +16,7 @@ export interface BrowserActionProps {
 export function BrowserAction({
   type,
   label,
+  visibleLabel,
   variant,
   disabled = false,
   disabledReason,
@@ -30,6 +32,7 @@ export function BrowserAction({
       <button
         className={c.action}
         type={type}
+        aria-label={visibleLabel === undefined ? undefined : label}
         data-variant={variant}
         disabled={disabled || busy}
         aria-busy={busy || undefined}
@@ -43,7 +46,7 @@ export function BrowserAction({
             {busyMark}
           </span>
         )}
-        <span className={c.actionLabel}>{label}</span>
+        <span className={c.actionLabel}>{visibleLabel ?? label}</span>
       </button>
       {disabledReason !== undefined && (
         <span className={c.fieldDescription} id={disabledReasonId}>

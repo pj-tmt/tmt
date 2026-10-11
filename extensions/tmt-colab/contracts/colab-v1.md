@@ -1044,18 +1044,33 @@ HTML is untrusted position data, never record, destination or activation authori
 A missing or duplicate placeholder leaves the authenticated proposal detached;
 a placeholder without a record supplies no proposal. The trusted parent draws the
 card from admitted records; labels and author HTML never choose a destination.
-The shared inline renderer channel carries admitted proposal/question IDs and integer
-heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 questions),
-scoped to the render ID and request ID. The iframe inserts a spacer with that minimum height immediately after exactly
-one matching live `tmt-proposal[data-id]` or `tmt-question[data-id]`, and reports only ID/top pairs. Unknown,
+The shared inline renderer channel carries admitted proposal/question-group IDs and integer
+heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
+scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
+`{id,height,before}`; both heights have the same bound. The iframe inserts the after spacer
+beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]` or
+`tmt-questions[data-id]`. A group uses its parent-selected active question for placement.
+Its before spacer reserves the trusted tabs/state band above the authored description;
+the after spacer reserves controls below it. Responses are closed `{id,top}` objects or
+`{id,top,beforeTop,descriptionHeight}` for requested answer-card geometry. Top values are
+finite and within 0–1,000,000; `beforeTop` is at most `top`, and `descriptionHeight` is
+finite within 0–2000. Unknown,
 missing or duplicate IDs receive no slot. Source replacement retires all slots;
 removed or moved spacers and inner-scroll fallback detach cards into Comments.
-Parent ResizeObserver measurement coalesces to one update per animation frame and
+The parent leaves a transparent description gap between its trusted bands; authored text
+stays in the frame. Parent ResizeObserver measurement coalesces to one update per animation frame and
 only sends changed integer heights. Height requests retain admitted positions and
 composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
 changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
+
+Changing the parent-selected question retires that group's old answer geometry and requests
+fresh split geometry on the existing ordered port. Controls stay detached until a
+current response arrives; a stale description cannot be paired with newly selected
+controls. The tab strip retains its last admitted position and focus during this
+refresh. Trusted strip digits can update local draft choices, while Send requires
+current placement. The renderer aligns the description to the card's 16px page gutter.
 
 Approve/Decline is an explicit trusted parent activation. An in-flight fence and
 live proposal/finality admission precede decision publication. The immutable
@@ -2015,22 +2030,45 @@ supply no controls. Choice kinds require choices; text kinds have neither choice
 nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
+Wrap related questions in `<tmt-questions data-id="UUID">` with exactly one direct
+`<p data-title>` heading and up to 12 direct question children. The heading has the
+question text bounds. A question's optional `data-label` names its tab (24 normalized
+code points, no control characters); missing, empty or invalid labels use `Q<n>` in
+admitted order. The page markup check below owns the complete admission rules and
+the shared question/group ID namespace. A lone question is an internal group of one
+with no group title. One-member groups and lone questions omit the tab strip.
+
 The authored question remains the only visible title and selectable quote text;
 admitted author choice children are hidden while the trusted parent draws controls
-and current answer, with conversation history in an explicit disclosure. It resolves the untrusted
+and current answer, with conversation history and agent replies expanded. Groups use
+the shared controlled BrowserTabs leaf: Arrow keys wrap, Home/End select endpoints,
+and native Enter/Space activates a tab. Inactive trusted panels remain mounted to retain
+drafts. Answered/waiting marks include state words, with an answered/total count.
+The group heading inherits authored ink; its `Q:` prefix uses currentColor at 45%.
+The card, tabs and controls retain the pinned light palette; selected controls and
+primary actions use the existing link color role. It resolves the untrusted
 agent name through the existing mention directory. A unique match preselects its
 bound identity; absent or ambiguous names use the normal recipient field. Send
-shows `to` and the visible recipient, or `thread only` for an ordinary comment.
-Question/choice text cannot add recipients. Only trusted explicit Send publishes
+has the accessible name `Send answer · to <recipient>` or `thread only`, while its
+visible text is `Send & next` when another question is unanswered and `Send answer`
+otherwise. Question/choice text cannot add recipients. Only trusted explicit Send,
+or Enter in a short-answer field, publishes
 one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
 and the visible recipient text, then attempts the existing Ask. Multiple choices
 retain authored order; Other uses `Other: <text>`. Delivery failure retains the
 comment and uses existing unadopted/uncertain retry rules; render, reload and sync
-never send.
+never send. Enter in a long-answer field inserts a newline. Digits select choice tiles
+only from a tablist, panel or tile, never while typing in a text or recipient control.
+The next unanswered question is selected only after the recorded message appears as
+the current verified device answer; a local send callback or frame claim cannot advance.
+An explicit tab choice made while verification is pending is retained.
 
 The renderer's existing text-map owner produces a normal QuoteSelector for the
 rendered question text and its surrounding context. The UUID never appears as a
-synthetic quote. Existing verified annotation threads whose selectors resolve
+synthetic quote. Inactive authored questions collapse through a renderer-managed
+visual attribute, never `[hidden]`, and remain in this canonical text map. Switching
+tabs and reloading therefore preserve quote context and verified answer association.
+Existing verified annotation threads whose selectors resolve
 inside that block are associated cosmetically; the frame cannot supply comments,
 answer state or recipients. Concurrent first answers may create sibling threads.
 The canonical thread prefers associated threads holding a nondeleted verified
@@ -2043,7 +2081,20 @@ Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
 one proposal/question measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
-Review sections and answer-count summaries are not implemented here.
+The tab count summarizes verified answers within each admitted group.
+
+The existing `colab.render.questions` parent request is a closed
+`{type,renderId,requestId,blocks,threads,groups}` object, at most 256 KiB.
+Blocks are `{id,title}` (at most 50); threads are `{id,selector}` (at most 1000).
+Groups are closed `{id,title,questions,active}` objects (at most 50), with a
+canonical UUID, a bounded title or `null`, and 1–12 unique admitted question IDs.
+Each block belongs to exactly one group; `active` is one of its members. An internal
+lone group has its member's ID and a `null` title. The frame neither parses nor
+supplies authoritative groups. Its closed response is
+`{type,renderId,requestId,questions}`, with unique `{id,selector,threads}` objects
+drawn only from the current request, exact quote text equal to the admitted title,
+and only requested thread IDs. Unknown fields, stale IDs and over-budget responses
+are ignored. No answer, recipient, count or activation authority enters this channel.
 
 ### Inline annotation conversations (#1587)
 
@@ -3628,8 +3679,9 @@ lowercase tag name and `ordinal` the element's 1-based index among elements with
 document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
 `line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
 (the browser drops the block today) or `warning` (the block is admitted, or the problem is not
-about a block). `message` is wording that may change; `code` is the stable part. Findings are
-ordered by line, element, ordinal and code.
+about a block). `message` is wording that may change; `code` is the stable part. A finding on a
+skipped group adds `questionsSkipped`, the number of `tmt-question` elements inside it. Findings
+are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
 findings}`. With no finding it exits 0. With any finding the command exits 1 with
@@ -3651,8 +3703,9 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `page-too-deep`                                                   | warning  | an element nests past 512 levels; nothing after it is checked                                                                                                                             |
 | `question-page-limit`                                             | ignored  | more than 50 `tmt-question` on the page; the browser shows none of them, and this is the only finding (on the 51st)                                                                       |
 | `question-id-invalid`                                             | ignored  | `data-id` missing, or not a canonical lowercase UUID                                                                                                                                      |
-| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared by two or more questions; every holder is ignored                                                                                                          |
+| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared with another question or a group (one namespace, below); every holder is ignored                                                                           |
 | `question-nested`                                                 | ignored  | inside another `tmt-question`                                                                                                                                                             |
+| `question-group-child-invalid`                                    | ignored  | a `tmt-question` inside a `tmt-questions` group but not its direct child (inside another `tmt-question` it is `question-nested`); it never becomes a lone question                        |
 | `question-heading-missing` / `-multiple`                          | ignored  | not exactly one direct child with `data-question`                                                                                                                                         |
 | `question-title-empty` / `-too-long` / `-control`                 | ignored  | the heading text, whitespace-normalized, is empty, over 200 code points, or has a control character (below U+0020 or U+007F)                                                              |
 | `question-kind-invalid`                                           | ignored  | `data-kind` is not `single`, `multiple`, `short` or `long`                                                                                                                                |
@@ -3662,11 +3715,34 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
 | `question-agent-invalid`                                          | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
 | `question-marker-misplaced`                                       | warning  | an element with `data-question` or `data-choice` whose parent is not a `tmt-question`: plain content to the browser                                                                       |
+| `group-id-invalid` / `-duplicate`                                 | ignored  | a group `data-id` missing or not a canonical lowercase UUID, or shared (see the namespace below); every holder is ignored                                                                 |
+| `group-nested`                                                    | ignored  | a group inside another group or inside a `tmt-question`                                                                                                                                   |
+| `group-title-missing` / `-multiple`                               | ignored  | not exactly one direct `<p data-title>` child                                                                                                                                             |
+| `group-title-empty` / `-too-long` / `-control`                    | ignored  | the title text fails the question heading bounds (non-empty, 200 code points, no control character)                                                                                       |
+| `group-questions-too-many`                                        | ignored  | more than 12 direct `tmt-question` children                                                                                                                                               |
+| `group-empty`                                                     | ignored  | the group passed its rules but none of its questions is shown                                                                                                                             |
+| `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
 | `image-data-oversized`                                            | warning  | an `<img>` whose `src` is a `data:image/` URL over 32 KiB                                                                                                                                 |
 | `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
 | `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
 | `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+
+Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
+reports the first structural rule it fails, in table order, and is then skipped whole: its
+questions and any group inside it are silent, with no finding, and its finding carries
+`questionsSkipped`. A group that passes shows its direct questions, each reporting its own
+findings, and `group-empty` is added when none is shown. A lone `tmt-question` outside any group
+stays a group of one. A tab label is the authored `data-label`, else `Q<n>` by the question's
+order among the group's shown questions; a bad label only warns. The 50-question page limit
+counts every `tmt-question`, grouped or not, and then reports nothing else.
+
+Question, group and lone-question IDs are one namespace and every holder of a shared ID is
+ignored. Every group holds its own `data-id` wherever it sits. A question holds its ID only as a
+lone question or as a direct child of a group that passes the structural rules other than a
+duplicate ID, so the questions of a group skipped for any other structural rule hold none, and
+neither does a question wrapped in another element. Holders are counted once and never
+retracted: the questions of a group skipped only for a duplicate ID still hold theirs.
 
 Text is normalized as the browser client does: every run of JavaScript whitespace (`\s`,
 which includes U+00A0 and U+FEFF and excludes U+0085) becomes one space and the ends are

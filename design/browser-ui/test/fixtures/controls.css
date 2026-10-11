@@ -58,6 +58,9 @@ h2 {
   display: grid;
   gap: var(--tmt-ui-toggle-gap);
 }
+.fixture-tabs {
+  min-width: 0;
+}
 .fixture-busy-mark {
   width: var(--tmt-ui-header-icon-size);
   height: var(--tmt-ui-header-icon-size);

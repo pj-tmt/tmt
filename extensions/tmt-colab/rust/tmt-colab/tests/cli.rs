@@ -6008,6 +6008,56 @@ fn page_check_is_offline_and_names_every_ignored_block_with_its_line() {
     assert!(!pilot.root.join("selected").exists());
 }
 #[test]
+fn page_check_names_a_skipped_group_with_the_questions_it_took_and_warns_on_a_bad_label() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("groups.html");
+    // Group 1 has no title: it is skipped whole, with its two questions. Group 2 is fine except
+    // for one control character in a tab label, which only warns.
+    let page = [
+        r#"<tmt-questions data-id="10000000-0000-4000-8000-000000000100">"#,
+        r#"<tmt-question data-id="10000000-0000-4000-8000-000000000001" data-kind="short"><p data-question>A</p></tmt-question>"#,
+        r#"<tmt-question data-id="10000000-0000-4000-8000-000000000002" data-kind="short"><p data-question>B</p></tmt-question>"#,
+        "</tmt-questions>",
+        r#"<tmt-questions data-id="10000000-0000-4000-8000-000000000200"><p data-title>Decisions</p>"#,
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\" data-label=\"A\u{1}B\"><p data-question>C</p></tmt-question>",
+        "</tmt-questions>",
+    ]
+    .join("\n");
+    fs::write(&file, &page).unwrap();
+    let path = file.to_str().unwrap();
+    let output = pilot
+        .command()
+        .args(["page", "check", path, "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["questions"], json!({"admitted": 1, "ignored": 2}));
+    assert_eq!(
+        finding_codes(&report["findings"]),
+        [
+            ("group-title-missing".to_owned(), 1),
+            ("group-label-control".to_owned(), 6)
+        ]
+    );
+    let skipped = &report["findings"][0];
+    assert_eq!(skipped["element"], "tmt-questions");
+    assert_eq!(skipped["severity"], "ignored");
+    assert_eq!(skipped["questionsSkipped"], 2);
+    let warned = &report["findings"][1];
+    assert_eq!(warned["severity"], "warning");
+    assert!(warned.get("questionsSkipped").is_none());
+
+    // Human output says how many questions the skip took.
+    let human = pilot
+        .command()
+        .args(["page", "check", path])
+        .output()
+        .unwrap();
+    let shown = String::from_utf8(human.stdout).unwrap();
+    assert!(shown.contains("2 questions skipped with it"), "{shown}");
+}
+#[test]
 fn page_check_refuses_input_it_cannot_read_and_pages_it_cannot_find() {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("bad.html");

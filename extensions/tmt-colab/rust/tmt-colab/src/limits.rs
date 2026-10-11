@@ -130,6 +130,9 @@ pub const QUESTION_TITLE_POINTS: usize = 200;
 pub const QUESTION_CHOICES: usize = 20;
 pub const QUESTION_CHOICE_POINTS: usize = 200;
 pub const QUESTION_AGENT_POINTS: usize = 64;
+/// Direct questions a `tmt-questions` group holds, and the longest tab label of one of them.
+pub const GROUP_QUESTIONS: usize = 12;
+pub const GROUP_LABEL_POINTS: usize = 24;
 /// Page images worth a warning: one `data:` image above `DATA_IMAGE_BYTES`, or all of them above
 /// `DATA_IMAGES_TOTAL_BYTES`. A reference (`colab-attachment:`) is the way to carry anything larger.
 pub const DATA_IMAGE_BYTES: usize = 32 * 1024;
