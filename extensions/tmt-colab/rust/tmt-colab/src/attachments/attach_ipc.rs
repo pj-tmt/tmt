@@ -20,7 +20,6 @@ struct StageRequest {
     version: u8,
     page: String,
     filename: String,
-    media_type: String,
 }
 /// Where to stream the file: a slot ID the caller keeps for a resume, and the file the serve will
 /// open itself. The directory is owner-only, like everything under the serve's root.
@@ -57,15 +56,15 @@ struct AttachReply {
     attachment: Attached,
 }
 
-/// A stage request: the page and the two labels, validated like any descriptor's.
-pub(crate) fn parse_stage(body: &[u8]) -> Result<(String, String, String)> {
+/// A stage request: the page and filename label, validated like any descriptor's.
+pub(crate) fn parse_stage(body: &[u8]) -> Result<(String, String)> {
     let request: StageRequest = serde_json::from_slice(body).map_err(|_| Fault::Invalid)?;
     if request.version != VERSION {
         return Err(Fault::ServerMismatch.into());
     }
     values::generated_id(&request.page).map_err(|_| Fault::Invalid)?;
-    validate_labels(&request.filename, &request.media_type).map_err(|_| Fault::Invalid)?;
-    Ok((request.page, request.filename, request.media_type))
+    validate_labels(&request.filename, super::media_type::GENERIC).map_err(|_| Fault::Invalid)?;
+    Ok((request.page, request.filename))
 }
 /// An attach request: the page, the slot ID and, for a first attempt, the staged copy's hash.
 pub(crate) fn parse_attach(body: &[u8]) -> Result<(String, String, Option<[u8; 32]>)> {
@@ -98,12 +97,11 @@ pub(crate) fn attach_reply(attached: Attached) -> Result<Vec<u8>> {
 }
 
 /// Ask the serve to open a slot. Nothing is staged by a refusal.
-pub fn stage(layout: &Layout, page: &str, filename: &str, media_type: &str) -> Result<Staged> {
+pub fn stage(layout: &Layout, page: &str, filename: &str) -> Result<Staged> {
     let body = serde_json::to_vec(&StageRequest {
         version: VERSION,
         page: page.to_owned(),
         filename: filename.to_owned(),
-        media_type: media_type.to_owned(),
     })?;
     let (code, response) = crate::ipc::exchange(layout, STAGE_PATH, &body).map_err(early)?;
     if code == 200 {
@@ -157,28 +155,21 @@ mod tests {
     }
 
     #[test]
-    fn a_stage_request_validates_the_page_and_both_labels() {
-        let body = |version: u8, page: &str, name: &str, kind: &str| {
-            format!(
-                r#"{{"version":{version},"page":"{page}","filename":"{name}","mediaType":"{kind}"}}"#
-            )
-            .into_bytes()
+    fn a_stage_request_validates_the_page_and_filename_only() {
+        let body = |version: u8, page: &str, name: &str| {
+            format!(r#"{{"version":{version},"page":"{page}","filename":"{name}"}}"#).into_bytes()
         };
-        let (page, name, kind) = parse_stage(&body(1, PAGE, "notes.txt", "text/plain")).unwrap();
+        let (page, name) = parse_stage(&body(1, PAGE, "notes.txt")).unwrap();
+        assert_eq!((page.as_str(), name.as_str()), (PAGE, "notes.txt"));
         assert_eq!(
-            (page.as_str(), name.as_str(), kind.as_str()),
-            (PAGE, "notes.txt", "text/plain")
-        );
-        assert_eq!(
-            code(parse_stage(&body(2, PAGE, "a", "text/plain")).unwrap_err()),
+            code(parse_stage(&body(2, PAGE, "a")).unwrap_err()),
             Some("COLAB_SERVER_MISMATCH")
         );
         for bad in [
-            body(1, "page", "a", "text/plain"),
-            body(1, PAGE, "", "text/plain"),
-            body(1, PAGE, "a", "TEXT/plain"),
-            body(1, PAGE, "a", "text"),
-            br#"{"version":1,"page":"20000000-0000-4000-8000-000000000091","filename":"a","mediaType":"text/plain","path":"/etc"}"#.to_vec(),
+            body(1, "page", "a"),
+            body(1, PAGE, ""),
+            br#"{"version":1,"page":"20000000-0000-4000-8000-000000000091","filename":"a","mediaType":"text/plain"}"#.to_vec(),
+            br#"{"version":1,"page":"20000000-0000-4000-8000-000000000091","filename":"a","path":"/etc"}"#.to_vec(),
         ] {
             assert_eq!(code(parse_stage(&bad).unwrap_err()), Some("COLAB_INPUT_INVALID"));
         }

@@ -1030,14 +1030,14 @@ fn attach_stage(
     source: &crate::page::save::SourceOpener,
 ) -> Result<Vec<u8>> {
     use crate::attachments::attach_ipc::{Staged, parse_stage, stage_reply};
-    let (page, filename, media_type) = parse_stage(&request.body)?;
+    let (page, filename) = parse_stage(&request.body)?;
     let now = registration::now_ms()?;
     objects.sweep_slots(slots, source, now);
     {
         let view = source()?;
         crate::page::snapshot(&view.store, &view.keyring, &page, true)?;
     }
-    let slot = slots.create(&page, &filename, &media_type, now)?;
+    let slot = slots.create(&page, &filename, now)?;
     stage_reply(&Staged {
         slot: slot.id().to_owned(),
         path: slot.source_path().to_string_lossy().into_owned(),

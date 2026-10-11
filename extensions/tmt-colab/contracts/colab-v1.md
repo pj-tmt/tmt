@@ -3712,15 +3712,17 @@ using the same raster/PDF/UTF-8 rules as the browser; no declared type or filena
 `--type` is refused. An existing staging slot's type label does not override byte detection when
 it is resumed.
 
-**Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename,mediaType}`
-opens a slot (`mediaType` is inert staging metadata, not the sealed type): a random 32-hex ID and a private 0700 directory under the serve's root, answered as
+**Slot.** `POST /.tmt/colab/local/attachment-stage` with `{version:1,page,filename}`
+opens a slot: a random 32-hex ID and a private 0700 directory under the serve's root, answered as
 `{slot,path}`; no route accepts a path. The CLI prints the slot to stderr, copies the file into
 `path` (create-new, 0600, bounded while streaming) and reports its SHA-256 to
 `POST /.tmt/colab/local/attachment-attach` with `{version:1,page,slot,sha256?}`. The serve re-hashes
 the copy, seals it under the page's current epoch as the local writer (the descriptor and object of
 a browser upload), and writes the ciphertext, descriptor, base and a fresh transfer ID to the slot
-before the first request leaves, removing the plaintext. Both routes deny a Remote context or event
-header.
+before the first request leaves, removing the plaintext. A slot stores no media-type label; the
+serve derives it when sealing. Existing version-1 slots still resume: the obsolete `mediaType`
+key is accepted and ignored, never written again; other unknown keys are refused. Both routes
+deny a Remote context or event header.
 
 **Upload and publication.** The serve's native owner admits `LocalExtension` only, for the upload
 methods of that one frozen original and the verify reads of its committed bytes: the creator is the

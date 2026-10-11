@@ -256,13 +256,8 @@ fn attach(root: &Path, args: &ArgMatches) -> Result<()> {
             let name = filename(file)?;
             // Refuse a file that cannot be attached before any slot exists.
             let source = open_source(file)?;
-            let staged = tmt_colab::attachments::attach_ipc::stage(
-                &layout,
-                &page,
-                &name,
-                tmt_colab::attachments::media_type::GENERIC,
-            )
-            .map_err(|error| explain(error, false))?;
+            let staged = tmt_colab::attachments::attach_ipc::stage(&layout, &page, &name)
+                .map_err(|error| explain(error, false))?;
             // Named before the copy and the upload: every failure after this can be resumed.
             let mut notice = tmt_cli_style::stream::stderr();
             writeln!(
