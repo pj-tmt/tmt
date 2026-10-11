@@ -71,8 +71,13 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   publish a late status. This changes no ledger state or retry cadence.
   `observe` makes one sequential activation pass
   over the 256 newest unresolved owned asks on page open and visible-again, including
-  old intents. Continued visible polling backs off from 2 s up to 30 s and stops
-  at the two-hour operation horizon; failed older reads are not retried.
+  old intents. A newly accepted explicit Send wakes the same observer, including
+  a read cycle in flight, and resets its cadence without another dispatch. For ten
+  minutes after the latest accepted Send in this controller, visible reads use 2 s,
+  then at most 3 s; reads do not renew that window. It is ephemeral: a replacement
+  controller starts observation from the fast step. After the window, polling backs
+  off up to 30 s; the two-hour operation horizon and hidden-page suspension stay
+  unchanged. Failed older reads are not retried.
   It never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
   an adopted send ends `uncertain` (a typed sequence failure too) and an `accepted` ask's

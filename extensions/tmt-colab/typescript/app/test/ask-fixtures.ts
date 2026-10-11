@@ -63,7 +63,7 @@ export class RemoteDouble implements RemoteClient {
     this.reads.push(operationId);
     return { state: 'uncertain', operationId };
   }
-  async result(requestId: string) {
+  async result(requestId: string): ReturnType<RemoteClient['result']> {
     return { state: 'replied' as const, requestId, message: '' };
   }
 }

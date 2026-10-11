@@ -130,6 +130,11 @@ admits live claude/codex sessions. Ordinary recipients omit the field. Real repl
 and reload keep the expected treatment with one dispatch. No directory or SDK
 response is patched for this proof.
 
+`ask.spec.ts` also pins prompt original-ID replies after sixty seconds of pending
+observation, in idle Chat and in an annotation after a page write. The real recipient
+reply reaches the open page within five seconds (the three-second read cap plus
+native publication/decoding), with one dispatch and no reload.
+
 `ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser staying live at once. They
