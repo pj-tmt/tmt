@@ -5625,7 +5625,7 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
     use crate::labels::Label;
     use tmt_cli_style::Role;
     let sets: [&[(&str, Role)]; 3] = [
-        &[("Auto", Role::Text), ("No held messages", Role::Muted)],
+        &[("Auto", Role::Text)],
         &[
             ("Every 20s", Role::Text),
             ("3 held", Role::Muted),
@@ -5690,7 +5690,7 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
             }
             if width == 100 {
                 for text in [
-                    "digest Auto · No held messages",
+                    "digest Auto",
                     "digest Every 20s · 3 held · In 20s",
                     "digest Every 5m · 4 held · Due now",
                 ] {
@@ -5703,6 +5703,90 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
                     "{context}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_choice_hit() {
+    use crate::labels::{Choose, Label, Supplied};
+    for (members, home) in [(false, false), (true, false), (false, true)] {
+        for width in [80, 100, 160] {
+            crate::status::with_now_ms(1000, || {
+                let mut app = digest_app(members, home, 0, 1_801_000, Default::default());
+                if let Some(tab) = app.current.clone() {
+                    app.set_tab_focus_for_test(&tab);
+                }
+                for (mode, text, held) in [
+                    ("auto", "Auto", false),
+                    ("auto", "Auto", true),
+                    ("5m", "Every 5m", false),
+                    ("off", "Off", false),
+                ] {
+                    let choice = Choose::parse(
+                        "digest",
+                        &json!({"kind":"choose","options":[
+                            {"label":"Auto","value":"auto"},
+                            {"label":"Every 5m","value":"5m"},
+                            {"label":"Off","value":"off"}],
+                            "current":mode,"argv":["digest","worker","{value}"]}),
+                    )
+                    .unwrap();
+                    let mut labels = vec![Label {
+                        text: text.into(),
+                        role: if mode == "off" { Role::Dim } else { Role::Text },
+                        action: Some(choice),
+                    }];
+                    if held {
+                        labels.push(Label {
+                            text: "3 held".into(),
+                            role: Role::Muted,
+                            action: None,
+                        });
+                        labels.push(Label {
+                            text: "When idle".into(),
+                            role: Role::Muted,
+                            action: None,
+                        });
+                    }
+                    app.labels = Supplied::from_rows(vec![(
+                        "digest".into(),
+                        ["worker", "lead"]
+                            .into_iter()
+                            .map(|id| (id.into(), labels.clone()))
+                            .collect(),
+                    )]);
+                    let buffer = board_buffer(&app, width, 20);
+                    let screen = detail_text(&buffer).join("\n");
+                    let context = format!("{members} {home} {width} {mode} {held}:\n{screen}");
+                    assert!(!screen.contains("No held messages"), "{context}");
+                    assert_eq!(screen.contains("3 held"), held, "{context}");
+                    if width == 160 || !held {
+                        assert_eq!(screen.contains("When idle"), held, "{context}");
+                    }
+                    for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {
+                        assert_eq!(
+                            screen.contains(old),
+                            old == format!("{text} ▾"),
+                            "{context}"
+                        );
+                    }
+                    let at = find_cells(&buffer, &format!("{text} ▾"))[0];
+                    let effect = app.mouse(
+                        MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column: at.0,
+                            row: at.1,
+                            modifiers: KeyModifiers::NONE,
+                        },
+                        std::time::Instant::now(),
+                    );
+                    let Effect::Act(crate::board::app::Request::DigestOpen(ask)) = effect else {
+                        panic!("the mode remains actionable: {context}: {effect:?}");
+                    };
+                    assert_eq!(ask.member, "worker");
+                }
+            });
         }
     }
 }

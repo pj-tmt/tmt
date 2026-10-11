@@ -107,7 +107,7 @@ for a display-only label. There are at most three labels, in this order:
 1. Mode/interval: `Auto`, `Every 20s`, `Every 5m`, or `Off`. Auto/interval use
    `text`; off uses `dim`. This chip alone has a choose action.
 2. Held count: `N held` with `muted`, only for known N greater than zero.
-3. Timing: omit for off; otherwise `No held messages` (`dim`) at zero,
+3. Timing: omit for off or a known zero held count; otherwise
    `Unknown` (`dim`) for unavailable timing/count, `When idle` (`muted`) for
    auto with held messages, `In 20s` (`muted`) for a future interval deadline,
    or `Due now` (`waiting`) when effective `timeToSendMs` is zero. Positive countdowns
