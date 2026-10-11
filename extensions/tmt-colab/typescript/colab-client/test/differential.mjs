@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { parseEngines, parseRefused, validateExpectedReport } from './gate.mjs';
+import { parseEngines, parseRefused, requireBuiltApp, validateExpectedReport } from './gate.mjs';
 import { engineDiagnostics } from './diagnostics.mjs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -82,10 +82,10 @@ for (const name of await readdir(new URL('src/', root))) {
     }).outputText,
   );
 }
-const appRoot = new URL('../../app/dist/', root);
 // Serve only the normal build's entry and flat asset inventory; never a synthetic notice.
 const appAssets = new Map();
 if (refused.length) {
+  const appRoot = requireBuiltApp();
   appAssets.set(
     '/r/refusal/x/colab/',
     (await readFile(new URL('index.html', appRoot), 'utf8')).replaceAll(

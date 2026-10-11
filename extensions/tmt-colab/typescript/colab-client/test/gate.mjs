@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 export const ENGINES = ['chromium', 'firefox', 'webkit'];
 function requireEngines(engines) {
   if (
@@ -15,6 +17,20 @@ export function parseEngines(args) {
   if (args.length !== 2 || args[0] !== '--engines')
     throw new Error('Usage: differential.mjs [--engines chromium,firefox,webkit]');
   return requireEngines(args[1].split(','));
+}
+
+/** The normal build of the `@tmt/colab-app` package: the refusal proof serves its entry, never a synthetic notice. */
+export const APP_DIST = new URL('../../app/dist/', import.meta.url);
+
+/** Fails up front, naming the expected path, when the refusal proof runs without the built app. */
+export function requireBuiltApp(dist = APP_DIST) {
+  const entry = fileURLToPath(new URL('index.html', dist));
+  if (!existsSync(entry))
+    throw new Error(
+      `The refusal proof needs the built Colab app, but ${entry} is missing. ` +
+        'Build @tmt/colab-app first: corepack pnpm --filter @tmt/colab-app build',
+    );
+  return dist;
 }
 
 /** Refusal is explicit and limited to the divergent Linux WebKit backend. */
