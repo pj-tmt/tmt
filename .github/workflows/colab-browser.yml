@@ -41,7 +41,7 @@ jobs:
         run: node typescript/scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   colab-browser:
-    name: Colab browser (${{ github.event_name == 'pull_request' && 'Chromium' || 'Chromium, Firefox, WebKit' }})
+    name: Colab browser (${{ github.event_name == 'pull_request' && 'Chromium' || 'Chromium, Firefox; WebKitGTK refusal' }})
     needs: changes
     concurrency:
       group: colab-browser-interop-${{ github.event.pull_request.number || github.ref }}
@@ -67,6 +67,14 @@ jobs:
       - name: Install frozen browser tooling
         working-directory: typescript
         run: pnpm --filter @tmt/colab-client --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Install frozen app tooling for the refusal proof
+        if: github.event_name != 'pull_request'
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Build the normal app for the refusal proof
+        if: github.event_name != 'pull_request'
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match build
       - name: Read pinned Playwright version
         id: playwright
         working-directory: extensions/tmt-colab/typescript/colab-client
@@ -101,17 +109,88 @@ jobs:
         working-directory: typescript
         shell: bash
         run: pnpm --filter @tmt/colab-client --fail-if-no-match test:browser --engines chromium 2>&1 | tee "$RUNNER_TEMP/colab-browser-results/harness.log"
-      - name: Verify complete three-engine corpus and interop for the safety net
+      - name: Verify strict Chromium and Firefox plus WebKitGTK refusal for the safety net
         if: github.event_name != 'pull_request'
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-client --fail-if-no-match test:browser 2>&1 | tee "$RUNNER_TEMP/colab-browser-results/harness.log"
+        env:
+          COLAB_EXPECT_REFUSED_ENGINES: webkit
+        run: pnpm --filter @tmt/colab-client --fail-if-no-match test:browser --engines chromium,firefox,webkit 2>&1 | tee "$RUNNER_TEMP/colab-browser-results/harness.log"
       - name: Upload available browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: colab-browser-results
           path: ${{ runner.temp }}/colab-browser-results
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Save browser binaries on main only
+        if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: ${{ steps.browsers.outputs.cache-primary-key }}
+
+  colab-webkit-macos:
+    name: Colab WebKit conformance (macOS)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: colab-browser-webkit-macos-${{ github.ref }}
+      cancel-in-progress: false
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Prepare browser evidence and binary paths
+        run: |
+          mkdir -p "$RUNNER_TEMP/colab-webkit-macos-results"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-browsers" >> "$GITHUB_ENV"
+          echo "COLAB_REPORT=$RUNNER_TEMP/colab-webkit-macos-results/report.json" >> "$GITHUB_ENV"
+      - name: Install frozen browser tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-client --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Read pinned Playwright version
+        id: playwright
+        working-directory: extensions/tmt-colab/typescript/colab-client
+        run: node -p '"version=" + require("playwright/package.json").version' >> "$GITHUB_OUTPUT"
+      - name: Restore browser binaries
+        id: browsers
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: colab-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      - name: Install WebKit for macOS conformance
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-client exec playwright install webkit
+      - name: Install pinned Rust toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Restore shared Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Build interop examples before the harness deadline
+        working-directory: rust
+        run: cargo build --locked -p tmt-colab-model --example browser_conformance --example browser_authority
+      - name: Verify strict WebKit corpus and interop
+        working-directory: typescript
+        shell: bash
+        run: pnpm --filter @tmt/colab-client --fail-if-no-match test:browser --engines webkit 2>&1 | tee "$RUNNER_TEMP/colab-webkit-macos-results/harness.log"
+      - name: Upload available browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-webkit-macos-results
+          path: ${{ runner.temp }}/colab-webkit-macos-results
           if-no-files-found: warn
           retention-days: 7
       - name: Save browser binaries on main only

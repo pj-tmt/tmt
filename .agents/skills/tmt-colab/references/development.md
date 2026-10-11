@@ -322,7 +322,9 @@ For an explicitly approved Linux closure diagnostic, retain `DEBUG=pw:browser` s
 alongside the report and exact runner image; a later pass does not explain an older
 closure. Do not retry automatically or infer crash/OOM from a generic target error.
 The advisory `Colab browser verification` workflow runs Chromium
-on scoped PRs and all engines weekly or manual; `COLAB_HARNESS_ROOTS` and
+on scoped PRs; weekly/manual runs keep Linux Chromium/Firefox strict, require
+WebKitGTK refusal, and run strict WebKit separately on macOS (never PRs or merge
+groups). `COLAB_HARNESS_ROOTS` and
 `COLAB_HARNESS_INPUTS` in `ci-scope.mjs` own its selection
 ([CI selection](../../../../ARCHITECTURE.md#ci-selection-and-worker-model)).
 

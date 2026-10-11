@@ -129,7 +129,9 @@ gate validation remain active.
 Colab's separate advisory workflow selects `colab_harness` for its client, model
 and contract-vector paths, its workflow, shared Cargo manifest/lockfile and pnpm
 lockfile. Empty/unknown PR diffs select nothing. PRs run Chromium; weekly/manual
-runs cover three engines and other shared drift, with no main-push trigger.
+runs keep Chromium/Firefox strict and prove Linux WebKitGTK refusal, while a
+separate macOS job runs strict WebKit corpus and interop; macOS never runs on PRs
+or merge groups. There is no main-push trigger.
 Rust cache restores never save. Browser cache keys include OS, architecture and
 pinned Playwright version; only successful main-ref runs save. Reports are
 primitive-library evidence, not product or publication acceptance.

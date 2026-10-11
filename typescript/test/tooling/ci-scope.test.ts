@@ -2473,7 +2473,7 @@ describe('required CI gate', () => {
       'utf8'
     );
     const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
-    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(2);
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(3);
     expect(install).toBeGreaterThan(0);
     expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
     expect(colab).toContain('shared-key: native-rust');
@@ -2791,7 +2791,38 @@ describe('required CI gate', () => {
     expect(workflow).toContain('test:browser --engines chromium 2>&1 | tee');
     expect(workflow).toContain('--example browser_conformance --example browser_authority');
     expect(workflow).toContain('shell: bash');
-    expect(workflow).toContain('test:browser 2>&1 | tee');
+    const linux = job('colab-browser');
+    expect(linux).toContain('runs-on: ubuntu-latest');
+    expect(linux).toContain('COLAB_EXPECT_REFUSED_ENGINES: webkit');
+    expect(linux).toContain('test:browser --engines chromium,firefox,webkit 2>&1 | tee');
+    expect(linux).toContain('pnpm --filter @tmt/colab-app --fail-if-no-match build');
+    const macos = job('colab-webkit-macos');
+    expect(macos).toContain('runs-on: macos-latest');
+    expect(macos).not.toContain('COLAB_EXPECT_REFUSED_ENGINES');
+    expect(macos).not.toContain('needs:');
+    expect(macos).toContain('permissions:\n      contents: read');
+    expect(macos).toContain('playwright install webkit');
+    expect(macos).toContain('test:browser --engines webkit 2>&1 | tee');
+    expect(macos).toContain('--example browser_conformance --example browser_authority');
+    expect(macos).toContain('shared-key: native-rust\n          save-if: false');
+    expect(macos).toContain('name: colab-webkit-macos-results');
+    const admission = macos.match(/^ {4}if: (.+)$/m)?.[1];
+    expect(admission).toBe(
+      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'"
+    );
+    const admitted = new Function('github', `return (${admission})`);
+    for (const event_name of [
+      'schedule',
+      'workflow_dispatch',
+      'pull_request',
+      'merge_group',
+      'push',
+    ]) {
+      expect(admitted({ event_name }), event_name).toBe(
+        ['schedule', 'workflow_dispatch'].includes(event_name)
+      );
+    }
+    expect(ci).not.toContain('colab-webkit-macos');
     expect(workflow).toContain('if: always()');
     expect(workflow).toContain('retention-days: 7');
     expect(workflow).toContain('actions/cache/restore@v4');
