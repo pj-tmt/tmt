@@ -70,7 +70,11 @@ describe('the page list', () => {
     expect(ids(['missing'], '')).toEqual([]);
   });
   it('sorts by update time or title with the page ID as the tie-break', () => {
-    const named = [page(1, [], { title: 'b' }), page(2, [], { title: 'a' }), page(3, [], { title: 'a' })];
+    const named = [
+      page(1, [], { title: 'b' }),
+      page(2, [], { title: 'a' }),
+      page(3, [], { title: 'a' }),
+    ];
     const order = (sort: 'updated' | 'title') =>
       filterPages(named, { labels: [], text: '' }, sort).map((p) => p.id);
     expect(order('updated')).toEqual([id(1), id(2), id(3)]);

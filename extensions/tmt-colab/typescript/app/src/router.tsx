@@ -1,8 +1,5 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import {
-  BrowserCommand,
-  BrowserIconAction,
-} from '@tmt/browser-ui/react';
+import { BrowserCommand, BrowserIconAction } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
@@ -33,7 +30,7 @@ import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
-import { Home } from './home.js';
+import { Home, validateHomeSearch } from './home.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
@@ -453,6 +450,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport; space?: stri
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
+  validateSearch: validateHomeSearch,
   loader: ({ context }) => context.transport.spaceHome(),
   component: Home,
 });

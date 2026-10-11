@@ -69,9 +69,7 @@ export function filterPages(
   });
   return sort === 'title'
     ? [...kept].sort(
-        (a, b) =>
-          pageTitle(a).localeCompare(pageTitle(b), 'en') ||
-          a.id.localeCompare(b.id, 'en'),
+        (a, b) => pageTitle(a).localeCompare(pageTitle(b), 'en') || a.id.localeCompare(b.id, 'en'),
       )
     : orderPages(kept);
 }
@@ -93,11 +91,7 @@ export function withLabel(
  * the page already has keeps one label; `to` undefined deletes. Pure on the pages it is given, so
  * a retry that re-reads them plans only what is left.
  */
-export function relabel(
-  pages: readonly PageSummary[],
-  from: string,
-  to?: string,
-): LabelChange[] {
+export function relabel(pages: readonly PageSummary[], from: string, to?: string): LabelChange[] {
   if (from === to) return [];
   return pages
     .filter((page) => page.labels?.includes(from))
@@ -112,7 +106,9 @@ export function relabel(
 
 /** Ascending page IDs in requests of at most `LABEL_REQUEST_PAGES`; the first page initiates. */
 export function labelRequests(changes: readonly LabelChange[]): LabelChange[][] {
-  const sorted = [...changes].sort((a, b) => (a.pageId < b.pageId ? -1 : a.pageId > b.pageId ? 1 : 0));
+  const sorted = [...changes].sort((a, b) =>
+    a.pageId < b.pageId ? -1 : a.pageId > b.pageId ? 1 : 0,
+  );
   const requests: LabelChange[][] = [];
   for (let at = 0; at < sorted.length; at += LABEL_REQUEST_PAGES)
     requests.push(sorted.slice(at, at + LABEL_REQUEST_PAGES));

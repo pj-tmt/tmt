@@ -4,7 +4,7 @@ import { capturePath } from './captures.js';
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`pages index has symmetric toggle inset and newest-first title ties: ${width}px ${theme}`, async ({
+    test(`pages index lists newest first with title ties and a menu for archived pages: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -21,12 +21,6 @@ for (const width of [1440, 390])
       const fixture = page.locator('#index-fixture');
       const rows = fixture.locator('.pages > li');
       await expect(rows).toHaveCount(3);
-      const toggle = fixture.getByRole('button', { name: 'Show archived', exact: true });
-      await page.evaluate(() => {
-        document.documentElement.style.setProperty('--tmt-ui-host-toggle-padding', '1px 2px 3px 0');
-      });
-      for (const side of ['top', 'right', 'bottom', 'left'])
-        await expect(toggle).toHaveCSS(`padding-${side}`, '8px');
       expect(
         await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-page-id'))),
       ).toEqual([
@@ -44,9 +38,9 @@ for (const width of [1440, 390])
       await expect(first.locator('time')).toHaveAttribute('datetime', '2026-10-08T23:00:00.000Z');
       await expect(first.locator('time')).toHaveAttribute('title', /2026/);
       await expect(first.locator('.tmt-ui-list-state')).toHaveText('Shared');
-      await toggle.focus();
+      await first.getByRole('link', { name: 'Alpha update' }).focus();
       await page.keyboard.press('Tab');
-      await expect(first.getByRole('link', { name: 'Alpha update' })).toBeFocused();
+      await expect(first.getByRole('button', { name: 'Labels for Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
       const actions = first.getByRole('button', { name: /^Actions for/ });
       await expect(actions).toBeFocused();
@@ -62,7 +56,8 @@ for (const width of [1440, 390])
       await expect(page.getByRole('menu')).toHaveCount(0);
       await expect(actions).toBeFocused();
       await page.screenshot({ path: await capturePath(`2168-few-${width}-${theme}.png`) });
-      await toggle.click();
+      await fixture.getByRole('button', { name: 'List options' }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
       await expect(rows).toHaveCount(2);
       await expect(rows.locator('.tmt-ui-list-state')).toHaveText(['Archived', 'Archived']);
       await expect(rows.getByRole('link')).toHaveCount(2);
@@ -223,7 +218,8 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few', Number.MAX_SAFE_INTEGER);
   });
-  await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+  await page.getByRole('button', { name: 'List options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
   const row = page.locator('#index-fixture [data-page-id="c0000005-1111-4111-8111-000000000001"]');
   await expect(row.locator('.tmt-ui-list-updated')).toHaveText('Update time unknown');
   await expect(row.locator('time')).toHaveCount(0);

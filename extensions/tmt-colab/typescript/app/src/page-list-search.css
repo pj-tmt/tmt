@@ -1,0 +1,39 @@
+.tmt-listbox-input:has(.page-list-search-field) .tmt-ui-field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.page-list-search-field.rich-input-field {
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  white-space: normal;
+}
+.label-filter-host {
+  display: inline;
+}
+.label-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 0 2px 0 6px;
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  line-height: 1.4;
+  --tmt-ui-host-icon-action-size: 24px;
+  --tmt-ui-header-icon-size: 12px;
+}
+.label-filter-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
