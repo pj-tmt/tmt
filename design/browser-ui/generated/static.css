@@ -973,3 +973,90 @@ svg.tmt-ui-mark {
     flex-basis: 100%;
   }
 }
+
+.tmt-ui-notifications {
+  position: fixed;
+  inset: calc(var(--tmt-ui-header-height) + 8px + env(safe-area-inset-top))
+    max(8px, env(safe-area-inset-right)) auto auto;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 16px));
+  max-height: calc(100dvh - var(--tmt-ui-header-height) - 16px - env(safe-area-inset-bottom));
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  pointer-events: none;
+  font-family: var(--tmt-ui-font-body);
+}
+.tmt-ui-notifications::backdrop {
+  pointer-events: none;
+  background: transparent;
+}
+.tmt-ui-notification {
+  position: relative;
+  padding: 12px;
+  margin-bottom: 4px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 0;
+  background: var(--tmt-ui-surface-sheet);
+  box-shadow: none;
+  pointer-events: auto;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.tmt-ui-notification > .tmt-ui-action::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.tmt-ui-notification-heading .tmt-ui-icon-action {
+  position: relative;
+  z-index: 1;
+}
+.tmt-ui-notification-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tmt-ui-notification-tag {
+  font-family: var(--tmt-ui-font-mono);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-notification-line,
+.tmt-ui-notification-quote {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  margin: 4px 0 8px;
+}
+.tmt-ui-notification-quote {
+  padding-left: 8px;
+  border-left: 1px solid var(--tmt-ui-surface-rule);
+  color: var(--tmt-ui-color-secondary);
+}
+.tmt-ui-notification-waiting {
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  background: var(--tmt-ui-surface-sheet);
+  font-size: 12px;
+}
+.tmt-ui-notification-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: pre;
+}
+@media (max-width: 480px) {
+  .tmt-ui-notifications {
+    inset-block-start: calc(var(--tmt-ui-header-height) + 4px + env(safe-area-inset-top));
+    inset-inline-end: max(4px, env(safe-area-inset-right));
+    width: min(360px, calc(100vw - 8px));
+  }
+}

@@ -14,7 +14,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
 
 The browser color, surface and shared metric roles live in the `browser` group
@@ -275,3 +275,46 @@ Placement uses the visual viewport: below, then above if more room, then constra
 scrolling when neither side fits; right edges align and horizontal placement clamps.
 A menu inside a drawer dismisses before that drawer on Escape. Input autocomplete
 and anchored annotation windows retain their existing owners.
+
+Optional `onOpenChange(open)` reports actual Menu visibility transitions, without
+an initial false. Selection, Tab, Escape, backdrop, native close/cancel,
+replacement, anchor removal and unmount close the report once. StrictMode effect
+replay does not report a spurious close. This is a presentation signal for host
+suspension; it does not transfer command ownership.
+
+## Notifications
+
+`BrowserNotifications` accepts literal host-admitted `events` with stable `id`,
+`destination` (`Chat`, `Thread`, `Answer`, `Proposal`), `firstLine`, optional
+Thread `quote` and `onActivate(originalEvent)`. It invokes activation once, only
+from a trusted native button event. The host owns admission, viewer permissions,
+baseline/replay suppression, destination state, navigation and persistent counts.
+Changing `pageKey` resets this presentation-only queue and duplicate memory.
+
+FIFO shows three entries, with `N more waiting` for overflow. Each newly visible
+entry receives 6000 ms; waiting entries do not age. Hover and focus independently
+pause the remaining budget. Dismissal, activation and expiry promote the oldest
+waiting event. Unmount cancels timers and listeners.
+
+The host supplies `suspended` for every modal layer (Drawer, Menu, Manage and
+attachment dialogs) and `isEligible(event)`. A hidden document uses the same
+suspension path. Suspension hides the manual native popover, pauses budgets and
+queues arrivals silently. Resume synchronously rechecks **every** retained and
+pending entry before any display or announcement; withdrawn entries drop
+silently. Hosts must combine all active modal states; closing one of two modals
+does not resume presentation. Header counts remain independent.
+
+The top layer sits below the shared header at the right, without a catching
+backdrop or autofocus. Arrival preserves focus. Natural Tab reaches controls;
+plain Escape in a focused card dismisses that card and consumes its event.
+Escape or Dismiss restores the connected, visible focus origin from before entry into the surface; Open leaves focus to the host.
+Other owners retain Escape. Opaque square cards use shared roles, a 1px edge,
+no shadow and no animation. Visual line clamps retain the complete text in the
+accessibility tree. A separate persistent polite status announces each newly
+displayed event once in FIFO order; count and timer changes do not reannounce
+the interactive stack. Wiring hosts must use one reply announcer, replacing any
+existing modal live-region relocation with this suspension contract.
+
+The isolated fake-source fixture is `test/fixtures/notifications.html`. Its
+headless Chromium conformance spec uses the pinned Colab browser runner; no
+product sources or navigation are wired by the fixture.

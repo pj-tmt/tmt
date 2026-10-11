@@ -30,6 +30,8 @@ export interface BrowserMenuProps<Key extends string = string> {
   /** A field's selected value; omitting it uses the icon action trigger. */
   valueLabel?: string;
   description?: ReactNode;
+  /** Presentation transitions only; commands and selected values remain host-owned. */
+  onOpenChange?(open: boolean): void;
 }
 const activeMenus = new WeakMap<Document, () => void>();
 
@@ -42,6 +44,7 @@ export function BrowserMenu<Key extends string>({
   icon,
   valueLabel,
   description,
+  onOpenChange,
 }: BrowserMenuProps<Key>) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -50,9 +53,17 @@ export function BrowserMenu<Key extends string>({
   const [open, setOpen] = useState(false);
   const first = useRef<'first' | 'last'>('first');
   const search = useRef({ text: '', at: 0 });
+  const visibility = useRef({ reported: false, callback: onOpenChange });
+  visibility.current.callback = onOpenChange;
+  function report(open: boolean) {
+    if (visibility.current.reported === open) return;
+    visibility.current.reported = open;
+    visibility.current.callback?.(open);
+  }
   const enabled = items.flatMap((item, index) => (item.disabled ? [] : [index]));
   function close(refocus = true) {
     dialog.current?.close();
+    report(false);
     setOpen(false);
     if (refocus) restoreOverlayFocus(trigger.current);
   }
@@ -66,6 +77,7 @@ export function BrowserMenu<Key extends string>({
     const dismiss = () => close(false);
     activeMenus.set(document, dismiss);
     node.showModal();
+    report(true);
     const view = document.defaultView!;
     const viewport = view.visualViewport;
     const place = () => {
@@ -108,6 +120,11 @@ export function BrowserMenu<Key extends string>({
       viewport?.removeEventListener('scroll', place);
       if (activeMenus.get(document) === dismiss) activeMenus.delete(document);
       node.close();
+      // StrictMode replays effects while the node remains connected. Only a
+      // real removal owes a final transition; ordinary close already reported it.
+      queueMicrotask(() => {
+        if (!node.isConnected) report(false);
+      });
     };
     // Visibility owns the lifetime; checked values are read from the host on each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

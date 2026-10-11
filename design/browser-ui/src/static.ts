@@ -1,4 +1,12 @@
 export const browserUiClasses = Object.freeze({
+  notifications: 'tmt-ui-notifications',
+  notification: 'tmt-ui-notification',
+  notificationStatus: 'tmt-ui-notification-status',
+  notificationHeading: 'tmt-ui-notification-heading',
+  notificationTag: 'tmt-ui-notification-tag',
+  notificationLine: 'tmt-ui-notification-line',
+  notificationQuote: 'tmt-ui-notification-quote',
+  notificationWaiting: 'tmt-ui-notification-waiting',
   drawer: 'tmt-ui-drawer',
   drawerHeader: 'tmt-ui-drawer-header',
   drawerBody: 'tmt-ui-drawer-body',
@@ -69,3 +77,9 @@ export interface BrowserTab {
 export type BrowserTabSelectReason = 'keyboard' | 'activation';
 export type BrowserActionVariant = 'text' | 'primary' | 'destructive';
 export type BrowserAnnouncement = 'status' | 'alert' | 'none';
+export interface BrowserNotificationData {
+  id: string;
+  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
+  firstLine: string;
+  quote?: string;
+}
