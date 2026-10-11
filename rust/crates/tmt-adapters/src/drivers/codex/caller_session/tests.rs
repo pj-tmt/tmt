@@ -333,3 +333,94 @@ fn configured_sqlite_home_precedes_environment_and_unsupported_shapes_refuse() {
     fs::write(&config, vec![b' '; 64 * 1024 + 1]).unwrap();
     assert_eq!(fixture.admit(), Err(CallerSessionRefusal::Configuration));
 }
+
+#[test]
+fn verified_direct_caller_can_resume_a_different_thread_in_the_same_process() {
+    use crate::runtime::lifecycle::{HostEvidence, RuntimeLifecycle};
+    use tmt_core::{
+        binding::session::{BindingSessionState, RuntimeLiveness, SessionTransition},
+        endpoint::ProcessIncarnation,
+    };
+    let fixture = Fixture::new();
+    let process = ProcessIncarnation::new(20, "provider-start").unwrap();
+    let current = super::super::CodexObservation {
+        session: tmt_core::binding::session::ProviderSessionId::new("previous-thread").unwrap(),
+        model: None,
+        starting: true,
+        transition: SessionTransition::Started,
+    }
+    .propose(
+        &BindingSessionState::default(),
+        &process,
+        RuntimeLiveness::Unknown,
+        false,
+    )
+    .unwrap();
+    let event = super::super::CodexLifecycle
+        .caller_session_observation(
+            &fixture.coordinates,
+            &fixture.environment,
+            Instant::now() + Duration::from_millis(500),
+        )
+        .unwrap();
+    let next = event
+        .propose(
+            &current,
+            &process,
+            RuntimeLiveness::Alive,
+            HostEvidence::Independent { runtime_pid: None },
+            false,
+        )
+        .expect("verified main-thread turnover must use the admitted resume transition");
+    assert!(
+        event
+            .propose(
+                &current,
+                &process,
+                RuntimeLiveness::Alive,
+                HostEvidence::Ambiguous { runtime_pid: 20 },
+                false
+            )
+            .is_none(),
+        "a shared server cannot turn over another thread"
+    );
+    let other = ProcessIncarnation::new(21, "other-provider").unwrap();
+    for previous in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
+        assert!(
+            event
+                .propose(
+                    &current,
+                    &other,
+                    previous,
+                    HostEvidence::Independent { runtime_pid: None },
+                    false
+                )
+                .is_none()
+        );
+    }
+    let fresh = event
+        .propose(
+            &BindingSessionState::default(),
+            &process,
+            RuntimeLiveness::Unknown,
+            HostEvidence::Independent { runtime_pid: None },
+            false,
+        )
+        .unwrap();
+    assert_eq!(fresh.last_transition, Some(SessionTransition::Started));
+    let same = event
+        .propose(
+            &fresh,
+            &process,
+            RuntimeLiveness::Alive,
+            HostEvidence::Independent { runtime_pid: None },
+            false,
+        )
+        .unwrap();
+    assert_eq!(same.key, fresh.key);
+    assert_eq!(
+        next.key.unwrap().provider_session.as_ref(),
+        Some(&fixture.coordinates.session)
+    );
+    assert_eq!(next.last_transition, Some(SessionTransition::Resumed));
+}

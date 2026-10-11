@@ -77,7 +77,7 @@ impl CommandRunner for Worker {
 }
 
 #[test]
-fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_binding() {
+fn agreeing_observed_coordinates_skip_all_host_and_provider_file_work() {
     let directory = Directory::new();
     let database = directory.0.join("state.db");
     let mut storage = Storage::open(&database).unwrap();
@@ -104,6 +104,26 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
             records.set_session_preferences(&id, &preferences)
         })
         .unwrap();
+    insert_discovery_binding(&mut storage, &identity);
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            use tmt_core::binding::session::{ObservedSessionKey, SessionTransition};
+            let binding = records.entry_by_id(&id)?.unwrap().binding.unwrap();
+            let next = binding
+                .session
+                .admit(
+                    ObservedSessionKey {
+                        incarnation: tmt_core::endpoint::ProcessIncarnation::new(20, "provider")
+                            .unwrap(),
+                        provider_session: Some(coordinates.session.clone()),
+                    },
+                    SessionTransition::Started,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            records.set_session_state(&binding.id, &binding.session, &next)
+        })
+        .unwrap();
     storage.close().unwrap();
     let worker = Worker {
         calls: Cell::new(0),
@@ -127,9 +147,6 @@ fn identical_coordinates_skip_all_host_and_provider_file_work_even_without_bindi
         Ok(())
     );
     assert_eq!(worker.calls.get(), 0);
-    let mut storage = Storage::open(&database).unwrap();
-    insert_discovery_binding(&mut storage, &identity);
-    storage.close().unwrap();
     let changed = CallerSession {
         session: tmt_core::binding::session::ProviderSessionId::new("changed").unwrap(),
         ..coordinates
@@ -458,4 +475,58 @@ fn refused_callers_skip_worker_until_ttl_or_coordinates_change() {
             assert_eq!(worker.calls.get(), 3);
         }
     }
+}
+
+#[test]
+fn remembered_history_does_not_skip_an_incomplete_current_binding() {
+    let directory = Directory::new();
+    let database = directory.0.join("state.db");
+    let mut storage = Storage::open(&database).unwrap();
+    let identity = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    insert_discovery_binding(&mut storage, &identity);
+    let harness = HarnessId::new("codex").unwrap();
+    let coordinates = CallerSession {
+        session: tmt_core::binding::session::ProviderSessionId::new("remembered-thread").unwrap(),
+        runtime_pid: None,
+    };
+    let mut preferences = tmt_core::binding::session::SessionPreferences::default();
+    preferences.remember(
+        harness.clone(),
+        tmt_core::binding::session::RuntimeMode::new("embedded").unwrap(),
+        coordinates.session.clone(),
+    );
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.set_session_preferences(&identity.id, &preferences)
+        })
+        .unwrap();
+    storage.close().unwrap();
+    let worker = Worker {
+        calls: Cell::new(0),
+        allowed: true,
+        refusal: None,
+    };
+    assert_eq!(
+        observe_candidate(
+            &worker,
+            &harness,
+            &coordinates,
+            Discovery {
+                database: &database,
+                global_dir: &directory.0,
+                executable: std::path::Path::new("worker"),
+                deadline: Instant::now() + BUDGET,
+                now_ms: 100,
+            },
+            caller_environment
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        worker.calls.get(),
+        1,
+        "history is not a current observed session"
+    );
 }

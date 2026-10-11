@@ -69,6 +69,55 @@ pub(super) fn coordinates(session: Option<&std::ffi::OsStr>) -> Option<CallerSes
     })
 }
 
+/// Constructed only after the exact main-thread header and native caller were
+/// verified. Hook starts retain their stricter provider-reported transition.
+pub(super) struct Observation(pub(super) tmt_core::binding::session::ProviderSessionId);
+
+impl crate::runtime::lifecycle::LifecycleObservation for Observation {
+    fn session(&self) -> &tmt_core::binding::session::ProviderSessionId {
+        &self.0
+    }
+    fn starting(&self) -> bool {
+        true
+    }
+    fn driver_state(
+        &self,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        _now_ms: u64,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        crate::runtime::driver_state::after_start(None, None, previous)
+    }
+    fn propose(
+        &self,
+        current: &tmt_core::binding::session::BindingSessionState,
+        process: &tmt_core::endpoint::ProcessIncarnation,
+        previous: tmt_core::binding::session::RuntimeLiveness,
+        host: crate::runtime::lifecycle::HostEvidence,
+        owned_resume: bool,
+    ) -> Option<tmt_core::binding::session::BindingSessionState> {
+        use tmt_core::binding::session::{RuntimeState, SessionTransition};
+        let turnover = current.state == RuntimeState::Running
+            && current.key.as_ref().is_some_and(|key| {
+                key.incarnation == *process
+                    && key
+                        .provider_session
+                        .as_ref()
+                        .is_some_and(|session| session != &self.0)
+            });
+        super::CodexObservation {
+            session: self.0.clone(),
+            model: None,
+            starting: true,
+            transition: if turnover {
+                SessionTransition::Resumed
+            } else {
+                SessionTransition::Started
+            },
+        }
+        .propose_with_resume(current, process, previous, host.shared(), owned_resume)
+    }
+}
+
 fn sqlite_home(environment: &ProviderEnvironment) -> Option<PathBuf> {
     let home = super::codex_home(environment);
     let config = home.join("config.toml");

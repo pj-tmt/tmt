@@ -70,8 +70,8 @@ in `contracts/`.
   anonymous with one stderr notice, and an unavailable probe fails closed only with a thread
   marker present. A thread ID is a hint, never an identity source.
 - Ordinary CLI commands may remember a direct provider conversation after flushing
-  their own output. Matching remembered coordinates do no host or provider-file
-  work. Changed coordinates use a supervised 500 ms observation: verified native
+  their own output. Matching remembered coordinates skip host/provider work only when a
+  Running binding already observes that session. Changed coordinates use a supervised 500 ms observation: verified native
   pane/binding, provider ancestry and incarnation, then the existing starting-hook
   proposal and full binding/preferences fence. Failure never changes the command
   result; no timer, daemon, setup hook or provider settings write is needed.
@@ -94,7 +94,9 @@ in `contracts/`.
   the bounded first `session_meta` header under `CODEX_HOME/sessions`; root ID,
   CLI/exec source and absence of a parent must agree. Missing/held storage, absent
   WAL shared memory, changed env/index/header shapes or subagent metadata leave
-  the session unrecorded, without repair or scanning. Fixtures and recorded
+  the session unrecorded, without repair or scanning. Verified direct Codex
+  discovery uses the admitted resume transition when its main thread changes
+  inside the same live process; hooks retain their reported transition. Fixtures and recorded
   provider versions live in `tmt-adapters::runtime/fixtures/README.md`.
   `sqlite_home` in `CODEX_HOME/config.toml` precedes `CODEX_SQLITE_HOME` and the
   default `CODEX_HOME`. Unsupported relative config paths, profile configuration

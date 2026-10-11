@@ -228,6 +228,145 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
     });
   });
 
+  it.each([false, true])(
+    'Codex publishes fresh, same-session and switched resume addresses (remembered history=%s)',
+    async (history) => {
+      await withE2EFixture(async (fixture) => {
+        const pane = fixture.createShellPane('codex-session-turnover').pane;
+        const identity = expectJsonResult(
+          await fixture.runJsonCli<{ id: string }>(['add', pane, 'Direct', '-s'])
+        );
+        const sessions = [
+          '01234567-89ab-7cde-8fab-0123456789ab',
+          '01234567-89ab-7cde-8fab-0123456789ac',
+        ];
+        const home = path.join(fixture.root, 'provider-home');
+        const codexHome = path.join(home, '.codex');
+        mkdirSync(codexHome, { recursive: true });
+        const index = new Database(path.join(codexHome, 'state_5.sqlite'));
+        try {
+          index.exec(
+            `CREATE TABLE threads (${capturedCodex.index.columns
+              .map(
+                (column) =>
+                  `${column.name} ${column.type} ${column.notNull ? 'NOT NULL' : ''} ${column.primaryKey ? 'PRIMARY KEY' : ''} DEFAULT ${column.type === 'TEXT' ? "''" : '0'}`
+              )
+              .join(',')})`
+          );
+          for (const session of sessions) {
+            const rollout = path.join(codexHome, 'sessions', `${session}.jsonl`);
+            mkdirSync(path.dirname(rollout), { recursive: true });
+            const header = structuredClone(capturedCodex.header);
+            header.payload.id = session;
+            header.payload.session_id = session;
+            writeFileSync(rollout, `${JSON.stringify(header)}\n`);
+            index
+              .prepare('INSERT INTO threads (id, rollout_path, source) VALUES (?, ?, ?)')
+              .run(session, rollout, 'cli');
+          }
+        } finally {
+          index.close();
+        }
+        if (history) {
+          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+          try {
+            database
+              .prepare(`INSERT INTO identity_session_preferences
+              (identity_id, preferred_harness, remembered_harness, runtime_mode, provider_session_id)
+              VALUES (?, 'codex', 'codex', 'embedded', ?)`)
+              .run(identity.id, sessions[0]);
+          } finally {
+            database.close();
+          }
+        }
+        // Each tool call carries the provider's current thread locator. The
+        // compiled native provider remains the same process across the switch.
+        const cli = path.join(fixture.wrapperDir, 'turnover-cli');
+        writeExecutable(
+          cli,
+          `#!/bin/sh\nexport CODEX_THREAD_ID="$1"\nshift\nexec ${[fixture.executables.cli.executable, ...fixture.executables.cli.args].map(quote).join(' ')} "$@"\n`,
+          0o700
+        );
+        const checkpoint = path.join(fixture.root, 'turnover-complete');
+        const scenario = path.join(fixture.root, 'scenario.json');
+        const report = path.join(fixture.root, 'report.json');
+        const status = path.join(fixture.root, 'provider.status');
+        const sequence = [sessions[0], sessions[0], sessions[1]];
+        writeFileSync(
+          scenario,
+          JSON.stringify([
+            ...sequence.flatMap((session) => [
+              { args: [session, 'config', 'show', '--json'] },
+              { args: [session, 'ls', '--json'] },
+            ]),
+            { args: [sessions[1], 'whoami', '--json'], checkpoint },
+          ])
+        );
+        const command = [
+          'env',
+          '-u',
+          'CLAUDE_CODE_SESSION_ID',
+          `HOME=${home}`,
+          `CODEX_HOME=${codexHome}`,
+          'TMT_CALLER_SESSION_DEBUG=1',
+          '/opt/tmt-tests/hook-runtime/codex',
+          cli,
+          scenario,
+          report,
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${command}; printf '%s' "$?" > ${quote(status)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        await waitForFileContent(checkpoint, { description: 'Codex thread turnover complete' });
+        try {
+          const calls = JSON.parse(readFileSync(report, 'utf8')) as Array<{
+            code: number;
+            stdout: string;
+            stderr: string;
+          }>;
+          expect(calls).toHaveLength(6);
+          for (const [position, session] of sequence.entries()) {
+            expect(calls[position * 2].code).toBe(0);
+            expect(calls[position * 2].stderr).not.toContain('caller session not recorded');
+            const listed = JSON.parse(calls[position * 2 + 1].stdout) as {
+              identities: Array<{ id: string; address: string }>;
+            };
+            expect(listed.identities.find((row) => row.id === identity.id)?.address).toBe(
+              `codex:${session}`
+            );
+          }
+          const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+            readonly: true,
+          });
+          try {
+            expect(
+              database
+                .prepare(`SELECT b.observed_provider_session_id AS observed,
+              p.provider_session_id AS remembered FROM bindings b
+              JOIN identity_session_preferences p ON p.identity_id=b.identity_id
+              WHERE b.identity_id=?`)
+                .get(identity.id)
+            ).toEqual({ observed: sessions[1], remembered: sessions[1] });
+          } finally {
+            database.close();
+          }
+        } finally {
+          writeFileSync(checkpoint, 'continue');
+        }
+        expect(
+          await waitForFileContent(status, { description: 'Codex turnover fixture exit' })
+        ).toBe('0');
+      });
+    }
+  );
+
   it.each(cases)(
     '$provider $kind preserves successful commands and admits only exact main sessions',
     async ({ provider, kind }) => {
