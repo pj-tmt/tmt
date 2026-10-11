@@ -6,7 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
-import { clientId, createPage, freePort, openChat, openPage, run } from './harness/ask.js';
+import {
+  clientId,
+  createPage,
+  freePort,
+  openChat,
+  openPage,
+  run,
+  selectInRenderer,
+} from './harness/ask.js';
 import { captureResponsive } from './harness/captures.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -52,7 +60,7 @@ test('files attached in Chat reach a second paired device, preview and download 
     const input = panel.getByRole('combobox', { name: 'Message', exact: true });
     await input.fill('Three files');
     const chooser = first.waitForEvent('filechooser');
-    await panel.getByRole('button', { name: text.attachFiles }).click();
+    await panel.getByRole('button', { name: text.messageAttach }).click();
     await (await chooser).setFiles([notes, clip, picture]);
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
     // Choosing stored nothing: the page's other device sees no message yet.
@@ -442,7 +450,7 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
     const sendBig = async (message: string) => {
       await mine.getByRole('combobox', { name: 'Message', exact: true }).fill(message);
       const chooser = first.waitForEvent('filechooser');
-      await mine.getByRole('button', { name: text.attachFiles }).click();
+      await mine.getByRole('button', { name: text.messageAttach }).click();
       await (await chooser).setFiles([big]);
       await mine.getByRole('button', { name: text.askSend, exact: true }).click();
       await expect(chip).toHaveAttribute('data-state', 'uploading');
@@ -500,7 +508,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       const panel = first.getByTestId('chat-panel');
       await panel.getByRole('combobox', { name: 'Message', exact: true }).fill('One file');
       const pick = first.waitForEvent('filechooser');
-      await panel.getByRole('button', { name: text.attachFiles }).click();
+      await panel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
       await panel.getByRole('button', { name: text.askSend, exact: true }).click();
       await expect(panel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
@@ -831,3 +839,143 @@ test('revoking a device rekeys a native document attachment with one complete sw
     }
   });
 });
+
+for (const surface of ['chat', 'thread'] as const)
+  test(`pending row and panel drops stay local on the served ${surface}`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const author = await pairBrowser(world, `pending-${surface}`);
+      const created = createPage(
+        world,
+        'Pending attachments',
+        '<h1>Pending attachments</h1><p id="quote">A real page quote.</p>',
+      );
+      const page = await openPage(door, author, created);
+      await expect(page.frameLocator('iframe').locator('#quote')).toBeVisible();
+      const picture = Buffer.from(
+        await page.evaluate(() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 600;
+          canvas.height = 360;
+          const context = canvas.getContext('2d')!;
+          const gradient = context.createLinearGradient(0, 0, 600, 360);
+          gradient.addColorStop(0, '#4387a7');
+          gradient.addColorStop(1, '#a3be8c');
+          context.fillStyle = gradient;
+          context.fillRect(0, 0, 600, 360);
+          return canvas.toDataURL('image/png').split(',')[1];
+        }),
+        'base64',
+      );
+      if (surface === 'chat') await openChat(page);
+      else {
+        await selectInRenderer(page, '#quote');
+        await page.getByTestId('selection-ask').click();
+        const fresh = page.locator('.annotation-new');
+        await fresh
+          .getByRole('combobox', { name: 'Message', exact: true })
+          .fill('Start this thread.');
+        await fresh.getByRole('button', { name: text.askSend, exact: true }).click();
+      }
+      const panel =
+        surface === 'chat'
+          ? page.getByTestId('chat-panel')
+          : page.getByTestId('comment-thread').first();
+      const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+      await input.fill('A posted image at the message edge.');
+      const posted = page.waitForEvent('filechooser');
+      await panel.getByRole('button', { name: text.messageAttach, exact: true }).click();
+      await (
+        await posted
+      ).setFiles([{ name: 'posted.png', mimeType: 'image/png', buffer: picture }]);
+      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await expect(panel.locator('.attachment-thumbnail img')).toBeVisible();
+      await input.fill('Pending files remain local until Send.');
+      const editor = await input.elementHandle();
+      const chooser = page.waitForEvent('filechooser');
+      await panel.getByRole('button', { name: text.messageAttach, exact: true }).click();
+      await (
+        await chooser
+      ).setFiles([
+        { name: 'first.png', mimeType: 'image/png', buffer: picture },
+        { name: 'second.png', mimeType: 'image/png', buffer: picture },
+        {
+          name: 'notes-with-a-long-filename.txt',
+          mimeType: 'text/plain',
+          buffer: Buffer.from('Notes'),
+        },
+      ]);
+      const row = panel.locator('.attachment-pending-row');
+      await expect(row.locator('img')).toHaveCount(2);
+      await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
+      const capture = async (state: string, width: number, theme: string) => {
+        const directory = process.env.COLAB_2554_COMPOSER_CAPTURE_DIR;
+        if (directory)
+          await page.screenshot({
+            path: path.join(directory, `served-${surface}-${state}-${width}-${theme}.png`),
+          });
+      };
+      for (const [width, theme] of [
+        [1440, 'light'],
+        [390, 'dark'],
+      ] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        const edges = await panel.evaluate((panel) => {
+          const text = panel.querySelector('.rich-input-field p')!.getBoundingClientRect().left;
+          return [
+            panel.querySelector('.attachment-pending-item')!,
+            panel.querySelector('.conversation-turn .comment-body')!,
+          ].map((node) => Math.abs(node.getBoundingClientRect().left - text));
+        });
+        expect(edges.every((edge) => edge <= 1)).toBe(true);
+        await page.mouse.move(0, 0);
+        await capture('pending', width, theme);
+      }
+      // Take both pending captures before refusal feedback changes the panel.
+      for (const [width, theme] of [
+        [1440, 'light'],
+        [390, 'dark'],
+      ] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+        const overlay = panel.getByTestId('attachment-drop-overlay');
+        const drag = await page.evaluateHandle(() => {
+          const data = new DataTransfer();
+          data.items.add(new File(['Notes'], 'drop.txt', { type: 'text/plain' }));
+          return data;
+        });
+        await panel.dispatchEvent('dragenter', { dataTransfer: drag });
+        await expect(overlay).toHaveText(
+          `⤓ Drop to attach to ${surface === 'chat' ? 'Chat' : 'this thread'}`,
+        );
+        await capture('overlay-ok', width, theme);
+        await panel.dispatchEvent('dragleave', { dataTransfer: drag });
+        const refused = await page.evaluateHandle(() => {
+          const data = new DataTransfer();
+          data.items.add(new File([], 'empty.txt', { type: 'text/plain' }));
+          return data;
+        });
+        await panel.dispatchEvent('dragenter', { dataTransfer: refused });
+        await expect(overlay).toHaveText('✗ Empty files cannot be attached.');
+        await capture('overlay-refused', width, theme);
+        await panel.dispatchEvent('drop', { dataTransfer: refused });
+        await expect(overlay).toHaveCount(0);
+        await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
+        await input.focus();
+        expect(await input.evaluate((node, original) => node === original, editor)).toBe(true);
+        await drag.dispose();
+        await refused.dispose();
+      }
+      // Native publication still contains only the explicitly sent image.
+      const listed = JSON.parse(
+        run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
+      );
+      expect(JSON.stringify(listed)).not.toContain('first.png');
+      expect(JSON.stringify(listed)).not.toContain('second.png');
+      expect(JSON.stringify(listed)).not.toContain('empty.txt');
+      await panel.getByRole('button', { name: 'Remove first.png', exact: true }).press('Enter');
+      await expect(input).toBeFocused();
+      await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
+    });
+  });

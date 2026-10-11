@@ -1,0 +1,21 @@
+.conversation-window:has(.attachment-drop-overlay),
+.chat-panel {
+  position: relative;
+}
+.attachment-drop-feedback {
+  margin: 4px 14px;
+  color: var(--c-blocked);
+  font-size: 12px;
+}
+.attachment-drop-overlay {
+  position: absolute;
+  inset: 4px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 2px dashed var(--c-rule);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  pointer-events: none;
+}

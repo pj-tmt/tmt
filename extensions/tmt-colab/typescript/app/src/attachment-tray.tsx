@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
-import { Paperclip } from 'lucide-react';
-import { useRef, useSyncExternalStore } from 'react';
+import { Paperclip, X } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { AttachmentDraft, Chip } from './attachment-draft.js';
 import { text } from './strings.js';
 import './attachment-tray.css';
@@ -35,11 +35,13 @@ export function AttachButton({
   draft,
   disabled,
   labeled = false,
+  label = text.attachFiles,
 }: {
   draft: AttachmentDraft;
   disabled: boolean;
-  /** Icon plus the visible words, where the panel has no other cue (the Files panel). */
+  /** Icon plus visible words in the composer or Files panel. */
   labeled?: boolean;
+  label?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -63,7 +65,7 @@ export function AttachButton({
           <BrowserAction
             type="button"
             variant="text"
-            label={text.attachFiles}
+            label={label}
             disabled={disabled}
             onActivate={(event) => {
               if (event.isTrusted) input.current?.click();
@@ -86,7 +88,101 @@ export function AttachButton({
   );
 }
 
-/** The chips and refusal notices of one composer, above its status row. */
+function LocalPreview({ draft, chip }: { draft: AttachmentDraft; chip: Chip }) {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    let current = true;
+    void draft.preview(chip.id).then((url) => {
+      if (current) setUrl(url);
+    });
+    return () => {
+      current = false;
+    };
+  }, [draft, chip.id]);
+  return url ? (
+    <img className="attachment-pending-image" src={url} alt={chip.filename} />
+  ) : (
+    <span className="attachment-pending-name" title={chip.filename}>
+      {chip.filename}
+    </span>
+  );
+}
+
+/** A presentation row inside the input, outside Lexical. Draft remains the only owner. */
+export function PendingAttachments({
+  draft,
+  disabled,
+  onRemoved,
+}: {
+  draft: AttachmentDraft;
+  disabled: boolean;
+  onRemoved(): void;
+}) {
+  const snapshot = useSyncExternalStore(draft.subscribe, draft.getSnapshot);
+  const action = (label: string, run: () => void) => (
+    <BrowserAction
+      type="button"
+      variant="text"
+      label={label}
+      disabled={disabled}
+      onActivate={(event) => {
+        if (event.isTrusted) run();
+      }}
+    />
+  );
+  if (!snapshot.chips.length && !snapshot.notices.length) return null;
+  return (
+    <div className="attachment-pending" data-testid="attachment-tray">
+      {snapshot.chips.length > 0 && (
+        <ul className="attachment-pending-row" aria-label={text.attachListLabel}>
+          {snapshot.chips.map((chip) => (
+            <li
+              key={chip.id}
+              className="attachment-pending-item"
+              data-testid="attachment-chip"
+              data-state={chip.state.kind}
+            >
+              <LocalPreview draft={draft} chip={chip} />
+              <span className="attachment-state" role="status">
+                {stateText(chip, false)}
+              </span>
+              {chip.state.kind === 'unknown' &&
+                action(text.attachCheck, () => void draft.check(chip.id))}
+              {chip.state.kind === 'refused' &&
+                action(text.attachRetry, () => draft.retry(chip.id))}
+              <BrowserIconAction
+                type="button"
+                variant="text"
+                label={`${text.attachRemove} ${chip.filename}`}
+                icon={<X />}
+                disabled={disabled || chip.state.kind === 'uploading'}
+                onActivate={(event) => {
+                  if (event.isTrusted) {
+                    draft.remove(chip.id);
+                    onRemoved();
+                  }
+                }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {snapshot.notices.map((notice) => (
+        <p
+          key={notice.id}
+          className="attachment-notice"
+          role="status"
+          data-testid="attachment-notice"
+        >
+          {text.attachNotice[notice.reason](notice.filename)}{' '}
+          {action(text.attachDismiss, () => draft.dismiss(notice.id))}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/** Files-panel upload rows and refusal notices; message drafts use PendingAttachments. */
 export function AttachmentChips({
   draft,
   disabled,

@@ -84,6 +84,7 @@ export const text = {
   messageOpenRecorded: 'Open recorded thread',
   draftsNotSaved: 'Drafts are not saved on this device.',
   attachFiles: 'Attach files',
+  messageAttach: 'Attach',
   attachFilesHint: 'Files upload when you send. Nothing is sent until then.',
   attachListLabel: 'Attachments to send',
   attachReady: 'Uploads on send',

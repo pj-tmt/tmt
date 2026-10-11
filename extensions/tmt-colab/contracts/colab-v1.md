@@ -104,7 +104,18 @@ existing `changed` or `unavailable` state.
 The owner browser's shared composer can attach files to a Chat, annotation or reply
 message. Picking, pasting or dropping only adds an inert local chip: nothing is stored,
 sent or prepared, an Ask is never created and the message text is neither read nor
-replaced. The explicit Send is the first effect. A message still needs text. Attachment bytes are
+replaced. Local pending raster previews recheck already-picked bytes through
+`previewType` and the pixel bound, without reading a Remote object or preparing
+an upload. The draft caches display URLs until removal, publication or disposal;
+late preview/file reads cannot repopulate a replaced or disposed draft.
+The [attachment presentation rule](../../../design/gui-style.md#message-attachments)
+owns pending row and panel overlay appearance. Each panel registers its mounted
+composer's existing draft and current attachable fence; replacement/unmount
+invalidates stale registration. The local composer drop and full-panel drop
+use one add route, never two. Readable count/size metadata is checked during
+drag; protected native file data is rechecked as a complete batch on drop.
+Rejected batches add nothing. A blocked or archived panel cannot add or publish.
+The explicit Send is the first remote effect. A message still needs text. Attachment bytes are
 never part of an Ask payload; the frozen message lists their metadata (#2464): after the comment
 text, a blank line and `Attachments sent with this comment on "<quote>":` (or `... in the page chat:`
 when the thread has no anchor), then one line per file of the sent message in its own order,

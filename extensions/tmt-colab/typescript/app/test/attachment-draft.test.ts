@@ -41,6 +41,107 @@ function binding(overrides: Partial<AttachmentBinding> = {}) {
 }
 const states = (draft: AttachmentDraft) => draft.getSnapshot().chips.map((c) => c.state.kind);
 
+// Real 1x1 raster bytes; the file's declared MIME and name never authorize preview.
+const previewPng = Uint8Array.from(
+  Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+    'base64',
+  ),
+);
+
+it('previews only picked raster bytes, caches the display copy and never uploads or exposes bytes', async () => {
+  const read = vi.fn();
+  vi.stubGlobal(
+    'FileReader',
+    class {
+      result = 'data:image/png;base64,local';
+      onload?: () => void;
+      readAsDataURL(blob: Blob) {
+        read(blob);
+        this.onload?.();
+      }
+    },
+  );
+  try {
+    const { value } = binding();
+    const draft = new AttachmentDraft(() => value);
+    await draft.add([new File([previewPng], 'local.bin', { type: 'text/plain' })]);
+    const id = draft.getSnapshot().chips[0].id;
+    expect(await draft.preview(id)).toBe('data:image/png;base64,local');
+    expect(await draft.preview(id)).toBe('data:image/png;base64,local');
+    expect(read).toHaveBeenCalledOnce();
+    expect(new Uint8Array(await read.mock.calls[0][0].arrayBuffer())).toEqual(previewPng);
+    expect(draft.getSnapshot().chips[0]).not.toHaveProperty('bytes');
+    expect(draft.getSnapshot().chips[0]).not.toHaveProperty('preview');
+    for (const method of ['open', 'upload', 'resume', 'discard', 'limits'] as const)
+      expect(value[method]).not.toHaveBeenCalled();
+    expect(states(draft)).toEqual(['ready']);
+    draft.remove(id);
+    expect(await draft.preview(id)).toBeUndefined();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('does not decode non-raster content, a forged image name/MIME or excessive raster dimensions', async () => {
+  const read = vi.fn();
+  vi.stubGlobal(
+    'FileReader',
+    class {
+      readAsDataURL = read;
+    },
+  );
+  try {
+    const oversized = previewPng.slice();
+    new DataView(oversized.buffer).setUint32(16, 16000001);
+    const { value } = binding();
+    const draft = new AttachmentDraft(() => value);
+    await draft.add([
+      new File(['<svg/>'], 'forged.png', { type: 'image/png' }),
+      new File(['plain text'], 'notes.txt'),
+      new File([oversized], 'large.png', { type: 'image/png' }),
+    ]);
+    for (const chip of draft.getSnapshot().chips)
+      expect(await draft.preview(chip.id)).toBeUndefined();
+    expect(read).not.toHaveBeenCalled();
+    expect(value.upload).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it('drops a late local display copy after removal, publication or composer disposal', async () => {
+  const finish: (() => void)[] = [];
+  vi.stubGlobal(
+    'FileReader',
+    class {
+      result = 'data:image/png;base64,late';
+      onload?: () => void;
+      readAsDataURL() {
+        finish.push(() => this.onload?.());
+      }
+    },
+  );
+  try {
+    for (const end of ['remove', 'committed', 'dispose'] as const) {
+      const { value } = binding();
+      const draft = new AttachmentDraft(() => value);
+      await draft.add([new File([previewPng], 'local.png')]);
+      const id = draft.getSnapshot().chips[0].id;
+      const pending = draft.preview(id);
+      if (end === 'remove') draft.remove(id);
+      else draft[end]();
+      finish.shift()!();
+      expect(await pending).toBeUndefined();
+      expect(await draft.preview(id)).toBeUndefined();
+      expect(value.upload).not.toHaveBeenCalled();
+      expect(value.open).not.toHaveBeenCalled();
+    }
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it('picking files only makes local chips: nothing is stored until Send prepares them', async () => {
   const { value } = binding();
   const draft = new AttachmentDraft(() => value);
@@ -192,4 +293,25 @@ it('uploads to the target given at upload time, not the draft message id', async
   source = 'two';
   await draft.prepare();
   expect(uploads).toEqual([{ messageId: 'document:two', filename: 'a.txt' }]);
+});
+
+it('ignores a file read completing after disposal or publication replaces its message', async () => {
+  for (const end of ['dispose', 'committed'] as const) {
+    const { value } = binding();
+    const draft = new AttachmentDraft(() => value);
+    let finish!: (value: ArrayBuffer) => void;
+    const file = new File(['local'], 'late.txt');
+    vi.spyOn(file, 'arrayBuffer').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = draft.add([file]);
+    draft[end]();
+    finish(new Uint8Array([1, 2, 3]).buffer);
+    await pending;
+    expect(draft.getSnapshot().chips).toHaveLength(0);
+    expect(value.upload).not.toHaveBeenCalled();
+  }
 });

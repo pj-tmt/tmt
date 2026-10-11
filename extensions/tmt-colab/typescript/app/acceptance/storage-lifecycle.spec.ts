@@ -95,7 +95,7 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
     const input = await annotationInput(composer, '');
     await input.fill('Four files on this quote');
     const chooser = first.waitForEvent('filechooser');
-    await composer.getByRole('button', { name: text.attachFiles }).click();
+    await composer.getByRole('button', { name: text.messageAttach }).click();
     await (await chooser).setFiles(files);
     await expect(composer.getByTestId('attachment-chip')).toHaveCount(4);
     await input.press('Enter');
@@ -300,7 +300,7 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       const chatPanel = first.getByTestId('chat-panel');
       await chatPanel.getByRole('combobox', { name: 'Message', exact: true }).fill('One file');
       const pick = first.waitForEvent('filechooser');
-      await chatPanel.getByRole('button', { name: text.attachFiles }).click();
+      await chatPanel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
       await chatPanel.getByRole('button', { name: text.askSend, exact: true }).click();
       await expect(chatPanel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });

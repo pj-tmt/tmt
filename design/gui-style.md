@@ -297,6 +297,16 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
 ### Message attachments
 
+Pending attachments use one horizontally scrollable row of small raster
+thumbnails or filenames inside the input below its text, each with a named ×
+remove action. They share the text's left edge, with no cards or progress bar.
+The message composer has a visible `Attach` action; Files keeps `Attach files`.
+Dragging files over Chat or an annotation/thread window shows that panel's
+inset 2 px dashed frame, naming `⤓ Drop to attach to Chat` or `to this thread`.
+A refused batch shows `✗` and its reason and adds nothing. Crossing child
+controls keeps the overlay; leave, Escape or drop clears it without moving
+focus. Drop alone never uploads or sends.
+
 Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
 more images use a three-column square grid: up to six show in full; larger groups
 show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
