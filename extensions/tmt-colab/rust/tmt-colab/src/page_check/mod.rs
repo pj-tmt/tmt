@@ -6,6 +6,7 @@
 //! `contracts/vectors/page-markup-v1.json`, so they cannot drift. The code table lives in the
 //! colab-v1 contract (page markup check). This module is pure: no files, no state, no clock.
 
+mod group;
 mod image;
 mod question;
 mod tree;
@@ -43,6 +44,9 @@ pub struct Finding {
     pub line: u64,
     pub severity: Severity,
     pub code: &'static str,
+    /// For a `tmt-questions` group the browser skips: every question inside it, which the skip
+    /// silences along with its findings.
+    pub questions_skipped: Option<usize>,
 }
 
 /// A question the page shows.
@@ -54,6 +58,21 @@ pub struct Question {
     pub choices: Vec<String>,
     pub other: bool,
     pub agent: String,
+    /// The group it belongs to; `None` for a lone question.
+    pub group: Option<String>,
+    /// The group tab label (the authored `data-label`, else `Q<n>` by admitted order); `None` for
+    /// a lone question.
+    pub label: Option<String>,
+}
+
+/// What the page shows as one set of controls: a `tmt-questions` group, or a lone question as an
+/// internal group (its own ID, no title).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuestionGroup {
+    pub id: String,
+    pub title: Option<String>,
+    /// Question IDs, in document order.
+    pub questions: Vec<String>,
 }
 
 /// A `colab-attachment:` reference in the right form, at its first use on the page.
@@ -69,6 +88,8 @@ pub struct Reference {
 pub struct Report {
     /// The questions the page shows.
     pub questions: Vec<Question>,
+    /// The groups the page shows, in document order, lone questions as internal groups.
+    pub groups: Vec<QuestionGroup>,
     /// How many `tmt-question` blocks the source holds, shown or not.
     pub question_blocks: usize,
     pub findings: Vec<Finding>,
@@ -101,6 +122,7 @@ impl Report {
                 line: reference.line,
                 severity: Severity::Warning,
                 code,
+                questions_skipped: None,
             });
         }
         self.sort();
@@ -131,6 +153,7 @@ pub fn check(source: &str) -> Result<Report, SourceTooLarge> {
                     line: deep.line,
                     severity: Severity::Warning,
                     code: "page-too-deep",
+                    questions_skipped: None,
                 }],
                 ..Report::default()
             });
@@ -168,6 +191,10 @@ pub fn codes() -> Vec<&'static str> {
         "question-marker-misplaced",
     ];
     codes.extend(question::RULES.iter().map(|(code, _)| *code));
+    codes.extend(group::RULES.iter().map(|(code, _)| *code));
+    codes.extend(group::LABEL_CODES);
+    // Not a rule of the group itself: a group that passed and shows nothing.
+    codes.push("group-empty");
     codes.extend([
         "image-data-oversized",
         "image-data-total",

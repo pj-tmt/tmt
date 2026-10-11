@@ -15,9 +15,9 @@ use tmt_colab::{
     decoder::Decoder,
     keyring::Keyring,
     limits::{
-        ATTACHMENT_REFS, DATA_IMAGE_BYTES, DATA_IMAGES_TOTAL_BYTES, PAGE_DEPTH,
-        QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE,
-        QUESTION_TITLE_POINTS,
+        ATTACHMENT_REFS, DATA_IMAGE_BYTES, DATA_IMAGES_TOTAL_BYTES, GROUP_LABEL_POINTS,
+        GROUP_QUESTIONS, PAGE_DEPTH, QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS,
+        QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS,
     },
     page_check::{self, Finding, Report},
     store::Store,
@@ -90,7 +90,7 @@ fn message(code: &str) -> String {
             "More than {QUESTION_PAGE} questions on the page: the browser shows none of them. Keep at most {QUESTION_PAGE}."
         ),
         "question-id-invalid" => "data-id must be a lowercase UUID such as 10000000-0000-4000-8000-000000000001; this question is ignored.".into(),
-        "question-id-duplicate" => "Another question uses the same data-id, so every copy is ignored. Give each question its own UUID.".into(),
+        "question-id-duplicate" => "Another question or group uses the same data-id, so every holder is ignored. Give each its own UUID.".into(),
         "question-nested" => "A question inside another question is ignored. Put it beside the outer one.".into(),
         "question-heading-missing" => "No direct child has data-question to hold the question text, so this question is ignored.".into(),
         "question-heading-multiple" => "More than one direct child has data-question. Keep exactly one.".into(),
@@ -107,6 +107,19 @@ fn message(code: &str) -> String {
         "question-choices-unexpected" => "A short or long question takes no data-choice children.".into(),
         "question-other-unexpected" => "data-other applies only to single and multiple questions.".into(),
         "question-agent-invalid" => format!("data-agent is over {QUESTION_AGENT_POINTS} characters or contains a control character."),
+        "question-group-child-invalid" => "A question in a tmt-questions group must be a direct child of it; inside another element it is ignored and never becomes a lone question.".into(),
+        "group-id-invalid" => "data-id must be a lowercase UUID; this group and everything in it is ignored.".into(),
+        "group-id-duplicate" => "Another group or question uses the same data-id, so every holder is ignored. Give each its own UUID.".into(),
+        "group-nested" => "A tmt-questions group inside another group or a question is ignored with everything in it. Put it beside the outer one.".into(),
+        "group-title-missing" => "A group needs exactly one direct <p data-title> child; none was found, so the group is ignored.".into(),
+        "group-title-multiple" => "A group needs exactly one direct <p data-title> child; more than one was found.".into(),
+        "group-title-empty" => "The group's data-title text is empty.".into(),
+        "group-title-too-long" => format!("The group's data-title text is over {QUESTION_TITLE_POINTS} characters."),
+        "group-title-control" => "The group's data-title text contains a control character.".into(),
+        "group-questions-too-many" => format!("More than {GROUP_QUESTIONS} direct tmt-question children; the group is ignored."),
+        "group-empty" => "No question of this group is shown, so the group is ignored.".into(),
+        "group-label-too-long" => format!("data-label is over {GROUP_LABEL_POINTS} characters; the tab shows Q<n> instead."),
+        "group-label-control" => "data-label contains a control character; the tab shows Q<n> instead.".into(),
         "question-marker-misplaced" => "data-question and data-choice count only on direct children of a tmt-question; here the element is plain content.".into(),
         "image-data-oversized" => format!(
             "This data: image is over {} KiB. Attach the file and reference it with colab-attachment: instead.",
@@ -127,7 +140,7 @@ fn message(code: &str) -> String {
 }
 
 fn finding_json(finding: &Finding) -> Value {
-    json!({
+    let mut value = json!({
         "code": finding.code,
         "severity": finding.severity.as_str(),
         "element": finding.element,
@@ -135,7 +148,11 @@ fn finding_json(finding: &Finding) -> Value {
         "id": finding.id,
         "line": finding.line,
         "message": message(finding.code),
-    })
+    });
+    if let Some(skipped) = finding.questions_skipped {
+        value["questionsSkipped"] = json!(skipped);
+    }
+    value
 }
 
 fn findings_json(findings: &[Finding]) -> Value {
@@ -161,13 +178,18 @@ fn describe(finding: &Finding) -> String {
         .id
         .as_deref()
         .map_or_else(String::new, |id| format!(" ({id})"));
+    let skipped = finding.questions_skipped.map_or_else(String::new, |count| {
+        let plural = if count == 1 { "" } else { "s" };
+        format!(" {count} question{plural} skipped with it.")
+    });
     format!(
-        "{} <{}> #{}{}: {}",
+        "{} <{}> #{}{}: {}{}",
         finding.code,
         finding.element,
         finding.ordinal,
         id,
-        message(finding.code)
+        message(finding.code),
+        skipped
     )
 }
 

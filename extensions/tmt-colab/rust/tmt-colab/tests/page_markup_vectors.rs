@@ -47,7 +47,7 @@ fn every_case_gets_the_verdict_the_browser_gave() {
             .map(|q| {
                 json!({
                     "id": q.id, "kind": q.kind, "title": q.title, "choices": q.choices,
-                    "other": q.other, "agent": q.agent, "group": null, "label": null,
+                    "other": q.other, "agent": q.agent, "group": q.group, "label": q.label,
                 })
             })
             .collect();
@@ -56,15 +56,15 @@ fn every_case_gets_the_verdict_the_browser_gave() {
             &shown,
             "{name}: questions"
         );
-        // Until groups exist, every shown question is a lone question: an internal group of one.
-        let lone: Vec<Value> = report
-            .questions
+        // A lone question is an internal group of itself: its own ID, no title.
+        let groups: Vec<Value> = report
+            .groups
             .iter()
-            .map(|q| json!({"id": q.id, "title": null, "questions": [q.id]}))
+            .map(|g| json!({"id": g.id, "title": g.title, "questions": g.questions}))
             .collect();
         assert_eq!(
             case["admitted"]["groups"].as_array().unwrap(),
-            &lone,
+            &groups,
             "{name}: groups"
         );
 
@@ -75,7 +75,7 @@ fn every_case_gets_the_verdict_the_browser_gave() {
                 finding_key(&json!({
                     "element": f.element, "ordinal": f.ordinal, "code": f.code,
                     "severity": f.severity.as_str(), "line": f.line, "id": f.id,
-                    "questionsSkipped": null,
+                    "questionsSkipped": f.questions_skipped,
                 }))
             })
             .collect();
@@ -109,6 +109,8 @@ fn the_vector_limits_equal_the_named_constants() {
         ("choices", limits::QUESTION_CHOICES),
         ("choicePoints", limits::QUESTION_CHOICE_POINTS),
         ("agentPoints", limits::QUESTION_AGENT_POINTS),
+        ("groupQuestions", limits::GROUP_QUESTIONS),
+        ("labelPoints", limits::GROUP_LABEL_POINTS),
         ("dataImageBytes", limits::DATA_IMAGE_BYTES),
         ("dataImagesTotalBytes", limits::DATA_IMAGES_TOTAL_BYTES),
         ("attachmentRefs", limits::ATTACHMENT_REFS),

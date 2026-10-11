@@ -43,10 +43,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Pick one?",
-            "choices": [
-              "A",
-              "B"
-            ],
+            "choices": ["A", "B"],
             "other": true,
             "agent": "Agent 1",
             "group": null,
@@ -56,11 +53,7 @@
             "id": "10000000-0000-4000-8000-000000000002",
             "kind": "multiple",
             "title": "Pick some?",
-            "choices": [
-              "A",
-              "B",
-              "C"
-            ],
+            "choices": ["A", "B", "C"],
             "other": false,
             "agent": "",
             "group": null,
@@ -91,30 +84,22 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000002",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000002"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000002"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000003",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000003"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000003"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000004",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000004"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000004"]
           }
         ]
       },
@@ -137,10 +122,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Which colour now?",
-            "choices": [
-              "Dark blue",
-              "Green"
-            ],
+            "choices": ["Dark blue", "Green"],
             "other": false,
             "agent": "",
             "group": null,
@@ -151,9 +133,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -226,9 +206,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -240,7 +218,7 @@
       "why": "Limits count code points: 200 astral characters fit although they are 400 UTF-16 units.",
       "source": [
         "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
-        "  <p data-question>\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80</p>",
+        "  <p data-question>🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀</p>",
         "</tmt-question>"
       ],
       "admitted": {
@@ -248,7 +226,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "short",
-            "title": "\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80",
+            "title": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
             "choices": [],
             "other": false,
             "agent": "",
@@ -260,9 +238,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -346,9 +322,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000002",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000002"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000002"]
           }
         ]
       },
@@ -435,9 +409,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -642,9 +614,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -1700,352 +1670,252 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000002",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000002"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000002"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000003",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000003"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000003"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000004",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000004"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000004"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000005",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000005"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000005"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000006",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000006"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000006"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000007",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000007"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000007"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000008",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000008"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000008"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000009",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000009"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000009"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000010",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000010"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000010"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000011",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000011"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000011"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000012",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000012"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000012"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000013",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000013"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000013"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000014",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000014"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000014"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000015",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000015"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000015"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000016",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000016"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000016"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000017",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000017"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000017"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000018",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000018"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000018"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000019",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000019"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000019"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000020",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000020"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000020"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000021",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000021"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000021"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000022",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000022"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000022"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000023",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000023"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000023"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000024",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000024"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000024"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000025",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000025"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000025"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000026",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000026"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000026"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000027",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000027"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000027"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000028",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000028"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000028"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000029",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000029"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000029"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000030",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000030"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000030"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000031",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000031"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000031"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000032",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000032"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000032"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000033",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000033"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000033"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000034",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000034"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000034"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000035",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000035"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000035"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000036",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000036"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000036"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000037",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000037"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000037"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000038",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000038"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000038"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000039",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000039"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000039"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000040",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000040"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000040"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000041",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000041"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000041"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000042",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000042"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000042"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000043",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000043"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000043"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000044",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000044"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000044"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000045",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000045"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000045"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000046",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000046"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000046"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000047",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000047"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000047"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000048",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000048"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000048"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000049",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000049"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000049"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000050",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000050"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000050"]
           }
         ]
       },
@@ -2304,9 +2174,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2338,9 +2206,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2374,9 +2240,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2410,9 +2274,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2459,16 +2321,12 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           },
           {
             "id": "10000000-0000-4000-8000-000000000002",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000002"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000002"]
           }
         ]
       },
@@ -2506,9 +2364,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000003",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000003"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000003"]
           }
         ]
       },
@@ -2578,7 +2434,7 @@
       "why": "Text normalization uses JavaScript's \\s: U+2003 and U+FEFF are spaces, U+0085 is not.",
       "source": [
         "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
-        "  <p data-question>\ufeff A\u2003B\ufeffC\u0085D \ufeff</p>",
+        "  <p data-question>﻿ A B﻿CD ﻿</p>",
         "</tmt-question>"
       ],
       "admitted": {
@@ -2586,7 +2442,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "short",
-            "title": "A B C\u0085D",
+            "title": "A B CD",
             "choices": [],
             "other": false,
             "agent": "",
@@ -2598,9 +2454,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2611,7 +2465,7 @@
       "scope": "parser",
       "why": "Only ASCII hex digits make a UUID: fullwidth digits are ignored.",
       "source": [
-        "<tmt-question data-id=\"\uff110000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<tmt-question data-id=\"１0000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
         "  <p data-question>Q</p>",
         "</tmt-question>"
       ],
@@ -2623,7 +2477,7 @@
         {
           "element": "tmt-question",
           "ordinal": 1,
-          "id": "\uff110000000-0000-4000-8000-000000000001",
+          "id": "１0000000-0000-4000-8000-000000000001",
           "line": 1,
           "severity": "ignored",
           "code": "question-id-invalid"
@@ -2646,9 +2500,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Q",
-            "choices": [
-              "A"
-            ],
+            "choices": ["A"],
             "other": true,
             "agent": "",
             "group": null,
@@ -2659,9 +2511,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2683,9 +2533,7 @@
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "single",
             "title": "Pick one now",
-            "choices": [
-              "A b"
-            ],
+            "choices": ["A b"],
             "other": false,
             "agent": "",
             "group": null,
@@ -2696,9 +2544,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2730,9 +2576,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2752,7 +2596,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "kind": "short",
-            "title": "a\u00a9=1 & AB",
+            "title": "a©=1 & AB",
             "choices": [],
             "other": false,
             "agent": "a&copy=1&b",
@@ -2764,9 +2608,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -2803,9 +2645,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000002",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000002"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000002"]
           }
         ]
       },
@@ -3729,9 +3569,7 @@
           {
             "id": "10000000-0000-4000-8000-000000000001",
             "title": null,
-            "questions": [
-              "10000000-0000-4000-8000-000000000001"
-            ]
+            "questions": ["10000000-0000-4000-8000-000000000001"]
           }
         ]
       },
@@ -4271,6 +4109,2553 @@
           "line": 513,
           "severity": "warning",
           "code": "page-too-deep"
+        }
+      ]
+    },
+    {
+      "name": "group-valid-two-labels",
+      "scope": "parser",
+      "why": "Authored labels and absent labels share admitted-order numbering.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-label=\"Layout\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Layout"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q2"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002"
+            ]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-lone-internal",
+      "scope": "parser",
+      "why": "A lone question has one internal group without an authored heading or tab label.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-valid-twelve",
+      "scope": "parser",
+      "why": "The inclusive group maximum is twelve direct questions.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q2"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q3"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q4"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000005",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q5"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q6"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000007",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q7"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000008",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q8"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000009",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q9"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000010",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q10"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000011",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q11"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000012",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q12"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002",
+              "10000000-0000-4000-8000-000000000003",
+              "10000000-0000-4000-8000-000000000004",
+              "10000000-0000-4000-8000-000000000005",
+              "10000000-0000-4000-8000-000000000006",
+              "10000000-0000-4000-8000-000000000007",
+              "10000000-0000-4000-8000-000000000008",
+              "10000000-0000-4000-8000-000000000009",
+              "10000000-0000-4000-8000-000000000010",
+              "10000000-0000-4000-8000-000000000011",
+              "10000000-0000-4000-8000-000000000012"
+            ]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-thirteen",
+      "scope": "parser",
+      "why": "The direct-child ceiling counts every direct question before individual admission.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-questions-too-many",
+          "questionsSkipped": 13
+        }
+      ]
+    },
+    {
+      "name": "group-label-unicode-24",
+      "scope": "parser",
+      "why": "Label length counts Unicode code points, not UTF-16 units.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-label=\"🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-label-unicode-25",
+      "scope": "parser",
+      "why": "Label length counts Unicode code points, not UTF-16 units.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-label=\"🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "warning",
+          "code": "group-label-too-long"
+        }
+      ]
+    },
+    {
+      "name": "group-label-control-fallback",
+      "scope": "parser",
+      "why": "A surviving question with a control-character label keeps its group and receives a fallback.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-label=\"A\u0001B\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "warning",
+          "code": "group-label-control"
+        }
+      ]
+    },
+    {
+      "name": "group-label-empty-fallback",
+      "scope": "parser",
+      "why": "An empty optional label uses the same fallback as an absent label.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-label=\"\">",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-title-unicode-200",
+      "scope": "parser",
+      "why": "Group title limits count code points.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-title-unicode-201",
+      "scope": "parser",
+      "why": "Group title limits count code points.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈🐈</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-too-long",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-empty",
+      "scope": "parser",
+      "why": "An empty group supplies no controls.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-empty"
+        }
+      ]
+    },
+    {
+      "name": "group-first-failure-only",
+      "scope": "parser",
+      "why": "A missing title takes priority over an excessive question count; child findings are suppressed.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-missing",
+          "questionsSkipped": 13
+        }
+      ]
+    },
+    {
+      "name": "group-skipped-child-does-not-hold-id",
+      "scope": "parser",
+      "why": "A child ID in a structurally skipped group does not collide with a valid lone question.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-missing",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-own-id-still-holds",
+      "scope": "parser",
+      "why": "A skipped group own ID still collides with a lone question; the first group rule is duplicate ID.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000001\">",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 6,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "group-invalid-child-fallback-order",
+      "scope": "parser",
+      "why": "An invalid direct question takes no fallback number; a valid sibling survives.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"invalid\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "ignored",
+          "code": "question-kind-invalid"
+        }
+      ]
+    },
+    {
+      "name": "group-wrapped-question",
+      "scope": "parser",
+      "why": "A wrapped descendant is ignored and never becomes a lone group; direct siblings survive.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 4,
+          "severity": "ignored",
+          "code": "question-group-child-invalid"
+        }
+      ]
+    },
+    {
+      "name": "group-wrapper-only",
+      "scope": "parser",
+      "why": "A structurally valid group reports the wrapped child reason and then group-empty.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</div>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-empty"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 4,
+          "severity": "ignored",
+          "code": "question-group-child-invalid"
+        }
+      ]
+    },
+    {
+      "name": "group-id-invalid",
+      "scope": "parser",
+      "why": "An invalid group UUID suppresses child controls.",
+      "source": [
+        "<tmt-questions data-id=\"not-a-uuid\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "not-a-uuid",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-invalid",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-id-duplicate",
+      "scope": "parser",
+      "why": "Every duplicate group holder is ignored; no child IDs or findings survive.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-questions",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 7,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-nested",
+      "scope": "parser",
+      "why": "An inner group is ignored while the outer direct question remains.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000101\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000101",
+          "line": 3,
+          "severity": "ignored",
+          "code": "group-nested",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-title-missing",
+      "scope": "parser",
+      "why": "A title must be a direct p element.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<div data-title>Decisions</div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-missing",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-title-multiple",
+      "scope": "parser",
+      "why": "Two direct title paragraphs skip the group.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>One</p>",
+        "<p data-title>Two</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-multiple",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-title-empty",
+      "scope": "parser",
+      "why": "A whitespace-only title is empty after normalization.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>   </p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-empty",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-title-control",
+      "scope": "parser",
+      "why": "A title control character skips the group.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>A\u0001B</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-control",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-wrapper-does-not-hold-id",
+      "scope": "parser",
+      "why": "A wrapped ignored question cannot collide with a valid direct sibling.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</div>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 4,
+          "severity": "ignored",
+          "code": "question-group-child-invalid"
+        }
+      ]
+    },
+    {
+      "name": "group-page-limit-counts-excluded",
+      "scope": "parser",
+      "why": "The page-wide limit counts even questions in an otherwise skipped group and overrides group rules.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000014\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000015\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000016\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000017\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000018\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000019\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000020\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000021\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000022\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000023\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000024\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000025\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000026\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000027\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000028\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000029\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000030\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000031\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000032\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000033\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000034\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000035\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000036\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000037\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000038\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000039\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000040\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000041\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000042\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000043\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000044\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000045\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000046\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000047\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000048\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000049\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000050\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000051\" data-kind=\"short\" >",
+        "  <p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 51,
+          "id": "10000000-0000-4000-8000-000000000051",
+          "line": 152,
+          "severity": "ignored",
+          "code": "question-page-limit"
+        }
+      ]
+    },
+    {
+      "name": "group-page-fifty-inclusive",
+      "scope": "parser",
+      "why": "Twelve grouped and thirty-eight lone questions share the inclusive fifty-question page ceiling.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000014\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000015\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000016\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000017\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000018\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000019\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000020\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000021\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000022\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000023\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000024\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000025\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000026\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000027\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000028\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000029\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000030\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000031\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000032\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000033\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000034\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000035\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000036\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000037\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000038\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000039\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000040\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000041\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000042\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000043\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000044\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000045\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000046\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000047\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000048\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000049\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000050\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q2"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q3"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q4"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000005",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q5"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q6"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000007",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q7"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000008",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q8"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000009",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q9"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000010",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q10"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000011",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q11"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000012",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q12"
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000013",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000014",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000015",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000016",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000017",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000018",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000019",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000020",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000021",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000022",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000023",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000024",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000025",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000026",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000027",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000028",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000029",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000030",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000031",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000032",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000033",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000034",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000035",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000036",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000037",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000038",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000039",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000040",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000041",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000042",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000043",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000044",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000045",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000046",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000047",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000048",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000049",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000050",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": null,
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002",
+              "10000000-0000-4000-8000-000000000003",
+              "10000000-0000-4000-8000-000000000004",
+              "10000000-0000-4000-8000-000000000005",
+              "10000000-0000-4000-8000-000000000006",
+              "10000000-0000-4000-8000-000000000007",
+              "10000000-0000-4000-8000-000000000008",
+              "10000000-0000-4000-8000-000000000009",
+              "10000000-0000-4000-8000-000000000010",
+              "10000000-0000-4000-8000-000000000011",
+              "10000000-0000-4000-8000-000000000012"
+            ]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000013",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000013"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000014",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000014"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000015",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000015"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000016",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000016"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000017",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000017"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000018",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000018"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000019",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000019"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000020",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000020"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000021",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000021"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000022",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000022"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000023",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000023"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000024",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000024"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000025",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000025"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000026",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000026"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000027",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000027"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000028",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000028"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000029",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000029"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000030",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000030"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000031",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000031"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000032",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000032"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000033",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000033"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000034",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000034"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000035",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000035"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000036",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000036"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000037",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000037"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000038",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000038"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000039",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000039"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000040",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000040"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000041",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000041"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000042",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000042"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000043",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000043"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000044",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000044"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000045",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000045"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000046",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000046"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000047",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000047"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000048",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000048"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000049",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000049"]
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000050",
+            "title": null,
+            "questions": ["10000000-0000-4000-8000-000000000050"]
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "group-all-children-invalid",
+      "scope": "parser",
+      "why": "Child findings survive group-empty when structural admission succeeded.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"invalid\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-empty"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "ignored",
+          "code": "question-kind-invalid"
+        }
+      ]
+    },
+    {
+      "name": "group-nested-question-priority",
+      "scope": "parser",
+      "why": "The nearest question ancestor gives question-nested, not wrapper placement, while the direct outer question survives.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "<p data-question>Inner</p>",
+        "</tmt-question>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000001"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000002",
+          "line": 5,
+          "severity": "ignored",
+          "code": "question-nested"
+        }
+      ]
+    },
+    {
+      "name": "group-child-lone-id-collision",
+      "scope": "parser",
+      "why": "A direct child holds its ID in the same namespace as a lone question; both collide and a valid sibling survives.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "10000000-0000-4000-8000-000000000100",
+            "label": "Q1"
+          }
+        ],
+        "groups": [
+          {
+            "id": "10000000-0000-4000-8000-000000000100",
+            "title": "Decisions",
+            "questions": ["10000000-0000-4000-8000-000000000002"]
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 3,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 10,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "group-id-held-by-own-child",
+      "scope": "parser",
+      "why": "The fixed holder snapshot is not retracted after a duplicate group silences its child.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000100\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        }
+      ]
+    },
+    {
+      "name": "group-id-held-by-lone-question",
+      "scope": "parser",
+      "why": "A structurally otherwise-valid group and lone question both report a shared ID.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000100\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 7,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "group-duplicate-direct-children-empty",
+      "scope": "parser",
+      "why": "Each direct child holds its ID; duplicate child failures survive group-empty.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-empty"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 3,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 6,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "group-duplicate-children-still-hold",
+      "scope": "parser",
+      "why": "Children of duplicate-failed groups remain in the fixed snapshot while their findings are suppressed.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<p data-title>Decisions</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-questions",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 7,
+          "severity": "ignored",
+          "code": "group-id-duplicate",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 3,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 13,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "group-suppressed-nested-own-id-still-holds",
+      "scope": "parser",
+      "why": "A nested group in a structurally skipped subtree still holds its own ID in the fixed snapshot.",
+      "source": [
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+        "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000200\">",
+        "<p data-title>Inner</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>",
+        "</tmt-questions>",
+        "</tmt-questions>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000200\" data-kind=\"short\">",
+        "<p data-question>Question</p>",
+        "</tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000100",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-title-missing",
+          "questionsSkipped": 1
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000200",
+          "line": 9,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
         }
       ]
     }

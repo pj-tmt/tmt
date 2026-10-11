@@ -58,9 +58,9 @@ membership and revocation cuts still apply. Fresh `author()` and the actual call
 `rust/tmt-colab/src/page_check/` is the pure checker behind `page check` and the warnings of
 `page create` and `page write`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
 `template` fragment context, scripting off, nesting capped at 512 because the tree builder scans
-its open elements on every start tag), and `question.rs` and `image.rs` hold the rule tables. It
-does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
-(`src/questions.ts`) is the other implementation of the question rules. Both run
+its open elements on every start tag), and `question.rs`, `group.rs` and `image.rs` hold the rule
+tables (`group.rs` also decides which groups are skipped and which IDs are held). It does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
+(`src/questions.ts`) is the other implementation of the question and group rules. Both run
 `contracts/vectors/page-markup-v1.json`: `e2e/question-vectors.spec.ts` in headless Chromium and
 `tests/page_markup_vectors.rs` natively. Change a rule in both implementations and in the
 vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
@@ -83,6 +83,13 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 `session-recovery.test.ts`).
 
 ## Message editing boundary
+
+The answer-block path uses parent `questions.ts` admission, `question-layer.tsx`
+group selection and verified-thread projection, and `components/question-card.tsx`
+controls. It reuses the shared BrowserTabs leaf. `inline-slots.ts` owns the one
+measurement batch for proposal and answer cards; renderer-managed visual collapse
+keeps inactive authored questions in the canonical quote text map. The render-bound
+group/slot shapes and publication rules live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,

@@ -142,16 +142,22 @@ impl Tree {
         self.nodes[id].parent.filter(|parent| *parent != self.root)
     }
 
-    /// The nearest ancestor element called `name`, as `closest` finds it from the parent.
+    /// The ancestor elements, nearest first.
+    pub(super) fn ancestors(&self, id: Id) -> impl Iterator<Item = Id> + '_ {
+        std::iter::successors(self.parent_element(id), |ancestor| {
+            self.parent_element(*ancestor)
+        })
+    }
+
     pub(super) fn has_ancestor(&self, id: Id, name: &str) -> bool {
-        let mut current = self.parent_element(id);
-        while let Some(ancestor) = current {
-            if self.name(ancestor) == name {
-                return true;
-            }
-            current = self.parent_element(ancestor);
-        }
-        false
+        self.ancestors(id)
+            .any(|ancestor| self.name(ancestor) == name)
+    }
+
+    /// The nearest ancestor element with one of these names, as `closest` finds it from the parent.
+    pub(super) fn closest(&self, id: Id, names: &[&str]) -> Option<Id> {
+        self.ancestors(id)
+            .find(|ancestor| names.contains(&self.name(*ancestor)))
     }
 
     /// The `textContent` of an element: every descendant text node, comments excluded.

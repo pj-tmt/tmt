@@ -24,6 +24,19 @@ export interface SelectionRect {
 export interface AnchorPosition {
   id: string;
   top: number;
+  beforeTop?: number;
+  descriptionHeight?: number;
+}
+export interface InlineSlot {
+  id: string;
+  height: number;
+  before?: number;
+}
+export interface QuestionRenderGroup {
+  id: string;
+  title: string | null;
+  questions: string[];
+  active: string;
 }
 export interface QuestionAnchor {
   id: string;
@@ -70,16 +83,17 @@ export async function mountRenderer(
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
     onSlots?(slots: AnchorPosition[]): void;
-    onQuestions?(questions: QuestionAnchor[]): void;
+    onQuestions?(questions: QuestionAnchor[], checked?: boolean): void;
     images?: DocumentImageInput;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
-  slots(slots: { id: string; height: number }[]): void;
+  slots(slots: InlineSlot[]): void;
   questions(
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
+    groups: QuestionRenderGroup[],
   ): void;
   scrollAnchor(id: string): void;
   selectionMode(enabled: boolean): void;
@@ -136,8 +150,9 @@ export async function mountRenderer(
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
   let questionThreads: { id: string; selector: QuoteSelector }[] = [];
+  let questionGroups: QuestionRenderGroup[] = [];
   let slotRequestId = '';
-  let slotHeights: { id: string; height: number }[] = [];
+  let slotHeights: InlineSlot[] = [];
   let slotRounds = 0;
   let slotPositions = '';
   let lastSlots: AnchorPosition[] = [];
@@ -395,6 +410,7 @@ export async function mountRenderer(
     }
     if (value?.type === 'colab.render.questions') {
       if (
+        Object.keys(value).length !== 4 ||
         value.renderId !== snapshot.renderId ||
         value.requestId !== questionRequestId ||
         !Array.isArray(value.questions) ||
@@ -409,6 +425,7 @@ export async function mountRenderer(
           const block = questionBlocks.find((block) => block.id === item?.id);
           if (
             !block ||
+            Object.keys(item).length !== 3 ||
             seen.has(item.id) ||
             !Array.isArray(item.threads) ||
             item.threads.length > questionThreads.length ||
@@ -430,7 +447,7 @@ export async function mountRenderer(
       } catch {
         return;
       }
-      options.onQuestions?.(result);
+      options.onQuestions?.(result, true);
       return;
     }
     if (
@@ -456,18 +473,35 @@ export async function mountRenderer(
           !slot ||
           typeof slot !== 'object' ||
           Array.isArray(slot) ||
-          Object.keys(slot).length !== 2 ||
+          (Object.keys(slot).length !== 2 && Object.keys(slot).length !== 4) ||
           typeof slot.id !== 'string' ||
           !admitted.has(slot.id) ||
           seen.has(slot.id) ||
           typeof slot.top !== 'number' ||
           !Number.isFinite(slot.top) ||
           slot.top < 0 ||
-          slot.top > MAX_RENDER_HEIGHT
+          slot.top > MAX_RENDER_HEIGHT ||
+          (Object.keys(slot).length === 4 &&
+            (slotHeights.find((item) => item.id === slot.id)?.before === undefined ||
+              !Number.isFinite(slot.beforeTop) ||
+              slot.beforeTop < 0 ||
+              slot.beforeTop > slot.top ||
+              !Number.isFinite(slot.descriptionHeight) ||
+              slot.descriptionHeight < 0 ||
+              slot.descriptionHeight > 2000 ||
+              Object.keys(slot).some(
+                (key) => !['id', 'top', 'beforeTop', 'descriptionHeight'].includes(key),
+              )))
         )
           return;
         seen.add(slot.id);
-        next.push({ id: slot.id, top: slot.top });
+        next.push({
+          id: slot.id,
+          top: slot.top,
+          ...(Object.keys(slot).length === 4
+            ? { beforeTop: slot.beforeTop, descriptionHeight: slot.descriptionHeight }
+            : {}),
+        });
       }
       // A disappeared slot is detached even after the convergence budget is used.
       if (next.length === 0) {
@@ -580,10 +614,28 @@ export async function mountRenderer(
   const questions = (
     blocks: { id: string; title: string }[],
     threads: { id: string; selector: QuoteSelector }[],
+    groups: QuestionRenderGroup[],
   ) => {
     if (
       stopped ||
       blocks.length > 50 ||
+      groups.length > 50 ||
+      new Set(groups.map((group) => group.id)).size !== groups.length ||
+      groups.some(
+        (group) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(group.id) ||
+          (group.title !== null &&
+            (typeof group.title !== 'string' || !group.title || [...group.title].length > 200)) ||
+          !group.questions.length ||
+          group.questions.length > 12 ||
+          !group.questions.includes(group.active) ||
+          new Set(group.questions).size !== group.questions.length ||
+          (group.title === null &&
+            (group.questions.length !== 1 || group.id !== group.questions[0])) ||
+          group.questions.some((id) => !blocks.some((block) => block.id === id)),
+      ) ||
+      groups.flatMap((group) => group.questions).length !== blocks.length ||
+      new Set(groups.flatMap((group) => group.questions)).size !== blocks.length ||
       threads.length > 1000 ||
       new Set(blocks.map((block) => block.id)).size !== blocks.length ||
       blocks.some(
@@ -595,6 +647,28 @@ export async function mountRenderer(
     )
       return;
     for (const thread of threads) validateSelector(thread.selector);
+    const changed =
+      JSON.stringify(questionBlocks) !== JSON.stringify(blocks) ||
+      JSON.stringify(questionGroups.map(({ active: _active, ...group }) => group)) !==
+        JSON.stringify(groups.map(({ active: _active, ...group }) => group));
+    const moved = new Set(
+      groups
+        .filter(
+          (group) =>
+            questionGroups.find((previous) => previous.id === group.id)?.active !== group.active,
+        )
+        .map((group) => group.id),
+    );
+    if (moved.size) {
+      slotRounds = 0;
+      slotPositions = '';
+    }
+    questionGroups = groups.map(({ id, title, questions, active }) => ({
+      id,
+      title,
+      questions: [...questions],
+      active,
+    }));
     questionBlocks = blocks.map(({ id, title }) => ({ id, title }));
     questionThreads = threads.map(({ id, selector }) => ({
       id,
@@ -606,13 +680,25 @@ export async function mountRenderer(
       renderId: snapshot.renderId,
       requestId: questionRequestId,
       blocks: questionBlocks,
+      groups: questionGroups,
       threads: questionThreads,
     };
-    options.onQuestions?.([]);
+    if (changed) options.onQuestions?.([], false);
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) return;
     channel.port1.postMessage(message);
+    if (moved.size && slotHeights.length) {
+      // A tab change needs geometry for that description. Retire its old answer geometry while
+      // the existing slot owner requests fresh placement on the same ordered port.
+      lastSlots = lastSlots.map((slot) => {
+        if (!moved.has(slot.id)) return slot;
+        // The strip keeps its admitted position/focus while answer bands detach.
+        const { descriptionHeight: _descriptionHeight, ...placement } = slot;
+        return placement;
+      });
+      slots(slotHeights);
+    }
   };
-  const slots = (input: { id: string; height: number }[]) => {
+  const slots = (input: InlineSlot[]) => {
     if (
       stopped ||
       input.length > 250 ||
@@ -620,13 +706,15 @@ export async function mountRenderer(
       input.some(
         (v) =>
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.id) ||
-          !Number.isFinite(v.height),
+          !Number.isFinite(v.height) ||
+          (v.before !== undefined && !Number.isFinite(v.before)),
       )
     )
       return;
-    slotHeights = input.map(({ id, height }) => ({
+    slotHeights = input.map(({ id, height, before }) => ({
       id,
       height: Math.min(2000, Math.max(0, Math.ceil(height))),
+      ...(before !== undefined ? { before: Math.min(2000, Math.max(0, Math.ceil(before))) } : {}),
     }));
     slotRequestId = crypto.randomUUID();
     slotRounds = 0;

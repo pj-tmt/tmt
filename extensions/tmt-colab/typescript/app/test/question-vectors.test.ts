@@ -1,6 +1,8 @@
 import { expect, it } from 'vite-plus/test';
 import {
   QUESTION_AGENT_POINTS,
+  QUESTION_GROUP_LIMIT,
+  QUESTION_LABEL_POINTS,
   QUESTION_CHOICE_POINTS,
   QUESTION_CHOICES,
   QUESTION_FINDING_CODES,
@@ -13,12 +15,16 @@ it('the vector limits equal the named constants, so a number cannot drift', () =
   const limits = vectors.limits;
   expect({
     pageQuestions: limits.pageQuestions,
+    groupQuestions: limits.groupQuestions,
+    labelPoints: limits.labelPoints,
     titlePoints: limits.titlePoints,
     choices: limits.choices,
     choicePoints: limits.choicePoints,
     agentPoints: limits.agentPoints,
   }).toEqual({
     pageQuestions: QUESTION_LIMIT,
+    groupQuestions: QUESTION_GROUP_LIMIT,
+    labelPoints: QUESTION_LABEL_POINTS,
     titlePoints: QUESTION_TITLE_POINTS,
     choices: QUESTION_CHOICES,
     choicePoints: QUESTION_CHOICE_POINTS,

@@ -61,7 +61,7 @@ name and a visible tooltip.
 - **Responsive:** every component works from 320 px up and sizes from its own
   container (CSS container queries), not only the viewport, because the same
   component appears full width and inside a 400 px overlay. Nothing overflows
-  horizontally: rows wrap, long titles truncate with `…`, and mono text breaks
+  horizontally outside a tab strip: rows wrap, long titles truncate with `…`, and mono text breaks
   anywhere. Header actions overflow into More; the state chip stays visible.
   The [Header](#header) rule owns the Colab compact fitting order.
 
@@ -180,6 +180,22 @@ Not shipped. Basis: own.
 A light text button with a square indicator before a fixed label; the indicator
 alone shows on or off, so the width never changes. `aria-pressed`, Space and
 Enter. Shipped as the page list's `Show archived` (#1728). Basis: own.
+
+### Tabs
+
+`BrowserTabs` is a controlled leaf with a horizontal named tablist and persistent
+panels. Left/Right wrap, Home/End move to the ends, and arrow navigation activates immediately;
+Enter/Space use native activation. Only the selected tab enters the Tab order.
+Panels have no tab stop by default; the host can opt in. The host retains selection, drafts, stable tab/panel IDs and optional mark/state
+words. The accessible name includes the mark and state word. A trailing status
+slot belongs to the host and wraps below the strip below 480px of component width.
+
+The strip scrolls horizontally without wrapping or animation; selection and resize
+keep the selected tab visible without moving the page. A label wider than the strip
+truncates while retaining its full accessible name. Use the existing state roles,
+a 1px flat square panel rule and a 2px link-color rule above the selected tab, which
+joins the panel. The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
+owns React/static inputs and panel lifetimes. Basis: own.
 
 ### Card
 

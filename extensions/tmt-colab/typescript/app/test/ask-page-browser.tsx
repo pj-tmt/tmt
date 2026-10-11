@@ -113,6 +113,8 @@ export async function mount(
     exportAttachments?: boolean;
     /** An admitted reply already present in the initial loader snapshot. */
     pastReplies?: boolean;
+    /** Retain the committed answer until the test releases the verified projection. */
+    holdQuestionView?: boolean;
   } = {},
 ) {
   root?.unmount();
@@ -358,7 +360,7 @@ export async function mount(
         { ...thread, comments: [...thread.comments, comment] },
       ],
     };
-    emit();
+    if (!options.holdQuestionView) emit();
     return {
       thread: thread.ref,
       threadRevision: thread.revision,
@@ -1208,6 +1210,43 @@ export function question(
     source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
     threads: options.mixed ? current.threads : [],
   };
+  emit();
+}
+
+/** Grouped authored markup uses the same parent parser and real quote/thread owners. */
+export function questionGroup(
+  options: { count?: number; darkPage?: boolean; longLabels?: boolean; lone?: boolean } = {},
+) {
+  const count = options.count ?? 2;
+  const questions = Array.from({ length: count }, (_, index) => {
+    const kind = index === 0 ? 'single' : index === 1 ? 'short' : 'long';
+    const label = options.longLabels
+      ? `Question ${String(index + 1).padStart(2, '0')}: page review`
+      : `Q${index + 1}`;
+    return `<tmt-question data-id="${id(100 + index)}" data-kind="${kind}" data-agent="Agent 1" data-label="${label}"><p data-question>${index === 0 ? 'Which heading should we use?' : index === 1 ? 'What should the introduction say?' : `What should section ${index + 1} explain?`}</p><p>Consider clarity and the intended reader.</p>${index === 0 ? '<span data-choice>Keep it</span><span data-choice>Change it</span>' : ''}</tmt-question>`;
+  });
+  current = {
+    ...current,
+    threads: [],
+    asks: [],
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><tmt-questions data-id="${id(99)}"><p data-title>Review the page</p>${questions.join('')}</tmt-questions>${options.lone ? `<tmt-question data-id="${id(120)}" data-kind="long"><p data-question>Any other feedback?</p></tmt-question>` : ''}<p id="after-question">The page continues here.</p>`,
+  };
+  emit();
+}
+
+/** A reload restores only a verified projection, never local tab state or control text. */
+export function saveQuestionPage() {
+  const { source, title, threads, asks, archived } = current;
+  sessionStorage.setItem(
+    'colab-fixture-question-page',
+    JSON.stringify({ source, title, threads, asks, archived }),
+  );
+}
+export function restoreQuestionPage() {
+  current = { ...current, ...JSON.parse(sessionStorage.getItem('colab-fixture-question-page')!) };
+  emit();
+}
+export function releaseQuestionView() {
   emit();
 }
 

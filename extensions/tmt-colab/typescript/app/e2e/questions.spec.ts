@@ -49,7 +49,6 @@ for (const kind of ['single', 'multiple', 'short', 'long']) {
       `Answer to “Which heading should we use?”: ${kind === 'single' ? 'Change it' : kind === 'multiple' ? 'Keep it; Change it' : 'Use a clearer heading.'}\nPage: Live shared page\n@Agent 1`,
     );
     await run(page, 'questionAsk', 'replied');
-    await card.locator('summary').click();
     await expect(card.getByTestId('ask-reply')).toContainText('I read your answer in this thread.');
     await card.getByRole('button', { name: 'Change answer', exact: true }).press('Enter');
     if (kind === 'single' || kind === 'multiple') {
@@ -167,7 +166,6 @@ test('uncertain delivery keeps the answer and never resends automatically', asyn
   await send(page);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await run(page, 'questionAsk', 'uncertain');
-  await card.locator('summary').click();
   await expect(card.getByTestId('ask-state')).toHaveAttribute('data-state', 'uncertain');
   await expect(card.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
   await card.getByRole('button', { name: 'Check again', exact: true }).click();
@@ -212,12 +210,13 @@ for (const width of [1440, 390])
         const proposal = page.locator('[data-inline-proposal]');
         await expect(proposal).not.toHaveAttribute('data-detached');
         // Both trusted overlays use the light leaf palette even when chrome/author differ.
-        for (const surface of [card, proposal.locator('.proposal-card')]) {
+        for (const surface of [
+          card.locator('.question-controls'),
+          proposal.locator('.proposal-card'),
+        ]) {
           await expect(surface).toHaveCSS('background-color', 'rgb(255, 255, 255)');
           await expect(surface).toHaveCSS('color', 'rgb(52, 52, 52)');
           await expect(surface).toHaveCSS('color-scheme', 'light');
-          await expect(surface).toHaveCSS('border-top-color', 'rgb(98, 98, 98)');
-          await expect(surface).toHaveCSS('border-top-width', '1px');
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
         await expect(proposal.locator('.proposal-author')).toHaveCSS('color', 'rgb(98, 98, 98)');
@@ -271,15 +270,18 @@ for (const width of [1440, 390])
         await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
         const sendButton = card.getByRole('button', { name: /^Send answer/ });
         await expect(sendButton).toBeEnabled();
-        await expect(sendButton).toHaveCSS('background-color', 'rgb(52, 52, 52)');
-        await expect(sendButton).toHaveCSS('color', 'rgb(250, 250, 250)');
+        await expect(sendButton).toHaveCSS('background-color', 'rgb(0, 107, 143)');
+        await expect(sendButton).toHaveCSS('color', 'rgb(255, 255, 255)');
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
         await expect(sendButton).toBeFocused();
         await expect(sendButton).toHaveCSS('outline-color', 'rgb(98, 98, 98)');
         await expect(sendButton).toHaveCSS('outline-width', '2px');
         await send(page);
-        await expect(card).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+        await expect(card.locator('.question-controls')).toHaveCSS(
+          'background-color',
+          'rgb(255, 255, 255)',
+        );
         await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toHaveCSS(
           'color',
           'rgb(52, 52, 52)',
@@ -301,7 +303,12 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
     .evaluate(() => {
       const original = MessagePort.prototype.postMessage;
       const claims = { count: 0 };
-      Object.assign(window, { questionClaimCount: () => claims.count });
+      Object.assign(window, {
+        questionClaimCount: () => claims.count,
+        restoreQuestionClaims: () => {
+          MessagePort.prototype.postMessage = original;
+        },
+      });
       MessagePort.prototype.postMessage = function (message) {
         if (message?.type === 'colab.render.questions') {
           claims.count++;
@@ -334,6 +341,14 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
   ).toBeEnabled();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
+  // Resume valid cosmetic quote responses; unknown fields cannot associate a new verified thread.
+  await page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('body')
+    .evaluate(() => {
+      (window as unknown as { restoreQuestionClaims(): void }).restoreQuestionClaims();
+      document.body.append(document.createTextNode('Valid geometry resumed.'));
+    });
   await send(page);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });

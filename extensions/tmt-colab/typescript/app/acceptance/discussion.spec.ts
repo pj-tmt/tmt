@@ -898,7 +898,9 @@ test('answer blocks publish verified normal annotations and keep changes and age
     const reply = agent
       .rows()
       .find((row) => row.event === 'replied' && row.requestId === first.requestId)!.body as string;
-    await card.locator('summary').click();
+    await expect(
+      card.getByRole('heading', { name: 'Conversation · Agent replied', exact: true }),
+    ).toBeVisible();
     await expect(card.getByTestId('ask-reply')).toHaveText(reply);
     const threads = () =>
       JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])).threads;

@@ -12,6 +12,19 @@ import {
 } from '../src/react';
 
 describe('presentation contracts', () => {
+  it('keeps the full accessible action name when a host shortens its visible text', () => {
+    const html = renderToStaticMarkup(
+      <BrowserAction
+        type="button"
+        label="Send answer · to @Reviewer"
+        visibleLabel="Send & next"
+        variant="primary"
+        onActivate={() => {}}
+      />,
+    );
+    expect(html).toContain('aria-label="Send answer · to @Reviewer"');
+    expect(html).toContain('tmt-ui-action-label">Send &amp; next</span>');
+  });
   it('retains decorative mark and label slots across every action variant and busy state', () => {
     for (const variant of ['text', 'primary', 'destructive'] as const) {
       for (const busyMark of [undefined, '◌']) {

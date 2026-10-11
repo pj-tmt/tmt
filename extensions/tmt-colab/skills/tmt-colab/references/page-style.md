@@ -18,6 +18,12 @@ For a fixed look, use one unconditional :root palette and color-scheme; remove
 the starter's data-theme and prefers-color-scheme overrides. Author CSS owns
 colours and backgrounds. Outside Colab, the starter follows the OS.
 
+Use [answer-block markup](questions.md) for questions: one topic/section per
+`tmt-questions` group, with long explanatory prose outside the group. Colab draws
+the tabs, state, choice tiles and Send controls; do not hand-build forms or import
+the React browser leaf into authored HTML. The group heading inherits page ink;
+its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
+
 <!-- BEGIN generated page style -->
 
 ```html
@@ -137,4 +143,3 @@ colours and backgrounds. Outside Colab, the starter follows the OS.
 ```
 
 <!-- END generated page style -->
-

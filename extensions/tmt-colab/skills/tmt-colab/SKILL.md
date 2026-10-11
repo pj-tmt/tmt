@@ -79,7 +79,7 @@ opening. Open browsers only on request.
 tmt colab page check page.html --json
 ```
 
-Offline and instant. It lists question blocks the browser would silently ignore, heavy
+Offline and instant. It lists question blocks and groups the browser would silently ignore, heavy
 `data:` images and `colab-attachment:` references that cannot show, each with a `code` and a
 `line`; exit 1 means fix the page first (`tmt colab skill questions` explains the codes).
 `page create` and `page write` run the same check and report `warnings`; `--strict`
