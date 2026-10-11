@@ -12,37 +12,44 @@ use syn::{
 // Versions/features remain Cargo-owned; aliases require canonical crate names.
 // The invoke, extension-state and extension-objects leaves retain their stricter all-kind policies below.
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
+    ("tmt-cli", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-command-output", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-office", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-office-command", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-office-service", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-office-storage", "tmt-adapters", None), // dependency-compiled test isolation
+    ("tmt-office-pairing", "tmt-adapters", None), // dependency-compiled test isolation
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
-    ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
-    ("tmt-ops", "tmt-test-support", None),      // executable stand-ins with local readiness
-    ("tmt-office", "tmt-test-support", None),   // local-service core executable stand-ins
-    ("tmt-colab", "tmt-test-support", None),    // decoder executable stand-ins
+    ("tmt-cli", "tmt-test-support", None), // target-resolution executable stand-in
+    ("tmt-ops", "tmt-test-support", None), // executable stand-ins with local readiness
+    ("tmt-office", "tmt-test-support", None), // local-service core executable stand-ins
+    ("tmt-colab", "tmt-test-support", None), // decoder executable stand-ins
     ("tmt-office-command", "tmt-test-support", None), // opt-in ETXTBSY stress comparison
     ("tmt-adapters", "tmt-office-model", None), // storage migration model fixtures
     ("tmt-adapters", "nix", Some("cfg(unix)")), // subprocess and pipe fixtures
     ("tmt-adapters", "rcgen", Some("cfg(unix)")), // release HTTP TLS certificates
     ("tmt-adapters", "rustls", Some("cfg(unix)")), // release HTTP TLS server
-    ("tmt-cli", "crossterm", None),             // binding presentation fixtures
-    ("tmt-cli", "insta", None),                 // command rendering snapshots
-    ("tmt-cli", "proc-macro2", None),           // architecture syntax fixtures
-    ("tmt-cli", "toml_edit", None),             // audited unsafe-boundary manifest policy
-    ("tmt-test-support", "serde_json", None),   // native recording driver configuration
-    ("tmt-cli", "syn", None),                   // architecture AST checks
-    ("tmt-cli", "tmt-office-model", None),      // Office parser fixtures
-    ("tmt-cli", "tmt-driver-protocol", None),   // Herdr driver conformance harness
-    ("tmt-cli", "nix", Some("cfg(unix)")),      // stdin signal and observer readiness fixtures
+    ("tmt-cli", "crossterm", None),    // binding presentation fixtures
+    ("tmt-cli", "insta", None),        // command rendering snapshots
+    ("tmt-cli", "proc-macro2", None),  // architecture syntax fixtures
+    ("tmt-cli", "toml_edit", None),    // audited unsafe-boundary manifest policy
+    ("tmt-test-support", "serde_json", None), // native recording driver configuration
+    ("tmt-cli", "syn", None),          // architecture AST checks
+    ("tmt-cli", "tmt-office-model", None), // Office parser fixtures
+    ("tmt-cli", "tmt-driver-protocol", None), // Herdr driver conformance harness
+    ("tmt-cli", "nix", Some("cfg(unix)")), // stdin signal and observer readiness fixtures
     ("tmt-cli", "rusqlite", Some("cfg(unix)")), // request-observer SQL oracle
-    ("tmt-cli-style", "crossterm", None),       // table terminal-style assertions
-    ("tmt-cli-style", "insta", None),           // rendering snapshots
-    ("tmt-cli-style", "serde_json", None),      // theme serialization assertions
-    ("tmt-office", "png", None),                // whiteboard image fixtures
-    ("tmt-office", "rusqlite", None),           // whiteboard and world SQL oracles
+    ("tmt-cli-style", "crossterm", None), // table terminal-style assertions
+    ("tmt-cli-style", "insta", None),  // rendering snapshots
+    ("tmt-cli-style", "serde_json", None), // theme serialization assertions
+    ("tmt-office", "png", None),       // whiteboard image fixtures
+    ("tmt-office", "rusqlite", None),  // whiteboard and world SQL oracles
     ("tmt-office", "tmt-office-storage", None), // in-process props fixtures
-    ("tmt-office-command", "flate2", None),     // compressed release archive fixtures
-    ("tmt-office-command", "png", None),        // whiteboard image fixtures
-    ("tmt-office-command", "tar", None),        // release archive fixtures
-    ("tmt-office-storage", "png", None),        // stored image fixtures
-    ("tmt-test-support", "signal-hook", None),  // native Colab verifier fixture shutdown
+    ("tmt-office-command", "flate2", None), // compressed release archive fixtures
+    ("tmt-office-command", "png", None), // whiteboard image fixtures
+    ("tmt-office-command", "tar", None), // release archive fixtures
+    ("tmt-office-storage", "png", None), // stored image fixtures
+    ("tmt-test-support", "signal-hook", None), // native Colab verifier fixture shutdown
 ];
 
 // These are reviewed layer permissions, not a second version/dependency graph.

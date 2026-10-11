@@ -409,7 +409,7 @@ fn command_without_selected_tmux_pane_creates_no_snapshot_or_database() {
         process_id: 20,
         driver_env: Default::default(),
     };
-    let host = Host::for_caller(&caller);
+    let host = Host::for_caller_with(&caller, crate::process::UnixCommandRunner);
     assert!(!refresh_command(&paths, &host, &caller, Instant::now() + CAPTURE_BUDGET).unwrap());
     assert!(!paths.global_dir.exists());
     assert!(!paths.database.exists());

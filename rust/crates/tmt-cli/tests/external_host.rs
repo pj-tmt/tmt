@@ -5,13 +5,16 @@
 //! and `--inbox` queues; without its driver, or with a changed one, the
 //! binding stays unknown and is never retired.
 #![cfg(unix)]
+// This fixture uses only the shared private command environment.
+#[allow(dead_code)]
+mod support;
 
 use serde_json::Value;
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
-    process::{Command, Output, Stdio},
+    process::{Output, Stdio},
 };
 use tmt_adapters::{
     driver_protocol::registry,
@@ -166,11 +169,8 @@ impl Fixture {
     /// `tmt` run from inside the driver's pane `pane`, as its environment
     /// names it.
     fn tmt_in(&self, pane: Option<&str>, args: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tmt"));
+        let mut command = support::command(&self.root, args);
         command
-            .args(args)
-            .env_clear()
-            .env("HOME", self.root.join("home"))
             .env("TMT_HOME", self.state())
             .env("XDG_CONFIG_HOME", self.root.join("xdg"))
             .env("TMUX_TMPDIR", self.root.join("tmux"))
