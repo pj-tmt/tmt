@@ -107,6 +107,7 @@ export function QuestionCard({
     destinations: agents,
   });
   const audience = decision.agents.map((agent) => `@${agent.agentName}`).join(', ');
+  const sendLabel = sendNext ? 'Send & next' : 'Send answer';
   const body = answerComment(question, choices, value, other, title, recipient.value);
   async function send() {
     if (
@@ -362,8 +363,8 @@ export function QuestionCard({
               />
             )}
             <BrowserAction
-              label={`Send answer · to ${audience || 'thread only'}`}
-              visibleLabel={sendNext ? 'Send & next' : 'Send answer'}
+              label={`${sendLabel} · to ${audience || 'thread only'}`}
+              visibleLabel={sendLabel}
               type="button"
               variant="primary"
               busy={busy}

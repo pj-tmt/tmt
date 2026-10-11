@@ -879,6 +879,7 @@ test('answer blocks publish verified normal annotations and keep changes and age
     await expect(
       card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
     ).toBeVisible();
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await expect(card.locator('.question-state')).toContainText('answered');
@@ -963,5 +964,39 @@ test('paired comment-only selection creates one durable comment without any Ask 
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
+  });
+});
+
+test('answer Send names start with visible text through the served question group', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'answer-names', { talk: true });
+    const created = createPage(
+      world,
+      'Question names',
+      '<h1>Question names</h1><tmt-questions data-id="10000000-0000-4000-8000-000000000100"><p data-title>Review choices</p><tmt-question data-id="10000000-0000-4000-8000-000000000101" data-kind="single"><p data-question>Keep the heading?</p><span data-choice>Yes</span><span data-choice>No</span></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000102" data-kind="short"><p data-question>Any details?</p></tmt-question></tmt-questions>',
+    );
+    const page = await openPage(door, browser, created);
+    const group = page.locator('[data-question-group]');
+    const first = group.locator('.question-card:visible');
+    const next = first.getByRole('button', { name: /^Send & next/ });
+    await expect(next).toHaveText('Send & next');
+    await expect(
+      first.getByRole('button', { name: 'Send & next · to thread only', exact: true }),
+    ).toBeVisible();
+    await first.getByLabel('Yes', { exact: true }).check();
+    await next.click();
+    await expect(group.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
+    const last = group.locator('.question-card:visible');
+    await expect(last.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
+    await expect(
+      last.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
+    ).toBeVisible();
+    const threads = JSON.parse(
+      run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
+    ).threads;
+    expect(threads).toHaveLength(1);
+    expect(threads[0].anchor.exact).toBe('Keep the heading?');
+    expect(threads[0].comments[0].body).toContain('Answer to “Keep the heading?”: Yes');
   });
 });

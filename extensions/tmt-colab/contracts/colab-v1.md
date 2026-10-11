@@ -2049,9 +2049,10 @@ The card, tabs and controls retain the pinned light palette; selected controls a
 primary actions use the existing link color role. It resolves the untrusted
 agent name through the existing mention directory. A unique match preselects its
 bound identity; absent or ambiguous names use the normal recipient field. Send
-has the accessible name `Send answer · to <recipient>` or `thread only`, while its
-visible text is `Send & next` when another question is unanswered and `Send answer`
-otherwise. Question/choice text cannot add recipients. Only trusted explicit Send,
+has visible text `Send & next` when another question is unanswered and `Send answer`
+otherwise. Its accessible name starts with that visible text, followed by
+` · to <recipient>` or ` · to thread only` when there is no recipient. Question/choice
+text cannot add recipients. Only trusted explicit Send,
 or Enter in a short-answer field, publishes
 one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
 and the visible recipient text, then attempts the existing Ask. Multiple choices

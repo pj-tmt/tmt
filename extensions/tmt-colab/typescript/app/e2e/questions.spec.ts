@@ -85,6 +85,7 @@ test('question/choice mentions never add destinations; unknown asking agent uses
   await expect(
     page.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
   await page.locator('.question-card').getByLabel('Keep it', { exact: true }).check();
   await send(page);
   expect(await run(page, 'discussionProof')).toHaveLength(1);

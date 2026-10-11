@@ -112,7 +112,8 @@ React MouseEvent from native button click, including keyboard-generated click;
 there is no extra key handler or command DTO. Trusted-event admission remains
 with the caller. Host links remain host links. By default `label` names both the
 visible action and its accessible name. A host may supply `visibleLabel` for
-shorter action text while retaining the full `label` as the accessible name.
+shorter action text; the full `label` must begin with that visible text and remains
+the accessible name.
 Text actions have a transparent background in ready and disabled states;
 disabled text is muted. Enabled hover and keyboard focus use selection colors.
 Field focus strengthens the same 1px edge to a contiguous 2px rule in the focus
