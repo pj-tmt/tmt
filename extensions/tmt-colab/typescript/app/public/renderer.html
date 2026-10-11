@@ -153,8 +153,13 @@
             completedSelection = false,
             hover,
             hint,
-            hintTimer;
+            hintTimer,
+            hoverFrame,
+            hoverPointer;
           function clearTarget() {
+            cancelAnimationFrame(hoverFrame);
+            hoverFrame = undefined;
+            hoverPointer = undefined;
             sheet.textContent = highlightStyle;
             hover?.remove();
             hover = undefined;
@@ -198,11 +203,24 @@
           }
           let gesture;
           function hoverTarget(event) {
-            clearTarget();
-            if (!event.isTrusted) return;
+            if (!event.isTrusted) {
+              clearTarget();
+              return;
+            }
+            // Gesture movement must observe every event, even a move out and back within one frame.
             if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4)
               gesture.moved = true;
-            if (editingTarget(event.target)) return;
+            if (editingTarget(event.target)) {
+              clearTarget();
+              return;
+            }
+            hoverPointer = { target: event.target, clientX: event.clientX, clientY: event.clientY };
+            if (hoverFrame === undefined) hoverFrame = requestAnimationFrame(renderHover);
+          }
+          function renderHover() {
+            const event = hoverPointer;
+            clearTarget();
+            if (stopped || !event?.target.isConnected) return;
             const hit = highlightAt(event.clientX, event.clientY);
             if (hit) sheet.textContent = highlightStyle + '*{cursor:pointer!important}';
             const target = selecting ? targetAt(event.target) : null;
