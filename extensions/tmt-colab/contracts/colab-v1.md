@@ -3703,7 +3703,7 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `page-too-deep`                                                   | warning  | an element nests past 512 levels; nothing after it is checked                                                                                                                             |
 | `question-page-limit`                                             | ignored  | more than 50 `tmt-question` on the page; the browser shows none of them, and this is the only finding (on the 51st)                                                                       |
 | `question-id-invalid`                                             | ignored  | `data-id` missing, or not a canonical lowercase UUID                                                                                                                                      |
-| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared by two or more questions; every holder is ignored                                                                                                          |
+| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared with another question or a group (one namespace, below); every holder is ignored                                                                           |
 | `question-nested`                                                 | ignored  | inside another `tmt-question`                                                                                                                                                             |
 | `question-group-child-invalid`                                    | ignored  | a `tmt-question` inside a `tmt-questions` group but not its direct child (inside another `tmt-question` it is `question-nested`); it never becomes a lone question                        |
 | `question-heading-missing` / `-multiple`                          | ignored  | not exactly one direct child with `data-question`                                                                                                                                         |
@@ -3730,8 +3730,8 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 
 Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
 reports the first structural rule it fails, in table order, and is then skipped whole: its
-questions and any group inside it are silent, with no finding and no ID held, and its finding
-carries `questionsSkipped`. A group that passes shows its direct questions, each reporting its own
+questions and any group inside it are silent, with no finding, and its finding carries
+`questionsSkipped`. A group that passes shows its direct questions, each reporting its own
 findings, and `group-empty` is added when none is shown. A lone `tmt-question` outside any group
 stays a group of one. A tab label is the authored `data-label`, else `Q<n>` by the question's
 order among the group's shown questions; a bad label only warns. The 50-question page limit
@@ -3740,8 +3740,9 @@ counts every `tmt-question`, grouped or not, and then reports nothing else.
 Question, group and lone-question IDs are one namespace and every holder of a shared ID is
 ignored. Every group holds its own `data-id` wherever it sits. A question holds its ID only as a
 lone question or as a direct child of a group that passes the structural rules other than a
-duplicate ID; a question wrapped in another element holds none. Holders are counted once and
-never retracted, so the questions of a group skipped for a duplicate still hold theirs.
+duplicate ID, so the questions of a group skipped for any other structural rule hold none, and
+neither does a question wrapped in another element. Holders are counted once and never
+retracted: the questions of a group skipped only for a duplicate ID still hold theirs.
 
 Text is normalized as the browser client does: every run of JavaScript whitespace (`\s`,
 which includes U+00A0 and U+FEFF and excludes U+0085) becomes one space and the ends are

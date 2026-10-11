@@ -90,7 +90,7 @@ fn message(code: &str) -> String {
             "More than {QUESTION_PAGE} questions on the page: the browser shows none of them. Keep at most {QUESTION_PAGE}."
         ),
         "question-id-invalid" => "data-id must be a lowercase UUID such as 10000000-0000-4000-8000-000000000001; this question is ignored.".into(),
-        "question-id-duplicate" => "Another question uses the same data-id, so every copy is ignored. Give each question its own UUID.".into(),
+        "question-id-duplicate" => "Another question or group uses the same data-id, so every holder is ignored. Give each its own UUID.".into(),
         "question-nested" => "A question inside another question is ignored. Put it beside the outer one.".into(),
         "question-heading-missing" => "No direct child has data-question to hold the question text, so this question is ignored.".into(),
         "question-heading-multiple" => "More than one direct child has data-question. Keep exactly one.".into(),
