@@ -714,7 +714,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   );
   await expect(row(pageId)).toContainText('Archived');
   await expect(row(pageId).locator('.retention-hint')).toHaveText('kept forever');
-  await expect(row(pageId).getByRole('link')).toHaveCount(0);
+  await expect(row(pageId).getByRole('link')).toHaveCount(1);
+  await expect(row(pageId).getByRole('link')).toHaveAttribute(
+    'href',
+    `${mount}#space=${f.space}&path=%2Fpages%2F${pageId}`,
+  );
   await row(pageId).locator('summary').click();
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
