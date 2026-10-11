@@ -1,0 +1,418 @@
+name: PR release candidate reader selftest
+# One-shot head1 qualification: no builds, producer dispatch, or Ben credentials.
+on:
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: pr-rc-selftest-2715
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  preflight:
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: preflight (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs preflight
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest/manifest.json
+          if-no-files-found: error
+          retention-days: 3
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-preflight
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  baseline:
+    needs: [preflight]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: baseline (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs baseline
+      - name: Reject credentials and signed URLs in the isolated world
+        run: node typescript/scripts/pr-rc-selftest.mjs seal
+      - name: Capture only the isolated world (no environment or credential file)
+        run: tar -czf "$RUNNER_TEMP/pr-rc-selftest/world.tar.gz" -C "$RUNNER_TEMP/pr-rc-selftest" world
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-rc-selftest-world
+          path: ${{ runner.temp }}/pr-rc-selftest/world.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-baseline
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  advance:
+    needs: [baseline]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: advance (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs advance
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-advance
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  stale:
+    needs: [advance]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-world
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: Restore the owned installation at its captured absolute prefix
+        run: tar -xzf "$RUNNER_TEMP/pr-rc-selftest/world.tar.gz" -C "$RUNNER_TEMP/pr-rc-selftest"
+      - name: stale (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs stale
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-stale
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  disable:
+    needs: [stale]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: disable (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs disable
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-disable
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  disabled:
+    needs: [disable]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-world
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: Restore the owned installation at its captured absolute prefix
+        run: tar -xzf "$RUNNER_TEMP/pr-rc-selftest/world.tar.gz" -C "$RUNNER_TEMP/pr-rc-selftest"
+      - name: disabled (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs disabled
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-disabled
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  enable:
+    needs: [disabled]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: enable (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs enable
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-enable
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  epoch:
+    needs: [enable]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-world
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: Restore the owned installation at its captured absolute prefix
+        run: tar -xzf "$RUNNER_TEMP/pr-rc-selftest/world.tar.gz" -C "$RUNNER_TEMP/pr-rc-selftest"
+      - name: epoch (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs epoch
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-epoch
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  close:
+    needs: [epoch]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: close (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs close
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-close
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  closed:
+    needs: [close]
+    if: ${{ github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-world
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: Restore the owned installation at its captured absolute prefix
+        run: tar -xzf "$RUNNER_TEMP/pr-rc-selftest/world.tar.gz" -C "$RUNNER_TEMP/pr-rc-selftest"
+      - name: closed (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs closed
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-closed
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
+
+  cleanup:
+    needs: [preflight, baseline, advance, stale, disable, disabled, enable, epoch, close, closed]
+    if: ${{ always() && needs.preflight.result == 'success' && github.repository == 'pj-tmt/tmt' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-rc-selftest-manifest
+          path: ${{ runner.temp }}/pr-rc-selftest
+      - name: cleanup (stop at the first unexpected red)
+        run: node typescript/scripts/pr-rc-selftest.mjs cleanup
+      - name: Reject credentials and signed URLs before evidence upload
+        id: scan
+        if: ${{ always() }}
+        run: node typescript/scripts/pr-rc-selftest.mjs scan
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome == 'success' }}
+        with:
+          name: pr-rc-selftest-cleanup
+          path: ${{ runner.temp }}/pr-rc-selftest/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 3
