@@ -1,6 +1,12 @@
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
+import {
+  DocumentImages,
+  IMAGE_REFERENCE,
+  IMAGE_REFERENCES,
+  type DocumentImageInput,
+} from './document-images.js';
 
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
@@ -65,6 +71,7 @@ export async function mountRenderer(
     viewportInset?(): number;
     onSlots?(slots: AnchorPosition[]): void;
     onQuestions?(questions: QuestionAnchor[]): void;
+    images?: DocumentImageInput;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -76,6 +83,7 @@ export async function mountRenderer(
   ): void;
   scrollAnchor(id: string): void;
   selectionMode(enabled: boolean): void;
+  images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
   anchorRectangle(id: string): SelectionRect | undefined;
   /** Stop the old channel while its frame preserves layout until replacement. */
@@ -97,6 +105,22 @@ export async function mountRenderer(
     loads = 0,
     ready = false;
   const channel = new MessageChannel();
+  let imageInput = options.images ?? { descriptors: [] };
+  let imageRequestId = '';
+  let imageResolver: DocumentImages | undefined;
+  const images = (input: DocumentImageInput) => {
+    imageInput = input;
+    imageResolver?.close();
+    if (stopped || !ready) return;
+    imageRequestId = crypto.randomUUID();
+    const current = imageRequestId;
+    imageResolver = new DocumentImages(input, () => !stopped && current === imageRequestId);
+    channel.port1.postMessage({
+      type: 'colab.render.images',
+      renderId: snapshot.renderId,
+      requestId: current,
+    });
+  };
   const sendTheme = () => {
     if (stopped || !ready) return;
     channel.port1.postMessage({
@@ -179,6 +203,13 @@ export async function mountRenderer(
   };
   const release = () => {
     if (stopped) return;
+    imageResolver?.close();
+    if (ready)
+      channel.port1.postMessage({
+        type: 'colab.render.images',
+        renderId: snapshot.renderId,
+        requestId: crypto.randomUUID(),
+      });
     stopped = true;
     stopTheme();
     options.onSlots?.([]);
@@ -332,11 +363,36 @@ export async function mountRenderer(
     ready = true;
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
+    images(imageInput);
     options.onState('ready');
   };
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
+    if (value?.type === 'colab.render.images') {
+      if (
+        Object.keys(value).length !== 4 ||
+        value.renderId !== snapshot.renderId ||
+        value.requestId !== imageRequestId ||
+        !Array.isArray(value.references) ||
+        value.references.length > IMAGE_REFERENCES ||
+        value.references.some(
+          (reference: unknown) => typeof reference !== 'string' || !IMAGE_REFERENCE.test(reference),
+        )
+      )
+        return;
+      const current = imageRequestId;
+      void imageResolver?.resolve(value.references, (image) => {
+        if (!stopped && current === imageRequestId)
+          channel.port1.postMessage({
+            type: 'colab.render.image',
+            renderId: snapshot.renderId,
+            requestId: current,
+            ...image,
+          });
+      });
+      return;
+    }
     if (value?.type === 'colab.render.questions') {
       if (
         value.renderId !== snapshot.renderId ||
@@ -661,6 +717,7 @@ export async function mountRenderer(
     questions,
     scrollAnchor,
     selectionMode,
+    images,
     anchorRectangle,
     release,
     destroy,

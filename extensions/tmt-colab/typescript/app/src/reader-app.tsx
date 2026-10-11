@@ -34,6 +34,14 @@ export function ReaderApp({
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLElement>(null);
+  const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const imageInput = useRef({ binding: attachments, descriptors });
+  imageInput.current = { binding: attachments, descriptors };
+  const imageScope = attachments?.scope?.();
+  const imageDescriptors = JSON.stringify(descriptors);
+  useEffect(() => {
+    renderer.current?.images(imageInput.current);
+  }, [attachments, imageDescriptors, imageScope]);
   useEffect(() => {
     if (source === null) return;
     const controller = new AbortController();
@@ -43,10 +51,21 @@ export function ReaderApp({
       onState: setRender,
       viewportInset: () =>
         (bar.current?.offsetHeight ?? 0) + (bar.current?.getBoundingClientRect().top ?? 0),
-    }).catch(() => {
-      if (!controller.signal.aborted) setRender('failed');
-    });
-    return () => controller.abort();
+    })
+      .then((handle) => {
+        if (controller.signal.aborted) handle.destroy();
+        else {
+          renderer.current = handle;
+          handle.images(imageInput.current);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRender('failed');
+      });
+    return () => {
+      controller.abort();
+      renderer.current = null;
+    };
   }, [source]);
   return (
     <>
