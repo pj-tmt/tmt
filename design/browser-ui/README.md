@@ -14,7 +14,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu` and their prop types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
 
 The browser color, surface and shared metric roles live in the `browser` group
@@ -189,7 +189,31 @@ input values scroll internally, while React command text wraps. There is no
 clipboard helper, command parser or page-wide code reset in the leaf. See the
 [command contract](../gui-components.md#commands-and-inline-code).
 
+Tabs has a named horizontal tablist, native tab buttons and persistent panels.
+The host supplies ordered `tabs` (stable `id`, `tabId`, `panelId`, label and optional
+state), `selected`, `onSelect(id, reason, originalEvent)` and a panel renderer.
+Exactly one supplied ID is selected. Left/Right wrap; Home/End select the first/last
+tab automatically and move focus. Enter/Space use native activation. The callback
+reason is `keyboard` or `activation`; the host retains trusted-event admission.
+Tab enters the selected tab, then the active panel. Inactive panels use `hidden`
+but remain mounted, preserving host-owned drafts and control identity. Renderer
+source text has its separate product-owned visibility and quote contract.
+
+Optional state takes a host-supplied mark, word and existing tone. The accessible
+name includes mark, label and state word; colors alone never convey the state.
+`status` is a trailing host-owned slot, without an automatic announcement. The
+strip scrolls horizontally, never wraps or animates; selection and resize keep
+the selected tab in view without moving the host page. A label wider than the
+available strip truncates visually while its full accessible name remains.
+The square panel uses a 1px rule; the selected tab joins it and carries a 2px
+accent top rule. No product state, routing or persistence belongs to Tabs.
+Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
+`tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,
+roving tab stop, native activation, panel visibility and disposable resize behavior.
+
 ## Fixtures
+
+`/test/fixtures/tabs.html` exercises twelve controlled tabs and retained panel drafts.
 
 From `typescript/`, serve the development fixtures with
 `pnpm --filter @tmt/browser-ui --fail-if-no-match exec vp dev --host 127.0.0.1`.

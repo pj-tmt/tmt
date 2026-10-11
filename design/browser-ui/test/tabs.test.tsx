@@ -1,0 +1,48 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { expect, it } from 'vite-plus/test';
+import { BrowserTabs, type BrowserTab } from '../src/react.js';
+
+const tabs: BrowserTab[] = [
+  {
+    id: 'one',
+    tabId: 'tab-one',
+    panelId: 'panel-one',
+    label: 'Layout',
+    state: { mark: '✓', word: 'Answered', tone: 'working' },
+  },
+  {
+    id: 'two',
+    tabId: 'tab-two',
+    panelId: 'panel-two',
+    label: 'Pages',
+    state: { mark: '◆', word: 'Waiting', tone: 'waiting' },
+  },
+];
+it('associates every persistent panel with its tab and keeps one selected tab stop', () => {
+  const render = (selected: string) =>
+    renderToStaticMarkup(
+      <BrowserTabs
+        label="Header decisions"
+        tabs={tabs}
+        selected={selected}
+        onSelect={() => {}}
+        status="1/2 answered"
+      >
+        {(tab) => <input aria-label={`${tab.label} draft`} defaultValue={tab.id} />}
+      </BrowserTabs>,
+    );
+  for (const selected of ['one', 'two']) {
+    const html = render(selected);
+    expect(html).toContain('role="tablist" aria-label="Header decisions"');
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html.match(/tabindex="-1"/g)).toHaveLength(1);
+    expect(html.match(/role="tabpanel"/g)).toHaveLength(2);
+    expect(html.match(/hidden=""/g)).toHaveLength(1);
+    expect(html).toContain('aria-controls="panel-one"');
+    expect(html).toContain('aria-labelledby="tab-one"');
+    expect(html).toContain('aria-label="✓ Layout · Answered"');
+    expect(html).toContain('aria-label="◆ Pages · Waiting"');
+    expect(html).toContain('value="one"');
+    expect(html).toContain('value="two"');
+  }
+});
