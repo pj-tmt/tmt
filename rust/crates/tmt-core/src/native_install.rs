@@ -298,7 +298,10 @@ fn plan_numeric_version(
     {
         return Err(VersionError::Pinned);
     }
-    if let Some(current) = current {
+    if let Some(current) = current
+        && !(matches!(current.channel, Channel::Pr(_))
+            && matches!(channel, Channel::Alpha | Channel::Stable))
+    {
         match candidate.cmp_precedence(&current.version) {
             Ordering::Less => return Err(VersionError::Downgrade),
             Ordering::Equal if candidate != &current.version => {

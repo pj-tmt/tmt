@@ -5,6 +5,7 @@ The native installer owns `pr<N>` channel selection, acquisition and receipts.
 `tmt upgrade --channel pr234` explicitly selects that channel; subsequent upgrades
 retain it. Stable/alpha discovery never selects a PR. Existing exact-version pins,
 ordinary pinned no-network behavior, unpinning and SemVer downgrade guards apply.
+Leaving a PR channel for an explicitly selected published channel is not ordered by the candidate’s synthetic version.
 The executable keeps its archived version. PR identity is `(pr, headSha, runId)`;
 a changed candidate on the same PR requires a newer run. A different candidate
 at the same archived version refuses, even for a newer run. Equal-version bytes
