@@ -21,6 +21,86 @@ use tmt_colab_model::{
     crypto, framing, values,
 };
 
+/// Application allocation accounting, not physical storage or billing usage.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(
+    tag = "state",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum UsageDetails {
+    Known {
+        charged_bytes: u64,
+        entries: u32,
+        active_uploads: u32,
+        retained_identities: u32,
+    },
+    Unknown,
+    Unsupported {
+        hint: String,
+    },
+}
+impl std::fmt::Display for UsageDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Known {
+                charged_bytes,
+                entries,
+                active_uploads,
+                retained_identities,
+            } => {
+                let size = if *charged_bytes < 1024 {
+                    format!(
+                        "{charged_bytes} {}",
+                        if *charged_bytes == 1 { "byte" } else { "bytes" }
+                    )
+                } else {
+                    let (divisor, unit) = if *charged_bytes >= 1024 * 1024 {
+                        (1024 * 1024, "MB")
+                    } else {
+                        (1024, "KB")
+                    };
+                    let number = format!("{:.1}", *charged_bytes as f64 / f64::from(divisor));
+                    format!("{} {unit}", number.strip_suffix(".0").unwrap_or(&number))
+                };
+                write!(f, "Storage is full. Charged {size}")?;
+                let mut parts = Vec::new();
+                if *entries > 0 {
+                    parts.push(format!(
+                        "{entries} {}",
+                        if *entries == 1 { "file" } else { "files" }
+                    ));
+                }
+                if *active_uploads > 0 {
+                    parts.push(format!("{active_uploads} uploading"));
+                }
+                if *retained_identities > 0 {
+                    parts.push("small fixed records".into());
+                }
+                if !parts.is_empty() {
+                    write!(f, " ({})", parts.join(", "))?;
+                }
+                f.write_str(". This is a conservative allocation, not disk or billing bytes.")
+            }
+            Self::Unknown => {
+                f.write_str("Storage is full. Usage details are unavailable right now.")
+            }
+            Self::Unsupported { hint } => {
+                write!(f, "Storage is full. Usage details are unavailable.\n{hint}")
+            }
+        }
+    }
+}
+#[derive(Debug)]
+pub struct CapacityRefusal(pub UsageDetails);
+impl std::fmt::Display for CapacityRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::error::Error for CapacityRefusal {}
+
 pub(crate) fn validate_attachment_record(
     root: &str,
     key: &str,

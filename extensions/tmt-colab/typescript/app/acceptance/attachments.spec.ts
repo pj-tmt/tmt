@@ -1,6 +1,7 @@
 import { pageAction } from '../test/page-actions.js';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,6 +30,84 @@ const PNG = Buffer.from(
 const bytes = (size: number, seed: number) =>
   Buffer.from(Uint8Array.from({ length: size }, (_, i) => (i * 131 + seed) & 0xff));
 const sha = (value: Buffer) => createHash('sha256').update(value).digest('hex');
+
+test('committed page deletion removes file data while retaining fixed namespace accounting', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const author = await pairBrowser(world, 'delete-files-author');
+    const created = createPage(world, 'Delete files', '<h1>Delete files</h1>');
+    const page = await openPage(door, author, created);
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Delete files', exact: true }),
+    ).toBeVisible();
+    const file = path.join(world.workspace, 'delete-files.bin');
+    fs.writeFileSync(file, bytes(40 * 1024, 21));
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'])) as Record<string, any>;
+    colab(['attachment', 'attach', created.pageId, file]);
+
+    // Only inspect this world's actual Remote ledger, read-only. No fixture
+    // result or writable helper stands in for the native removal operation.
+    const ledger = new DatabaseSync(path.join(world.dataRoot, 'remote', 'objects.db'), {
+      readOnly: true,
+    });
+    try {
+      const rows = ledger.prepare("SELECT namespace FROM intents WHERE extension='colab'").all();
+      expect(rows).toHaveLength(1);
+      const namespace = rows[0]!.namespace as Uint8Array;
+      const projection = () =>
+        ledger
+          .prepare(
+            "SELECT COALESCE(SUM(payload_charged),0) AS payload, COALESCE(SUM(entry_held),0) AS entries, COALESCE(SUM(phase IN ('staging','committing')),0) AS active, COUNT(*) AS retained FROM intents WHERE extension='colab' AND namespace=?",
+          )
+          .get(namespace)!;
+      const before = projection();
+      expect(before.payload).toBeGreaterThan(40 * 1024);
+      expect(before.entries).toBe(1);
+      const directory = path.join(
+        world.dataRoot,
+        'colab',
+        'objects',
+        'blobs',
+        Buffer.from(namespace).toString('hex'),
+      );
+      expect(fs.existsSync(directory)).toBe(true);
+
+      const deleted = colab(['page', 'delete', created.pageId, '--yes']);
+      expect(deleted.storage).toBe('freed');
+      expect(
+        ledger
+          .prepare("SELECT state FROM namespaces WHERE extension='colab' AND namespace=?")
+          .get(namespace)?.state,
+      ).toBe('removed');
+      expect(projection()).toEqual({ payload: 0, entries: 0, active: 0, retained: 1 });
+      expect(fs.existsSync(directory)).toBe(false);
+      // Remote's conservative formula retains OBJECT_RECORD_BYTES (8192)
+      // and OBJECT_FENCE_BYTES (4096+512); removal promises file data, not zero allocation.
+      const charge = ledger
+        .prepare(
+          "SELECT COALESCE(SUM(payload_charged),0) + COUNT(*)*8192 + (SELECT COUNT(*)*4608 FROM namespaces WHERE extension='colab' AND namespace=?) AS bytes FROM intents WHERE extension='colab' AND namespace=?",
+        )
+        .get(namespace, namespace)!.bytes;
+      expect(charge).toBe(8192 + 4608);
+      expect(charge).toBeLessThan(Number(before.payload) + 8192 + 4608);
+      const repeated = colab([
+        'page',
+        'delete',
+        created.pageId,
+        '--yes',
+        '--operation-id',
+        deleted.operationId,
+        '--expected-revision',
+        deleted.expectedRevision,
+      ]);
+      expect(repeated.storage).toBe('freed');
+      expect(projection()).toEqual({ payload: 0, entries: 0, active: 0, retained: 1 });
+    } finally {
+      ledger.close();
+    }
+  });
+});
 
 test('files attached in Chat reach a second paired device, preview and download exactly, and survive reload', async () => {
   await withWorld(async (world) => {

@@ -139,9 +139,19 @@ export type AttachmentObjectRequest =
       count: number;
     }
   | { method: 'read'; selector: attachment.AttachmentSelector; offset: number; count: number };
+export type UsageDetails =
+  | {
+      state: 'known';
+      chargedBytes: number;
+      entries: number;
+      activeUploads: number;
+      retainedIdentities: number;
+    }
+  | { state: 'unknown' }
+  | { state: 'unsupported'; hint: string };
 export type AttachmentObjectOutcome =
   | { ok: Record<string, unknown> }
-  | { error: { code: string; limit?: string } };
+  | { error: { code: string; limit?: string; usage?: UsageDetails } };
 /** An exact correlated reply is still not a publication permit. Each consumer
  * checks its expected result/binding and the existing native/browser admission. */
 export function objectOutcome(
@@ -161,7 +171,45 @@ export function objectOutcome(
         error.code as string,
       ),
     );
-    exactKeys(error, error.code === 'capacity' ? ['code', 'limit'] : ['code']);
+    exactKeys(
+      error,
+      error.code === 'capacity'
+        ? 'usage' in error
+          ? ['code', 'limit', 'usage']
+          : ['code', 'limit']
+        : ['code'],
+    );
+    if ('usage' in error) {
+      requireValue(
+        error.usage !== null && typeof error.usage === 'object' && !Array.isArray(error.usage),
+      );
+      const usage = error.usage as Record<string, unknown>;
+      if (usage.state === 'known') {
+        exactKeys(usage, [
+          'state',
+          'chargedBytes',
+          'entries',
+          'activeUploads',
+          'retainedIdentities',
+        ]);
+        for (const key of ['chargedBytes', 'entries', 'activeUploads', 'retainedIdentities'])
+          requireValue(
+            typeof usage[key] === 'number' &&
+              Number.isSafeInteger(usage[key]) &&
+              (usage[key] as number) >= 0,
+          );
+        for (const key of ['entries', 'activeUploads', 'retainedIdentities'])
+          requireValue((usage[key] as number) <= 0xffff_ffff);
+      } else if (usage.state === 'unsupported') {
+        exactKeys(usage, ['state', 'hint']);
+        requireValue(
+          typeof usage.hint === 'string' && usage.hint.length > 0 && usage.hint.length <= 1024,
+        );
+      } else {
+        exactKeys(usage, ['state']);
+        requireValue(usage.state === 'unknown');
+      }
+    }
     if (error.code === 'capacity')
       requireValue(
         [
@@ -181,7 +229,7 @@ export function objectOutcome(
       error.code !== 'unknown' || ['begin', 'part', 'commit', 'discard'].includes(method),
     );
     requireValue(error.code !== 'not-found' || method === 'read' || method === 'verify');
-    return { error: error as { code: string; limit?: string } };
+    return { error: error as { code: string; limit?: string; usage?: UsageDetails } };
   }
   exactKeys(result, ['ok']);
   requireValue(result.ok !== null && typeof result.ok === 'object' && !Array.isArray(result.ok));

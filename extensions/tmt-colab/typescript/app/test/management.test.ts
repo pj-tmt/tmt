@@ -589,3 +589,29 @@ it('reads metadata after a baseline frame and verifies referenced statement chun
     expect(closed).toBe(1);
   }
 });
+
+it('keeps delete file-data outcomes separate from the committed membership acknowledgment', async () => {
+  const f = await fixture();
+  const pending = await f.client.prepare(f.view, {
+    operation: 'page.delete',
+    value: { pageId: v.page },
+  });
+  await f.append('page.delete', { pageId: v.page });
+  const ack = acknowledgment(f, pending);
+  for (const storage of ['freed', 'pending', 'unknown', 'unsupported']) {
+    const reply = {
+      ...ack,
+      storage,
+      ...(storage === 'unsupported' ? { storageHint: 'EXACT HINT' } : {}),
+    };
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify(reply), { status: 200 }));
+    expect(await f.client.send(pending)).toEqual(reply);
+  }
+  for (const extra of [{ storage: 'invented' }, { storage: 'freed', storageHint: 'wrong state' }]) {
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response(JSON.stringify({ ...ack, ...extra }), { status: 200 }),
+    );
+    await expect(f.client.send(pending)).rejects.toMatchObject({ code: 'UNKNOWN' });
+  }
+});

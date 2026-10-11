@@ -912,6 +912,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if error.is::<tmt_colab::attachments::CapacityRefusal>() {
+        return "COLAB_CAPACITY";
+    }
     if let Some(recovery) = error.downcast_ref::<cli_proposal::RecoveryFault>() {
         return error_code(recovery.cause.as_ref());
     }
@@ -1044,6 +1047,17 @@ fn main() -> ExitCode {
                     value = recovery.correlation.clone();
                 }
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some(usage) = error
+                    .downcast_ref::<tmt_colab::page::ipc::WriteError>()
+                    .and_then(|error| error.usage())
+                    .or_else(|| {
+                        error
+                            .downcast_ref::<tmt_colab::attachments::CapacityRefusal>()
+                            .map(|error| &error.0)
+                    })
+                {
+                    value["error"]["usage"] = json!(usage);
+                }
                 if let Some((stored, supported)) =
                     schema.and_then(tmt_colab::store::Fault::schema_versions)
                 {

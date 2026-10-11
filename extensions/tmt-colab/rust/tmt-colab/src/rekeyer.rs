@@ -1,8 +1,7 @@
-//! The serve's background re-seal of document attachments after an epoch advance (#2293). One
-//! worker waits for a reason to look (serve start, a management change, a freshly established
-//! object channel, or the retry of an unfinished pass), then runs one bounded rekey pass over the
-//! pages whose epoch has advanced. What is left to do is read from each page, never remembered,
-//! so a stopped serve resumes on its next start and a failure never blocks the advance.
+//! The serve's one object-maintenance worker: re-seal document attachments after epoch
+//! advances and remove namespaces behind retained committed deletions. Serve start, management
+//! changes, a new channel generation and bounded retries wake it. Work is derived from signed
+//! page state, so reconnects recover unfinished cleanup without delaying an owner transition.
 use crate::{
     Result,
     attachments::slots::StagingSlots,
@@ -115,6 +114,7 @@ fn work(
     let mut due = true;
     let mut retry_at: Option<Instant> = None;
     let mut backoff = Backoff::new();
+    let mut deletion_after = None;
     while !shared.stop.load(Ordering::Acquire) {
         {
             let mut flag = locked(&shared.due);
@@ -133,6 +133,7 @@ fn work(
         let generation = objects.generation();
         if generation != seen {
             seen = generation;
+            deletion_after = None;
             due = true;
             backoff.reset();
         }
@@ -145,7 +146,9 @@ fn work(
         retry_at = None;
         let source = locked(registration).save_source();
         let unfinished = match source {
-            Some(source) => pass(shared, objects, slots, &source, sync).unwrap_or(true),
+            Some(source) => {
+                pass(shared, objects, slots, &source, sync, &mut deletion_after).unwrap_or(true)
+            }
             None => true,
         };
         if unfinished {
@@ -162,15 +165,30 @@ fn pass(
     slots: &StagingSlots,
     source: &SourceOpener,
     sync: &Server<OwnerAdmission>,
+    deletion_after: &mut Option<String>,
 ) -> Result<bool> {
-    objects.sweep_slots(slots, source, registration::now_ms()?);
+    // Share the pass snapshot; each actual removal still rechecks fresh admission.
     let view = source()?;
+    let cleanup_waiting = objects.sweep_deletions(
+        source,
+        &view,
+        deletion_after,
+        Instant::now() + Duration::from_secs(5),
+    )?;
+    objects.sweep_slots(slots, source, registration::now_ms()?);
     let advanced =
         view.store
             .owner_read(&view.keyring.space_id, &view.keyring.owner_public(), |tx| {
                 let mut pages = Vec::new();
                 for page in tx.pages()? {
-                    if tx.current_epoch(&page)? > 1 {
+                    if tx.current_epoch(&page)? > 1
+                        && !tx
+                            .page_policy_at(
+                                &page,
+                                tx.head().ok_or(crate::page::Fault::Invalid)?.revision,
+                            )?
+                            .deleted
+                    {
                         pages.push(page);
                     }
                 }
@@ -178,7 +196,7 @@ fn pass(
             })?;
     drop(view);
     let publisher = ServePublish(sync);
-    let mut unfinished = false;
+    let mut unfinished = cleanup_waiting;
     for page in advanced {
         if shared.stop.load(Ordering::Acquire) {
             return Ok(true);

@@ -525,6 +525,7 @@ fn execute(
     };
     drop(view);
     let input = match &call {
+        // Browser peers cannot relay native namespace management purposes.
         Call::RemoveNamespace(_) | Call::Usage(_) => return Err(page::Fault::Invalid.into()),
         Call::Config(input) => AdmitInput::Config(input.clone()),
         Call::Read(input) => AdmitInput::Read(input.clone()),
@@ -568,6 +569,16 @@ fn execute(
     let outcome = peer
         .client
         .request(peer.origin, call.clone(), owner, job.deadline);
+    let usage = if matches!(&outcome, Ok(Outcome::Failure(ErrorCode::Capacity(_))))
+        && capture.current().is_ok()
+    {
+        Some(
+            peer.client
+                .usage_details(&job.scope.page, &capture.source, job.deadline),
+        )
+    } else {
+        None
+    };
     let outcome = match outcome {
         Ok(outcome) if Instant::now() < job.deadline && capture.current().is_ok() => outcome,
         _ => Outcome::Failure(if mutation {
@@ -597,13 +608,20 @@ fn execute(
     {
         retained.remove(&id.to_string());
     }
-    let projected = project_result(ResultFrame {
+    let mut projected = project_result(ResultFrame {
         generation: peer.client.generation(),
         request_id: Counter::new(1).map_err(|_| page::Fault::Invalid)?,
         method: call.method(),
         transfer_id,
         outcome,
     });
+    if let (Ok(value), Some(usage)) = (&mut projected, usage)
+        && value["error"]["code"] == "capacity"
+    {
+        // Native bookkeeping enriches this refusal, never a browser-relayed
+        // usage request. The capture was rechecked after the bounded query.
+        value["error"]["usage"] = serde_json::to_value(usage)?;
+    }
     // The call already crossed into Remote. Even a local projection failure
     // cannot describe a mutating original as having had no effect.
     Ok((

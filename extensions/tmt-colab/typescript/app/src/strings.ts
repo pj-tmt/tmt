@@ -24,6 +24,33 @@ export const text = {
   copyDraft: 'Copy',
   copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
 
+  deletedStorage: (
+    state: 'freed' | 'pending' | 'unsupported' | 'unknown',
+    hint?: string,
+  ): string => {
+    switch (state) {
+      case 'freed':
+        return 'Its stored file data was removed. A small fixed record remains.';
+      case 'pending':
+        return 'Its stored file data will be removed when Remote reconnects.';
+      case 'unsupported':
+        return `Its stored file data was not removed. ${hint ?? ''}`;
+      case 'unknown':
+        return 'Removing its stored file data was not confirmed. Colab checks again when Remote reconnects.';
+    }
+  },
+  storageFull: (usage?: import('./attachment-channel.js').UsageDetails): string => {
+    if (!usage || usage.state === 'unknown')
+      return 'Storage is full. Usage details are unavailable right now.';
+    if (usage.state === 'unsupported')
+      return `Storage is full. Usage details are unavailable.\n${usage.hint}`;
+    const parts = [
+      ...(usage.entries ? [`${usage.entries} ${usage.entries === 1 ? 'file' : 'files'}`] : []),
+      ...(usage.activeUploads ? [`${usage.activeUploads} uploading`] : []),
+      ...(usage.retainedIdentities ? ['small fixed records'] : []),
+    ];
+    return `Storage is full. Charged ${humanSize(usage.chargedBytes)}${parts.length ? ` (${parts.join(', ')})` : ''}. This is a conservative allocation, not disk or billing bytes.`;
+  },
   proposalOpen: 'Proposal',
   proposalsOnly: 'Proposals only',
   proposalsEmpty: 'No proposals yet.',

@@ -98,8 +98,17 @@ impl ChannelOwner {
             source: &source,
             deadline,
         };
+        let slot_page = slot.record.page.clone();
         let result = run(&live, &mut slot, expected, &source, publisher, deadline);
-        settle(slot, result)
+        settle(slot, result).map_err(|error| {
+            if is(&error, page::Fault::Capacity) {
+                Box::new(attachments::CapacityRefusal(
+                    client.usage_details(&slot_page, &source, deadline),
+                )) as Error
+            } else {
+                error
+            }
+        })
     }
     /// Sweep the slots nobody is going to finish, discarding the original of an aged started slot
     /// before it goes. The callers wait only a few seconds, so the discards share one short budget;
@@ -186,6 +195,7 @@ impl Transport for UploadChannel<'_> {
             Call::Part(_) | Call::Commit(_) | Call::Discard(_) => {
                 self.upload.admission_input(&call)?
             }
+            // Removal and capacity accounting use the separate namespace owner.
             Call::Read(_) | Call::Config(_) | Call::RemoveNamespace(_) | Call::Usage(_) => {
                 return Err(page::Fault::Invalid.into());
             }
