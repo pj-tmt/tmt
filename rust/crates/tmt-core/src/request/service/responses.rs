@@ -102,6 +102,14 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     .ok_or(RequestError::Invalid("Invalid response deadline."))?,
             };
             records.create_response(&response)?;
+            flow::record(
+                records,
+                &attempt,
+                super::super::flow::FlowKind::Reply,
+                true,
+                response.body_bytes,
+                now,
+            )?;
             if let Some(id) = attempt.originator.identity_id() {
                 let revision = reserve_revision(records, id)?;
                 records.set_attention_revision(&response.request_id, revision)?;
@@ -136,26 +144,67 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         &mut self,
         input: &str,
     ) -> Result<(String, ResponseLookup), RequestError<R::Error>> {
+        self.select_response(input, false)
+    }
+
+    /// Explicit result inspection only; observer and notice reads must not count.
+    pub fn retrieve_response_by_prefix(
+        &mut self,
+        input: &str,
+    ) -> Result<(String, ResponseLookup), RequestError<R::Error>> {
+        self.select_response(input, true)
+    }
+
+    fn select_response(
+        &mut self,
+        input: &str,
+        record_retrieval: bool,
+    ) -> Result<(String, ResponseLookup), RequestError<R::Error>> {
         if input.is_empty() {
             return Err(RequestError::Response(ResponseRejection::InputInvalid));
         }
         self.read(|records, now| {
-            // Historical service clients may have stored non-UUID IDs. Exact
-            // retained IDs take precedence and keep their original spelling.
-            if records.find_request(input)?.is_some() || records.find_response(input)?.is_some() {
-                return Ok((input.into(), response_lookup(records, input, now)?));
+            let selected = (|| {
+                // Historical service clients may have stored non-UUID IDs. Exact
+                // retained IDs take precedence and keep their original spelling.
+                if records.find_request(input)?.is_some() || records.find_response(input)?.is_some()
+                {
+                    return Ok((input.into(), response_lookup(records, input, now)?));
+                }
+                let Some((lower, upper)) = prefix_range(input)? else {
+                    return Ok((input.into(), ResponseLookup::Unavailable));
+                };
+                let matches = records.retained_request_ids(&lower, &upper, now, 5)?;
+                match matches.ids.as_slice() {
+                    [] => Ok((input.into(), ResponseLookup::Unavailable)),
+                    [id] => Ok((id.clone(), response_lookup(records, id, now)?)),
+                    _ => Err(RequestError::ResultSelection(
+                        ResultSelectionRejection::Ambiguous(matches),
+                    )),
+                }
+            })()?;
+            if record_retrieval && matches!(&selected.1, ResponseLookup::Available(_)) {
+                if let Some(attempt) = records.find_request(&selected.0)? {
+                    flow::record(
+                        records,
+                        &attempt,
+                        super::super::flow::FlowKind::Result,
+                        true,
+                        0,
+                        now,
+                    )?;
+                } else {
+                    records.increment_flow(&super::super::flow::FlowRow {
+                        sender_identity_id: None,
+                        recipient_identity_id: None,
+                        kind: super::super::flow::FlowKind::Result,
+                        bucket_start_ms: super::super::flow::bucket(now),
+                        count: 1,
+                        bytes: 0,
+                    })?;
+                }
             }
-            let Some((lower, upper)) = prefix_range(input)? else {
-                return Ok((input.into(), ResponseLookup::Unavailable));
-            };
-            let matches = records.retained_request_ids(&lower, &upper, now, 5)?;
-            match matches.ids.as_slice() {
-                [] => Ok((input.into(), ResponseLookup::Unavailable)),
-                [id] => Ok((id.clone(), response_lookup(records, id, now)?)),
-                _ => Err(RequestError::ResultSelection(
-                    ResultSelectionRejection::Ambiguous(matches),
-                )),
-            }
+            Ok(selected)
         })
     }
 }

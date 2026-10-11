@@ -711,6 +711,50 @@ The [historical research record](https://github.com/pj-tmt/tmt/blob/5b1e9beb6d7d
 retains superseded marker/JSON-state behavior and provider research. It does not
 define current commands or authorize new integrations.
 
+## Content-free exchange flow
+
+`tmt x flow [--since <duration>] [--json]` reads the whole local team's flow,
+without a caller selector or participant filter. It grants no sending authority:
+these are the same OS user's local metadata. The window defaults to `24h`; accept
+positive integer seconds or an `ms`, `s`, `m`, `h`, or `d` suffix, up to `30d`.
+Rows cover UTC 30-minute buckets intersecting the requested window, including the
+whole first bucket and the current partial bucket. JSON reports the effective
+bucket-aligned `sinceMs`, `observedAtMs`, `bucketMs:1800000`, and `rows`, ordered by
+bucket, sender UUID, recipient UUID and kind. Each row has only
+`senderIdentityId`, `recipientIdentityId`, `kind`, `bucketStartMs`, `count`, and
+`bytes`. Unknown participants are null. Human output sums the window by pair and
+kind instead of printing every bucket. Names and roles can be joined separately
+by consumers; identity retirement or reuse never changes historical UUIDs.
+
+The request service records these events in the committing transaction:
+
+- `talk`: once per durably prepared original request, originator to recipient;
+  bytes are the original UTF-8 body, before preamble or transport normalization.
+  This measures accepted requests, not proven delivery. Inbox/room dispatch uses
+  the same preparation owner; immutable dispatch replay adds nothing.
+- `reply`: once per first accepted final, recipient to recorded originator, with
+  exact UTF-8 body bytes. Identical retries and rejected submissions add nothing.
+- `result`: each explicit successful final retrieval, in that recorded reply
+  direction, with zero bytes. It does not identify who read the result. Observer
+  polling, result notices, lists/show, unavailable results and flow reads add
+  nothing. It neither acknowledges attention nor renews content retention.
+- `ack`: each effective acknowledgment change, acknowledging identity to the
+  opposite recorded participant, with zero bytes. `ackall` counts each newly
+  covered retained exchange once, grouped by pair in its atomic snapshot. A
+  no-op repeat adds nothing; a later final can make a new revision acknowledgeable.
+
+One aggregate table holds only the pair, kind, bucket, count and bytes: no text,
+receipts, request IDs or per-event history. Increments roll back with the event;
+checked counter exhaustion fails the transaction rather than wrapping or dropping
+an event. Recording starts with the migration; old read/ack events are unavailable,
+so no historical backfill or complete pre-migration coverage is claimed.
+
+A bucket remains until its end is at least 30 days old, independently of prompt,
+final and attempt retention. Existing bounded request housekeeping prunes eligible
+buckets; reads apply the requested window without pruning, loading bodies or
+contacting a host/provider. No timer, new retention setting, punctual deletion,
+database shrinkage or secure-erasure guarantee is introduced.
+
 ## Owner results inspection
 
 The local extension API's `requests.list` results view reads submitted finals

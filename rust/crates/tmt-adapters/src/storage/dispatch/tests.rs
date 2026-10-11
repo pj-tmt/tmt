@@ -34,6 +34,10 @@ fn only_first_dispatch_creation_can_schedule_a_wake_even_after_attempt_retention
         .unwrap();
     assert_eq!(replayed, receipt);
     assert!(!created);
+    assert_eq!(
+        talk_flow(&fixture.oracle()),
+        (2, 2 * fixture.input().message.len() as i64)
+    );
 }
 
 #[test]
@@ -495,6 +499,10 @@ fn concurrent_replays_share_one_receipt_and_one_request_per_recipient() {
             .unwrap(),
         1
     );
+    assert_eq!(
+        talk_flow(&oracle),
+        (2, 2 * fixture.input().message.len() as i64)
+    );
 }
 
 #[test]
@@ -509,6 +517,7 @@ fn receipt_failure_rolls_back_all_recipients_and_retry_publishes_once() {
     ));
     for table in [
         "request_attempts",
+        "exchange_flow",
         "request_attention_identities",
         "request_recipient_attention_identities",
         "office_dispatch_operations",
@@ -591,4 +600,11 @@ fn retired_recipient_is_explicitly_rejected_without_retargeting_a_reused_name() 
     );
     let rejected: (String,i64,i64) = oracle.query_row("SELECT status,wait_active,recipient_attention_revision FROM request_attempts WHERE recipient_identity_id=?", [retired], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
     assert_eq!(rejected, ("definitely_failed".into(), 0, 0));
+}
+
+fn talk_flow(oracle: &Connection) -> (i64, i64) {
+    oracle.query_row(
+        "SELECT COALESCE(SUM(count),0),COALESCE(SUM(bytes),0) FROM exchange_flow WHERE kind='talk'",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap()
 }

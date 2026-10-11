@@ -4,6 +4,7 @@
 pub mod attention;
 pub mod correlation;
 pub mod digest;
+pub mod flow;
 pub mod history;
 pub mod inbox;
 pub mod notification;
@@ -301,6 +302,17 @@ pub struct RequestContext {
 /// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn increment_flow(&mut self, row: &flow::FlowRow) -> Result<(), Self::Error>;
+    fn flow_rows(&self, since_ms: u64, now_ms: u64) -> Result<Vec<flow::FlowRow>, Self::Error>;
+    fn prune_flow(&mut self, through_bucket_ms: u64, limit: u64) -> Result<(), Self::Error>;
+    /// Group newly covered retained exchanges before advancing the selected watermark.
+    fn record_ackall_flow(
+        &mut self,
+        identity: &str,
+        incoming: bool,
+        latest: u64,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
     fn digest_policy(&self, identity_id: &str)
     -> Result<Option<digest::DigestPolicy>, Self::Error>;
     fn write_digest_policy(&mut self, policy: &digest::DigestPolicy) -> Result<(), Self::Error>;

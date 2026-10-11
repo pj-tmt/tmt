@@ -118,6 +118,7 @@ function expectNativeSchema(
       version: 51,
       name: 'retain digest due ranges, arrival context and successful delivery counters',
     },
+    { version: 52, name: 'retain content-free exchange flow aggregates' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -156,6 +157,7 @@ function expectNativeSchema(
       'focus_items',
       'focus_checklists',
       'digest_counters',
+      'exchange_flow',
       'reply_notice_batches',
       'reply_notices',
     ].sort()
@@ -197,6 +199,10 @@ function expectNativeSchema(
     ],
     ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],
     ['digest_counters', ['identity_id', 'due_through_sequence', 'delivered_digests']],
+    [
+      'exchange_flow',
+      ['sender_identity_id', 'recipient_identity_id', 'kind', 'bucket_start_ms', 'count', 'bytes'],
+    ],
     [
       'office_local_worlds',
       [

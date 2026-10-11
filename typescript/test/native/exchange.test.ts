@@ -40,6 +40,96 @@ function attentionFixture(sandbox: Sandbox, owner: string, requestId: string) {
 }
 
 describe('native exchange attention process contract', () => {
+  it('reads whole-team content-free flow without selecting or acknowledging a reader', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = await calibrateTmuxTripwire(sandbox);
+      const sender = (await json(sandbox, ['identity', 'create', 'Sender'])).identity as {
+        id: string;
+      };
+      const recipient = (await json(sandbox, ['identity', 'create', 'Recipient'])).identity as {
+        id: string;
+      };
+      await json(sandbox, ['identity', 'create', 'Unrelated reader']);
+      const seeded = attentionFixture(sandbox, sender.id, 'flow-secret-request');
+      const database = new Database(sandbox.database);
+      try {
+        database
+          .prepare('UPDATE request_attempts SET recipient_identity_id = ? WHERE request_id = ?')
+          .run(recipient.id, seeded.requestId);
+      } finally {
+        database.close();
+      }
+      const body = 'private final é';
+      await json(sandbox, [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        body,
+      ]);
+      await json(sandbox, [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        body,
+      ]);
+      await json(sandbox, ['result', seeded.requestId]);
+      await json(sandbox, ['result', seeded.requestId]);
+      await json(sandbox, ['x', 'ackall', '--identity', 'Sender']);
+      await json(sandbox, ['x', 'ackall', '--identity', 'Sender']);
+      const before = responseSnapshot(sandbox.database, seeded.requestId);
+      const flow = await json(sandbox, ['x', 'flow']);
+      expect(flow.bucketMs).toBe(1_800_000);
+      const rows = flow.rows as Array<Record<string, unknown>>;
+      expect(rows.map((row) => row.kind).sort()).toEqual(['ack', 'reply', 'result']);
+      expect(rows.find((row) => row.kind === 'reply')).toMatchObject({
+        senderIdentityId: recipient.id,
+        recipientIdentityId: sender.id,
+        count: 1,
+        bytes: Buffer.byteLength(body),
+      });
+      expect(rows.find((row) => row.kind === 'result')).toMatchObject({
+        senderIdentityId: recipient.id,
+        recipientIdentityId: sender.id,
+        count: 2,
+        bytes: 0,
+      });
+      expect(rows.find((row) => row.kind === 'ack')).toMatchObject({
+        senderIdentityId: sender.id,
+        recipientIdentityId: recipient.id,
+        count: 1,
+        bytes: 0,
+      });
+      for (const row of rows)
+        expect(Object.keys(row).sort()).toEqual([
+          'bucketStartMs',
+          'bytes',
+          'count',
+          'kind',
+          'recipientIdentityId',
+          'senderIdentityId',
+        ]);
+      expect(JSON.stringify(flow)).not.toContain(body);
+      expect(JSON.stringify(flow)).not.toContain(seeded.requestId);
+      expect(JSON.stringify(flow)).not.toContain(seeded.compactReceipt);
+      expect(await json(sandbox, ['x', 'flow'])).toMatchObject({ rows });
+      expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
+      expectError(
+        await runCli(sandbox, ['x', 'flow', '--identity', 'Unrelated reader', '--json']),
+        'USAGE_ERROR'
+      );
+      expectError(await runCli(sandbox, ['x', 'flow', '--since', '31d', '--json']), 'USAGE_ERROR');
+      const human = await runCli(sandbox, ['x', 'flow']);
+      expect(human.status).toBe(0);
+      expect(human.stdout).toContain('SENDER');
+      expect(human.stdout).not.toContain(body);
+      expect(readFileSync(log, 'utf8')).toBe('\n');
+    });
+  });
+
   it('renders human attention and reply results without confusing acknowledgment with completion', async () => {
     await withSandbox(async (sandbox) => {
       const log = await calibrateTmuxTripwire(sandbox);

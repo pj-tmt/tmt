@@ -242,6 +242,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if changed && !records.acknowledge_recipient_revision(identity, request, revision)? {
                 return Err(RequestError::StateInvalid);
             }
+            if changed {
+                flow::record_ack(records, &record.attempt, identity, now)?;
+            }
             Ok(Acknowledged {
                 request_id: request.into(),
                 revision,
@@ -255,10 +258,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         identity: &str,
     ) -> Result<u64, RequestError<R::Error>> {
         selector(identity)?;
-        self.read(|records, _| {
+        self.read(|records, now| {
             let Some(latest) = records.recipient_attention_counter(identity)? else {
                 return Ok(0);
             };
+            records.record_ackall_flow(identity, true, latest, now)?;
             if !records.acknowledge_recipient_through(identity, latest)? {
                 return Err(RequestError::StateInvalid);
             }
@@ -346,6 +350,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             if changed && !records.acknowledge_revision(identity, request, revision)? {
                 return Err(RequestError::StateInvalid);
             }
+            if changed {
+                flow::record_ack(records, &record.attempt, identity, now)?;
+            }
             Ok(Acknowledged {
                 request_id: request.into(),
                 revision,
@@ -359,10 +366,11 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         identity: &str,
     ) -> Result<u64, RequestError<R::Error>> {
         selector(identity)?;
-        self.read(|records, _| {
+        self.read(|records, now| {
             let Some(latest) = records.attention_counter(identity)? else {
                 return Ok(0);
             };
+            records.record_ackall_flow(identity, false, latest, now)?;
             if !records.acknowledge_through(identity, latest)? {
                 return Err(RequestError::StateInvalid);
             }

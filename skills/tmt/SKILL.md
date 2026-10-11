@@ -354,6 +354,13 @@ tmt x ack <request-id> --revision <revision> --identity coordinator --json
 tmt x ackall --identity coordinator --json
 ```
 
+`tmt x flow --since 24h --json` reads content-free counts and UTF-8 byte totals
+for the whole local team in UTC 30-minute buckets, without `--identity`. The
+window defaults to 24 hours and accepts integer seconds or ms/s/m/h/d, up to 30
+days. Human output sums by identity pair and kind. No message text, receipts or
+request IDs are included; result reads and effective acknowledgments have zero
+bytes. Recording begins with the flow migration, independently of body retention.
+
 Bare `x` means `x ls`: unacknowledged retained metadata only, without loading
 prompt or final bodies. `--limit` defaults to 50 (1-200); `--after` defaults to 0.
 Follow non-null `nextAfter` with `--after`; this is a live revision cursor, not

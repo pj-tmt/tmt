@@ -259,6 +259,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain digest due ranges, arrival context and successful delivery counters",
         "schema/051.sql"
     ),
+    migration!(
+        "retain content-free exchange flow aggregates",
+        "schema/052.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

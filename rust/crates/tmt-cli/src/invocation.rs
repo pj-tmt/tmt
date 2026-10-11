@@ -125,6 +125,9 @@ pub enum Invocation {
         identity: Option<String>,
         operation: RoleOperation,
     },
+    ExchangeFlow {
+        window_ms: u64,
+    },
     Exchange {
         identity: Option<String>,
         operation: ExchangeOperation,
