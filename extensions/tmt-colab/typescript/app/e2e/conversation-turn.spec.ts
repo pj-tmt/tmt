@@ -91,7 +91,10 @@ async function flat(message: Locator) {
   await expect(message).toHaveCSS('padding-top', '10px');
   await expect(message).toHaveCSS('padding-bottom', '10px');
   await expect(message).toHaveCSS('padding-right', '14px');
-  await expect(message).toHaveCSS('border-bottom-width', '1px');
+  await expect(message).toHaveCSS(
+    'border-bottom-width',
+    (await message.evaluate((node) => !!node.closest('.chat-panel'))) ? '0px' : '1px',
+  );
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
@@ -150,7 +153,7 @@ for (const width of [1440, 390]) {
         const user = window.locator('.conversation-turn[data-turn-role="user"]');
         const agent = window.locator('.conversation-turn[data-turn-role="agent"]');
         await expect(user).toHaveCount(1);
-        await expect(user.locator('.comment-byline')).toContainText('You ·');
+        await expect(user.locator('.conversation-author')).toHaveText('You');
         await expect(user.locator('.conversation-body')).toHaveText(request);
         await flat(user);
         await expect(user).toHaveCSS('padding-left', '14px');
@@ -179,8 +182,12 @@ for (const width of [1440, 390]) {
           } else {
             await expect(agent).toHaveCount(0);
             const status = user.getByTestId('ask-state');
-            await expect(status).toHaveText(label);
-            await expect(status.locator('svg.lucide')).toBeVisible();
+            await expect(status).toHaveText(
+              surface === 'chat' && state === 'failed' ? `✗${label}` : label,
+            );
+            if (surface === 'chat' && state === 'failed')
+              await expect(status.locator('.ask-state-mark')).toHaveText('✗');
+            else await expect(status.locator('svg.lucide')).toBeVisible();
             await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(0);
             const placement = await user.evaluate((node) => {
               const main = node.querySelector('.conversation-main')!;
@@ -222,8 +229,11 @@ for (const width of [1440, 390]) {
           await capture(page, window, `${surface}-${width}-${theme}-${state}`);
         }
       }
-      expect(computed['chat-user']).toEqual(computed['thread-user']);
-      expect(computed['chat-agent']).toEqual(computed['thread-agent']);
+      expect(computed['chat-user'].row['border-bottom']).toContain('0px');
+      expect(computed['thread-user'].row['border-bottom']).toContain('1px');
+      expect(computed['chat-agent'].row['border-left']).toEqual(
+        computed['thread-agent'].row['border-left'],
+      );
       await annotate(page);
       await shell(page.getByTestId('annotation-window'));
       await capture(page, page.getByTestId('annotation-window'), `annotate-${width}-${theme}`);
@@ -848,3 +858,95 @@ for (const width of [1440, 390]) {
     });
   }
 }
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`Chat polish keeps identity, day boundaries and controls at ${width} ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.addInitScript((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await page.goto('/');
+    await run(page, 'mount', { attachments: true, creator: true });
+    await run(page, 'chatPolish', 'empty');
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
+    const panel = page.getByTestId('chat-panel');
+    await expect(panel.getByRole('button', { name: text.chatCollapse, exact: true })).toBeVisible();
+    await expect(panel.locator('.chat-empty h3')).toHaveText(text.chatEmpty);
+    await expect(panel.locator('.chat-empty p')).toHaveText(text.chatEmptyHint);
+    mkdirSync(captureDir, { recursive: true });
+    await capture(page, panel, `chat-polish-empty-${width}-${theme}`);
+    await run(page, 'chatPolish', 'messages');
+    await expect(panel.locator('.chat-day')).toHaveCount(2);
+    await expect(panel.locator('.chat-day').last()).toHaveText(text.chatToday);
+    await expect(panel.locator('.conversation-author')).toHaveText(['Pat', 'You', 'Atlas']);
+    const agent = panel.locator('[data-turn-role="agent"]');
+    await expect(agent).toHaveCSS('border-left-width', '3px');
+    await expect(panel.locator('.conversation-turn')).toHaveCount(3);
+    let sharedTimeEdge: number | undefined;
+    for (const row of await panel.locator('.conversation-turn').all()) {
+      await expect(row).toHaveCSS('border-bottom-width', '0px');
+      const body = await row.locator('.conversation-body').boundingBox();
+      const byline = await row.locator('.comment-byline').boundingBox();
+      // Owned rows reserve the existing right-edge action menu; the time fills
+      // the remaining identity row rather than staying beside the author.
+      expect(byline!.width).toBeGreaterThan(body!.width - 50);
+      const time = await row.locator('time').boundingBox();
+      const edge = time!.x + time!.width;
+      expect(edge).toBeCloseTo(byline!.x + byline!.width, 0);
+      if (sharedTimeEdge !== undefined) expect(edge).toBeCloseTo(sharedTimeEdge, 0);
+      sharedTimeEdge = edge;
+    }
+    await expect(panel.getByTestId('ask-state')).toHaveCount(0);
+    await capture(page, panel, `chat-polish-messages-${width}-${theme}`);
+    await run(page, 'chatPolish', 'failed');
+    await expect(panel.getByTestId('ask-state')).toContainText('✗Not delivered');
+    await expect(panel.getByRole('button', { name: text.chatRetry, exact: true })).toBeVisible();
+    await capture(page, panel, `chat-polish-failed-${width}-${theme}`);
+    const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+    await input.fill('A comment without a recipient.');
+    await expect(panel.locator('.annotation-status-row')).toContainText(text.messageComment);
+    await expect(panel.locator('.creator-toggle')).toHaveCount(0);
+    await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
+    await input.fill('');
+    await input.pressSequentially('@A');
+    await page.getByRole('option').first().click();
+    await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
+    await expect(panel.locator('.annotation-status-row')).not.toContainText(text.messageComment);
+    await expect(panel.locator('.creator-toggle')).toBeVisible();
+    await capture(page, panel, `chat-polish-recipient-${width}-${theme}`);
+    await panel.getByTestId('attachment-input').setInputFiles([
+      { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes') },
+      { name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('Plan') },
+      { name: 'review.txt', mimeType: 'text/plain', buffer: Buffer.from('Review') },
+    ]);
+    await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
+    await capture(page, panel, `chat-polish-pending-${width}-${theme}`);
+    expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
+  });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`archived empty Chat has no @ invitation ${width} ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'chatPolish', 'empty');
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
+    const chat = page.getByTestId('chat-panel');
+    await expect(chat.getByText(text.chatEmptyHint, { exact: true })).toBeVisible();
+    await run(page, 'archive');
+    await expect(page.locator('#ask-page-fixture .status')).toContainText(text.archiveReadOnly);
+    await expect(chat.locator('.chat-empty h3')).toHaveText(text.chatEmpty);
+    await expect(chat.getByText(text.chatEmptyHint, { exact: true })).toHaveCount(0);
+    await expect(chat.getByRole('combobox')).toHaveCount(0);
+    expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
+  });

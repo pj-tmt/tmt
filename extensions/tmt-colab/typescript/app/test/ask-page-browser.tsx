@@ -1282,3 +1282,33 @@ export function archive() {
   current = { ...current, archived: true };
   emit();
 }
+
+/** Verified-projection presentation fixture for Chat identity and local-day headings. */
+export function chatPolish(state: 'empty' | 'messages' | 'failed') {
+  if (state === 'empty') {
+    current = { ...current, threads: [], asks: [] };
+    emit();
+    return;
+  }
+  conversation({ surface: 'chat', state: state === 'failed' ? 'refused' : 'replied' });
+  if (state === 'failed') {
+    records[0].reason = 'REMOTE_SCOPE_DENIED';
+    records[0].requestId = null;
+  }
+  const thread = current.threads![0];
+  const own = thread.comments[0];
+  const prior = new Date(Number(own.at));
+  prior.setDate(prior.getDate() - 1);
+  const messageId = id(45);
+  const person = {
+    ...own,
+    at: String(prior.getTime()),
+    messageId,
+    senderDevice: id(46),
+    deviceName: 'Pat',
+    ref: { writer: id(46), id: messageId },
+    body: 'Keep the conversation beside the selected page text.',
+  };
+  current = { ...current, threads: [{ ...thread, comments: [person, own] }] };
+  emit();
+}

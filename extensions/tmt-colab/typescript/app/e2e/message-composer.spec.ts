@@ -320,14 +320,14 @@ for (const width of [1440, 390]) {
       await capture('chat-busy');
       await run('resumePrepare');
       await expect(chatInput).toHaveAttribute('contenteditable', 'true');
-      const close = page.getByRole('button', { name: 'Close Chat', exact: true });
+      const close = page.getByRole('button', { name: 'Collapse Chat', exact: true });
       await close.focus();
       await close.press('Shift+Tab');
       await page.keyboard.press('Tab');
       await expect(close).toBeFocused();
       if (!process.env.COLAB_INTERACTION_BASELINE)
         await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(
-          'Close Chat',
+          'Collapse Chat · Esc',
         );
       await capture('drawer-focus');
       if (!process.env.COLAB_INTERACTION_BASELINE) {

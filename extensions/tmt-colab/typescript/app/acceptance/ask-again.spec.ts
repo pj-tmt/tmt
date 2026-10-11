@@ -53,9 +53,13 @@ for (const surface of ['chat', 'thread'])
       await expect(panel.locator('.annotation-status-row')).not.toContainText('Checking');
       const body = `@${alpha.name} @${beta.name} Explain the original comment.\n  Keep these bytes.  `;
       await input.fill(body);
-      await expect(panel.locator('.annotation-status-row')).toContainText(
-        `Asks @${alpha.name}, @${beta.name}.`,
-      );
+      if (surface === 'chat') {
+        await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
+      } else {
+        await expect(panel.locator('.annotation-status-row')).toContainText(
+          `Asks @${alpha.name}, @${beta.name}.`,
+        );
+      }
       // Lose one ordinary context GET before adoption; no signed Remote outcome,
       // object append, directory response or dispatch is fabricated.
       let failures = 0;
@@ -69,7 +73,10 @@ for (const surface of ['chat', 'thread'])
       await expect(panel.getByTestId('recipient-failure')).toContainText(
         `@${alpha.name} · Not delivered`,
       );
-      const again = panel.getByRole('button', { name: 'Ask again', exact: true });
+      const again = panel.getByRole('button', {
+        name: surface === 'chat' ? 'Retry' : 'Ask again',
+        exact: true,
+      });
       await expect(again).toBeEnabled();
       await until(() => beta.received().length === 1, 'the accepted sibling delivery');
       expect(alpha.received()).toHaveLength(0);
@@ -168,7 +175,12 @@ for (const surface of ['chat', 'thread'])
         surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
       await expect(restored.getByTestId('comment-entry')).toHaveCount(1);
       await expect(restored.getByTestId('ask-entry')).toHaveCount(2);
-      await expect(restored.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+      await expect(
+        restored.getByRole('button', {
+          name: surface === 'chat' ? 'Retry' : 'Ask again',
+          exact: true,
+        }),
+      ).toHaveCount(0);
       expect(alpha.received()).toHaveLength(1);
       expect(beta.received()).toHaveLength(1);
       expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(

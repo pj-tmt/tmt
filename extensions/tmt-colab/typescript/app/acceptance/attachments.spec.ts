@@ -972,8 +972,9 @@ for (const surface of ['chat', 'thread'] as const)
           : page.getByTestId('comment-thread').first();
       const input = panel.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('A posted image at the message edge.');
+      const attachName = surface === 'chat' ? text.attachFiles : text.messageAttach;
       const posted = page.waitForEvent('filechooser');
-      await panel.getByRole('button', { name: text.messageAttach, exact: true }).click();
+      await panel.getByRole('button', { name: attachName, exact: true }).click();
       await (
         await posted
       ).setFiles([{ name: 'posted.png', mimeType: 'image/png', buffer: picture }]);
@@ -982,7 +983,7 @@ for (const surface of ['chat', 'thread'] as const)
       await input.fill('Pending files remain local until Send.');
       const editor = await input.elementHandle();
       const chooser = page.waitForEvent('filechooser');
-      await panel.getByRole('button', { name: text.messageAttach, exact: true }).click();
+      await panel.getByRole('button', { name: attachName, exact: true }).click();
       await (
         await chooser
       ).setFiles([

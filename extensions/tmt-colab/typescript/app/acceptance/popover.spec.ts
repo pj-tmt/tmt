@@ -198,7 +198,7 @@ for (const [width, theme] of [
       await input.press('Escape');
       await input.fill('An unsent served draft');
       await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
-      await chat.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+      await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
       await page.keyboard.press('Shift+@');
       await expect(input).toBeFocused();
       await expect(input).toHaveText('An unsent served draft');

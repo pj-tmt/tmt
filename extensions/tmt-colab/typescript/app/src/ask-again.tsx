@@ -1,6 +1,7 @@
-import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { ConversationPresentation } from './components/conversation-presentation.js';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { Send } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
 import type { CommentContext } from './thread-store.js';
 import type { PreviewAttempt } from './ask-preview.js';
@@ -28,6 +29,7 @@ export function AskAgainAction({
   retryOf: string | null;
   settled?(outcome: Awaited<ReturnType<PreviewAttempt['send']>>): void;
 }) {
+  const label = useContext(ConversationPresentation) === 'chat' ? text.chatRetry : undefined;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [uncertain, setUncertain] = useState(false);
@@ -94,16 +96,17 @@ export function AskAgainAction({
       }
     }
   }
+  const Action = label ? BrowserAction : BrowserIconAction;
   return (
     <span className="conversation-status ask-again-action">
       {uncertain ? (
         <span role="status">{text.askUnconfirmed}</span>
       ) : (
-        <BrowserIconAction
+        <Action
           type="button"
           variant="text"
-          label={text.askAgain}
-          icon={<Send />}
+          label={label ?? text.askAgain}
+          icon={label ? undefined : <Send />}
           busy={busy}
           disabled={!binding || blocked}
           onActivate={(event) => {

@@ -1,6 +1,8 @@
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import { useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import {
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -49,7 +51,6 @@ export function AnnotationInput({
   cancel,
   showCancel = false,
   committed,
-  chat = false,
 }: {
   binding?: AskBinding;
   discussion?: ThreadBinding;
@@ -76,8 +77,8 @@ export function AnnotationInput({
   cancel(): void;
   showCancel?: boolean;
   committed(ref: DiscussionRef): void;
-  chat?: boolean;
 }) {
+  const chat = useContext(ConversationPresentation) === 'chat';
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
   const creatorPreference = useCreatorDefault();
@@ -163,6 +164,16 @@ export function AnnotationInput({
       destinations: agents,
     });
   const decision = decide(edit);
+  // Manual drafts without a creator mention do not use the stored fresh-draft default.
+  // A blank off control stays available to restore that default.
+  const showCreatorToggle =
+    !!creator &&
+    (!chat ||
+      !edit.edited ||
+      (!creatorPreference.enabled && !value.trim()) ||
+      decision.agents.some(
+        (agent) => agent.machine === creator.machine && agent.agent === creator.agent,
+      ));
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
   const audience = decision.agents
     .map((agent) => `@${agent.agentName}${agent.presence === 'offline' ? ' (offline)' : ''}`)
@@ -176,9 +187,13 @@ export function AnnotationInput({
         : decision.unknown.length
           ? text.messageUnknown(decision.unknown[0], audience)
           : audience
-            ? text.messageAsks(audience)
+            ? chat
+              ? ''
+              : text.messageAsks(audience)
             : agents?.length === 0
-              ? text.messageAgentsEmpty
+              ? chat
+                ? text.messageComment
+                : text.messageAgentsEmpty
               : text.messageComment;
   const nextDraft = useRef(freshEdit);
   nextDraft.current = freshEdit;
@@ -271,6 +286,7 @@ export function AnnotationInput({
   return (
     <section
       className="annotation-compose"
+      data-chat={chat || undefined}
       data-testid="annotation-compose"
       ref={section}
       onDragOver={(event) => {
@@ -352,8 +368,13 @@ export function AnnotationInput({
         }}
       />
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
-        {creator && <CreatorToggle name={creator.agentName} preference={creatorPreference} />}
-        {discussion?.attachments && (
+        {chat && discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} label={text.messageAttach} />
+        )}
+        {showCreatorToggle && creator && (
+          <CreatorToggle name={creator.agentName} preference={creatorPreference} />
+        )}
+        {!chat && discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
         <p id={statusId} role="status" className="annotation-hint">

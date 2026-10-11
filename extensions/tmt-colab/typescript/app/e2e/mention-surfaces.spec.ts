@@ -102,13 +102,21 @@ for (const width of [1440, 390])
               await input.press('ControlOrMeta+A');
               await input.pressSequentially('@missing Explain.');
             }
-            await expect(composer.getByRole('status')).toHaveText(
+            const status = composer.locator('.annotation-status-row > .annotation-hint');
+            await expect(status).toHaveAttribute('role', 'status');
+            await expect(status).toHaveText(
               state === 'default'
-                ? 'Asks @Agent 1.'
+                ? surface === 'chat'
+                  ? ''
+                  : 'Asks @Agent 1.'
                 : state === 'multi'
-                  ? 'Asks @Agent 1, @Agent 2.'
+                  ? surface === 'chat'
+                    ? ''
+                    : 'Asks @Agent 1, @Agent 2.'
                   : 'No agent named @missing. This posts as a comment.',
             );
+            if (surface === 'chat' && state !== 'unknown') await expect(status).toBeHidden();
+            else await expect(status).toBeVisible();
           }
           await expect(
             composer.getByRole('button', { name: 'Send', exact: true }),
@@ -117,8 +125,8 @@ for (const width of [1440, 390])
           await expect(input).toHaveCSS('border-radius', '0px');
           await expect(input).toHaveCSS('box-shadow', 'none');
           const current = await appearance(composer);
-          if (baseline) expect(current).toEqual(baseline);
-          else baseline = current;
+          if (surface === 'thread') baseline = current;
+          else if (surface === 'annotate') expect(current).toEqual(baseline);
           const name = `${surface}-${width}-${theme}-${state}`;
           proof[name] = current;
           await page.screenshot({ path: `${directory}/${name}.png` });

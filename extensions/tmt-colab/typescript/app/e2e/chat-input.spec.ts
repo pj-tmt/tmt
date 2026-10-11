@@ -31,7 +31,8 @@ test('picked mentions keep surrounding multiline text and choosing alone has no 
   await input.pressSequentially('After');
   await expect(input).toHaveText('Before @Beta \nAfter', { useInnerText: true });
   expect((await run(page, 'proof')).createChats).toBe(0);
-  await expect(page.locator('.annotation-status-row')).toContainText('Asks @Beta.');
+  await expect(page.locator('.annotation-status-row')).not.toContainText('Asks @Beta.');
+  await expect(page.locator('.annotation-status-row')).not.toContainText('Posts as a comment.');
 });
 
 test('Enter that ends an IME composition commits it and only the next Enter sends', async ({

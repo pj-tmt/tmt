@@ -28,7 +28,7 @@ for (const surface of ['chat', 'thread'])
       page,
     }) => {
       const input = await mount(page, surface, mode);
-      const again = page.getByRole('button', { name: 'Ask again', exact: true });
+      const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
       await expect(again).toHaveCount(1);
       const before = await run(page, 'proof');
       await input.fill('My next draft.');
@@ -37,8 +37,8 @@ for (const surface of ['chat', 'thread'])
       expect((await run(page, 'proof')).sends).toEqual(before.sends);
       await again.focus();
       await expect(again).toBeFocused();
-      await expect(again).toHaveAccessibleName('Ask again');
-      await expect(again.locator('svg.lucide-send')).toBeVisible();
+      await expect(again).toHaveAccessibleName(surface === 'chat' ? 'Retry' : 'Ask again');
+      await expect(again).toHaveAccessibleName(/^(?:Ask again|Retry)$/);
       await again.press('Enter');
       await expect
         .poll(async () => (await run(page, 'proof')).sends.length)
@@ -74,7 +74,7 @@ test('two trusted activations while preparation waits produce one fresh operatio
 }) => {
   await mount(page, 'chat', 'refused');
   await run(page, 'setPark', true);
-  const again = page.getByRole('button', { name: 'Ask again', exact: true });
+  const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
   const box = (await again.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { clickCount: 2 });
   await expect(again).toBeDisabled();
@@ -90,7 +90,7 @@ test('another refusal keeps both honest outcomes and one recipient action; keybo
   page,
 }) => {
   await mount(page, 'thread', 'refused-again');
-  const again = page.getByRole('button', { name: 'Ask again', exact: true });
+  const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
   await again.focus();
   await again.press('Enter');
   await expect(page.getByTestId('ask-entry')).toHaveCount(3);
@@ -107,7 +107,9 @@ test('another refusal keeps both honest outcomes and one recipient action; keybo
 for (const mode of ['uncertain', 'unknown', 'held'])
   test(`${mode}: Ask again is never offered`, async ({ page }) => {
     await mount(page, 'chat', mode);
-    await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+    ).toHaveCount(0);
     const proof = await run(page, 'proof');
     expect(proof.writes).toBe(1);
     await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for beta');
@@ -128,14 +130,16 @@ for (const mode of ['prepare', 'unadopted', 'refused'])
     page,
   }) => {
     await mount(page, 'chat', mode);
-    await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(1);
+    await expect(
+      page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+    ).toHaveCount(1);
     const before = await run(page, 'proof');
     await page.reload();
     await run(page, 'mount', { surface: 'chat', mode, restore: true });
     await expect(page.getByTestId('comment-entry')).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(
-      mode === 'refused' ? 1 : 0,
-    );
+    await expect(
+      page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+    ).toHaveCount(mode === 'refused' ? 1 : 0);
     expect((await run(page, 'proof')).sends).toEqual(before.sends);
   });
 
@@ -143,7 +147,7 @@ test('a directory failure or renamed-name UUID cannot select a replacement recip
   page,
 }) => {
   await mount(page, 'chat', 'refused');
-  const again = page.getByRole('button', { name: 'Ask again', exact: true });
+  const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
   for (const directory of ['fail', 'renamed']) {
     await run(page, 'setDirectory', directory);
     await again.click();
@@ -159,12 +163,14 @@ test('a directory failure or renamed-name UUID cannot select a replacement recip
 test('a replaced binding cannot dispatch a late prepared retry', async ({ page }) => {
   await mount(page, 'chat', 'refused');
   await run(page, 'setPark', true);
-  await page.getByRole('button', { name: 'Ask again', exact: true }).click();
+  await page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }).click();
   await expect.poll(async () => (await run(page, 'proof')).preparations).toBe(3);
   await run(page, 'replaceBinding');
   await expect.poll(() => run(page, 'isParked')).toBe(true);
   await run(page, 'releasePreparation');
-  await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toBeEnabled();
   expect((await run(page, 'proof')).sends).toHaveLength(2);
 });
 
@@ -172,20 +178,26 @@ test('another device sees the old refusal but gets no Ask again capability', asy
   await mount(page, 'chat', 'refused');
   await run(page, 'mount', { surface: 'chat', mode: 'refused', restore: true, readonly: true });
   await expect(page.locator('[data-ledger-state=refused]')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(0);
 });
 
 test('an accepted replacement blocks the older refusal after reload without another Send', async ({
   page,
 }) => {
   await mount(page, 'chat', 'refused');
-  await page.getByRole('button', { name: 'Ask again', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(0);
   const before = await run(page, 'proof');
   await page.reload();
   await run(page, 'mount', { surface: 'chat', mode: 'refused', restore: true });
   await expect(page.locator('[data-ledger-state=refused]')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual(before.sends);
   expect((await run(page, 'proof')).writes).toBe(1);
 });
@@ -198,11 +210,13 @@ test('two same-origin tabs with stale own projections share one durable pair fen
   const other = await context.newPage();
   await other.goto('/');
   await run(other, 'mount', { surface: 'chat', mode: 'refused', restore: true });
-  await expect(other.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(1);
+  await expect(
+    other.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(1);
   await run(page, 'setPark', true);
   await run(other, 'setPark', true);
-  await page.getByRole('button', { name: 'Ask again', exact: true }).click();
-  await other.getByRole('button', { name: 'Ask again', exact: true }).click();
+  await page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }).click();
+  await other.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }).click();
   // Both controllers captured the same old own view before either adoption.
   await expect.poll(async () => (await run(page, 'proof')).preparations).toBe(3);
   await expect.poll(async () => (await run(other, 'proof')).preparations).toBe(3);
@@ -210,8 +224,12 @@ test('two same-origin tabs with stale own projections share one durable pair fen
   await expect.poll(() => run(other, 'isParked')).toBe(true);
   await run(page, 'releasePreparation');
   await run(other, 'releasePreparation');
-  await expect(page.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
-  await expect(other.getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    other.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
+  ).toHaveCount(0);
   const one = await run(page, 'proof');
   const two = await run(other, 'proof');
   expect(one.sends.length + two.sends.length - 4).toBe(1);
@@ -224,7 +242,7 @@ test('a newly refused replacement arriving before older rows leaves one enabled 
   page,
 }) => {
   await mount(page, 'thread', 'refused-again', true);
-  const again = page.getByRole('button', { name: 'Ask again', exact: true });
+  const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
   await again.click();
   await expect(page.locator('[data-ledger-state=refused]')).toHaveCount(2);
   await expect(again).toHaveCount(1);
@@ -249,11 +267,11 @@ for (const width of [1440, 390])
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
       await mount(page, 'chat', 'refused');
-      const again = page.getByRole('button', { name: 'Ask again', exact: true });
+      const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
       const check = page.getByRole('button', { name: 'Check again', exact: true });
       await expect(again).toBeVisible();
       await expect(check).toBeVisible();
-      await expect(again.locator('svg.lucide-send')).toBeVisible();
+      await expect(again).toHaveAccessibleName(/^(?:Ask again|Retry)$/);
       await expect(check.locator('svg.lucide-rotate-cw')).toBeVisible();
       const boxes = await Promise.all([again.boundingBox(), check.boundingBox()]);
       for (const box of boxes) {
@@ -274,9 +292,15 @@ for (const width of [1440, 390])
       ).toBe(true);
       const before = await run(page, 'proof');
       for (const [button, label] of [
-        [again, 'Ask again'],
+        [again, 'Retry'],
         [check, 'Check again'],
       ] as const) {
+        if (label === 'Retry') {
+          await expect(button).toHaveText('Retry');
+          await button.focus();
+          await expect(button).toBeFocused();
+          continue;
+        }
         await button.hover();
         await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(label);
         await page.mouse.move(width - 1, 899);
