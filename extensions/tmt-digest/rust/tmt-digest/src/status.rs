@@ -146,9 +146,8 @@ fn member(
     if let Some(count) = held.filter(|n| *n > 0) {
         labels.push(label(format!("{count} held"), "muted"));
     }
-    if mode != Mode::Off {
+    if mode != Mode::Off && held != Some(0) {
         let (text, color) = match held {
-            Some(0) => ("No held messages".into(), "dim"),
             None => ("Unknown".into(), "dim"),
             Some(_) if mode == Mode::Auto => ("When idle".into(), "muted"),
             Some(_) => match time {
