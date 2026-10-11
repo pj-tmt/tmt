@@ -329,11 +329,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
             &[
                 (
                     "limits bar",
-                    "the share of each account window left and reset time inside the bar; e on overview shows values hidden at this width",
+                    "weekly remaining share inside the bar; reset time, pace and trend appear only if depletion is expected before reset. e on overview shows hidden values",
                 ),
                 (
                     "~N%/h",
-                    "average weekly use over the last 6 hours, after an hour of samples. ! empties: at this pace the week runs out before it resets. ✗ empties: it runs out within 12 hours. No forecast until there is measured use.",
+                    "average weekly use over the last 6 hours, after an hour of samples. ! ~time: at this pace the week runs out before it resets. ✗ ~time: it runs out within 12 hours. No forecast until there is measured use.",
                 ),
                 (
                     "no reading",
