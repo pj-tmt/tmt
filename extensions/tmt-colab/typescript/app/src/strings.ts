@@ -29,6 +29,10 @@ export const text = {
     'Decision saved. The proposer could not be notified. Use Follow up to send a message.',
   proposalDecisionUnconfirmed: 'Could not confirm the decision. Check again before continuing.',
 
+  browserUnsupported: 'Unsupported browser',
+  browserUpdate: 'Update your browser',
+  browserUpdateBody:
+    'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.',
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   headerByAuthor: (name: string) => `by ${name}`,
