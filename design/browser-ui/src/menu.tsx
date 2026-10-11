@@ -204,12 +204,17 @@ export function BrowserMenu<Key extends string>({
         <dialog
           ref={dialog}
           className="tmt-ui-menu-surface"
-          role="menu"
-          id={id}
           tabIndex={-1}
           aria-label={label}
-          aria-describedby={description ? `${id}-description` : undefined}
-          onCancel={(event) => event.preventDefault()}
+          onClose={(event) => {
+            event.stopPropagation();
+            if (event.currentTarget === dialog.current && !event.currentTarget.open) close();
+          }}
+          onCancel={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.isTrusted) close();
+          }}
           onKeyDown={menuKey}
           onPointerDown={(event) => {
             if (
@@ -229,41 +234,49 @@ export function BrowserMenu<Key extends string>({
             }
           }}
         >
-          {description && (
-            <div className="tmt-ui-menu-description" id={`${id}-description`}>
-              {description}
-            </div>
-          )}
-          {items.map((item, index) => (
-            <div key={item.key}>
-              <button
-                type="button"
-                className="tmt-ui-menu-item"
-                role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
-                aria-checked={item.checked}
-                aria-describedby={item.disabledReason ? `${id}-reason-${index}` : undefined}
-                disabled={item.disabled}
-                tabIndex={-1}
-                ref={(node) => {
-                  entries.current[index] = node;
-                }}
-                onClick={(event) => {
-                  if (event.isTrusted && !item.disabled) {
-                    close();
-                    onSelect(item.key, event);
-                  }
-                }}
-              >
-                <span>{item.content ?? item.label}</span>
-                {item.checked && <span aria-hidden="true">✓</span>}
-              </button>
-              {item.disabledReason && (
-                <span className="tmt-ui-menu-reason" id={`${id}-reason-${index}`}>
-                  {item.disabledReason}
-                </span>
-              )}
-            </div>
-          ))}
+          <div
+            role="menu"
+            id={id}
+            tabIndex={-1}
+            aria-label={label}
+            aria-describedby={description ? `${id}-description` : undefined}
+          >
+            {description && (
+              <div className="tmt-ui-menu-description" id={`${id}-description`}>
+                {description}
+              </div>
+            )}
+            {items.map((item, index) => (
+              <div key={item.key}>
+                <button
+                  type="button"
+                  className="tmt-ui-menu-item"
+                  role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
+                  aria-checked={item.checked}
+                  aria-describedby={item.disabledReason ? `${id}-reason-${index}` : undefined}
+                  disabled={item.disabled}
+                  tabIndex={-1}
+                  ref={(node) => {
+                    entries.current[index] = node;
+                  }}
+                  onClick={(event) => {
+                    if (event.isTrusted && !item.disabled) {
+                      close();
+                      onSelect(item.key, event);
+                    }
+                  }}
+                >
+                  <span>{item.content ?? item.label}</span>
+                  {item.checked && <span aria-hidden="true">✓</span>}
+                </button>
+                {item.disabledReason && (
+                  <span className="tmt-ui-menu-reason" id={`${id}-reason-${index}`}>
+                    {item.disabledReason}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
         </dialog>
       )}
     </span>

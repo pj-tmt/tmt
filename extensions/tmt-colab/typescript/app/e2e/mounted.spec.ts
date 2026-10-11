@@ -845,7 +845,7 @@ test.describe('relative retention evidence', () => {
       await page.locator('body').evaluate((node) => getComputedStyle(node).color),
     );
     await expect(row.getByRole('link')).toBeVisible();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.locator('.management-dialog');
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {

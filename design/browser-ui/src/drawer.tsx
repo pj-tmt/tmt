@@ -13,7 +13,7 @@ import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './over
 export type BrowserDrawerDismissReason = 'escape' | 'backdrop' | 'close';
 export interface BrowserDrawerProps extends Omit<
   ComponentPropsWithoutRef<'dialog'>,
-  'open' | 'title' | 'children' | 'onCancel' | 'onKeyDown' | 'onPointerDown' | 'onClick'
+  'open' | 'title' | 'children' | 'onCancel' | 'onKeyDown' | 'onPointerDown' | 'onClick' | 'onClose'
 > {
   open: boolean;
   title: string;
@@ -49,6 +49,8 @@ export function BrowserDrawer({
 }: BrowserDrawerProps) {
   const label = useId();
   const dialog = useRef<HTMLDialogElement>(null);
+  const currentOpen = useRef(open);
+  currentOpen.current = open;
   const fallback = useRef(focusFallback);
   fallback.current = focusFallback;
   useLayoutEffect(() => {
@@ -70,8 +72,14 @@ export function BrowserDrawer({
       data-panel={panel}
       data-width={width}
       aria-labelledby={label}
+      onClose={(event) => {
+        event.stopPropagation();
+        if (currentOpen.current && !event.currentTarget.open) onDismiss('close', event);
+      }}
       onCancel={(event) => {
         event.preventDefault();
+        event.stopPropagation();
+        if (event.isTrusted) onDismiss('escape', event);
       }}
       onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.defaultPrevented) return;

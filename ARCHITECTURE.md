@@ -51,7 +51,7 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 
 `tmt-ux-lead` owns shared visual tokens and the private browser leaf;
 [its contracts](design/gui-components.md) own generation and consumer boundaries.
-[Drawer/Menu](design/browser-ui/README.md#drawer-and-menu) own presentation, not product state.
+[Drawer/Menu](design/browser-ui/README.md#drawer-and-menu) are presentation-only.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 

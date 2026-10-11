@@ -741,13 +741,21 @@ svg.tmt-ui-mark {
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-drawer-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .tmt-ui-drawer-heading h2 {
   margin: 0;
+  flex: none;
   font-size: 18px;
 }
 .tmt-ui-drawer-caption {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--tmt-ui-color-muted);
   font-size: 12px;
 }

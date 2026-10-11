@@ -87,6 +87,30 @@ for (const [width, theme] of [
     await page.screenshot({ path: testInfo.outputPath(`bottom-menu-${width}-${theme}.png`) });
     await bottom.press('Escape');
     await expect(page.getByRole('button', { name: 'Bottom action' })).toBeFocused();
+    // Native closure must synchronize visibility even when focus escapes to the body.
+    await opener.click();
+    await drawer.getByRole('button', { name: /^Choice:/ }).click();
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement).blur();
+    });
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(opener).toBeFocused();
+    await opener.click();
+    await expect(drawer).toBeVisible();
+    await expect(draft).toHaveValue('Keep this draft');
+    await drawer.evaluate((node: HTMLDialogElement) => node.close());
+    await expect(drawer).toBeHidden();
+    await opener.click();
+    await expect(drawer).toBeVisible();
+    const heading = await drawer.locator('h2').boundingBox();
+    const caption = await drawer.locator('.tmt-ui-drawer-caption').boundingBox();
+    expect(caption!.y).toBeLessThan(heading!.y + heading!.height);
+    await drawer.press('Escape');
     await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveCount(0);
   });
 }
