@@ -31,15 +31,17 @@ pub fn parse_core(argv: &[OsString]) -> Result<Parsed, ParseError> {
     let arguments = std::iter::once(OsString::from("tmt")).chain(argv.iter().cloned());
     let matches = match parser.try_get_matches_from_mut(arguments) {
         Ok(matches) => matches,
-        Err(error) => {
-            let (mode, path) = crate::diagnostics::error_context(&definition, argv);
-            let hint = (error.kind() == clap::error::ErrorKind::UnknownArgument).then(|| {
-                if path.is_empty() {
-                    "Run tmt help to see the commands and options.".to_owned()
-                } else {
-                    format!("Run tmt help {} to see its options.", path.join(" "))
-                }
-            });
+        Err(mut error) => {
+            let (mode, path, all_hidden) =
+                crate::diagnostics::parser_error_context(&definition, argv, &mut error);
+            let hint = (error.kind() == clap::error::ErrorKind::UnknownArgument || all_hidden)
+                .then(|| {
+                    if path.is_empty() {
+                        "Run tmt help to see the commands and options.".to_owned()
+                    } else {
+                        format!("Run tmt help {} to see its options.", path.join(" "))
+                    }
+                });
             return Err(ParseError {
                 hint,
                 code: "USAGE_ERROR",

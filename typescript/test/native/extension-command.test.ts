@@ -14,6 +14,76 @@ function extension(sandbox: Sandbox, name: string, script: string): string {
 }
 
 describe('PATH extension command contract', () => {
+  it('recovers rejection mode from the Core prefix without reading or executing the tail', async () => {
+    await withSandbox(async (sandbox) => {
+      const marker = path.join(sandbox.root, 'extension-executed');
+      sandbox.env.TMT_EXTENSION_MARKER = marker;
+      extension(sandbox, 'example', ': > "$TMT_EXTENSION_MARKER"; printf "%s\\n" "$@"');
+      for (const prefix of [['--json'], ['--json', '--timeout', '1']]) {
+        const result = await runCli(sandbox, [...prefix, 'example', 'status']);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toBe('');
+        expect(JSON.parse(result.stdout)).toEqual({
+          error: {
+            code: 'USAGE_ERROR',
+            message: 'Put options after the extension name: tmt <name> [options].',
+          },
+        });
+        expect(existsSync(marker)).toBe(false);
+      }
+      for (const prefix of [['--timeout', '1'], ['--timeout=--json']]) {
+        const result = await runCli(sandbox, [...prefix, 'example', '--json']);
+        expect(result.status).toBe(1);
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toContain('Put options after the extension name');
+        expect(existsSync(marker)).toBe(false);
+      }
+      const result = await runCli(sandbox, ['example', '--json', '--', 'literal']);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe('--json\n--\nliteral\n');
+      expect(result.stderr).toBe('');
+      expect(existsSync(marker)).toBe(true);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('keeps hidden suggestions out of human and JSON errors while preserving public suggestions', async () => {
+    await withSandbox(async (sandbox) => {
+      for (const json of [false, true]) {
+        const prefix = json ? ['--json'] : [];
+        const hidden = await runCli(sandbox, [...prefix, '__native-instal']);
+        expect(hidden.status).toBe(1);
+        const message = json ? JSON.parse(hidden.stdout).error.message : hidden.stderr;
+        expect(message).toContain("'__native-instal'");
+        expect(message).not.toContain("'__native-install'");
+        if (json) {
+          expect(hidden.stderr).toBe('');
+          expect(JSON.parse(hidden.stdout)).toEqual({
+            error: { code: 'USAGE_ERROR', message },
+          });
+          expect(message).not.toContain('Run tmt help');
+        } else {
+          expect(hidden.stdout).toBe('');
+          expect(message).toContain('Run tmt help to see the commands and options');
+          expect(message.match(/hint:/g)).toHaveLength(1);
+          expect(message).not.toContain('For more information');
+        }
+        const mixed = await runCli(sandbox, [...prefix, 'extension install']);
+        expect(mixed.status).toBe(1);
+        const mixedMessage = json ? JSON.parse(mixed.stdout).error.message : mixed.stderr;
+        expect(mixedMessage).toContain("'extension'");
+        expect(mixedMessage).not.toContain('__native-install');
+        const publicResult = await runCli(sandbox, ['office', ...prefix, 'uninstal']);
+        expect(publicResult.status).toBe(1);
+        const publicMessage = json
+          ? JSON.parse(publicResult.stdout).error.message
+          : publicResult.stderr;
+        expect(publicMessage).toContain("'uninstall'");
+      }
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('forwards nested help and alias tails verbatim and keeps missing-extension error mode', async () => {
     await withSandbox(async (sandbox) => {
       sandbox.env.TMT_AGENT = '1';
@@ -96,8 +166,14 @@ describe('PATH extension command contract', () => {
       extension(sandbox, 'example', 'printf "%s\\n" "$@"');
       expect((await runCli(sandbox, ['help', 'example'])).stdout).toBe('--help\n');
       const misplaced = await runCli(sandbox, ['--json', 'example', 'x']);
-      expect(misplaced.status).not.toBe(0);
-      expect(misplaced.stderr).toContain('Put options after the extension name');
+      expect(misplaced.status).toBe(1);
+      expect(misplaced.stderr).toBe('');
+      expect(JSON.parse(misplaced.stdout)).toEqual({
+        error: {
+          code: 'USAGE_ERROR',
+          message: 'Put options after the extension name: tmt <name> [options].',
+        },
+      });
       const absent = await runCli(sandbox, ['--json', 'no-installed-extension', '--dry-run']);
       expect(absent.status).toBe(1);
       expect(absent.stderr).toBe('');
