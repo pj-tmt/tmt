@@ -1,9 +1,4 @@
-export interface BrowserNotificationData {
-  id: string;
-  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
-  firstLine: string;
-  quote?: string;
-}
+import type { BrowserNotificationData } from './static.js';
 
 export interface NotificationClock {
   now(): number;

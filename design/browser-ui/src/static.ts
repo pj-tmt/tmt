@@ -77,4 +77,9 @@ export interface BrowserTab {
 export type BrowserTabSelectReason = 'keyboard' | 'activation';
 export type BrowserActionVariant = 'text' | 'primary' | 'destructive';
 export type BrowserAnnouncement = 'status' | 'alert' | 'none';
-export type { BrowserNotificationData } from './notification-queue.js';
+export interface BrowserNotificationData {
+  id: string;
+  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
+  firstLine: string;
+  quote?: string;
+}

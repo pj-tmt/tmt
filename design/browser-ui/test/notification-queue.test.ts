@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  NotificationQueue,
-  type NotificationClock,
-  type BrowserNotificationData,
-} from '../src/notification-queue.js';
+import { NotificationQueue, type NotificationClock } from '../src/notification-queue.js';
+import type { BrowserNotificationData } from '../src/static.js';
 
 function fixture() {
   let time = 0;

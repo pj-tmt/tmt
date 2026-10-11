@@ -3,7 +3,8 @@ import { X } from 'lucide-react';
 import { BrowserAction } from './action.js';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, restoreOverlayFocus } from './overlay.js';
-import { NotificationQueue, type BrowserNotificationData } from './notification-queue.js';
+import { NotificationQueue } from './notification-queue.js';
+import type { BrowserNotificationData } from './static.js';
 
 export interface BrowserNotification extends BrowserNotificationData {
   onActivate(event: MouseEvent<HTMLButtonElement>): void;
