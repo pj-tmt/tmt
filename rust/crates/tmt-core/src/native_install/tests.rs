@@ -468,3 +468,89 @@ fn digest_has_an_independent_namespace_and_ordinary_extension_inventory() {
     assert!(digest.post_upgrade_check().is_none());
     assert!(!digest.requires_release_verifier());
 }
+
+#[test]
+fn pr_to_published_transition_ignores_only_numeric_precedence() {
+    let pr = Channel::parse("pr234").unwrap();
+    let current = installed("5.0.0-alpha.999999+candidate", pr, None);
+    for (candidate, channel) in [
+        ("5.0.0-alpha.191", Channel::Alpha),
+        ("4.0.0", Channel::Stable),
+        ("5.0.0-alpha.999999+published", Channel::Alpha),
+    ] {
+        let plan = plan_numeric_version(
+            Some(&current),
+            &version(candidate),
+            channel,
+            PinAction::Preserve,
+        )
+        .unwrap();
+        assert!(plan.changed);
+        assert_eq!(plan.state.channel, channel);
+        assert_eq!(plan.state.version, version(candidate));
+    }
+    let pinned = installed(
+        "5.0.0-alpha.999999+candidate",
+        pr,
+        Some("5.0.0-alpha.999999+candidate"),
+    );
+    assert_eq!(
+        plan_numeric_version(
+            Some(&pinned),
+            &version("5.0.0-alpha.191"),
+            Channel::Alpha,
+            PinAction::Preserve
+        ),
+        Err(VersionError::Pinned)
+    );
+    assert_eq!(
+        plan_numeric_version(
+            Some(&current),
+            &version("5.0.0-alpha.191"),
+            Channel::Stable,
+            PinAction::Preserve
+        ),
+        Err(VersionError::WrongChannel)
+    );
+    for channel in [pr, Channel::parse("pr235").unwrap()] {
+        assert_eq!(
+            plan_numeric_version(
+                Some(&current),
+                &version("5.0.0-alpha.191"),
+                channel,
+                PinAction::Preserve
+            ),
+            Err(VersionError::Downgrade)
+        );
+    }
+    for (current, channel, candidate) in [
+        (
+            installed("5.0.0-alpha.192", Channel::Alpha, None),
+            Channel::Alpha,
+            "5.0.0-alpha.191",
+        ),
+        (
+            installed("5.0.0", Channel::Stable, None),
+            Channel::Stable,
+            "4.0.0",
+        ),
+    ] {
+        assert_eq!(
+            plan_numeric_version(
+                Some(&current),
+                &version(candidate),
+                channel,
+                PinAction::Preserve
+            ),
+            Err(VersionError::Downgrade)
+        );
+    }
+    assert_eq!(
+        select_upgrade(&current, None, None, false),
+        Ok(UpgradeSelection::Fetch {
+            channel: pr,
+            exact: None,
+            pin: PinAction::Preserve
+        })
+    );
+}

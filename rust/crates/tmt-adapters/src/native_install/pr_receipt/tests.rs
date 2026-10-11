@@ -286,3 +286,125 @@ fn schema_consent_does_not_cover_missing_domains_or_data_downgrades() {
     assert!(admit_databases(Product::Cli, &candidate, &alpha, &[], true).is_err());
     assert!(admit_databases(Product::Remote, &alpha, &alpha, &local(48), true).is_err());
 }
+
+#[test]
+fn synthetic_pr_returns_to_lower_published_versions_without_bypassing_admission() {
+    for (channel, version) in [
+        (Channel::Alpha, "5.0.0-alpha.191"),
+        (Channel::Stable, "4.0.0"),
+    ] {
+        let directory = TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let sentinel = directory.path.join("data");
+        fs::write(&sentinel, b"unchanged user data").unwrap();
+        let (mut artifact, source) = fixture();
+        artifact.version = "5.0.0-alpha.999999".parse().unwrap();
+        let source = updated(&source, "5.0.0-alpha.999999", 9001);
+        let first = publish(&prefix, &artifact, source.clone(), None, true, 48).unwrap();
+        let installed = inspect(&first.active_executable).unwrap();
+        let Provenance::Pr(proof) = source else {
+            panic!("PR proof missing")
+        };
+        artifact.version = version.parse().unwrap();
+        {
+            let pin = PinAction::Preserve;
+            let local_version = crate::storage::Storage::compiled_schema().version + 1;
+            assert!(
+                activate_with_local_schema(
+                    ActivationRequest {
+                        product: Product::Cli,
+                        prefix: &prefix,
+                        channel,
+                        pin,
+                        expected: Some(installed.id),
+                        provenance: None,
+                        verifier: None,
+                        explicit_channel: true,
+                        schema: Some(proof.candidate.application_schema.clone())
+                    },
+                    &artifact,
+                    || Ok(()),
+                    || Ok(local(local_version))
+                )
+                .is_err()
+            );
+            assert_eq!(inspect(&first.active_executable).unwrap().id, installed.id);
+        }
+        let returned = activate_with_local_schema(
+            ActivationRequest {
+                product: Product::Cli,
+                prefix: &prefix,
+                channel,
+                pin: PinAction::Preserve,
+                expected: Some(installed.id),
+                provenance: None,
+                verifier: None,
+                explicit_channel: true,
+                schema: Some(proof.candidate.application_schema.clone()),
+            },
+            &artifact,
+            || Ok(()),
+            || Ok(local(48)),
+        )
+        .unwrap();
+        assert!(returned.changed);
+        let receipt = inspect(&returned.active_executable).unwrap();
+        assert_eq!(receipt.state.version.to_string(), version);
+        assert_eq!(receipt.state.channel, channel);
+        assert_eq!(fs::read(&sentinel).unwrap(), b"unchanged user data");
+    }
+}
+
+#[test]
+fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
+    let directory = TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (mut artifact, source) = fixture();
+    let first = activate_with_local_schema(
+        ActivationRequest {
+            product: Product::Cli,
+            prefix: &prefix,
+            channel: Channel::parse("pr234").unwrap(),
+            pin: PinAction::PinCandidate,
+            expected: None,
+            provenance: Some(source.clone()),
+            verifier: None,
+            explicit_channel: true,
+            schema: None,
+        },
+        &artifact,
+        || Ok(()),
+        || Ok(local(48)),
+    )
+    .unwrap();
+    let installed = inspect(&first.active_executable).unwrap();
+    let Provenance::Pr(proof) = source else {
+        panic!("PR proof missing")
+    };
+    artifact.version = "5.0.0-alpha.91".parse().unwrap();
+    let error = activate_with_local_schema(
+        ActivationRequest {
+            product: Product::Cli,
+            prefix: &prefix,
+            channel: Channel::Alpha,
+            pin: PinAction::Preserve,
+            expected: Some(installed.id),
+            provenance: None,
+            verifier: None,
+            explicit_channel: true,
+            schema: Some(proof.candidate.application_schema),
+        },
+        &artifact,
+        || Ok(()),
+        || Ok(local(48)),
+    )
+    .unwrap_err();
+    assert_eq!(
+        error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<tmt_core::native_install::VersionError>(),
+        Some(&tmt_core::native_install::VersionError::Pinned)
+    );
+    assert_eq!(inspect(&first.active_executable).unwrap().id, installed.id);
+}
