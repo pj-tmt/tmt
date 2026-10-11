@@ -40,6 +40,8 @@ fn minute_job(f: &Fixture) -> Job {
     .job
 }
 
+/// Polls observable state; a timeout panics at the waiting call, not in this helper.
+#[track_caller]
 fn wait_for<T>(mut read: impl FnMut() -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
