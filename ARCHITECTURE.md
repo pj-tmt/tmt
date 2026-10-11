@@ -603,7 +603,7 @@ bytes without core and storage access.
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write and proposal operations. Its optional caller
   name is publisher-asserted display metadata, never a creator binding or routing authority.
-  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
+  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model and `html5ever`,
   and that only `decoder/child.rs` imports `yrs`.
   [Colab discussion](.agents/skills/tmt-colab/references/discussion.md) defines trusted cards, provenance and shared inline slots.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
@@ -619,10 +619,10 @@ bytes without core and storage access.
   Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words, trusted recovery and archived read views. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
   One `tmt colab serve` is enough for a browser: it attaches to a running door through
   `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
-  in its own process group, reading pairing from `tmt remote devices --json`. This optional
+  in its own process group, reading pairing from `tmt remote devices --json`. This
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
-  dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
+  dependency. Colab stops only a door it started, with its group, after closing its own
+  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals).
 - **Message editing.** The Colab-local shared Lexical 0.52.0 rich input owns plaintext/history and an optional presentation slot; its MessageComposer wrapper owns mentions and send policy, following the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque

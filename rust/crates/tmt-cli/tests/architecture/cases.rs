@@ -2567,6 +2567,52 @@ fn colab_yrs_imports_are_confined_to_the_decoder_child() {
 }
 
 #[test]
+fn colab_html_parsing_is_confined_to_the_page_check_tree() {
+    assert_exact(
+        &[syntax(
+            "tmt-colab",
+            "page_check/tree.rs",
+            "use html5ever::parse_fragment;",
+        )],
+        &[],
+    );
+    for file in ["page_check/question.rs", "cli_page_check.rs", "page.rs"] {
+        let violations = policy::source_violations(&[syntax(
+            "tmt-colab",
+            file,
+            "use html5ever::ParseOpts as ForeignParser;",
+        )]);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains("HTML parsing belongs only in the page check tree")),
+            "{file}: {violations:?}"
+        );
+    }
+}
+
+#[test]
+fn html5ever_is_reviewed_for_tmt_colab_only() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-colab",
+            vec![dependency("html5ever", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    for name in ["tmt-colab-model", "tmt-remote", "tmt-core"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                name,
+                vec![dependency("html5ever", "normal", None, None)]
+            ))
+            .is_empty(),
+            "{name} must not take html5ever"
+        );
+    }
+}
+
+#[test]
 fn colab_model_consumers_are_confined_to_colab_package() {
     assert!(
         policy::dependency_violations(&package(

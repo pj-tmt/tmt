@@ -622,6 +622,49 @@ pub fn resolve(
         _ => Err(Fault::Invalid.into()),
     }
 }
+/// How many of this page's current document attachments each reference token names, for the page
+/// markup check. A token is a full ID or an 8-character prefix; the renderer shows a reference
+/// only when exactly one current document attachment matches (`document-images.ts`), so earlier
+/// epochs and message attachments, which `resolve` also searches for reads, are not searched here.
+pub fn document_matches(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    tokens: &[&str],
+    decoder: &mut Decoder,
+    deadline: Instant,
+) -> Result<Vec<usize>> {
+    remaining(deadline)?;
+    let current = Snapshot::capture_read(store, key, page, None)?;
+    let view = current.materialize_until(key, page, decoder, deadline)?;
+    let mut ids = Vec::new();
+    for value in view
+        .meta
+        .get("attachments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let d = Descriptor::from_json(&serde_json::to_vec(value)?)?;
+        if d.space == key.space_id && d.page == page {
+            ids.push(d.attachment_id);
+        }
+    }
+    Ok(tokens
+        .iter()
+        .map(|token| {
+            ids.iter()
+                .filter(|id| {
+                    if token.len() == 8 {
+                        id.starts_with(token)
+                    } else {
+                        id == token
+                    }
+                })
+                .count()
+        })
+        .collect())
+}
 /// Before object allocation, bind an upload to the actual mounted writer and
 /// the authenticated target base. This admits no receipt or publication: the
 /// complete committed envelope still has to be verified by the consumer.
