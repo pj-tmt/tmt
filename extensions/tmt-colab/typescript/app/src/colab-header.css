@@ -74,7 +74,8 @@ body {
   top: env(safe-area-inset-top, 0px);
   left: 0;
   right: 0;
-  z-index: 30;
+  /* The fixed header stays above selection controls, anchored windows and the update row. */
+  z-index: 50;
   flex-wrap: nowrap;
   --tmt-ui-host-action-padding: 7px 8px;
   --tmt-ui-host-action-size: var(--tmt-ui-header-action-size);
