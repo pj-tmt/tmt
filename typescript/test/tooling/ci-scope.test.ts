@@ -173,6 +173,23 @@ describe('CI area selection', () => {
     expect(ownerOf('rust/crates/tmt-extension-state-other/src/lib.rs')).toBe('cli');
   });
 
+  it('runs the full native workspace for Colab contract vectors that Remote mirrors', () => {
+    const vectors = [
+      'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.json',
+      'extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.plan.json',
+    ];
+    for (const row of explainCiSelection(vectors)) {
+      expect(row.owner).toBe('tmt-colab');
+      expect(row.rule).toBe('unmapped');
+      expect(row.native).toBe(true);
+    }
+    expect(selectNativeScope(vectors)).toBe('full');
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    expect(ci).toContain(
+      'cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage'
+    );
+  });
+
   it('keeps the extension serve leaf selected by its consumers with full native verification', () => {
     const paths = [
       'rust/crates/tmt-extension-serve/Cargo.toml',
