@@ -347,6 +347,7 @@ export class AcceptanceWorld {
       if (setup.code !== 0)
         throw new Error(`Provider setup failed: ${setup.stdout}${setup.stderr}`);
       const executable = path.join(this.root, options.driver);
+      // Explicit exec makes the pane leader the owned tmt run wrapper on every shell.
       // Native ancestry uses the executable basename, so keep the fixture's
       // provider process alive as claude/codex rather than execing a shell wrapper.
       fs.copyFileSync(process.execPath, executable, fs.constants.COPYFILE_FICLONE);
@@ -356,7 +357,7 @@ export class AcceptanceWorld {
         '-k',
         '-t',
         pane,
-        `${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver, options.stopGated ? gate : '-'].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
+        `exec ${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver, options.stopGated ? gate : '-'].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
       ]);
       try {
         await until(

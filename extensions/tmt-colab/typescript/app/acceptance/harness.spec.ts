@@ -194,6 +194,8 @@ test('harness: a closer that never finishes is bounded and reported, and the res
 test('harness: teardown waits for the recipient and its tmt run pane before stopping tmux', async () => {
   const { alive, until } = await import('./harness/process.js');
   await withWorld(async (world) => {
+    // Bash retains a shell around redirected commands unless launch uses exec.
+    world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
     const recipient = await world.startAgent('claude-teardown', {
       driver: 'claude',
       stopGated: true,
@@ -234,6 +236,7 @@ test('harness: teardown waits for the recipient and its tmt run pane before stop
 // A slow pane remains a failure even though the rest of cleanup still runs.
 test('harness: an unfinished recipient pane is reported without relaxing the leak guard', async () => {
   await withWorld(async (world) => {
+    world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
     const recipient = await world.startAgent('claude-unfinished', {
       driver: 'claude',
       stopGated: true,

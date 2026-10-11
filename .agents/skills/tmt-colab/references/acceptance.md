@@ -62,6 +62,7 @@ socket paths are limited to about 100 bytes:
 waits for its completion while tmux can still reap it, then stops process groups and the tmux
 server. A pane exceeding its completion bound is a reported leak; so is any remaining process
 naming the root or tmux socket, or any other socket, including after a failed scenario.
+Provider panes explicitly exec `tmt run`, so the pane leader is the wrapper rather than a shell.
 `harness.spec.ts` proves the harness, including the sensitivity of that check.
 
 ## Pages
