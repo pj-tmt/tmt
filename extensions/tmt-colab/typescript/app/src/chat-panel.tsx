@@ -5,7 +5,7 @@ import { ConversationWindow, conversationRecordKey } from './components/conversa
 import { text } from './strings.js';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
-import type { ComposerEdit } from './components/message-composer-edit.js';
+import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
@@ -43,7 +43,7 @@ export function ChatPanel({
   observationUnavailable?: boolean;
   /** A draft kept for this composer; read once when it mounts. */
   initialEdit?: ComposerEdit;
-  activation?: import('./components/message-composer-edit.js').MessageComposerProps['activation'];
+  activation?: ComposerActivation;
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */

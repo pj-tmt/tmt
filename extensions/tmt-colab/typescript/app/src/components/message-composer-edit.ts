@@ -11,6 +11,9 @@ export type ComposerEdit = {
   edited?: boolean;
 };
 
+/** One parent request consumed by the mounted editor without resetting its draft. */
+export type ComposerActivation = { id: string; insertMention: boolean; consumed(): void };
+
 export type MessageComposerProps = {
   edit: ComposerEdit;
   onChange(edit: ComposerEdit): void;
@@ -20,8 +23,7 @@ export type MessageComposerProps = {
   placeholder?: string;
   disabled: boolean;
   autoFocus?: boolean;
-  /** One explicit parent request, consumed by this mounted editor without resetting its draft. */
-  activation?: { id: string; insertMention: boolean; consumed(): void };
+  activation?: ComposerActivation;
   candidates?: readonly AgentDestination[];
   /** Explicit page preference transitions only; fresh defaults remain parent-owned. */
   creatorDefault?: { key: RecipientKey; label: string; enabled: boolean; revision: number };

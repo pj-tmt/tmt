@@ -15,7 +15,7 @@ import { AttachmentStaleError } from './attachment-service.js';
 import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
-import type { ComposerEdit } from './components/message-composer-edit.js';
+import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
@@ -62,7 +62,7 @@ export function AnnotationInput({
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
   initialEdit?: ComposerEdit;
-  activation?: import('./components/message-composer-edit.js').MessageComposerProps['activation'];
+  activation?: ComposerActivation;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports a send in flight, which nothing outside may interrupt. */

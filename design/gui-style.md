@@ -246,6 +246,7 @@ Comments, Chat, Source, Share and settings panels.
 - Opens over the page without moving it, closes with its own `×`, Esc or the
   header action that opened it. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
+- Basis: Radix (Dialog: non-modal on desktop, modal when compact).
 - Colab shared page drawers (Chat, Source, Agents, Files, Comments and Export) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters and use native modal focus containment; desktop drawers are non-modal. Neither changes the author frame width.
 
 ### Popover composer

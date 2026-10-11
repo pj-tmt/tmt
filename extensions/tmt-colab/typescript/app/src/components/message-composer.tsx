@@ -286,4 +286,9 @@ function MessageField(props: MessageComposerProps) {
   );
 }
 
-export type { ComposerEdit, MessageComposerProps, RecipientKey } from './message-composer-edit.js';
+export type {
+  ComposerActivation,
+  ComposerEdit,
+  MessageComposerProps,
+  RecipientKey,
+} from './message-composer-edit.js';

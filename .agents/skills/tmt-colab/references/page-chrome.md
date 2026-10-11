@@ -155,7 +155,7 @@ explicit full-history/details view.
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
 the right on an opaque square surface with a 1 px border on every edge. Chat,
 Source, Agents, Files, Comments and Export leave 8 px below the header and at the
-right and bottom edges (4 px through 480 px), plus safe-area insets. Compact drawers
+right and bottom edges (4 px through 480 px), plus top/bottom safe-area insets. Compact drawers
 use native modal focus containment within these gutters. Neither changes renderer
 width or content layout; the header and page edge remain visible.
 Panel bodies scroll independently except
