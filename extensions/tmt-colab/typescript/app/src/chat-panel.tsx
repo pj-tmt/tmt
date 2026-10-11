@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { Fragment } from 'react';
 import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
@@ -20,6 +21,7 @@ export function ChatPanel({
   creationRecipient,
   blocked,
   recoveryRequired = false,
+  connectionPresentation,
   archived = false,
   observationUnavailable,
   initialEdit,
@@ -38,6 +40,7 @@ export function ChatPanel({
   creationRecipient?: CreationRecipient;
   blocked: boolean;
   recoveryRequired?: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   archived?: boolean;
   observationUnavailable?: boolean;
   /** A draft kept for this composer; read once when it mounts. */
@@ -145,6 +148,7 @@ export function ChatPanel({
         }
         composer={
           <AnnotationInput
+            connectionPresentation={connectionPresentation}
             archived={archived}
             onBusy={onBusy}
             binding={binding}

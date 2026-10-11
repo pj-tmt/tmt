@@ -534,3 +534,33 @@ test('an open ambiguous-name list accepts the highlighted UUID without sending',
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   expect((await run(page, 'proof')).sends[0].agentId).toBe(agents[1].agent);
 });
+
+for (const phase of ['reconnecting', 'ended'] as const) {
+  test(`connection ${phase} wins over recipient and pre-record failure copy`, async ({ page }) => {
+    const input = await mount(page, { mode: 'write-failure' });
+    await input.fill('@beta note');
+    await expect(page.locator('.annotation-status-row')).toContainText('Asks @beta (offline).');
+    await run(page, 'setConnection', phase);
+    const message =
+      phase === 'reconnecting' ? 'Reconnecting…' : 'Access to this page has ended. Pair again.';
+    await expect(page.locator('.annotation-status-row')).toContainText(message);
+    await expect(page.locator('.annotation-status-row')).not.toContainText('Asks @beta (offline).');
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await input.press('Enter');
+    expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
+    await expect(input).toHaveText('@beta note', { useInnerText: true });
+    await run(page, 'setConnection', 'connected');
+    await input.fill('Keep this failed draft.');
+    await run(page, 'holdWrite');
+    await input.press('Enter');
+    await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1 });
+    await run(page, 'setConnection', phase);
+    await run(page, 'releaseWrite');
+    await expect(page.locator('.annotation-status-row')).toContainText(message);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(input).toHaveText('Keep this failed draft.');
+    expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
+    await run(page, 'setConnection', 'connected');
+    await expect(page.getByRole('alert')).toContainText('could not be recorded');
+  });
+}

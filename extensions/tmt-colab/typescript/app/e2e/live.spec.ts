@@ -1241,7 +1241,13 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   draft += ' Still editable.';
   await input.fill(draft);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await expect(page.getByText(copy.sendOnHold, { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByTestId('chat-panel')
+      .getByRole('status')
+      .filter({ hasText: /^Reconnecting…$/ }),
+  ).toBeVisible();
+  await expect(page.getByTestId('chat-panel')).not.toContainText(copy.sendOnHold);
   await input.press('Enter');
   expect(sends).toBe(1);
   await f.settled();
@@ -1336,6 +1342,8 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.locator('.status')).toHaveText('Private · Reconnecting…');
   await expect(annotationInput).toBeFocused();
   await expect(annotationInput).toHaveAttribute('contenteditable', 'true');
+  await expect(annotation.getByRole('status').filter({ hasText: /^Reconnecting…$/ })).toBeVisible();
+  await expect(annotation).not.toContainText(copy.sendOnHold);
   await annotationInput.fill('Still editable anchored draft.');
   await expect(post).toBeDisabled();
   await expect(askAction).toBeDisabled();
@@ -1384,6 +1392,7 @@ async function draftRecoveryWire(context: BrowserContext) {
   const agent = '00000000-0000-4000-8000-000000000006';
   let down = false,
     ended = false,
+    terminal = false,
     opens = 0,
     sends = 0;
   let pending: Promise<void> | undefined, release: (() => void) | undefined;
@@ -1405,6 +1414,7 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
   await context.route('**/test-draft-reopen', async (route) => {
     opens++;
     if (pending) await pending;
+    if (terminal) return route.fulfill({ status: 403, json: {} });
     if (down) return route.abort('connectionrefused');
     ended = false;
     f.resumeSync();
@@ -1448,6 +1458,11 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
     },
     get sends() {
       return sends;
+    },
+    end() {
+      terminal = true;
+      ended = true;
+      f.stopSync();
     },
     stop() {
       down = true;
@@ -1620,6 +1635,85 @@ async function expectUncovered(control: Locator) {
     return !top || !(node === top || node.contains(top));
   });
   expect(covered).toBe(false);
+}
+
+for (const surface of ['Chat', 'annotation'] as const) {
+  test(`ended connection copy owns the ${surface} composer and keeps its draft`, async ({
+    page,
+    context,
+  }, testInfo) => {
+    const f = await draftRecoveryWire(context);
+    await page.goto(mount);
+    await page.locator(`[data-page-id="${v.page}"] a`).click();
+    const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+    await expect(heading).toBeVisible();
+    if (surface === 'Chat') await (await pageAction(page, 'Chat')).click();
+    else {
+      await heading.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+    }
+    const container =
+      surface === 'Chat'
+        ? page.getByTestId('chat-panel')
+        : page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = container.getByRole('combobox', { name: 'Message', exact: true });
+    const draft = 'Keep this draft. @Draft agent';
+    await input.fill(draft);
+    f.end();
+    const status = container.getByTestId('annotation-compose').getByRole('status');
+    await expect(status).toContainText(copy.failureAccessEnded);
+    await expect(container.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
+    await expect(status).toContainText(copy.pairAgain);
+    await expect(status).toContainText(copy.reconnectCommand);
+    await expect(status).not.toContainText(copy.messageAgentsUnavailable);
+    await expect(status).not.toContainText(copy.sendOnHold);
+    await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(input).toHaveText(draft);
+    expect(f.sends).toBe(0);
+    await f.settled();
+    expect(f.entries).toHaveLength(1);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      const command = status.locator('.tmt-ui-command');
+      const scroll = container.locator('.conversation-composer');
+      await scroll.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+      });
+      const inside = async () => {
+        const action = (await command.boundingBox())!,
+          area = (await scroll.boundingBox())!;
+        return action.y >= area.y && action.y + action.height <= area.y + area.height + 1;
+      };
+      await expect.poll(inside).toBe(true);
+      if (surface === 'annotation') {
+        await scroll.evaluate((node) => {
+          node.scrollTop = 0;
+        });
+        await container.getByRole('button', { name: copy.threadCollapse, exact: true }).focus();
+        await page.keyboard.press('Tab');
+        await expect(status).toBeFocused();
+        await expect.poll(inside).toBe(true);
+      }
+      await page.screenshot({
+        path: testInfo.outputPath(`ended-${surface}-${width}.png`),
+        fullPage: true,
+      });
+    }
+    if (surface === 'Chat') {
+      await (await pageAction(page, 'Source')).click();
+      const source = page.locator('.tmt-ui-drawer[data-panel=source]');
+      const notice = source.locator('.drawer-recovery');
+      await expect(notice).toContainText(copy.failureAccessEnded);
+      await expect(notice).toContainText(copy.reconnectCommand);
+      await expect(source.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
+    }
+  });
 }
 
 // A tab that outlives an upgrade shows one row directly under the fixed header; the page

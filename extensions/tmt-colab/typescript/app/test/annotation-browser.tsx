@@ -32,6 +32,10 @@ let directoryMode: 'ok' | 'fail' | 'refuse' | 'park' = 'ok';
 let directoryReads = 0;
 let parkedReads: { resolve(): void; reject(error: Error): void }[] = [];
 let reconnect: (() => void) | undefined;
+let changeConnection: ((phase: 'connected' | 'reconnecting' | 'ended') => void) | undefined;
+export function setConnection(phase: 'connected' | 'reconnecting' | 'ended') {
+  changeConnection?.(phase);
+}
 /** Which composer surface the next mount shows: a new annotation, a reply, or Chat. */
 let creator: { machineId: string; agentId: string } | undefined;
 let customAgents: AgentDestination[] | undefined;
@@ -169,6 +173,26 @@ export function mount(
   function Fixture() {
     const [records, setRecords] = useState<PageAsk[]>([]);
     const [cancelled, setCancelled] = useState(false);
+    const [phase, setPhase] = useState<'connected' | 'reconnecting' | 'ended'>('connected');
+    useEffect(() => {
+      changeConnection = setPhase;
+      return () => {
+        changeConnection = undefined;
+      };
+    }, []);
+    const connectionProps = {
+      connectionPresentation:
+        phase === 'connected'
+          ? undefined
+          : {
+              phase,
+              body:
+                phase === 'reconnecting'
+                  ? 'Reconnecting…'
+                  : 'Access to this page has ended. Pair again.',
+            },
+      recoveryRequired: phase === 'reconnecting',
+    };
     const makeBinding = (): AskBinding => ({
       async destinations() {
         directoryReads++;
@@ -254,6 +278,7 @@ export function mount(
     });
     const composer = !cancelled && (
       <AnnotationInput
+        {...connectionProps}
         creationRecipient={creator}
         initialEdit={initialEdit}
         binding={talk ? binding : undefined}
@@ -262,7 +287,7 @@ export function mount(
         anchor={surface === 'chat' ? null : { exact: 'Selected text', prefix: '', suffix: '' }}
         asks={records}
         title="Annotated page"
-        blocked={false}
+        blocked={phase !== 'connected'}
         onDraft={(value, edit) => {
           draft = value;
           draftEdit = edit;

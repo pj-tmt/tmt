@@ -137,8 +137,12 @@ with the editor. The discussion contract owns exact eligibility and reload rules
 and explicit retry read again, show loading in the same render, and ignore obsolete
 results. Mention Sends stay fenced before preparation until ready; plain comments,
 draft, caret and token UUIDs remain. Failed discovery shows Try again in place,
-kept mounted/busy during retry with focus restored. Disconnected recovery's
-"Reconnect to send." wins. There is no per-keystroke/recipient read or retry timer.
+kept mounted/busy during retry with focus restored. The page owner projects connection
+copy once for every composer: ended uses the same
+`EndedBody` sentence/action as the page; reconnecting says "Reconnecting…" and holds Send
+while retaining the draft. Both outrank recipient/discovery and pre-record failure copy.
+Recorded or uncertain turns keep their own status; connected copy keeps genuine
+recipient/policy and record failures. There is no per-keystroke/recipient read or retry timer.
 A `failed` read that Remote refused or ended carries Remote's code as a muted `Code: …` reference
 under the same generic line. `REMOTE_STATE_UNAVAILABLE` is any Remote storage fault, so it gets no
 sentence of its own; one cause is a full per-device request journal (1000 owned entries per 24 h,
@@ -193,9 +197,11 @@ connects or the failure is no longer recoverable. A series that gives up, or a b
 three reopens a minute), then hands the new binding over. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
-page that is gone; none otherwise). A modal drawer makes that card inert, so an open drawer's
-`notice` slot repeats the same sentence and action in one row under its header, only while
-`ended`. `Live` stays the transport owner: it keeps its bounded resync
+page that is gone; none otherwise). A modal drawer makes that card inert, so a live Chat
+composer owns its ended sentence/action once; an archived Chat and every other drawer keep
+the same sentence/action in the `notice` row under the header. An ended annotation keeps its
+action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
+the transport owner: it keeps its bounded resync
 and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
 codes, Remote refusal codes, a few short messages, each `ReopenFailedError` reason): what recovers

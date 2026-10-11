@@ -107,7 +107,7 @@ test('a device revoked while its page is open ends with the access card and Pair
 });
 
 // A modal drawer makes the page-level card inert, so an ended connection also speaks inside the
-// open drawer: the same sentence and the same one action under its header (#2572).
+// open drawer: its composer owns the same sentence and one action (#2573).
 test('a device revoked while its Chat drawer is open shows the ended notice in the drawer', async ({
   browserName,
 }, testInfo) => {
@@ -131,10 +131,16 @@ test('a device revoked while its Chat drawer is open shows the ended notice in t
       '--json',
     ]);
 
-    const notice = drawer.locator('.drawer-recovery');
+    const notice = drawer.getByTestId('annotation-compose').getByRole('status');
+    await expect(drawer.locator('.drawer-recovery')).toHaveCount(0);
     await expect(notice).toContainText('Your access to this page ended.', { timeout: 90_000 });
     await expect(notice).toContainText('Pair again');
     await expect(notice).toContainText('tmt remote pair');
+    await expect(
+      drawer.getByText('Your access to this page ended. Open it again to continue.', {
+        exact: true,
+      }),
+    ).toHaveCount(1);
     await expect(notice.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
     // Nothing can be published from an ended page: the composer is not editable and Send is off.
     await expect(

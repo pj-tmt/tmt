@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
@@ -338,6 +339,7 @@ export type ThreadWindowProps = {
   asks: readonly PageAsk[];
   close(): void;
   blocked: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   observationUnavailable?: boolean;
   archived?: boolean;
   composer?: ReactNode;
@@ -364,6 +366,7 @@ export function ThreadWindow({
   asks,
   close,
   blocked,
+  connectionPresentation,
   observationUnavailable,
   archived = false,
   composer,
@@ -526,6 +529,8 @@ export function ThreadWindow({
               !thread.deleted &&
               binding && (
                 <AnnotationInput
+                  connectionPresentation={connectionPresentation}
+                  recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
                   archived={archived}
                   creationRecipient={creationRecipient}
                   binding={ask}
@@ -631,6 +636,7 @@ export function ThreadPanel({
   asks,
   title,
   blocked,
+  connectionPresentation,
   archived = false,
   active,
   select,
@@ -653,6 +659,7 @@ export function ThreadPanel({
   asks: readonly PageAsk[];
   title: string;
   blocked: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   archived?: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
@@ -815,6 +822,7 @@ export function ThreadPanel({
                   renderProposal?.(thread)
                 ) : (
                   <ThreadWindow
+                    connectionPresentation={connectionPresentation}
                     archived={archived}
                     creationRecipient={creationRecipient}
                     thread={thread}

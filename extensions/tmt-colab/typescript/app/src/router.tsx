@@ -15,7 +15,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   createHashHistory,
@@ -46,7 +46,7 @@ import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
-import type { EndedAction } from './connection-model.js';
+import type { ConnectionState, EndedAction } from './connection-model.js';
 import { useConnection } from './use-connection.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
@@ -388,6 +388,27 @@ function EndedLink({ action }: { action: EndedAction }) {
       {text.retry}
     </Link>
   ) : null;
+}
+
+/** The page owner projects C1 once; composers do not classify transport errors. */
+export type ComposerConnectionPresentation = {
+  phase: 'reconnecting' | 'ended';
+  body: ReactNode;
+};
+function composerConnection(state: ConnectionState): ComposerConnectionPresentation | undefined {
+  if (state.phase === 'connected') return undefined;
+  return {
+    phase: state.phase,
+    body:
+      state.phase === 'reconnecting' ? (
+        text.reconnecting
+      ) : (
+        <>
+          <EndedBody error={state.error} action={state.action} compact />
+          <EndedLink action={state.action} />
+        </>
+      ),
+  };
 }
 
 const root = createRootRouteWithContext<{ transport: PageTransport; space?: string }>()({
@@ -803,6 +824,7 @@ function Page() {
   const liveError = connection.phase === 'connected' ? null : connection.error;
   const endedError = connection.phase === 'ended' ? connection.error : null;
   const recoveryRequired = connection.phase === 'reconnecting';
+  const connectionPresentation = composerConnection(connection);
   const endedAction = connection.phase === 'ended' ? connection.action : 'none';
   const agents = useAgentPresentation(
     snapshot.binding?.ask,
@@ -1177,6 +1199,7 @@ function Page() {
     state,
     slots: inlineSlots.positions,
     blocked: discussionBlocked,
+    connectionPresentation,
   });
   const proposalLayer = useProposalLayer({
     slotPositions: inlineSlots.positions,
@@ -1185,6 +1208,7 @@ function Page() {
     binding,
     discussionBlocked,
     recoveryRequired,
+    connectionPresentation,
     statusCoordinator,
     otherBusy: () => annotationBusy.current || statusBusy.current,
     closeAnnotation: () => closeRef.current(false),
@@ -1458,6 +1482,7 @@ function Page() {
                 }}
               >
                 <ThreadWindow
+                  connectionPresentation={connectionPresentation}
                   archived={archived}
                   thread={annotationThread}
                   anchor={annotation.selector ?? undefined}
@@ -1499,6 +1524,7 @@ function Page() {
                       {draftsUnsaved && <p className="annotation-hint">{text.draftsNotSaved}</p>}
                       {annotationThread && <p className="annotation-reply-label">Reply</p>}
                       <AnnotationInput
+                        connectionPresentation={connectionPresentation}
                         archived={archived}
                         creationRecipient={
                           annotationThread?.proposal?.proposer ?? view.creationRecipient
@@ -1606,6 +1632,7 @@ function Page() {
           </p>
         )}
         <ThreadPanel
+          connectionPresentation={connectionPresentation}
           archived={archived}
           reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
@@ -1656,7 +1683,7 @@ function Page() {
       </BrowserDrawer>
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserDrawer
-          notice={endedNotice}
+          notice={archived ? endedNotice : undefined}
           focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={panel === 'chat'}
           title="Chat"
@@ -1669,6 +1696,7 @@ function Page() {
         >
           {chatOpened && (
             <ChatPanel
+              connectionPresentation={connectionPresentation}
               archived={archived}
               creationRecipient={view.creationRecipient}
               key={`chat:${snapshot.id}:${draftsReady}`}

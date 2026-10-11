@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from './router.js';
 import {
   useEffect,
   useMemo,
@@ -26,6 +27,7 @@ export function useProposalLayer({
   binding,
   discussionBlocked,
   recoveryRequired,
+  connectionPresentation,
   statusCoordinator,
   otherBusy,
   closeAnnotation,
@@ -41,6 +43,7 @@ export function useProposalLayer({
   binding: RefObject<PageBinding | undefined>;
   discussionBlocked: boolean;
   recoveryRequired: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   statusCoordinator: PageBinding['status'];
   otherBusy(): boolean;
   closeAnnotation(): void;
@@ -157,6 +160,7 @@ export function useProposalLayer({
           proposalComposer?.id === id &&
           proposalComposer.location === location && (
             <AnnotationInput
+              connectionPresentation={connectionPresentation}
               archived={view.archived}
               key={proposalComposer.key}
               showCancel
