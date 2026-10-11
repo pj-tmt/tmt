@@ -20,6 +20,13 @@ for (const theme of ['light', 'dark']) {
         page.getByRole('tab', { name: '✓ Layout · Answered', exact: true }),
       ).toBeVisible();
       await expect(selected).toHaveAccessibleName('◆ Pages · Waiting');
+      const statusBelow = () =>
+        page.locator('.tmt-ui-tabs-header').evaluate((header) => {
+          const list = header.querySelector('[role="tablist"]')!.getBoundingClientRect();
+          const status = header.querySelector('.tmt-ui-tabs-status')!.getBoundingClientRect();
+          return status.top >= list.bottom - 1;
+        });
+      expect(await statusBelow()).toBe(width < 480);
       if (width !== 320)
         await page.screenshot({
           path: info.outputPath(`tabs-${width}-${theme}.png`),
@@ -32,8 +39,6 @@ for (const theme of ['light', 'dark']) {
       await expect(page.locator('#events')).toHaveText('1:keyboard:true');
       const draft = page.getByRole('textbox', { name: 'Layout draft' });
       await selected.press('Tab');
-      await expect(page.getByRole('tabpanel')).toBeFocused();
-      await page.keyboard.press('Tab');
       await expect(draft).toBeFocused();
       await draft.fill('Unsent draft 3');
       await selected.focus();
@@ -113,6 +118,20 @@ for (const theme of ['light', 'dark']) {
           (nodes) => nodes.filter((node) => node.getAttribute('tabindex') === '0').length,
         ),
       ).toBe(1);
+      // Hosts opt into a panel stop; default Tab navigation goes straight to controls.
+      await page.goto(`${fixture}?focus-panel`);
+      await selected.focus();
+      await selected.press('Tab');
+      await expect(page.getByRole('tabpanel')).toBeFocused();
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('textbox', { name: 'Pages draft' })).toBeFocused();
+      if (width === 1440) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.locator('#root').evaluate((root) => {
+          (root as HTMLElement).style.width = '390px';
+        });
+        expect(await statusBelow()).toBe(true);
+      }
     });
   }
 }

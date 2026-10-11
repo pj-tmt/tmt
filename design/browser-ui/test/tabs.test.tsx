@@ -38,6 +38,7 @@ it('associates every persistent panel with its tab and keeps one selected tab st
     expect(html.match(/tabindex="-1"/g)).toHaveLength(1);
     expect(html.match(/role="tabpanel"/g)).toHaveLength(2);
     expect(html.match(/hidden=""/g)).toHaveLength(1);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
     expect(html).toContain('aria-controls="panel-one"');
     expect(html).toContain('aria-labelledby="tab-one"');
     expect(html).toContain('aria-label="✓ Layout · Answered"');
@@ -45,4 +46,12 @@ it('associates every persistent panel with its tab and keeps one selected tab st
     expect(html).toContain('value="one"');
     expect(html).toContain('value="two"');
   }
+});
+it('lets the host opt panels into the Tab order', () => {
+  const html = renderToStaticMarkup(
+    <BrowserTabs label="Decisions" tabs={tabs} selected="one" onSelect={() => {}} panelTabIndex={0}>
+      {(tab) => tab.label}
+    </BrowserTabs>,
+  );
+  expect(html.match(/tabindex="0"/g)).toHaveLength(3);
 });

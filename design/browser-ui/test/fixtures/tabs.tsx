@@ -27,6 +27,7 @@ function Fixture() {
       tabs={tabs}
       selected={selected}
       status="1/12 answered"
+      panelTabIndex={new URLSearchParams(location.search).has('focus-panel') ? 0 : undefined}
       onSelect={(id, reason, event) => {
         document.querySelector('#events')!.textContent = `${id}:${reason}:${event.isTrusted}`;
         setSelected(id);

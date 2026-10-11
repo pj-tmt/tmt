@@ -195,18 +195,21 @@ state), `selected`, `onSelect(id, reason, originalEvent)` and a panel renderer.
 Exactly one supplied ID is selected. Left/Right wrap; Home/End select the first/last
 tab automatically and move focus. Enter/Space use native activation. The callback
 reason is `keyboard` or `activation`; the host retains trusted-event admission.
-Tab enters the selected tab, then the active panel. Inactive panels use `hidden`
+Tab enters the selected tab, then the active panel's first control. Panels have
+no tab stop by default; the host can opt in with `panelTabIndex={0}` (or use `-1`
+for programmatic focus). Inactive panels use `hidden`
 but remain mounted, preserving host-owned drafts and control identity. Renderer
 source text has its separate product-owned visibility and quote contract.
 
 Optional state takes a host-supplied mark, word and existing tone. The accessible
 name includes mark, label and state word; colors alone never convey the state.
 `status` is a trailing host-owned slot, without an automatic announcement. The
+status wraps below the strip when the component is narrower than 480px. The
 strip scrolls horizontally, never wraps or animates; selection and resize keep
 the selected tab in view without moving the host page. A label wider than the
 available strip truncates visually while its full accessible name remains.
 The square panel uses a 1px rule; the selected tab joins it and carries a 2px
-accent top rule. No product state, routing or persistence belongs to Tabs.
+top rule in the link color role. No product state, routing or persistence belongs to Tabs.
 Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
 `tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,
 roving tab stop, native activation, panel visibility and disposable resize behavior.

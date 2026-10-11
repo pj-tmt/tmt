@@ -863,6 +863,7 @@ svg.tmt-ui-mark {
 
 .tmt-ui-tabs {
   min-width: 0;
+  container: tmt-ui-tabs / inline-size;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
   font-family: var(--tmt-ui-font-body);
@@ -944,6 +945,7 @@ svg.tmt-ui-mark {
   color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-tabs-status {
+  box-sizing: border-box;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -959,4 +961,15 @@ svg.tmt-ui-mark {
 }
 .tmt-ui-tab-panel[hidden] {
   display: none;
+}
+@container tmt-ui-tabs (width < 480px) {
+  .tmt-ui-tabs-header {
+    flex-wrap: wrap;
+  }
+  .tmt-ui-tab-list {
+    flex-basis: 100%;
+  }
+  .tmt-ui-tabs-status {
+    flex-basis: 100%;
+  }
 }

@@ -17,6 +17,7 @@ export interface BrowserTabsProps {
     event: KeyboardEvent<HTMLButtonElement> | MouseEvent<HTMLButtonElement>,
   ): void;
   status?: ReactNode;
+  panelTabIndex?: 0 | -1;
   children(tab: BrowserTab): ReactNode;
 }
 
@@ -27,9 +28,11 @@ export function BrowserTabs({
   selected,
   onSelect,
   status,
+  panelTabIndex,
   children,
 }: BrowserTabsProps) {
   const strip = useRef<HTMLDivElement>(null);
+  const tabIds = JSON.stringify(tabs.map(({ id, tabId }) => [id, tabId]));
   useLayoutEffect(() => {
     const list = strip.current;
     const tab = list?.querySelector<HTMLElement>('[aria-selected="true"]');
@@ -46,7 +49,7 @@ export function BrowserTabs({
     observer.observe(list);
     observer.observe(tab);
     return () => observer.disconnect();
-  }, [selected, tabs]);
+  }, [selected, tabIds]);
   function key(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     let next: number;
@@ -111,7 +114,7 @@ export function BrowserTabs({
           className={c.tabPanel}
           role="tabpanel"
           aria-labelledby={tab.tabId}
-          tabIndex={0}
+          tabIndex={panelTabIndex}
           hidden={tab.id !== selected}
         >
           {children(tab)}
