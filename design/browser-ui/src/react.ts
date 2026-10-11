@@ -21,3 +21,5 @@ export { BrowserDrawer } from './drawer.js';
 export type { BrowserDrawerProps, BrowserDrawerDismissReason } from './drawer.js';
 export { BrowserMenu } from './menu.js';
 export type { BrowserMenuProps, BrowserMenuItem } from './menu.js';
+export { BrowserNotifications } from './notifications.js';
+export type { BrowserNotification, BrowserNotificationsProps } from './notifications.js';
