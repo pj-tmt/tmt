@@ -58,10 +58,12 @@ socket paths are limited to about 100 bytes:
   `dispatch.create` before or after the core acts (`armBarrier`, `barrierEntered`,
   `releaseBarrier`) so a scenario kills and restarts a process there.
 
-`withWorld` always disposes. Disposal stops every process group, closes the browsers, kills the
-tmux server and fails the test if a process naming the root or tmux socket, or any other socket,
-remains, including after a failed scenario. `harness.spec.ts` proves the harness, including the
-sensitivity of that check.
+`withWorld` always disposes. Disposal closes the browsers, signals each owned agent pane and
+waits for its completion while tmux can still reap it, then stops process groups and the tmux
+server. A pane exceeding its completion bound is a reported leak; so is any remaining process
+naming the root or tmux socket, or any other socket, including after a failed scenario.
+Provider panes explicitly exec `tmt run`, so the pane leader is the wrapper rather than a shell.
+`harness.spec.ts` proves the harness, including the sensitivity of that check.
 
 ## Pages
 

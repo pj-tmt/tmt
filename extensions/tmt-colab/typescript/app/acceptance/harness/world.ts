@@ -102,6 +102,7 @@ export class AcceptanceWorld {
   /** One line per call of a host browser opener; a world must never write here. */
   readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
+  private readonly agentPanes = new Set<string>();
   private readonly closers: Closer[] = [];
   private tmuxPath = '';
   private socketPath = '';
@@ -294,8 +295,9 @@ export class AcceptanceWorld {
   /** A recipient agent in its own pane, bound as a saved identity. */
   async startAgent(
     name: string,
-    options: { gated?: boolean; driver?: 'claude' | 'codex' } = {},
+    options: { gated?: boolean; driver?: 'claude' | 'codex'; stopGated?: boolean } = {},
   ): Promise<Agent> {
+    this.live('start an agent');
     const log = path.join(this.root, `${name}.received.jsonl`);
     const gate = path.join(this.root, `${name}.gate`);
     fs.mkdirSync(gate, { mode: 0o700 });
@@ -321,6 +323,8 @@ export class AcceptanceWorld {
             ...(options.gated ? [quote(gate)] : []),
           ].join(' '),
     ]).trim();
+    this.agentPanes.add(pane);
+    this.tmux(['set-option', '-w', '-t', pane, 'remain-on-exit', 'on']);
     const rows = () =>
       fs.existsSync(log)
         ? fs
@@ -343,17 +347,17 @@ export class AcceptanceWorld {
       if (setup.code !== 0)
         throw new Error(`Provider setup failed: ${setup.stdout}${setup.stderr}`);
       const executable = path.join(this.root, options.driver);
+      // Explicit exec makes the pane leader the owned tmt run wrapper on every shell.
       // Native ancestry uses the executable basename, so keep the fixture's
       // provider process alive as claude/codex rather than execing a shell wrapper.
       fs.copyFileSync(process.execPath, executable, fs.constants.COPYFILE_FICLONE);
       fs.chmodSync(executable, 0o700);
-      this.tmux(['set-option', '-w', '-t', pane, 'remain-on-exit', 'on']);
       this.tmux([
         'respawn-pane',
         '-k',
         '-t',
         pane,
-        `${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
+        `exec ${[this.binaries.tmt, 'run', name, executable, path.join(harness, 'recipient.mjs'), this.binaries.tmt, log, options.gated ? gate : '-', options.driver, options.stopGated ? gate : '-'].map(quote).join(' ')} >${quote(path.join(this.root, `${name}.launch.log`))} 2>&1`,
       ]);
       try {
         await until(
@@ -461,6 +465,40 @@ export class AcceptanceWorld {
           () => (stage ? ` (in ${stage})` : ''),
         ),
       );
+    }
+    // Keep tmux alive until its pane children finish: server exit is not proof that
+    // tmt run has reaped the provider and recorded session completion.
+    for (const pane of this.agentPanes) {
+      await attempt(`agent pane ${pane}`, async () => {
+        const state = () =>
+          this.tmuxUnguarded(['list-panes', '-a', '-F', '#{pane_id} #{pane_dead} #{pane_pid}'])
+            .split('\n')
+            .find((line) => line.startsWith(`${pane} `))
+            ?.split(' ');
+        const current = state();
+        // A scenario may already have removed an offline pane. The final survivor
+        // check still refuses any process that outlived that explicit removal.
+        if (!current) return;
+        const [, dead, pid] = current;
+        if (dead !== '1') {
+          const leader = Number(pid);
+          if (!Number.isSafeInteger(leader) || leader <= 0)
+            throw new Error(`Invalid agent pane leader: ${pid}`);
+          try {
+            process.kill(leader, 'SIGTERM');
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+          }
+        }
+        await until(
+          () => {
+            const current = state();
+            return !current || current[1] === '1';
+          },
+          `agent pane ${pane} completion`,
+          5_000,
+        );
+      });
     }
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
     if (this.serverPid) {

@@ -189,3 +189,62 @@ test('harness: a closer that never finishes is bounded and reported, and the res
   expect(listing).not.toContain(world.root);
   expect(listing).not.toContain(` -L ${world.tmuxName}`);
 });
+
+// A provider wrapper must finish and be reaped by tmux before the server goes away.
+test('harness: teardown waits for the recipient and its tmt run pane before stopping tmux', async () => {
+  const { alive, until } = await import('./harness/process.js');
+  await withWorld(async (world) => {
+    // Bash retains a shell around redirected commands unless launch uses exec.
+    world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
+    const recipient = await world.startAgent('claude-teardown', {
+      driver: 'claude',
+      stopGated: true,
+    });
+    const wrapperPid = Number(
+      world.tmux(['display-message', '-p', '-t', recipient.pane, '#{pane_pid}']).trim(),
+    );
+    const providerPid = Number(recipient.rows().find((row) => row.event === 'ready')?.pid);
+    expect(wrapperPid).toBeGreaterThan(0);
+    expect(providerPid).toBeGreaterThan(0);
+    expect(wrapperPid).not.toBe(providerPid);
+    let finished = false;
+    const disposal = world.dispose().then((leaks) => {
+      finished = true;
+      return leaks;
+    });
+    try {
+      await until(
+        () => recipient.rows().some((row) => row.event === 'stopping'),
+        'provider stop boundary',
+      );
+      expect(finished).toBe(false);
+      expect(alive(wrapperPid)).toBe(true);
+      expect(alive(providerPid)).toBe(true);
+      // Releasing the provider lets the real wrapper reap it and tmux reap the wrapper.
+      fs.writeFileSync(`${recipient.gate}/stop.release`, '');
+      expect(await disposal).toEqual([]);
+      expect(alive(providerPid)).toBe(false);
+      expect(alive(wrapperPid)).toBe(false);
+      expect(fs.existsSync(world.root)).toBe(false);
+    } finally {
+      if (fs.existsSync(recipient.gate)) fs.writeFileSync(`${recipient.gate}/stop.release`, '');
+      await disposal;
+    }
+  });
+});
+
+// A slow pane remains a failure even though the rest of cleanup still runs.
+test('harness: an unfinished recipient pane is reported without relaxing the leak guard', async () => {
+  await withWorld(async (world) => {
+    world.tmux(['set-option', '-g', 'default-shell', '/bin/bash']);
+    const recipient = await world.startAgent('claude-unfinished', {
+      driver: 'claude',
+      stopGated: true,
+    });
+    const leaks = await world.dispose();
+    expect(leaks).toContain(
+      `agent pane ${recipient.pane}: Timed out: agent pane ${recipient.pane} completion`,
+    );
+    expect(fs.existsSync(world.root)).toBe(false);
+  });
+});
