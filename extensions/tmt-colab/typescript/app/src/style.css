@@ -103,10 +103,6 @@ footer {
 .page {
   min-height: calc(100dvh - var(--colab-header-height));
 }
-/* Open header menus sit above selection controls and the update row. */
-.page .tmt-ui-header:has(.page-header-actions [role='menu']) {
-  z-index: 50;
-}
 .page-header-meta,
 .page-header-actions {
   display: flex;
@@ -147,10 +143,6 @@ footer {
 }
 .page-header-unseen {
   color: var(--c-waiting);
-}
-.page-header-actions .tmt-ui-menu-check {
-  float: right;
-  margin-left: 8px;
 }
 .status {
   color: var(--c-muted);

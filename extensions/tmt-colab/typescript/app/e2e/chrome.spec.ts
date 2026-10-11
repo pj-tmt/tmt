@@ -400,3 +400,47 @@ for (const width of [1440, 390, 320])
       await expect(menu).toHaveCount(0);
       await expect(more).toBeFocused();
     });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`fixed header paints above controls and update row in its band: ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/chrome-browser.tsx';
+        await (await import(path)).mount('page');
+      });
+      const header = page.locator('#chrome-fixture .tmt-ui-header');
+      await expect(header).toBeVisible();
+      for (const className of ['selection-control', 'annotation-popover', 'update-notice']) {
+        const painted = await page.evaluate((className) => {
+          const header = document.querySelector('#chrome-fixture .tmt-ui-header')!;
+          const box = header.getBoundingClientRect();
+          const overlay = document.createElement('div');
+          overlay.className = className;
+          overlay.textContent = 'Overlapping control';
+          // Stress the actual host classes in the header band without changing their z-index.
+          Object.assign(overlay.style, {
+            left: `${box.left + 8}px`,
+            top: `${box.top + 8}px`,
+            width: '80px',
+            height: '32px',
+          });
+          document.body.append(overlay);
+          const hit = document.elementFromPoint(box.left + 16, box.top + 16);
+          const result = {
+            headerOnTop: !!hit?.closest('.tmt-ui-header'),
+            position: getComputedStyle(overlay).position,
+            zIndex: Number(getComputedStyle(overlay).zIndex),
+          };
+          overlay.remove();
+          return result;
+        }, className);
+        expect(painted.position).toBe('fixed');
+        expect(painted.zIndex).toBeGreaterThan(0);
+        expect(painted.headerOnTop, `${className} must not cover the fixed header`).toBe(true);
+      }
+    });
