@@ -17,7 +17,9 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
 - Unknown-argument diagnostics reuse that scan's nearest canonical public path for a
   human-only help hint through the existing suggestion renderer. Hidden commands,
   values, `--` data and launch tails never select the hint topic; JSON keeps the
-  original parser message and fields, and other error kinds stay unchanged.
+  original parser message and fields. Clap's typed subcommand suggestions omit hidden
+  registrations and their aliases; when all candidates are hidden, human errors use
+  the same public-scope hint without changing the offending token or JSON fields.
 - The help scan shares option-value boundaries with error-mode recovery so `-h` bypasses
   required operands without reading payload data as flags. Help with `--json` reaches
   `finish_parse` and returns `JSON_UNSUPPORTED` before operand validation. `OutputMode` holds only JSON;
@@ -36,6 +38,8 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   suggestions; exact dispatch probes one filename. `tmt help <extension>` runs
   `tmt-<extension> --help`; `tmt help <extension> <tail...>` forwards `<tail...> --help`.
   Tail flags, including `--json`, belong to the extension; Core names and aliases stay reserved.
+- Installed-extension prefix refusals recover presentation mode only from the stored
+  Core prefix using the diagnostic scanner, and never inspect or execute the extension tail.
 - Completion v1 (`__complete`) runs through the bounded process owner with a one-second
   deadline and 64 KiB bound; shells quote candidates and never evaluate them.
 

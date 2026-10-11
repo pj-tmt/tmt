@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn hidden_subcommand_suggestions_are_filtered_without_hiding_public_candidates() {
+    for json in [false, true] {
+        let mut argv = args(&["extension install"]);
+        if json {
+            argv.insert(0, "--json".into());
+        }
+        let error = super::super::parse_core(&argv).unwrap_err();
+        assert_eq!(error.mode.json, json);
+        assert!(error.message.contains("extension install"));
+        assert!(error.message.contains("'extension'"));
+        assert!(!error.message.contains("__native-install"));
+        assert_eq!(error.hint, None);
+
+        let error = super::super::parse_core(&args(if json {
+            &["--json", "__native-instal"]
+        } else {
+            &["__native-instal"]
+        }))
+        .unwrap_err();
+        assert_eq!(error.mode.json, json);
+        assert!(error.message.contains("'__native-instal'"));
+        for hidden in [
+            "__native-install",
+            "__native-upgrade-extensions",
+            "__native-refresh-skills",
+            "__native-schema",
+        ] {
+            assert!(!error.message.contains(&format!("'{hidden}'")));
+        }
+        assert_eq!(
+            error.hint.as_deref(),
+            Some("Run tmt help to see the commands and options.")
+        );
+        let public = parse_error(if json {
+            &["office", "--json", "uninstal"]
+        } else {
+            &["office", "uninstal"]
+        });
+        assert!(public.message.contains("'install'"));
+        assert!(public.message.contains("'uninstall'"));
+        assert_eq!(public.hint, None);
+    }
+}
+
+#[test]
 fn command_aliases_preserve_typed_invocations() {
     let cases = [
         (

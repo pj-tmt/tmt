@@ -10,7 +10,7 @@ pub fn execute(name: &str, args: &[OsString], help: bool, prefix: &[OsString]) -
     if let Some(executable) = adapter::resolve(name, &search)? {
         if !prefix.is_empty() {
             return crate::failure(
-                crate::invocation::OutputMode::default(),
+                crate::diagnostics::error_context(&crate::grammar::grammar(), prefix).0,
                 "USAGE_ERROR",
                 "Put options after the extension name: tmt <name> [options].",
             );

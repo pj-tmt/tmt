@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 
+use clap::error::{ContextKind, ContextValue};
 use clap::{Arg, Command};
 
 use crate::invocation::OutputMode;
@@ -9,21 +10,56 @@ use crate::invocation::OutputMode;
 /// Arity and scope come from the same grammar; this never constructs requests,
 /// repairs invalid input, dispatches commands or inspects option-value contents.
 pub fn error_context(definition: &Command, argv: &[OsString]) -> (OutputMode, Vec<String>) {
-    let (mode, _, path) = inspect(definition, argv);
+    let (mode, _, path, _) = inspect(definition, argv);
     (mode, path)
+}
+
+/// Remove only grammar-owned hidden candidates before Clap formats the error.
+/// The original offending token and public candidates remain intact. A removed
+/// last candidate lets the caller use its existing public-scope help hint.
+pub fn parser_error_context(
+    definition: &Command,
+    argv: &[OsString],
+    error: &mut clap::Error,
+) -> (OutputMode, Vec<String>, bool) {
+    let (mode, _, path, command) = inspect(definition, argv);
+    let mut all_hidden = false;
+    if let Some(ContextValue::Strings(suggestions)) = error.get(ContextKind::SuggestedSubcommand) {
+        let public: Vec<_> = suggestions
+            .iter()
+            .filter(|name| {
+                command
+                    .find_subcommand(name.as_str())
+                    .is_none_or(|candidate| !candidate.is_hide_set())
+            })
+            .cloned()
+            .collect();
+        if public.len() != suggestions.len() {
+            all_hidden = public.is_empty();
+            if all_hidden {
+                error.remove(ContextKind::SuggestedSubcommand);
+            } else {
+                error.insert(
+                    ContextKind::SuggestedSubcommand,
+                    ContextValue::Strings(public),
+                );
+            }
+        }
+    }
+    (mode, path, all_hidden)
 }
 
 /// Help intent uses the same grammar-aware value boundaries as error mode.
 /// It never treats an option value or data after `--` as a help request.
 pub fn help_intent(definition: &Command, argv: &[OsString]) -> Option<(Vec<String>, OutputMode)> {
-    let (mode, path, _) = inspect(definition, argv);
+    let (mode, path, _, _) = inspect(definition, argv);
     path.map(|path| (path, mode))
 }
 
-fn inspect(
-    definition: &Command,
+fn inspect<'a>(
+    definition: &'a Command,
     argv: &[OsString],
-) -> (OutputMode, Option<Vec<String>>, Vec<String>) {
+) -> (OutputMode, Option<Vec<String>>, Vec<String>, &'a Command) {
     let mut mode = OutputMode::default();
     let mut help = None;
     let mut valid = true;
@@ -140,7 +176,12 @@ fn inspect(
         .take_while(|command| !command.is_hide_set())
         .map(|command| command.get_name().to_owned())
         .collect();
-    (mode, if valid { help } else { None }, public_path)
+    (
+        mode,
+        if valid { help } else { None },
+        public_path,
+        commands.last().expect("root command is always present"),
+    )
 }
 
 fn find_option<'a>(commands: &[&'a Command], predicate: impl Fn(&Arg) -> bool) -> Option<&'a Arg> {
@@ -173,5 +214,38 @@ fn record(
                 .map(|command| command.get_name().to_owned())
                 .collect(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggestion_visibility_uses_the_selected_scope_and_hidden_aliases() {
+        let definition = Command::new("tmt").subcommand(
+            Command::new("public")
+                .alias("p")
+                .subcommand(Command::new("secret").hide(true).alias("private")),
+        );
+        for typo in ["secre", "privat"] {
+            let argv = [OsString::from("p"), typo.into()];
+            let mut error = definition
+                .clone()
+                .try_get_matches_from(["tmt", "p", typo])
+                .unwrap_err();
+            assert!(error.get(ContextKind::SuggestedSubcommand).is_some());
+            let (mode, path, all_hidden) = parser_error_context(&definition, &argv, &mut error);
+            assert_eq!(mode, OutputMode::default());
+            assert_eq!(path, ["public"]);
+            assert!(all_hidden);
+            assert!(error.get(ContextKind::SuggestedSubcommand).is_none());
+            assert!(
+                definition
+                    .clone()
+                    .try_get_matches_from(["tmt", "p", "private"])
+                    .is_ok()
+            );
+        }
     }
 }
