@@ -9,7 +9,7 @@ import {
   type RemoteClient,
 } from '../src/ask-remote.js';
 import type { PageView } from '../src/transport.js';
-import type { Registration } from '../src/registration.js';
+import { ReopenFailedError, type Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
@@ -1325,6 +1325,61 @@ it('explicit in-place recovery coalesces clicks, keeps failed retries read-only 
     h.live.close();
   }
 });
+
+// Remote's typed refusal of a bounded re-admission (R2) decides whether the page waits or ends.
+it.each(['unreachable', 'unconfirmed', 'transient'] as const)(
+  'a fresh open refused as %s keeps the page waiting for a silent retry',
+  async (reason) => {
+    const h = heldResync();
+    const refusal = new ReopenFailedError(reason);
+    h.reconnect.mockRejectedValueOnce(refusal);
+    try {
+      await h.live.snapshot();
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+      expect(h.failed).toHaveBeenCalledOnce();
+      expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
+      expect(h.failed.mock.calls[0][0].cause).toBe(refusal);
+    } finally {
+      h.live.close();
+    }
+  },
+);
+
+it.each(['unpaired', 'mismatch', 'revoked', 'expired', 'capacity'] as const)(
+  'a fresh open refused as %s ends the page and keeps the typed reason',
+  async (reason) => {
+    const h = heldResync();
+    const refusal = new ReopenFailedError(reason);
+    h.reconnect.mockRejectedValueOnce(refusal);
+    try {
+      await h.live.snapshot();
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBe(refusal);
+      expect(h.failed).toHaveBeenCalledOnce();
+      expect(h.failed.mock.calls[0][0]).toBe(refusal);
+    } finally {
+      h.live.close();
+    }
+  },
+);
+
+it.each(['REMOTE_CLOSED', 'REMOTE_GRANT_CHANGED', 'REMOTE_SERVE_STOPPED'])(
+  'a signed %s replaces the Session once, silently, instead of ending the page',
+  async (code) => {
+    const h = heldResync();
+    try {
+      await h.live.snapshot();
+      connections.at(-1)!.failed(new Error(code));
+      await h.live.snapshot();
+      expect(h.reconnect).toHaveBeenCalledExactlyOnceWith(h.first);
+      expect(h.live.registration).toBe(h.second);
+      expect(h.failed).not.toHaveBeenCalled();
+    } finally {
+      h.live.close();
+    }
+  },
+);
 
 it('a failed writer replacement remains terminal and retires the admitted Connection without reload', async () => {
   const h = heldResync();

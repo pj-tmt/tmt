@@ -3,6 +3,7 @@ import { text } from './strings.js';
 
 const SENTENCES: Record<FailureCause, string> = {
   access: text.failureAccessEnded,
+  unpaired: text.failureUnpaired,
   gone: text.failurePageGone,
   session: text.failureSessionEnded,
   large: text.failureTooLarge,

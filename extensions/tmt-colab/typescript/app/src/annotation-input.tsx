@@ -381,7 +381,7 @@ export function AnnotationInput({
           {busy
             ? text.messageSending
             : recoveryRequired
-              ? text.reconnectToSend
+              ? text.sendOnHold
               : binding && directory.state === 'loading'
                 ? text.messageAgentsChecking
                 : binding && directory.state === 'failed'

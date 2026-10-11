@@ -1,22 +1,5 @@
 import { expect, it, vi } from 'vite-plus/test';
-import {
-  PageReopener,
-  ReadmitBudget,
-  readmittable,
-  reopenWithBackoff,
-  retryableReopen,
-} from '../src/readmit.js';
-
-it.each(['STALE_EPOCH', 'DENIED', 'EXPIRED'])('%s on an open page is re-admittable', (code) => {
-  expect(readmittable(new Error(code))).toBe(true);
-});
-
-it.each(['Page unavailable', 'CAPACITY', 'REMOTE_DEVICE_REVOKED', 'Access ended', 'GAP'])(
-  '%s is not re-admitted automatically',
-  (code) => {
-    expect(readmittable(new Error(code))).toBe(false);
-  },
-);
+import { PageReopener, ReadmitBudget, reopenWithBackoff, retryableReopen } from '../src/readmit.js';
 
 it('allows three reopens per minute, then stops until the window passes', () => {
   const budget = new ReadmitBudget();

@@ -169,23 +169,40 @@ Verified session end starts one existing mounted-owner replacement; verified evi
 blocks. A pending failed attempt also blocks on a successful read without session end
 or an unverified read failure. An opaque socket disconnect, or a native fetch
 `TypeError` during mounted-owner Session replacement, stops the binding with
-`RecoveryRequiredError` (original cause retained). The page then reconnects by itself: one
-`ConnectionOwner` (`connection-owner.ts`) per page retries the explicit-Reconnect path
-(`binding.reconnect()`) after 1, 2, 4 and 8 s, then every 15 s with 20% jitter, paused while the
-tab is hidden, and stops on success, on a failure that is not `RecoveryRequiredError`, or on
-unmount. The "Connection lost" card and its Reconnect button stay for the click path and show
-no extra state during the silent attempts. Other replacement, admission and eviction failures
-remain terminal.
+`RecoveryRequiredError` (original cause retained). A fresh open that Remote refuses with a typed
+`ReopenSessionError` reason (`registration.ts` turns it into `ReopenFailedError`; a session is
+re-admitted with `reopenSession(previous, {retry:'bounded', signal})`) waits when the reason
+may pass (`unreachable`, `unconfirmed`, `transient`) and ends the page otherwise.
+One owner per open page decides what happens next: `useConnection` (`use-connection.ts`) wraps
+`ConnectionController` (`connection-controller.ts`), whose state (`connection-model.ts`) is
+`connected | reconnecting | ended{reason, action}`. The page reports every failure its binding
+publishes (`controller.report`); `settle` maps it. `reconnecting` is silent: the header chip reads
+`Private · Reconnecting…`, no card or button shows, the page, drafts and open thread stay, and
+writes are held. A lost transport or session retries `binding.reconnect()` after 1, 2, 4 and 8 s,
+then every 15 s with 20% jitter, paused while the tab is hidden (`ConnectionOwner`), until it
+connects or the failure is no longer recoverable. A series that gives up, or a binding with no
+`reconnect`, ends the connection with the failure it stopped on: nothing else drives
+`reconnecting`. An epoch advance stops that loop and reopens the page (`PageReopener`, at most
+three reopens a minute), then hands the new binding over. `ended` replaces
+the page with one card: the failure sentence and the one action that fits (`Pair again` with the
+command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
+page that is gone; none otherwise). A modal drawer makes that card inert, so an open drawer's
+`notice` slot repeats the same sentence and action in one row under its header, only while
+`ended`. `Live` stays the transport owner: it keeps its bounded resync
+and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
-codes, Remote refusal codes, a few short messages): what recovers it (`resync` on the same
-session, replace the `session`, `reopen` the page for a new epoch, or `none`) and which sentence
-it ends with. `live.ts`, `readmit.ts` and `terminal-failure.ts` read it; none matches raw strings.
-A terminal failure card shows one of five `strings.ts` sentences (access ended, page gone, session
-ended, too large, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
+codes, Remote refusal codes, a few short messages, each `ReopenFailedError` reason): what recovers
+it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
+`retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
+`connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
+`REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
+silently; the access card shows only when that fresh open is refused (#2619).
+A terminal failure card shows one of six `strings.ts` sentences (access ended, not paired, page
+gone, session ended, too large, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
 recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
 `Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
-Eviction, management-changed and the recoverable "Connection lost" keep their own cards.
+Eviction and management-changed keep their own cards.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never re-sends an Ask or generates a new mutation. Pending own-stream envelopes

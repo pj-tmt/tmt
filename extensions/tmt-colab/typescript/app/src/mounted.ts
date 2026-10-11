@@ -37,7 +37,8 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     pairedSdk = await remoteSdk();
   lifetime.signal.throwIfAborted();
   const sdk = {
-      reopenSession: () => owned(() => pairedSdk.reopenSession()),
+      reopenSession: (previous?: unknown, options?: { retry?: 'bounded'; signal?: AbortSignal }) =>
+        owned(() => pairedSdk.reopenSession(previous, options)),
       certifyKey: (purpose: 'sign' | 'enc', key: Uint8Array) =>
         owned(() => pairedSdk.certifyKey(purpose, key)),
       transportUrl: (session: unknown, url: string | URL) => pairedSdk.transportUrl(session, url),
@@ -144,7 +145,10 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       if (previous !== current.registration) return Promise.resolve(current);
       if (replacement) return replacement;
       replacement = owned(async () => {
-        const next = await register(mount, sdk);
+        const next = await register(mount, sdk, {
+          previous: previous.remoteSession,
+          signal: lifetime.signal,
+        });
         await verifyRegistration(next, bootstrap.space, bootstrap.owner);
         requireValue(next.deviceId === previous.deviceId);
         current = await attach(next);

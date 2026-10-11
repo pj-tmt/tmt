@@ -1221,46 +1221,38 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   doorDown = true;
   oldSessionEnded = true;
   f.stopSync();
-  const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
-  await expect(reconnect).toBeVisible();
-  // The connection owner has already made at least one silent attempt against the closed door.
+  // The connection owner keeps trying on its own (#2572): the chip says so, and no card or button
+  // interrupts. The page, the composer draft and the answered thread stay where they were.
+  await expect(page.locator('.status')).toHaveText('Private · Reconnecting…');
   await expect.poll(() => opens).toBeGreaterThanOrEqual(admittedOpens + 1);
-  await expect(page.getByText('Reconnect to resume live updates.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Connection lost', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
+  await expect(page.locator('.tmt-ui-notice')).toHaveCount(0);
   await expect(page.getByText('Failed to fetch', { exact: true })).toHaveCount(0);
+  await expect(heading).toBeVisible();
   await expect(input).toHaveText(draft);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   expect(sends).toBe(1);
   expect(f.entries).toHaveLength(6);
-  await expect(page.getByRole('heading', { name: 'Connection lost', exact: true })).toBeVisible();
-  await expect(page.locator('.status')).toHaveText('Private · Connection lost');
-  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
-  await expect(page.locator('.tmt-ui-notice-mark')).toContainText('Disconnected');
-  await expect(page.getByText('This preview accepts pages up to 2 MiB of HTML.')).toHaveCount(0);
   await expect(input).toBeFocused(); // Recovery must not take focus from a draft.
   await expect(input).toHaveAttribute('contenteditable', 'true');
   draft += ' Still editable.';
   await input.fill(draft);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await expect(page.getByText('Reconnect to send.', { exact: true })).toBeVisible();
+  await expect(page.getByText(copy.sendOnHold, { exact: true })).toBeVisible();
   await input.press('Enter');
   expect(sends).toBe(1);
   await f.settled();
   expect(f.entries).toHaveLength(6);
-  async function capture(state: string, keyboardFocus = false) {
+  async function capture(state: string) {
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-        if (keyboardFocus) {
-          await reconnect.focus();
-          await page.keyboard.press('Tab');
-          await page.keyboard.press('Shift+Tab');
-          await expect(reconnect).toBeFocused();
-        }
         await page.screenshot({
           path: testInfo.outputPath(`${state}-${theme}-${width}.png`),
           fullPage: true,
@@ -1268,52 +1260,21 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
       }
     }
   }
-  await capture('recovery-draft');
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-  await capture('recovery-card');
-  await capture('recovery-focus', true);
+  await capture('reconnecting');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await (await pageAction(page, 'Chat')).click();
-  await expect(input).toHaveText(draft);
-  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-  // Explicit recovery before the door returns stays retryable and read-only.
-  const attemptsBefore = opens;
-  pendingOpen = new Promise<void>((resolve) => {
-    releaseOpen = resolve;
-  });
-  await reconnect.click();
-  // The click is one open attempt; a silent attempt in flight shares it instead of adding another.
-  await expect.poll(() => opens).toBe(attemptsBefore + 1);
-  const busyReconnect = page.getByRole('button', { name: 'Reconnecting…', exact: true });
-  await expect(busyReconnect).toHaveAttribute('aria-busy', 'true');
-  await expect(busyReconnect).toBeDisabled();
-  await capture('recovery-busy');
-  expect(opens).toBe(attemptsBefore + 1);
-  releaseOpen!();
-  pendingOpen = undefined;
-  await expect(reconnect).toBeEnabled();
-  await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'waiting');
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await (await pageAction(page, 'Chat')).click();
-  await expect(input).toHaveText(draft);
-  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
-  await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  expect(sends).toBe(1);
-  expect(f.entries).toHaveLength(6);
   doorDown = false;
   f.resumeSync();
-  // Retry now, or let the connection owner's next attempt land: either admits the replacement.
-  await reconnect.click({ timeout: 2000 }).catch(() => {});
+  // The owner's next attempt lands without a click: it admits the replacement.
   await expect(heading).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.status.live .status-label')).toHaveText('Live', { timeout: 20_000 });
   await expect.poll(() => f.connections).toBe(1);
   await expect(page.getByTestId('chat-panel')).toBeVisible();
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
-  // Silent owner attempts against the closed door are timing-dependent; the single admitted
-  // connection above is the exactly-once check. The click and the admission are at least two opens.
-  expect(opens).toBeGreaterThanOrEqual(admittedOpens + 3);
+  // Silent attempts against the closed door are timing-dependent; the single admitted
+  // connection above is the exactly-once check. One failed attempt and the admission are two opens.
+  expect(opens).toBeGreaterThanOrEqual(admittedOpens + 2);
   await expect(input).toHaveText(draft);
   await input.fill('A new draft after verified recovery.');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
@@ -1372,7 +1333,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   doorDown = true;
   oldSessionEnded = true;
   f.stopSync();
-  await expect(reconnect).toBeVisible();
+  await expect(page.locator('.status')).toHaveText('Private · Reconnecting…');
   await expect(annotationInput).toBeFocused();
   await expect(annotationInput).toHaveAttribute('contenteditable', 'true');
   await annotationInput.fill('Still editable anchored draft.');
@@ -1385,8 +1346,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   expect(f.entries).toHaveLength(6);
   doorDown = false;
   f.resumeSync();
-  await reconnect.click();
-  await expect(heading).toBeVisible();
+  await expect(heading).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => f.connections).toBe(1);
   await expect(annotationInput).toHaveText('Still editable anchored draft.');
   await expect(annotationInput).toBeFocused();
@@ -1408,7 +1368,10 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.locator('.tmt-ui-notice')).toContainText(copy.failureAccessEnded);
   await expect(page.locator('[data-failure-reference]')).toHaveText('REMOTE_DEVICE_REVOKED');
   await expect(page.locator('.failure-reference')).toContainText(copy.failureCodeLabel);
-  await expect(reconnect).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
+  // The one action fits the reason: pairing again, with its command.
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairAgain);
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.reconnectCommand);
   await capture('terminal-refusal');
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
@@ -1580,7 +1543,6 @@ for (const width of [1440, 390])
           inside: true,
         });
         f.stop();
-        const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
         const admittedOpens = f.opens;
         const navigations: string[] = [];
         page.on('framenavigated', (frame) => {
@@ -1589,7 +1551,7 @@ for (const width of [1440, 390])
         // The connection owner's first attempt is one fetch; with the door down it fails and the
         // same read-only draft stays.
         await expect.poll(() => f.opens, { timeout: 15_000 }).toBe(admittedOpens + 1);
-        await expect(reconnect).toBeEnabled();
+        await expect(page.locator('.status')).toHaveText('Private · Reconnecting…');
         await expect(input).toHaveText(draft);
         await expect(action).toBeDisabled();
         if (surface === 'annotation')
@@ -1607,7 +1569,6 @@ for (const width of [1440, 390])
         await f.settled();
         expect(f.entries).toHaveLength(1);
         f.release();
-        await expect(reconnect).toHaveCount(0);
         await expect(page.locator('.status.live .status-label')).toHaveText('Live');
         await expect(heading).toBeVisible();
         if (surface === 'Chat') await openChat();

@@ -140,6 +140,11 @@ it('replaces a verified mounted session once for concurrent reconnects and creat
   const replacement = await one;
   expect(replacement.registration).toBe(setup.second);
   expect(setup.register).toHaveBeenCalledTimes(2);
+  // A reconnect is a bounded re-admission of that exact Session (Remote R2), under the tab's life.
+  expect(setup.register).toHaveBeenLastCalledWith(expect.any(URL), expect.anything(), {
+    previous: setup.first.remoteSession,
+    signal: expect.any(AbortSignal),
+  });
   expect(setup.verify).toHaveBeenLastCalledWith(setup.second, 'space', expect.any(Uint8Array));
   expect(setup.remote).toHaveBeenLastCalledWith(
     expect.any(URL),
@@ -176,6 +181,10 @@ it('closing a tab aborts page signals and fences Remote methods, certification a
   });
   const mounted = await mountedTransport();
   await mounted.transport.page('page');
+  // The wrapper hands the Session and options to the paired SDK unchanged.
+  const readmit = { retry: 'bounded', signal: new AbortController().signal } as const;
+  await setup.register.mock.calls[0][1].reopenSession(setup.first.remoteSession, readmit);
+  expect(setup.sdk.reopenSession).toHaveBeenLastCalledWith(setup.first.remoteSession, readmit);
   const remote = setup.ports[0];
   const sdk = setup.register.mock.calls[0][1];
   mounted.close();
@@ -197,7 +206,8 @@ it('closing a tab aborts page signals and fences Remote methods, certification a
   });
   await expect(mounted.transport.page('page')).rejects.toMatchObject({ name: 'AbortError' });
   expect(call).not.toHaveBeenCalled();
-  expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
+  // Registration's boot call and the forwarded call above; nothing after the tab closed.
+  expect(setup.sdk.reopenSession).toHaveBeenCalledTimes(2);
   expect(setup.sdk.certifyKey).toHaveBeenCalledOnce();
   expect(setup.register).toHaveBeenCalledOnce();
 });

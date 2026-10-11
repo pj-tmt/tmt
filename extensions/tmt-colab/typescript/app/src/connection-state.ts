@@ -1,16 +1,18 @@
 import { SessionEndedError } from './ask-remote.js';
+import { ReopenFailedError } from './registration.js';
 
 /** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
-export type FailureCause = 'access' | 'gone' | 'session' | 'large' | 'generic';
+export type FailureCause = 'access' | 'gone' | 'session' | 'large' | 'unpaired' | 'generic';
 
 /**
  * What the page does about a failure before it gives up:
  * - `resync`: the tunnel dropped or the fold needs catchup; reconnect on the same session.
  * - `session`: the Remote session ended; open a replacement.
  * - `reopen`: the epoch advanced under a paired owner; bind the new epoch (#2557).
+ * - `retry`: a fresh open was refused for a reason that may pass; keep trying.
  * - `none`: nothing recovers it.
  */
-export type Recovery = 'resync' | 'session' | 'reopen' | 'none';
+export type Recovery = 'resync' | 'session' | 'reopen' | 'retry' | 'none';
 
 export interface Classification {
   readonly recovery: Recovery;
@@ -44,7 +46,11 @@ export const CONNECTION_CODES: Readonly<Record<string, Classification>> = {
   EXPIRED: recover('reopen', 'access'),
   'Access ended': end('access'),
   REMOTE_SCOPE_DENIED: end('access'),
-  REMOTE_CLOSED: end('access'),
+  // Remote's close is never revoke proof (#2619): one silent re-admission first, and the card
+  // only when the fresh open is refused.
+  REMOTE_CLOSED: recover('session', 'access'),
+  REMOTE_GRANT_CHANGED: recover('session', 'access'),
+  REMOTE_SERVE_STOPPED: recover('session'),
   REMOTE_DEVICE_REVOKED: end('access'),
   REMOTE_DEVICE_NOT_FOUND: end('access'),
   'Page unavailable': end('gone'),
@@ -65,8 +71,22 @@ export const CONNECTION_CODES: Readonly<Record<string, Classification>> = {
   REMOTE_CORE_UNAVAILABLE: generic,
 };
 
+/** The decision for each reason Remote gives when a fresh open fails (R2). */
+const REOPEN_REASONS: Readonly<Record<ReopenFailedError['reason'], Classification>> = {
+  unreachable: recover('retry'),
+  unconfirmed: recover('retry'),
+  transient: recover('retry'),
+  unpaired: end('unpaired'),
+  mismatch: end('unpaired'),
+  revoked: end('access'),
+  expired: end('access'),
+  // The cap notice is C1c (#2625); until then it ends as a plain failure.
+  capacity: generic,
+};
+
 /** The single decision for a live-path failure; callers never read raw messages. */
 export function classify(error: Error): Classification {
+  if (error instanceof ReopenFailedError) return REOPEN_REASONS[error.reason];
   const known = Object.hasOwn(CONNECTION_CODES, error.message)
     ? CONNECTION_CODES[error.message]!
     : generic;
