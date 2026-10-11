@@ -1778,9 +1778,14 @@ final/retention authority; page copies follow page access and retention.
 On page open and visible-again, read-only observation makes one sequential
 catch-up pass over at most the 256 newest unresolved asks from the asking device,
 regardless of age. Older asks outside that pass keep explicit re-check. Failed
-older reads are not automatically retried. Continued polling after that pass and
-after Send/re-check uses 2-second to 30-second backoff while visible, pauses hidden
-pages and stops after a two-hour operation horizon. Annotations and Chat then show
+older reads are not automatically retried. Continued visible polling uses 2-second
+to 30-second backoff. A newly accepted explicit Send wakes the current read wait
+and restarts its cadence; for ten minutes after the latest accepted Send in that
+controller, read steps are capped at three seconds (two, then three seconds).
+Reads never extend this active window. It is ephemeral per controller; a Session
+replacement restarts observation from the fast step without carrying the window.
+Polling pauses hidden pages and stops after the unchanged two-hour operation
+horizon. Annotations and Chat then show
 a Lucide Clock with `no reply yet`, keeping the accepted ledger state and read-only re-check action.
 Closing the asking browser delays page publication until it
 reopens; it never cancels work. Synchronization and other viewers cannot perform

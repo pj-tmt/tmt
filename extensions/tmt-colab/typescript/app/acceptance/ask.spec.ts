@@ -599,4 +599,76 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     // has no row, `tmt-remote approve <operationId> --json` confirms the frozen
     // message, and the ask becomes accepted with exactly one received row.
   });
+
+  for (const surface of ['Chat after idle', 'annotation after a write']) {
+    test(`a reply stays prompt during the active observation window: ${surface}`, async () => {
+      await withWorld(async (world) => {
+        const s = await scenario(world, { gated: true });
+        const reads: number[] = [];
+        s.askerPage.on('response', (response) => {
+          const request = response.request();
+          if (request.method() !== 'POST' || !request.url().endsWith('/append')) return;
+          try {
+            if (request.postDataJSON().operation === 'result') reads.push(Date.now());
+          } catch {
+            // Unrelated or non-JSON traffic is not result evidence.
+          }
+        });
+        if (surface === 'Chat after idle') {
+          const draft = await composeChat(s.askerPage, s.recipient, 'Reply while I wait');
+          await sendChat(s.askerPage, draft);
+        } else {
+          const mode = s.askerPage.getByRole('button', { name: 'Selection mode', exact: true });
+          await mode.click();
+          await s.askerPage.frameLocator('iframe').locator('#quote').click();
+          const input = await annotationInput(
+            s.askerPage.getByRole('dialog', { name: 'Annotate selection' }),
+            s.recipient.name,
+          );
+          await input.fill(`@${s.recipient.name} Reply to this annotation`);
+          await s.askerPage.getByRole('button', { name: 'Send', exact: true }).click();
+        }
+        await until(() => s.recipient.received().length === 1, 'one original delivery');
+        await expect(s.askerPage.getByTestId('ask-entry')).toHaveAttribute(
+          'data-ledger-state',
+          'accepted',
+        );
+        // A sixty-second pending result reached the old thirty-second step.
+        // Use actual completed read traffic, not a sleep or a forged result.
+        await expect
+          .poll(() => (reads.at(-1) ?? 0) - (reads[0] ?? 0), { timeout: 75000 })
+          .toBeGreaterThanOrEqual(60000);
+        if (surface === 'annotation after a write') {
+          run(
+            world,
+            world.binaries.colab,
+            ['page', 'write', s.page.pageId, '--file', '-', '--json'],
+            '<h1>Updated page</h1><p id="quote">Updated passage for the agent.</p>',
+          );
+          await expect(s.askerPage.frameLocator('iframe').locator('#quote')).toHaveText(
+            'Updated passage for the agent.',
+          );
+        }
+        const received = s.recipient.received()[0];
+        const requestId = received.requestId as string;
+        fs.writeFileSync(`${s.recipient.gate}/${requestId}.release`, '');
+        await until(
+          () =>
+            s.recipient
+              .rows()
+              .some((row) => row.event === 'replied' && row.requestId === requestId),
+          'durable original Core reply',
+        );
+        // Three seconds between reads, plus normal native publication/decoding.
+        await expect(s.askerPage.getByTestId('ask-reply')).toHaveText(
+          replyBody(received.message as string),
+          { timeout: 5000 },
+        );
+        await expect(s.askerPage.getByTestId('ask-reply')).toHaveCount(1);
+        expect(s.recipient.received()).toHaveLength(1);
+        expect(s.recipient.rows().filter((row) => row.event === 'replied')).toHaveLength(1);
+        expect(dispatches(world)).toHaveLength(1);
+      });
+    });
+  }
 });

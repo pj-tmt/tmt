@@ -18,6 +18,8 @@ import {
 import { AskRecordStore } from './ask-record-store.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
 const ACTIVATION_READ_LIMIT = 256;
+const ACTIVE_OBSERVATION_MS = 10 * 60 * 1000;
+const ACTIVE_READ_STEP_MS = 3000;
 export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
@@ -55,10 +57,13 @@ export class AskController {
   #destinations: AskDestinations | null = null;
   #sending = new Map<string, { preview: FrozenAsk; task: Promise<AskLedgerView> }>();
   #observing: Promise<void> | null = null;
+  #observationWake: AbortController | null = null;
+  #activeObservationUntil = 0;
   #ended = false;
   #endSession(error?: SessionEvictedError) {
     if (this.#ended) return;
     this.#ended = true;
+    this.#observationWake?.abort();
     this.options.sessionEnded?.(error);
   }
   constructor(private options: AskControllerOptions) {}
@@ -224,6 +229,12 @@ export class AskController {
                 ? (result.reason ?? null)
                 : null,
         );
+        if (updated.state === 'accepted') {
+          // Only a newly admitted explicit Send extends the fast read window.
+          // Wake a sleeping or in-flight cycle; neither path dispatches again.
+          this.#activeObservationUntil = performance.now() + ACTIVE_OBSERVATION_MS;
+          this.#observationWake?.abort();
+        }
         return updated;
       } catch (error) {
         if (error instanceof SessionEvictedError) {
@@ -329,6 +340,8 @@ export class AskController {
     if (this.#ended) return Promise.resolve();
     if (this.#observing) return this.#observing;
     const started = performance.now();
+    let wakeOwner = new AbortController();
+    this.#observationWake = wakeOwner;
     const unresolved = (view: AskLedgerView) =>
       !view.reply &&
       ['dispatching', 'held', 'accepted', 'uncertain'].includes(view.state) &&
@@ -341,6 +354,13 @@ export class AskController {
         !signal.aborted && !this.#ended && performance.now() - started < ASK_OBSERVATION_MS;
         cycle++
       ) {
+        if (wakeOwner.signal.aborted) {
+          cycle = 0;
+          wakeOwner = new AbortController();
+          this.#observationWake = wakeOwner;
+        }
+        // Capture before reads so a Send during a read also skips the stale sleep.
+        const wakeSignal = wakeOwner.signal;
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
           await new Promise<void>((resolve) => {
             const wake = () => {
@@ -406,20 +426,31 @@ export class AskController {
         )
           this.options.observationUnavailable?.(unavailable);
         if (this.#ended || !(await this.options.store.views()).some(withinHorizon)) return;
-        if (!signal.aborted)
+        if (!signal.aborted) {
+          const idleStep = Math.min(2000 * 2 ** Math.min(cycle, 4), 30000);
+          const step =
+            performance.now() < this.#activeObservationUntil
+              ? Math.min(idleStep, ACTIVE_READ_STEP_MS)
+              : idleStep;
           await new Promise<void>((resolve) => {
             const done = () => {
               clearTimeout(timer);
               signal.removeEventListener('abort', done);
+              wakeSignal.removeEventListener('abort', done);
               resolve();
             };
-            const timer = setTimeout(done, Math.min(2000 * 2 ** Math.min(cycle, 4), 30000));
+            const timer = setTimeout(done, step);
             signal.addEventListener('abort', done, { once: true });
-            if (signal.aborted) done();
+            wakeSignal.addEventListener('abort', done, { once: true });
+            if (signal.aborted || wakeSignal.aborted) done();
           });
+        }
       }
     })().finally(() => {
-      if (this.#observing === task) this.#observing = null;
+      if (this.#observing === task) {
+        this.#observing = null;
+        this.#observationWake = null;
+      }
     });
     this.#observing = task;
     return task;
