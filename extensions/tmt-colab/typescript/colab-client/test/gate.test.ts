@@ -164,3 +164,72 @@ describe('explicit engine selection', () => {
     expect(run([reports[0]], corpus, ['unknown'])).toBe(1);
   });
 });
+
+describe('explicit Linux WebKit refusal', () => {
+  const call = (source: string) =>
+    spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import {parseRefused,validateRefusal,validateExpectedReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};${source}`,
+      ],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+  const refusal = {
+    version: 'fixture',
+    diagnostics: { cleanup: 'closed' },
+    probeRefused: true,
+    policyMismatches: 8,
+    notices: 1,
+    heading: 'Update your browser',
+    body: 'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.',
+    sdkRequests: 0,
+    iframes: 0,
+    actions: 0,
+  };
+  it('keeps strict default and admits only explicit selected Linux WebKit', () => {
+    expect(call("parseRefused(undefined,['webkit'],'darwin')").status).toBe(0);
+    expect(call("parseRefused('webkit',['webkit'],'linux')").status).toBe(0);
+    for (const args of [
+      ['webkit', ['webkit'], 'darwin'],
+      ['firefox', ['firefox'], 'linux'],
+      ['webkit', ['chromium'], 'linux'],
+      ['webkit,webkit', ['webkit'], 'linux'],
+      ['unknown', ['webkit'], 'linux'],
+    ])
+      expect(call(`parseRefused(...${JSON.stringify(args)})`).status).toBe(1);
+  });
+  it('cannot omit or duplicate an expected-refused engine', () => {
+    const report = [...reports.slice(0, 2), { ...refusal, engine: 'webkit' }];
+    const verify = (result: unknown) =>
+      call(
+        `validateExpectedReport(${JSON.stringify(result)},${JSON.stringify(corpus)},['chromium','firefox','webkit'],['webkit'])`,
+      );
+    expect(verify(report).status).toBe(0);
+    expect(verify(report.slice(0, 2)).status).toBe(1);
+    expect(verify([...report, report[2]]).status).toBe(1);
+    expect(verify(reports).status).toBe(1);
+    expect(run(report)).toBe(1); // The same refusal cannot satisfy default strict mode.
+  });
+  it('requires real policy refusal and one notice without activation or actions', () => {
+    expect(call(`validateRefusal(${JSON.stringify(refusal)})`).status).toBe(0);
+    for (const change of [
+      { diagnostics: { cleanup: 'failed' } },
+      { probeRefused: false },
+      { policyMismatches: 0 },
+      { policyMismatches: null },
+      { notices: 0 },
+      { notices: 2 },
+      { heading: 'wrong' },
+      { body: 'wrong' },
+      { sdkRequests: 1 },
+      { iframes: 1 },
+      { actions: 1 },
+      { error: 'crashed' },
+      { skipped: true },
+      { version: '' },
+    ])
+      expect(call(`validateRefusal(${JSON.stringify({ ...refusal, ...change })})`).status).toBe(1);
+  });
+});

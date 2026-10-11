@@ -4,11 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { parseEngines, validateReport } from './gate.mjs';
+import { parseEngines, parseRefused, validateExpectedReport } from './gate.mjs';
 import { engineDiagnostics } from './diagnostics.mjs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 const engines = parseEngines(process.argv.slice(2));
+const refused = parseRefused(process.env.COLAB_EXPECT_REFUSED_ENGINES, engines, process.platform);
+const strictEngines = engines.filter((name) => !refused.includes(name));
 const root = new URL('../', import.meta.url),
   vectors = new URL('../../contracts/vectors/', root);
 const corpus = (await readFile(new URL('ed25519-829.jsonl', vectors), 'utf8'))
@@ -80,13 +82,36 @@ for (const name of await readdir(new URL('src/', root))) {
     }).outputText,
   );
 }
+const appRoot = new URL('../../app/dist/', root);
+// Serve only the normal build's entry and flat asset inventory; never a synthetic notice.
+const appAssets = new Map();
+if (refused.length) {
+  appAssets.set(
+    '/r/refusal/x/colab/',
+    (await readFile(new URL('index.html', appRoot), 'utf8')).replaceAll(
+      './assets/',
+      '/app/assets/',
+    ),
+  );
+  for (const name of await readdir(new URL('assets/', appRoot)))
+    if (/^[A-Za-z0-9._-]+$/.test(name))
+      appAssets.set('/app/assets/' + name, await readFile(new URL('assets/' + name, appRoot)));
+}
 const server = createServer((req, res) => {
   const body =
-    req.url === '/'
+    appAssets.get(req.url) ??
+    (req.url === '/'
       ? '<!doctype html><script type="module">import * as c from "/index.js"; window.client=c;</script>'
-      : modules.get(req.url);
+      : modules.get(req.url));
   res.statusCode = body === undefined ? 404 : 200;
-  res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'text/javascript');
+  res.setHeader(
+    'Content-Type',
+    req.url === '/' || req.url.endsWith('/')
+      ? 'text/html'
+      : req.url.endsWith('.css')
+        ? 'text/css'
+        : 'text/javascript',
+  );
   res.end(body ?? 'Missing test module');
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -158,6 +183,89 @@ try {
       await page.goto(origin);
       await page.waitForFunction(() => window.client);
       diagnostics.event('client-ready');
+      if (refused.includes(name)) {
+        page.on('pageerror', (error) => {
+          entry.error = String(error);
+        });
+        let timer;
+        let refusal;
+        try {
+          refusal = await Promise.race([
+            page.evaluate(
+              async (cases) => {
+                const c = window.client;
+                const hex = (s) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
+                // Prove ordinary native operations work; generic setup failures are not policy refusal.
+                const ed = await crypto.subtle.generateKey('Ed25519', false, ['sign', 'verify']);
+                const x = await crypto.subtle.generateKey('X25519', false, ['deriveBits']);
+                const message = c.text('refusal control');
+                const key = new Uint8Array(await crypto.subtle.exportKey('raw', ed.publicKey));
+                if (!(await c.strictVerify(key, await c.sign(ed.privateKey, message), message)))
+                  throw new Error('Native positive control refused');
+                await crypto.subtle.deriveBits(
+                  { name: 'X25519', public: x.publicKey },
+                  x.privateKey,
+                  256,
+                );
+                let policyMismatches = 0;
+                for (const row of cases)
+                  if (
+                    (await c.strictVerify(
+                      hex(row.public),
+                      hex(row.signature),
+                      hex(row.message),
+                    )) !== row.nativePolicy
+                  )
+                    policyMismatches++;
+                let probeRefused = false;
+                try {
+                  await c.probeCapabilities();
+                } catch (error) {
+                  if (
+                    !(error instanceof Error) ||
+                    error.message !== 'Invalid colab-v1 value or proof'
+                  )
+                    throw error;
+                  probeRefused = true;
+                }
+                return { policyMismatches, probeRefused };
+              },
+              corpus.filter((row) => row.name.startsWith('mixed-')),
+            ),
+            new Promise((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('Capability refusal deadline exceeded')),
+                10000,
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+        let sdkRequests = 0;
+        page.on('request', (request) => {
+          if (request.url().includes('/sdk/')) sdkRequests++;
+        });
+        await page.goto(origin + '/r/refusal/x/colab/');
+        await page.locator('[data-testid="unsupported-browser"]').waitFor({ timeout: 10000 });
+        Object.assign(
+          entry,
+          refusal,
+          await page.evaluate(() => {
+            const notices = document.querySelectorAll('[data-testid="unsupported-browser"]');
+            return {
+              notices: notices.length,
+              heading: notices[0]?.querySelector('h1,h2,h3')?.textContent,
+              body: notices[0]?.querySelector('p')?.textContent,
+              iframes: document.querySelectorAll('iframe').length,
+              actions: document.querySelectorAll('button,a').length,
+            };
+          }),
+          { sdkRequests },
+        );
+        diagnostics.event('expected-refusal-completed');
+        continue;
+      }
       const result = await page.evaluate(
         async ({
           engine,
@@ -768,30 +876,39 @@ try {
 }
 const destination =
   process.env.COLAB_REPORT ?? fileURLToPath(new URL('differential-results.json', root));
-await writeFile(destination, JSON.stringify({ metadata, engines, results }, null, 2) + '\n');
-validateReport(results, corpus, engines);
-if (results.some((r) => r.jsonCursorChecks !== true))
+await writeFile(
+  destination,
+  JSON.stringify({ metadata, engines, expectedRefused: refused, results }, null, 2) + '\n',
+);
+validateExpectedReport(results, corpus, engines, refused);
+const strictResults = results.filter((r) => strictEngines.includes(r.engine));
+
+if (strictResults.some((r) => r.jsonCursorChecks !== true))
   throw new Error('Incomplete JSON cursor regression checks');
 const expectedAttachmentCases = attachments.cases.filter(
   (c) => c.operation !== 'document' && c.operation !== 'comment',
 ).length;
-if (results.some((r) => r.attachmentCases !== expectedAttachmentCases))
+if (strictResults.some((r) => r.attachmentCases !== expectedAttachmentCases))
   throw new Error('Incomplete attachment browser corpus');
 // Keep each engine's four seals within the native example's bounded input batch.
-const opened = results.flatMap((r) =>
+const opened = strictResults.flatMap((r) =>
   native({
     seal: false,
     cases: r.outgoing.map((v) => ({ ...v, envelope: JSON.parse(v.envelope) })),
   }),
 );
-if (opened.length !== engines.length * 4 || opened.some((v) => v !== true))
+if (opened.length !== strictEngines.length * 4 || opened.some((v) => v !== true))
   throw new Error('Incomplete browser-to-Rust interop');
 console.log(`Selected engines: ${engines.join(', ')}`);
 console.log(
-  `Ciphertext interoperability: Rust to all${engines.length} browsers; all${opened.length} fresh browser seals to Rust`,
+  `Ciphertext interoperability: Rust to all${strictEngines.length} browsers; all${opened.length} fresh browser seals to Rust`,
 );
 console.log(
   engines
-    .map((engine) => `${engine}: 148 vectors, 9 positive controls, client checks passed`)
+    .map((engine) =>
+      refused.includes(engine)
+        ? `${engine}: native-policy startup refused, single notice verified`
+        : `${engine}: 148 vectors, 9 positive controls, client checks passed`,
+    )
     .join('\n'),
 );
