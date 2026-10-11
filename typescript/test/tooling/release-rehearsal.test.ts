@@ -40,7 +40,7 @@ describe('active products', () => {
     const workspace = readCargoWorkspace(path.resolve(import.meta.dirname, '../../..'));
     const driver = workspace.packages.find(({ name }) => name === 'tmt-driver-herdr');
     expect(driver).toMatchObject({
-      manifest: 'rust/crates/tmt-driver-herdr/Cargo.toml',
+      manifest: 'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml',
       version: '0.1.0-alpha.0',
       distMetadata: { dist: true },
       binTargets: ['tmt-driver-herdr'],
@@ -87,6 +87,7 @@ describe('release rehearsal selection', () => {
     ['extensions/tmt-remote/rust/Cargo.toml', ['remote']],
     ['extensions/tmt-digest/rust/tmt-digest/Cargo.toml', ['digest']],
     ['extensions/tmt-ops/Cargo.toml', ['ops']],
+    ['drivers/herdr/rust/tmt-driver-herdr/Cargo.toml', ['driver-herdr']],
   ])('attributes the product manifest %s to its product only', (changed, products) => {
     expect(select(changed)).toEqual(products);
   });

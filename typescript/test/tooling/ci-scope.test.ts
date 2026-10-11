@@ -57,6 +57,7 @@ describe('native dependency notices selection', () => {
     'rust/licenses/yrs-0.28.0/LICENSE',
     'rust/Cargo.toml',
     'extensions/tmt-colab/rust/tmt-colab/Cargo.toml',
+    'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml',
     'dist-workspace.toml',
     '.github/components.json',
     '.github/workflows/ci.yml',

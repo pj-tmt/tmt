@@ -80,7 +80,7 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     ),
     (
         "tmt-driver-herdr",
-        "rust/crates/tmt-driver-herdr/Cargo.toml",
+        "drivers/herdr/rust/tmt-driver-herdr/Cargo.toml",
     ),
     (
         "tmt-host-grammar",

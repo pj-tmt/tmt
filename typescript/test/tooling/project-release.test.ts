@@ -634,7 +634,7 @@ describe('full repository-state release sweep', () => {
       unpublished: [],
     });
     expect(releaseIdentity('tmt-ops-v0.1.0-alpha.9')?.product).toBe('ops');
-    expect(affectedProducts(['rust/crates/tmt-driver-herdr/src/main.rs'], map)).toEqual({
+    expect(affectedProducts(['drivers/herdr/rust/tmt-driver-herdr/src/main.rs'], map)).toEqual({
       products: ['driver-herdr'],
       unpublished: [],
     });

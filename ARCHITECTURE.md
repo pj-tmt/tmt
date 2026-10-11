@@ -26,9 +26,8 @@ of native schema and application state.
 
 ## Repository layout
 
-Infra reviews the layout map and its machine-readable allowlist,
-[`.github/repository-layout.json`](.github/repository-layout.json). Component
-ownership comes separately from [`.github/components.json`](.github/components.json).
+Infra reviews the [layout map/allowlist](.github/repository-layout.json).
+[Component ownership](.github/components.json) is separate.
 
 | Home                      | Responsibility                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------------ |
@@ -38,22 +37,21 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
 | `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
 | `extensions/<extension>/` | Product-owned runtimes, contracts, skills, docs and assets                           |
+| `drivers/<driver>/`       | Product-owned driver runtimes, contracts and assets                                  |
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
 | `site/`                   | Public Home, handbook sources and translations                                       |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
-New homes or exceptions need infra review and coordinated map/allowlist changes;
-ignored local outputs are outside the tracked-file map. The
-[layout skill](.agents/skills/tmt-layout/SKILL.md) owns add/move procedures and the
-tracked-file guard. Handbook language exceptions belong to
+New homes or exceptions need infra review and coordinated map/allowlist changes; ignored outputs
+are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/SKILL.md)
+owns moves and the tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-`tmt-ux-lead` owns shared visual tokens and the private browser leaf.
-[Browser component contracts](design/gui-components.md) point to the leaf's generation and consumer boundaries.
-Release procedures belong to the
-[release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
+`tmt-ux-lead` owns shared visual tokens and the private browser leaf;
+[its contracts](design/gui-components.md) own generation and consumer boundaries.
+[Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## TypeScript workspace boundary

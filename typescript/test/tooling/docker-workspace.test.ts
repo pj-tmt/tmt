@@ -259,7 +259,9 @@ it('copies every external Cargo workspace member into the dependency cache plann
       .map(({ name }) => name);
   expect(external.length).toBeGreaterThan(0);
   expect(missing(block)).toEqual([]);
-  for (const line of block.split('\n').filter((line) => line.startsWith('COPY extensions/'))) {
+  for (const line of block
+    .split('\n')
+    .filter((line) => /^COPY (?:extensions|drivers)\//.test(line))) {
     const omitted = block.replace(`${line}\n`, '');
     const members = external
       .filter(({ manifest }) => copiedAt(line, manifest, workdir).length > 0)

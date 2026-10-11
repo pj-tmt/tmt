@@ -1,4 +1,5 @@
 [package]
+workspace = "../../../../rust"
 name = "tmt-driver-herdr"
 version = "0.1.0-alpha.0"
 edition.workspace = true

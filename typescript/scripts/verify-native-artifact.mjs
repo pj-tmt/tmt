@@ -88,7 +88,7 @@ let herdrVersion;
 if (values.product === 'cli') {
   const source = values['source-root'] ?? fileURLToPath(new URL('../../', import.meta.url));
   const declaration = fs
-    .readFileSync(path.join(source, 'rust/crates/tmt-driver-herdr/Cargo.toml'), 'utf8')
+    .readFileSync(path.join(source, 'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml'), 'utf8')
     .split(/\n\[/)[0];
   const explicit = /^version\s*=\s*"([^"]+)"$/m.exec(declaration)?.[1];
   assert(

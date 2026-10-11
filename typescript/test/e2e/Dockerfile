@@ -1,6 +1,7 @@
 FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS native-tests
 WORKDIR /native/rust
 COPY rust/ ./
+COPY drivers/herdr/rust/ ../drivers/herdr/rust/
 COPY extensions/tmt-office/rust/ ../extensions/tmt-office/rust/
 COPY extensions/tmt-office/contracts/ ../extensions/tmt-office/contracts/
 COPY skills/ ../skills/
