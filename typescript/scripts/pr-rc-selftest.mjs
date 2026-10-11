@@ -5,6 +5,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { parseChannelPointer, parseReleaseRecord, POINTER_LIMIT } from './release-index.mjs';
+import { parseCompiledSchema } from './native-application-schema.mjs';
 import {
   createPRRCAPI,
   RC_TARGETS,
@@ -364,6 +366,77 @@ function alphaOrder(a, b) {
     if (left[i] !== right[i]) return Math.sign(left[i] - right[i]);
   return 0;
 }
+export function schemaPreflight(
+  catalog,
+  get = (url, limit) =>
+    Buffer.from(
+      checked(
+        'curl',
+        [
+          '--fail',
+          '--silent',
+          '--show-error',
+          '--location',
+          '--max-time',
+          '30',
+          '--max-filesize',
+          String(limit),
+          url,
+        ],
+        { timeout: 35_000, maxBuffer: limit }
+      )
+    )
+) {
+  const read = (url, limit) => {
+    const bytes = get(url, limit);
+    assert(
+      Buffer.isBuffer(bytes) && bytes.length <= limit,
+      'Schema evidence exceeds its byte cap.'
+    );
+    return bytes;
+  };
+  const bound = (asset) => {
+    const bytes = read(asset.url, asset.size);
+    assert.equal(bytes.length, asset.size, 'Schema evidence size mismatch.');
+    assert.equal(hash(bytes), asset.sha256, 'Schema evidence digest mismatch.');
+    return bytes;
+  };
+  const pointer = parseChannelPointer(
+    read(
+      'https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/alpha.json',
+      POINTER_LIMIT
+    )
+  );
+  assert.equal(pointer.product, 'cli', 'CLI alpha pointer required.');
+  assert.equal(pointer.channel, 'alpha', 'CLI alpha pointer required.');
+  const record = parseReleaseRecord(bound(pointer.record));
+  assert.equal(record.product, 'cli', 'CLI alpha record required.');
+  assert.equal(record.tag, pointer.tag, 'Alpha record differs from pointer.');
+  const manifest = JSON.parse(bound(record.manifest));
+  assert.equal(manifest.announcement_tag, record.tag, 'Alpha manifest differs from record.');
+  const alpha = parseCompiledSchema(`${JSON.stringify(manifest.tmt_application_schema)}\n`);
+  assert.equal(alpha.source_sha, record.sourceSha, 'Alpha schema differs from record source.');
+  assert.equal(catalog.candidates.length, RC_TARGETS.length, 'Four candidate schemas required.');
+  const candidates = catalog.candidates.map((candidate) => {
+    const schema = parseCompiledSchema(`${JSON.stringify(candidate.application_schema)}\n`);
+    assert.equal(schema.source_sha, catalog.head_sha, 'Candidate schema differs from PR head.');
+    const version = schema.databases[0].version;
+    const latest = alpha.databases[0].version;
+    assert(
+      version <= latest,
+      `Candidate application schema ${version} is ahead of latest published alpha schema ${latest} (${record.tag}); wait for a published alpha carrying schema ${version} before running the selftest.`
+    );
+    return { target: candidate.target, schema: version };
+  });
+  return {
+    alpha: {
+      tag: record.tag,
+      manifest_sha256: record.manifest.sha256,
+      schema: alpha.databases[0].version,
+    },
+    candidates,
+  };
+}
 export async function executeSelftest(stage) {
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'Selftest requires protected main.');
@@ -464,7 +537,9 @@ export async function executeSelftest(stage) {
       }
       rc.push(artifact);
     }
+    const schemaAdmission = schemaPreflight(catalog);
     const manifest = {
+      schemaAdmission,
       run: fixture.run,
       fixture,
       catalog,

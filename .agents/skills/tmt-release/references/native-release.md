@@ -477,7 +477,9 @@ The `pr-rc-selftest.yml` qualification is dispatch-only on main and installs
 Linux x86_64 with an environment-only read token. Separate main-tooling jobs mutate
 only the standing qualification PR; candidate code never receives write authority.
 Its required `run` input binds the fixture to a successful main producer catalog,
-matching live PR head and label epoch. It checks receipt provenance and
+matching live PR head and label epoch. Before baseline, preflight compares candidate
+schemas with the published CLI alpha pointer/record/manifest and names both schema
+versions when a candidate is ahead, requiring an alpha carrying it first. It checks receipt provenance and
 bounded `NATIVE_UPGRADE_FAILED` refusals with exact per-stage messages,
 unchanged application data and alpha return without a second producer dispatch.
 An eligible active-candidate re-run must preserve the receipt, prefix and application data.
