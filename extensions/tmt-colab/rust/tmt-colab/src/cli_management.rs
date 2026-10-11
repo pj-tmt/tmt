@@ -467,6 +467,10 @@ fn selection(
 struct Acknowledgment {
     operation_id: String,
     membership_head: AcknowledgedHead,
+    #[serde(default)]
+    storage: Option<management::Storage>,
+    #[serde(default)]
+    storage_hint: Option<String>,
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -1051,6 +1055,10 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         let mut value = json!({"pageId":id,"operationId":ack.operation_id,
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
+        if operation == "page.delete" {
+            value["storage"] = json!(ack.storage.unwrap_or(management::Storage::Unknown));
+            if let Some(hint) = ack.storage_hint { value["storageHint"] = json!(hint); }
+        }
         if let Some(id) = link_id { value["linkId"] = id.clone(); }
         // The one place a seed leaves the CLI: inside the reader link's fragment.
         let created = match operation {
@@ -1146,6 +1154,9 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&outcome, true);
     }
     let mut rows = page_rows(&reach, &path);
+    if let Ok(storage) = serde_json::from_value::<management::Storage>(outcome["storage"].clone()) {
+        rows.push(("storage", storage.message()));
+    }
     if let Some(reader) = outcome["readerPath"].as_str() {
         rows.push(("reader link", reach.text(reader)));
     }

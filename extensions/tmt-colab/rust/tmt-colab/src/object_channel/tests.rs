@@ -2,6 +2,8 @@
 //! or the final Remote-backend routed acceptance proof.
 #[path = "tests/attach.rs"]
 mod attach;
+#[path = "tests/namespace.rs"]
+mod namespace;
 #[path = "tests/upload.rs"]
 mod upload;
 use super::*;
@@ -72,6 +74,8 @@ fn admit(
     let input = match &req.call {
         Call::Config(input) => AdmitInput::Config(input.clone()),
         Call::Read(input) => AdmitInput::Read(input.clone()),
+        Call::RemoveNamespace(input) => AdmitInput::RemoveNamespace(input.clone()),
+        Call::Usage(input) => AdmitInput::Usage(*input),
         _ => panic!("test input"),
     };
     bus.send(&Frame::Admit(Admit {

@@ -1,5 +1,6 @@
 import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
+import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
@@ -255,6 +256,9 @@ export function ShareDialog({
             <p role="status">
               {pending?.operation === 'page.delete' ? 'Deletion' : 'Change'} verified in the signed
               owner log.
+              {pending?.operation === 'page.delete' && ack?.storage && (
+                <> {text.deletedStorage(ack.storage, ack.storageHint)}</>
+              )}
             </p>
             {pending?.artifact && (
               <div className="bearer">

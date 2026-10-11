@@ -8,7 +8,7 @@ import {
   text,
 } from '@tmt/colab-client';
 import { FrozenAttachmentUpload, ATTACHMENT_CHUNK_BYTES } from './attachment-channel.js';
-import type { AttachmentObjectOutcome } from './attachment-channel.js';
+import type { AttachmentObjectOutcome, UsageDetails } from './attachment-channel.js';
 import {
   AdmittedAttachmentRead,
   currentBase,
@@ -43,7 +43,7 @@ export type RefusalReason =
 /** `refused` never took effect. `unknown` may have: only status of the same original
  * decides. `gone` is a status answer that the original is no longer stored. */
 export type UploadFailure =
-  | { kind: 'refused'; reason: RefusalReason }
+  | { kind: 'refused'; reason: RefusalReason; usage?: UsageDetails }
   | { kind: 'unknown'; original: FrozenAttachmentUpload }
   | { kind: 'gone' };
 export class AttachmentUploadError extends Error {
@@ -74,7 +74,7 @@ export interface AttachmentBinding {
    * shown or held from a read belongs to one scope and is disposed when it changes. */
   scope?(): string;
   /** Upload availability and the effective payload bound, or why there is none. */
-  limits(): Promise<{ payloadBytes: number } | { reason: RefusalReason }>;
+  limits(): Promise<{ payloadBytes: number } | { reason: RefusalReason; usage?: UsageDetails }>;
   upload(
     input: AttachmentInput,
     target: AttachmentTarget,
@@ -125,11 +125,13 @@ export class AttachmentService implements AttachmentBinding {
   #bound(ms = REQUEST_MS) {
     return performance.now() + ms;
   }
-  async limits(): Promise<{ payloadBytes: number } | { reason: RefusalReason }> {
+  async limits(): Promise<
+    { payloadBytes: number } | { reason: RefusalReason; usage?: UsageDetails }
+  > {
     try {
       const c = await this.#channel(),
         outcome = await c.attachmentObjects.config(this.#bound());
-      if ('error' in outcome) return { reason: refusal(outcome) };
+      if ('error' in outcome) return { reason: refusal(outcome), usage: outcome.error.usage };
       const { capabilities, limits } = outcome.ok as {
         capabilities: Record<string, unknown>;
         limits: Record<string, unknown>;
@@ -150,7 +152,11 @@ export class AttachmentService implements AttachmentBinding {
   ) {
     const limit = await this.limits();
     if ('reason' in limit)
-      throw new AttachmentUploadError({ kind: 'refused', reason: limit.reason });
+      throw new AttachmentUploadError({
+        kind: 'refused',
+        reason: limit.reason,
+        usage: limit.usage,
+      });
     let original: FrozenAttachmentUpload;
     try {
       original = await this.#seal(input, target, limit.payloadBytes);
@@ -251,7 +257,11 @@ export class AttachmentService implements AttachmentBinding {
       }
       if ('error' in value) {
         if (value.error.code === 'unknown') throw unknown();
-        throw new AttachmentUploadError({ kind: 'refused', reason: refusal(value) });
+        throw new AttachmentUploadError({
+          kind: 'refused',
+          reason: refusal(value),
+          usage: value.error.usage,
+        });
       }
       return value.ok;
     };

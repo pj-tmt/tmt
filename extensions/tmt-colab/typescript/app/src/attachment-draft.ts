@@ -23,7 +23,11 @@ export type ChipState =
   | { kind: 'again'; why: 'page-changed' | 'not-stored'; old?: FrozenAttachmentUpload }
   /** Possibly stored. Only status of this same original, or removal, resolves it. */
   | { kind: 'unknown'; original: FrozenAttachmentUpload }
-  | { kind: 'refused'; reason: RefusalReason };
+  | {
+      kind: 'refused';
+      reason: RefusalReason;
+      usage?: import('./attachment-channel.js').UsageDetails;
+    };
 
 export interface Chip {
   id: string;
@@ -242,7 +246,8 @@ export class AttachmentDraft {
 function failed(error: unknown, original?: FrozenAttachmentUpload): ChipState {
   if (error instanceof AttachmentUploadError) {
     const { failure } = error;
-    if (failure.kind === 'refused') return { kind: 'refused', reason: failure.reason };
+    if (failure.kind === 'refused')
+      return { kind: 'refused', reason: failure.reason, usage: failure.usage };
     if (failure.kind === 'gone') return { kind: 'again', why: 'not-stored' };
     return { kind: 'unknown', original: failure.original };
   }

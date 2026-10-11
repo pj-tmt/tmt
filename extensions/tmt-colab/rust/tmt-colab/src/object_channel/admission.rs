@@ -277,6 +277,7 @@ impl RootWriteAdmission {
             | AdmitInput::Part(_)
             | AdmitInput::Commit(_)
             | AdmitInput::Discard(_) => self.input.as_ref() == Some(input),
+            // Namespace management uses its own native owner, not upload authority.
             AdmitInput::Config(_) | AdmitInput::RemoveNamespace(_) | AdmitInput::Usage(_) => false,
         }
     }

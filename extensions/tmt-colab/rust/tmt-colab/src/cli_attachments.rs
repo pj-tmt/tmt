@@ -410,6 +410,11 @@ fn explain(
     error: Box<dyn std::error::Error + Send + Sync>,
     resuming: bool,
 ) -> Box<dyn std::error::Error + Send + Sync> {
+    if let Some(failure) = error.downcast_ref::<tmt_colab::page::ipc::WriteError>()
+        && failure.code() == "COLAB_CAPACITY"
+    {
+        return error;
+    }
     let code = |fault: &Fault| fault.code();
     let Some(fault) = error.downcast_ref::<Fault>().copied().or_else(|| {
         error

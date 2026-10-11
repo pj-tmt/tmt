@@ -20,8 +20,13 @@ pub struct WriteError {
 struct Detail {
     code: String,
     message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "usage")]
+    usage: Option<crate::attachments::UsageDetails>,
 }
 impl WriteError {
+    pub fn usage(&self) -> Option<&crate::attachments::UsageDetails> {
+        self.error.usage.as_ref()
+    }
     pub fn code(&self) -> &'static str {
         self.known_code()
             .unwrap_or_else(|| Fault::Unavailable.code())
@@ -56,12 +61,19 @@ impl WriteError {
     pub(crate) fn from_error(error: &(dyn std::error::Error + 'static)) -> Self {
         Self {
             error: Detail {
-                code: error
-                    .downcast_ref::<Fault>()
-                    .unwrap_or(&Fault::Unavailable)
-                    .code()
-                    .into(),
+                code: if error.is::<crate::attachments::CapacityRefusal>() {
+                    Fault::Capacity.code().into()
+                } else {
+                    error
+                        .downcast_ref::<Fault>()
+                        .unwrap_or(&Fault::Unavailable)
+                        .code()
+                        .into()
+                },
                 message: error.to_string(),
+                usage: error
+                    .downcast_ref::<crate::attachments::CapacityRefusal>()
+                    .map(|value| value.0.clone()),
             },
         }
     }

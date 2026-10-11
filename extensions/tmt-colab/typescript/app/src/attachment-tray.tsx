@@ -25,7 +25,9 @@ function stateText(chip: Chip, page: boolean): string {
     case 'unknown':
       return text.attachUnknown;
     case 'refused':
-      return text.attachRefused[state.reason];
+      return state.reason === 'capacity'
+        ? text.storageFull(state.usage)
+        : text.attachRefused[state.reason];
   }
 }
 

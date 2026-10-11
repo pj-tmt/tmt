@@ -532,21 +532,21 @@ impl<A: Admission> Server<A> {
             &mut A,
         )
             -> std::result::Result<crate::management::Applied, crate::management::Code>,
-    ) -> std::result::Result<Vec<u8>, crate::management::Code> {
+    ) -> std::result::Result<crate::management::Applied, crate::management::Code> {
         let mut state = self
             .0
             .lock()
             .map_err(|_| crate::management::Code::Unavailable)?;
-        let applied = change(&mut state.admission)?;
+        let mut applied = change(&mut state.admission)?;
         state.recheck();
-        if let Some(page) = applied.archived_page {
+        if let Some(page) = applied.archived_page.take() {
             for peer in state.peers.values_mut() {
                 if peer.scope.as_ref().is_some_and(|scope| scope.page == page) {
                     peer.end(Code::ResyncRequired);
                 }
             }
         }
-        Ok(applied.body)
+        Ok(applied)
     }
     /// stream must already be upgraded, nonblocking and exclusively owned.
     /// The caller preserves any bytes read past HTTP upgrade via a Read wrapper.

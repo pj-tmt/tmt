@@ -93,10 +93,26 @@ reader does not hold).
 | Delete                         | Denied; the page's ciphertext is removed. See below.                            |
 | Incomplete upload              | Expires as staging; its original transfer ID is never re-executed.              |
 
-Warning-only page expiry never deletes completed objects, and Colab runs no garbage
-collection of Remote objects. Deleting a page keeps its encrypted objects charged to
-the space until Remote's deletion lands (follow-up #2294). Paired local browsers
-open archived pages through read-purpose catch-up. A newly committed management
+Warning-only page expiry never deletes completed objects. After a committed page delete,
+Colab removes its derived object namespace through the negotiated object channel. The
+native callback owner rechecks the retained signed deletion, independently of the deleted
+payloads; browser peers cannot relay namespace removal or usage calls. Removal is idempotent.
+Removal frees the page's file data; a small fixed record per retained identity and the
+namespace fence remain, and the capacity charge keeps counting them. Only a definite
+`Removed` means file data is freed: CLI delete reports `storage` as `freed`,
+`pending` (no established channel), `unsupported` (a v1 channel), or `unknown` (no definite
+removal answer). A bounded rotating sweep in the serve's maintenance worker retries retained
+committed deletions on channel establishment/replacement and unfinished maintenance passes;
+an offline delete remains pending until that channel exists. Neither cleanup nor a lost
+cleanup reply reverses the committed page deletion.
+
+Both removal and usage check negotiated `Bus::supports` before requesting them; unsupported
+methods write nothing and show `unsupported_hint()` verbatim. Capacity refusals query the
+affected namespace's `objects.usage` through a native callback owner, carrying `chargedBytes`,
+`entries`, `activeUploads`, and `retainedIdentities`. The displayed amount is a conservative
+allocation charge, not disk or billing bytes; unknown usage displays no guessed amount.
+
+Paired local browsers open archived pages through read-purpose catch-up. A newly committed management
 archive ends that page's open sync connections with
 `RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
 Writes, Ask, upload and thread status actions are removed; native admission still

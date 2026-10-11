@@ -68,6 +68,8 @@ export interface Pending {
 export interface Acknowledgment {
   operationId: string;
   membershipHead: { revision: string; statementHash: string };
+  storage?: 'freed' | 'pending' | 'unsupported' | 'unknown';
+  storageHint?: string;
 }
 export interface ManagementPort {
   read(page: string, signal?: AbortSignal): Promise<ManagementView>;
@@ -482,7 +484,26 @@ export class ManagementClient implements ManagementPort {
       throw new ManagementError(code);
     }
     try {
-      exactKeys(v, ['operationId', 'membershipHead']);
+      const keys = ['operationId', 'membershipHead'];
+      if (
+        pending.operation === 'page.delete' &&
+        v !== null &&
+        typeof v === 'object' &&
+        'storage' in v
+      ) {
+        keys.push('storage');
+        if ('storageHint' in v) keys.push('storageHint');
+      }
+      exactKeys(v, keys);
+      if ('storage' in v)
+        requireValue(['freed', 'pending', 'unsupported', 'unknown'].includes(v.storage as string));
+      if ('storageHint' in v)
+        requireValue(
+          v.storage === 'unsupported' &&
+            typeof v.storageHint === 'string' &&
+            v.storageHint.length > 0 &&
+            v.storageHint.length <= 1024,
+        );
       exactKeys(v.membershipHead, ['revision', 'statementHash']);
       requireValue(v.operationId === pending.id && typeof v.membershipHead.revision === 'string');
       decimal(v.membershipHead.revision);

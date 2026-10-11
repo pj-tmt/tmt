@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { attachment, binary, encodeBinary, strictJson, text } from '@tmt/colab-client';
 import corpus from '../../../contracts/vectors/attachment-v1.json';
+import { text as chromeText } from '../src/strings.js';
 import {
   AttachmentObjectChannel,
   FrozenAttachmentUpload,
@@ -8,6 +9,65 @@ import {
   readPolicy,
   uploadPolicy,
 } from '../src/attachment-channel.js';
+
+describe('capacity accounting projection', () => {
+  const usage = {
+    state: 'known' as const,
+    chargedBytes: 2048,
+    entries: 1,
+    activeUploads: 2,
+    retainedIdentities: 3,
+  };
+  it('retains all four fields and presents a conservative charge', () => {
+    expect(
+      objectOutcome({ error: { code: 'capacity', limit: 'namespace-bytes', usage } }, 'begin'),
+    ).toEqual({ error: { code: 'capacity', limit: 'namespace-bytes', usage } });
+    expect(chromeText.storageFull(usage)).toBe(
+      'Storage is full. Charged 2 KB (1 file, 2 uploading, small fixed records). This is a conservative allocation, not disk or billing bytes.',
+    );
+    expect(
+      chromeText.storageFull({ ...usage, entries: 0, activeUploads: 0, retainedIdentities: 0 }),
+    ).toBe(
+      'Storage is full. Charged 2 KB. This is a conservative allocation, not disk or billing bytes.',
+    );
+  });
+  it('shows no guessed count when unavailable and keeps the supplied v1 hint', () => {
+    expect(chromeText.storageFull({ state: 'unknown' })).toBe(
+      'Storage is full. Usage details are unavailable right now.',
+    );
+    expect(chromeText.storageFull({ state: 'unsupported', hint: 'EXACT HINT' })).toBe(
+      'Storage is full. Usage details are unavailable.\nEXACT HINT',
+    );
+  });
+  it('refuses malformed counts and accounting outside a capacity refusal', () => {
+    for (const chargedBytes of [-1, Infinity, 1.5, Number.MAX_SAFE_INTEGER + 1])
+      expect(() =>
+        objectOutcome(
+          {
+            error: {
+              code: 'capacity',
+              limit: 'namespace-bytes',
+              usage: { ...usage, chargedBytes },
+            },
+          },
+          'begin',
+        ),
+      ).toThrow();
+    expect(() => objectOutcome({ error: { code: 'denied', usage } }, 'begin')).toThrow();
+    expect(() =>
+      objectOutcome(
+        {
+          error: {
+            code: 'capacity',
+            limit: 'namespace-bytes',
+            usage: { ...usage, entries: 0x1_0000_0000 },
+          },
+        },
+        'begin',
+      ),
+    ).toThrow();
+  });
+});
 
 describe('frozen attachment object-channel bindings', () => {
   for (const answer of corpus.channelPolicies) {

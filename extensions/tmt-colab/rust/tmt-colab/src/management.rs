@@ -1,9 +1,33 @@
 //! Strict local management inputs. Admission precedes the owner engine; DTOs never
 //! carry machine-computed cuts, baselines, wraps or published epoch keys.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tmt_colab_model::{auth, bounded::List, crypto, framing, payload, values};
 
 pub use crate::transitions::Code;
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Storage {
+    Freed,
+    Pending,
+    Unsupported,
+    Unknown,
+}
+impl Storage {
+    pub fn message(self) -> String {
+        match self {
+            Self::Freed => "✓ File data freed. A small fixed record remains.".into(),
+            Self::Pending => "… File data will be freed when Remote reconnects.".into(),
+            Self::Unsupported => format!(
+                "! File data not freed.\n{}",
+                tmt_extension_objects::unsupported_hint()
+            ),
+            Self::Unknown => {
+                "! File data not confirmed freed. Colab checks again when Remote reconnects.".into()
+            }
+        }
+    }
+}
+
 pub const PATH: &str = "/api/management";
 pub const LOCAL_PATH: &str = "/.tmt/colab/management";
 const PAYLOAD_BYTES: usize = 16 * 1024;
@@ -347,11 +371,12 @@ pub fn status(code: Code) -> u16 {
     }
 }
 
-/// Committed management bytes and the archive transition that needs a live re-read.
-/// Replayed operations have no new transition and must not end fresh readers.
+/// Committed management bytes and lifecycle work for the sync and object owners.
+/// Replayed archives must not end fresh readers; repeated delete cleanup remains idempotent.
 pub struct Applied {
     pub body: Vec<u8>,
     pub archived_page: Option<String>,
+    pub deleted_page: Option<String>,
 }
 
 pub fn browser(
@@ -528,13 +553,16 @@ fn apply(
     );
     seed.fill(0);
     let applied = result.map_err(|error| error.code)?;
-    let body = serde_json::to_vec(&serde_json::json!({"operationId":command.operation_id,
-        "membershipHead":{"revision":applied.head.revision.to_string(),"statementHash":values::encode_binary(&applied.head.hash)}}))
-        .map_err(|_| Code::Unavailable)?;
+    let mut reply = serde_json::json!({"operationId":command.operation_id,
+        "membershipHead":{"revision":applied.head.revision.to_string(),"statementHash":values::encode_binary(&applied.head.hash)}});
+    if matches!(command.action, Action::Delete) {
+        reply["storage"] = serde_json::json!(Storage::Pending);
+    }
     Ok(Applied {
-        body,
+        body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
         archived_page: (!applied.replayed && matches!(command.action, Action::Archive))
-            .then_some(command.page),
+            .then(|| command.page.clone()),
+        deleted_page: matches!(command.action, Action::Delete).then_some(command.page),
     })
 }
 

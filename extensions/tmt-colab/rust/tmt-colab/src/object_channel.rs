@@ -22,6 +22,7 @@ pub(crate) mod attach;
 mod binding;
 mod client;
 mod history;
+pub(crate) mod namespace;
 mod peer;
 pub(crate) mod rekey;
 pub(crate) use client::CommittedReader;
@@ -237,6 +238,12 @@ impl Client {
     }
     pub(crate) fn standing(&self, origin: Origin) -> bool {
         self.0.standing(origin)
+    }
+    pub(crate) fn supports(
+        &self,
+        method: tmt_extension_objects::Method,
+    ) -> std::result::Result<bool, Error> {
+        Ok(self.0.bus()?.supports(method))
     }
     pub(crate) fn request(
         &self,

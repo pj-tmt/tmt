@@ -2320,7 +2320,6 @@ fn management_recipient(
 fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
     assert!(raw.starts_with("HTTP/1.1 200"), "{raw}");
     let body: Value = serde_json::from_str(raw.split_once("\r\n\r\n").unwrap().1).unwrap();
-    assert_eq!(body.as_object().unwrap().len(), 2);
     assert_eq!(body["membershipHead"]["revision"], revision);
     assert_eq!(
         values::binary(
@@ -2337,17 +2336,21 @@ fn management_response(server: &Running, raw: &str, revision: &str) -> Value {
         .prepare("SELECT envelope FROM membership_log ORDER BY revision")
         .unwrap();
     let mut head = None;
+    let mut deleted = false;
     for bytes in log.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap() {
         let envelope = tmt_colab_model::statement::Envelope::from_json(&bytes.unwrap()).unwrap();
-        head = Some(
-            envelope
-                .verify_next(&server.space, &key.owner_public(), head.as_ref())
-                .unwrap()
-                .head,
-        );
+        let verified = envelope
+            .verify_next(&server.space, &key.owner_public(), head.as_ref())
+            .unwrap();
+        deleted = verified.header.operation == "page.delete";
+        head = Some(verified.head);
         if head.as_ref().unwrap().revision.to_string() == revision {
             break;
         }
+    }
+    assert_eq!(body.as_object().unwrap().len(), if deleted { 3 } else { 2 });
+    if deleted {
+        assert_eq!(body["storage"], "pending");
     }
     let head = head.unwrap();
     assert_eq!(head.revision.to_string(), revision);
