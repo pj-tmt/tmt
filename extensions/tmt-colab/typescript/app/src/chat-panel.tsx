@@ -147,7 +147,13 @@ export function ChatPanel({
           </section>
         ))}
         {legacy.length > 0 && (
-          <AskPanel readOnly={archived} records={legacy} binding={binding} blocked={blocked} inline />
+          <AskPanel
+            readOnly={archived}
+            records={legacy}
+            binding={binding}
+            blocked={blocked}
+            inline
+          />
         )}
       </ConversationWindow>
     </AttachmentDropPanel>
