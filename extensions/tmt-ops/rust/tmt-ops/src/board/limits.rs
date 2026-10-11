@@ -11,7 +11,7 @@ mod footer;
 mod listing;
 mod store;
 
-pub use estimate::{Figures, Outlook, outlook};
+pub use estimate::{Figures, Outlook, Trend, outlook};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -98,11 +98,12 @@ pub struct Standing {
     pub provider: Provider,
     pub latest: Option<Reading>,
     pub burn: Option<f64>,
+    pub trend: Option<Trend>,
 }
 
 impl Standing {
     pub(super) fn outlook(&self, now_ms: u64) -> Outlook {
-        outlook(self.latest.as_ref(), self.burn, now_ms)
+        outlook(self.latest.as_ref(), self.burn, self.trend, now_ms)
     }
 }
 
@@ -172,9 +173,11 @@ impl Sampler {
             .into_iter()
             .map(|provider| {
                 let history = store.history(&provider);
+                let (burn, trend) = estimate::pace(history);
                 Standing {
                     latest: history.last().copied(),
-                    burn: estimate::burn_per_hour(history),
+                    burn,
+                    trend,
                     provider,
                 }
             })

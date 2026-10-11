@@ -636,7 +636,7 @@ fn dump_home_oracle() {
 fn approved_matrix(expanded: bool) -> Value {
     use crate::board::{
         app::RateView,
-        limits::{Provider, Reading, Standing, Window},
+        limits::{Provider, Reading, Standing, Trend, Window},
         rate::{
             Input,
             tests::{fixture_seeds, history_fixture},
@@ -708,6 +708,7 @@ fn approved_matrix(expanded: bool) -> Value {
                             }),
                         }),
                         burn: Some(1.1),
+                        trend: Some(Trend::Up),
                     },
                     Standing {
                         provider: Provider::named("codex"),
@@ -720,6 +721,7 @@ fn approved_matrix(expanded: bool) -> Value {
                             short: None,
                         }),
                         burn: Some(1.5),
+                        trend: Some(Trend::Same),
                     },
                 ]);
                 if expanded {
@@ -772,22 +774,11 @@ fn every_hidden_overview_item_is_reachable_through_usage_detail_at_narrow_widths
         .zip(expanded["frames"].as_array().unwrap())
     {
         let width = before["width"].as_u64().unwrap();
-        if width != 80 && width != 60 {
-            continue;
-        }
         let folded = flat(before);
         let expanded = flat(after);
-        let mut hidden = vec![
-            "1m",
-            "5m",
-            "withoutdata",
-            "~1.1%/h",
-            "~1.5%/h",
-            "5h94%",
-            "5hnoreading",
-        ];
+        let mut hidden = vec!["1m", "5m", "withoutdata", "5h94%", "5hreadingnotavailable"];
         if width == 60 {
-            hidden.extend(["3d15h", "3d11h", "lead-a~20%"]);
+            hidden.push("lead-a~20%");
         }
         for value in hidden {
             assert!(
@@ -799,7 +790,14 @@ fn every_hidden_overview_item_is_reachable_through_usage_detail_at_narrow_widths
                 "hidden value missing after e: {width} {value}\n{expanded}"
             );
         }
-        for value in ["Claude44%", "Codex5%"] {
+        for value in [
+            "Claude44%",
+            "Codex5%",
+            "~1.1%/h",
+            "~1.5%/h",
+            "3d15h",
+            "3d11h",
+        ] {
             assert_eq!(
                 folded.matches(value).count(),
                 expanded.matches(value).count(),

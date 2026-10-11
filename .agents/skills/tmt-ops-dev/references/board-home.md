@@ -31,6 +31,14 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 
 ## Runtime projections and identity
 
+- `limits::estimate` derives pace and trend from one current-cycle slice of the
+  existing sampled history (refill, reset advance and six-hour fence). Endpoint
+  rates use actual elapsed time. Trend requires a five-hour baseline and a
+  one-to-two-hour recent span inside it; its strict threshold is the maximum of
+  0.1 pp/h, one whole-percent step per recent hour and 20% of baseline. Precision
+  is not retained, so a single step cannot flip the arrow. `Standing` carries
+  this derived observation; `outlook` omits it when stale, reset or without a
+  positive finite pace. No new acquisition or persisted field is added.
 - `App::home_usage` supplies observed totals, model attribution and longest-window
   lead share; `tiles` only formats them. Missing differs from measured zero, partial
   evidence propagates to shares, and disabled sampling supplies no token cells.
