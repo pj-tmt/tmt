@@ -44,9 +44,13 @@ architecture test enforces it for the CLIs and the Rust extensions.
 
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
-`waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
-background). Truecolor neutral roles (`text`, `muted`, `dim` and `selection`)
-use grayscale values from that single token source; semantic colors remain saturated.
+`waiting`, `working`, `review`, `blocked`, `link`, `selection` and `track`
+(both backgrounds; `track` is the empty part of a meter and sits one step
+above the terminal background, so it is weaker than `selection`). Truecolor
+neutral roles (`text`, `muted`, `dim`, `selection` and `track`) use grayscale
+values from that single token source; semantic colors remain saturated. On
+`terminal`, `mono` and 16 colors `track` is the dim effect with no background,
+and with `NO_COLOR` the theme adds no style, so a meter marks its own track.
 Terminal16, `mono`, `NO_COLOR` and explicit overrides keep their existing behavior.
 A `Theme` is a built-in base plus per-role overrides:
 
@@ -101,7 +105,8 @@ design tokens. A contrast test reads the same file and enforces 4.5:1 for
 body text and semantic foregrounds, and 3:1 for `muted`/`dim`, on the designed
 background and representative terminal backgrounds. On the selection background
 it enforces 4.5:1 for `text` and 3:1 for the state and accent marks; words
-there use `text` (see below).
+there use `text` (see below). On the track background it enforces 4.5:1 for
+`text`.
 
 The Squad board uses `muted` for inactive tabs, summaries, column headers,
 pane titles and footer hints; `dim` remains for borders, empty values, times,

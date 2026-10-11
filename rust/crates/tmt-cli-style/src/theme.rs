@@ -34,10 +34,12 @@ pub enum Role {
     Link,
     /// The selected row, as a background.
     Selection,
+    /// The empty part of a meter, as a background.
+    Track,
 }
 
 impl Role {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -48,6 +50,7 @@ impl Role {
         Self::Blocked,
         Self::Link,
         Self::Selection,
+        Self::Track,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -63,6 +66,7 @@ impl Role {
             Self::Blocked => "blocked",
             Self::Link => "link",
             Self::Selection => "selection",
+            Self::Track => "track",
         }
     }
 
@@ -282,6 +286,7 @@ impl Base {
             Role::Blocked => Paint::Ansi(AnsiColor::Red),
             Role::Link => Paint::Ansi(AnsiColor::Cyan),
             Role::Selection => Paint::Reverse,
+            Role::Track => Paint::Dimmed,
         }
     }
 
@@ -298,6 +303,7 @@ impl Base {
             Role::Blocked => ((0xF7, 0x76, 0x8E), (0xB6, 0x2C, 0x3B)),
             Role::Link => ((0x7D, 0xCF, 0xFF), (0x00, 0x6B, 0x8F)),
             Role::Selection => ((0x4A, 0x4A, 0x4A), (0xC8, 0xC8, 0xC8)),
+            Role::Track => ((0x38, 0x38, 0x38), (0xE0, 0xE0, 0xE0)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -306,7 +312,7 @@ impl Base {
     fn mono(role: Role) -> Paint {
         match role {
             Role::Text | Role::Working | Role::Link => Paint::Plain,
-            Role::Muted | Role::Dim => Paint::Dimmed,
+            Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
             Role::Accent | Role::Waiting | Role::Review | Role::Blocked => Paint::Bold,
             Role::Selection => Paint::Reverse,
         }
@@ -339,7 +345,7 @@ impl fmt::Display for ThemeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     pub base: Base,
-    overrides: [Option<Paint>; 10],
+    overrides: [Option<Paint>; 11],
 }
 
 impl Default for Theme {
@@ -352,7 +358,7 @@ impl Theme {
     pub fn new(base: Base) -> Self {
         Self {
             base,
-            overrides: [None; 10],
+            overrides: [None; 11],
         }
     }
 
@@ -421,12 +427,12 @@ impl Theme {
         }
     }
 
-    /// The role's text style. The selection is a background.
+    /// The role's text style. The selection and the track are backgrounds.
     pub fn style(&self, role: Role, depth: Depth) -> Style {
         let paint = self.paint(role, depth);
         let style = Style::new().effects(paint.effects(depth));
         match (role, paint.color(depth)) {
-            (Role::Selection, Some(color)) => style.bg_color(Some(color)),
+            (Role::Selection | Role::Track, Some(color)) => style.bg_color(Some(color)),
             (_, color) => style.fg_color(color),
         }
     }
