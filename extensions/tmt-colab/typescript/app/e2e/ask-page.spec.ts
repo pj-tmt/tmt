@@ -789,7 +789,7 @@ for (const [width, height, theme] of [
     });
     const mode = page.locator('.selection-mode').getByRole('button');
     await mode.click();
-    await expect(mode).toHaveAccessibleName(text.stopSelecting);
+    await expect(mode).toHaveAccessibleName(text.selectionMode);
     await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');
     const frame = page.frameLocator('#ask-page-fixture iframe');
     await frame.locator('[data-colab-thread]').click();

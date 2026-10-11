@@ -132,7 +132,7 @@ function SelectionMode({
       <BrowserIconAction
         type="button"
         variant="primary"
-        label={enabled ? text.stopSelecting : text.selectionMode}
+        label={text.selectionMode}
         buttonRef={button}
         pressed={enabled}
         icon={
