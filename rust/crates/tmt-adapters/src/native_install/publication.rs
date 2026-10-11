@@ -248,7 +248,13 @@ impl Layout {
                 },
             },
             finalize,
-        )
+        )?;
+        // Finalization succeeded. Retain the exact predecessor, never guess from mtime.
+        // A cleanup refusal must not turn a successful activation into an upgrade failure.
+        if let Some(previous) = expected_current {
+            let _ = super::retention::prune(self, receipt.id, previous);
+        }
+        Ok(())
     }
 
     pub(super) fn publish_repair(

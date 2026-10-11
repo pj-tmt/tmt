@@ -449,7 +449,7 @@ esac
   );
 
   it(
-    'records pin and unpin transitions while retaining the old release bytes',
+    'records pin and unpin transitions while retaining the rollback release bytes',
     { timeout: 60_000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
@@ -464,6 +464,26 @@ esac
           install(sandbox, fixture, prefix)
         );
         const originalId = currentReleaseId(prefix);
+        const probe = path.join(sandbox.root, 'tmt-callback-probe');
+        writeExecutable(probe, '#!/bin/sh\nprintf "%s" "$TMT_EXECUTABLE"\n');
+        const unmanagedCapture = await runCli(
+          { ...sandbox, env: { ...sandbox.env, PATH: sandbox.root } },
+          ['callback-probe']
+        );
+        expect(unmanagedCapture.status, unmanagedCapture.stderr).toBe(0);
+        expect(unmanagedCapture.stdout).toBe(realpathSync(sandbox.cli.executable));
+        const invoking = path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt');
+        const capture = await runCli(
+          {
+            ...sandbox,
+            cli: { executable: invoking, args: [] },
+            env: { ...sandbox.env, PATH: sandbox.root },
+          },
+          ['callback-probe']
+        );
+        expect(capture.status, capture.stderr).toBe(0);
+        const callback = capture.stdout;
+        expect(callback).toBe(path.join(realpathSync(prefix), 'bin', 'tmt'));
         const originalBytes = readFileSync(
           path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')
         );
@@ -532,6 +552,18 @@ esac
         );
         const unpinnedId = currentReleaseId(prefix);
         expect(unpinned.changed).toBe(true);
+        const staleExecutable = path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt');
+        const staleCapture = await runCli(
+          {
+            ...sandbox,
+            cli: { executable: staleExecutable, args: [] },
+            env: { ...sandbox.env, PATH: sandbox.root },
+          },
+          ['callback-probe']
+        );
+        expect(staleCapture.status, staleCapture.stderr).toBe(0);
+        expect(realpathSync(staleCapture.stdout)).toBe(realpathSync(staleExecutable));
+        expect(staleCapture.stdout).not.toBe(callback);
         const stale = await traceInstallationPhase(sandbox, 'stale-release-upgrade', () =>
           runCli(
             {
@@ -557,12 +589,21 @@ esac
           channel: 'alpha',
           pinned_version: null,
         });
-        expect(releaseIds(prefix)).toEqual([originalId, pinnedId, unpinnedId].sort());
+        expect(releaseIds(prefix)).toEqual([pinnedId, unpinnedId].sort());
+        expect(existsSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId))).toBe(
+          false
+        );
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')).equals(
+          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt')).equals(
             originalBytes
           )
         ).toBe(true);
+        // A long-lived extension retains this selector across both activations.
+        const calledBack = await runCli({ ...sandbox, cli: { executable: callback, args: [] } }, [
+          '--version',
+        ]);
+        expect(calledBack.status, calledBack.stderr).toBe(0);
+        expect(calledBack.stdout.trim()).toBe(fixture.version);
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }

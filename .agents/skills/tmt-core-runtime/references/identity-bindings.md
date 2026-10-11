@@ -275,7 +275,10 @@ The Claude driver owns the embedded plugin source under
 beside `src`, outside the TypeScript package workspace. Native publication stages
 0700 directories and 0600 files, then atomically renames a complete plugin into
 `<dataRoot>/provider-plugins/claude/<tmt-version>`. Concurrent launches reuse the
-same complete version; older versions are ignored without scanning or deleting them.
+same complete version. Publishing a new version best-effort prunes verified older
+assets while retaining the active and preceding version and every retained CLI
+version. Unmanaged or stale executables and uncertain release
+receipts skip cleanup; changed or foreign plugin content stays intact.
 Claude-generated root `tsconfig.json` and `.claude-plugin/types/` are inert:
 validation checks ownership and regular file/directory shapes, not their bytes.
 Fresh and resumed Claude launches add this directory with `--plugin-dir` alongside
