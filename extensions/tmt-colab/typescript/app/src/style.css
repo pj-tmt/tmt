@@ -1382,6 +1382,11 @@ footer {
   clip-path: inset(50%);
 }
 .archive-unsent-draft pre {
+  font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.archive-unsent-draft .tmt-ui-action {
+  padding-inline: 0;
 }

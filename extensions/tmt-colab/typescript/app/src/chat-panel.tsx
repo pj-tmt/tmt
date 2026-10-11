@@ -120,7 +120,7 @@ export function ChatPanel({
           />
         }
       >
-        {!chats.length && !legacy.length && (
+        {!archived && !chats.length && !legacy.length && (
           <p className="isolation-note">Talk with an agent about this page.</p>
         )}
         {chats.map((thread) => (
