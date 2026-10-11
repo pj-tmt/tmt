@@ -3,7 +3,7 @@
 `colab-header.tsx` and `notice-card.tsx` adapt Colab content to the private
 `@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle/List
 and static classes; Theme, page icons and close use `BrowserIconAction`.
-`ActionMenu` supplies disclosure state, popup semantics, trigger ref and keyboard handling;
+`BrowserMenu` supplies disclosure state, popup semantics, trigger ref and keyboard handling;
 it owns menu dismissal and focus return. Original trusted activation events remain Colab-owned. App and reader
 entry points import `/static.css`. Header/card geometry, opaque square surfaces, mark plus
 visible state word and shadow-free presentation belong to that leaf; its
@@ -33,7 +33,7 @@ Discussion (combined pending count) opens Chat or Comments; Agents and Files (fi
 open their panels; Source and export opens Source or Export page; More opens Manage
 page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
-`ActionMenu` retains its row trigger for conversation actions and accepts an icon for
+`BrowserMenu` retains its row trigger for conversation actions and accepts an icon for
 headers; keyboard navigation skips disabled entries, Escape returns focus, and selection
 returns focus before opening a portal. Open header menus sit above the update row and
 selection controls. Local choice/action menus, native actions, Ask previews, reader
@@ -77,7 +77,7 @@ Selection capture waits for pointer/keyboard release; the parent Annotate contro
 its focus end. With mode off, C annotates a completed selection; otherwise it toggles mode.
 It stays outside text entry, IME, repeats and modifiers;
 Alt+Enter keeps its explicit annotation action. The parent-only bottom-right toggle clears
-open panels spatially; overlapping anchored windows fit above its reserved bottom strip. Escape closes the mention list, collapses the anchored window with its draft kept, closes Chat with its draft kept if open, then exits mode, one level per press. Busy sends are not collapsed by Escape. In mode, one outline
+open panels spatially; overlapping anchored windows fit above its reserved bottom strip. Escape closes a nested menu or mention list, then the active drawer, then the retained anchored window, then exits mode, one level per press. Chat and anchored drafts are kept. Busy sends are not collapsed by Escape. In mode, one outline
 marks the hovered target; text-bearing clicks and completed selections open the retained
 anchored discussion. Textless targets show a temporary hint and create nothing. Readers
 have no toggle. No selection navigation prepares, publishes or sends an Ask.
@@ -117,8 +117,8 @@ and recipient status in its hint line. It uses the leaf toggle-button semantics,
 with a full accessible label and a compact recipient label at 640px and below.
 Its preference is shared by this page/viewer device's Chat, annotations and replies;
 the accessory slot remains presentation-only and separate from recipient ownership.
-`PageDrawer` retains dialog modality and focus; Chat supplies its shared
-`ConversationWindow` header and close action instead of a duplicate drawer header.
+`BrowserDrawer` owns the shared title, audience caption and Close action; Chat
+keeps its mounted `ConversationWindow` history/composer with its inner header hidden.
 Close uses `BrowserIconAction`; its tooltip and focus presentation belong to the leaf.
 Escape dismisses the tooltip and reaches the containing drawer or dialog in the same activation. Annotation surfaces and drawers are shadow-free.
 Source loading does not block
@@ -152,21 +152,20 @@ the reader's message-history position. This changes no renderer messages,
 subscription, publication admission or reply association. Comments remains the
 explicit full-history/details view.
 
-`page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
+`BrowserDrawer` renders in place and native modality promotes it above the header/frame. Desktop panels float on
 the right on an opaque square surface with a 1 px border on every edge. Chat,
 Source, Agents, Files, Comments and Export leave 8 px below the header and at the
-right and bottom edges (4 px through 480 px), plus top/bottom safe-area insets. Compact drawers
-use native modal focus containment within these gutters. Neither changes renderer
+right and bottom edges (4 px through 480 px), plus top/right/bottom safe-area insets. All widths use native modal containment;
+menus use a transparent catching backdrop and consume Escape before their drawer. Neither changes renderer
 width or content layout; the header and page edge remain visible.
 Panel bodies scroll independently except
 Chat: its bounded flex body keeps the shared header and non-shrinking composer
 visible, with only message history scrolling in the remaining height.
-Crossing the mobile breakpoint changes native modality in place, preserving a connected
-focused descendant and its editing selection; it does not restart a draft or run initial-open focus.
+All widths use native modal containment without body scroll locking; resizing preserves the mounted draft and editing selection. The body contains overscroll. A header or iframe backdrop press dismisses only, never clicks through.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
 closing never dispatches, abandons or retries. Export closes its preparation and
-revokes download Blob URLs. Manage also portals outside the menu and initially
+revokes download Blob URLs. Manage opens after its menu closes and initially
 focuses its non-interactive heading without an outline while metadata loads;
 Its title and Close stay fixed while only the management body scrolls.
 Tab reaches its enabled controls with visible focus outlines, and
@@ -226,3 +225,7 @@ Its driver avatar, tag and rail follow the current verified page observation;
 missing metadata stays neutral and stable turn keys preserve focus. The data flow
 is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual rule is
 in [GUI style](../../../../design/gui-style.md#conversation-turn).
+
+While recovery is required, the active Drawer presents the connection owner's existing
+Reconnect action in a mark-and-word notice below its header. It owns no connection
+state, probe or timer, and reconnect keeps the composer and draft mounted.

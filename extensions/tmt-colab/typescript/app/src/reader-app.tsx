@@ -2,7 +2,7 @@ import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
 import { FilesList } from './files-panel.js';
-import { PageDrawer } from './page-drawer.js';
+import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
@@ -176,14 +176,15 @@ export function ReaderApp({
         )}
       </main>
       {state.kind === 'ready' && (
-        <PageDrawer
+        <BrowserDrawer
+          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={files && descriptors.length > 0}
           title={text.files}
-          kind="files"
-          close={() => setFiles(false)}
+          panel="files"
+          onDismiss={() => setFiles(false)}
         >
           <FilesList descriptors={descriptors} binding={attachments} />
-        </PageDrawer>
+        </BrowserDrawer>
       )}
     </>
   );

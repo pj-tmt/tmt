@@ -1,4 +1,10 @@
 export const browserUiClasses = Object.freeze({
+  drawer: 'tmt-ui-drawer',
+  drawerHeader: 'tmt-ui-drawer-header',
+  drawerBody: 'tmt-ui-drawer-body',
+  menu: 'tmt-ui-menu',
+  menuSurface: 'tmt-ui-menu-surface',
+  menuItem: 'tmt-ui-menu-item',
   command: 'tmt-ui-command',
   commandText: 'tmt-ui-command-text',
   commandCopy: 'tmt-ui-command-copy',

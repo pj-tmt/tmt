@@ -7,7 +7,7 @@ import { createPage, freePort, openPage, run, selectInRenderer } from './harness
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function comments(page: Page) {
-  if (!(await page.locator('.page-drawer[data-panel=comments][open]').isVisible()))
+  if (!(await page.locator('.tmt-ui-drawer[data-panel=comments][open]').isVisible()))
     await (await pageAction(page, 'Comments')).click();
 }
 const markers = (page: Page) => page.frameLocator('iframe').locator('[data-colab-thread]');

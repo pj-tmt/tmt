@@ -25,7 +25,7 @@ export async function openChat(page: Page) {
   const host = page.locator('#ask-page-fixture');
   const toggle = await pageAction(host, 'Chat');
   await toggle.click();
-  const panel = page.getByTestId('chat-panel');
+  const panel = page.locator('#ask-page-fixture .tmt-ui-drawer[data-panel=chat]');
   return { panel, input: await annotationInput(panel, 'Agent 1') };
 }
 export async function attach(

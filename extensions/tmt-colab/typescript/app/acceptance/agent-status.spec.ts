@@ -76,7 +76,7 @@ test('the served Agents view reads the admitted directory without sending or reo
     }
     const opened = operations.filter((value) => value === 'session.open').length;
     await (await pageAction(page, 'Agents')).click();
-    const panel = page.locator('.page-drawer[data-panel=agents]');
+    const panel = page.locator('.tmt-ui-drawer[data-panel=agents]');
     const row = panel.locator('.agent-status-list li').filter({ hasText: agent.id });
     await expect(row).toContainText(agent.name);
     await expect(row).toHaveAttribute('data-presence', /^(active|offline|unknown)$/);

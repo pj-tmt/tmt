@@ -4,7 +4,7 @@ import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
-import { Listbox, type ListboxOption } from './components/listbox.js';
+import { BrowserMenu } from '@tmt/browser-ui/react';
 import {
   ManagementError,
   newLink,
@@ -14,6 +14,12 @@ import {
   type Pending,
   type Selection,
 } from './management.js';
+
+interface ManagementOption<Value extends string> {
+  value: Value;
+  label: string;
+  disabled?: boolean;
+}
 
 const errors: Record<string, string> = {
   INVALID: 'The request was rejected. Review the selected values.',
@@ -27,16 +33,16 @@ const errors: Record<string, string> = {
   UNKNOWN:
     'Result unknown: the request may have committed. Retry only these exact bytes before expiry.',
 };
-const audienceOptions: readonly ListboxOption<ManagementView['page']['sharing']>[] = [
+const audienceOptions: readonly ManagementOption<ManagementView['page']['sharing']>[] = [
   { value: 'private', label: 'Private' },
   { value: 'link', label: 'Link' },
   { value: 'public', label: 'Public (loopback only)' },
 ];
-const historyOptions: readonly ListboxOption<payload.HistoryMode>[] = [
+const historyOptions: readonly ManagementOption<payload.HistoryMode>[] = [
   { value: 'shared', label: 'Shared' },
   { value: 'current', label: 'Current' },
 ];
-const roleOptions: readonly ListboxOption<payload.Role>[] = [
+const roleOptions: readonly ManagementOption<payload.Role>[] = [
   { value: 'viewer', label: 'viewer' },
   { value: 'commenter', label: 'commenter' },
   { value: 'editor', label: 'editor' },
@@ -359,11 +365,22 @@ export function ShareDialog({
             </section>
             <section>
               <h3>Sharing</h3>
-              <Listbox
+              <BrowserMenu
                 label="Audience"
-                options={audienceOptions}
-                value={view.page.sharing}
-                onChange={(mode) => {
+                items={audienceOptions.map((option) => ({
+                  key: option.value,
+                  label: option.label,
+                  disabled: option.disabled,
+                  checked: option.value === view.page.sharing,
+                  role: 'menuitemradio' as const,
+                }))}
+                valueLabel={
+                  audienceOptions.find((option) => option.value === view.page.sharing)?.label ??
+                  view.page.sharing
+                }
+                onSelect={(key) => {
+                  const mode = key;
+                  if (mode === view.page.sharing) return;
                   const narrowing =
                     (view.page.sharing === 'link' && mode === 'private') ||
                     (view.page.sharing === 'public' && mode !== 'public');
@@ -378,11 +395,21 @@ export function ShareDialog({
                   );
                 }}
               />
-              <Listbox
+              <BrowserMenu
                 label="History mode"
-                options={historyOptions}
-                value={view.page.history}
-                onChange={(mode) =>
+                items={historyOptions.map((option) => ({
+                  key: option.value,
+                  label: option.label,
+                  disabled: option.disabled,
+                  checked: option.value === view.page.history,
+                  role: 'menuitemradio' as const,
+                }))}
+                valueLabel={
+                  historyOptions.find((option) => option.value === view.page.history)?.label ??
+                  view.page.history
+                }
+                onSelect={(mode) => {
+                  if (mode === view.page.history) return;
                   review(
                     {
                       operation: 'page.history',
@@ -390,8 +417,8 @@ export function ShareDialog({
                     },
                     'Change history',
                     'This applies to later joins. Already-held keys cannot be recalled.',
-                  )
-                }
+                  );
+                }}
               />
               <p>
                 {view.page.history === 'shared'
@@ -424,11 +451,20 @@ export function ShareDialog({
                   </span>
                   {m.id !== view.ownerMember && (
                     <>
-                      <Listbox
+                      <BrowserMenu
                         label="Member role"
-                        options={roleOptions}
-                        value={m.role}
-                        onChange={(role) =>
+                        items={roleOptions.map((option) => ({
+                          key: option.value,
+                          label: option.label,
+                          disabled: option.disabled,
+                          checked: option.value === m.role,
+                          role: 'menuitemradio' as const,
+                        }))}
+                        valueLabel={
+                          roleOptions.find((option) => option.value === m.role)?.label ?? m.role
+                        }
+                        onSelect={(role) => {
+                          if (role === m.role) return;
                           review(
                             {
                               operation: 'member.role',
@@ -440,8 +476,8 @@ export function ShareDialog({
                             },
                             'Change member role',
                             `Affected pages: ${m.pages.join(', ')}`,
-                          )
-                        }
+                          );
+                        }}
                       />
                       <button
                         onClick={() =>
@@ -486,11 +522,17 @@ export function ShareDialog({
                     <input required value={value} onChange={(e) => change(e.target.value)} />
                   </label>
                 ))}
-                <Listbox<payload.Role>
+                <BrowserMenu<payload.Role>
                   label="New member or link role"
-                  options={roleOptions}
-                  value={role}
-                  onChange={setRole}
+                  items={roleOptions.map((option) => ({
+                    key: option.value,
+                    label: option.label,
+                    disabled: option.disabled,
+                    checked: option.value === role,
+                    role: 'menuitemradio' as const,
+                  }))}
+                  valueLabel={roleOptions.find((option) => option.value === role)?.label ?? role}
+                  onSelect={setRole}
                 />
                 <button>Add member</button>
               </form>

@@ -223,9 +223,9 @@ settings values.
 A list of actions behind a trigger: the header's More menu and a message's `⋯`.
 
 - Items are text, destructive last; Esc closes; arrow navigation; `role="menu"`.
-- Anchored below the trigger, right edges aligned; never covers the item it
-  acts on.
-- Shipped in `components/action-menu.tsx`. Basis: Radix (Dropdown Menu).
+- Right edges align with the trigger. Prefer below, flip above when it has more
+  room, and constrain scrolling to the visual viewport when neither side fits.
+- Shared owner: [BrowserMenu](browser-ui/README.md#drawer-and-menu). Basis: Radix (Dropdown Menu).
 
 ### Tooltip
 
@@ -243,15 +243,14 @@ and still reaches the host's active menu, drawer or dialog.
 
 Comments, Chat, Source, Share and settings panels.
 
-- Opens over the page without moving it, closes with its own `×`, Esc or the
-  header action that opened it. Focus moves into it and returns to the opener.
+- Opens over the page without moving it, closes with its own `×`, Esc or a backdrop press. Focus moves into it and returns to the opener.
 - One overlay at a time; opening another replaces it.
-- Basis: Radix (Dialog: non-modal on desktop, modal when compact).
-- Colab shared page drawers (Chat, Source, Agents, Files, Comments and Export) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters and use native modal focus containment; desktop drawers are non-modal. Neither changes the author frame width.
+- Basis: Radix (Dialog). Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native modal containment at every width.
+- Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
 
 ### Page Chat
 
-- One header row: Chat, `○ Everyone with access`, then Collapse. Reuse the shared
+- Shared Drawer header: Chat, `○ Everyone with access` caption and Close. Reuse the shared
   agent rail; identities come from verified metadata, with muted time at the right.
   Space separates messages; day rules use admitted timestamps.
 - Center the empty title and teach `@` only where admitted. Keep the composer

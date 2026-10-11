@@ -110,7 +110,8 @@ export function BrowserIconAction({
           onFocus={(event) => {
             if (event.currentTarget.matches(':focus-visible')) {
               setFocused(true);
-              setDismissed(escapeFocus.has(event.currentTarget.ownerDocument));
+              // Returning from an expanded menu must not reopen help on the same activation.
+              setDismissed(!!expanded || escapeFocus.has(event.currentTarget.ownerDocument));
             }
           }}
           onBlur={() => setFocused(false)}

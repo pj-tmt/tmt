@@ -26,6 +26,8 @@ export function conversationRecordKey(
 /** Owns history scrolling; callers retain placement, draft and action lifetimes. */
 export function ConversationWindow({
   title,
+  hideHeader = false,
+  historyLabel,
   caption,
   actions,
   messageIds,
@@ -39,6 +41,8 @@ export function ConversationWindow({
   ...attributes
 }: Omit<ComponentPropsWithoutRef<'section'>, 'title'> & {
   title: ReactNode;
+  hideHeader?: boolean;
+  historyLabel?: string;
   caption?: string;
   actions: ReactNode;
   messageIds: readonly string[];
@@ -48,6 +52,8 @@ export function ConversationWindow({
   composer?: ReactNode;
   overlay?: ReactNode;
 }) {
+  if (hideHeader && !historyLabel)
+    throw new Error('A headerless conversation requires a history label');
   const headingId = useId();
   const history = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -97,22 +103,25 @@ export function ConversationWindow({
   }, [latest]);
   return (
     <section {...attributes} className={`conversation-window ${className}`}>
-      <header className="conversation-window-bar thread-bar">
-        <div className="conversation-heading">
-          <h2 className="conversation-title" id={headingId}>
-            {title}
-          </h2>
-          {caption && <span className="conversation-caption">{caption}</span>}
-        </div>
-        <span className="thread-bar-actions">{actions}</span>
-      </header>
+      {!hideHeader && (
+        <header className="conversation-window-bar thread-bar">
+          <div className="conversation-heading">
+            <h2 className="conversation-title" id={headingId}>
+              {title}
+            </h2>
+            {caption && <span className="conversation-caption">{caption}</span>}
+          </div>
+          <span className="thread-bar-actions">{actions}</span>
+        </header>
+      )}
       {notice}
       <div className="conversation-history">
         <div
           className={`conversation-messages ${historyClassName}`}
           ref={history}
           role="region"
-          aria-labelledby={headingId}
+          aria-labelledby={historyLabel ? undefined : headingId}
+          aria-label={historyLabel}
           tabIndex={-1}
           onScroll={() => {
             const node = history.current;

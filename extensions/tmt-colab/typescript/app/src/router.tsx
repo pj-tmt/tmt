@@ -54,10 +54,11 @@ import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { RecoveryRequiredError } from './session-recovery.js';
 import { ExportPanel } from './export-panel.js';
-import { PageDrawer } from './page-drawer.js';
+import { BrowserDrawer, BrowserMenu } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
+import { AttachmentDropPanel } from './attachment-drop.js';
 import { FilesPanel } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
@@ -98,7 +99,7 @@ function SelectionMode({
       // These parent-owned overlays sit outside the renderer host's layout box.
       // Their actual bounds keep the control clear without altering author geometry.
       const drawer = document
-        .querySelector<HTMLDialogElement>('.page-drawer[open]')
+        .querySelector<HTMLDialogElement>('.tmt-ui-drawer[open]')
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
       const bottom = Math.min(innerHeight, box.bottom);
@@ -113,7 +114,7 @@ function SelectionMode({
     if (host) observer.observe(host);
     // Native dialog show/close happens in its own effect. Follow its actual layout,
     // rather than depending on sibling effect order.
-    for (const drawer of document.querySelectorAll('.page-drawer')) observer.observe(drawer);
+    for (const drawer of document.querySelectorAll('.tmt-ui-drawer')) observer.observe(drawer);
     const composer = document.querySelector('.annotation-popover');
     if (composer) observer.observe(composer);
     window.addEventListener('resize', place);
@@ -591,68 +592,31 @@ function ManagePage({
       )
     : null;
 }
-function ManageButton({ pageId, title }: { pageId: string; title: string }) {
+function PageListActions({ page }: { page: PageSummary }) {
   const port = root.useRouteContext().transport.management;
-  const [open, setOpen] = useState(false);
-  if (!port) return null;
+  const [manageOpen, setManageOpen] = useState(false);
   return (
     <>
-      <BrowserAction
-        type="button"
-        variant="text"
-        label={text.managePage}
-        onActivate={(event) => {
-          if (event.isTrusted) setOpen(true);
-        }}
-      />
-      <ManagePage pageId={pageId} title={title} open={open} close={() => setOpen(false)} />
-    </>
-  );
-}
-function PageListActions({ page }: { page: PageSummary }) {
-  const menu = useRef<HTMLDetailsElement>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const element = menu.current;
-    if (!open || !element) return;
-    const outside = (event: PointerEvent) => {
-      // The management dialog is this disclosure's portal; keep its return target visible.
-      if (event.target instanceof Element && event.target.closest('.management-dialog')) return;
-      if (event.target instanceof Node && !element.contains(event.target)) element.open = false;
-    };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, [open]);
-  return (
-    <details
-      ref={menu}
-      className="page-row-menu"
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-      onKeyDown={(event) => {
-        if (event.target instanceof Element && event.target.closest('.management-dialog')) return;
-        if (event.key === 'Escape' && menu.current?.open) {
-          menu.current.open = false;
-          menu.current.querySelector('summary')?.focus();
-          event.stopPropagation();
+      <BrowserMenu
+        label={text.pageActionsFor(pageTitle(page))}
+        description={
+          <>
+            <p>Page ID: {page.id}</p>
+            <RetentionHint page={page} />
+          </>
         }
-      }}
-      onBlur={(event) => {
-        if (
-          event.relatedTarget instanceof Element &&
-          event.relatedTarget.closest('.management-dialog')
-        )
-          return;
-        if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
-      }}
-    >
-      <summary aria-label={text.pageActionsFor(pageTitle(page))}>{text.pageActions}</summary>
-      <div className="page-row-menu-body">
-        <p>{text.askDetails}</p>
-        <p className="management-id">Page ID: {page.id}</p>
-        <RetentionHint page={page} />
-        <ManageButton pageId={page.id} title={page.title} />
-      </div>
-    </details>
+        items={port ? [{ key: 'manage', label: text.managePage }] : []}
+        onSelect={() => setManageOpen(true)}
+      />
+      {port && (
+        <ManagePage
+          pageId={page.id}
+          title={page.title}
+          open={manageOpen}
+          close={() => setManageOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1098,6 +1062,7 @@ function Page() {
   useEffect(() => {
     if (!annotation) return;
     const outside = (event: PointerEvent) => {
+      if (document.querySelector('dialog:modal')) return;
       const target = event.target;
       if (
         target instanceof Element &&
@@ -1189,10 +1154,10 @@ function Page() {
     return true;
   };
   escapeAnnotation.current = () => {
-    if (annotationRef.current) closeRef.current(true);
-    else if (panel === 'chat') {
+    if (panel === 'chat') {
       if (!chatBusy.current) setPanel(null);
-    } else if (canSelect) setSelectionMode(false);
+    } else if (annotationRef.current) closeRef.current(true);
+    else if (canSelect) setSelectionMode(false);
   };
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
@@ -1350,6 +1315,47 @@ function Page() {
       annotation?.selector ?? undefined,
     );
   }, [state, view.threads, annotation]);
+  // Both presentations use the existing connection owner and preserve the mounted draft.
+  const recoveryAction = (variant: 'primary' | 'text') => (
+    <div
+      data-colab-reconnect
+      onPointerDown={(event) => {
+        // A pointer recovery action does not end the active draft's
+        // focus/selection. Keyboard activation keeps button policy.
+        if (event.isTrusted && document.activeElement?.matches('[contenteditable="true"]'))
+          event.preventDefault();
+      }}
+    >
+      <BrowserAction
+        type="button"
+        label={reconnecting ? text.reconnecting : text.reconnect}
+        variant={variant}
+        busy={reconnecting}
+        busyMark={<LoaderCircle />}
+        onActivate={(event) => {
+          if (event.isTrusted) void reconnect();
+        }}
+      />
+    </div>
+  );
+  const drawerRecovery = recoveryRequired && snapshot.binding?.reconnect && (
+    <div className="drawer-recovery" role="status">
+      <span className="drawer-recovery-state">
+        <span aria-hidden="true">✗ </span>
+        {text.connectionLost}
+      </span>
+      {recoveryAction('text')}
+    </div>
+  );
+  const recoveryInDrawer = [
+    'about',
+    'files',
+    'source',
+    'comments',
+    'agents',
+    'chat',
+    'export',
+  ].includes(panel ?? '');
   const content = (
     <section
       className="page"
@@ -1368,8 +1374,7 @@ function Page() {
           !node.contains(range.endContainer)
         )
           return;
-        // Mobile Chat must close its modal drawer to reach Reconnect. Restore
-        // its retained selection only when this same composer regains focus.
+        // Restore the retained selection only when this same composer regains focus.
         document
           .getSelection()
           ?.setBaseAndExtent(
@@ -1446,6 +1451,7 @@ function Page() {
         binding={snapshot.binding}
         blocked={!!liveError}
         drawer
+        notice={drawerRecovery}
         opened={panel === 'export'}
         changeOpen={(open) => setPanel(open ? 'export' : null)}
       />
@@ -1461,18 +1467,20 @@ function Page() {
           setLiveError(new Error(managementChanged));
         }}
       />
-      <PageDrawer
+      <BrowserDrawer
+        notice={drawerRecovery}
+        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'about'}
         title={text.aboutPage}
-        kind="about"
-        close={() => setPanel(null)}
+        panel="about"
+        onDismiss={() => setPanel(null)}
       >
         <PageAttribution
           originalAuthor={view.originalAuthor}
           publisherAgent={view.publisherAgent}
         />
         <p>{text.warning}</p>
-      </PageDrawer>
+      </BrowserDrawer>
       <div className="workspace">
         <div className="canvas">
           <div className="frame-host" ref={host} />
@@ -1486,31 +1494,9 @@ function Page() {
               title={recoveryRequired ? text.connectionLost : text.blocked}
               actions={
                 recoveryRequired &&
-                snapshot.binding?.reconnect && (
-                  <div
-                    data-colab-reconnect
-                    onPointerDown={(event) => {
-                      // A pointer recovery action does not end the active draft's
-                      // focus/selection. Keyboard activation keeps button policy.
-                      if (
-                        event.isTrusted &&
-                        document.activeElement?.matches('[contenteditable="true"]')
-                      )
-                        event.preventDefault();
-                    }}
-                  >
-                    <BrowserAction
-                      type="button"
-                      label={reconnecting ? text.reconnecting : text.reconnect}
-                      variant="primary"
-                      busy={reconnecting}
-                      busyMark={<LoaderCircle />}
-                      onActivate={(event) => {
-                        if (event.isTrusted) void reconnect();
-                      }}
-                    />
-                  </div>
-                )
+                snapshot.binding?.reconnect &&
+                !recoveryInDrawer &&
+                recoveryAction('primary')
               }
             >
               {recoveryRequired ? (
@@ -1677,11 +1663,13 @@ function Page() {
           </SelectionAnnotation>
         )}
       {snapshot.binding?.files && (
-        <PageDrawer
+        <BrowserDrawer
+          notice={drawerRecovery}
+          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
           open={panel === 'files'}
           title={text.files}
-          kind="files"
-          close={() => setPanel(null)}
+          panel="files"
+          onDismiss={() => setPanel(null)}
         >
           <FilesPanel
             descriptors={view.attachments ?? []}
@@ -1689,13 +1677,16 @@ function Page() {
             readOnly={archived}
             disabled={!!liveError || saving}
           />
-        </PageDrawer>
+        </BrowserDrawer>
       )}
-      <PageDrawer
+      <BrowserDrawer
+        notice={drawerRecovery}
+        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'source'}
         title={text.source}
-        kind="source"
-        close={() => setPanel(null)}
+        panel="source"
+        width="wide"
+        onDismiss={() => setPanel(null)}
       >
         <div className="source">
           <span>
@@ -1721,12 +1712,14 @@ function Page() {
             }}
           />
         </div>
-      </PageDrawer>
-      <PageDrawer
+      </BrowserDrawer>
+      <BrowserDrawer
+        notice={drawerRecovery}
+        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'comments'}
         title={text.comments}
-        kind="comments"
-        close={() => setPanel(null)}
+        panel="comments"
+        onDismiss={() => setPanel(null)}
       >
         <SavedDrafts
           archived={archived}
@@ -1771,12 +1764,14 @@ function Page() {
           onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
           blocked={discussionBlocked}
         />
-      </PageDrawer>
-      <PageDrawer
+      </BrowserDrawer>
+      <BrowserDrawer
+        notice={drawerRecovery}
+        focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
         open={panel === 'agents'}
         title={text.agentStatus}
-        kind="agents"
-        close={() => setPanel(null)}
+        panel="agents"
+        onDismiss={() => setPanel(null)}
       >
         <AgentStatusPanel
           open={panel === 'agents'}
@@ -1784,56 +1779,62 @@ function Page() {
           page={snapshot.id}
           admitted={!!snapshot.binding && !liveError}
         />
-      </PageDrawer>
-      <PageDrawer
-        open={panel === 'chat'}
-        title="Chat"
-        kind="chat"
-        hideHeader
-        close={() => setPanel(null)}
-        escape={() => escapeAnnotation.current()}
-      >
-        {chatOpened && (
-          <ChatPanel
-            archived={archived}
-            creationRecipient={view.creationRecipient}
-            key={`chat:${snapshot.id}:${draftsReady}`}
-            initialEdit={drafts.current.get(CHAT_DRAFT)}
-            activation={
-              panel === 'chat' &&
-              draftsReady &&
-              chatActivation &&
-              !discussionBlocked &&
-              !chatBusy.current
-                ? {
-                    ...chatActivation,
-                    consumed: () =>
-                      setChatActivation((current) =>
-                        current?.id === chatActivation.id ? undefined : current,
-                      ),
-                  }
-                : undefined
-            }
-            onBusy={(busy) => {
-              chatBusy.current = busy;
-            }}
-            onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
-            unsaved={draftsUnsaved}
-            observationUnavailable={view.askUnavailable}
-            threads={view.threads ?? []}
-            asks={view.asks ?? []}
-            binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-            discussion={
-              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-            }
-            title={view.title || snapshot.title}
-            blocked={discussionBlocked}
-            recoveryRequired={recoveryRequired}
-            close={() => setPanel(null)}
-            escape={() => escapeAnnotation.current()}
-          />
-        )}
-      </PageDrawer>
+      </BrowserDrawer>
+      <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
+        <BrowserDrawer
+          notice={drawerRecovery}
+          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+          open={panel === 'chat'}
+          title="Chat"
+          panel="chat"
+          caption={text.chatVisible}
+          onDismiss={(reason) => {
+            if (reason === 'close') setPanel(null);
+            else escapeAnnotation.current();
+          }}
+        >
+          {chatOpened && (
+            <ChatPanel
+              archived={archived}
+              creationRecipient={view.creationRecipient}
+              key={`chat:${snapshot.id}:${draftsReady}`}
+              initialEdit={drafts.current.get(CHAT_DRAFT)}
+              activation={
+                panel === 'chat' &&
+                draftsReady &&
+                chatActivation &&
+                !discussionBlocked &&
+                !chatBusy.current
+                  ? {
+                      ...chatActivation,
+                      consumed: () =>
+                        setChatActivation((current) =>
+                          current?.id === chatActivation.id ? undefined : current,
+                        ),
+                    }
+                  : undefined
+              }
+              onBusy={(busy) => {
+                chatBusy.current = busy;
+              }}
+              onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
+              unsaved={draftsUnsaved}
+              observationUnavailable={view.askUnavailable}
+              threads={view.threads ?? []}
+              asks={view.asks ?? []}
+              binding={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+              discussion={
+                liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+              }
+              title={view.title || snapshot.title}
+              blocked={discussionBlocked}
+              recoveryRequired={recoveryRequired}
+              close={() => setPanel(null)}
+              escape={() => escapeAnnotation.current()}
+            />
+          )}
+        </BrowserDrawer>
+      </AttachmentDropPanel>
     </section>
   );
   const creatorScope = JSON.stringify([

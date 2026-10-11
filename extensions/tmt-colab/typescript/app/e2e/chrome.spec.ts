@@ -231,11 +231,13 @@ for (const width of [1440, 390, 320])
           if (screen === 'pages') {
             const card = page.locator('.pages > li:visible').first();
             await expect(card.locator('.tmt-ui-list-title')).toHaveText('Release notes');
-            await expect(card.locator('summary')).toHaveText('Actions');
-            await card.locator('summary').click();
-            await expect(card.locator('.management-id')).toContainText('a19c0460');
-            await expect(card.getByRole('button', { name: 'Manage page' })).toBeVisible();
-            await card.locator('summary').click();
+            await expect(card.getByRole('button', { name: /^Actions for/ })).toBeVisible();
+            await card.getByRole('button', { name: /^Actions for/ }).click();
+            await expect(page.getByRole('menu').locator('.management-id')).toContainText(
+              'a19c0460',
+            );
+            await expect(page.getByRole('menuitem', { name: 'Manage page' })).toBeVisible();
+            await page.getByRole('menu').press('Escape');
             await expect(
               page.locator('.pages > li:visible').nth(1).locator('.tmt-ui-list-title'),
             ).toHaveText('Untitled page');

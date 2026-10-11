@@ -43,7 +43,9 @@ for (const width of [1440, 390])
       await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await info(page, false);
-      const attribution = page.locator('.page-drawer[data-panel=about]:visible .page-attribution');
+      const attribution = page.locator(
+        '.tmt-ui-drawer[data-panel=about]:visible .page-attribution',
+      );
       await expect(attribution).toContainText('Original authorAlice <b>creator</b>');
       await expect(attribution).toContainText('Latest publisherBob latest publisher');
       const captures = process.env.COLAB_AUTHOR_CAPTURE_DIR;

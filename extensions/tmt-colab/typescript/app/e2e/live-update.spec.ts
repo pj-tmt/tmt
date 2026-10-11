@@ -259,7 +259,7 @@ for (const width of [1440, 390]) {
       await expect.poll(() => messageText(chat)).toBe(continuedChatDraft);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - chatScroll)).toBeLessThan(2);
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
-      await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
+      await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
       await page.getByTestId('annotation-row').filter({ hasText: 'Exact selected text' }).click();
       await expect.poll(() => messageText(reply)).toBe(continuedThreadDraft);
@@ -353,7 +353,7 @@ for (const width of [1440, 390]) {
           (node) => (window as unknown as { anchoredInput: Element }).anchoredInput === node,
         ),
       ).toBe(true);
-      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       expect(Math.abs((await dialog.boundingBox())!.x - before.x)).toBeLessThan(2);
       expect(Math.abs((await dialog.boundingBox())!.y - before.y)).toBeLessThan(2);
@@ -371,16 +371,17 @@ for (const width of [1440, 390]) {
       const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
       expect(editorBox.y - labelBox.y - labelBox.height).toBeGreaterThanOrEqual(8);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
-      // Row actions must fit the message area rather than flip under its stationary header.
+      // Shared top-layer menus fit the viewport, independently of the history scroller.
       const latestTurn = thread.getByTestId('comment-entry').last();
       await latestTurn.hover();
       await latestTurn.getByRole('button', { name: 'Message actions', exact: true }).click();
       const editAction = latestTurn.getByRole('menuitem', { name: 'Edit', exact: true });
       await expect(editAction).toBeInViewport({ ratio: 1 });
       const menuBox = (await latestTurn.getByRole('menu').boundingBox())!;
-      const messageBox = (await thread.locator('.thread-messages').boundingBox())!;
-      expect(menuBox.y).toBeGreaterThanOrEqual(messageBox.y);
-      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(messageBox.y + messageBox.height);
+      const viewport = page.viewportSize()!;
+      expect(menuBox.y).toBeGreaterThanOrEqual(8);
+      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height - 8);
+      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width - 8);
       await editAction.click();
       await expect(
         latestTurn.getByRole('combobox', { name: 'Edit comment', exact: true }),
@@ -438,7 +439,7 @@ for (const width of [1440, 390]) {
         )
         .toBeLessThanOrEqual(1);
       await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
-      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       const box = (await dialog.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(8);
       expect(box.x + box.width).toBeLessThanOrEqual(width - 8);

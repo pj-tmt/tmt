@@ -1,7 +1,7 @@
 import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Check } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   DISCLOSURE,
   Downloads,
@@ -10,7 +10,7 @@ import {
   type ListedAttachment,
 } from './export.js';
 import type { PageBinding } from './transport.js';
-import { PageDrawer } from './page-drawer.js';
+import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
 import './attachment-tray.css';
 
@@ -21,9 +21,11 @@ export function ExportPanel({
   drawer = false,
   opened,
   changeOpen,
+  notice,
 }: {
   binding?: PageBinding;
   blocked: boolean;
+  notice?: ReactNode;
   drawer?: boolean;
   opened?: boolean;
   changeOpen?(open: boolean): void;
@@ -60,8 +62,8 @@ export function ExportPanel({
     };
   }, [binding, open, blocked]);
   useEffect(() => {
-    if (blocked && open) setOpen(false);
-  }, [blocked, open, setOpen]);
+    if (blocked && open && !notice) setOpen(false);
+  }, [blocked, open, setOpen, notice]);
   function download(name: ExportFile) {
     try {
       if (!current.current || blocked) return;
@@ -143,9 +145,15 @@ export function ExportPanel({
     </section>
   );
   const presentation = drawer ? (
-    <PageDrawer open={open} title={text.export} kind="export" close={() => setOpen(false)}>
+    <BrowserDrawer
+      notice={notice}
+      open={open}
+      title={text.export}
+      panel="export"
+      onDismiss={() => setOpen(false)}
+    >
       {open && content}
-    </PageDrawer>
+    </BrowserDrawer>
   ) : (
     open && content
   );

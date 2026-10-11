@@ -486,6 +486,8 @@ test('files added to the page reach another device and a read-only link byte-ide
     await check(reader.page, false);
     await expect(reader.page.getByRole('button', { name: text.attachFiles })).toHaveCount(0);
 
+    // Reading the covered header count dismissed Files; reopen before its next action.
+    await openFiles(first);
     // Removing a file removes its row for every device, live.
     await panel
       .getByTestId('file-row')
@@ -500,6 +502,7 @@ test('files added to the page reach another device and a read-only link byte-ide
       timeout: 30_000,
     });
 
+    await (await pageAction(reader.page, 'Files')).click();
     // Removing a reference ended the earlier display lifetime. Read the remaining picture
     // under the new reference before testing that ending the link disposes its preview.
     await expect(reader.page.getByTestId('file-preview')).toHaveCount(0);
@@ -645,7 +648,9 @@ test('export and attachment read return the same bytes as the browser, and say w
         expect(saved.suggestedFilename()).toBe(file.name);
         expect(sha(fs.readFileSync((await saved.path())!))).toBe(sha(file.buffer));
       }
-      await first.locator('.page-drawer[data-panel="export"] .drawer-bar button').click();
+      await first
+        .locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button')
+        .click();
 
       // attachment read returns one file from its manifest reference, and only that file.
       const referenceOf = (name: string) => {
@@ -968,7 +973,7 @@ for (const surface of ['chat', 'thread'] as const)
       }
       const panel =
         surface === 'chat'
-          ? page.getByTestId('chat-panel')
+          ? page.locator('.tmt-ui-drawer[data-panel=chat]')
           : page.getByTestId('comment-thread').first();
       const input = panel.getByRole('combobox', { name: 'Message', exact: true });
       await input.fill('A posted image at the message edge.');
