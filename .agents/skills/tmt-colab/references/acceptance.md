@@ -160,7 +160,9 @@ refuses new children, tmux calls and closers (the scenario then fails on its own
 bounded to 10 s, and `disposeActiveWorlds` throws the leak report instead of dropping it.
 All disposal callers join one promise; the world stays registered until cleanup settles,
 and simultaneous scenario and cleanup failures are both reported. Allowlisted lifecycle
-records link the case/worker to its root and process/tmux identities without URLs or seeds.
+records link the case/worker to its root and spawned groups, private tmux identity and
+root-attested serve-lock owner without URLs or seeds. Emergency cleanup stops only those
+recorded owners; unrelated processes sharing an executable remain untouched.
 `harness.spec.ts` also runs an excluded child fixture through real Playwright timeouts,
 including a timeout while cleanup is already running, and checks process absence. A worker that Playwright kills
 outright (a hook timeout) can still leave a world behind; no hook can run then.

@@ -102,6 +102,7 @@ export class AcceptanceWorld {
   /** One line per call of a host browser opener; a world must never write here. */
   readonly openerLog = path.join(this.root, 'opener.log');
   private readonly processes = new Set<OwnedProcess>();
+  private readonly servePids = new Set<number>();
   private readonly agentPanes = new Set<string>();
   private readonly closers: Closer[] = [];
   private tmuxPath = '';
@@ -204,6 +205,7 @@ export class AcceptanceWorld {
     ]);
     this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
     this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
+    this.lifecycle('started');
     // TMUX carries the session number without the `$` prefix of #{session_id}.
     this.sessionId = this.tmux(['display-message', '-p', '-t', 'acceptance', '#{session_id}'])
       .trim()
@@ -399,7 +401,41 @@ export class AcceptanceWorld {
       stderrPath: path.join(this.root, `${label}.stderr`),
     });
     this.processes.add(owned);
+    this.lifecycle('spawned');
     return owned;
+  }
+
+  /** The private root's open serve lock attests ownership even across a new process group. */
+  recordColabServe(): void {
+    this.live('record Colab serve ownership');
+    const lock = path.join(this.dataRoot, 'colab', 'serve.lock');
+    const found = new Set<number>();
+    if (process.platform === 'linux') {
+      for (const entry of fs.readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        try {
+          for (const fd of fs.readdirSync(`/proc/${entry}/fd`)) {
+            try {
+              if (fs.readlinkSync(`/proc/${entry}/fd/${fd}`) === lock) found.add(Number(entry));
+            } catch {
+              /* A concurrently closed fd is not ownership evidence. */
+            }
+          }
+        } catch {
+          /* Exited or inaccessible processes cannot attest this lock. */
+        }
+      }
+    } else {
+      const rows = execFileSync('/usr/sbin/lsof', ['-Fpn', lock], { encoding: 'utf8' });
+      let pid = 0;
+      for (const row of rows.split('\n')) {
+        if (row.startsWith('p')) pid = Number(row.slice(1));
+        if (row === `n${lock}` && Number.isSafeInteger(pid) && pid > 0) found.add(pid);
+      }
+    }
+    if (found.size !== 1) throw new Error('Private Colab serve lock has no unique owner');
+    for (const pid of found) this.servePids.add(pid);
+    this.lifecycle('serve-owned');
   }
 
   /** Register cleanup that must run before the process checks (browsers, pages). */
@@ -468,6 +504,7 @@ export class AcceptanceWorld {
         stage,
         leaks,
         pids: [...this.processes].map((owned) => owned.pid),
+        servePids: [...this.servePids],
         tmuxPid: this.serverPid,
         tmuxSocket: this.socketPath,
       })}`,
@@ -530,6 +567,13 @@ export class AcceptanceWorld {
     }
     this.lifecycle('processes');
     for (const owned of this.processes) await attempt(owned.label, () => owned.stop());
+    for (const pid of this.servePids) {
+      await attempt('private Colab serve lock owner', async () => {
+        if (!alive(pid)) return;
+        process.kill(pid, 'SIGTERM');
+        await until(() => !alive(pid), 'private Colab serve exit', 5_000);
+      });
+    }
     if (this.serverPid) {
       await attempt('tmux server', async () => {
         try {
