@@ -71,6 +71,8 @@ describe('post-upgrade Remote notice', () => {
           const before = requestAttempts(fixture);
 
           let previousRelease = oldRelease;
+          let previousRemote = expectedRemote;
+          const upgradedRemote = Buffer.concat([expectedRemote, Buffer.from([1])]);
           for (const [version, json] of [
             ['0.1.0-alpha.2', true],
             ['0.1.0-alpha.3', false],
@@ -95,12 +97,15 @@ describe('post-upgrade Remote notice', () => {
             expect(readdirSync(path.join(prefix, 'lib/tmt-remote/releases')).sort()).toEqual(
               [path.basename(previousRelease), path.basename(activeRelease)].sort()
             );
-            for (const retained of [previousRelease, activeRelease])
-              expect(readFileSync(path.join(retained, 'tmt-remote')).equals(expectedRemote)).toBe(
-                true
-              );
+            expect(
+              readFileSync(path.join(previousRelease, 'tmt-remote')).equals(previousRemote)
+            ).toBe(true);
+            expect(
+              readFileSync(path.join(activeRelease, 'tmt-remote')).equals(upgradedRemote)
+            ).toBe(true);
             expect(existsSync(oldRelease)).toBe(previousRelease === oldRelease);
             previousRelease = activeRelease;
+            previousRemote = upgradedRemote;
           }
           const ended = await approval.finish('confirm');
           expect(ended).toMatchObject({ event: 'ended', state: 'accepted', operationId });
