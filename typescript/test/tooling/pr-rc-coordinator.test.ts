@@ -620,6 +620,10 @@ sys.stdout.buffer.write(b.getvalue())`,
       const api = createPRRCAPI((file, args, options) => {
         if (file === 'python3') return execFileSync(file, args, options);
         calls.push(args);
+        if (args.includes('Accept: application/octet-stream'))
+          throw new Error(
+            "Unsupported 'Accept' header: 'application/octet-stream'. Must accept 'application/json'. (HTTP 415)"
+          );
         if (!args.includes('--allow-escape-sequences'))
           throw new Error('the response contains terminal escape sequences');
         return zip;
@@ -636,7 +640,7 @@ sys.stdout.buffer.write(b.getvalue())`,
           '--allow-escape-sequences',
           'repos/pj-tmt/tmt/actions/artifacts/17/zip',
           '-H',
-          'Accept: application/octet-stream',
+          'Accept: application/vnd.github+json',
         ],
       ]);
     }
