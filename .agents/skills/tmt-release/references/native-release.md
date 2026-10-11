@@ -518,9 +518,8 @@ is exempt. The maintainer's account and other bots are not exempt.
 Code quality reads the current PR body through REST, including on reruns. The
 small Conventional PR title job also checks attribution on body edits; correcting
 that feedback does not replace an earlier failed Code quality result, which needs
-an authorized rerun. Merge-group checks initially report findings and unavailable
-evidence without failing; queue enforcement is a separate rollout after open PRs
-have been attributed. No required-check name or workflow permission changes.
+an authorized rerun. Merge-group checks also fail on invalid attribution or
+unavailable evidence. No required-check name or workflow permission changes.
 
 ## Conventional PR titles
 

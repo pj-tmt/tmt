@@ -3027,17 +3027,14 @@ it('keeps native E2E archive consumers restore-only and the sole writer main-onl
   expect(seed).toContain('node typescript/scripts/e2e-dependency-cache.mjs stamp');
 });
 
-it('enforces current PR Agent attribution and initially observes merge groups in Code quality', () => {
+it('enforces current PR Agent attribution for PRs and merge groups in Code quality', () => {
   const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const quality = ci.split('\n  code-quality:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
   expect(quality.indexOf('Check current PR Agent attribution')).toBeGreaterThan(
     quality.indexOf('Check conventional PR titles')
   );
-  expect(quality).toContain(`if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
-            node typescript/scripts/pr-agent-check.mjs --report-only
-          else
-            node typescript/scripts/pr-agent-check.mjs
-          fi`);
+  expect(quality).toContain('run: node typescript/scripts/pr-agent-check.mjs');
+  expect(quality).not.toContain('pr-agent-check.mjs --');
   const feedback = readFileSync(
     new URL('../../../.github/workflows/pr-title.yml', import.meta.url),
     'utf8'
