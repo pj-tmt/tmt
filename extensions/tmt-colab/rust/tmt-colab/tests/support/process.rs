@@ -104,24 +104,33 @@ impl OwnedChild {
 
     /// Darwin may deny a zombie-only group. Like tmt-invoke::process::confirm,
     /// denial clears only after independently observing the recorded leader's absence.
-    fn group_absent(&mut self, observed: Result<(), Errno>) -> Result<bool, String> {
+    fn group_absent(
+        &mut self,
+        observed: Result<(), Errno>,
+        denied: &mut Option<String>,
+    ) -> Result<bool, String> {
         match observed {
             Ok(()) => Ok(false),
             Err(error @ (Errno::ESRCH | Errno::EPERM)) => {
-                let reaped = match &mut self.child {
-                    Some(child) => child
-                        .try_wait()
-                        .map_err(|error| error.to_string())?
-                        .is_some(),
-                    None => false,
+                let reap = match &mut self.child {
+                    Some(child) => child.try_wait().map_err(|error| error.to_string())?,
+                    None => None,
                 };
-                if error == Errno::ESRCH
-                    || reaped
-                    || kill(self.group.unwrap(), None) == Err(Errno::ESRCH)
-                {
+                if error == Errno::ESRCH || reap.is_some() {
                     Ok(true)
                 } else {
-                    Err(error.to_string())
+                    let leader = self.group.unwrap();
+                    let probe = kill(leader, None);
+                    if probe == Err(Errno::ESRCH) {
+                        Ok(true)
+                    } else {
+                        *denied = Some(format!(
+                            "group {leader}, leader {leader}, child {:?}, reap {reap:?}, leader probe {probe:?}: {error}",
+                            self.child.as_ref().map(Child::id),
+                        ));
+                        // Unconfirmed denial is pending within the caller's existing bound.
+                        Ok(false)
+                    }
                 }
             }
             Err(error) => Err(error.to_string()),
@@ -129,15 +138,25 @@ impl OwnedChild {
     }
 
     fn finish_group(&mut self) -> Result<(), String> {
+        self.finish_group_with(killpg)
+    }
+
+    fn finish_group_with(
+        &mut self,
+        mut signal_group: impl FnMut(Pid, Option<Signal>) -> Result<(), Errno>,
+    ) -> Result<(), String> {
         let Some(group) = self.group else {
             return Ok(());
         };
-        if self.group_absent(killpg(group, Signal::SIGTERM))? {
+        let mut denied = None;
+        if self.group_absent(signal_group(group, Some(Signal::SIGTERM)), &mut denied)? {
             self.group = None;
             return Ok(());
         }
         for signal in [Signal::SIGTERM, Signal::SIGKILL] {
-            if signal == Signal::SIGKILL && self.group_absent(killpg(group, signal))? {
+            if signal == Signal::SIGKILL
+                && self.group_absent(signal_group(group, Some(signal)), &mut denied)?
+            {
                 self.group = None;
                 return Ok(());
             }
@@ -146,7 +165,7 @@ impl OwnedChild {
                 if let Some(child) = &mut self.child {
                     child.try_wait().map_err(|error| error.to_string())?;
                 }
-                if self.group_absent(killpg(group, None))? {
+                if self.group_absent(signal_group(group, None), &mut denied)? {
                     self.group = None;
                     return Ok(());
                 }
@@ -156,7 +175,10 @@ impl OwnedChild {
                 thread::sleep(Duration::from_millis(20));
             }
         }
-        Err(format!("fixture process group {group} survived SIGKILL"))
+        let context = denied.map_or(String::new(), |context| format!("; last denial: {context}"));
+        Err(format!(
+            "fixture process group {group} survived SIGKILL{context}"
+        ))
     }
 }
 
@@ -369,22 +391,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pending_denial_finishes_only_after_the_recorded_child_is_reaped() {
+        let mut child = Command::new("/bin/sleep").arg("300").spawn_owned().unwrap();
+        let mut probes = 0;
+        child
+            .finish_group_with(|group, signal| {
+                assert_ne!(signal, Some(Signal::SIGKILL));
+                if signal.is_none() {
+                    probes += 1;
+                    if probes == 2 {
+                        // The first denied probe sees a genuinely live, unreaped child.
+                        // Only the next probe releases it; immediate refusal cannot pass.
+                        killpg(group, Signal::SIGTERM).unwrap();
+                    }
+                    Err(Errno::EPERM)
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap();
+        assert!(probes >= 2);
+        assert!(child.child.as_mut().unwrap().try_wait().unwrap().is_some());
+        assert!(child.group.is_none());
+    }
+
+    #[test]
+    fn live_denied_group_fails_at_the_deadline_with_recorded_leader_context() {
+        let mut live = Command::new("/bin/sleep").arg("300").spawn_owned().unwrap();
+        let began = Instant::now();
+        let mut signals = Vec::new();
+        let denied = live
+            .finish_group_with(|_, signal| {
+                if let Some(signal) = signal {
+                    signals.push(signal);
+                }
+                Err(Errno::EPERM)
+            })
+            .unwrap_err();
+        assert!(began.elapsed() >= WAIT * 2);
+        assert_eq!(signals, [Signal::SIGTERM, Signal::SIGKILL]);
+        assert!(denied.contains(&format!("group {}, leader {}", live.id(), live.id())));
+        assert!(denied.contains(&format!("child Some({}), reap None", live.id())));
+        assert!(denied.contains("leader probe Ok(())"));
+        assert_eq!(live.try_wait().unwrap(), None);
+        // The real guard still owns and independently cleans the denied live child.
+        drop(live);
+    }
+
+    #[test]
     fn denied_group_requires_a_reaped_or_absent_leader() {
         let mut live = Command::new("/bin/sleep").arg("300").spawn_owned().unwrap();
-        assert!(live.group_absent(Err(Errno::EPERM)).is_err());
+        let mut denied = None;
+        assert!(!live.group_absent(Err(Errno::EPERM), &mut denied).unwrap());
         assert_eq!(live.try_wait().unwrap(), None);
-        assert!(!live.group_absent(Ok(())).unwrap());
-        assert!(live.group_absent(Err(Errno::EIO)).is_err());
+        assert!(!live.group_absent(Ok(()), &mut denied).unwrap());
+        assert!(live.group_absent(Err(Errno::EIO), &mut denied).is_err());
         let pid = Pid::from_raw(live.id() as i32);
         live.kill().unwrap();
         live.child.as_mut().unwrap().wait().unwrap();
         // Keep the group recorded to exercise a denied signal or inspection after reap.
-        assert!(live.group_absent(Err(Errno::EPERM)).unwrap());
+        assert!(live.group_absent(Err(Errno::EPERM), &mut denied).unwrap());
         assert_eq!(kill(pid, None), Err(Errno::ESRCH));
         // wait_with_output takes the Child handle; absence must still be observed.
         live.child = None;
-        assert!(live.group_absent(Err(Errno::EPERM)).unwrap());
-        assert!(live.group_absent(Err(Errno::ESRCH)).unwrap());
+        assert!(live.group_absent(Err(Errno::EPERM), &mut denied).unwrap());
+        assert!(live.group_absent(Err(Errno::ESRCH), &mut denied).unwrap());
     }
 
     #[test]
