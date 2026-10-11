@@ -10,6 +10,7 @@ import {
   assertOwnedPull,
   assertPRReceipt,
   assertRefusal,
+  REFUSAL_MESSAGES,
   assertPositive,
   cleanupExact,
   safeEvidence,
@@ -237,19 +238,46 @@ describe('one-shot PR RC reader qualification', () => {
       )
     ).toThrow();
   });
-  it('requires the pinned unavailable error and byte-identical state, not just a nonzero exit', () => {
+  it.each([
+    ['disabled', 'PR is closed, disabled, ineligible or outside the official repository.'],
+    ['closed', 'PR is closed, disabled, ineligible or outside the official repository.'],
+    ['epoch', 'Catalog producer or eligibility epoch does not match current API evidence.'],
+    ['stale', 'PR catalog source, producer or availability evidence does not match.'],
+  ] as const)('pins the %s JSON failure code/message and identical state', (stage, message) => {
+    expect(REFUSAL_MESSAGES[stage]).toBe(message);
     const state = { receipt: 'original', links: { tmt: 'original' }, sentinel: 'untouched' };
     const result = {
       status: 1,
-      stdout: '{"error":{"code":"NATIVE_PR_CHANNEL_UNAVAILABLE"}}',
+      stdout: JSON.stringify({ error: { code: 'NATIVE_UPGRADE_FAILED', message } }),
       stderr: '',
     };
-    expect(() => assertRefusal(result, state, structuredClone(state))).not.toThrow();
-    expect(() => assertRefusal({ ...result, status: 0 }, state, state)).toThrow();
-    expect(() => assertRefusal({ ...result, status: null }, state, state)).toThrow();
-    expect(() => assertRefusal({ ...result, stdout: 'network error' }, state, state)).toThrow();
-    expect(() => assertRefusal(result, state, { ...state, receipt: 'changed' })).toThrow();
-    expect(() => assertRefusal(result, state, { ...state, sentinel: 'changed' })).toThrow();
+    expect(() => assertRefusal(stage, result, state, structuredClone(state))).not.toThrow();
+    for (const status of [0, null])
+      expect(() => assertRefusal(stage, { ...result, status }, state, state)).toThrow();
+    for (const otherMessage of new Set(Object.values(REFUSAL_MESSAGES))) {
+      if (otherMessage === message) continue;
+      expect(() =>
+        assertRefusal(
+          stage,
+          {
+            ...result,
+            stdout: JSON.stringify({
+              error: { code: 'NATIVE_UPGRADE_FAILED', message: otherMessage },
+            }),
+          },
+          state,
+          state
+        )
+      ).toThrow();
+    }
+    for (const stdout of [
+      'network error',
+      JSON.stringify({ error: { code: 'NATIVE_PR_CHANNEL_UNAVAILABLE', message } }),
+      JSON.stringify({ error: { code: 'NATIVE_UPGRADE_FAILED' } }),
+    ])
+      expect(() => assertRefusal(stage, { ...result, stdout }, state, state)).toThrow();
+    expect(() => assertRefusal(stage, result, state, { ...state, receipt: 'changed' })).toThrow();
+    expect(() => assertRefusal(stage, result, state, { ...state, sentinel: 'changed' })).toThrow();
   });
   it('requires eligible success and identical receipt, prefix and application data before mutation', () => {
     const before = { receipt: receipt(), prefix: { binary: 'bytes' }, data: { sentinel: 'kept' } };
@@ -267,17 +295,27 @@ describe('one-shot PR RC reader qualification', () => {
     const alive = new Map([...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item]));
     const read = (method: string, route: string) => {
       calls.push(method);
+      if (route.includes('/timeline?'))
+        return {
+          status: 200,
+          data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event }],
+        };
       return { status: 200, data: alive.get(Number(route.split('/').at(-1)))! };
     };
     const result = await cleanupExact(rows, read, pull(false));
     expect(result.retained).toBe(true);
     expect(result.artifacts.map((item) => item.id)).toEqual(rows.rc.map((item) => item.id));
-    expect(calls).toEqual(Array(7).fill('GET'));
+    expect(calls).toEqual(Array(8).fill('GET'));
     alive.delete(FIXTURE.catalog);
     await expect(
       cleanupExact(
         rows,
         (method, route) => {
+          if (route.includes('/timeline?'))
+            return {
+              status: 200,
+              data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event }],
+            };
           const data = alive.get(Number(route.split('/').at(-1)));
           return data ? { status: 200, data } : { status: 404 };
         },
@@ -285,6 +323,44 @@ describe('one-shot PR RC reader qualification', () => {
       )
     ).rejects.toThrow('Unconsumed fixture artifact disappeared');
   });
+  it.each(['removed', 'readded'] as const)(
+    'consumes a same-head fixture when its label is %s',
+    async (labelState) => {
+      const rows = manifest();
+      const alive = new Map(
+        [...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item])
+      );
+      const deleted: number[] = [];
+      const current = {
+        ...pull(false),
+        labels: labelState === 'removed' ? [] : pull(false).labels,
+      };
+      const result = await cleanupExact(
+        rows,
+        (method, route) => {
+          if (route.includes('/timeline?'))
+            return {
+              status: 200,
+              data: [{ event: 'labeled', label: { name: 'rc-build' }, id: FIXTURE.event + 1 }],
+            };
+          if (route.startsWith('issues/')) return { status: 204 };
+          if (route.startsWith('pulls/')) return { status: 200, data: { ...current, labels: [] } };
+          const id = Number(route.split('/').at(-1));
+          if (method === 'DELETE') {
+            deleted.push(id);
+            alive.delete(id);
+            return { status: 204 };
+          }
+          const data = alive.get(id);
+          return data ? { status: 200, data } : { status: 404 };
+        },
+        current
+      );
+      expect(result.retained).toBe(false);
+      expect(deleted).toEqual(rows.rc.map((item) => item.id));
+      expect([...alive.keys()]).toEqual(rows.ordinary);
+    }
+  );
   it('rejects token/signed-url evidence without retaining it', () => {
     expect(safeEvidence({ result: 'safe' })).toBe('{"result":"safe"}');
     for (const value of [
@@ -406,6 +482,28 @@ describe('one-shot PR RC reader qualification', () => {
         expect(job).not.toMatch(/pr-rc-selftest.mjs (baseline|stale|disabled|epoch|closed)\b/);
       } else expect(job).toContain('actions: read');
     }
+    const expected = {
+      baseline: 'preflight',
+      disable: 'baseline',
+      disabled: 'disable',
+      enable: 'disabled',
+      epoch: 'enable',
+      advance: 'epoch',
+      stale: 'advance',
+      close: 'stale',
+      closed: 'close',
+    };
+    for (const [name, dependency] of Object.entries(expected)) {
+      const job = jobs.find((block) => block.startsWith(`${name}:`));
+      expect(job).toContain(`needs: [${dependency}]`);
+    }
+    for (const [name, scope] of [
+      ['disable', 'issues'],
+      ['enable', 'issues'],
+      ['advance', 'contents'],
+      ['close', 'pull-requests'],
+    ])
+      expect(jobs.find((block) => block.startsWith(`${name}:`))).toContain(`${scope}: write`);
     expect(jobs.length).toBe(11);
     expect(workflow).toContain("always() && needs.preflight.result == 'success'");
     expect(workflow).toContain('pr-rc-selftest.mjs seal');

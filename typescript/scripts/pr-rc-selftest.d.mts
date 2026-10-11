@@ -64,7 +64,9 @@ interface Artifact {
 }
 export function safeEvidence(value: unknown): string;
 export function assertOwnedPull(pull: Pull): void;
+export const REFUSAL_MESSAGES: Readonly<Record<'disabled' | 'closed' | 'epoch' | 'stale', string>>;
 export function assertRefusal(
+  stage: keyof typeof REFUSAL_MESSAGES,
   result: { status: number | null; stdout: string; stderr: string },
   before: unknown,
   after: unknown
