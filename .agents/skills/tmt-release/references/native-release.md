@@ -476,8 +476,9 @@ Linux x86_64 with an environment-only read token. Separate main-tooling jobs mut
 only the standing qualification PR; candidate code never receives write authority.
 It checks head1 receipt provenance, stale-head/disabled/new-epoch/closed refusals,
 unchanged application data and alpha return without a second producer dispatch.
-The label epoch consumes the fixture; a failed run needs owner-directed fresh evidence.
-Always-cleanup records absence of only the five captured RC IDs, preserving ordinary
+An eligible active-candidate re-run must preserve the receipt, prefix and application data.
+A failure before the stale-head commit retains the five verified artifacts for a rerun
+until expiry. Once consumed, cleanup records their exact-ID absence, preserving ordinary
 artifacts. Token-generated close events do not exercise the automatic close workflow.
 Run before the captured artifacts expire, outside 04:41Z daily cleanup by ten minutes;
 remove or parameterize this one-shot workflow after qualification evidence is recorded.

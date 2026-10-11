@@ -13,7 +13,9 @@ export const FIXTURE: Readonly<{
 interface Pull {
   number: number;
   base: { repo: { full_name: string } };
-  head: { repo: { full_name: string }; ref: string };
+  head: { repo: { full_name: string }; ref: string; sha: string };
+  state: string;
+  labels: { name: string }[];
 }
 interface Candidate {
   target: string;
@@ -54,6 +56,11 @@ export function assertRefusal(
   before: unknown,
   after: unknown
 ): void;
+export function assertPositive(
+  result: { status: number | null },
+  before: unknown,
+  after: unknown
+): void;
 export function assertPRReceipt(receipt: Receipt, catalog: Catalog): void;
 export function cleanupExact(
   manifest: { run: number; rc: Artifact[]; ordinary: number[] },
@@ -64,7 +71,12 @@ export function cleanupExact(
     absent?: boolean
   ) =>
     | { status: number; data?: Artifact & { workflow_run: { id: number } } }
-    | Promise<{ status: number; data?: Artifact & { workflow_run: { id: number } } }>
-): Promise<{ id: number; alreadyAbsent: boolean }[]>;
+    | Promise<{ status: number; data?: Artifact & { workflow_run: { id: number } } }>,
+  pull: Pull
+): Promise<{
+  retained: boolean;
+  reason: string;
+  artifacts: { id: number; alreadyAbsent: boolean }[];
+}>;
 export function readOwnedReceipt(world: string): Receipt;
 export function executeSelftest(stage: string): Promise<void>;

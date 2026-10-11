@@ -7,11 +7,23 @@ import {
   assertOwnedPull,
   assertPRReceipt,
   assertRefusal,
+  assertPositive,
   cleanupExact,
   safeEvidence,
   readOwnedReceipt,
 } from '../../scripts/pr-rc-selftest.mjs';
 
+const pull = (consumed = true) => ({
+  number: FIXTURE.pr,
+  base: { repo: { full_name: 'pj-tmt/tmt' } },
+  head: {
+    repo: { full_name: 'pj-tmt/tmt' },
+    ref: FIXTURE.branch,
+    sha: consumed ? 'f'.repeat(40) : FIXTURE.head,
+  },
+  state: 'open',
+  labels: [{ name: 'rc-build' }],
+});
 const artifact = (id: number) => ({
   id,
   name: `owned-${id}`,
@@ -68,17 +80,13 @@ describe('one-shot PR RC reader qualification', () => {
   });
 
   it('binds the standing same-repository branch and refuses unrelated PRs/forks/branches', () => {
-    const pull = {
-      number: FIXTURE.pr,
-      base: { repo: { full_name: 'pj-tmt/tmt' } },
-      head: { repo: { full_name: 'pj-tmt/tmt' }, ref: FIXTURE.branch },
-    };
-    expect(() => assertOwnedPull(pull)).not.toThrow();
-    expect(() => assertOwnedPull({ ...pull, number: 42 })).toThrow();
+    const owned = pull();
+    expect(() => assertOwnedPull(owned)).not.toThrow();
+    expect(() => assertOwnedPull({ ...owned, number: 42 })).toThrow();
     expect(() =>
-      assertOwnedPull({ ...pull, head: { ...pull.head, repo: { full_name: 'someone/tmt' } } })
+      assertOwnedPull({ ...owned, head: { ...owned.head, repo: { full_name: 'someone/tmt' } } })
     ).toThrow();
-    expect(() => assertOwnedPull({ ...pull, head: { ...pull.head, ref: 'main' } })).toThrow();
+    expect(() => assertOwnedPull({ ...owned, head: { ...owned.head, ref: 'main' } })).toThrow();
   });
   it('checks version/channel plus real receipt run/head/catalog/payload provenance', () => {
     expect(() => assertPRReceipt(receipt(), { candidates: [candidate] })).not.toThrow();
@@ -111,6 +119,40 @@ describe('one-shot PR RC reader qualification', () => {
     expect(() => assertRefusal(result, state, { ...state, receipt: 'changed' })).toThrow();
     expect(() => assertRefusal(result, state, { ...state, sentinel: 'changed' })).toThrow();
   });
+  it('requires eligible success and identical receipt, prefix and application data before mutation', () => {
+    const before = { receipt: receipt(), prefix: { binary: 'bytes' }, data: { sentinel: 'kept' } };
+    expect(() => assertPositive({ status: 0 }, before, structuredClone(before))).not.toThrow();
+    for (const status of [1, null])
+      expect(() => assertPositive({ status }, before, before)).toThrow();
+    for (const key of ['receipt', 'prefix', 'data'])
+      expect(() =>
+        assertPositive({ status: 0 }, before, { ...before, [key]: 'changed' })
+      ).toThrow();
+  });
+  it('retains and verifies unconsumed artifacts without any label, PR or artifact mutation', async () => {
+    const rows = manifest();
+    const calls: string[] = [];
+    const alive = new Map([...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item]));
+    const read = (method: string, route: string) => {
+      calls.push(method);
+      return { status: 200, data: alive.get(Number(route.split('/').at(-1)))! };
+    };
+    const result = await cleanupExact(rows, read, pull(false));
+    expect(result.retained).toBe(true);
+    expect(result.artifacts.map((item) => item.id)).toEqual(rows.rc.map((item) => item.id));
+    expect(calls).toEqual(Array(7).fill('GET'));
+    alive.delete(FIXTURE.catalog);
+    await expect(
+      cleanupExact(
+        rows,
+        (method, route) => {
+          const data = alive.get(Number(route.split('/').at(-1)));
+          return data ? { status: 200, data } : { status: 404 };
+        },
+        pull(false)
+      )
+    ).rejects.toThrow('Unconsumed fixture artifact disappeared');
+  });
   it('rejects token/signed-url evidence without retaining it', () => {
     expect(safeEvidence({ result: 'safe' })).toBe('{"result":"safe"}');
     for (const value of [
@@ -125,43 +167,85 @@ describe('one-shot PR RC reader qualification', () => {
     const alive = new Map([...rows.rc, artifact(20), artifact(21)].map((item) => [item.id, item]));
     alive.delete(FIXTURE.payloads[1]);
     const deleted: number[] = [];
-    const result = await cleanupExact(rows, (method, route) => {
-      const id = Number(route.split('/').at(-1));
-      if (method === 'DELETE') {
-        deleted.push(id);
-        alive.delete(id);
-        return { status: 204 };
-      }
-      const data = alive.get(id);
-      return data ? { status: 200, data } : { status: 404 };
-    });
+    const result = await cleanupExact(
+      rows,
+      (method, route) => {
+        if (route.startsWith('issues/')) return { status: 204 };
+        const id = Number(route.split('/').at(-1));
+        if (method === 'DELETE') {
+          deleted.push(id);
+          alive.delete(id);
+          return { status: 204 };
+        }
+        const data = alive.get(id);
+        return data ? { status: 200, data } : { status: 404 };
+      },
+      pull()
+    );
+    expect(result.retained).toBe(false);
     expect(deleted).toEqual([
       FIXTURE.catalog,
       FIXTURE.payloads[0],
       FIXTURE.payloads[2],
       FIXTURE.payloads[3],
     ]);
-    expect(result.find((item) => item.id === FIXTURE.payloads[1])?.alreadyAbsent).toBe(true);
+    expect(result.artifacts.find((item) => item.id === FIXTURE.payloads[1])?.alreadyAbsent).toBe(
+      true
+    );
     expect([...alive.keys()]).toEqual([20, 21]);
+  });
+  it('reopens and removes the label only for a consumed closed fixture', async () => {
+    const rows = manifest();
+    const calls: string[] = [];
+    const result = await cleanupExact(
+      rows,
+      (method, route) => {
+        calls.push(`${method} ${route}`);
+        if (route.startsWith('actions/artifacts/')) {
+          const id = Number(route.split('/').at(-1));
+          return rows.ordinary.includes(id) ? { status: 200, data: artifact(id) } : { status: 404 };
+        }
+        return { status: 204 };
+      },
+      { ...pull(), state: 'closed' }
+    );
+    expect(result.retained).toBe(false);
+    expect(calls.slice(0, 2)).toEqual([
+      `DELETE issues/${FIXTURE.pr}/labels/rc-build`,
+      `PATCH pulls/${FIXTURE.pr}`,
+    ]);
   });
   it('refuses changed ownership and a deletion that does not settle', async () => {
     const rows = manifest();
     let deletes = 0;
     await expect(
-      cleanupExact(rows, () => ({
-        status: 200,
-        data: { ...rows.rc[0], workflow_run: { id: 999 } },
-      }))
+      cleanupExact(
+        rows,
+        () => ({
+          status: 200,
+          data: { ...rows.rc[0], workflow_run: { id: 999 } },
+        }),
+        pull()
+      )
     ).rejects.toThrow();
     await expect(
-      cleanupExact(rows, (method) => {
-        if (method === 'DELETE') deletes++;
-        return { status: 200, data: { ...rows.rc[0], workflow_run: { id: FIXTURE.run } } };
-      })
+      cleanupExact(
+        rows,
+        (method, route) => {
+          if (route.startsWith('issues/')) return { status: 204 };
+          if (method === 'DELETE') deletes++;
+          return { status: 200, data: { ...rows.rc[0], workflow_run: { id: FIXTURE.run } } };
+        },
+        pull()
+      )
     ).rejects.toThrow();
     expect(deletes).toBe(1);
     await expect(
-      cleanupExact({ ...rows, rc: [rows.rc[1], ...rows.rc.slice(1)] }, () => ({ status: 404 }))
+      cleanupExact(
+        { ...rows, rc: [rows.rc[1], ...rows.rc.slice(1)] },
+        () => ({ status: 404 }),
+        pull()
+      )
     ).rejects.toThrow();
   });
   it('keeps all executable reader jobs read-only and never downloads/executes candidate code in write jobs', () => {

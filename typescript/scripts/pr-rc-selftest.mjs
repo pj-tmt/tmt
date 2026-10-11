@@ -58,6 +58,10 @@ export function assertRefusal(result, before, after) {
     'Refusal changed installed receipt, links, bytes or application data.'
   );
 }
+export function assertPositive(result, before, after) {
+  assert.equal(result.status, 0, 'Eligible active candidate upgrade must succeed.');
+  assert.deepEqual(after, before, 'Eligible re-run changed receipt, prefix or application data.');
+}
 export function assertPRReceipt(receipt, catalog) {
   assert.equal(receipt.channel, `pr${FIXTURE.pr}`);
   assert.equal(receipt.source?.kind, 'github-actions');
@@ -76,7 +80,9 @@ export function assertPRReceipt(receipt, catalog) {
   assert.equal(proof.candidate.payload_artifact.id, candidate.payload_artifact.id);
   assert.equal(receipt.archive_sha256, candidate.archive.sha256);
 }
-export async function cleanupExact(manifest, call) {
+export async function cleanupExact(manifest, call, pull) {
+  assertOwnedPull(pull);
+  const retained = pull.state === 'open' && pull.head.sha === FIXTURE.head;
   assert.equal(manifest.run, FIXTURE.run);
   assert.equal(manifest.rc.length, 5);
   assert.deepEqual(
@@ -85,7 +91,12 @@ export async function cleanupExact(manifest, call) {
     'Only the frozen five RC IDs may be deleted.'
   );
   assert.equal(manifest.rc[0].id, FIXTURE.catalog, 'Catalog must retire first.');
-  const deleted = [];
+  if (!retained) {
+    if (pull.labels.some((item) => item.name === 'rc-build'))
+      await call('DELETE', `issues/${FIXTURE.pr}/labels/rc-build`);
+    if (pull.state === 'closed') await call('PATCH', `pulls/${FIXTURE.pr}`, { state: 'open' });
+  }
+  const artifacts = [];
   for (const expected of manifest.rc) {
     const route = `actions/artifacts/${expected.id}`;
     const current = await call('GET', route, null, true);
@@ -93,14 +104,16 @@ export async function cleanupExact(manifest, call) {
       for (const key of ['id', 'name', 'size_in_bytes', 'digest'])
         assert.equal(current.data[key], expected[key]);
       assert.equal(current.data.workflow_run.id, FIXTURE.run);
-      await call('DELETE', route, null, true);
+      if (!retained) await call('DELETE', route, null, true);
     }
-    assert.equal(
-      (await call('GET', route, null, true)).status,
-      404,
-      'Exact owned ID is not absent.'
-    );
-    deleted.push({ id: expected.id, alreadyAbsent: current.status === 404 });
+    if (retained) assert.equal(current.status, 200, 'Unconsumed fixture artifact disappeared.');
+    else
+      assert.equal(
+        (await call('GET', route, null, true)).status,
+        404,
+        'Exact owned ID is not absent.'
+      );
+    artifacts.push({ id: expected.id, alreadyAbsent: current.status === 404 });
   }
   for (const id of manifest.ordinary)
     assert.equal(
@@ -108,7 +121,11 @@ export async function cleanupExact(manifest, call) {
       id,
       'Ordinary preparation artifact disappeared.'
     );
-  return deleted;
+  return {
+    retained,
+    reason: retained ? 'PR is open at head1; fixture is unconsumed.' : 'Fixture consumed.',
+    artifacts,
+  };
 }
 
 function run(file, args, options = {}) {
@@ -400,6 +417,28 @@ export async function executeSelftest(stage) {
       dataBefore,
       'PR install modified application data.'
     );
+    const positiveBefore = {
+      receipt: readOwnedReceipt(world),
+      prefix: snapshot(path.join(world, 'prefix')),
+      data: snapshot(path.join(world, 'state')),
+    };
+    const positiveBinary = binaryIdentity(world, 'active-candidate');
+    const positive = run(
+      executable,
+      ['upgrade', '--channel', `pr${FIXTURE.pr}`, '--yes', '--json'],
+      { env: clientEnvironment(world) }
+    );
+    save('positive', {
+      binaryRan: positiveBinary,
+      status: positive.status,
+      stdout: positive.stdout,
+      stderr: positive.stderr,
+    });
+    assertPositive(positive, positiveBefore, {
+      receipt: readOwnedReceipt(world),
+      prefix: snapshot(path.join(world, 'prefix')),
+      data: snapshot(path.join(world, 'state')),
+    });
     fs.writeFileSync(
       path.join(world, 'frozen.json'),
       `${safeEvidence({ root: world, dataBefore, state: snapshot(path.join(world, 'prefix')), receipt: readOwnedReceipt(world) })}\n`
@@ -501,10 +540,10 @@ export async function executeSelftest(stage) {
     assert.equal(pull().state, 'closed');
     save(stage, { closed: true });
   } else if (stage === 'cleanup') {
-    if (current.labels.some((item) => item.name === 'rc-build'))
-      api('DELETE', `issues/${FIXTURE.pr}/labels/rc-build`);
-    if (current.state === 'closed') api('PATCH', `pulls/${FIXTURE.pr}`, { state: 'open' });
-    save(stage, { deleted: await cleanupExact(manifest, api), closeEventCleanupExercised: false });
+    save(stage, {
+      ...(await cleanupExact(manifest, api, current)),
+      closeEventCleanupExercised: false,
+    });
   } else throw new Error('Unknown selftest stage.');
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
