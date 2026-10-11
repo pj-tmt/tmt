@@ -295,6 +295,7 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync, sleep 
       return gh(
         [
           'api',
+          '--allow-escape-sequences',
           '-H',
           'Accept: application/octet-stream',
           `repos/${repository}/releases/assets/${id}`,

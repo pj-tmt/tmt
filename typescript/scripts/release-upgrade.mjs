@@ -711,6 +711,7 @@ export function ghAssetDownloader({ repository, env = process.env, spawn = spawn
           'gh',
           [
             'api',
+            '--allow-escape-sequences',
             '-H',
             'Accept: application/octet-stream',
             `repos/${repository}/releases/assets/${asset.id}`,
