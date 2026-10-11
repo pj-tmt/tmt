@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
@@ -172,7 +174,7 @@ describe('explicit Linux WebKit refusal', () => {
       [
         '--input-type=module',
         '-e',
-        `import {parseRefused,validateRefusal,validateExpectedReport} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};${source}`,
+        `import {parseRefused,validateRefusal,validateExpectedReport,requireBuiltApp,APP_DIST} from ${JSON.stringify(new URL('./gate.mjs', import.meta.url).href)};${source}`,
       ],
       { encoding: 'utf8', timeout: 10000 },
     );
@@ -199,6 +201,31 @@ describe('explicit Linux WebKit refusal', () => {
       ['unknown', ['webkit'], 'linux'],
     ])
       expect(call(`parseRefused(...${JSON.stringify(args)})`).status).toBe(1);
+  });
+  it('serves the app the @tmt/colab-app package builds, and says where it looked when it is not built', () => {
+    // The refusal proof reads the normal app build; a wrong relative path died with ENOENT on
+    // index.html before any engine ran (#2717), so pin where it points, built or not.
+    const dist = call('console.log(APP_DIST.pathname)');
+    expect(dist.status).toBe(0);
+    const location = dist.stdout.trim();
+    expect(location.endsWith('/extensions/tmt-colab/typescript/app/dist/')).toBe(true);
+    const manifest = JSON.parse(
+      readFileSync(new URL('../package.json', 'file://' + location), 'utf8'),
+    ) as { name: string };
+    expect(manifest.name).toBe('@tmt/colab-app');
+    const missing = call("requireBuiltApp(new URL('file:///nonexistent-colab-app/dist/'))");
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('/nonexistent-colab-app/dist/index.html');
+    expect(missing.stderr).toContain('@tmt/colab-app');
+    const built = mkdtempSync(join(tmpdir(), 'colab-app-dist-'));
+    writeFileSync(join(built, 'index.html'), '<!doctype html>');
+    try {
+      expect(
+        call(`requireBuiltApp(new URL(${JSON.stringify('file://' + built + '/')}))`).status,
+      ).toBe(0);
+    } finally {
+      rmSync(built, { recursive: true });
+    }
   });
   it('cannot omit or duplicate an expected-refused engine', () => {
     const report = [...reports.slice(0, 2), { ...refusal, engine: 'webkit' }];
