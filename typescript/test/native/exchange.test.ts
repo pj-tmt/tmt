@@ -125,6 +125,13 @@ describe('native exchange attention process contract', () => {
       const human = await runCli(sandbox, ['x', 'flow']);
       expect(human.status).toBe(0);
       expect(human.stdout).toContain('SENDER');
+      expect(human.stdout).toContain('Sender');
+      expect(human.stdout).toContain('Recipient');
+      expect(human.stdout).not.toContain(sender.id);
+      expect(human.stdout).not.toContain(recipient.id);
+      expect(human.stdout).toMatch(
+        /^Exchange flow since \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \(24h\)/
+      );
       expect(human.stdout).not.toContain(body);
       expect(readFileSync(log, 'utf8')).toBe('\n');
     });

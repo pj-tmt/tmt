@@ -723,8 +723,10 @@ bucket-aligned `sinceMs`, `observedAtMs`, `bucketMs:1800000`, and `rows`, ordere
 bucket, sender UUID, recipient UUID and kind. Each row has only
 `senderIdentityId`, `recipientIdentityId`, `kind`, `bucketStartMs`, `count`, and
 `bytes`. Unknown participants are null. Human output sums the window by pair and
-kind instead of printing every bucket. Names and roles can be joined separately
-by consumers; identity retirement or reuse never changes historical UUIDs.
+kind instead of printing every bucket, with a readable UTC window and current
+display names (short UUIDs for retired identities, `unknown` for null). JSON
+consumers can join names and roles separately; retirement or reuse never changes
+historical UUIDs.
 
 The request service records these events in the committing transaction:
 
