@@ -1432,6 +1432,8 @@ footer {
   border-bottom: 0;
 }
 .chat-panel .comment-byline {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -1443,6 +1445,7 @@ footer {
   overflow-wrap: anywhere;
 }
 .chat-panel .comment-byline time {
+  flex-shrink: 0;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -1451,6 +1454,9 @@ footer {
 }
 .chat-panel .conversation-agent-label {
   font-size: 11px;
+  border: 1px solid var(--c-rule);
+  padding: 0 4px;
+  line-height: 1.3;
 }
 .chat-panel .conversation-body {
   margin-top: 6px;
@@ -1497,6 +1503,7 @@ footer {
   flex-wrap: wrap;
 }
 .annotation-compose[data-chat] .annotation-status-row > .annotation-hint {
+  order: 0;
   flex: 1 1 auto;
 }
 .annotation-compose[data-chat] .annotation-status-row > .annotation-hint:empty {
@@ -1521,19 +1528,9 @@ footer {
   flex: 1;
 }
 
-.chat-panel .comment-byline {
-  flex: 1;
-  min-width: 0;
-}
-.chat-panel .comment-byline time {
-  flex-shrink: 0;
-}
-.chat-panel .conversation-agent-label {
-  border: 1px solid var(--c-rule);
-  padding: 0 4px;
-  line-height: 1.3;
-}
-.annotation-compose[data-chat] .annotation-status-row > .annotation-hint {
-  order: 0;
-  flex-basis: auto;
+@media (max-width: 640px) {
+  .chat-panel .ask-again-action .tmt-ui-action {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }

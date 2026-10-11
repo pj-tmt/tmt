@@ -327,7 +327,7 @@ for (const width of [1440, 390]) {
       await expect(close).toBeFocused();
       if (!process.env.COLAB_INTERACTION_BASELINE)
         await expect(page.locator('.tmt-ui-icon-action-tooltip:popover-open')).toHaveText(
-          'Close Chat',
+          'Collapse Chat · Esc',
         );
       await capture('drawer-focus');
       if (!process.env.COLAB_INTERACTION_BASELINE) {

@@ -910,7 +910,7 @@ for (const [width, theme] of [
     await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
     await input.fill('');
     await input.pressSequentially('@A');
-    await panel.getByRole('option').first().click();
+    await page.getByRole('option').first().click();
     await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
     await expect(panel.locator('.annotation-status-row')).not.toContainText(text.messageComment);
     await capture(page, panel, `chat-polish-recipient-${width}-${theme}`);
