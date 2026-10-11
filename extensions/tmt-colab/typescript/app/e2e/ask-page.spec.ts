@@ -151,9 +151,12 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
     await run(page, 'syncRefusal', reason);
     await expect(page.getByTestId('ask-state').first()).toContainText('Not delivered');
     await expect(page.getByTestId('ask-entry').first()).toContainText(copy);
-    await expect(
-      page.getByTestId('ask-state').first().locator('.ask-state[data-tone="problem"] svg.lucide'),
-    ).toBeVisible();
+    const mark = page
+      .getByTestId('ask-state')
+      .first()
+      .locator('.ask-state[data-tone="problem"] .ask-state-mark');
+    await expect(mark).toBeVisible();
+    await expect(mark).toHaveText('✗');
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Check again' })).toHaveCount(0);
   }
@@ -1042,7 +1045,9 @@ for (const [width, theme] of [
       await expect(drawer).toHaveCSS('border-right-width', '1px');
       expect((await frame.boundingBox())?.width).toBe(before?.width);
       await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });
-      await drawer.getByRole('button', { name: /^Close / }).click();
+      await drawer
+        .getByRole('button', { name: panel === 'chat' ? 'Collapse Chat' : /^Close / })
+        .click();
       await expect(drawer).toBeHidden();
     }
   });
