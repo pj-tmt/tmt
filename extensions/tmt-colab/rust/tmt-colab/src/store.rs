@@ -2,6 +2,8 @@
 //! Receipt/hash rows survive payload pruning, including interleaved namespaces.
 pub mod owner;
 mod schema;
+/// The schema version this build writes. Migration tests read it instead of naming the latest.
+pub const SCHEMA_VERSION: u32 = schema::CURRENT_VERSION;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};

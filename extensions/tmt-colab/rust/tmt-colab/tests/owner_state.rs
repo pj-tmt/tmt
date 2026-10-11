@@ -9,7 +9,7 @@ use tmt_colab::{
     Result,
     keyring::{Keyring, Layout},
     store::{
-        Fault, Store,
+        Fault, SCHEMA_VERSION, Store,
         owner::{Device, Mutation, OwnerFault, OwnerTransaction, Recipient},
     },
 };
@@ -474,7 +474,7 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     let f = Fixture::new();
     let db = f.oracle();
     // Independent schema-1 fixture: all original columns carry non-default data.
-    db.execute_batch("DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
+    db.execute_batch("DROP TABLE page_labels; DROP TABLE baselines; DROP TABLE device_registrations; DROP TABLE owner_operations; DROP TABLE wraps; DROP TABLE epoch_secrets;
         DROP TABLE devices; DROP TABLE recipients; DROP TABLE membership_log; DROP TABLE owner_state;
         DROP TABLE checkpoints; DROP TABLE receipts; DROP TABLE streams; DROP TABLE pages;
         CREATE TABLE pages(page TEXT PRIMARY KEY, epoch TEXT NOT NULL);
@@ -525,16 +525,17 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        6
+        SCHEMA_VERSION
     );
     assert_eq!(counts(&db), vec![0; 7]);
-    db.pragma_update(None, "user_version", 7).unwrap();
+    db.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+        .unwrap();
     let path = f.layout.directory.join("space.db");
     let bytes = fs::read(&path).unwrap();
     let error = Store::open(&f.layout).err().unwrap();
     assert!(matches!(
         error.downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(7))
+        Some(Fault::UnsupportedSchema(version)) if *version == SCHEMA_VERSION + 1
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
     assert_eq!(legacy_rows(&db), before);
@@ -646,7 +647,7 @@ fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO modern_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY,digest BLOB NOT NULL,outcome BLOB NOT NULL);
         INSERT INTO owner_operations SELECT id,digest,outcome FROM modern_operations;
-        DROP TABLE modern_operations; PRAGMA user_version=5;").unwrap();
+        DROP TABLE modern_operations; DROP TABLE page_labels; PRAGMA user_version=5;").unwrap();
     let before: (String, Vec<u8>, Vec<u8>) = db
         .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -682,6 +683,6 @@ fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        6
+        SCHEMA_VERSION
     );
 }
