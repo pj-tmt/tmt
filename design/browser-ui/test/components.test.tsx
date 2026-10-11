@@ -16,14 +16,17 @@ describe('presentation contracts', () => {
     const html = renderToStaticMarkup(
       <BrowserAction
         type="button"
-        label="Send answer · to @Reviewer"
+        label="Send & next · to @Reviewer"
         visibleLabel="Send & next"
         variant="primary"
         onActivate={() => {}}
       />,
     );
-    expect(html).toContain('aria-label="Send answer · to @Reviewer"');
+    expect(html).toContain('aria-label="Send &amp; next · to @Reviewer"');
     expect(html).toContain('tmt-ui-action-label">Send &amp; next</span>');
+    const accessibleName = html.match(/aria-label="([^"]+)"/)?.[1];
+    const visibleText = html.match(/tmt-ui-action-label">([^<]+)</)?.[1];
+    expect(accessibleName?.startsWith(visibleText!)).toBe(true);
   });
   it('retains decorative mark and label slots across every action variant and busy state', () => {
     for (const variant of ['text', 'primary', 'destructive'] as const) {
