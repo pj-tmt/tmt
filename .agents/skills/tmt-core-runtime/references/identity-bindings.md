@@ -276,6 +276,8 @@ beside `src`, outside the TypeScript package workspace. Native publication stage
 0700 directories and 0600 files, then atomically renames a complete plugin into
 `<dataRoot>/provider-plugins/claude/<tmt-version>`. Concurrent launches reuse the
 same complete version; older versions are ignored without scanning or deleting them.
+Claude-generated root `tsconfig.json` and `.claude-plugin/types/` are inert:
+validation checks ownership and regular file/directory shapes, not their bytes.
 Fresh and resumed Claude launches add this directory with `--plugin-dir` alongside
 session-only settings, preserving user plugin arguments and settings files.
 

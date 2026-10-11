@@ -344,3 +344,58 @@ fn unavailable_picker_keeps_composed_hooks_and_the_original_prompt() {
         "modified"
     );
 }
+
+#[test]
+fn later_launches_reuse_the_picker_after_claude_generates_editor_files() {
+    for args in [vec![], vec!["--resume", "session-1"]] {
+        let (directory, first) = fixture(&args, None);
+        let plugin_index = first
+            .args
+            .iter()
+            .position(|arg| arg == "--plugin-dir")
+            .unwrap();
+        let plugin = Path::new(&first.args[plugin_index + 1]).to_path_buf();
+        fs::write(plugin.join("tsconfig.json"), r#"{"compilerOptions":{}}"#).unwrap();
+        fs::create_dir(plugin.join(".claude-plugin/types")).unwrap();
+        fs::write(plugin.join(".claude-plugin/types/hooks.d.ts"), "export {};").unwrap();
+        let environment =
+            ProviderEnvironment::from_parts(&directory.path, &directory.path, vec![], []);
+        let launch = HookLaunch {
+            identity_id: "11111111-1111-4111-8111-111111111111".into(),
+            binding_id: "22222222-2222-4222-8222-222222222222".into(),
+            owner_pid: 42,
+            owner_start: "start".into(),
+        };
+        let command = RuntimeCommand {
+            executable: "claude".into(),
+            args: args.iter().map(|arg| (*arg).into()).collect(),
+        };
+        let paths =
+            crate::config::ConfigPaths::resolve(&directory.path, &directory.path, None, None);
+        let later = prepare(&LaunchHooks {
+            command: &command,
+            launch: &launch,
+            tmt: Path::new("/tmt"),
+            environment: &environment,
+            paths: &paths,
+        })
+        .unwrap();
+        let index = later
+            .args
+            .iter()
+            .position(|arg| arg == "--plugin-dir")
+            .expect("later launch must retain the picker");
+        assert_eq!(Path::new(&later.args[index + 1]), plugin);
+        assert!(settings(&later)["hooks"]["Stop"].is_array());
+        assert_eq!(
+            fs::read_to_string(plugin.join(".claude-plugin/types/hooks.d.ts")).unwrap(),
+            "export {};"
+        );
+        assert_eq!(
+            fs::read_to_string(plugin.join("tsconfig.json")).unwrap(),
+            r#"{"compilerOptions":{}}"#
+        );
+        assert!(!paths.global_config.exists());
+        assert!(!paths.database.exists());
+    }
+}

@@ -54,9 +54,12 @@ fn validate(path: &Path) -> io::Result<()> {
             return Err(io::Error::other("Invalid provider plugin directory."));
         }
     }
-    // Generated editor types are inert; additional provider-readable assets are not.
+    // Engine-generated editor configuration and types are inert, never provider assets.
     for (directory, allowed) in [
-        (path.to_path_buf(), &[".claude-plugin", "hooks"][..]),
+        (
+            path.to_path_buf(),
+            &[".claude-plugin", "hooks", "tsconfig.json"][..],
+        ),
         (path.join("hooks"), &["hooks.json", "register.mjs"][..]),
         (path.join(".claude-plugin"), &["plugin.json", "types"][..]),
     ] {
@@ -65,6 +68,23 @@ fn validate(path: &Path) -> io::Result<()> {
             if !allowed.iter().any(|name| entry.file_name() == *name) {
                 return Err(io::Error::other("Unexpected provider plugin asset."));
             }
+        }
+    }
+    for (generated, directory) in [
+        (path.join("tsconfig.json"), false),
+        (path.join(".claude-plugin/types"), true),
+    ] {
+        let metadata = match fs::symlink_metadata(generated) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if (directory && !metadata.is_dir())
+            || (!directory && !metadata.is_file())
+            || metadata.uid() != nix::unistd::geteuid().as_raw()
+            || metadata.mode() & 0o7022 != 0
+        {
+            return Err(io::Error::other("Invalid generated provider editor entry."));
         }
     }
     for (name, expected) in FILES {
