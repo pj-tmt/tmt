@@ -84,3 +84,56 @@ fn unexpected_provider_readable_files_refuse_the_cached_plugin() {
     assert!(publish(&paths, "1.2.3").is_err());
     assert!(path.join("commands").is_dir());
 }
+
+#[test]
+fn generated_editor_entries_require_their_owned_regular_shape() {
+    for (relative, directory) in [("tsconfig.json", false), (".claude-plugin/types", true)] {
+        for symlink in [false, true] {
+            let root = TestDirectory::new();
+            let paths = paths(&root);
+            let plugin = publish(&paths, "1.2.3").unwrap();
+            let entry = plugin.join(relative);
+            let outside = root.path.join("outside");
+            if directory {
+                fs::create_dir(&outside).unwrap();
+            } else {
+                fs::write(&outside, b"foreign bytes").unwrap();
+            }
+            if symlink {
+                std::os::unix::fs::symlink(&outside, &entry).unwrap();
+            } else if directory {
+                fs::write(&entry, b"wrong shape").unwrap();
+            } else {
+                fs::create_dir(&entry).unwrap();
+            }
+            assert!(
+                publish(&paths, "1.2.3").is_err(),
+                "{relative}, symlink={symlink}"
+            );
+            assert!(fs::symlink_metadata(&entry).is_ok());
+            if !directory {
+                assert_eq!(fs::read(&outside).unwrap(), b"foreign bytes");
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_editor_entries_cannot_be_group_writable() {
+    use std::os::unix::fs::PermissionsExt;
+    for relative in ["tsconfig.json", ".claude-plugin/types"] {
+        let root = TestDirectory::new();
+        let paths = paths(&root);
+        let plugin = publish(&paths, "1.2.3").unwrap();
+        let entry = plugin.join(relative);
+        if relative == "tsconfig.json" {
+            fs::write(&entry, "{}").unwrap();
+            fs::set_permissions(&entry, fs::Permissions::from_mode(0o660)).unwrap();
+        } else {
+            fs::create_dir(&entry).unwrap();
+            fs::set_permissions(&entry, fs::Permissions::from_mode(0o770)).unwrap();
+        }
+        assert!(publish(&paths, "1.2.3").is_err());
+        assert!(entry.exists());
+    }
+}
