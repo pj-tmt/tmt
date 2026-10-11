@@ -531,20 +531,9 @@ crate dependency. Core, adapters and the Colab model do not consume it. The
 architecture guard enforces the reviewed manifest, source edges and all dependency
 kinds, including aliases and target-specific dependencies.
 
-`Layout` admits an extension-selected private subtree beneath the injected
-absolute core-reported data root. It preserves existing root permissions and
-canonicalizes aliases only in that trusted root. Private directories must be
-owned 0700 directories; allowlisted files must be owned regular 0600 files,
-opened with no-follow and nonblocking flags. Read-only lookup and lock probes
-create nothing. Reads retain the caller's byte bound.
+[Crate docs](rust/crates/tmt-extension-state/src/lib.rs) own filesystem admission and publication mechanics.
 
-`Publication` holds a nonblocking lock through stale temporary admission,
-cleanup and publication. Only the selected prefix plus 32 lowercase hex digits
-matches a temporary; unsafe or oversized matches refuse and foreign names remain.
-A staged file borrows that guard and links create-only after writing and syncing
-its bytes. The extension retains entropy, key interpretation, error mapping and
-its existing staging/removal/directory-sync failure ordering. Store schemas,
-identity derivation and Remote's serve-lock proof remain extension-owned; this
+Store schemas, identity derivation and Remote's serve-lock proof remain extension-owned; this
 leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
