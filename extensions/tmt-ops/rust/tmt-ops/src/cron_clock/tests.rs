@@ -53,6 +53,15 @@ fn wait_for<T>(mut read: impl FnMut() -> Option<T>) -> T {
     }
 }
 
+/// Waits until a worker has published its lease. `Clock::status` takes the clock lock, so
+/// polling it while a foreground worker makes its single acquire attempt can make that
+/// attempt `SQUAD_CRON_CLOCK_BUSY` and end the worker; the lease file needs no lock.
+#[track_caller]
+fn wait_for_lease(f: &Fixture) {
+    let lease = f.directory.join("ops/cron/clock.json");
+    wait_for(|| lease.exists().then_some(()));
+}
+
 #[test]
 fn clock_status_projection_keeps_full_holder_evidence() {
     let holder = cron::Holder {
@@ -270,6 +279,7 @@ fn running_clock_baselines_at_start_and_rejects_a_second_foreground_clock() {
     minute_job(&f); // Its prior slot is within the standalone window.
     let mut first = ClockWorker::spawn(f.core.clone(), f.config.clone(), true);
     let clock = Clock::new(&f.directory.join("ops")).unwrap();
+    wait_for_lease(&f);
     wait_for(|| matches!(clock.status(now()), ClockStatus::Running(_)).then_some(()));
     // Wait until the first pass has read the jobs, rather than merely its lease.
     wait_for(|| {
@@ -291,6 +301,7 @@ fn running_clock_baselines_at_start_and_rejects_a_second_foreground_clock() {
     assert_eq!(clock.status(now()), ClockStatus::NoClock);
     // The replacement also starts at now, without replaying the prior slot.
     let mut replacement = ClockWorker::spawn(f.core.clone(), f.config.clone(), true);
+    wait_for_lease(&f);
     wait_for(|| matches!(clock.status(now()), ClockStatus::Running(_)).then_some(()));
     replacement.stop().unwrap();
     assert!(request_calls(&f.model()).is_empty());
