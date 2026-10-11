@@ -279,6 +279,7 @@ fn usage_pieces(
     width: u16,
     digits: Option<&[String; 3]>,
 ) -> Vec<Piece> {
+    let available = width.saturating_sub(2);
     let accepted = if usage.totals[2].is_some() {
         usage_number(usage, 2)
     } else {
@@ -308,14 +309,14 @@ fn usage_pieces(
         && let Some(top) = &usage.top
     {
         let suffix = format!(" {}", percent(&top.share));
-        let room =
-            usize::from(width).saturating_sub(text.width() + " · top ".width() + suffix.width());
+        let room = usize::from(available)
+            .saturating_sub(text.width() + " · top ".width() + suffix.width());
         text.push_str(&format!(
             " · top {}{suffix}",
             fit(&escape(top.member), room).trim_end()
         ));
     }
-    vec![(text, Some(Role::Muted))]
+    vec![("  ".into(), Some(Role::Muted)), (text, Some(Role::Muted))]
 }
 
 pub(in crate::board) fn hidden_usage(
@@ -508,7 +509,7 @@ pub(super) fn usage_slots(usage: &HomeHeaderUsage<'_>, width: u16) -> Vec<(usize
         },
         usage.windows[2].label()
     );
-    let x = prefix.width() as u16;
+    let x = 2 + prefix.width() as u16;
     vec![(
         2,
         x,

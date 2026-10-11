@@ -178,14 +178,14 @@ pub(in crate::board) fn render_frame(
     header::render_meter_status(frame, app, meter_status);
     let usage = if home_history_pending {
         Some(ratatui::text::Line::styled(
-            "Updating usage…",
+            "  Updating usage…",
             look.role(tmt_cli_style::Role::Muted),
         ))
     } else {
         home_usage.or_else(|| {
             overview.map(|_| {
                 ratatui::text::Line::styled(
-                    "Usage no reading",
+                    "  Usage no reading",
                     look.role(tmt_cli_style::Role::Muted),
                 )
             })
@@ -194,10 +194,11 @@ pub(in crate::board) fn render_frame(
     if let Some(mut line) = usage {
         app.home_counters.borrow_mut().place_header(meter_status);
         if overview == Some(app.selected) {
-            let unused = usize::from(meter_status.width).saturating_sub(line.width());
-            line.spans
-                .push(ratatui::text::Span::raw(" ".repeat(unused)));
-            line.style = look.selection();
+            // Reserve the same two-cell cursor slot in every usage state; the
+            // text stays muted and the provider tracks never look selected.
+            if let Some(first) = line.spans.first_mut() {
+                first.content = format!("> {}", first.content.trim_start()).into();
+            }
         }
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }

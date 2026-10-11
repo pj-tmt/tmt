@@ -157,19 +157,22 @@ Deduplicate UUIDs using the better-covered observation. No rate or money
 estimate substitutes for observed completed-request totals.
 
 The overview is the first cursor stop, but initial focus remains on the first
-blocked row, else lead, else squad. Its selection paints only the usage line;
+blocked row, else lead, else squad. Its selection marks only the usage line's left cursor;
 never select the bar rows. `e`/Enter opens shared in-place detail for values
 hidden at the current width: short windows, rates, missing-data coverage and
 shortened labels. Do not repeat visible values or acquire data on paint/input.
 Hide this stop during search; retain target identity on refresh and resize.
 
-At 160 cells, provider bars are side by side with 34-cell inside labels. At
-100, each occupies a row, followed by rate/5h. At 80 use 26 cells; at 60 use
-16, keeping percentage inside and depletion warning outside. Reverse-fill the
-existing working/waiting/blocked role; use Text over the neutral Selection
-background for the track. NO_COLOR reverses fill and underlines track. Forecast
-only from a positive measured rate: before-reset depletion is `! empties
-~duration`, at or within 12h is `✗ empties ~duration`. Stale readings show words.
+Provider bars use an approximately 18-cell inside label, such as `Claude 36% (7d)`.
+At 160 cells two fit side by side; narrower widths give each its own row. Keep
+percentage inside and depletion warning outside. Reverse-fill the existing
+working/waiting/blocked role; use Text over the neutral Track background.
+NO_COLOR reverses fill and underlines track. Only a positive measured pace adds
+`~N%/h`; before-reset depletion is `! ~duration`, at or within 12h `✗ ~duration`.
+`│ duration` names time to reset. Beside the pace, show ↗ (waiting), → (muted) or
+↘ (working) when recent pace is clearly faster, similar or slower than the
+displayed baseline. Insufficient history omits the arrow; missing and stale
+readings use plain words. Short-window readings remain in overview detail.
 
 One blank line precedes Leads and Squads; one rule separates each boundary. Leads label their age `last exchange` and
 show squad from 80 cells. Squads has aligned squad/lead/members/token/`lead %`

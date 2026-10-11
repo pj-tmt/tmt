@@ -70,6 +70,44 @@ fn codex_comes_from_the_listing_with_no_pane_read() {
 }
 
 #[test]
+fn sampled_history_carries_derived_trend_without_an_extra_capture() {
+    let mut sampler = Sampler::new(None);
+    let now = Instant::now();
+    let mut panes = Panes::showing(FOOTER);
+    let mut last = Vec::new();
+    for (hours, used) in [(0, 10.0), (4, 14.0), (6, 22.0)] {
+        let observed = NOW_MS + hours * HOUR;
+        last = sampler.sample(
+            &listed(vec![codex(used, observed)]),
+            observed,
+            now,
+            &mut panes.capture(),
+        );
+    }
+    let codex = standing(&last, Provider::named("codex"));
+    assert_eq!(codex.burn, Some(2.0));
+    assert_eq!(codex.trend, Some(Trend::Up));
+    assert_eq!(
+        codex.outlook(NOW_MS + 6 * HOUR),
+        Outlook::Known(Figures {
+            weekly: estimate::Left {
+                percent: 78.0,
+                resets_in_ms: 94 * HOUR
+            },
+            short: None,
+            burn: Some(2.0),
+            trend: Some(Trend::Up),
+            runs_out_before_reset: true,
+        })
+    );
+    assert!(matches!(
+        codex.outlook(NOW_MS + 8 * HOUR + 1),
+        Outlook::Unknown { .. }
+    ));
+    assert!(panes.calls.is_empty());
+}
+
+#[test]
 fn claude_is_read_from_the_freshest_pane_and_dated_by_its_usage_observation() {
     let mut sampler = Sampler::new(None);
     let mut panes = Panes::showing(FOOTER);

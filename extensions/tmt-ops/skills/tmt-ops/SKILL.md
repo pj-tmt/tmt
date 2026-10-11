@@ -1069,15 +1069,17 @@ Changing the observation policy starts fresh observations; core history seeds ag
 on the next tab entry.
 
 While the usage meter is on, HOME shows provider account meters at every width.
-Labels inside the bar give provider, weekly percentage left and reset duration.
-At 160 columns two 34-cell bars share a row. At 100 each has its own row with
-rate and 5h reading alongside; 80 uses 26 cells, 60 uses 16 and moves reset to
-detail. Warnings remain outside: `! empties ~duration`, or `✗ empties ~duration`
+Inside, approximately 18 cells show `Claude 36% (7d)`. At 160 columns two bars
+share a row; narrower widths give each its own row. Outside, `│ duration` is
+time to reset. Short-window readings remain in overview detail.
+Warnings are `! ~duration`, or `✗ ~duration`
 when depletion before reset is at or within 12 hours. No positive measured burn
-means no forecast. Fill reverses the existing state role; Text over neutral
-Selection is the track, never a selected bar. NO_COLOR reverses fill and
+means no forecast. Fill reverses the existing state role; Text over the neutral
+Track background marks the unfilled portion, never selection. NO_COLOR reverses fill and
 underlines track. Overview detail lists only values hidden at the current width.
 `~N%/h` averages weekly use over the last 6 hours after an hour of samples.
+With enough history, ↗/→/↘ compare recent 1–2-hour pace with that displayed
+baseline; the whole-percent precision floor suppresses single-step changes.
 Numbers use provider session reports or its captured statusline footer through
 Core `check --capture-only`; reads send nothing. A sample older than 2 hours says
 `no reading for 3h` (or `no reading yet`), never an old percentage. The board
