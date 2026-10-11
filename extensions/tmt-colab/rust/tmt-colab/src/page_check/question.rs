@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::{
-    Finding, Question, Report, Severity,
+    Finding, Question, QuestionGroup, Report, Severity, group,
     tree::{Id, Tree},
 };
 use crate::limits::{
@@ -23,6 +23,10 @@ pub(super) struct Candidate {
     title: String,
     choices: Vec<String>,
     nested: bool,
+    /// The nearest `tmt-question`/`tmt-questions` ancestor is a group that is not the parent.
+    wrapped: bool,
+    /// Whether this question holds its ID in the shared namespace (see [`group::Survey`]).
+    holder: bool,
     holders: usize,
 }
 
@@ -38,10 +42,13 @@ fn valid_kind(c: &Candidate) -> bool {
 /// The ordered rule table; a question is admitted exactly when no rule fails. Title rules wait for
 /// exactly one heading and the choice-shape rules for a valid kind, so one defect is not reported
 /// twice.
-pub(super) const RULES: [Rule; 18] = [
+pub(super) const RULES: [Rule; 19] = [
     ("question-id-invalid", |c| !is_uuid(&c.id)),
-    ("question-id-duplicate", |c| is_uuid(&c.id) && c.holders > 1),
+    ("question-id-duplicate", |c| {
+        c.holder && is_uuid(&c.id) && c.holders > 1
+    }),
     ("question-nested", |c| c.nested),
+    ("question-group-child-invalid", |c| c.wrapped),
     ("question-heading-missing", |c| c.headings == 0),
     ("question-heading-multiple", |c| c.headings > 1),
     ("question-title-empty", |c| {
@@ -110,7 +117,7 @@ fn is_space(c: char) -> bool {
 }
 
 /// `questionText`: every whitespace run becomes one space, then the ends are trimmed.
-fn question_text(value: &str) -> String {
+pub(super) fn question_text(value: &str) -> String {
     let mut text = String::new();
     let mut pending = false;
     for c in value.chars() {
@@ -127,11 +134,11 @@ fn question_text(value: &str) -> String {
     text
 }
 
-fn has_control(value: &str) -> bool {
+pub(super) fn has_control(value: &str) -> bool {
     value.chars().any(|c| u32::from(c) < 32 || c == '\u{7f}')
 }
 
-fn over(value: &str, points: usize) -> bool {
+pub(super) fn over(value: &str, points: usize) -> bool {
     value.chars().count() > points
 }
 
@@ -143,20 +150,25 @@ fn has_duplicate(values: &[String]) -> bool {
 pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) {
     let ordinals: HashMap<Id, usize> = elements.iter().copied().collect();
     let elements: Vec<Id> = elements.iter().map(|(id, _)| *id).collect();
-    let finding = |id: Id, severity, code| Finding {
+    let finding = |id: Id, severity, code, questions_skipped| Finding {
         element: tree.name(id).to_owned(),
         ordinal: ordinals[&id],
         id: tree.attr(id, "data-id").map(str::to_owned),
         line: tree.line(id),
         severity,
         code,
+        questions_skipped,
     };
 
-    let questions: Vec<Id> = elements
-        .iter()
-        .copied()
-        .filter(|id| tree.name(*id) == "tmt-question")
-        .collect();
+    let named = |name: &str| -> Vec<Id> {
+        elements
+            .iter()
+            .copied()
+            .filter(|id| tree.name(*id) == name)
+            .collect()
+    };
+    let questions = named("tmt-question");
+    let groups = named("tmt-questions");
     report.question_blocks = questions.len();
     if questions.len() > QUESTION_PAGE {
         // The browser drops the whole page's questions; one finding names the first over the cap.
@@ -164,21 +176,32 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             questions[QUESTION_PAGE],
             Severity::Ignored,
             "question-page-limit",
+            None,
         ));
         return;
     }
-    let mut holders: HashMap<&str, usize> = HashMap::new();
-    for id in &questions {
-        *holders
-            .entry(tree.attr(*id, "data-id").unwrap_or(""))
-            .or_insert(0) += 1;
+    let survey = group::Survey::new(tree, &groups, &questions);
+    for group in &groups {
+        if let Some((code, skipped)) = survey.skipped(*group) {
+            report
+                .findings
+                .push(finding(*group, Severity::Ignored, code, Some(skipped)));
+        }
     }
+
+    // The admitted questions in document order, each with its group when it has one.
+    let mut admitted: Vec<(Id, Option<Id>)> = Vec::new();
+    let mut direct: HashMap<Id, usize> = HashMap::new();
     for id in questions {
+        if survey.silenced(tree, id) {
+            continue;
+        }
         let headings: Vec<Id> = tree
             .child_elements(id)
             .filter(|child| tree.attr(*child, "data-question").is_some())
             .collect();
         let id_value = tree.attr(id, "data-id").unwrap_or("");
+        let container = tree.closest(id, &["tmt-question", "tmt-questions"]);
         let candidate = Candidate {
             id: id_value.to_owned(),
             kind: tree.attr(id, "data-kind").unwrap_or("").to_owned(),
@@ -194,7 +217,11 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                 .map(|child| question_text(&tree.text(child)))
                 .collect(),
             nested: tree.has_ancestor(id, "tmt-question"),
-            holders: holders[id_value],
+            wrapped: container.is_some_and(|c| {
+                tree.name(c) == "tmt-questions" && tree.parent_element(id) != Some(c)
+            }),
+            holder: survey.holds(tree, id),
+            holders: survey.holders(id_value),
         };
         let failed: Vec<&'static str> = RULES
             .iter()
@@ -204,30 +231,98 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
         report.findings.extend(
             failed
                 .iter()
-                .map(|code| finding(id, Severity::Ignored, code)),
+                .map(|code| finding(id, Severity::Ignored, code, None)),
         );
-        if failed.is_empty() {
-            report.questions.push(Question {
-                id: candidate.id,
-                kind: candidate.kind,
-                title: candidate.title,
-                choices: candidate.choices,
-                other: candidate.other,
-                agent: candidate.agent,
-            });
+        if !failed.is_empty() {
+            continue;
+        }
+        // Admitted. With a group ancestor it is a direct question of a group that passed.
+        let group = tree
+            .has_ancestor(id, "tmt-questions")
+            .then(|| tree.parent_element(id))
+            .flatten();
+        let (label, number) = match group {
+            None => (None, 0),
+            Some(group) => {
+                let number = direct.entry(group).or_insert(0);
+                *number += 1;
+                let (authored, warnings) = group::label(tree.attr(id, "data-label"));
+                report.findings.extend(
+                    warnings
+                        .iter()
+                        .map(|code| finding(id, Severity::Warning, code, None)),
+                );
+                (
+                    Some(authored.unwrap_or_else(|| format!("Q{number}"))),
+                    *number,
+                )
+            }
+        };
+        debug_assert!(group.is_some() == (number > 0));
+        admitted.push((id, group));
+        report.questions.push(Question {
+            id: candidate.id,
+            kind: candidate.kind,
+            title: candidate.title,
+            choices: candidate.choices,
+            other: candidate.other,
+            agent: candidate.agent,
+            group: group.map(|g| tree.attr(g, "data-id").unwrap_or("").to_owned()),
+            label,
+        });
+    }
+
+    // Groups the page shows, and a lone question as the internal group of itself.
+    let mut shown: HashMap<Id, usize> = HashMap::new();
+    for ((question, group), admitted_question) in admitted.iter().zip(&report.questions) {
+        match group {
+            None => report.groups.push(QuestionGroup {
+                id: admitted_question.id.clone(),
+                title: None,
+                questions: vec![admitted_question.id.clone()],
+            }),
+            Some(group) => {
+                let index = *shown.entry(*group).or_insert_with(|| {
+                    report.groups.push(QuestionGroup {
+                        id: tree.attr(*group, "data-id").unwrap_or("").to_owned(),
+                        title: Some(survey.title(*group).to_owned()),
+                        questions: Vec::new(),
+                    });
+                    report.groups.len() - 1
+                });
+                report.groups[index]
+                    .questions
+                    .push(admitted_question.id.clone());
+            }
+        }
+        let _ = question;
+    }
+    // A group that passed but shows nothing: wrapped, invalid or absent questions only.
+    for group in &groups {
+        if survey.skipped(*group).is_none()
+            && !survey.silenced(tree, *group)
+            && !shown.contains_key(group)
+        {
+            report
+                .findings
+                .push(finding(*group, Severity::Ignored, "group-empty", None));
         }
     }
-    // A marker outside a question is plain content to the browser: nothing is ignored, nothing shows.
+    // A marker outside a question is plain content to the browser: nothing is ignored, nothing
+    // shows. Inside a skipped group the whole subtree is silent.
     for id in elements {
         let marker =
             tree.attr(id, "data-question").is_some() || tree.attr(id, "data-choice").is_some();
         let in_question = tree
             .parent_element(id)
             .is_some_and(|parent| tree.name(parent) == "tmt-question");
-        if marker && !in_question {
-            report
-                .findings
-                .push(finding(id, Severity::Warning, "question-marker-misplaced"));
+        if marker && !in_question && !survey.silenced(tree, id) {
+            report.findings.push(finding(
+                id,
+                Severity::Warning,
+                "question-marker-misplaced",
+                None,
+            ));
         }
     }
 }

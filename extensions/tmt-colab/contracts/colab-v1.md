@@ -3628,8 +3628,9 @@ lowercase tag name and `ordinal` the element's 1-based index among elements with
 document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
 `line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
 (the browser drops the block today) or `warning` (the block is admitted, or the problem is not
-about a block). `message` is wording that may change; `code` is the stable part. Findings are
-ordered by line, element, ordinal and code.
+about a block). `message` is wording that may change; `code` is the stable part. A finding on a
+skipped group adds `questionsSkipped`, the number of `tmt-question` elements inside it. Findings
+are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
 findings}`. With no finding it exits 0. With any finding the command exits 1 with
@@ -3653,6 +3654,7 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `question-id-invalid`                                             | ignored  | `data-id` missing, or not a canonical lowercase UUID                                                                                                                                      |
 | `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared by two or more questions; every holder is ignored                                                                                                          |
 | `question-nested`                                                 | ignored  | inside another `tmt-question`                                                                                                                                                             |
+| `question-group-child-invalid`                                    | ignored  | a `tmt-question` inside a `tmt-questions` group but not its direct child (inside another `tmt-question` it is `question-nested`); it never becomes a lone question                        |
 | `question-heading-missing` / `-multiple`                          | ignored  | not exactly one direct child with `data-question`                                                                                                                                         |
 | `question-title-empty` / `-too-long` / `-control`                 | ignored  | the heading text, whitespace-normalized, is empty, over 200 code points, or has a control character (below U+0020 or U+007F)                                                              |
 | `question-kind-invalid`                                           | ignored  | `data-kind` is not `single`, `multiple`, `short` or `long`                                                                                                                                |
@@ -3662,11 +3664,33 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
 | `question-agent-invalid`                                          | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
 | `question-marker-misplaced`                                       | warning  | an element with `data-question` or `data-choice` whose parent is not a `tmt-question`: plain content to the browser                                                                       |
+| `group-id-invalid` / `-duplicate`                                 | ignored  | a group `data-id` missing or not a canonical lowercase UUID, or shared (see the namespace below); every holder is ignored                                                                 |
+| `group-nested`                                                    | ignored  | a group inside another group or inside a `tmt-question`                                                                                                                                   |
+| `group-title-missing` / `-multiple`                               | ignored  | not exactly one direct `<p data-title>` child                                                                                                                                             |
+| `group-title-empty` / `-too-long` / `-control`                    | ignored  | the title text fails the question heading bounds (non-empty, 200 code points, no control character)                                                                                       |
+| `group-questions-too-many`                                        | ignored  | more than 12 direct `tmt-question` children                                                                                                                                               |
+| `group-empty`                                                     | ignored  | the group passed its rules but none of its questions is shown                                                                                                                             |
+| `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
 | `image-data-oversized`                                            | warning  | an `<img>` whose `src` is a `data:image/` URL over 32 KiB                                                                                                                                 |
 | `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
 | `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
 | `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
 | `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+
+Groups (`tmt-questions`, a `<p data-title>` and up to 12 direct `tmt-question` children). A group
+reports the first structural rule it fails, in table order, and is then skipped whole: its
+questions and any group inside it are silent, with no finding and no ID held, and its finding
+carries `questionsSkipped`. A group that passes shows its direct questions, each reporting its own
+findings, and `group-empty` is added when none is shown. A lone `tmt-question` outside any group
+stays a group of one. A tab label is the authored `data-label`, else `Q<n>` by the question's
+order among the group's shown questions; a bad label only warns. The 50-question page limit
+counts every `tmt-question`, grouped or not, and then reports nothing else.
+
+Question, group and lone-question IDs are one namespace and every holder of a shared ID is
+ignored. Every group holds its own `data-id` wherever it sits. A question holds its ID only as a
+lone question or as a direct child of a group that passes the structural rules other than a
+duplicate ID; a question wrapped in another element holds none. Holders are counted once and
+never retracted, so the questions of a group skipped for a duplicate still hold theirs.
 
 Text is normalized as the browser client does: every run of JavaScript whitespace (`\s`,
 which includes U+00A0 and U+FEFF and excludes U+0085) becomes one space and the ends are

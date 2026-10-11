@@ -20,4 +20,5 @@ thread, using writer/thread identity order for ties. Reply through the normal re
 HTML names grant no routing authority. Removing the question keeps its thread.
 
 Run `tmt colab page check FILE` before publishing: a malformed block is otherwise ignored
-without notice, and the check names the reason code and line.
+without notice, and the check names the reason code and line. A skipped group's finding adds
+`questionsSkipped`, how many questions it took with it.
