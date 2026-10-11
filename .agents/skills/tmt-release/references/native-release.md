@@ -464,6 +464,8 @@ manual dispatch and post-publication retirement. It has only `actions:write` and
 identifies its artifacts through the authenticated `pr-rc.yml` main run and exact
 `pr-rc #<PR> <head12>` run-name, then records exact artifact IDs before deletion.
 At most two current successful catalog-bearing generations remain live per PR.
+Without `keep-run`, reconciliation also leaves eligible current-head in-flight
+generations untouched; the producer handles its own post-publication retirement.
 Close, missing label, changed head or three-day expiry retires catalog discovery
 first; an owned pending run is cancelled and observed settled before payload cleanup.
 A fresh inventory catches late uploads, and each deletion requires authenticated
