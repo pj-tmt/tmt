@@ -210,7 +210,7 @@ for (const surface of ['chat', 'thread'] as const) {
     await scroll(history, 0);
     await window
       .getByRole('button', {
-        name: surface === 'chat' ? 'Close Chat' : 'Close thread',
+        name: surface === 'chat' ? 'Close Chat' : 'Collapse thread',
         exact: true,
       })
       .click();

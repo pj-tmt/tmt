@@ -571,11 +571,11 @@ for (const width of [1440, 390])
       ).toBe(true);
       await page.screenshot({ path: capturePath(`1923-discussion-${width}-${theme}.png`) });
       const originalDraft = await input.textContent();
-      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       await frame.locator('#selected').click();
       await expect(input).toHaveText(originalDraft!);
       expect((await run(page, 'proof')).sends).toEqual([]);
-      await page.getByRole('button', { name: 'Close annotation', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       if (width === 1440) {
         await (await pageAction(page, 'Source')).click();
         await expect(page.locator('.page-drawer[open]')).toHaveCount(1);
@@ -676,7 +676,7 @@ for (const width of [1440, 390])
       await page.screenshot({ path: capturePath(`2586-open-${width}-${theme}.png`) });
       const input = window.getByRole('combobox', { name: 'Message' });
       await input.fill('Keep this discussion draft');
-      await page.getByRole('button', { name: 'Close thread', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
       const mode = page.locator('.selection-mode').getByRole('button');
       await mode.click();
       await page.mouse.click(point.x, point.y);
@@ -917,10 +917,157 @@ test('Escape does not collapse an anchored thread during its explicit send', asy
   await run(page, 'pausePrepare');
   await input.press('Enter');
   await expect(window.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Close thread', exact: true }).focus();
+  await page.getByRole('button', { name: 'Collapse thread', exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(window).toBeVisible();
   expect((await run(page, 'proof')).sends).toEqual([]);
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+  test(`@ opens the existing Chat once and retains its editor ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await run(page, 'mount');
+    const frame = page.frameLocator('#ask-page-fixture iframe');
+    await frame.locator('#selected').click();
+    await page.evaluate(() =>
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '@', bubbles: true })),
+    );
+    for (const modified of ['Control+Shift+@', 'Alt+Shift+@', 'Meta+Shift+@'])
+      await page.keyboard.press(modified);
+    const keys = await page.context().newCDPSession(page);
+    await keys.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: '@',
+      code: 'Digit2',
+      modifiers: 8,
+      autoRepeat: true,
+    });
+    await keys.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: '@',
+      code: 'Digit2',
+      modifiers: 8,
+    });
+    await keys.detach();
+    await expect(page.getByTestId('chat-panel')).toHaveCount(0);
+    const discussion = page.getByRole('button', { name: /^Discussion \(/ });
+    await discussion.click();
+    await page.keyboard.press('Shift+@');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByTestId('chat-panel')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await frame.locator('#selected').click();
+    await page.keyboard.press('Shift+@');
+    const chat = page.getByTestId('chat-panel');
+    const input = chat.getByRole('combobox', { name: 'Message' });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('@');
+    await expect(page.getByRole('option').first()).toBeVisible();
+    await page.screenshot({ path: capturePath(`2722-chat-shortcut-${width}-${theme}.png`) });
+    await input.press('Escape');
+    await input.fill('Retained Chat draft');
+    await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
+    const close = chat.getByRole('button', { name: 'Close Chat', exact: true });
+    await close.focus();
+    await page.keyboard.press('Shift+@');
+    await expect(input).toBeFocused();
+    await expect(input).toHaveText('Retained Chat draft');
+    await expect(input).toHaveAttribute('data-editor-lifetime', 'retained');
+    await page.screenshot({ path: capturePath(`2722-chat-${width}-${theme}.png`) });
+    await input.press('Escape');
+    await expect(chat).toBeHidden();
+    await expect(page.locator('#ask-page-fixture iframe')).toBeFocused();
+    await page.keyboard.press('Shift+@');
+    await expect(input).toBeFocused();
+    await expect(input).toContainText('Retained Chat draft');
+    await expect(input).toContainText('@');
+    await expect(input).toHaveAttribute('data-editor-lifetime', 'retained');
+    await close.click();
+    await expect(chat).toBeHidden();
+    expect((await run(page, 'proof')).sends).toEqual([]);
+    await run(page, 'conversation', {
+      surface: 'thread',
+      state: 'replied',
+      message: 'An existing annotation',
+    });
+    await frame.locator('[data-colab-thread]').click();
+    const thread = page.locator('.annotation-popover');
+    const collapse = thread.getByRole('button', { name: 'Collapse thread', exact: true });
+    await expect(collapse.locator('svg')).toHaveClass(/lucide-chevron-up/);
+    await expect(collapse).toHaveAttribute('aria-keyshortcuts', 'Escape');
+    const resolve = thread.getByRole('button', { name: 'Resolve thread', exact: true });
+    await expect(resolve.locator('svg')).toHaveClass(/lucide-circle-check/);
+    await collapse.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(collapse).toBeFocused();
+    await expect(thread.getByText('Collapse · Esc', { exact: true })).toBeVisible();
+    await page.screenshot({ path: capturePath(`2722-thread-${width}-${theme}.png`) });
+    await page.keyboard.press('Shift+@');
+    await expect(input).toBeFocused();
+    await expect(thread).toBeVisible();
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
+  test(`all shared drawer gutters preserve the author frame ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await run(page, 'mount', { attachments: true });
+    const frame = page.locator('#ask-page-fixture iframe');
+    await expect(frame).toBeVisible();
+    const before = await frame.boundingBox();
+    for (const [action, panel] of [
+      ['Chat', 'chat'],
+      ['Source', 'source'],
+      ['Agents', 'agents'],
+      ['Files', 'files'],
+      ['Comments', 'comments'],
+      ['Export page', 'export'],
+    ]) {
+      await (await pageAction(page, action!)).click();
+      const drawer = page.locator(`.page-drawer[data-panel=${panel}][open]`);
+      await expect(drawer).toBeVisible();
+      const box = (await drawer.boundingBox())!;
+      const gap = width <= 480 ? 4 : 8;
+      expect(box.x + box.width).toBe(width - gap);
+      expect(box.y).toBe((width <= 480 ? 48 : 56) + gap);
+      expect(box.y + box.height).toBe(900 - gap);
+      await expect(drawer).toHaveCSS('border-right-width', '1px');
+      expect((await frame.boundingBox())?.width).toBe(before?.width);
+      await page.screenshot({ path: capturePath(`2722-gutter-${panel}-${width}-${theme}.png`) });
+      await drawer.getByRole('button', { name: /^Close / }).click();
+      await expect(drawer).toBeHidden();
+    }
+  });
+}
+
+for (const closeEarly of [false, true]) {
+  test(`@ waits for restored drafts and cancels on close: ${closeEarly}`, async ({ page }) => {
+    await page.goto('/');
+    await run(page, 'mount', { drafts: 'session', holdDraftRead: true });
+    await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
+    await page.keyboard.press('Shift+@');
+    const chat = page.getByTestId('chat-panel');
+    const input = chat.getByRole('combobox', { name: 'Message' });
+    await expect(chat).toBeVisible();
+    await expect(input).toHaveText('');
+    if (closeEarly) await chat.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await run(page, 'finishDraftRead');
+    if (closeEarly) {
+      await expect(chat).toBeHidden();
+      await (await pageAction(page, 'Chat')).click();
+      await expect(input).toHaveText('');
+    } else {
+      await expect(input).toBeFocused();
+      await expect(input).toHaveText('@');
+    }
+    expect((await run(page, 'proof')).sends).toEqual([]);
+  });
+}

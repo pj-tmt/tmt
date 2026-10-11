@@ -20,6 +20,8 @@ export type MessageComposerProps = {
   placeholder?: string;
   disabled: boolean;
   autoFocus?: boolean;
+  /** One explicit parent request, consumed by this mounted editor without resetting its draft. */
+  activation?: { id: string; insertMention: boolean; consumed(): void };
   candidates?: readonly AgentDestination[];
   /** Explicit page preference transitions only; fresh defaults remain parent-owned. */
   creatorDefault?: { key: RecipientKey; label: string; enabled: boolean; revision: number };

@@ -24,6 +24,7 @@ export function ChatPanel({
   archived = false,
   observationUnavailable,
   initialEdit,
+  activation,
   onDraft,
   onBusy,
   unsaved = false,
@@ -42,6 +43,7 @@ export function ChatPanel({
   observationUnavailable?: boolean;
   /** A draft kept for this composer; read once when it mounts. */
   initialEdit?: ComposerEdit;
+  activation?: import('./components/message-composer-edit.js').MessageComposerProps['activation'];
   onDraft?(edit: ComposerEdit): void;
   onBusy?(busy: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */
@@ -117,6 +119,7 @@ export function ChatPanel({
             title={title}
             creationRecipient={creationRecipient}
             initialEdit={initialEdit}
+            activation={activation}
             onDraft={(_value, edit) => onDraft?.(edit)}
             blocked={blocked || !!own?.deleted}
             recoveryRequired={recoveryRequired && !own?.deleted}

@@ -83,6 +83,51 @@ function MessageField(props: MessageComposerProps) {
   const setOpen = useCallback((open: boolean) => {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
   }, []);
+  const activated = useRef<string | undefined>(undefined);
+  const activationId = props.activation?.id;
+  useEffect(() => {
+    if (!activationId || activated.current === activationId) return;
+    let frame: number | undefined;
+    let cancelled = false;
+    const dispose = editor.registerRootListener((root) => {
+      if (!root) return;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        // Wait for the existing drawer's native open and focus steps.
+        const admitted = () =>
+          !cancelled &&
+          root.isConnected &&
+          !!root.closest('dialog[open]') &&
+          !current.current.disabled &&
+          current.current.activation?.id === activationId;
+        if (!admitted()) return;
+        editor.focus(() => {
+          if (!admitted() || activated.current === activationId) return;
+          const request = current.current.activation!;
+          activated.current = activationId;
+          if (request.insertMention)
+            editor.update(
+              () => {
+                let selection = $getSelection();
+                if (!$isRangeSelection(selection)) {
+                  $selectMessageRange($messageText().length, $messageText().length);
+                  selection = $getSelection();
+                }
+                if ($isRangeSelection(selection)) selection.insertText('@');
+              },
+              { tag: HISTORY_PUSH_TAG, discrete: true },
+            );
+          root.focus({ preventScroll: true });
+          request.consumed();
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+      dispose();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [editor, activationId]);
   const preferenceRevision = useRef(props.creatorDefault?.revision ?? 0);
   useEffect(() => {
     const preference = props.creatorDefault;

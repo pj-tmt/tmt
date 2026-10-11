@@ -745,6 +745,13 @@ function Page() {
   const toolbar = useRef<HTMLElement>(null);
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
+  const [chatActivation, setChatActivation] = useState<{ id: string; insertMention: boolean }>();
+  const activateChat = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    if (panel !== 'chat') setChatActivation(undefined);
+  }, [panel]);
+  useEffect(() => setChatActivation(undefined), [snapshot.binding]);
+
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1001,6 +1008,7 @@ function Page() {
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
+    setChatActivation(undefined);
   }, [snapshot.id]);
   useEffect(() => {
     const store = transport.drafts;
@@ -1153,6 +1161,25 @@ function Page() {
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
+  activateChat.current = () => {
+    if (
+      snapshot.archived ||
+      (panel !== null && panel !== 'chat') ||
+      [...document.querySelectorAll<HTMLElement>('[role="menu"], dialog[open]')].some(
+        (node) => node.getClientRects().length > 0 && node.dataset.panel !== 'chat',
+      )
+    )
+      return false;
+    const insertMention = panel !== 'chat';
+    setChatOpened(true);
+    setPanel('chat');
+    setChatActivation(
+      !discussionBlocked && !recoveryRequired && !chatBusy.current
+        ? { id: crypto.randomUUID(), insertMention }
+        : undefined,
+    );
+    return true;
+  };
   escapeAnnotation.current = () => {
     if (annotationRef.current) closeRef.current(true);
     else if (panel === 'chat') {
@@ -1178,14 +1205,18 @@ function Page() {
         event.repeat ||
         event.isComposing ||
         event.keyCode === 229 ||
-        (event.code !== 'KeyC' && event.key !== 'Escape') ||
+        (event.code !== 'KeyC' && event.key !== 'Escape' && event.key !== '@') ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey ||
-        event.shiftKey ||
-        !canSelect
+        (event.shiftKey && event.key !== '@') ||
+        (event.key !== '@' && !canSelect)
       )
         return;
+      if (event.key === '@') {
+        if (activateChat.current()) event.preventDefault();
+        return;
+      }
       event.preventDefault();
       if (event.key === 'Escape') escapeAnnotation.current();
       else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
@@ -1264,6 +1295,7 @@ function Page() {
       onToggleSelectionMode: () => toggleSelectionMode.current(),
       onKey: (key) => {
         if (key === 'Escape') escapeAnnotation.current();
+        else activateChat.current();
       },
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
@@ -1756,6 +1788,21 @@ function Page() {
             creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}:${draftsReady}`}
             initialEdit={drafts.current.get(CHAT_DRAFT)}
+            activation={
+              panel === 'chat' &&
+              draftsReady &&
+              chatActivation &&
+              !discussionBlocked &&
+              !chatBusy.current
+                ? {
+                    ...chatActivation,
+                    consumed: () =>
+                      setChatActivation((current) =>
+                        current?.id === chatActivation.id ? undefined : current,
+                      ),
+                  }
+                : undefined
+            }
             onBusy={(busy) => {
               chatBusy.current = busy;
             }}

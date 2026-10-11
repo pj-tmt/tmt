@@ -2049,7 +2049,7 @@ no nonblank message is typed; none of these interrupts a send in flight. Typed t
 for the page (see Draft retention) together with bound mention UUIDs and restored, with a "Draft kept"
 note, when the same selection is annotated again or its known thread is reopened.
 After a thread exists, an outside page press collapses it even with a typed draft;
-Close never resolves or sends. Existing writer-owned Resolve collapses only after
+Close never resolves or sends. The anchored collapse action uses ChevronUp with accessible name "Collapse thread" and help "Collapse · Esc"; Resolve uses CircleCheck with name "Resolve thread". Existing writer-owned Resolve collapses only after
 a successful explicit action; failure retains the window and draft. A live source revision preserves the mounted composer, its unsent text and frozen
 quote/rectangle, even when the quote no longer exists in the updated page. Explicit
 Send uses that captured quote; cosmetic resolution may then show the thread as
@@ -2148,6 +2148,17 @@ the window to its anchor and expands that thread inside the overlay; a margin ma
 reopens the same thread in its anchored window. Page-owned per-thread drafts also
 survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
+Shared Chat, Source, Agents, Files, Comments and Export drawers leave an 8 px
+header/right/bottom gutter (4 px through 480 px), with safe-area insets, an opaque
+square surface and a 1 px border. The header remains visible; compact drawers
+retain native modal focus containment.
+A trusted non-editing `@` key opens the existing Chat under the same admission as
+the header Discussion action: a mounted, unarchived page and no other menu or
+dialog. An anchored annotation does not block it. Only a mounted editable composer
+receives focus and one literal `@` on opening; an already open Chat only receives
+focus. Modified keys other than Shift, repeat and IME confirmation are ignored.
+The existing draft, mentions and Send admission remain unchanged; no talk-scope
+probe or dispatch occurs on opening.
 
 #### Draft retention (#1924)
 

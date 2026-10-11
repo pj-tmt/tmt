@@ -35,7 +35,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
       '<style>body{margin:0;padding:24px;font:16px/1.6 sans-serif}</style><h1>Popover page</h1><p id="quote">A quote to annotate.</p><p id="other">Another sentence.</p>';
     const page = await openPage(door, browser, createPage(world, 'Popover page', html, agent.pane));
     const popover = page.getByRole('dialog', { name: 'Annotate selection' });
-    const close = popover.getByRole('button', { name: 'Close annotation', exact: true });
+    const close = popover.getByRole('button', { name: 'Collapse thread', exact: true });
     const input = popover.getByRole('combobox', { name: 'Message' });
     const open = async (touch: boolean) => {
       await selectInRenderer(page, '#quote');
@@ -162,7 +162,53 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       2,
     );
-    await popover.getByRole('button', { name: 'Close thread', exact: true }).click();
+    await popover.getByRole('button', { name: 'Collapse thread', exact: true }).click();
     await expect(popover).toHaveCount(0);
   });
 });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`@ uses the existing Chat on a bare-paired device without probing talk or sending ${width}`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const agent = await world.startAgent('shortcut-agent');
+      const browser = await pairBrowser(world, 'shortcut-reader');
+      const page = await openPage(
+        door,
+        browser,
+        createPage(
+          world,
+          'Shortcut page',
+          '<h1>Shortcut page</h1><p id="quote">A real served page.</p>',
+          agent.pane,
+        ),
+      );
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+      await page.frameLocator('iframe').locator('#quote').click();
+      await page.keyboard.press('Shift+@');
+      const chat = page.getByTestId('chat-panel');
+      const input = chat.getByRole('combobox', { name: 'Message', exact: true });
+      await expect(input).toBeFocused();
+      await expect(input).toContainText('@');
+      await expect(page.getByRole('option').first()).toBeVisible();
+      await input.press('Escape');
+      await input.fill('An unsent served draft');
+      await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
+      await chat.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+      await page.keyboard.press('Shift+@');
+      await expect(input).toBeFocused();
+      await expect(input).toHaveText('An unsent served draft');
+      await expect(input).toHaveAttribute('data-editor-lifetime', 'retained');
+      const capture = process.env.COLAB_CAPTURE_DIR;
+      if (capture)
+        await page.screenshot({ path: `${capture}/2722-served-chat-${width}-${theme}.png` });
+      await input.press('Escape');
+      await expect(chat).toBeHidden();
+      await expect(page.locator('iframe')).toBeFocused();
+      expect(agent.received()).toHaveLength(0);
+    });
+  });

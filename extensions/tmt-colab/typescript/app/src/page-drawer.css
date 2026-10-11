@@ -1,17 +1,21 @@
 .page-drawer {
   position: fixed;
-  inset: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px)) 0 0 auto;
+  --drawer-gutter: 8px;
+  inset: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px) + var(--drawer-gutter))
+    var(--drawer-gutter) calc(var(--drawer-gutter) + env(safe-area-inset-bottom, 0px)) auto;
   z-index: 20;
-  width: min(440px, 100vw);
-  height: calc(100dvh - var(--page-bar-size) - env(safe-area-inset-top, 0px));
+  width: min(440px, calc(100vw - 2 * var(--drawer-gutter)));
+  height: calc(
+    100dvh - var(--page-bar-size) - env(safe-area-inset-top, 0px) -
+      env(safe-area-inset-bottom, 0px) - 2 * var(--drawer-gutter)
+  );
   max-width: none;
   max-height: none;
   margin: 0;
   padding: 0;
   color: var(--c-text);
   background: var(--c-paper);
-  border: 0;
-  border-left: 1px solid var(--c-text);
+  border: 1px solid var(--c-rule);
   box-shadow: none;
   overflow: hidden;
 }
@@ -20,7 +24,7 @@
   flex-direction: column;
 }
 .page-drawer[data-panel='source'] {
-  width: min(660px, 100vw);
+  width: min(660px, calc(100vw - 2 * var(--drawer-gutter)));
 }
 .page-drawer button:not(.tmt-ui-action):not([data-testid='ask-send']) {
   background: transparent;
@@ -60,17 +64,19 @@
 @media (max-width: 640px) {
   .page-drawer,
   .page-drawer[data-panel='source'] {
-    inset: 0;
-    width: 100%;
-    height: 100dvh;
-    border: 0;
+    width: calc(100vw - 2 * var(--drawer-gutter));
     box-shadow: none;
-    padding-top: env(safe-area-inset-top, 0px);
   }
   .page-drawer::backdrop {
-    background: var(--c-paper);
+    background: transparent;
   }
   .drawer-body {
     padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 480px) {
+  .page-drawer {
+    --drawer-gutter: 4px;
   }
 }
