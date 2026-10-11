@@ -1269,6 +1269,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
+        DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -6172,4 +6173,169 @@ fn a_new_page_has_no_attachments_so_every_reference_in_it_is_unresolved() {
     );
     let resolved = failure_args(&pilot, &["page", "check", path, "--page", id, "--json"]);
     assert_eq!(finding_codes(&resolved["findings"]).len(), 2);
+}
+
+fn titled_page(pilot: &Pilot, title: &str) -> String {
+    let file = pilot.root.join(format!("{title}.html"));
+    fs::write(&file, format!("<p>{title}</p>")).unwrap();
+    pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        title,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+fn label_rows(pilot: &Pilot, page: &str) -> i64 {
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    rusqlite::Connection::open(layout.directory.join("space.db"))
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM page_labels WHERE page=?",
+            [page],
+            |r| r.get(0),
+        )
+        .unwrap()
+}
+#[test]
+fn page_labels_add_remove_and_list_without_touching_the_owner_log_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let one = titled_page(&pilot, "One");
+        let head = pilot.call(&["ls", "--json"])["membershipHead"].clone();
+        let added = pilot.call(&["label", "add", &one, "urgent", "q4 plan", "--json"]);
+        assert_eq!(added["pageId"], one.as_str());
+        assert_eq!(added["labels"], json!(["q4 plan", "urgent"]));
+        assert_eq!(added["changed"], true);
+        let listed = pilot.call(&["ls", "--json"]);
+        assert_eq!(listed["pages"][0]["labels"], json!(["q4 plan", "urgent"]));
+        assert_eq!(
+            listed["membershipHead"], head,
+            "labels are not log statements"
+        );
+        // Adding what is there changes nothing; a prefix names the page; removing what is not there is fine.
+        let again = pilot.call(&["label", "add", &one, "urgent", "--json"]);
+        assert_eq!(again["changed"], false);
+        let removed = pilot.call(&["label", "remove", &one[..8], "urgent", "missing", "--json"]);
+        assert_eq!(removed["labels"], json!(["q4 plan"]));
+        assert_eq!(removed["changed"], true);
+        let nothing = pilot.call(&["label", "remove", &one, "missing", "--json"]);
+        assert_eq!(nothing["changed"], false);
+        let list = pilot.call(&["label", "list", "--json"]);
+        assert_eq!(list["labels"], json!([{"name":"q4 plan","pages":1}]));
+        // Names obey the grammar; a page holds at most eight; refusals change nothing.
+        failure(
+            &pilot,
+            &["label", "add", &one, " lead", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        failure(
+            &pilot,
+            &["label", "add", &one, "", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        failure(
+            &pilot,
+            &["label", "add", PAGE, "x", "--json"],
+            "COLAB_PAGE_NOT_FOUND",
+        );
+        let names: Vec<String> = (0..8).map(|n| format!("l{n}")).collect();
+        let mut args = vec!["label", "add", one.as_str()];
+        args.extend(names.iter().map(String::as_str).take(7));
+        args.push("--json");
+        assert_eq!(pilot.call(&args)["labels"].as_array().unwrap().len(), 8);
+        failure(
+            &pilot,
+            &["label", "add", &one, "ninth", "--json"],
+            "COLAB_CAPACITY",
+        );
+        assert_eq!(label_rows(&pilot, &one), 8);
+        assert_eq!(pilot.call(&["ls", "--json"])["membershipHead"], head);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn renaming_or_deleting_a_label_changes_every_page_that_carries_it_in_one_step() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let one = titled_page(&pilot, "One");
+        let two = titled_page(&pilot, "Two");
+        pilot.call(&["label", "add", &one, "a", "b", "--json"]);
+        pilot.call(&["label", "add", &two, "b", "c", "--json"]);
+        // An archived page is still a page the list can show: rename and delete reach it.
+        pilot.call(&["archive", &two, "--json"]);
+        let renamed = pilot.call(&["label", "rename", "b", "d", "--json"]);
+        assert_eq!(renamed["pages"], 2);
+        let listed = pilot.call(&["ls", "--archived", "--json"]);
+        let labels = |id: &str| {
+            listed["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|page| page["pageId"] == id)
+                .unwrap()["labels"]
+                .clone()
+        };
+        assert_eq!(labels(&one), json!(["a", "d"]));
+        assert_eq!(labels(&two), json!(["c", "d"]));
+        // Renaming onto a name the page already has merges the two.
+        let merged = pilot.call(&["label", "rename", "a", "d", "--json"]);
+        assert_eq!(merged["pages"], 1);
+        assert_eq!(
+            pilot.call(&["ls", "--archived", "--json"])["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|page| page["pageId"] == one.as_str())
+                .unwrap()["labels"],
+            json!(["d"])
+        );
+        failure(
+            &pilot,
+            &["label", "rename", "nope", "x", "--json"],
+            "COLAB_LABEL_NOT_FOUND",
+        );
+        failure(
+            &pilot,
+            &["label", "rename", "d", " x", "--json"],
+            "COLAB_INPUT_INVALID",
+        );
+        let deleted = pilot.call(&["label", "delete", "d", "--json"]);
+        assert_eq!(deleted["pages"], 2);
+        assert_eq!(
+            pilot.call(&["label", "list", "--json"])["labels"],
+            json!([{"name":"c","pages":1}])
+        );
+        failure(
+            &pilot,
+            &["label", "delete", "d", "--json"],
+            "COLAB_LABEL_NOT_FOUND",
+        );
+        // Deleting a page takes its labels with it and the tombstone keeps none.
+        assert_eq!(label_rows(&pilot, &two), 1);
+        pilot.call(&["delete", &two, "--yes", "--json"]);
+        assert_eq!(label_rows(&pilot, &two), 0);
+        assert_eq!(
+            pilot.call(&["label", "list", "--json"])["labels"],
+            json!([])
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
 }

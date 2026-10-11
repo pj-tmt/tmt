@@ -62,6 +62,12 @@ const MIGRATIONS: &[&str] = &[
             AND typeof(original_epoch)='text' AND typeof(original_stream)='text'));
     CREATE INDEX owner_operations_page ON owner_operations(page) WHERE publication_kind IS NOT NULL;
     "#,
+    // Schema 7: page labels, display-only names for the owner's page list. Not signed, not in the
+    // owner log; a deleted page's rows are removed with its data and its tombstone row stays.
+    r#"
+    CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
+        PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

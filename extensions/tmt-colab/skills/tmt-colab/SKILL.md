@@ -205,4 +205,14 @@ HTML grants no authority. Resolve never notifies agents; Reopen keeps the decisi
 Trusted Approve/Decline saves the final decision, then sends one Ask; failure
 keeps it. Reload never sends. `--after` is deferred.
 
+## Labels
+
+Labels organize the owner's page list; they carry no authority and are not signed.
+`tmt colab label add PAGE NAME... --json`, `label remove PAGE NAME...`, `label ls`,
+`label rename NAME NEW` and `label delete NAME` (rename and delete reach every page,
+archived included; no page is deleted). A name is 1 to 32 characters with no control
+characters and no leading, trailing or doubled spaces; a page holds at most 8 labels. A
+write replaces the page's whole set (last writer wins); `changed:false` means nothing
+differed. `ls` and `show --json` list each page's `labels`.
+
 Read [references/questions.md](references/questions.md) or `tmt colab skill questions` for answer-block markup and thread answers.

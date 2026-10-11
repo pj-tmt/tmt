@@ -107,6 +107,14 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
     );
     request.operation = "page.scripts";
     assert!(auth::management_input(&request).is_err());
+    // Display-only labels are a management request, never a log statement.
+    request.operation = "page.labels";
+    assert!(auth::management_input(&request).is_ok());
+    assert!(auth::operation("page.labels").is_err());
+    assert!(auth::management_operation("page.labels").is_ok());
+    assert!(auth::management_operation("page.history").is_ok());
+    assert!(auth::management_operation("page.scripts").is_err());
+    assert!(tmt_colab_model::payload::decode("page.labels", b"{}").is_err());
     request.operation = "page.history";
     request.expires_at += 1;
     assert!(auth::management_input(&request).is_err());

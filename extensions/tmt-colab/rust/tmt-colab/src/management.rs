@@ -69,6 +69,8 @@ enum Action {
     Share(payload::ShareMode),
     History(payload::HistoryMode),
     Retention(payload::Days),
+    /// Display-only labels: whole-set replacements, applied with no statement (contract: Page labels).
+    Labels(Vec<(String, Vec<String>)>),
     Archive,
     Delete,
     MemberAdd(payload::MemberAdd),
@@ -137,6 +139,17 @@ fn publisher_label<'de, D: serde::Deserializer<'de>>(
 ) -> std::result::Result<Option<String>, D::Error> {
     // Missing is optional; a present null or wrong type is not a label.
     String::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct LabelChange {
+    page_id: String,
+    labels: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelChanges {
+    pages: List<LabelChange, { crate::limits::LABEL_REQUEST_PAGES }>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -210,6 +223,33 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                 }
             }
             Action::Retention(value.days)
+        }
+        "page.labels" => {
+            let value: LabelChanges = typed(bytes)?;
+            let ids: Vec<String> = value
+                .pages
+                .as_slice()
+                .iter()
+                .map(|change| change.page_id.clone())
+                .collect();
+            pages(&ids, Some(page))?;
+            if value
+                .pages
+                .as_slice()
+                .iter()
+                .flat_map(|change| &change.labels)
+                .any(|name| !crate::labels::valid(name))
+            {
+                return Err(tmt_colab_model::Invalid);
+            }
+            Action::Labels(
+                value
+                    .pages
+                    .as_slice()
+                    .iter()
+                    .map(|change| (change.page_id.clone(), change.labels.clone()))
+                    .collect(),
+            )
         }
         "member.add" => {
             let value: payload::MemberAdd = typed(bytes)?;
@@ -439,6 +479,17 @@ fn apply(
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
+    // Labels are display-only owner-store state: no statement, no revision fence, no receipt.
+    if let Action::Labels(changes) = &command.action {
+        let head = service.set_labels(changes).map_err(|error| error.code)?;
+        let reply = serde_json::json!({"operationId":command.operation_id,
+            "membershipHead":{"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)}});
+        return Ok(Applied {
+            body: serde_json::to_vec(&reply).map_err(|_| Code::Unavailable)?,
+            archived_page: None,
+            deleted_page: None,
+        });
+    }
     let selected_pages = match &command.action {
         Action::MemberAdd(v) => v.pages.as_slice(),
         Action::MemberRemove(v) => v.pages.as_slice(),
@@ -505,6 +556,7 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
+        Action::Labels(_) => return Err(Code::Invalid),
         Action::MemberAdd(v) => {
             OwnerAction::Member(MemberAction::Add(crate::store::owner::Recipient {
                 kind: "member".into(),
@@ -675,6 +727,71 @@ mod tests {
         );
         let body = r#"{"request":"","request":"","payload":"","signature":""}"#;
         assert_eq!(browser(body.as_bytes(), 100).err(), Some(Code::Invalid));
+    }
+    #[test]
+    fn page_labels_name_each_page_once_in_canonical_order_with_valid_names() {
+        let labels = |pages: Value| local("page.labels", json!({"pages":pages}));
+        let one = json!([{"pageId":PAGE,"labels":["b","a b"]}]);
+        match Command::local(&labels(one.clone()), SPACE).unwrap().action {
+            Action::Labels(changes) => assert_eq!(
+                changes,
+                vec![(PAGE.to_owned(), vec!["b".to_owned(), "a b".to_owned()])]
+            ),
+            _ => panic!("page.labels is a label change"),
+        }
+        // The device-signed browser request carries the same payload.
+        let payload = serde_json::to_vec(&json!({"pages":one})).unwrap();
+        assert!(matches!(
+            browser(&signed("page.labels", &payload, DEVICE, 100), 100)
+                .unwrap()
+                .action,
+            Action::Labels(_)
+        ));
+        // Another page in the batch, and an empty set, are fine.
+        let two = json!([{"pageId":PAGE,"labels":[]},{"pageId":OTHER,"labels":["x"]}]);
+        assert!(Command::local(&labels(two), SPACE).is_ok());
+        // The request names its initiating page, once, in ascending order, and no more than the cap.
+        let many: Vec<Value> = (0..=crate::limits::LABEL_REQUEST_PAGES)
+            .map(|n| json!({"pageId":format!("10000000-0000-4000-8000-{n:012}"),"labels":[]}))
+            .collect();
+        for pages in [
+            json!([]),
+            json!([{"pageId":OTHER,"labels":[]}]),
+            json!([{"pageId":PAGE,"labels":[]},{"pageId":PAGE,"labels":[]}]),
+            json!([{"pageId":OTHER,"labels":[]},{"pageId":PAGE,"labels":[]}]),
+            json!(many),
+        ] {
+            assert_eq!(
+                Command::local(&labels(pages), SPACE).err(),
+                Some(Code::Invalid)
+            );
+        }
+        // Names obey the grammar here too; counts and the space limit are the store's refusal.
+        for bad in [
+            json!([{"pageId":PAGE,"labels":[" lead"]}]),
+            json!([{"pageId":PAGE,"labels":[""]}]),
+            json!([{"pageId":PAGE,"labels":[1]}]),
+            json!([{"pageId":PAGE,"labels":["a"],"extra":true}]),
+            json!([{"pageId":"nope","labels":[]}]),
+            json!([{"pageId":PAGE}]),
+        ] {
+            assert_eq!(
+                Command::local(&labels(bad), SPACE).err(),
+                Some(Code::Invalid)
+            );
+        }
+        let over: Vec<String> = (0..=crate::limits::PAGE_LABELS)
+            .map(|n| format!("l{n}"))
+            .collect();
+        assert!(
+            Command::local(&labels(json!([{"pageId":PAGE,"labels":over}])), SPACE).is_ok(),
+            "an over-limit set reaches the store, which refuses it as capacity"
+        );
+        let top = local(
+            "page.labels",
+            json!({"pages":[{"pageId":PAGE,"labels":[]}],"extra":1}),
+        );
+        assert_eq!(Command::local(&top, SPACE).err(), Some(Code::Invalid));
     }
     #[test]
     fn local_dto_is_purpose_separated_and_canonical_scope_is_bounded() {

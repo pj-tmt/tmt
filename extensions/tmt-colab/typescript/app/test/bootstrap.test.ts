@@ -14,6 +14,7 @@ const metadata = {
   lastUpdateAtMs: Number.MAX_SAFE_INTEGER,
   expiresAtMs: null,
   warnings: ['expiry-out-of-range'],
+  labels: [] as string[],
 };
 async function response(pages: unknown[]) {
   const owner = new Uint8Array(32).fill(9),
@@ -43,6 +44,48 @@ it('accepts 1000 worst-sized valid expiry rows within the existing bounded respo
   expect(boot.pages).toHaveLength(1000);
   expect(boot.pages[999].lastUpdateAtMs).toBe(Number.MAX_SAFE_INTEGER);
   expect(boot.pages[0].warnings).toEqual(['expiry-out-of-range']);
+});
+it('keeps the worst-sized labels of a full space inside the bounded response', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  // The space limit is 1,000 label assignments: 125 pages of 8 names, each the longest allowed.
+  const rockets = '\u{1F680}'.repeat(31);
+  const pages = Array.from({ length: 1000 }, (_, index) => ({
+    ...metadata,
+    pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    // 32 code points each (a digit and 31 four-byte characters), unique within the page.
+    labels: index < 125 ? Array.from({ length: 8 }, (_, n) => `${n}${rockets}`) : [],
+  }));
+  const body = await response(pages);
+  expect(new TextEncoder().encode(body).length).toBeLessThan(512 * 1024);
+  const boot = await discover(mount);
+  expect(boot.pages[0].labels).toHaveLength(8);
+  expect(boot.pages[999].labels).toEqual([]);
+});
+it('accepts sorted display-only labels and refuses what the owner store never writes', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([{ ...metadata, labels: ['a b', 'q4 plan', '日本語'] }]);
+  expect((await discover(mount)).pages[0].labels).toEqual(['a b', 'q4 plan', '日本語']);
+  for (const labels of [
+    'urgent',
+    [1],
+    [''],
+    ['a', 'a'],
+    ['x'.repeat(33)],
+    ['tab\there'],
+    Array.from({ length: 9 }, (_, n) => `l${n}`),
+    null,
+  ]) {
+    await response([{ ...metadata, labels }]);
+    await expect(discover(mount)).rejects.toThrow();
+  }
+  // A page without the key is not the shape the owner serves.
+  const { labels: _omitted, ...bare } = metadata;
+  await response([bare]);
+  await expect(discover(mount)).rejects.toThrow();
 });
 it('rejects unsafe or ill-typed expiry hints before accepting discovery', async () => {
   for (const patch of [

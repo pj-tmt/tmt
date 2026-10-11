@@ -159,7 +159,7 @@ fn resolve_catalog_page(
     }
     uuid(id)
 }
-fn fresh_id() -> Result<String> {
+pub(crate) fn fresh_id() -> Result<String> {
     let mut b = [0u8; 16];
     getrandom::fill(&mut b).map_err(|_| input("Could not generate operation identity."))?;
     b[6] = (b[6] & 15) | 64;
@@ -641,7 +641,7 @@ fn offline(store: Store, key: Keyring, space: &str, body: &[u8]) -> Result<Vec<u
     })?;
     Ok(bytes)
 }
-fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
     match layout.serve_lock() {
         Ok(_lock) => {
             let key = Keyring::read(layout)?;

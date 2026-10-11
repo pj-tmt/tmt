@@ -14,12 +14,18 @@ import { jsonResponse } from './registration.js';
 
 import type { ExpiryInfo } from './expiry.js';
 
+/** Page label limits; `limits.rs` and the contract's Page labels section hold the same numbers. */
+export const LABEL_POINTS = 32;
+export const LABELS_PER_PAGE = 8;
+
 export interface PageInfo extends ExpiryInfo {
   pageId: string;
   epoch: string;
   sharing: 'private' | 'link' | 'public';
   history: 'shared' | 'current';
   archived: boolean;
+  /** Display-only names the owner organizes pages with; sorted by the owner store, at most 8. */
+  labels: readonly string[];
 }
 export interface PageId {
   pageId: string;
@@ -72,6 +78,7 @@ export async function discover(
       'lastUpdateAtMs',
       'expiresAtMs',
       'warnings',
+      'labels',
     ]);
     requireValue(
       page.retentionDays === null ||
@@ -88,6 +95,20 @@ export async function discover(
           (w) =>
             typeof w === 'string' &&
             ['expiry-unavailable', 'expiry-out-of-range', 'expires-soon', 'expired'].includes(w),
+        ),
+    );
+    // Labels are display-only text from the owner store; the owner enforces the full grammar, the
+    // browser only refuses what it could not render safely or what the store never writes.
+    requireValue(
+      Array.isArray(page.labels) &&
+        page.labels.length <= LABELS_PER_PAGE &&
+        new Set(page.labels).size === page.labels.length &&
+        page.labels.every(
+          (label) =>
+            typeof label === 'string' &&
+            [...label].length >= 1 &&
+            [...label].length <= LABEL_POINTS &&
+            !/\p{Cc}/u.test(label),
         ),
     );
     requireValue(typeof page.pageId === 'string' && typeof page.epoch === 'string');

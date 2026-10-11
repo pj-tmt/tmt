@@ -120,6 +120,15 @@ pub const PROPOSAL_TITLE_POINTS: usize = 200;
 pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
 pub const PROPOSAL_LABEL_POINTS: usize = 64;
 pub const PAGE_PROPOSALS: usize = 200;
+/// Page labels (contract: Page labels): display-only names in the owner store. `LABEL_POINTS` bounds
+/// one name, `PAGE_LABELS` the names on one page and `SPACE_LABELS` every assignment in the space, so
+/// the `/api/pages` reply stays under its 512 KiB cap with 1,000 pages.
+pub const LABEL_POINTS: usize = 32;
+pub const PAGE_LABELS: usize = 8;
+pub const SPACE_LABELS: usize = 1000;
+/// Pages one `page.labels` request may change, in one store transaction (the payload stays under
+/// the 16 KiB management cap for ordinary names; a larger batch is several requests).
+pub const LABEL_REQUEST_PAGES: usize = 64;
 /// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
 /// `contracts/vectors/page-markup-v1.json` fail when they differ).
 /// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the
