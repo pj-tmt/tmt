@@ -84,6 +84,13 @@ for (const surface of ['chat', 'thread'] as const)
               turn.querySelector('.comment-body')!.getBoundingClientRect().left -
                 turn.querySelector('.attachment-thumbnail')!.getBoundingClientRect().left,
             ),
+            rightToSend: Math.abs(
+              shell.getBoundingClientRect().right -
+                row
+                  .closest('.annotation-compose')!
+                  .querySelector('[data-variant="primary"]')!
+                  .getBoundingClientRect().right,
+            ),
             inputToMessage: Math.abs(
               body.left - turn.querySelector('.comment-body')!.getBoundingClientRect().left,
             ),
@@ -94,6 +101,7 @@ for (const surface of ['chat', 'thread'] as const)
         expect(geometry.left).toBeLessThanOrEqual(1);
         expect(geometry.postedLeft).toBeLessThanOrEqual(1);
         expect(geometry.inputToMessage).toBeLessThanOrEqual(1);
+        expect(geometry.rightToSend).toBeLessThanOrEqual(1);
         expect(geometry.imageWidth).toBe(32);
         expect(geometry.imageHeight).toBe(32);
         expect(geometry.documentOverflow).toBe(false);

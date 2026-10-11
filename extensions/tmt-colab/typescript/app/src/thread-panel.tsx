@@ -419,7 +419,7 @@ export function ThreadWindow({
       });
   };
   return (
-    <AttachmentDropPanel target="this thread">
+    <AttachmentDropPanel target="thread">
       <ConversationWindow
         className="comment-thread"
         data-layout={layout}

@@ -9,13 +9,22 @@
 }
 .attachment-drop-overlay {
   position: absolute;
-  inset: 4px;
+  inset: 0;
   z-index: 1;
+  display: grid;
+  padding: 4px;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  pointer-events: none;
+}
+
+.attachment-drop-frame {
   display: grid;
   place-items: center;
   padding: 8px;
   border: 2px dashed var(--c-rule);
-  background: var(--c-sheet);
-  color: var(--c-text);
-  pointer-events: none;
+}
+.attachment-drop-mark {
+  color: var(--c-blocked);
+  font-family: var(--f-mono);
 }

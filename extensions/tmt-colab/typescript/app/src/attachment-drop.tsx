@@ -13,6 +13,7 @@ import {
 } from 'react';
 import type { AttachmentDraft } from './attachment-draft.js';
 import { refuseFile } from './attachment-file.js';
+import { text } from './strings.js';
 import './attachment-drop.css';
 
 interface DropTarget {
@@ -48,14 +49,14 @@ export class AttachmentDropOwner {
     return this.#target?.attachable === true;
   }
   refusal(files: readonly File[], itemCount = files.length): string | undefined {
-    if (!this.attachable) return 'Attachments are unavailable here.';
-    if (!itemCount) return 'Only files can be attached.';
+    if (!this.attachable) return text.attachDropRefusal.unavailable;
+    if (!itemCount) return text.attachDropRefusal.filesOnly;
     const count = this.#target!.draft.getSnapshot().chips.length;
-    if (refuseFile(1, count + itemCount - 1) === 'too-many') return 'Too many files.';
+    if (refuseFile(1, count + itemCount - 1) === 'too-many') return text.attachDropRefusal.tooMany;
     for (const file of files) {
       const refusal = refuseFile(file.size, count);
-      if (refusal === 'empty') return 'Empty files cannot be attached.';
-      if (refusal === 'too-large') return 'This file is too large.';
+      if (refusal === 'empty') return text.attachDropRefusal.empty;
+      if (refusal === 'too-large') return text.attachDropRefusal.tooLarge;
     }
     return undefined;
   }
@@ -81,13 +82,13 @@ export function AttachmentDropPanel({
   target,
   children,
 }: {
-  target: 'Chat' | 'this thread';
+  target: keyof typeof text.attachDropTarget;
   children: ReactElement<HTMLAttributes<HTMLElement> & { overlay?: ReactNode }>;
 }) {
   const [owner] = useState(() => new AttachmentDropOwner());
   const available = useSyncExternalStore(owner.subscribe, owner.getSnapshot);
   const depth = useRef(0);
-  const [overlay, setOverlay] = useState<string>();
+  const [overlay, setOverlay] = useState<{ refusal?: string }>();
   const [feedback, setFeedback] = useState<string>();
   const clear = () => {
     depth.current = 0;
@@ -99,7 +100,7 @@ export function AttachmentDropPanel({
     const files = [...event.dataTransfer.files];
     const count = [...event.dataTransfer.items].filter((item) => item.kind === 'file').length;
     const refusal = owner.refusal(files, count || files.length);
-    setOverlay(refusal ? `✗ ${refusal}` : `⤓ Drop to attach to ${target}`);
+    setOverlay({ refusal });
     event.dataTransfer.dropEffect = refusal ? 'none' : 'copy';
     return true;
   };
@@ -107,6 +108,9 @@ export function AttachmentDropPanel({
     <>
       {feedback && (
         <p role="status" className="attachment-drop-feedback">
+          <span className="attachment-drop-mark" aria-hidden="true">
+            ✗
+          </span>{' '}
           {feedback}
         </p>
       )}
@@ -116,7 +120,20 @@ export function AttachmentDropPanel({
           role="status"
           data-testid="attachment-drop-overlay"
         >
-          {available ? overlay : '✗ Attachments are unavailable here.'}
+          <div className="attachment-drop-frame">
+            <span>
+              {(!available || overlay.refusal) && (
+                <>
+                  <span className="attachment-drop-mark" aria-hidden="true">
+                    ✗
+                  </span>{' '}
+                </>
+              )}
+              {!available
+                ? text.attachDropRefusal.unavailable
+                : (overlay.refusal ?? text.attachDropPrompt(text.attachDropTarget[target]))}
+            </span>
+          </div>
         </div>
       )}
     </>
@@ -137,7 +154,7 @@ export function AttachmentDropPanel({
           event.stopPropagation();
           const refusal = owner.add([...event.dataTransfer.files]);
           clear();
-          setFeedback(refusal ? `✗ ${refusal}` : undefined);
+          setFeedback(refusal);
         },
         onKeyDownCapture: (event) => {
           if (event.key === 'Escape' && overlay) {

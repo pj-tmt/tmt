@@ -49,7 +49,9 @@
 }
 /* Keep the input text and its accessory on the conversation's text edge. */
 .annotation-compose .rich-input-surface[data-accessory] {
-  margin-inline: calc(-1 * (var(--tmt-ui-host-field-padding) + var(--tmt-ui-field-border-width)));
+  margin-inline-start: calc(
+    -1 * (var(--tmt-ui-host-field-padding) + var(--tmt-ui-field-border-width))
+  );
 }
 .attachment-pending {
   min-width: 0;

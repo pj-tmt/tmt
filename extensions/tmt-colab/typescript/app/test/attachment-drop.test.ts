@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vite-plus/test';
 import { attachment } from '@tmt/colab-client';
 import { AttachmentDropOwner } from '../src/attachment-drop.js';
 import { AttachmentDraft } from '../src/attachment-draft.js';
+import { text } from '../src/strings.js';
 
 it('routes once to the replacement composer and ignores stale unregisters', () => {
   const owner = new AttachmentDropOwner();
@@ -17,7 +18,7 @@ it('routes once to the replacement composer and ignores stale unregisters', () =
   expect(firstAdd).not.toHaveBeenCalled();
   expect(secondAdd).toHaveBeenCalledExactlyOnceWith(files);
   current();
-  expect(owner.add(files)).toBe('Attachments are unavailable here.');
+  expect(owner.add(files)).toBe(text.attachDropRefusal.unavailable);
   expect(secondAdd).toHaveBeenCalledOnce();
 });
 
@@ -28,10 +29,12 @@ it('rejects an entire oversized or over-count batch without adding any file', ()
   owner.register({ draft, attachable: true });
   const large = new File(['local'], 'large.txt');
   Object.defineProperty(large, 'size', { value: attachment.ATTACHMENT_PLAINTEXT_BYTES + 1 });
-  expect(owner.add([new File(['ok'], 'ok.txt'), large])).toBe('This file is too large.');
-  expect(owner.refusal([], attachment.MESSAGE_ATTACHMENTS + 1)).toBe('Too many files.');
-  expect(owner.add([new File([], 'empty.txt')])).toBe('Empty files cannot be attached.');
-  expect(owner.add([])).toBe('Only files can be attached.');
+  expect(owner.add([new File(['ok'], 'ok.txt'), large])).toBe(text.attachDropRefusal.tooLarge);
+  expect(owner.refusal([], attachment.MESSAGE_ATTACHMENTS + 1)).toBe(
+    text.attachDropRefusal.tooMany,
+  );
+  expect(owner.add([new File([], 'empty.txt')])).toBe(text.attachDropRefusal.empty);
+  expect(owner.add([])).toBe(text.attachDropRefusal.filesOnly);
   expect(add).not.toHaveBeenCalled();
 });
 
@@ -43,7 +46,7 @@ it('keeps blocked and unmounted panels inert without preparing or uploading', ()
   const add = vi.spyOn(draft, 'add');
   const remove = owner.register({ draft, attachable: false });
   expect(owner.attachable).toBe(false);
-  expect(owner.add([new File(['local'], 'notes.txt')])).toBe('Attachments are unavailable here.');
+  expect(owner.add([new File(['local'], 'notes.txt')])).toBe(text.attachDropRefusal.unavailable);
   remove();
   expect(owner.attachable).toBe(false);
   expect(add).not.toHaveBeenCalled();

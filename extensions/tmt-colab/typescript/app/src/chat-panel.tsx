@@ -63,7 +63,7 @@ export function ChatPanel({
     ]),
   ];
   return (
-    <AttachmentDropPanel target="Chat">
+    <AttachmentDropPanel target="chat">
       <ConversationWindow
         className="chat-panel"
         data-testid="chat-panel"
