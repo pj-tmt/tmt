@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "png",
+      "hex": "89504e470d0a1a0a0000000d494844520000000100000001",
+      "mediaType": "image/png"
+    },
+    {
+      "name": "png-at-pixel-cap",
+      "hex": "89504e470d0a1a0a0000000d4948445200000fa000000fa0",
+      "mediaType": "image/png"
+    },
+    {
+      "name": "png-past-pixel-cap",
+      "hex": "89504e470d0a1a0a0000000d4948445200000fa100000fa0",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "png-zero-width",
+      "hex": "89504e470d0a1a0a0000000d494844520000000000000001",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "png-truncated",
+      "hex": "89504e470d0a1a0a0000000d4948445200000001",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "jpeg",
+      "hex": "ffd8ffc00008080002000301",
+      "mediaType": "image/jpeg"
+    },
+    {
+      "name": "jpeg-truncated",
+      "hex": "ffd8ffc00008",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "webp-vp8",
+      "hex": "52494646000000005745425056503820000000000000009d012a03000200",
+      "mediaType": "image/webp"
+    },
+    {
+      "name": "webp-vp8l",
+      "hex": "5249464600000000574542505650384c000000002f024000000000000000",
+      "mediaType": "image/webp"
+    },
+    {
+      "name": "webp-vp8x",
+      "hex": "524946460000000057454250565038580000000000000000020000010000",
+      "mediaType": "image/webp"
+    },
+    {
+      "name": "pdf-prefix",
+      "hex": "255044462d",
+      "mediaType": "application/pdf"
+    },
+    {
+      "name": "pdf-with-binary-body",
+      "hex": "255044462d312e370a00ff",
+      "mediaType": "application/pdf"
+    },
+    {
+      "name": "pdf-prefix-not-at-start",
+      "hex": "20255044462d312e37",
+      "mediaType": "text/plain"
+    },
+    {
+      "name": "empty",
+      "hex": "",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "ascii-text",
+      "hex": "48656c6c6f09776f726c640d0a",
+      "mediaType": "text/plain"
+    },
+    {
+      "name": "unicode-text",
+      "hex": "556e69636f64653a20cebb20f09f9982",
+      "mediaType": "text/plain"
+    },
+    {
+      "name": "utf8-bom",
+      "hex": "efbbbf",
+      "mediaType": "text/plain"
+    },
+    {
+      "name": "html-is-plain-text",
+      "hex": "3c68746d6c3e3c7363726970743e646f4e6f7452756e28293c2f7363726970743e3c2f68746d6c3e",
+      "mediaType": "text/plain"
+    },
+    {
+      "name": "invalid-utf8",
+      "hex": "ff",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "overlong-utf8",
+      "hex": "c0af",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "utf8-surrogate",
+      "hex": "eda080",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "truncated-utf8",
+      "hex": "e282",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-00",
+      "hex": "61626300646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-01",
+      "hex": "61626301646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-02",
+      "hex": "61626302646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-03",
+      "hex": "61626303646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-04",
+      "hex": "61626304646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-05",
+      "hex": "61626305646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-06",
+      "hex": "61626306646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-07",
+      "hex": "61626307646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-08",
+      "hex": "61626308646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-0b",
+      "hex": "6162630b646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-0c",
+      "hex": "6162630c646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-0e",
+      "hex": "6162630e646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-0f",
+      "hex": "6162630f646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-10",
+      "hex": "61626310646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-11",
+      "hex": "61626311646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-12",
+      "hex": "61626312646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-13",
+      "hex": "61626313646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-14",
+      "hex": "61626314646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-15",
+      "hex": "61626315646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-16",
+      "hex": "61626316646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-17",
+      "hex": "61626317646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-18",
+      "hex": "61626318646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-19",
+      "hex": "61626319646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1a",
+      "hex": "6162631a646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1b",
+      "hex": "6162631b646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1c",
+      "hex": "6162631c646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1d",
+      "hex": "6162631d646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1e",
+      "hex": "6162631e646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "forbidden-c0-1f",
+      "hex": "6162631f646566",
+      "mediaType": "application/octet-stream"
+    },
+    {
+      "name": "video",
+      "hex": "00000018667479706d703432",
+      "mediaType": "application/octet-stream"
+    }
+  ]
+}

@@ -1790,15 +1790,14 @@ fn attachment_read_writes_a_typed_file_to_a_private_temp_directory_never_the_cur
         assert!(output.status.success(), "{output:?}");
         serde_json::from_slice::<Value>(&output.stdout).unwrap()
     };
-    let bytes = b"\x89PNG verified bytes";
-    // The extension comes from the verified media type alone; unlisted or malformed is `bin`.
-    for (media_type, extension) in [
-        ("image/png", "png"),
-        ("image/jpeg", "jpg"),
-        ("application/pdf", "pdf"),
-        ("application/octet-stream", "bin"),
-        ("text/html", "bin"),
-        ("image/png; name=../escape.sh", "bin"),
+    // Stale or malicious signed labels cannot select the extension: verified bytes do.
+    let png: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01";
+    for (media_type, bytes, extension) in [
+        ("application/pdf", png, "png"),
+        ("application/octet-stream", b"%PDF-1.7\n".as_slice(), "pdf"),
+        ("image/png", b"Hello\tworld\r\n".as_slice(), "txt"),
+        ("text/plain", b"\xff\x00".as_slice(), "bin"),
+        ("image/png; name=../escape.sh", png, "png"),
     ] {
         let server = serve_one_read(&pilot, media_type, bytes);
         let result = read(&[]);
@@ -1835,7 +1834,7 @@ fn attachment_read_writes_a_typed_file_to_a_private_temp_directory_never_the_cur
     // An explicit --output still names the parent, even from inside the checkout.
     let elsewhere = pilot.root.join("elsewhere");
     fs::create_dir(&elsewhere).unwrap();
-    let server = serve_one_read(&pilot, "image/png", bytes);
+    let server = serve_one_read(&pilot, "image/png", png);
     let result = read(&["--output", elsewhere.to_str().unwrap()]);
     server.join().unwrap();
     let directory = PathBuf::from(result["directory"].as_str().unwrap());
@@ -1843,7 +1842,7 @@ fn attachment_read_writes_a_typed_file_to_a_private_temp_directory_never_the_cur
         directory.canonicalize().unwrap().parent().unwrap(),
         elsewhere.canonicalize().unwrap()
     );
-    assert_eq!(fs::read(directory.join("attachment.png")).unwrap(), bytes);
+    assert_eq!(fs::read(directory.join("attachment.png")).unwrap(), png);
     assert_eq!(git(&["status", "--porcelain", "--untracked-files=all"]), "");
 }
 #[test]
@@ -1870,7 +1869,7 @@ fn attachment_attach_help_keeps_requirements_resume_and_changed_page_on_separate
             "  Requires a running serve, an editable page and an established object channel.\n",
             "  Pair the browser with tmt remote pair, then open the page once to establish the channel.\n",
             "  The serve copies the file into a private slot, seals it with this device's writer key, uploads it and lists it on the page.\n",
-            "  The type defaults from the file extension and is only a label. Files over 8 MiB are refused.\n",
+            "  The type is detected from the bytes; the file name is only a label. Files over 8 MiB are refused.\n",
             "  If the reply is lost, rerun with --resume SLOT using the printed slot. It checks the backend before sending and never uploads twice.\n",
             "  If the page changed after the file was sealed, the uploaded original and slot are discarded. Nothing is listed; run attach again for a new slot.\n",
             "  --json prints the exact reference that attachment read takes.\n",
@@ -1932,10 +1931,29 @@ fn attachment_attach_refuses_what_it_cannot_send_and_creates_nothing_without_a_s
             .contains("at most 8 MiB"),
         "{large}"
     );
-    assert_eq!(
-        attach(&[notes.to_str().unwrap(), "--type", "TEXT/plain"])["error"]["code"],
-        "COLAB_INPUT_INVALID"
+    let declared_type = pilot
+        .command()
+        .args([
+            "attachment",
+            "attach",
+            id,
+            notes.to_str().unwrap(),
+            "--type",
+            "text/plain",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !declared_type.status.success(),
+        "obsolete --type was accepted"
     );
+    let diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&declared_type.stdout),
+        String::from_utf8_lossy(&declared_type.stderr)
+    );
+    assert!(diagnostic.contains("--type"), "{diagnostic}");
     // A valid file with no serve cannot be staged, and nothing is created for it.
     assert_eq!(
         attach(&[notes.to_str().unwrap()])["error"]["code"],

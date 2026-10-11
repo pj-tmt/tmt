@@ -205,7 +205,7 @@ directory with `page.html`, `conversations.json`, `conversations.md`, `manifest.
 `attachments/` directory of the files it could read (never replacing output), and reports
 `error.partialDirectory` on a failed publication. Attachments are read through the running serve,
 so `tmt colab attachment read <page-uuid> --reference <manifest-row-reference.json> [--output <dir>]`
-and the attachments of `export` need `tmt colab serve`; without it each is unavailable. `tmt colab attachment attach <page-uuid> <file>` also needs an established object channel (open the page once in a browser through `tmt remote`).
+and the attachments of `export` need `tmt colab serve`; without it each is unavailable. `tmt colab attachment attach <page-uuid> <file>` also needs an established object channel (open the page once in a browser through `tmt remote`). The type is detected from bytes on native seal and read (matching browser uploads); `--type` is refused. Focused checks are `--lib attachments::media_type`, `--test cli attachment_`, app `test/attachment-file.test.ts`, and acceptance `agent-attachments.spec.ts`.
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
 (`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a

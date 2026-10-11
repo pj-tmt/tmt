@@ -19,6 +19,78 @@ const PNG = Buffer.from(
 const sha = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 const notes = Buffer.from(Uint8Array.from({ length: 40 * 1024 }, (_, i) => (i * 131 + 5) & 0xff));
 
+test('PDF and UTF-8 attachments earn byte-derived CLI extensions despite misleading labels', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('typed-files-agent');
+    const author = await pairBrowser(world, 'typed-files-author', { talk: true });
+    const created = createPage(world, 'Typed files', '<h1>Typed files</h1>');
+    const page = await openPage(door, author, created);
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'colab-typed-files-'));
+    const files = [
+      {
+        name: 'paper.png',
+        declared: 'image/png',
+        bytes: Buffer.from('%PDF-1.7\nPDF fixture\n'),
+        type: 'application/pdf',
+        ext: 'pdf',
+      },
+      {
+        name: 'notes.pdf',
+        declared: 'application/pdf',
+        bytes: Buffer.from('UTF-8 fixture: \u03bb \u{1f642}\ttext\r\n'),
+        type: 'text/plain',
+        ext: 'txt',
+      },
+    ];
+    const colab = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const read = (id: string, file: (typeof files)[number]) => {
+      const result = colab(['attachment', 'read', created.pageId, id, '--output', out]);
+      expect(path.basename(result.path)).toBe(`attachment.${file.ext}`);
+      expect(fs.readFileSync(result.path).equals(file.bytes)).toBe(true);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(result.directory, 'manifest.json'), 'utf8'),
+      );
+      expect(manifest.file.mediaType).toBe(file.type);
+    };
+    try {
+      await composeChat(page, agent, 'Read these typed files');
+      const panel = page.getByTestId('chat-panel');
+      const compose = panel.getByTestId('annotation-compose');
+      for (const file of files)
+        await give(compose, 'drop', file.name, file.declared, file.bytes.toString('base64'));
+      await expect(panel.getByTestId('attachment-chip')).toHaveCount(2);
+      await expect(panel.getByTestId('attachment-chip').locator('img')).toHaveCount(0);
+      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await expect(panel.getByTestId('message-attachment')).toHaveCount(2, { timeout: 30_000 });
+      await until(() => agent.received().length === 1, 'typed files reached the agent');
+      await expect(panel.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
+      await expect(panel.getByTestId('ask-state')).toHaveCount(0);
+      const view = colab(['threads', created.pageId]);
+      const listed = view.threads.flatMap(
+        (thread: {
+          comments: { attachments?: { id: string; name: string; mediaType: string }[] }[];
+        }) => thread.comments.flatMap((comment) => comment.attachments ?? []),
+      );
+      for (const file of files) {
+        const stored = listed.find((item: { name: string }) => item.name === file.name);
+        expect(stored.mediaType).toBe(file.type);
+        read(stored.id, file);
+        // Native sealing makes the same decision even when the filename suggests another type.
+        const input = path.join(out, file.name);
+        fs.writeFileSync(input, file.bytes);
+        const attached = colab(['attachment', 'attach', created.pageId, input]);
+        expect(attached.attachment.mediaType).toBe(file.type);
+        read(attached.attachment.attachmentId, file);
+      }
+    } finally {
+      await page.close();
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  });
+});
+
 /** A real DragEvent / ClipboardEvent carrying one File, as the browser delivers a drop or a paste. */
 async function give(
   target: Locator,

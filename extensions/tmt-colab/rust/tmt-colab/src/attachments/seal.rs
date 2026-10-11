@@ -26,7 +26,6 @@ pub(crate) fn seal_document(
     page: &str,
     plaintext: &[u8],
     filename: &str,
-    media_type: &str,
     deadline: Instant,
 ) -> Result<Sealed> {
     let key: &Keyring = &source.keyring;
@@ -70,7 +69,7 @@ pub(crate) fn seal_document(
         payload_bytes: ciphertext.len().to_string(),
         plaintext_bytes: plaintext.len().to_string(),
         filename: filename.into(),
-        media_type: media_type.into(),
+        media_type: attachments::media_type::stored_media_type(plaintext).into(),
     };
     descriptor.validate()?;
     let base = attachments::current_base(key, &descriptor, &snapshot)?;

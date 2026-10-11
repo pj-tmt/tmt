@@ -49,6 +49,8 @@ pub fn http_body_bytes(path: &str) -> usize {
 }
 pub const WS_FRAME_BYTES: usize = 64 * 1024;
 pub const SEND_QUEUE_FRAMES: usize = 8;
+/// Header-declared raster pixels admitted for type detection and browser previews.
+pub const ATTACHMENT_PREVIEW_PIXELS: u64 = 16_000_000;
 pub const OBJECT_BYTES: usize = 16 * 1024 * 1024 + 2 * 1024;
 pub const PAGE_BYTES: usize = 64 * 1024 * 1024;
 pub const PAGE_RECEIPTS: usize = 100_000;
