@@ -353,3 +353,28 @@ unconfirmed. Ordinary operations cannot use this fresh-open authority-proof seam
 The error's `detail` is fixed/sanitized; an aborted owner is `transient`/`cancelled`.
 Same machine, browser origin and stored key pins are required; no fallback or new pairing occurs.
 Re-admission of the existing paired key needs no new gesture and never widens its grant.
+
+## Hosted anonymous bootstrap
+
+`firebaseRemote.connect(remoteLink, { bytes, digest })` verifies the canonical public-config
+carrier and its same-origin `/__/firebase/init.json` before loading Firebase. `bytes` is the
+extension's frozen deployment declaration; `digest` is its lowercase SHA-256. A mismatched
+or invalid declared resource table refuses before any provider call. Collection names are
+release data, never a Remote-owned list. Public configuration and sign-in grant no space
+membership or operation authority.
+
+The returned owner supports `signInAnonymous()`, `signOut()` and `close()`. Anonymous identity
+persists in this browser origin's local storage; clearing site data requires admission again.
+Concurrent owners of the same public config share one Firebase App/Auth; close releases a
+reference and the last close disposes it without signing other owners out. Sign-out affects
+that shared identity. Bootstrap and Auth observation are bounded to ten seconds; a late
+result cannot publish an identity through a timed-out or closed owner. Provider-disabled
+maps to `REMOTE_SCOPE_DENIED` without a talk-scope claim; throttling maps to
+`REMOTE_RATE_LIMITED`; unverifiable/network results are client errors, not signed device
+revocation evidence. No Google popup/redirect resolver, Auth iframe or GAPI script is loaded.
+
+The local SDK never loads Firebase unless this explicit hosted entry is called. Hosting
+serves `/sdk/remote-v1.js`, lazy `/sdk/remote-firebase-v1.js` and the separate
+`/sdk/THIRD-PARTY-NOTICES-remote.txt`. The door does not embed the lazy asset; attempting hosted
+bootstrap where it is absent returns `REMOTE_STATE_UNAVAILABLE`. This slice exposes Auth
+only, not Firestore document transport or remote agent operations.
