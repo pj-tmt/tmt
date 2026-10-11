@@ -9,7 +9,9 @@ export function CommentSendFailures({
   binding,
   blocked,
   settled,
+  chat = false,
 }: {
+  chat?: boolean;
   failures: readonly MessageSendFailure[];
   binding?: AskBinding;
   blocked: boolean;
@@ -25,9 +27,11 @@ export function CommentSendFailures({
           key={index}
         >
           <p>
-            @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
+            {chat && !failure.uncertain && <span aria-hidden="true">✗ </span>}@{failure.agent} ·{' '}
+            {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
             {!failure.uncertain && (
               <AskAgainAction
+                label={chat ? text.chatRetry : undefined}
                 binding={binding}
                 blocked={blocked}
                 input={failure.input}

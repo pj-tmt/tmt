@@ -2237,9 +2237,17 @@ threads share one turn component and attribution: each reply has one agent-name,
 agent-role and time byline followed by plain reply text. Pending, held and failed
 outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
-Chat uses sided square tinted turns; annotation threads use one column with square
-User/Bot avatars and an ink rail on the agent body. Resolve/Reopen/Close thread
-controls have visible text, Lucide icons and accessible labels. After the existing
+Chat and annotation threads share flat, unboxed turns and the existing 3px agent
+rail. Chat uses a one-row `Chat` / `○ Everyone with access` header and a
+`Collapse Chat` action; its identity row places the muted time at the right.
+Spacing separates turns, while local-day headings derive only from admitted
+timestamps. An empty Chat shows `No messages yet` and teaches `@` only where
+that action is admitted. The pinned composer has one top rule, the existing
+Attach and recipient controls at the left and Send at the right;
+`Posts as a comment.` appears only without a recipient. Failed delivery shows
+`✗ Not delivered` and the existing ask-again action labelled `Retry`; waiting,
+held and uncertain states retain their existing recovery and announcements.
+Thread actions retain their existing Lucide icons and accessible labels. After the existing
 two-hour observation window, an accepted turn awaiting a reply shows a display-only
 reply timeout; it keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters

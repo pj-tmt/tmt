@@ -1,6 +1,7 @@
 import { AttachmentDropPanel } from './attachment-drop.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
-import { X } from 'lucide-react';
+import { ChevronUp } from 'lucide-react';
+import { Fragment } from 'react';
 import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
 import { text } from './strings.js';
 import { AnnotationInput } from './annotation-input.js';
@@ -70,6 +71,54 @@ export function ChatPanel({
         : []),
     ]),
   ];
+  let previousDay: string | undefined;
+  const dayHeading = (at: string | number) => {
+    const date = new Date(Number(at));
+    const day = date.toDateString();
+    if (day === previousDay) return null;
+    previousDay = day;
+    return (
+      <p className="chat-day">
+        <time dateTime={date.toISOString()}>
+          {day === new Date().toDateString()
+            ? text.chatToday
+            : date.toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+        </time>
+      </p>
+    );
+  };
+  const history = chats.map((thread) => (
+    <section
+      key={`${thread.ref.writer}:${thread.threadId}`}
+      data-testid="chat-thread"
+      data-thread-id={thread.threadId}
+      data-writer={thread.ref.writer}
+    >
+      {thread.comments.map((comment) => (
+        <Fragment key={`${comment.ref.writer}:${comment.messageId}`}>
+          {dayHeading(comment.at)}
+          <CommentExchange
+            readOnly={archived}
+            key={`${comment.ref.writer}:${comment.messageId}`}
+            comment={comment}
+            thread={thread}
+            binding={discussion}
+            ask={binding}
+            asks={asks}
+            blocked={blocked || archived}
+            allowEdit={false}
+            chat
+            title={title}
+          />
+        </Fragment>
+      ))}
+    </section>
+  ));
+  const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
   return (
     <AttachmentDropPanel target="chat">
       <ConversationWindow
@@ -81,9 +130,11 @@ export function ChatPanel({
         actions={
           <BrowserIconAction
             type="button"
-            label="Close Chat"
+            label={text.chatCollapse}
+            tooltipLabel={text.chatCollapseHint}
+            ariaKeyShortcuts="Escape"
             variant="text"
-            icon={<X />}
+            icon={<ChevronUp />}
             onActivate={(event) => {
               if (event.isTrusted) close();
             }}
@@ -109,8 +160,8 @@ export function ChatPanel({
         composer={
           <AnnotationInput
             archived={archived}
-            onBusy={onBusy}
             chat
+            onBusy={onBusy}
             binding={binding}
             discussion={discussion}
             anchor={null}
@@ -128,40 +179,26 @@ export function ChatPanel({
           />
         }
       >
-        {!archived && !chats.length && !legacy.length && (
-          <p className="isolation-note">Talk with an agent about this page.</p>
+        {!chats.length && !legacy.length && (
+          <div className="chat-empty">
+            <span aria-hidden="true">○</span>
+            <h3>{text.chatEmpty}</h3>
+            {!archived && !blocked && !!discussion && !recoveryRequired && <p>{text.chatEmptyHint}</p>}
+          </div>
         )}
-        {chats.map((thread) => (
-          <section
-            key={`${thread.ref.writer}:${thread.threadId}`}
-            data-testid="chat-thread"
-            data-thread-id={thread.threadId}
-            data-writer={thread.ref.writer}
-          >
-            {thread.comments.map((comment) => (
-              <CommentExchange
-                readOnly={archived}
-                key={`${comment.ref.writer}:${comment.messageId}`}
-                comment={comment}
-                thread={thread}
-                binding={discussion}
-                ask={binding}
-                asks={asks}
-                blocked={blocked || archived}
-                allowEdit={false}
-                title={title}
-              />
-            ))}
-          </section>
-        ))}
+        {history}
         {legacy.length > 0 && (
-          <AskPanel
-            readOnly={archived}
-            records={legacy}
-            binding={binding}
-            blocked={blocked}
-            inline
-          />
+          <>
+            <AskPanel
+              readOnly={archived}
+              dayHeadings={legacyDays}
+              records={legacy}
+              binding={binding}
+              blocked={blocked}
+              inline
+              chat
+            />
+          </>
         )}
       </ConversationWindow>
     </AttachmentDropPanel>

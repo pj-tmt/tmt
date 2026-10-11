@@ -259,6 +259,7 @@ export function CommentExchange({
   blocked,
   allowEdit = true,
   readOnly = false,
+  chat = false,
   title,
 }: {
   comment: CommentView;
@@ -269,6 +270,7 @@ export function CommentExchange({
   blocked: boolean;
   allowEdit?: boolean;
   readOnly?: boolean;
+  chat?: boolean;
   title: string;
 }) {
   const records = conversationAsks(thread, asks, true).filter((record) =>
@@ -290,6 +292,7 @@ export function CommentExchange({
     <AskPanel
       readOnly={readOnly}
       inline
+      chat={chat}
       records={records}
       binding={ask}
       blocked={blocked}

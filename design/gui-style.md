@@ -249,6 +249,16 @@ Comments, Chat, Source, Share and settings panels.
 - Basis: Radix (Dialog: non-modal on desktop, modal when compact).
 - Colab shared page drawers (Chat, Source, Agents, Files, Comments and Export) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters and use native modal focus containment; desktop drawers are non-modal. Neither changes the author frame width.
 
+### Page Chat
+
+- One header row: Chat, `○ Everyone with access`, then Collapse. Reuse the shared
+  agent rail; identities come from verified metadata, with muted time at the right.
+  Space separates messages; day rules use admitted timestamps.
+- Center the empty title and teach `@` only where admitted. Keep the composer
+  pinned below one thin rule: editor, then Attach/recipient at left and Send at
+  right. Show `Posts as a comment.` only without a recipient. Failed delivery
+  uses `✗ Not delivered · Retry` with the existing recovery action.
+
 ### Popover composer
 
 The small input at a selection or an item: annotation, follow-up, quick reply.

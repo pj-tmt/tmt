@@ -245,7 +245,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));
           await s.askerPage.setViewportSize({ width, height: 900 });
           if (surface === 'annotation') {
-            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
             await selectInRenderer(s.askerPage, '#quote');
             await s.askerPage.getByTestId('selection-ask').click();
             await annotationInput(
@@ -298,7 +298,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
               container.getByRole('button', { name: 'Send', exact: true }),
             ).toBeDisabled();
           if (surface === 'Chat' && width === 390)
-            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
           await reconnect.click(); // Door still down: retry remains available, without reload.
           await expect(reconnect).toBeEnabled();
           await expect(
@@ -330,7 +330,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           });
           await restartRemote(world, s.door);
           if (surface === 'Chat' && width === 390)
-            await s.askerPage.getByRole('button', { name: 'Close Chat', exact: true }).click();
+            await s.askerPage.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
           await reconnect.click();
           await expect(reconnect).toHaveCount(0);
           await expect(s.askerPage.locator('.status.live .status-label')).toHaveText('Live');

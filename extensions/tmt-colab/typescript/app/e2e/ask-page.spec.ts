@@ -39,7 +39,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
 }) => {
   await mount(page);
   const input = await compose(page);
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
   expect((await run(page, 'proof')).sends).toEqual([]);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await expect(input).toHaveText('@Agent 1 Explain exactly', { useInnerText: true });
@@ -83,7 +83,7 @@ test('closing a pending explicit send retains it and never dispatches again on r
   await run(page, 'pausePrepare');
   await input.press('Enter');
   await expect(input).toHaveAttribute('contenteditable', 'false');
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
@@ -222,7 +222,7 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await expect(drawer.getByRole('option')).toHaveCount(5);
-  const close = drawer.getByRole('button', { name: 'Close Chat' });
+  const close = drawer.getByRole('button', { name: 'Collapse Chat' });
   await close.focus();
   await close.press('Enter');
   await expect(page.locator('.page-drawer[data-panel=chat][open]')).toHaveCount(0);
@@ -441,7 +441,7 @@ for (const width of [1440, 390]) {
     await expect(live).toHaveText('Agent 1 replied.');
     await expect(input).toBeFocused();
     await expect.poll(events).toEqual(['Agent 2 replied.', 'Agent 1 replied.']);
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
+    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).press('Enter');
     await (await pageAction(page, 'Chat')).click();
     await expect(live).toHaveCount(1);
     await expect(live).toHaveText(width === 390 ? '' : 'Agent 1 replied.');
@@ -487,7 +487,7 @@ test('initial admitted reply history stays silent after loading and reopening', 
   await (await pageAction(page, 'Chat')).click();
   await expect(page.getByTestId('ask-reply')).toHaveText('A reply from before this page opened.');
   await expect(live).toHaveText('');
-  await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
+  await page.getByRole('button', { name: 'Collapse Chat', exact: true }).press('Enter');
   await (await pageAction(page, 'Chat')).click();
   await expect(live).toHaveText('');
   expect((await run(page, 'proof')).sends).toEqual([]);
@@ -875,7 +875,7 @@ for (const width of [1440, 390]) {
     await input.press('Escape');
     await expect(page.getByRole('option')).toHaveCount(0);
     await expect(chat).toBeVisible();
-    const close = chat.getByRole('button', { name: 'Close Chat', exact: true });
+    const close = chat.getByRole('button', { name: 'Collapse Chat', exact: true });
     await close.focus();
     for (const key of ['Shift+Escape', 'Alt+Escape', 'Control+Escape', 'Meta+Escape'])
       await page.keyboard.press(key);
@@ -891,7 +891,7 @@ for (const width of [1440, 390]) {
     await run(page, 'pausePrepare');
     await input.press('Enter');
     await expect(chat.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-    await chat.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+    await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
     await page.keyboard.press('Escape');
     await expect(chat).toBeVisible();
     expect((await run(page, 'proof')).sends).toEqual([]);
@@ -974,7 +974,7 @@ for (const [width, theme] of [
     await input.press('Escape');
     await input.fill('Retained Chat draft');
     await input.evaluate((node) => node.setAttribute('data-editor-lifetime', 'retained'));
-    const close = chat.getByRole('button', { name: 'Close Chat', exact: true });
+    const close = chat.getByRole('button', { name: 'Collapse Chat', exact: true });
     await close.focus();
     await page.keyboard.press('Shift+@');
     await expect(input).toBeFocused();
@@ -1058,7 +1058,7 @@ for (const closeEarly of [false, true]) {
     const input = chat.getByRole('combobox', { name: 'Message' });
     await expect(chat).toBeVisible();
     await expect(input).toHaveText('');
-    if (closeEarly) await chat.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    if (closeEarly) await chat.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
     await run(page, 'finishDraftRead');
     if (closeEarly) {
       await expect(chat).toBeHidden();

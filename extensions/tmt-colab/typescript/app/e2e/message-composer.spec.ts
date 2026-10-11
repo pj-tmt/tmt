@@ -320,7 +320,7 @@ for (const width of [1440, 390]) {
       await capture('chat-busy');
       await run('resumePrepare');
       await expect(chatInput).toHaveAttribute('contenteditable', 'true');
-      const close = page.getByRole('button', { name: 'Close Chat', exact: true });
+      const close = page.getByRole('button', { name: 'Collapse Chat', exact: true });
       await close.focus();
       await close.press('Shift+Tab');
       await page.keyboard.press('Tab');

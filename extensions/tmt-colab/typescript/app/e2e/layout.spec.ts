@@ -108,7 +108,7 @@ for (const width of [1440, 390])
       await (await pageAction(page, 'Chat')).click();
       const asks = page.locator('.page-drawer[data-panel=chat]');
       await expect(asks.getByTestId('chat-panel')).toBeVisible();
-      await asks.getByRole('button', { name: 'Close Chat', exact: true }).focus();
+      await asks.getByRole('button', { name: 'Collapse Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(asks).not.toBeVisible();
       await (await pageAction(page, 'Source')).click();
@@ -213,7 +213,7 @@ for (const width of [1440, 390])
     await chat.press('Enter');
     const drawer = page.locator('.page-drawer[data-panel=chat][open]');
     await expect(drawer).toBeVisible();
-    const close = drawer.getByRole('button', { name: 'Close Chat', exact: true });
+    const close = drawer.getByRole('button', { name: 'Collapse Chat', exact: true });
     await close.focus();
     const closeTooltip = close.locator('..').locator('.tmt-ui-icon-action-tooltip');
     await expect(closeTooltip).toBeVisible();

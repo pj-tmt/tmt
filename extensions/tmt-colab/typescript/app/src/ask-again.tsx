@@ -1,4 +1,4 @@
-import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
@@ -20,12 +20,14 @@ export function AskAgainAction({
   recipient,
   retryOf,
   settled,
+  label,
 }: {
   binding?: AskBinding;
   blocked: boolean;
   input: AskAgainInput;
   recipient: { machine: string; agent: string };
   retryOf: string | null;
+  label?: string;
   settled?(outcome: Awaited<ReturnType<PreviewAttempt['send']>>): void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -94,16 +96,17 @@ export function AskAgainAction({
       }
     }
   }
+  const Action = label ? BrowserAction : BrowserIconAction;
   return (
     <span className="conversation-status ask-again-action">
       {uncertain ? (
         <span role="status">{text.askUnconfirmed}</span>
       ) : (
-        <BrowserIconAction
+        <Action
           type="button"
           variant="text"
-          label={text.askAgain}
-          icon={<Send />}
+          label={label ?? text.askAgain}
+          icon={label ? undefined : <Send />}
           busy={busy}
           disabled={!binding || blocked}
           onActivate={(event) => {

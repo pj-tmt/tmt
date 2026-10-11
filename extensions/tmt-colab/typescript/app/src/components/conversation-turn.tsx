@@ -18,9 +18,11 @@ export function ConversationTurn({
   delivery,
   children,
   className = '',
+  chat = false,
   ...attributes
 }: Omit<ComponentPropsWithoutRef<'article'>, 'role'> & {
   role: 'user' | 'agent';
+  chat?: boolean;
   runningDriver?: RunningDriver;
   author: string;
   at: number;
@@ -54,11 +56,19 @@ export function ConversationTurn({
             )}
             <span className="conversation-author">{author}</span>
             {driver ? (
-              <span className="conversation-driver"> {driver}</span>
+              <>
+                {chat && <span className="conversation-agent-label">{text.conversationAgent}</span>}
+                <span className="conversation-driver"> {driver}</span>
+              </>
             ) : (
-              role === 'agent' && ` · ${text.conversationAgent}`
+              role === 'agent' && (
+                <span className="conversation-agent-label">
+                  <span className="conversation-time-separator"> · </span>
+                  {text.conversationAgent}
+                </span>
+              )
             )}{' '}
-            ·{' '}
+            <span className="conversation-time-separator">· </span>
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>
               {compactRelativeTime(at, now)}
             </time>

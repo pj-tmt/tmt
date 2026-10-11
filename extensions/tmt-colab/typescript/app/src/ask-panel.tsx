@@ -79,6 +79,8 @@ export function AskPanel({
   blocked,
   readOnly = false,
   inline = false,
+  chat = false,
+  dayHeadings,
   renderUser,
   retryInput,
 }: {
@@ -87,6 +89,8 @@ export function AskPanel({
   blocked: boolean;
   readOnly?: boolean;
   inline?: boolean;
+  chat?: boolean;
+  dayHeadings?: readonly ReactNode[];
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
   retryInput?: AskAgainInput;
 }) {
@@ -219,7 +223,7 @@ export function AskPanel({
         <span role="status" data-testid="ask-state" data-state={record.state}>
           <span className="ask-state" data-tone={deliveryState.tone}>
             <span className="ask-state-mark" aria-hidden>
-              {deliveryState.mark}
+              {chat && deliveryState.label === text.askNotDelivered ? '✗' : deliveryState.mark}
             </span>
             {records.length > 1 && !timedOut && !waitingForAgent
               ? text.askRecipientPrefix(agent)
@@ -233,6 +237,7 @@ export function AskPanel({
               .map((value) => value.operationId)
               .sort()
               .join(':')}
+            label={chat ? text.chatRetry : undefined}
             binding={binding}
             blocked={disabled}
             input={retryInput!}
@@ -311,6 +316,7 @@ export function AskPanel({
     );
     const reply = record.reply !== undefined && (
       <ConversationTurn
+        chat={chat}
         role="agent"
         runningDriver={runningDriverFor(agents, record.machine, record.agent)}
         author={record.agentName || text.askAgentLabel}
@@ -354,6 +360,7 @@ export function AskPanel({
             key={`${record.writer}:${record.operationId}`}
             aria-label={`${text.ask} ${record.operationId}`}
           >
+            {dayHeadings?.[index]}
             {renderUser ? (
               index === 0 &&
               renderUser(

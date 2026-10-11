@@ -176,9 +176,13 @@ export function AnnotationInput({
         : decision.unknown.length
           ? text.messageUnknown(decision.unknown[0], audience)
           : audience
-            ? text.messageAsks(audience)
+            ? chat
+              ? ''
+              : text.messageAsks(audience)
             : agents?.length === 0
-              ? text.messageAgentsEmpty
+              ? chat
+                ? text.messageComment
+                : text.messageAgentsEmpty
               : text.messageComment;
   const nextDraft = useRef(freshEdit);
   nextDraft.current = freshEdit;
@@ -271,6 +275,7 @@ export function AnnotationInput({
   return (
     <section
       className="annotation-compose"
+      data-chat={chat || undefined}
       data-testid="annotation-compose"
       ref={section}
       onDragOver={(event) => {
@@ -352,8 +357,11 @@ export function AnnotationInput({
         }}
       />
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
+        {chat && discussion?.attachments && (
+          <AttachButton draft={files} disabled={!attachable} label={text.messageAttach} />
+        )}
         {creator && <CreatorToggle name={creator.agentName} preference={creatorPreference} />}
-        {discussion?.attachments && (
+        {!chat && discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
         <p id={statusId} role="status" className="annotation-hint">
@@ -429,6 +437,7 @@ export function AnnotationInput({
         />
       </div>
       <CommentSendFailures
+        chat={chat}
         failures={failures}
         binding={binding}
         blocked={blocked || busy || !!recorded}

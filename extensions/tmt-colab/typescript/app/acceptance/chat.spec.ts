@@ -106,7 +106,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
     const opening = '<script>private Chat turn</script> Explain this page.';
     await input.fill(opening);
-    await first.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await first.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
     await openChat(first);
     await expect(input).toHaveText(opening, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);

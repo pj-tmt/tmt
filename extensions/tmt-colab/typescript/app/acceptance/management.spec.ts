@@ -36,7 +36,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const page = await openPage(door, device, first);
     await composeChat(page, recipient, 'Do not send this draft');
     // Narrow page actions must open outside the header menu and return focus there.
-    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'More', exact: true }).click();
     let dialog = await manage(page);

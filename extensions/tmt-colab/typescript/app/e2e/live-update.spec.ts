@@ -259,7 +259,7 @@ for (const width of [1440, 390]) {
       await expect.poll(() => messageText(chat)).toBe(continuedChatDraft);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - chatScroll)).toBeLessThan(2);
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
-      await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+      await page.getByRole('button', { name: 'Collapse Chat', exact: true }).click();
       await panel(page, 'comments');
       await page.getByTestId('annotation-row').filter({ hasText: 'Exact selected text' }).click();
       await expect.poll(() => messageText(reply)).toBe(continuedThreadDraft);
