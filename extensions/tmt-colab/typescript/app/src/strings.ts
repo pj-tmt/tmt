@@ -66,7 +66,7 @@ export const text = {
   newMessages: 'New messages',
   selectionMode: 'Selection mode',
   selecting: 'Selecting',
-  selectionModeHint: 'Click an element or select text to comment · C to stop',
+  selectionModeHint: 'Click an element or select text to comment · Esc or C to stop',
   annotationTitle: 'Annotate',
   annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',

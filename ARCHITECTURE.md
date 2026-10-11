@@ -628,7 +628,7 @@ bytes without core and storage access.
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
   network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
-  highlights and known-thread marker clicks are cosmetic untrusted claims; only parent
+  highlights, thread clicks and closed-set key requests are cosmetic claims; only parent
   controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.

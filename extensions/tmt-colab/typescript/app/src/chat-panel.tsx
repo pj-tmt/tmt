@@ -25,8 +25,10 @@ export function ChatPanel({
   observationUnavailable,
   initialEdit,
   onDraft,
+  onBusy,
   unsaved = false,
   close,
+  escape = close,
 }: {
   threads: readonly ThreadView[];
   asks: readonly PageAsk[];
@@ -41,9 +43,11 @@ export function ChatPanel({
   /** A draft kept for this composer; read once when it mounts. */
   initialEdit?: ComposerEdit;
   onDraft?(edit: ComposerEdit): void;
+  onBusy?(busy: boolean): void;
   /** Device storage failed, so the draft lives in this tab only. */
   unsaved?: boolean;
   close(): void;
+  escape?(): void;
 }) {
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
@@ -103,6 +107,7 @@ export function ChatPanel({
         composer={
           <AnnotationInput
             archived={archived}
+            onBusy={onBusy}
             chat
             binding={binding}
             discussion={discussion}
@@ -115,7 +120,7 @@ export function ChatPanel({
             onDraft={(_value, edit) => onDraft?.(edit)}
             blocked={blocked || !!own?.deleted}
             recoveryRequired={recoveryRequired && !own?.deleted}
-            cancel={close}
+            cancel={escape}
             committed={() => {}}
           />
         }

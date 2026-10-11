@@ -88,8 +88,8 @@ function SelectionMode({
     visibility: 'visible' | 'hidden';
   }>({ right: 24, bottom: 24, visibility: 'hidden' });
   useEffect(() => {
-    button.current?.setAttribute('aria-keyshortcuts', 'c');
-  }, []);
+    button.current?.setAttribute('aria-keyshortcuts', enabled ? 'c Escape' : 'c');
+  }, [enabled]);
   useEffect(() => {
     const place = () => {
       const box = host?.getBoundingClientRect();
@@ -101,23 +101,11 @@ function SelectionMode({
         .querySelector<HTMLDialogElement>('.page-drawer[open]')
         ?.getBoundingClientRect();
       const right = Math.min(box.right, drawer?.left ?? innerWidth);
-      const composer = document.querySelector('.annotation-popover')?.getBoundingClientRect();
-      const edge = Math.min(innerHeight, box.bottom);
-      const width = button.current?.offsetWidth ?? 40;
-      const obstructed =
-        composer &&
-        composer.right > right - width - margin &&
-        composer.left < right - margin &&
-        composer.bottom > edge - margin - 40 &&
-        composer.top < edge;
-      const bottom = obstructed ? Math.min(edge, composer.top) : edge;
+      const bottom = Math.min(innerHeight, box.bottom);
       setPlacement({
         right: Math.max(margin, innerWidth - right + margin),
         bottom: innerHeight - bottom + margin,
-        visibility:
-          right - box.left >= 80 && bottom - margin - 40 >= Math.max(0, box.top)
-            ? 'visible'
-            : 'hidden',
+        visibility: 'visible',
       });
     };
     place();
@@ -150,7 +138,12 @@ function SelectionMode({
         icon={
           <>
             <MousePointer2 />
-            {enabled && <span>{text.selecting}</span>}
+            {enabled && (
+              <>
+                <span>{text.selecting}</span>
+                <kbd>Esc</kbd>
+              </>
+            )}
           </>
         }
         onActivate={(event) => {
@@ -166,6 +159,7 @@ function SelectionAnnotation({
   rectangle,
   inset,
   noticeVisible,
+  toggleVisible,
   open,
   children,
 }: {
@@ -173,6 +167,7 @@ function SelectionAnnotation({
   rectangle: SelectionRect | null;
   inset: number;
   noticeVisible: boolean;
+  toggleVisible: boolean;
   open(): void;
   children?: React.ReactNode;
 }) {
@@ -191,7 +186,33 @@ function SelectionAnnotation({
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
       const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const placementHeight = expanded ? Math.min(480, innerHeight - inset - 16) : 38;
+      // Parent chrome reserves the toggle's bottom strip only for overlapping windows.
+      const margin = innerWidth <= 640 ? 16 : 24;
+      const leftEdge =
+        rectangle && frame
+          ? Math.max(
+              8,
+              Math.min(
+                innerWidth - width - 8,
+                frame.right - width - 8,
+                frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
+              ),
+            )
+          : (element.current?.getBoundingClientRect().left ?? innerWidth - width - 8);
+      const toggle = document.querySelector('.selection-mode')?.getBoundingClientRect();
+      const overlaps =
+        toggleVisible &&
+        expanded &&
+        toggle &&
+        leftEdge + width > toggle.left &&
+        leftEdge < toggle.right;
+      const edge = overlaps
+        ? Math.min(innerHeight, host?.getBoundingClientRect().bottom ?? innerHeight) -
+          margin -
+          40 -
+          8
+        : innerHeight - 8;
+      const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 38;
       if (!frame || !rectangle) {
         // Keep the failure notice readable while retaining the mounted draft.
         const belowNotice = notice?.getBoundingClientRect().bottom;
@@ -202,15 +223,12 @@ function SelectionAnnotation({
               ? Math.max(inset + 4, belowNotice + 8)
               : Math.max(
                   inset + 4,
-                  Math.min(
-                    innerHeight - placementHeight - 8,
-                    element.current!.getBoundingClientRect().top,
-                  ),
+                  Math.min(edge - placementHeight, element.current!.getBoundingClientRect().top),
                 );
           return {
             left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
             top,
-            maxHeight: Math.max(0, innerHeight - top - 8),
+            maxHeight: Math.max(0, edge - top),
           };
         });
         return;
@@ -226,18 +244,18 @@ function SelectionAnnotation({
       }
       // A completed selection can end outside the viewport. Its open draft still
       // needs bounded history and a visible composer, including when opened by C.
-      const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(innerHeight - 8, value));
+      const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(edge, value));
       const top = expanded ? clampAnchor(selectionTop) : selectionTop;
       const bottom = expanded ? clampAnchor(selectionBottom) : selectionBottom;
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
-      const below = bottom + placementHeight + 8 <= innerHeight - 8;
+      const below = bottom + placementHeight + 8 <= edge;
       // Choose the edge using stable placement clearance, not the changing content
       // height. CSS fits the shell; first Send grows away from the same anchor edge.
       const above = expanded && !below && top - placementHeight - 6 >= inset + 4;
       const windowTop = Math.max(
         inset + 4,
         Math.min(
-          innerHeight - placementHeight - 8,
+          edge - placementHeight,
           beside ? top : below ? bottom + 6 : top - placementHeight - 6,
         ),
       );
@@ -248,7 +266,7 @@ function SelectionAnnotation({
         ),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
-          : { top: windowTop, maxHeight: Math.max(0, innerHeight - windowTop - 8) }),
+          : { top: windowTop, maxHeight: Math.max(0, edge - windowTop) }),
       });
     };
     place();
@@ -262,7 +280,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded, noticeVisible, children]);
+  }, [host, rectangle, inset, expanded, noticeVisible, toggleVisible, children]);
   return (
     <div
       ref={element}
@@ -929,6 +947,8 @@ function Page() {
     setPanel((current) => (current === 'agents' || current === 'export' ? null : current));
   }, [archived]);
   const toggleSelectionMode = useRef<() => void>(() => {});
+  const escapeAnnotation = useRef<() => void>(() => {});
+  const chatBusy = useRef(false);
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
@@ -1133,6 +1153,12 @@ function Page() {
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
+  escapeAnnotation.current = () => {
+    if (annotationRef.current) closeRef.current(true);
+    else if (panel === 'chat') {
+      if (!chatBusy.current) setPanel(null);
+    } else if (canSelect) setSelectionMode(false);
+  };
   toggleSelectionMode.current = () => {
     if (canSelect) setSelectionMode((enabled) => !enabled);
   };
@@ -1152,7 +1178,7 @@ function Page() {
         event.repeat ||
         event.isComposing ||
         event.keyCode === 229 ||
-        event.code !== 'KeyC' ||
+        (event.code !== 'KeyC' && event.key !== 'Escape') ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey ||
@@ -1161,7 +1187,8 @@ function Page() {
       )
         return;
       event.preventDefault();
-      if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
+      if (event.key === 'Escape') escapeAnnotation.current();
+      else if (!selectionMode && currentSelector.current && currentRectangle.current) annotate();
       else toggleSelectionMode.current();
     };
     document.addEventListener('keydown', key);
@@ -1235,6 +1262,9 @@ function Page() {
       },
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
+      onKey: (key) => {
+        if (key === 'Escape') escapeAnnotation.current();
+      },
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
           (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
@@ -1496,6 +1526,7 @@ function Page() {
             rectangle={annotation?.rectangle ?? rectangle}
             inset={toolbar.current?.offsetHeight ?? 0}
             noticeVisible={state === 'navigation' || state === 'failed'}
+            toggleVisible={canSelect}
             open={annotate}
           >
             {annotation && (
@@ -1506,9 +1537,20 @@ function Page() {
                 aria-label="Annotate selection"
                 ref={popover}
                 onKeyDown={(event) => {
-                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                  if (
+                    event.key === 'Escape' &&
+                    event.isTrusted &&
+                    !event.defaultPrevented &&
+                    !event.repeat &&
+                    !event.nativeEvent.isComposing &&
+                    event.keyCode !== 229 &&
+                    !event.altKey &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.shiftKey
+                  ) {
                     event.preventDefault();
-                    closeAnnotation(true);
+                    escapeAnnotation.current();
                   }
                 }}
               >
@@ -1706,6 +1748,7 @@ function Page() {
         kind="chat"
         hideHeader
         close={() => setPanel(null)}
+        escape={() => escapeAnnotation.current()}
       >
         {chatOpened && (
           <ChatPanel
@@ -1713,6 +1756,9 @@ function Page() {
             creationRecipient={view.creationRecipient}
             key={`chat:${snapshot.id}:${draftsReady}`}
             initialEdit={drafts.current.get(CHAT_DRAFT)}
+            onBusy={(busy) => {
+              chatBusy.current = busy;
+            }}
             onDraft={(edit) => keepDraft(CHAT_DRAFT, edit)}
             unsaved={draftsUnsaved}
             observationUnavailable={view.askUnavailable}
@@ -1726,6 +1772,7 @@ function Page() {
             blocked={discussionBlocked}
             recoveryRequired={recoveryRequired}
             close={() => setPanel(null)}
+            escape={() => escapeAnnotation.current()}
           />
         )}
       </PageDrawer>

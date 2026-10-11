@@ -523,6 +523,7 @@ export function ThreadWindow({
                   blocked={blocked || busy}
                   initialEdit={initialEdit}
                   onDraft={(_value, edit) => onDraft?.(edit)}
+                  onBusy={onBusy}
                   cancel={close}
                   committed={() => {}}
                 />
