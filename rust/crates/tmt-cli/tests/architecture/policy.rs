@@ -282,6 +282,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-extension-serve",
             // The page budget is gzipped bytes; a write measures the state the way a browser loads it.
             "flate2",
+            // The offline page markup check parses a page source with the browser's tree builder
+            // (#2753); only `page_check/tree.rs` imports it.
+            "html5ever",
         ],
         // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
         "tmt-colab-model" => &[
@@ -848,6 +851,14 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             if source.package == "tmt-colab" && root == "yrs" && source.file != "decoder/child.rs" {
                 violations.push(format!(
                     "{location}: foreign Yjs decoding belongs only in the decoder child"
+                ));
+            }
+            if source.package == "tmt-colab"
+                && root == "html5ever"
+                && source.file != "page_check/tree.rs"
+            {
+                violations.push(format!(
+                    "{location}: HTML parsing belongs only in the page check tree"
                 ));
             }
             // Public-interface extensions name their own library and approved leaves only.

@@ -18,3 +18,6 @@ are ordinary annotation comments mentioning the asking agent; read with
 verified device answer in the canonical thread wins. Colab prefers an answered
 thread, using writer/thread identity order for ties. Reply through the normal receipt in the same thread.
 HTML names grant no routing authority. Removing the question keeps its thread.
+
+Run `tmt colab page check FILE` before publishing: a malformed block is otherwise ignored
+without notice, and the check names the reason code and line.

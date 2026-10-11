@@ -605,6 +605,9 @@ bytes without core and storage access.
   name is publisher-asserted display metadata, never a creator binding or routing authority.
   The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
+  `tmt-colab` alone also depends on `html5ever` (exact pin, no default features) for the offline
+  page markup check (`page_check/`, a pure module behind `tmt colab page check` and the warnings of
+  page create and write); the guard lists it for `tmt-colab` only.
   [Colab discussion](.agents/skills/tmt-colab/references/discussion.md) defines trusted cards, provenance and shared inline slots.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the

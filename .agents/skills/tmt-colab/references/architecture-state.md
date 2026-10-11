@@ -53,6 +53,19 @@ membership and revocation cuts still apply. Fresh `author()` and the actual call
 - Regenerate frozen vectors only with their Python oracle in a throwaway virtualenv with
   `cryptography`, never `--write` outside a reviewed regeneration.
 
+## Page markup check
+
+`rust/tmt-colab/src/page_check/` is the pure checker behind `page check` and the warnings of
+`page create` and `page write`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
+`template` fragment context, scripting off, nesting capped at 512 because the tree builder scans
+its open elements on every start tag), and `question.rs` and `image.rs` hold the rule tables. It
+does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
+(`src/questions.ts`) is the other implementation of the question rules. Both run
+`contracts/vectors/page-markup-v1.json`: `e2e/question-vectors.spec.ts` in headless Chromium and
+`tests/page_markup_vectors.rs` natively. Change a rule in both implementations and in the
+vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
+features, listed in the architecture guard); `tmt-colab-model` stays dependency-free.
+
 ## App build entries
 
 The app build emits its main entry plus two public standalone entries (`vp build`, then

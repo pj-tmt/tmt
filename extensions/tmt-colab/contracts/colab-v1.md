@@ -3362,9 +3362,9 @@ most 512 missing wraps per transaction and rejects capacity atomically. Exact
 registration retries reuse existing device/epoch wraps without growth or fresh
 signing; revoked devices receive nothing. These wraps confer no new Remote rights.
 
-JSON success is `{spaceId,pageId,title,path,operationId,membershipHead}` with
+JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
-hash32). `path` is relative to the Remote door address:
+hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is relative to the Remote door address:
 `x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
 browser router's existing fragment format. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
@@ -3435,7 +3435,7 @@ every signed encrypted append of the batch and the scoped terminal outcome toget
 records a terminal rejection and no content; a commit never splits a batch. Exact frozen
 retries return the original outcome bytes without re-signing, re-appending or overwriting
 later content; changed bytes conflict. JSON success is
-`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed}` plus,
+`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed,warnings}` plus,
 when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
@@ -3602,6 +3602,80 @@ legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes s
 existing page count/byte budgets across epochs; exact replay adds no charge or page time.
 There is no expiry, eviction or pending UNKNOWN row. Browser Save/Writer adoption,
 recovery/fold barriers and gzip parity remain unintegrated.
+
+## Page markup check (#2753)
+
+`tmt colab page check <file|-> [--page <page>] [--json]` reports what is wrong with an
+agent-written page source before anyone opens it. It is a pure function of the source: it
+reads one file (or bounded stdin, with the page-write reader's 2 MiB UTF-8 limit and
+five-second EOF deadline) and needs no running serve, no local state, no core and no data
+root. `--page` additionally resolves `colab-attachment:` references against that page's current
+document attachments in the local store (read only; it starts nothing).
+
+The source is parsed with the HTML tree-construction algorithm in a `template` fragment
+context with scripting off, which is what `template.innerHTML` does, so every verdict is on
+the browser's tree: implied end tags, formatting-element reconstruction, foster parenting,
+foreign content and entity decoding land where the browser puts them. A source nested deeper
+than 512 elements stops the parse with one `page-too-deep` finding, because a browser stops
+nesting there and nothing past it can be judged.
+
+A finding is `{code, severity, element, ordinal, id, line, message}`. `element` is the
+lowercase tag name and `ordinal` the element's 1-based index among elements with that tag in
+document order, counting ignored and nested ones. `id` is the authored `data-id` or `null`.
+`line` is the 1-based line of the end of the element's start tag. `severity` is `ignored`
+(the browser drops the block today) or `warning` (the block is admitted, or the problem is not
+about a block). `message` is wording that may change; `code` is the stable part. Findings are
+ordered by line, element, ordinal and code.
+
+Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
+findings}`. With no finding it exits 0. With any finding the command exits 1 with
+`COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
+`{error:{code,message}}` attached; human output lists each finding with its line first.
+
+`page create` and `page write` run the same check on the source before any state changes. The
+findings are warnings: on stderr in human mode and a `warnings` array (the finding objects,
+`[]` when clean) in the JSON result, also for a write that changes nothing. A page being
+created has no attachments, so every well-formed reference in its first source is
+`attachment-ref-unresolved`. `--strict` turns any finding into a `COLAB_PAGE_CHECK` refusal
+before anything is committed; the JSON error carries the report.
+
+Reason codes (a block fails every rule listed; title rules wait for exactly one heading and
+the choice-shape rules for a valid kind, so one defect is not reported twice):
+
+| Code                                                              | Severity | When                                                                                                                                                                                      |
+| ----------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page-too-deep`                                                   | warning  | an element nests past 512 levels; nothing after it is checked                                                                                                                             |
+| `question-page-limit`                                             | ignored  | more than 50 `tmt-question` on the page; the browser shows none of them, and this is the only finding (on the 51st)                                                                       |
+| `question-id-invalid`                                             | ignored  | `data-id` missing, or not a canonical lowercase UUID                                                                                                                                      |
+| `question-id-duplicate`                                           | ignored  | a well-formed `data-id` shared by two or more questions; every holder is ignored                                                                                                          |
+| `question-nested`                                                 | ignored  | inside another `tmt-question`                                                                                                                                                             |
+| `question-heading-missing` / `-multiple`                          | ignored  | not exactly one direct child with `data-question`                                                                                                                                         |
+| `question-title-empty` / `-too-long` / `-control`                 | ignored  | the heading text, whitespace-normalized, is empty, over 200 code points, or has a control character (below U+0020 or U+007F)                                                              |
+| `question-kind-invalid`                                           | ignored  | `data-kind` is not `single`, `multiple`, `short` or `long`                                                                                                                                |
+| `question-choices-too-many`                                       | ignored  | more than 20 direct `data-choice` children                                                                                                                                                |
+| `question-choice-empty` / `-too-long` / `-control` / `-duplicate` | ignored  | a choice fails the same text bounds (200 code points), or two are equal after normalization                                                                                               |
+| `question-choices-missing`                                        | ignored  | `single` or `multiple` without a choice                                                                                                                                                   |
+| `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
+| `question-agent-invalid`                                          | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
+| `question-marker-misplaced`                                       | warning  | an element with `data-question` or `data-choice` whose parent is not a `tmt-question`: plain content to the browser                                                                       |
+| `image-data-oversized`                                            | warning  | an `<img>` whose `src` is a `data:image/` URL over 32 KiB                                                                                                                                 |
+| `image-data-total`                                                | warning  | all `data:image/` sources together over 256 KiB; one finding, on the image that crosses it                                                                                                |
+| `attachment-ref-invalid`                                          | warning  | an `<img>` `src` starting `colab-attachment:` that is not the scheme plus 8 lowercase hex digits or a full lowercase UUID                                                                 |
+| `attachment-ref-too-many`                                         | warning  | more than 128 distinct well-formed references; one finding, on the 129th                                                                                                                  |
+| `attachment-ref-unresolved` / `-ambiguous`                        | warning  | with `--page`, `page write` or `page create`: no, or more than one, current document attachment of the page matches the reference (an 8-digit token is a prefix, a full ID must be equal) |
+
+Text is normalized as the browser client does: every run of JavaScript whitespace (`\s`,
+which includes U+00A0 and U+FEFF and excludes U+0085) becomes one space and the ends are
+trimmed; limits count code points.
+
+One rule set, two implementations. The browser client's `inspectQuestions` and this checker
+run the shared vectors `contracts/vectors/page-markup-v1.json`: each case gives a source, the
+questions the page shows and the findings, with `scope:"parser"` cases run by both and
+`scope:"checker"` cases (images, references, depth) by the checker alone. The browser's own
+parser is the oracle, in headless Chromium; WebKit agrees on every parser case and Firefox
+differs only on `<noscript>`, which Chromium and WebKit parse as markup. The vectors' `limits`
+block must equal each side's named constants, and a test fails when a code in this table has
+no case or a case names an unknown code.
 
 ## Plaintext page export (#1309)
 

@@ -216,6 +216,18 @@ is `acceptance/one-command.spec.ts` (needs `tmt`, `tmt-remote` and `tmt-colab` b
 [acceptance.md](acceptance.md)); it links the extensions onto the world's PATH so the real core
 resolves `tmt remote`.
 
+## Page markup check
+
+The vectors `extensions/tmt-colab/contracts/vectors/page-markup-v1.json` are edited by hand; each
+side proves them. From `rust/`: `cargo +1.97.0 test --offline --locked -p tmt-colab --test
+page_markup_vectors --lib page_check`. For the browser side, with `TMT_AGENT=1` and a no-op
+`BROWSER`: `corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app exec playwright test
+e2e/question-vectors.spec.ts` (headless Chromium, the oracle) and the app's unit test
+`test/question-vectors.test.ts` (limits and code coverage). A new rule is a row in
+`QUESTION_RULES` (`questions.ts`) and in `RULES` (`page_check/question.rs`), a reason-code row in
+colab-v1 and at least one vector case. The native CLI cases are in `tests/cli.rs`
+(`page_check_*`); they need no serve and no Remote.
+
 ## App and browser client
 
 Without `TMT_COLAB_APP_DIR` the executable serves the checkout's

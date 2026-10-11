@@ -17,7 +17,7 @@ use std::{
 use tmt_colab::{
     Result, inspection,
     keyring::{Keyring, Layout, StateFault},
-    management,
+    management, page_check,
     registration::Registration,
     store::Store,
 };
@@ -655,7 +655,12 @@ fn mutate(layout: &Layout, space: &str, body: &[u8]) -> Result<Vec<u8>> {
     }
 }
 /// Creation is the only CLI command that initializes missing local state.
-pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()> {
+pub fn create_page(
+    root: &Path,
+    args: &ArgMatches,
+    source: String,
+    checks: &[page_check::Finding],
+) -> Result<()> {
     let title = text(args, "title");
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
@@ -766,6 +771,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
+        result["warnings"] = crate::cli_page_check::warnings_json(checks);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
@@ -782,6 +788,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         let terminal = err.terminal();
         tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
     }
+    crate::cli_page_check::print_warnings(checks)?;
     Ok(())
 }
 /// Names a page's title, or, when that page cannot be opened, records why on that page alone so
