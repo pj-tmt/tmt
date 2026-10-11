@@ -123,9 +123,11 @@ export class Connection {
     readonly failed: (error: Error) => void,
     /** Offered subprotocols; the server selects only `colab-sync-v1`. A reader appends its ticket. */
     protocols: readonly string[] = ['colab-sync-v1'],
+    /** Only the paired page owner enables archive-capable read catch-up. */
+    reading = false,
   ) {
     this.objects = new Objects(admission);
-    this.#catchup = new Catchup(admission, sharing, this.objects);
+    this.#catchup = new Catchup(admission, sharing, this.objects, admission.epoch, reading);
     this.#frames = new Frames(admission, (error) => this.close(error));
     this.ready = new Promise((resolve, reject) => {
       this.#resolve = resolve;
@@ -258,7 +260,11 @@ export class Connection {
   }
   #emit(projection: PageView) {
     this.#projection = projection;
-    this.publish({ ...projection, ownData: this.objects.ownData });
+    this.publish({
+      ...projection,
+      ownData: this.objects.ownData,
+      archived: this.admission.archived,
+    });
     for (const pending of this.#ownPublications) {
       if (!this.#containsOwn(pending.records)) continue;
       this.#ownPublications.delete(pending);
@@ -425,6 +431,7 @@ export class Connection {
     attachments?: attachment.DocumentChange,
   ): Promise<SaveResult> {
     await this.ready;
+    this.admission.validatePage(this.sharing);
     const bytes = text(source);
     if (bytes.length > SAVE_SOURCE_BYTES) throw new SaveTooLarge(bytes.length, SAVE_SOURCE_BYTES);
     const [baseHash, sourceHash] = await Promise.all([digest(text(base)), digest(bytes)]);
@@ -472,6 +479,7 @@ export class Connection {
   }
   async append(entry: ObjectEntry): Promise<void> {
     await this.ready;
+    this.admission.validatePage(this.sharing);
     exactKeys(entry, ['seq', 'envelopeHash', 'envelope']);
     const a = this.admission,
       bytes = binary(entry.envelope, UPDATE_ENVELOPE_BYTES),

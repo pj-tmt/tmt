@@ -16,6 +16,14 @@ function humanSize(bytes: number): string {
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
+  archiveReadOnly: 'Archived · Read only',
+  archiveReadOnlyHint: 'Archived pages can be read, not changed.',
+  archivePosting: 'Archived page: read only. Nothing can be posted.',
+  archiveAnnouncement: 'This page was archived. It is now read only.',
+  unsentDraft: 'Unsent draft',
+  copyDraft: 'Copy',
+  copyDraftFailed: 'Could not copy. Select the draft and copy it manually.',
+
   proposalOpen: 'Proposal',
   proposalsOnly: 'Proposals only',
   proposalsEmpty: 'No proposals yet.',

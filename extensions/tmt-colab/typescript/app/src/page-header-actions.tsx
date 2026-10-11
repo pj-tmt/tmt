@@ -79,6 +79,7 @@ export function PageHeaderActions({
   canExport,
   canManage,
   canFiles,
+  readOnly = false,
   onSelect,
 }: {
   active: PageHeaderAction | null;
@@ -88,6 +89,7 @@ export function PageHeaderActions({
   canExport: boolean;
   canManage: boolean;
   canFiles: boolean;
+  readOnly?: boolean;
   onSelect(action: PageHeaderAction): void;
 }) {
   const compact = useSyncExternalStore(subscribeCompact, isCompact);
@@ -108,17 +110,19 @@ export function PageHeaderActions({
       />
       {!compact && (
         <>
-          <BrowserIconAction
-            type="button"
-            variant="text"
-            label={text.agentStatus}
-            icon={<PageHeaderIcon name="agents" />}
-            hasPopup="dialog"
-            expanded={active === 'agents'}
-            onActivate={(event) => {
-              if (event.isTrusted) onSelect('agents');
-            }}
-          />
+          {!readOnly && (
+            <BrowserIconAction
+              type="button"
+              variant="text"
+              label={text.agentStatus}
+              icon={<PageHeaderIcon name="agents" />}
+              hasPopup="dialog"
+              expanded={active === 'agents'}
+              onActivate={(event) => {
+                if (event.isTrusted) onSelect('agents');
+              }}
+            />
+          )}
           <BrowserIconAction
             type="button"
             variant="text"
@@ -136,7 +140,7 @@ export function PageHeaderActions({
             icon={<PageHeaderIcon name="source" />}
             items={[
               { key: 'source', label: text.source },
-              { key: 'export', label: text.export, disabled: !canExport },
+              ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
             ]}
             onSelect={(key) => onSelect(key as 'source' | 'export')}
           />
@@ -148,10 +152,10 @@ export function PageHeaderActions({
         items={[
           ...(compact
             ? [
-                { key: 'agents', label: text.agentStatus },
+                ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
                 { key: 'files', label: `${text.files} (${files})`, disabled: !canFiles },
                 { key: 'source', label: text.source },
-                { key: 'export', label: text.export, disabled: !canExport },
+                ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
               ]
             : []),
           { key: 'manage', label: text.managePage, disabled: !canManage },

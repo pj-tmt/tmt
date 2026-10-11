@@ -1,3 +1,4 @@
+import { ArchivedDraft } from './annotation-input.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { persistable } from './draft-store.js';
@@ -45,9 +46,11 @@ export function savedDrafts(
 export function SavedDrafts({
   drafts,
   discard,
+  archived = false,
 }: {
   drafts: readonly SavedDraft[];
   discard(key: string): void;
+  archived?: boolean;
 }) {
   if (!drafts.length) return null;
   return (
@@ -57,18 +60,24 @@ export function SavedDrafts({
         {drafts.map((draft) => (
           <li key={draft.key} data-testid="saved-draft">
             {draft.quote !== undefined && <blockquote>{draft.quote}</blockquote>}
-            <p className="saved-draft-text">{draft.text}</p>
-            <p className="annotation-hint">
-              {draft.quote !== undefined ? text.savedDraftQuote : text.savedDraftThreadGone}
-            </p>
-            <BrowserAction
-              type="button"
-              label={text.savedDraftDiscard}
-              variant="text"
-              onActivate={(event) => {
-                if (event.isTrusted) discard(draft.key);
-              }}
-            />
+            {archived ? (
+              <ArchivedDraft value={draft.text} />
+            ) : (
+              <>
+                <p className="saved-draft-text">{draft.text}</p>
+                <p className="annotation-hint">
+                  {draft.quote !== undefined ? text.savedDraftQuote : text.savedDraftThreadGone}
+                </p>
+                <BrowserAction
+                  type="button"
+                  label={text.savedDraftDiscard}
+                  variant="text"
+                  onActivate={(event) => {
+                    if (event.isTrusted) discard(draft.key);
+                  }}
+                />
+              </>
+            )}
           </li>
         ))}
       </ul>

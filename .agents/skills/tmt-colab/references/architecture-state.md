@@ -338,9 +338,10 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   read-only under the new registration. It never opens another Remote session.
 - `share-dialog.tsx` supplies the trusted modal for share/member/link/history and
   retention/archive/delete controls. `router.tsx` supplies active/archived home
-  filtering and refresh after changes; acknowledged or uncertain policy changes close the old
-  Live binding, including its writer and Ask preview/observer. Local samples have
-  no management capability.
+  filtering and refresh after changes. Archive commits end only that page's sync peers
+  with RESYNC_REQUIRED; paired tabs reopen with read catch-up, retaining drafts for Copy
+  and removing publication controls. Other acknowledged or uncertain policy changes close
+  the old Live binding, including its writer and Ask observer. Local samples have no management capability.
 - Archive verification uses its same readable page. Delete uses another readable
   page's owner log plus discovery absence and the frozen initiating context.
   Without that evidence, last-page deletion remains acknowledged/awaiting

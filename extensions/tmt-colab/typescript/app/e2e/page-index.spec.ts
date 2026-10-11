@@ -63,7 +63,10 @@ for (const width of [1440, 390])
       await toggle.click();
       await expect(rows).toHaveCount(2);
       await expect(rows.locator('.tmt-ui-list-state')).toHaveText(['Archived', 'Archived']);
-      await expect(rows.getByRole('link')).toHaveCount(0);
+      await expect(rows.getByRole('link')).toHaveCount(2);
+      await expect(
+        rows.first().getByRole('link', { name: 'Archived notes', exact: true }),
+      ).toHaveAttribute('href', '/#/pages/c0000004-1111-4111-8111-000000000001');
       await expect(rows.last().locator('time')).toHaveCount(0);
       await expect(rows.last()).toContainText('Update time unknown');
       await page.screenshot({ path: await capturePath(`2168-archived-${width}-${theme}.png`) });
@@ -222,7 +225,10 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
   const row = page.locator('#index-fixture [data-page-id="c0000005-1111-4111-8111-000000000001"]');
   await expect(row.locator('.tmt-ui-list-updated')).toHaveText('Update time unknown');
   await expect(row.locator('time')).toHaveCount(0);
-  await expect(row.getByRole('link')).toHaveCount(0);
+  await expect(row.getByRole('link', { name: 'Untitled page', exact: true })).toHaveAttribute(
+    'href',
+    '/#/pages/c0000005-1111-4111-8111-000000000001',
+  );
   await expect(row.getByText('Untitled page', { exact: true })).toBeVisible();
   await expect(row.locator('summary')).toHaveAccessibleName('Actions for Untitled page');
 });

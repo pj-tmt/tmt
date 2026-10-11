@@ -168,7 +168,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   Enter; no drawer opens automatically. Known margin markers reopen that exact
   thread using the current renderer's admitted cosmetic position. The page owner
   keeps drafts and bound mention UUIDs by thread across collapse and explicit Comments
-  access. `draft-store.ts` persists them per device behind that map (encrypted record per
+  access. Archived paired pages retain local text as Unsent draft with Copy, removing
+  compose, Ask, status, edit and upload actions; their verified content remains readable.
+  `draft-store.ts` persists them per device behind that map (encrypted record per
   space/device/page, `DraftSession` coalescing, page restore on mount); `saved-drafts.tsx`
   lists selection drafts and replies to vanished threads under Comments. Restore only fills
   composers; the Ask ledger is untouched. Failed storage shows `Drafts are not saved on this

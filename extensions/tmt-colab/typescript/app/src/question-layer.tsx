@@ -61,6 +61,7 @@ export function useQuestionLayer({
               style={{ top: slot?.top ?? 0 }}
             >
               <QuestionCard
+                readOnly={view.archived}
                 question={question}
                 selector={anchor?.selector}
                 threads={associated}

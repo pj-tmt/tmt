@@ -257,8 +257,8 @@ export class Admission {
   }
   /** The bridge a verified `bridge.add` named at `revision`, as native `open_object` finds it
    * in the membership state at the envelope's revision: the latest add for this machine,
-   * with the page and epoch that state granted. An archived or deleted page never reaches
-   * here: `validatePage` refuses it for every author. */
+   * with the page and epoch that state granted. Fresh publication is fenced separately by `validatePage`; archived content
+   * can still authenticate its historical authors through read admission. */
   #bridge(device: string, revision: bigint) {
     let bridge: { signKey: Uint8Array; pages: readonly string[] } | undefined;
     let epoch = 1n;
@@ -406,6 +406,12 @@ export class Admission {
     }
     requireValue(epoch === d.epoch);
     return c.signingKey.slice();
+  }
+  /** Read-only presentation comes only from the verified owner log. */
+  get archived(): boolean {
+    return this.#log.some(
+      ({ payload: p }) => p.operation === 'page.archive' && p.value.pageId === this.page,
+    );
   }
   /** Current read policy, including the actual link seat. Writes still use
    * validatePage's writable default and author(), never this read purpose. */

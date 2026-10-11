@@ -9,6 +9,7 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 export interface PageView extends Projection {
+  readonly archived?: boolean;
   readonly ownData?: boolean;
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];

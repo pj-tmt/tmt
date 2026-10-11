@@ -251,3 +251,67 @@ for (const surface of ['chat', 'thread'] as const)
       await drag.dispose();
       await rejected.dispose();
     });
+
+for (const surface of ['chat', 'thread'] as const)
+  test(`archive retains pending local files and refuses panel drops ${surface}`, async ({
+    page,
+  }) => {
+    await mount(page);
+    await page.evaluate(async (path) => {
+      const { AttachmentDraft } = await import(path);
+      const add = AttachmentDraft.prototype.add;
+      AttachmentDraft.prototype.add = function (files: readonly File[]) {
+        (window as any).archivedAttachmentDraft = this;
+        return add.call(this, files);
+      };
+    }, '/src/attachment-draft.ts');
+    let panel, input;
+    if (surface === 'chat') ({ panel, input } = await openChat(page));
+    else {
+      await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('#selected')
+        .evaluate((node) => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const selection = getSelection()!;
+          selection.removeAllRanges();
+          selection.addRange(range);
+        });
+      await page.getByTestId('selection-ask').click();
+      panel = page.locator('.comment-thread');
+      input = page.getByRole('combobox', { name: 'Message', exact: true });
+    }
+    await input.fill('Keep my unsent text and local file.');
+    await attach(page, [
+      { name: 'local.txt', mimeType: 'text/plain', buffer: Buffer.from('Local bytes') },
+    ]);
+    await expect(panel.getByTestId('attachment-chip')).toHaveCount(1);
+    const snapshot = () =>
+      page.evaluate(() => (window as any).archivedAttachmentDraft.getSnapshot());
+    const before = await snapshot();
+    const effects = await actions(page);
+    await page.evaluate(
+      async (path) => (await import(path)).archive(),
+      '/test/ask-page-browser.tsx',
+    );
+    await expect(panel.locator('.archive-unsent-draft pre')).toHaveText(
+      'Keep my unsent text and local file.',
+    );
+    await expect(panel.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Attach', exact: true })).toHaveCount(0);
+    const drag = await page.evaluateHandle(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(['Refused bytes'], 'refused.txt', { type: 'text/plain' }));
+      return data;
+    });
+    await panel.dispatchEvent('dragenter', { dataTransfer: drag });
+    await expect(panel.getByTestId('attachment-drop-overlay')).toHaveText(
+      '✗ Attachments are unavailable here.',
+    );
+    await panel.dispatchEvent('drop', { dataTransfer: drag });
+    await expect(panel.getByTestId('attachment-drop-overlay')).toHaveCount(0);
+    expect(await snapshot()).toEqual(before);
+    expect(await actions(page)).toEqual(effects);
+    await drag.dispose();
+  });

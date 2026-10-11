@@ -337,3 +337,18 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
   await send(page);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
+
+test('archiving an unanswered question preserves text for Copy and removes answering controls', async ({
+  page,
+}) => {
+  const card = await mount(page, { kind: 'short' });
+  await card.getByRole('textbox', { name: 'Your answer' }).fill('Retain this answer draft');
+  await run(page, 'archive');
+  await expect(card.getByText('Unsent draft', { exact: true })).toBeVisible();
+  await expect(card.locator('.archive-unsent-draft pre')).toContainText('Retain this answer draft');
+  await expect(card.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
+  await expect(card.getByRole('textbox')).toHaveCount(0);
+  await expect(card.getByRole('combobox')).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+});

@@ -347,13 +347,20 @@ pub fn status(code: Code) -> u16 {
     }
 }
 
+/// Committed management bytes and the archive transition that needs a live re-read.
+/// Replayed operations have no new transition and must not end fresh readers.
+pub struct Applied {
+    pub body: Vec<u8>,
+    pub archived_page: Option<String>,
+}
+
 pub fn browser(
     service: &mut crate::registration::Registration,
     space: &str,
     context: Option<&str>,
     body: &[u8],
     now: u64,
-) -> Result<Vec<u8>> {
+) -> Result<Applied> {
     let (sender, signer) = service
         .management_device(context, now)
         .map_err(|code| match code {
@@ -379,7 +386,7 @@ pub fn local(
     space: &str,
     body: &[u8],
     now: u64,
-) -> Result<Vec<u8>> {
+) -> Result<Applied> {
     apply(service, Command::local(body, space)?, false, now)
 }
 fn role(value: &payload::Role) -> &'static str {
@@ -402,7 +409,7 @@ fn apply(
     command: Command,
     scoped: bool,
     now: u64,
-) -> Result<Vec<u8>> {
+) -> Result<Applied> {
     use crate::transitions::{
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
@@ -521,9 +528,14 @@ fn apply(
     );
     seed.fill(0);
     let applied = result.map_err(|error| error.code)?;
-    serde_json::to_vec(&serde_json::json!({"operationId":command.operation_id,
+    let body = serde_json::to_vec(&serde_json::json!({"operationId":command.operation_id,
         "membershipHead":{"revision":applied.head.revision.to_string(),"statementHash":values::encode_binary(&applied.head.hash)}}))
-        .map_err(|_| Code::Unavailable)
+        .map_err(|_| Code::Unavailable)?;
+    Ok(Applied {
+        body,
+        archived_page: (!applied.replayed && matches!(command.action, Action::Archive))
+            .then_some(command.page),
+    })
 }
 
 #[cfg(test)]

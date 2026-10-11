@@ -10,6 +10,7 @@ export function ProposalCard({
   thread,
   outcome,
   disabled,
+  readOnly = false,
   canDecide,
   statusError,
   detached,
@@ -26,6 +27,7 @@ export function ProposalCard({
   thread: ThreadView;
   outcome?: ProposalOutcome;
   disabled: boolean;
+  readOnly?: boolean;
   canDecide: boolean;
   statusError?: boolean;
   detached?: boolean;
@@ -126,7 +128,7 @@ export function ProposalCard({
                 : text.proposalOpen}
           {thread.resolved && unseen ? ` · ${text.threadUnseen}` : ''}
         </span>
-        {thread.resolved && resolve && (
+        {!readOnly && thread.resolved && resolve && (
           <BrowserAction
             type="button"
             variant="text"
@@ -145,7 +147,7 @@ export function ProposalCard({
         </p>
       )}
       {(!thread.resolved || historyOpen) && <p className="proposal-body">{proposal.body}</p>}
-      {!thread.resolved && (
+      {!readOnly && !thread.resolved && (
         <div className="proposal-actions">
           {!decision && !outcome && !thread.resolved && (
             <>

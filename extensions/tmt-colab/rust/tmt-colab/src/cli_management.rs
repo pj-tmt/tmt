@@ -628,7 +628,7 @@ fn offline(store: Store, key: Keyring, space: &str, body: &[u8]) -> Result<Vec<u
         management::local(&mut service, space, body, now).map_err(|c| management_error(c.text()));
     let closed = service.close();
     // The service call may have committed before close failed.
-    let bytes = result?;
+    let bytes = result?.body;
     closed.map_err(|_| {
         fail(
             "COLAB_OUTCOME_UNKNOWN",
