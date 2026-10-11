@@ -103,6 +103,8 @@ jobs:
               const retained = new Set(current.slice(0,2).map(({ run }) => run.id));
               for (const generation of generations) {
                 const run = generation.run;
+                // External reconciliation must not race the current head's still-running producer.
+                if (keepRun === null && eligible && run.sourcePrefix === pull.head.sha?.slice(0,12) && run.status !== 'completed') continue;
                 if (retained.has(run.id)) continue;
                 // Retire discovery before cancellation/settlement; a late catalog is re-inventoried below.
                 for (const artifact of generation.artifacts.filter((item) => item.name.startsWith('tmt-pr-rc-catalog-'))) await erase(artifact);

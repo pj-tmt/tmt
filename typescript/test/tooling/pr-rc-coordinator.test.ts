@@ -405,7 +405,7 @@ function cleanupFixture() {
     display_title: `pr-rc #1639 ${identity.head12}`,
     created_at: '2026-10-10T09:00:00Z',
     status: 'completed',
-    conclusion: 'success',
+    conclusion: 'success' as string | null,
   }));
   const all = new Map(
     runs.map((run) => [
@@ -498,6 +498,42 @@ describe('one no-checkout exact-ID RC cleanup implementation', () => {
     );
     expect(f.all.get(12)).toHaveLength(6);
     expect(f.all.get(13)).toHaveLength(6);
+  });
+  it.each([true, false])(
+    'leaves the current in-flight generation untouched (catalog present: %s)',
+    async (withCatalog) => {
+      const f = cleanupFixture();
+      f.runs[2].status = 'in_progress';
+      f.runs[2].conclusion = null;
+      if (!withCatalog)
+        f.all.set(
+          13,
+          f.all.get(13)!.filter((item) => item.id !== 130)
+        );
+      const before = structuredClone(f.all.get(13));
+      const result = await cleanupPRRC(f.options);
+      expect(result.deleted).toEqual([]);
+      expect(f.runs[2].status).toBe('in_progress');
+      expect(f.all.get(13)).toEqual(before);
+      expect(f.calls.filter((call) => call.method === 'POST' || call.method === 'DELETE')).toEqual(
+        []
+      );
+    }
+  );
+  it('still cancels and erases a stale-head in-flight generation during external reconciliation', async () => {
+    const f = cleanupFixture();
+    f.runs[2].status = 'in_progress';
+    f.runs[2].conclusion = null;
+    f.runs[2].display_title = `pr-rc #1639 ${'f'.repeat(12)}`;
+    const result = await cleanupPRRC(f.options);
+    expect(result.deleted).toEqual([130, 131, 132, 133, 134]);
+    expect(f.calls.filter((call) => call.method === 'POST').map((call) => call.route)).toEqual([
+      'repos/pj-tmt/tmt/actions/runs/13/cancel',
+    ]);
+    expect(f.runs[2].status).toBe('completed');
+    expect(f.all.get(13)!.map((item) => item.id)).toEqual([139]);
+    expect(f.all.get(11)).toHaveLength(6);
+    expect(f.all.get(12)).toHaveLength(6);
   });
   it.each(['closed', 'unlabeled', 'expired'] as const)(
     'actively deletes %s RC outputs, catalog first, idempotently',
