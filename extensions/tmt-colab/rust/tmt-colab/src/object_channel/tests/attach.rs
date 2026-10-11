@@ -572,10 +572,7 @@ impl Flow {
     const FILE: &'static [u8] = b"native attach bytes";
     /// A slot with the file staged, as the CLI leaves it.
     fn staged(&self) -> (StagingSlot, [u8; 32]) {
-        let slot = self
-            .slots
-            .create(PAGE, "a.txt", "text/plain", 1000)
-            .unwrap();
+        let slot = self.slots.create(PAGE, "a.txt", 1000).unwrap();
         std::fs::write(slot.source_path(), Self::FILE).unwrap();
         (slot, crypto::digest(Self::FILE))
     }
@@ -639,6 +636,36 @@ fn a_whole_attach_uploads_once_publishes_the_proof_then_the_list_and_a_retry_cha
         attached.descriptor.attachment_id
     );
     assert_eq!((flow.begins(), flow.published()), (1, 2));
+}
+#[test]
+fn an_old_sealed_slot_resumes_the_same_upload_without_its_inert_media_label() {
+    let flow = Flow::new();
+    let (mut slot, expected) = flow.staged();
+    flow.objects.backend.lose_reply_at(3);
+    let first = flow.run(&mut slot, Some(expected)).unwrap_err();
+    assert_eq!(Flow::code(&first), Some("COLAB_UNAVAILABLE"));
+    assert!(!first.dispose);
+    let frozen = serde_json::to_value(&slot.record.sealed).unwrap();
+    let path = slot.source_path().parent().unwrap().join("slot.json");
+    let mut old = serde_json::to_value(&slot.record).unwrap();
+    old["mediaType"] = "application/pdf".into();
+    std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+    let mut resumed = flow.slots.load(slot.id()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&resumed.record.sealed).unwrap(),
+        frozen
+    );
+    let answer = flow.run(&mut resumed, None).unwrap();
+    assert_eq!(
+        answer.descriptor.attachment_id,
+        frozen["descriptor"]["attachmentId"]
+    );
+    assert_eq!(answer.descriptor.media_type, "text/plain");
+    assert_eq!((flow.begins(), flow.published()), (1, 2));
+    resumed.finish(2000).unwrap();
+    let written: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert!(written.get("mediaType").is_none());
+    assert_eq!(written["sealed"], frozen);
 }
 #[test]
 fn a_page_edited_after_sealing_and_before_upload_is_stale_terminal_and_never_publishes() {

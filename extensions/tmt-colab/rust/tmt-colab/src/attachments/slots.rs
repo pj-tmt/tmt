@@ -44,7 +44,9 @@ pub struct Record {
     version: u8,
     pub page: String,
     pub filename: String,
-    pub media_type: String,
+    // Old local slots carried an inert label. Accept that key without retaining or writing it.
+    #[serde(default, skip_serializing, rename = "mediaType")]
+    _legacy_media_type: serde::de::IgnoredAny,
     pub created_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sealed: Option<Frozen>,
@@ -222,25 +224,18 @@ impl StagingSlots {
     }
     /// Open a slot for a page. The ID is random; the serve answers with where to stream the
     /// file, and that directory is owner-only like everything under the serve's root.
-    pub fn create(
-        &self,
-        page: &str,
-        filename: &str,
-        media_type: &str,
-        now_ms: u64,
-    ) -> Result<StagingSlot> {
-        self.open_slot(page, filename, media_type, None, now_ms)
+    pub fn create(&self, page: &str, filename: &str, now_ms: u64) -> Result<StagingSlot> {
+        self.open_slot(page, filename, None, now_ms)
     }
     /// A slot for the re-seal of attachment `old` of `page`.
     pub fn create_replacing(
         &self,
         page: &str,
         filename: &str,
-        media_type: &str,
         old: &str,
         now_ms: u64,
     ) -> Result<StagingSlot> {
-        self.open_slot(page, filename, media_type, Some(old), now_ms)
+        self.open_slot(page, filename, Some(old), now_ms)
     }
     /// The unfinished slot that is re-sealing `old` of `page`, if an earlier pass left one.
     pub fn replacing(&self, page: &str, old: &str) -> Result<Option<String>> {
@@ -259,7 +254,6 @@ impl StagingSlots {
         &self,
         page: &str,
         filename: &str,
-        media_type: &str,
         replaces: Option<&str>,
         now_ms: u64,
     ) -> Result<StagingSlot> {
@@ -284,7 +278,7 @@ impl StagingSlots {
             version: VERSION,
             page: page.to_owned(),
             filename: filename.to_owned(),
-            media_type: media_type.to_owned(),
+            _legacy_media_type: serde::de::IgnoredAny,
             created_ms: now_ms,
             sealed: None,
             done_ms: None,
@@ -525,7 +519,7 @@ mod tests {
     fn a_slot_is_private_named_only_by_its_random_id_and_survives_a_reopen() {
         let root = Root::new("create");
         let slots = root.slots();
-        let slot = slots.create(PAGE, "a.txt", "text/plain", 10).unwrap();
+        let slot = slots.create(PAGE, "a.txt", 10).unwrap();
         assert_eq!(slot.id().len(), ID_CHARS);
         assert!(valid_id(slot.id()));
         let directory = root.0.join(DIRECTORY).join(slot.id());
@@ -533,8 +527,60 @@ mod tests {
         let again = slots.load(slot.id()).unwrap();
         assert_eq!(again.record.page, PAGE);
         assert!(again.record.sealed.is_none());
-        let other = slots.create(PAGE, "a.txt", "text/plain", 10).unwrap();
+        let other = slots.create(PAGE, "a.txt", 10).unwrap();
         assert_ne!(other.id(), slot.id());
+    }
+    #[test]
+    fn an_old_slot_ignores_its_media_label_and_keeps_the_frozen_replacement() {
+        let root = Root::new("legacy");
+        let slots = root.slots();
+        let mut slot = slots.create_replacing(PAGE, "a.txt", "old", 10).unwrap();
+        sealed(&mut slot);
+        let path = slot.directory.join(RECORD);
+        let mut old = serde_json::to_value(&slot.record).unwrap();
+        assert!(old.get("mediaType").is_none());
+        old["mediaType"] = "text/plain".into();
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let mut resumed = slots.load(slot.id()).unwrap();
+        assert_eq!(resumed.record.page, PAGE);
+        assert_eq!(resumed.record.filename, "a.txt");
+        assert_eq!(resumed.record.created_ms, 10);
+        assert_eq!(resumed.record.replaces.as_deref(), Some("old"));
+        assert_eq!(resumed.read_object(100).unwrap(), b"ciphertext");
+        assert_eq!(
+            serde_json::to_value(&resumed.record.sealed).unwrap(),
+            old["sealed"]
+        );
+        resumed.finish(20).unwrap();
+        let written: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert!(written.get("mediaType").is_none());
+        assert_eq!(written["version"], 1);
+        assert_eq!(written["doneMs"], 20);
+        assert_eq!(written["sealed"], old["sealed"]);
+    }
+    #[test]
+    fn accepting_the_old_media_key_does_not_admit_other_unknown_or_duplicate_fields() {
+        let root = Root::new("unknown");
+        let slots = root.slots();
+        let slot = slots.create(PAGE, "a.txt", 10).unwrap();
+        let mut old = serde_json::to_value(&slot.record).unwrap();
+        old["mediaType"] = "text/plain".into();
+        old["path"] = "/outside".into();
+        let path = slot.directory.join(RECORD);
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(
+            slots.load(slot.id()).unwrap_err().downcast_ref::<Fault>(),
+            Some(&Fault::Invalid)
+        );
+        old.as_object_mut().unwrap().remove("path");
+        let mut duplicate = serde_json::to_string(&old).unwrap();
+        duplicate.pop();
+        duplicate.push_str(",\"filename\":\"other\"}");
+        fs::write(&path, duplicate).unwrap();
+        assert_eq!(
+            slots.load(slot.id()).unwrap_err().downcast_ref::<Fault>(),
+            Some(&Fault::Invalid)
+        );
     }
     #[test]
     fn only_a_canonical_id_names_a_slot_and_never_a_path() {
@@ -565,7 +611,7 @@ mod tests {
     fn the_staged_copy_is_bounded_and_never_followed_through_a_link() {
         let root = Root::new("source");
         let slots = root.slots();
-        let slot = slots.create(PAGE, "a.txt", "text/plain", 10).unwrap();
+        let slot = slots.create(PAGE, "a.txt", 10).unwrap();
         fs::write(slot.source_path(), b"hello").unwrap();
         assert_eq!(slot.read_source().unwrap(), b"hello");
         fs::remove_file(slot.source_path()).unwrap();
@@ -581,7 +627,7 @@ mod tests {
     fn sealing_freezes_the_ciphertext_and_drops_the_plaintext() {
         let root = Root::new("seal");
         let slots = root.slots();
-        let mut slot = slots.create(PAGE, "a.txt", "text/plain", 10).unwrap();
+        let mut slot = slots.create(PAGE, "a.txt", 10).unwrap();
         fs::write(slot.source_path(), b"hello").unwrap();
         sealed(&mut slot);
         assert!(!slot.source_path().exists());
@@ -597,11 +643,11 @@ mod tests {
     fn the_sweep_removes_only_unstarted_or_aged_slots_and_returns_aged_started_ones() {
         let root = Root::new("sweep");
         let slots = root.slots();
-        let fresh = slots.create(PAGE, "a", "text/plain", 1_000).unwrap();
-        let abandoned = slots.create(PAGE, "a", "text/plain", 1_000).unwrap();
-        let mut started = slots.create(PAGE, "a", "text/plain", 1_000).unwrap();
+        let fresh = slots.create(PAGE, "a", 1_000).unwrap();
+        let abandoned = slots.create(PAGE, "a", 1_000).unwrap();
+        let mut started = slots.create(PAGE, "a", 1_000).unwrap();
         sealed(&mut started);
-        let mut old = slots.create(PAGE, "a", "text/plain", 1_000).unwrap();
+        let mut old = slots.create(PAGE, "a", 1_000).unwrap();
         sealed(&mut old);
         let (fresh_id, abandoned_id) = (fresh.id().to_owned(), abandoned.id().to_owned());
         let (started_id, old_id) = (started.id().to_owned(), old.id().to_owned());
@@ -639,11 +685,11 @@ mod tests {
         let slots = root.slots();
         let mut made = Vec::new();
         for _ in 0..MAX_SLOTS {
-            made.push(slots.create(PAGE, "a", "text/plain", 10).unwrap());
+            made.push(slots.create(PAGE, "a", 10).unwrap());
         }
         assert_eq!(
             slots
-                .create(PAGE, "a", "text/plain", 10)
+                .create(PAGE, "a", 10)
                 .err()
                 .unwrap()
                 .downcast_ref::<Fault>(),
@@ -653,7 +699,7 @@ mod tests {
         fs::write(made[0].source_path(), b"x").unwrap();
         made.remove(0).dispose().unwrap();
         assert!(!root.0.join(DIRECTORY).join(id).exists());
-        slots.create(PAGE, "a", "text/plain", 10).unwrap();
+        slots.create(PAGE, "a", 10).unwrap();
     }
     #[test]
     fn a_finished_slot_keeps_only_its_answer_for_a_while_and_never_blocks_a_new_one() {
@@ -661,13 +707,13 @@ mod tests {
         let slots = root.slots();
         let mut finished = Vec::new();
         for _ in 0..MAX_SLOTS {
-            let mut slot = slots.create(PAGE, "a", "text/plain", 1_000).unwrap();
+            let mut slot = slots.create(PAGE, "a", 1_000).unwrap();
             sealed(&mut slot);
             slot.finish(2_000).unwrap();
             finished.push(slot.id().to_owned());
         }
         // Finished slots do not count against the cap.
-        let open = slots.create(PAGE, "a", "text/plain", 3_000).unwrap();
+        let open = slots.create(PAGE, "a", 3_000).unwrap();
         let again = slots.load(&finished[0]).unwrap();
         assert_eq!(again.record.done_ms, Some(2_000));
         assert!(again.record.sealed.is_some());

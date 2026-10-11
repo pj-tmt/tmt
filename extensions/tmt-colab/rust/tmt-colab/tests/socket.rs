@@ -3229,9 +3229,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     use tmt_colab::attachments::attach_ipc;
     let (server, layout, _key, _peer) = publish_fixture();
     let slots = layout.directory.join("attach-slots");
-    let stage = format!(
-        r#"{{"version":1,"page":"{PAGE}","filename":"notes.txt","mediaType":"text/plain"}}"#
-    );
+    let stage = format!(r#"{{"version":1,"page":"{PAGE}","filename":"notes.txt"}}"#);
     let attach = format!(
         r#"{{"version":1,"page":"{PAGE}","slot":"{}","sha256":"{}"}}"#,
         "a".repeat(32),
@@ -3276,7 +3274,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     }
     for malformed in [
         stage.replace("notes.txt", ""),
-        stage.replace("text/plain", "TEXT/plain"),
+        stage.replace(r#""version":1"#, r#""version":1,"mediaType":"text/plain""#),
     ] {
         let refused = server.event(attach_ipc::STAGE_PATH, "", &malformed);
         assert!(
@@ -3293,7 +3291,7 @@ fn root_local_attach_routes_are_refused_for_remote_callers_and_stage_nothing() {
     // Every refusal above stages nothing.
     assert_eq!(fs::read_dir(&slots).unwrap().count(), 0);
     // A valid stage opens one private slot named by a random ID, and answers where to stream.
-    let staged = attach_ipc::stage(&layout, PAGE, "notes.txt", "text/plain").unwrap();
+    let staged = attach_ipc::stage(&layout, PAGE, "notes.txt").unwrap();
     assert_eq!(staged.slot.len(), 32);
     let directory = slots.join(&staged.slot);
     assert_eq!(staged.path, directory.join("source").to_string_lossy());

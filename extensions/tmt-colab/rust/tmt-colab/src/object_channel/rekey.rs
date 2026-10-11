@@ -176,7 +176,6 @@ fn stage(
     let slot = slots.create_replacing(
         page_id,
         &old.filename,
-        &old.media_type,
         &old.attachment_id,
         crate::registration::now_ms().map_err(|_| page::Fault::Unavailable)?,
     );
