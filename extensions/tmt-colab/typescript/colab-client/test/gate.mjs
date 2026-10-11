@@ -17,6 +17,55 @@ export function parseEngines(args) {
   return requireEngines(args[1].split(','));
 }
 
+/** Refusal is explicit and limited to the divergent Linux WebKit backend. */
+export function parseRefused(value, engines, platform) {
+  if (!value) return [];
+  const refused = value.split(',');
+  requireEngines(refused);
+  if (platform !== 'linux' || refused.some((name) => name !== 'webkit' || !engines.includes(name)))
+    throw new Error('Expected-refused is only supported for selected Linux WebKit');
+  return refused;
+}
+
+export function validateRefusal(result) {
+  if (
+    result.diagnostics?.cleanup !== 'closed' ||
+    result.error ||
+    result.skipped ||
+    !result.version ||
+    result.probeRefused !== true ||
+    !Number.isInteger(result.policyMismatches) ||
+    result.policyMismatches < 1 ||
+    result.notices !== 1 ||
+    result.heading !== 'Update your browser' ||
+    result.body !==
+      'This browser cannot safely verify Colab signatures. Update it or open Colab in another supported browser.' ||
+    result.sdkRequests !== 0 ||
+    result.iframes !== 0 ||
+    result.actions !== 0
+  )
+    throw new Error('Incomplete expected browser refusal');
+}
+
+export function validateExpectedReport(report, corpus, engines, refused) {
+  requireEngines(engines);
+  if (
+    !Array.isArray(report) ||
+    report.length !== engines.length ||
+    new Set(report.map((r) => r.engine)).size !== engines.length ||
+    report.some((r) => !engines.includes(r.engine))
+  )
+    throw new Error('Missing or duplicate engine');
+  for (const result of report.filter((r) => refused.includes(r.engine))) validateRefusal(result);
+  const strict = engines.filter((name) => !refused.includes(name));
+  if (strict.length)
+    validateReport(
+      report.filter((r) => strict.includes(r.engine)),
+      corpus,
+      strict,
+    );
+}
+
 export function validateReport(report, corpus, engines = ENGINES) {
   requireEngines(engines);
   const names = corpus.map((c) => c.name);

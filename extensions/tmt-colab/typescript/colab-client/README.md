@@ -82,3 +82,10 @@ product inputs. The independent frozen-vector generators remain documented in
 CI runs the library check and unit tests on every pull request. The separate
 advisory three-engine workflow follows the scope and cache policy in
 [the CI architecture](../../../../ARCHITECTURE.md#ci-selection-and-worker-model).
+
+The differential defaults to strict conformance for every selected engine. On Linux only,
+`COLAB_EXPECT_REFUSED_ENGINES=webkit` requires real native-policy capability refusal and
+exactly one update-browser notice from the built app, with no SDK activation or page actions.
+Build the app first; this explicit refusal is not a corpus conformance pass. macOS WebKit
+continues to run strict with the variable unset. Generic failures and unexpected acceptance
+fail both modes; Infra owns the advisory runner topology in #2716.
