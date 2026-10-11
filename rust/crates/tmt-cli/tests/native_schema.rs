@@ -91,7 +91,8 @@ fn empty_default_refuses_a_former_database_before_creating_sqlite_files() {
     let message = value.to_string();
     assert!(message.contains(&current.join("tmux-team.db").display().to_string()));
     assert!(message.contains(&former.join("tmux-team.db").display().to_string()));
-    assert!(message.contains("Move the former Core data directory"));
+    assert!(message.contains("Move the current Core data directory"));
+    assert!(message.contains("aside first, then move the former Core data directory"));
     assert_eq!(fs::read_dir(current).unwrap().count(), 0);
     assert_eq!(fs::read_dir(&former).unwrap().count(), 1);
     assert_eq!(

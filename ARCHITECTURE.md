@@ -290,7 +290,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 
 ### Settings and configuration
 
-`tmt-adapters::config::ConfigPaths` owns paths and default cutover, refusing a new database beside a former sibling store;
+`tmt-adapters::config::ConfigPaths` is the sole path owner and managed-release-only default cutover owner, refusing a new database beside a former store;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
 opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by

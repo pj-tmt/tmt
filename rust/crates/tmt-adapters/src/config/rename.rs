@@ -129,9 +129,10 @@ fn guard_new_database(
     let former_database = former.join("tmux-team.db");
     match inspect(&former_database) {
         Ok(()) => Err(ConfigError::internal(format!(
-            "Refusing to initialize {} while the former database {} exists. Move the former Core data directory {} to {} as a whole before retrying.",
+            "Refusing to initialize {} while the former database {} exists. Move the current Core data directory {} aside first, then move the former Core data directory {} to {} as a whole before retrying.",
             database.display(),
             former_database.display(),
+            current.display(),
             former.display(),
             current.display(),
         ))),
@@ -212,7 +213,7 @@ mod tests {
             assert!(
                 error
                     .message
-                    .contains("Move the former Core data directory")
+                    .contains("aside first, then move the former Core data directory")
             );
             assert_eq!(fs::read_dir(&current).unwrap().count(), 0);
             assert_eq!(fs::read_dir(&former).unwrap().count(), 1);
