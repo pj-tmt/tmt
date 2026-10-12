@@ -138,14 +138,6 @@ fn scripted_launch_options(args: &mut Vec<std::ffi::OsString>) {
         return;
     }
     args.truncate(args.len() - 2);
-    if args.len() >= 2 && args[args.len() - 2] == "--plugin-dir" {
-        let plugin = std::path::Path::new(args.last().unwrap());
-        assert!(plugin.is_absolute(), "picker directory must be absolute");
-        assert!(plugin.join(".claude-plugin/plugin.json").is_file());
-        assert!(plugin.join("hooks/hooks.json").is_file());
-        assert!(plugin.join("hooks/register.mjs").is_file());
-        args.truncate(args.len() - 2);
-    }
 }
 
 /// Keep the MCP server a direct child of the admitted native provider. The
@@ -283,19 +275,12 @@ mod tests {
     }
 
     #[test]
-    fn scripted_paths_and_listen_survive_the_claude_picker_and_settings() {
+    fn scripted_paths_and_listen_survive_the_claude_settings() {
         let original: Vec<std::ffi::OsString> = ["/cli", "/scenario", "/report", "--listen"]
             .map(Into::into)
             .to_vec();
-        let plugin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets/claude-plugin/tmt-picker");
         let mut args = original.clone();
-        args.extend([
-            "--plugin-dir".into(),
-            plugin.into_os_string(),
-            "--settings".into(),
-            r#"{"hooks":{"Stop":[]}}"#.into(),
-        ]);
+        args.extend(["--settings".into(), r#"{"hooks":{"Stop":[]}}"#.into()]);
         scripted_launch_options(&mut args);
         assert_eq!(args, original);
     }

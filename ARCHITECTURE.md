@@ -30,6 +30,7 @@ Infra reviews the [layout map/allowlist](.github/repository-layout.json).
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | Repository root           | Entry points, contributor guidance, license and required configuration               |
 | `.agents/`                | Contributor skills and their area references                                         |
+| `.claude-plugin/`         | Claude Code marketplace manifest for the bundled Claude plugins                      |
 | `.github/`                | Ownership/layout maps, workflows, shared Actions and isolated release tooling        |
 | `rust/`                   | CLI, core, adapters, neutral leaves, private fixtures/release tools and archive note |
 | `typescript/`             | Private developer tooling, tests and shared fixtures                                 |
@@ -344,7 +345,7 @@ fullwidth `！` in any text typed into a pane. Details are in the
 
 Each agent driver has one pure `DriverDescriptor` and one adapter module;
 `drivers::Registry` composes detection, setup, launch and caller recognition.
-Detection never starts an agent. Claude owns embedded, versioned prompt-picker assets and child-only plugin launch arguments; no persistent provider settings change. Module rules and name ownership:
+Detection never starts an agent. Claude owns the prompt-picker plugin source (`drivers/claude/plugins/`, published by the root `.claude-plugin` marketplace and installed by the user) and a read-only check that hints when it is missing; a launch adds no plugin arguments and no persistent provider settings change. Module rules and name ownership:
 [agent drivers](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#agent-drivers).
 
 ### Provider channels

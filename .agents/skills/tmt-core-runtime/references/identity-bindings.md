@@ -272,19 +272,21 @@ entries are retained in the composed session table.
 
 ### Claude prompt picker
 
-The Claude driver owns the embedded plugin source under
-`rust/crates/tmt-adapters/assets/claude-plugin/tmt-picker/`; provider assets live
-beside `src`, outside the TypeScript package workspace. Native publication stages
-0700 directories and 0600 files, then atomically renames a complete plugin into
-`<dataRoot>/provider-plugins/claude/<tmt-version>`. Concurrent launches reuse the
-same complete version. Publishing a new version best-effort prunes verified older
-assets while retaining the active and preceding version and every retained CLI
-version. Unmanaged or stale executables and uncertain release
-receipts skip cleanup; changed or foreign plugin content stays intact.
-Claude-generated root `tsconfig.json` and `.claude-plugin/types/` are inert:
-validation checks ownership and regular file/directory shapes, not their bytes.
-Fresh and resumed Claude launches add this directory with `--plugin-dir` alongside
-session-only settings, preserving user plugin arguments and settings files.
+The picker is a standalone Claude Code plugin the user installs once through
+Claude's own plugin system; tmt never writes Claude settings or plugin state and a
+`tmt run … claude` launch injects no `--plugin-dir` (only the session-only hook
+settings, preserving user plugin arguments and settings files). Its source is
+`drivers/claude/plugins/tmt-picker/`, published by the marketplace `tmt` at the
+repository root (`.claude-plugin/marketplace.json`); install with
+`claude plugin marketplace add pj-tmt/tmt && claude plugin install tmt-picker@tmt`.
+Bump the plugin's `version` when the picker changes: Claude caches by version.
+A completed unpinned `tmt upgrade` and a `tmt install` that published into
+Claude's skills root print one hint with that command, and add it to the
+JSON as `pickerHint`, when `claude` resolves on PATH and its read-only
+`claude plugin list --json` (5 s deadline) lists no `tmt-picker@…`. Absent Claude,
+a failing or unparseable listing is silent and the exit code never changes.
+Launches before this change left an inert `provider-plugins` cache in the global
+directory; `rm -rf` it by hand.
 
 Claude Code's own function-hook interpreter runs `hooks/register.mjs`; there is
 no Node interpreter or MCP server. The plugin primes `tmt ls --json` in the
@@ -293,9 +295,7 @@ background at session start, serves in-memory fuzzy suggestions for `tmt/` and
 host-qualified names, show `runningDriver` and activity, rank active identities
 first, and offer at most eight matches. Listing failure silently retains the cache
 and backoff; a missing `tmt` executable therefore produces no startup error.
-Failed asset publication silently omits the picker while keeping composed hooks.
-Plain Claude launches receive no plugin registration.
-No persistent provider configuration enables the plugin.
+No tmt-managed configuration enables the plugin.
 
 Names and argv written into provider launches, host options or installed shell
 scripts remain accepted through at least the next stable release after a rename;

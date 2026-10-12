@@ -1,0 +1,14 @@
+{
+  "name": "tmt",
+  "owner": {
+    "name": "pj-tmt"
+  },
+  "description": "Claude Code plugins for tmt",
+  "plugins": [
+    {
+      "name": "tmt-picker",
+      "source": "./drivers/claude/plugins/tmt-picker",
+      "description": "Type tmt/ in the prompt to fuzzy-pick a tmt identity"
+    }
+  ]
+}

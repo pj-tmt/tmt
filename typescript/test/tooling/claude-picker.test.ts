@@ -1,3 +1,8 @@
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 
 type Target = { name: string; presence: string; driver: string | null; activity: string };
@@ -25,10 +30,7 @@ let picker: Picker;
 beforeEach(async () => {
   vi.resetModules();
   picker = await import(
-    new URL(
-      '../../../rust/crates/tmt-adapters/assets/claude-plugin/tmt-picker/hooks/register.mjs',
-      import.meta.url
-    ).href
+    new URL('../../../drivers/claude/plugins/tmt-picker/hooks/register.mjs', import.meta.url).href
   );
 });
 afterEach(() => vi.restoreAllMocks());
@@ -131,3 +133,44 @@ it('retains the cache and backs off when the listing process is unavailable', as
   expect(run).toHaveBeenCalledTimes(2);
   expect((await session.complete('tmt/co1')).suggestions[0].description).toBe('offline');
 });
+
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+const readJson = (file: string) => JSON.parse(readFileSync(path.join(root, file), 'utf8'));
+
+it('publishes the picker through the repository marketplace that the install hint names', () => {
+  const marketplace = readJson('.claude-plugin/marketplace.json');
+  expect(marketplace.name).toBe('tmt');
+  expect(marketplace.plugins).toHaveLength(1);
+  const [entry] = marketplace.plugins;
+  expect(entry.source).toBe('./drivers/claude/plugins/tmt-picker');
+  const manifest = readJson(`${entry.source}/.claude-plugin/plugin.json`);
+  expect(manifest.name).toBe(entry.name);
+  const hint = readFileSync(
+    path.join(root, 'rust/crates/tmt-adapters/src/drivers/claude/picker.rs'),
+    'utf8'
+  );
+  expect(hint).toContain('claude plugin marketplace add pj-tmt/tmt &&');
+  expect(hint).toContain(`claude plugin install ${entry.name}@${marketplace.name}"`);
+});
+
+it.skipIf(spawnSync('claude', ['--version']).status !== 0)(
+  'passes Claude Code offline manifest validation',
+  () => {
+    // A private HOME keeps the validator away from the developer's own Claude state.
+    const home = mkdtempSync(path.join(os.tmpdir(), 'tmt-claude-validate-'));
+    try {
+      for (const target of [
+        '.claude-plugin/marketplace.json',
+        'drivers/claude/plugins/tmt-picker',
+      ]) {
+        const result = spawnSync('claude', ['plugin', 'validate', path.join(root, target)], {
+          encoding: 'utf8',
+          env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude') },
+        });
+        expect(result.status, `${target}\n${result.stdout}${result.stderr}`).toBe(0);
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+);

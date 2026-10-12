@@ -14,8 +14,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
+    drivers::claude::picker,
     native_install::{self, UpgradeReport, UpgradeRequest},
     process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
+    skill_installation::ProviderEnvironment,
 };
 use tmt_core::{native_install::Channel, skill_catalog::Group};
 
@@ -132,10 +134,18 @@ fn finish(
     } else {
         Vec::new()
     };
-    let rename_hints = if failure.is_none() && !report.skipped_pinned {
+    let after_upgrade = failure.is_none() && !report.skipped_pinned;
+    let rename_hints = if after_upgrade {
         rename::hints()
     } else {
         Vec::new()
+    };
+    let picker_hint = if after_upgrade {
+        ProviderEnvironment::capture()
+            .ok()
+            .and_then(|environment| picker::missing_hint(&environment))
+    } else {
+        None
     };
     publish_products_with_hints(
         Some(report),
@@ -143,6 +153,7 @@ fn finish(
         failure,
         extensions,
         &rename_hints,
+        picker_hint,
         mode,
     )
 }
@@ -237,7 +248,7 @@ fn publish_products(
     extensions: Vec<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    publish_products_with_hints(report, skills, failure, extensions, &[], mode)
+    publish_products_with_hints(report, skills, failure, extensions, &[], None, mode)
 }
 
 fn publish_products_with_hints(
@@ -246,6 +257,7 @@ fn publish_products_with_hints(
     failure: Option<Failure>,
     extensions: Vec<Value>,
     rename_hints: &[String],
+    picker_hint: Option<&str>,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let failure = failure.map(|mut failure| {
@@ -279,6 +291,9 @@ fn publish_products_with_hints(
     document["products"] = json!(products);
     if !rename_hints.is_empty() {
         document["paneRenameHints"] = json!(rename_hints);
+    }
+    if let Some(hint) = picker_hint {
+        document["pickerHint"] = hint.into();
     }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
@@ -329,7 +344,7 @@ fn publish_products_with_hints(
         for product in products.iter().skip(1) {
             write_extension_product(&mut stdout, terminal, product)?;
         }
-        for hint in rename_hints {
+        for hint in rename_hints.iter().map(String::as_str).chain(picker_hint) {
             tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
         }
         if let Some(warning) = warning {
