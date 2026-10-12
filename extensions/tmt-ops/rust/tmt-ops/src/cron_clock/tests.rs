@@ -336,6 +336,34 @@ fn worker_shutdown_cancels_and_joins_an_inflight_core_child_then_releases_lease(
     assert!(request_calls(&f.model()).is_empty());
 }
 
+/// A board's own readers poll `Clock::status`, which takes the clock lock for the length of a
+/// read. Quitting must not turn that moment into a failed exit.
+#[test]
+fn shutdown_waits_out_a_brief_clock_lock_holder_before_releasing_the_lease() {
+    let f = Fixture::new();
+    let mut worker = ClockWorker::spawn(f.core.clone(), f.config.clone(), false);
+    wait_for_lease(&f);
+    let lock_path = f.directory.join("ops/cron/clock.lock");
+    let guard = wait_for(|| {
+        let file = fs::File::open(&lock_path).unwrap();
+        match nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusiveNonblock) {
+            Ok(guard) => Some(guard),
+            Err((_, nix::errno::Errno::EAGAIN)) => None,
+            Err((_, error)) => panic!("fixture clock lock: {error}"),
+        }
+    });
+    let holder = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        drop(guard);
+    });
+    assert_eq!(
+        worker.stop().unwrap(),
+        json!({"action":"run","warnings":[],"complete":true})
+    );
+    holder.join().unwrap();
+    assert!(!f.directory.join("ops/cron/clock.json").exists());
+}
+
 #[test]
 fn standby_shutdown_cancels_an_inflight_root_read_without_releasing_another_holder() {
     let f = Fixture::new();

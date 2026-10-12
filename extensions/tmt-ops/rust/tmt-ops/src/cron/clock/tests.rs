@@ -159,6 +159,21 @@ fn a_publication_lock_reports_contention_without_changing_the_lease() {
 }
 
 #[test]
+fn release_waits_out_a_brief_lock_holder() {
+    let f = Fixture::new();
+    let clock = f.clock();
+    let lease = clock.acquire(100, 123, None).unwrap().unwrap();
+    let lock = clock.lock(false).unwrap().unwrap();
+    let holder = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        drop(lock);
+    });
+    lease.release().unwrap();
+    holder.join().unwrap();
+    assert_eq!(clock.status(100), ClockStatus::NoClock);
+}
+
+#[test]
 fn simultaneous_clock_starts_publish_only_one_holder() {
     let f = Fixture::new();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));

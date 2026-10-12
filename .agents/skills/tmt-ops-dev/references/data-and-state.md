@@ -298,8 +298,10 @@ own these layers:
 - `cron::clock` owns the bounded, read-only Running/NoClock/Unknown lease projection
   and atomic `clock.json` publication under the same extension directory. A stable,
   nonblocking `clock.lock` serializes acquisition, renewal and ownership-checked
-  release. Pane, PID, start and expiry are evidence, not process probes; an expired
-  lease can be taken over. `cron::tick` owns slot selection and deterministic
+  release. Contention is `SQUAD_CRON_CLOCK_BUSY`; acquisition and renewal retry on the
+  next tick, while release, which runs once at shutdown, waits up to 500 ms for a
+  brief holder such as a status read. Pane, PID, start and expiry are evidence, not
+  process probes; an expired lease can be taken over. `cron::tick` owns slot selection and deterministic
   operation UUIDs from room UUID, non-reused c-id and UTC slot milliseconds. A
   running clock admits every slot since its own previous tick, capped at five
   minutes; startup, takeover, restart and clock rollback baseline at now. A
