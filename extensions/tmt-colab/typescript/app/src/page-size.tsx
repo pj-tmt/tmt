@@ -64,9 +64,6 @@ export function usePageSize(binding: PageBinding | undefined): PageSize {
       return null;
     }
   }, [binding]);
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
   const compact = useCallback(async (): Promise<CompactOutcome> => {
     const failed: CompactOutcome = { kind: 'failed' };
     if (!binding?.compact || busy.current) return failed;

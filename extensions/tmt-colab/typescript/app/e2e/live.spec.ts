@@ -764,6 +764,24 @@ async function wire(
           pending = null;
           return;
         }
+        if (frame.type === 'usage') {
+          // The page-size surface asks when a panel opens; this serve holds a nearly empty page.
+          send(socket, 'usageresult', {
+            usage: {
+              updates: 1,
+              updateLimit: 200,
+              tailBytes: 1024,
+              tailBytesLimit: 4 * 1024 * 1024,
+              checkpointBytes: 0,
+              otherDeviceUpdates: 0,
+              stateBytes: 1024,
+              gzipLimit: 5_000_000,
+              percent: 0,
+              limiting: 'changes',
+            },
+          });
+          return;
+        }
         expect(frame.type).toBe('append');
         await append(frame);
       });
