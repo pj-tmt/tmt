@@ -2186,6 +2186,11 @@ session or unavailable/replaced directory fences mention Sends while keeping the
 same editor, draft and caret. Directory recovery uses only the page's reconnect (automatic
 and explicit) or Try again. A plain comment remains available under content-write admission while
 directory discovery loads or fails.
+Composer copy comes from the page connection owner: ended shows the same ended
+sentence/action as the page, reconnecting shows "Reconnecting…" with Send disabled
+and the draft retained. These take precedence over recipient/discovery and pre-record
+failures; already recorded or uncertain turns retain their own status. Connected
+composers retain genuine recipient/policy and record-failure guidance.
 
 Each Ask freezes and signs the exact composed text with the real thread and message
 IDs. A trusted "Ask again" action can prepare one new operation for one unsent

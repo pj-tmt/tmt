@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAgentDirectory } from '../agent-directory.js';
@@ -34,6 +35,7 @@ export function QuestionCard({
   asks,
   title,
   blocked,
+  connectionPresentation,
   readOnly = false,
   descriptionHeight = 0,
   sendNext = false,
@@ -47,6 +49,7 @@ export function QuestionCard({
   asks: readonly PageAsk[];
   title: string;
   blocked: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   readOnly?: boolean;
   descriptionHeight?: number;
   sendNext?: boolean;
@@ -330,11 +333,15 @@ export function QuestionCard({
               candidates={agents}
               disabled={disabled}
             />
-            {!audience ||
-            directory.state !== 'ready' ||
-            decision.ambiguous.length ||
-            decision.unavailable.length ||
-            decision.unknown.length ? (
+            {connectionPresentation ? (
+              <div className="annotation-hint" role="status">
+                {connectionPresentation.body}
+              </div>
+            ) : !audience ||
+              directory.state !== 'ready' ||
+              decision.ambiguous.length ||
+              decision.unavailable.length ||
+              decision.unknown.length ? (
               <p className="annotation-hint" role="status">
                 {directory.state === 'failed'
                   ? text.messageAgentsUnavailable
@@ -351,7 +358,7 @@ export function QuestionCard({
                             : text.messageComment}
               </p>
             ) : null}
-            {directory.state === 'failed' && (
+            {!connectionPresentation && directory.state === 'failed' && (
               <BrowserAction
                 label={text.messageAgentsRetry}
                 variant="text"
@@ -376,7 +383,7 @@ export function QuestionCard({
           </>
         )}
         {recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
-        {error && <p role="alert">{error}</p>}
+        {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
         {!readOnly && (
           <CommentSendFailures
             failures={failures.filter(

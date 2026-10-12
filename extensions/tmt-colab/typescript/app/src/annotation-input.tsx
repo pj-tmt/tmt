@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
@@ -47,6 +48,7 @@ export function AnnotationInput({
   onFailure,
   blocked,
   recoveryRequired = false,
+  connectionPresentation,
   archived = false,
   cancel,
   showCancel = false,
@@ -73,6 +75,7 @@ export function AnnotationInput({
   blocked: boolean;
   /** Recovery keeps local editing available; blocked still fences every publish. */
   recoveryRequired?: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
   archived?: boolean;
   cancel(): void;
   showCancel?: boolean;
@@ -280,13 +283,14 @@ export function AnnotationInput({
       <section className="annotation-compose" data-testid="annotation-compose">
         <ArchivedDraft value={value} />
         <p className="annotation-hint">{text.archivePosting}</p>
-        {error && <p role="alert">{error}</p>}
+        {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
       </section>
     );
   return (
     <section
       className="annotation-compose"
       data-chat={chat || undefined}
+      data-connection={connectionPresentation?.phase}
       data-testid="annotation-compose"
       ref={section}
       onDragOver={(event) => {
@@ -377,18 +381,26 @@ export function AnnotationInput({
         {!chat && discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
-        <p id={statusId} role="status" className="annotation-hint">
-          {busy
-            ? text.messageSending
-            : recoveryRequired
-              ? text.sendOnHold
-              : binding && directory.state === 'loading'
-                ? text.messageAgentsChecking
-                : binding && directory.state === 'failed'
-                  ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
-                  : status}
+        <div
+          id={statusId}
+          role="status"
+          className="annotation-hint"
+          tabIndex={connectionPresentation?.phase === 'ended' ? 0 : undefined}
+        >
+          {connectionPresentation
+            ? connectionPresentation.body
+            : busy
+              ? text.messageSending
+              : recoveryRequired
+                ? text.sendOnHold
+                : binding && directory.state === 'loading'
+                  ? text.messageAgentsChecking
+                  : binding && directory.state === 'failed'
+                    ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
+                    : status}
           {!busy &&
             !recoveryRequired &&
+            !connectionPresentation &&
             binding &&
             directory.state === 'failed' &&
             directory.code && (
@@ -402,23 +414,27 @@ export function AnnotationInput({
                 </small>
               </>
             )}
-        </p>
-        {binding && !busy && !recoveryRequired && (directory.state === 'failed' || retrying) && (
-          <span data-agent-retry>
-            <BrowserAction
-              type="button"
-              label={text.messageAgentsRetry}
-              variant="text"
-              busy={retrying}
-              onActivate={(event) => {
-                if (!event.isTrusted) return;
-                focusAfterRetry.current = event.currentTarget === document.activeElement;
-                setRetrying(true);
-                retry();
-              }}
-            />
-          </span>
-        )}
+        </div>
+        {binding &&
+          !busy &&
+          !recoveryRequired &&
+          !connectionPresentation &&
+          (directory.state === 'failed' || retrying) && (
+            <span data-agent-retry>
+              <BrowserAction
+                type="button"
+                label={text.messageAgentsRetry}
+                variant="text"
+                busy={retrying}
+                onActivate={(event) => {
+                  if (!event.isTrusted) return;
+                  focusAfterRetry.current = event.currentTarget === document.activeElement;
+                  setRetrying(true);
+                  retry();
+                }}
+              />
+            </span>
+          )}
         {showCancel && (
           <BrowserAction
             type="button"
@@ -465,7 +481,7 @@ export function AnnotationInput({
           )
         }
       />
-      {error && <p role="alert">{error}</p>}
+      {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <BrowserAction
           type="button"

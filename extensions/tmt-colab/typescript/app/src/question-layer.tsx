@@ -1,3 +1,4 @@
+import type { ComposerConnectionPresentation } from './router.js';
 import { BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
 import { QuestionCard } from './components/question-card.js';
@@ -18,6 +19,7 @@ export function useQuestionLayer({
   state,
   slots,
   blocked,
+  connectionPresentation,
   questions,
   groups,
 }: {
@@ -29,6 +31,7 @@ export function useQuestionLayer({
   state: RenderState | 'loading';
   slots: readonly AnchorPosition[];
   blocked: boolean;
+  connectionPresentation?: ComposerConnectionPresentation;
 }) {
   const [anchors, setAnchors] = useState<QuestionAnchor[] | null>(null);
   const onQuestions = useCallback((next: QuestionAnchor[], checked = true) => {
@@ -111,6 +114,7 @@ export function useQuestionLayer({
           }));
           const card = (question: Question) => (
             <QuestionCard
+              connectionPresentation={connectionPresentation}
               key={question.id}
               readOnly={view.archived}
               question={question}

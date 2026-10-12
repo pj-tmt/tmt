@@ -780,6 +780,10 @@ footer {
   border-top: 1px solid var(--c-rule);
   padding: 10px 14px;
 }
+/* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
+.conversation-composer:has(> .annotation-compose[data-connection='ended']) {
+  flex-shrink: 1;
+}
 .ask-panel {
   margin: 0;
   padding: 0;
@@ -1008,7 +1012,7 @@ footer {
   align-items: center;
   column-gap: 8px;
 }
-.annotation-status-row > p {
+.annotation-status-row > .annotation-hint {
   flex: 0 1 auto;
   min-width: 0;
 }
