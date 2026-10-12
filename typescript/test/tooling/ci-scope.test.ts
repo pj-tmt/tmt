@@ -2898,8 +2898,9 @@ describe('required CI gate', () => {
     expect(acceptance).toContain('fail-fast: false');
     expect(acceptance).toContain('shard: [1, 2]');
     expect(acceptance).toContain(
-      '$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)'
+      'read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
     );
+    expect(acceptance).toContain('"${files[@]}"');
     expect(acceptance).not.toContain('--shard=');
     expect(acceptance).toContain('-${{ matrix.shard }}\n      # A label edit must never cancel');
     expect(acceptance).toContain('name: colab-acceptance-results-${{ matrix.shard }}');

@@ -315,7 +315,9 @@ jobs:
       - name: Run this shard of the real-binary suite with one worker
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" $(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)
+        run: |
+          read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()
         shell: bash

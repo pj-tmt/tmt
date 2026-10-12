@@ -94,7 +94,9 @@ describe('Colab acceptance shards', () => {
       path.join(repository, '.github/workflows/colab-browser.yml'),
       'utf8'
     );
-    expect(workflow).toContain('$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)');
+    expect(workflow).toContain(
+      'read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
+    );
     expect(files.every((file) => /^[a-z0-9-]+\.spec\.ts$/.test(file))).toBe(true);
   });
 });

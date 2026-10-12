@@ -61,8 +61,9 @@ export function acceptanceShardFiles(index, count, files = listAcceptanceFiles()
     .files.map((file) => `acceptance/${file}`);
 }
 
-// `node scripts/colab-acceptance-shards.mjs INDEX COUNT` prints one filter per line for the workflow.
+// `node scripts/colab-acceptance-shards.mjs INDEX COUNT` prints the filters on one line for the workflow;
+// the file names are limited to [a-z0-9-] by `listAcceptanceFiles`, so splitting on spaces is exact.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [index, count] = process.argv.slice(2).map(Number);
-  process.stdout.write(acceptanceShardFiles(index, count).join('\n') + '\n');
+  process.stdout.write(acceptanceShardFiles(index, count).join(' ') + '\n');
 }
