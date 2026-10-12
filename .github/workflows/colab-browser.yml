@@ -208,7 +208,8 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The single-worker suite (~700 specs) now needs 17 to 21 minutes on a hosted runner (#2827).
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
