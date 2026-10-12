@@ -449,7 +449,10 @@ and captures a report after each matching-host final archive/source check.
 No PR executable runs with artifact-deletion or repository-write authority.
 
 `pr-rc-coordinator.mjs` reads authenticated current pull, label timeline and main
-workflow-run identity before staging unchanged archive/manifest bytes. Four final
+workflow-run identity before staging unchanged archive/manifest bytes. Its guard checks
+the exact PR head for main tooling's required preparation layout before native builds,
+naming missing paths and requiring a merge of main; incomplete tree evidence is a
+guard capacity failure rather than a PR defect. Four final
 reports bind the same run/attempt, source, version, schema, archive and notices.
 Each three-day payload contains only the root manifest and target archive. Returned
 Actions IDs, ZIP sizes/digests and bounded regular-root member bytes are read back
