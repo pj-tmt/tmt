@@ -215,6 +215,14 @@ removing a share link, and expects the same tab, with no reload, to return to Li
 five open attempts each, at 0/1/3/8/15 s); only a refusal that ends access is terminal, and the
 rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-page-readmission-2557).
 
+`connection-soak.spec.ts` (#2574) applies real page writes, Colab/Remote restarts, epoch and
+grant-revision changes, offline recovery and detached grace expiry. Each trigger must leave the
+same tab reading a new source, delivering one explicit Ask and showing its matching reply,
+without reload or duplicate dispatch/wake. The capacity case evicts only a detached SDK session,
+keeps attached pages usable and verifies a new tab's shipped refusal. Revoke ends access with
+zero new effects; there is no unpair case because no public unpair action ships. Socket closure
+is observed before the grace-duration wait; `idle-tab.spec.ts` separately pins attached keepalive.
+
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained
 drafts, current-app-dir native CSP privacy and 1440/390 light/dark captures. Its
