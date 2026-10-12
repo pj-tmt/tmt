@@ -1,12 +1,7 @@
 //! Private, expiring suppression hints. A cache hit authorizes no effect.
 
 use super::lifecycle::CallerSession;
-use std::{
-    fs::File,
-    io::Read,
-    os::unix::fs::OpenOptionsExt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use tmt_core::binding::{Binding, session::HarnessId};
 
 pub const TTL_MS: u64 = 10 * 60 * 1_000;
@@ -112,21 +107,7 @@ impl Refusals {
     }
 
     fn read(&self) -> Option<Document> {
-        let flags = nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK;
-        let file = File::options()
-            .read(true)
-            .custom_flags(flags.bits())
-            .open(&self.path)
-            .ok()?;
-        let metadata = file.metadata().ok()?;
-        if !metadata.is_file() || metadata.len() > BYTES {
-            return None;
-        }
-        let mut bytes = Vec::new();
-        file.take(BYTES + 1).read_to_end(&mut bytes).ok()?;
-        if bytes.len() as u64 > BYTES {
-            return None;
-        }
+        let bytes = crate::bounded_file::read_no_follow(&self.path, BYTES as usize).ok()?;
         let document: Document = serde_json::from_slice(&bytes).ok()?;
         (document.version == 1 && document.entries.len() <= ENTRIES).then_some(document)
     }

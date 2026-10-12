@@ -6,8 +6,7 @@ use crate::{
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::{
-    io::Read,
-    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt},
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -121,23 +120,15 @@ impl crate::runtime::lifecycle::LifecycleObservation for Observation {
 fn sqlite_home(environment: &ProviderEnvironment) -> Option<PathBuf> {
     let home = super::codex_home(environment);
     let config = home.join("config.toml");
-    let flags = nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK;
-    let file = match std::fs::File::options()
-        .read(true)
-        .custom_flags(flags.bits())
-        .open(&config)
-    {
-        Ok(file) if file.metadata().ok()?.is_file() => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+    let bytes = match crate::bounded_file::read_no_follow(&config, 64 * 1024) {
+        Ok(bytes) => bytes,
+        Err(crate::bounded_file::FileReadError::Io(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
             return Some(sqlite_default(environment));
         }
         _ => return None,
     };
-    let mut bytes = Vec::new();
-    file.take(64 * 1024 + 1).read_to_end(&mut bytes).ok()?;
-    if bytes.len() > 64 * 1024 {
-        return None;
-    }
     let text = String::from_utf8(bytes).ok()?;
     let document = text.parse::<toml_edit::DocumentMut>().ok()?;
     if document.get("profiles").is_some() {
