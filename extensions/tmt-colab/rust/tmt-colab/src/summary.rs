@@ -80,7 +80,7 @@ pub fn summarize(source: &mut Source, page: &str) -> Result<Summary> {
 }
 
 #[derive(Default)]
-struct Entry {
+struct CachedSummary {
     fingerprint: String,
     /// `None` records that the fold failed at this fingerprint: the page is retried on a later
     /// read, after every page that has not failed.
@@ -91,11 +91,11 @@ struct Entry {
 /// store transaction as the list, so any accepted write or membership change makes it stale.
 #[derive(Default)]
 pub struct SummaryCache {
-    entries: Mutex<HashMap<String, Entry>>,
+    entries: Mutex<HashMap<String, CachedSummary>>,
     refreshing: AtomicBool,
 }
 impl SummaryCache {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, CachedSummary>> {
         self.entries
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -109,7 +109,7 @@ impl SummaryCache {
     pub fn put(&self, page: &str, fingerprint: &str, summary: Option<Summary>) {
         self.lock().insert(
             page.to_owned(),
-            Entry {
+            CachedSummary {
                 fingerprint: fingerprint.to_owned(),
                 summary,
             },
@@ -132,7 +132,7 @@ impl SummaryCache {
                 .get(page)
                 .filter(|entry| entry.fingerprint == *fingerprint)
             {
-                Some(Entry {
+                Some(CachedSummary {
                     summary: Some(_), ..
                 }) => {}
                 Some(_) => fresh_failures.push((page.clone(), fingerprint.clone())),
