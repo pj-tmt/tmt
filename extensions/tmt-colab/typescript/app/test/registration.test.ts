@@ -4,6 +4,7 @@ import {
   ReopenFailedError,
   SessionLimitError,
   register,
+  jsonResponse,
   type RemoteSdk,
 } from '../src/registration.js';
 
@@ -30,6 +31,29 @@ const sdkWith = (reopenSession: RemoteSdk['reopenSession']): RemoteSdk => ({
   reopenSession,
   certifyKey: vi.fn(),
   transportUrl: vi.fn(),
+});
+
+describe('HTTP registration admission refusals', () => {
+  it('keeps the HTTP status, refusal code and bounded body', async () => {
+    const body = '{"code":"DENIED"}';
+    const refusal = await jsonResponse(new Response(body, { status: 403 }), 8192).catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toMatchObject({ status: 403, code: 'DENIED', body });
+  });
+
+  it.each(['', 'not a JSON refusal'])('retains an unclassified refusal body %s', async (body) => {
+    const refusal = await jsonResponse(new Response(body || null, { status: 403 }), 8192).catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toMatchObject({ status: 403, code: undefined, body });
+  });
+
+  it('keeps the response byte bound for a refusal too', async () => {
+    await expect(jsonResponse(new Response('x'.repeat(9), { status: 403 }), 8)).rejects.toThrow(
+      'Colab response exceeds limit',
+    );
+  });
 });
 
 describe('register: re-admission of a Session that ended', () => {

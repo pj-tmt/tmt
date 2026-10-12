@@ -111,11 +111,23 @@ export async function remoteSdk(): Promise<RemoteSdk> {
   const path = '/sdk/remote-v1.js';
   return import(/* @vite-ignore */ path) as Promise<RemoteSdk>;
 }
+/** An HTTP admission refusal retains its bounded body; a status alone is not revoke proof. */
+export class AdmissionRefusedError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+    readonly code?: string,
+  ) {
+    super(code ?? `Colab registration unavailable (${status})`);
+  }
+}
 export async function jsonResponse(response: Response, cap: number) {
-  if (!response.ok) throw new Error(`Colab registration unavailable (${response.status})`);
   // Stream limits apply even when the server omits or lies about Content-Length.
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('Empty Colab response');
+  if (!reader) {
+    if (!response.ok) throw new AdmissionRefusedError(response.status, '');
+    throw new Error('Empty Colab response');
+  }
   const parts: Uint8Array[] = [];
   let size = 0;
   try {
@@ -131,6 +143,23 @@ export async function jsonResponse(response: Response, cap: number) {
     for (const part of parts) {
       raw.set(part, offset);
       offset += part.length;
+    }
+    if (!response.ok) {
+      let code: string | undefined;
+      try {
+        const refusal = strictJson(raw, cap, true);
+        if (
+          typeof refusal === 'object' &&
+          refusal !== null &&
+          !Array.isArray(refusal) &&
+          'code' in refusal &&
+          typeof refusal.code === 'string'
+        )
+          code = refusal.code;
+      } catch {
+        // An empty or unrecognized refusal is still an admission failure, not revoke proof.
+      }
+      throw new AdmissionRefusedError(response.status, new TextDecoder().decode(raw), code);
     }
     return strictJson(raw, cap, true);
   } finally {
