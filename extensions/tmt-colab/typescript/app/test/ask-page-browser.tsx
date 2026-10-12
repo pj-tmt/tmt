@@ -120,6 +120,8 @@ export async function mount(
     /** Presentation-only test port for the real Manage dialog. */
     management?: ManagementPort;
     strict?: boolean;
+    /** Historical turns are part of the initial load, not a live arrival batch. */
+    history?: 'thread' | 'chat';
   } = {},
 ) {
   root?.unmount();
@@ -626,6 +628,10 @@ export async function mount(
     },
     close() {},
   };
+  if (options.history) {
+    conversation({ surface: options.history, state: 'waiting' });
+    scrollHistory();
+  }
   root = createRoot(host);
   const draftRead = options.holdDraftRead
     ? new Promise<void>((resolve) => {
