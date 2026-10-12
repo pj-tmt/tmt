@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   REOPEN_REASONS,
   ReopenFailedError,
+  SessionLimitError,
   register,
   type RemoteSdk,
 } from '../src/registration.js';
@@ -12,6 +13,17 @@ class SdkReopenError extends Error {
   constructor(readonly reason: string) {
     super(`Remote session admission: ${reason}`);
     this.name = 'ReopenSessionError';
+  }
+}
+// The SDK's refusal carries the verified limit; it is recognised by name too.
+class SdkRefusal extends Error {
+  constructor(
+    readonly code: string,
+    readonly limit?: unknown,
+    readonly settingsUrl?: unknown,
+  ) {
+    super(`Remote operation refused: ${code}.`);
+    this.name = 'RefusalError';
   }
 }
 const sdkWith = (reopenSession: RemoteSdk['reopenSession']): RemoteSdk => ({
@@ -78,5 +90,93 @@ describe('register: re-admission of a Session that ended', () => {
     });
     await expect(register(mount, sdkWith(reopenSession))).rejects.toBeInstanceOf(SdkReopenError);
     expect(reopenSession).toHaveBeenCalledExactlyOnceWith();
+  });
+});
+
+describe('register: a device at its Remote session limit (#2625)', () => {
+  const settingsUrl = 'https://127.0.0.1:9000/settings';
+  const refusal = () => new SdkRefusal('REMOTE_SESSION_LIMIT', 2, settingsUrl);
+  const failure = (call: () => Promise<unknown>) => call().catch((error: unknown) => error);
+
+  it("turns the boot open's raw refusal into the typed limit with its settings link", async () => {
+    const error = await failure(() =>
+      register(
+        mount,
+        sdkWith(async () => {
+          throw refusal();
+        }),
+      ),
+    );
+    expect(error).toBeInstanceOf(SessionLimitError);
+    expect(error).toMatchObject({ limit: 2, settingsUrl });
+  });
+
+  it("turns a bounded re-admission's capacity into the same typed limit", async () => {
+    const reopen = new SdkReopenError('capacity');
+    reopen.cause = refusal();
+    const error = await failure(() =>
+      register(
+        mount,
+        sdkWith(async () => {
+          throw reopen;
+        }),
+        { previous: {} },
+      ),
+    );
+    expect(error).toBeInstanceOf(SessionLimitError);
+    expect(error).toMatchObject({ limit: 2, settingsUrl });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, '2', undefined, null])(
+    'does not trust a refusal whose limit is %s',
+    async (limit) => {
+      const bad = new SdkRefusal('REMOTE_SESSION_LIMIT', limit, settingsUrl);
+      const error = await failure(() =>
+        register(
+          mount,
+          sdkWith(async () => {
+            throw bad;
+          }),
+        ),
+      );
+      expect(error).toBe(bad);
+    },
+  );
+
+  it('keeps only a web URL as the settings link', async () => {
+    for (const [given, kept] of [
+      ['http://localhost:9000/settings', 'http://localhost:9000/settings'],
+      ['javascript:alert(1)', undefined],
+      ['not a url', undefined],
+      [42, undefined],
+    ] as const) {
+      const error = await failure(() =>
+        register(
+          mount,
+          sdkWith(async () => {
+            throw new SdkRefusal('REMOTE_SESSION_LIMIT', 3, given);
+          }),
+        ),
+      );
+      expect(error).toMatchObject({ limit: 3, settingsUrl: kept });
+    }
+  });
+
+  it('leaves every other refusal and a capacity without its refusal alone', async () => {
+    const other = new SdkRefusal('REMOTE_DEVICE_REVOKED', 2, settingsUrl);
+    const unverified = new SdkReopenError('capacity');
+    for (const thrown of [other, unverified]) {
+      const error = await failure(() =>
+        register(
+          mount,
+          sdkWith(async () => {
+            throw thrown;
+          }),
+          { previous: {} },
+        ),
+      );
+      expect(error).not.toBeInstanceOf(SessionLimitError);
+    }
+    // The first, an unwrapped refusal on the readmission path, is returned unchanged.
   });
 });

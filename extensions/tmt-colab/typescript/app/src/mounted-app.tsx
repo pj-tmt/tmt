@@ -7,11 +7,14 @@ import { mountedTransport } from './mounted.js';
 import { text } from './strings.js';
 import { NoticeCard } from './notice-card.js';
 import { buildWatch } from './app-build.js';
+import { SessionLimitError } from './registration.js';
+import { SessionLimitBody } from './session-limit.js';
 import { UpdateNotice } from './update-notice.js';
 
 /** Each tab owns its Remote session and mounted page bindings until unload. */
 export function MountedApp() {
   const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading');
+  const [limit, setLimit] = useState<SessionLimitError>();
   const [router, setRouter] = useState<ReturnType<typeof createAppRouter> | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -33,8 +36,12 @@ export function MountedApp() {
         mounted = next;
         setRouter(createAppRouter(next.transport, next.space));
         setState('ready');
-      } catch {
-        if (!disposed) setState('failed');
+      } catch (error) {
+        if (!disposed) {
+          // A device at its Remote session limit is refused with a reason a reload can clear.
+          if (error instanceof SessionLimitError) setLimit(error);
+          setState('failed');
+        }
         void buildWatch.check();
       }
     }
@@ -60,7 +67,7 @@ export function MountedApp() {
       {state === 'ready' && router ? (
         <RouterProvider router={router} />
       ) : (
-        <MountedNotice state={state} />
+        <MountedNotice state={state} limit={limit} />
       )}
       <UpdateNotice />
     </>
@@ -68,15 +75,23 @@ export function MountedApp() {
 }
 
 /** Presentation shared by the mounted lifecycle and the screen layout fixture. */
-export function MountedNotice({ state }: { state: 'loading' | 'failed' | 'ready' }) {
+export function MountedNotice({
+  state,
+  limit,
+}: {
+  state: 'loading' | 'failed' | 'ready';
+  /** Why a failed open was refused, when the device is at its Remote session limit. */
+  limit?: SessionLimitError;
+}) {
+  const title = state !== 'failed' ? text.registering : limit ? text.sessionLimitTitle : text.error;
   return (
     <>
-      <AppHeader linked={false} title={state === 'failed' ? text.error : 'Opening space'} />
+      <AppHeader linked={false} title={state === 'failed' ? title : 'Opening space'} />
       <main>
         <NoticeCard
           state={state === 'failed' ? 'blocked' : 'opening'}
           eyebrow="Paired space"
-          title={state === 'failed' ? text.error : text.registering}
+          title={title}
           actions={
             state === 'failed' ? (
               <BrowserAction
@@ -88,7 +103,12 @@ export function MountedNotice({ state }: { state: 'loading' | 'failed' | 'ready'
             ) : undefined
           }
         >
-          {state === 'failed' && <p>{text.registrationFailed}</p>}
+          {state === 'failed' &&
+            (limit ? (
+              <SessionLimitBody refused limit={limit.limit} settingsUrl={limit.settingsUrl} />
+            ) : (
+              <p>{text.registrationFailed}</p>
+            ))}
         </NoticeCard>
       </main>
     </>

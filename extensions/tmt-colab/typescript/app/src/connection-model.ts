@@ -6,7 +6,7 @@ import { RecoveryRequiredError } from './session-recovery.js';
 export type EndedReason = FailureCause | 'evicted';
 
 /** The one thing the reader can do about an ended connection. */
-export type EndedAction = 'pair' | 'pages' | 'none';
+export type EndedAction = 'pair' | 'pages' | 'reload' | 'none';
 
 /**
  * What a failure the page publishes becomes (#2572):
@@ -33,6 +33,8 @@ const ACTIONS: Record<FailureCause, EndedAction> = {
   // Nothing to pair for a page that no longer exists.
   gone: 'pages',
   session: 'none',
+  // The device is at its Remote session limit: a reload opens the page once another one closes.
+  capacity: 'reload',
   large: 'none',
   generic: 'none',
 };

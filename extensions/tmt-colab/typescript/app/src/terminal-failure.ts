@@ -7,6 +7,7 @@ const SENTENCES: Record<FailureCause, string> = {
   gone: text.failurePageGone,
   session: text.failureSessionEnded,
   large: text.failureTooLarge,
+  capacity: text.failureSessionLimit,
   generic: text.failureGeneric,
 };
 

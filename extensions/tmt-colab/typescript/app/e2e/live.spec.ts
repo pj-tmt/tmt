@@ -1394,14 +1394,16 @@ async function draftRecoveryWire(context: BrowserContext) {
   let down = false,
     ended = false,
     terminal = false,
+    capped = false,
     opens = 0,
     sends = 0;
   let pending: Promise<void> | undefined, release: (() => void) | undefined;
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export class RefusalError extends Error {constructor(code){super(code);this.code=code;}}
-export async function reopenSession(){const response=await fetch('/test-draft-reopen',{method:'POST'});if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
+      body: `export class RefusalError extends Error {constructor(code,retryAfterMs,limit,settingsUrl){super(code);this.name='RefusalError';this.code=code;this.limit=limit;this.settingsUrl=settingsUrl;}}
+export class ReopenSessionError extends Error {constructor(reason,detail,cause){super(reason);this.name='ReopenSessionError';this.reason=reason;this.cause=cause;}}
+export async function reopenSession(previous,options){const response=await fetch('/test-draft-reopen',{method:'POST'});if(response.status===429){const body=await response.json();const refusal=new RefusalError('REMOTE_SESSION_LIMIT',undefined,body.limit,body.settingsUrl);throw options&&options.retry==='bounded'?new ReopenSessionError('capacity','admission-refused',refusal):refusal}if(!response.ok)throw new RefusalError('REMOTE_DEVICE_REVOKED');await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
 export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
@@ -1415,6 +1417,11 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
   await context.route('**/test-draft-reopen', async (route) => {
     opens++;
     if (pending) await pending;
+    if (capped)
+      return route.fulfill({
+        status: 429,
+        json: { limit: 2, settingsUrl: 'https://127.0.0.1:9000/settings' },
+      });
     if (terminal) return route.fulfill({ status: 403, json: {} });
     if (down) return route.abort('connectionrefused');
     ended = false;
@@ -1464,6 +1471,17 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
       terminal = true;
       ended = true;
       f.stopSync();
+    },
+    /** The device is at its Remote session limit: every fresh open is refused until `free()`. */
+    cap() {
+      capped = true;
+      ended = true;
+      f.stopSync();
+    },
+    free() {
+      capped = false;
+      ended = false;
+      f.resumeSync();
     },
     stop() {
       down = true;
@@ -1718,6 +1736,143 @@ for (const surface of ['Chat', 'annotation'] as const) {
     }
   });
 }
+
+// Remote never evicts an attached session (#2585): at the device cap a fresh open is refused, and
+// the page says so, names the one command that raises the limit, and a reload opens it once a
+// session frees (#2625).
+test('a tab refused at the session limit names the limit and opens on reload once one frees', async ({
+  page,
+  context,
+}) => {
+  const f = await draftRecoveryWire(context);
+  f.cap();
+  await page.goto(mount);
+  const card = page.locator('main');
+  await expect(card.getByRole('heading', { name: copy.sessionLimitTitle })).toBeVisible();
+  await expect(card).toContainText(copy.sessionLimitClose);
+  await expect(card).toContainText(copy.sessionLimitReached(2));
+  await expect(card).toContainText('tmt remote settings sessions-per-device 3');
+  // The cause comes first, then the fixes, so the two remedies sit together.
+  const order = (await card.innerText()).replace(/\s+/g, ' ');
+  const at = (part: string) => order.indexOf(part);
+  expect(at(copy.sessionLimitReached(2))).toBeGreaterThan(-1);
+  expect(at(copy.sessionLimitClose)).toBeGreaterThan(at(copy.sessionLimitReached(2)));
+  expect(at(copy.sessionLimitCommand)).toBeGreaterThan(at(copy.sessionLimitClose));
+  // The settings link looks actionable, like the Reload text action.
+  const link = card.getByRole('link', { name: copy.remoteSettings });
+  expect(await link.evaluate((node) => getComputedStyle(node).textDecorationLine)).toContain(
+    'underline',
+  );
+  await expect(card.getByRole('link', { name: copy.remoteSettings })).toHaveAttribute(
+    'href',
+    'https://127.0.0.1:9000/settings',
+  );
+  await expect(card).not.toContainText(copy.registrationFailed);
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.screenshot({ path: await capturePath(`2625-limit-boot-${width}-${theme}.png`) });
+    }
+  f.free();
+  await card.getByRole('button', { name: copy.reload, exact: true }).click();
+  await expect(page.locator(`[data-page-id="${v.page}"] a`)).toBeVisible();
+});
+
+for (const surface of ['Chat', 'annotation'] as const)
+  test(`an open page refused at the session limit ends with the cap card, keeps the ${surface} draft and reloads`, async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const f = await draftRecoveryWire(context);
+    await page.goto(mount);
+    await page.locator(`[data-page-id="${v.page}"] a`).click();
+    const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
+    await expect(heading).toBeVisible();
+    if (surface === 'Chat') await (await pageAction(page, 'Chat')).click();
+    else {
+      await heading.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
+      await page.getByTestId('selection-ask').click();
+    }
+    const container =
+      surface === 'Chat'
+        ? page.getByTestId('chat-panel')
+        : page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = container.getByRole('combobox', { name: 'Message', exact: true });
+    const draft = 'Keep this draft. @Draft agent';
+    await input.fill(draft);
+    f.cap();
+    const status = container.getByTestId('annotation-compose').getByRole('status');
+    await expect(status).toContainText(copy.sessionLimitClose);
+    await expect(status).toContainText(copy.sessionLimitReached(2));
+    await expect(status).toContainText('tmt remote settings sessions-per-device 3');
+    await expect(status.getByRole('link', { name: copy.remoteSettings })).toBeVisible();
+    await expect(status).not.toContainText(copy.failureGeneric);
+    await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(input).toHaveText(draft);
+    expect(f.sends).toBe(0);
+    // The status keeps its whole body and Reload reachable: a keyboard reader scrolls it to its
+    // top and to its end. The annotation popover is a few lines tall, so it is captured at both.
+    const shot = (name: string) =>
+      page.screenshot({ path: capturePath(`2625-limit-${surface}-${name}.png`) });
+    const focusStatus = async () => {
+      await container.getByRole('button', { name: copy.threadCollapse, exact: true }).focus();
+      await page.keyboard.press('Tab');
+      await expect(status).toBeFocused({ timeout: 1000 });
+    };
+    const reach = async (name?: string) => {
+      if (surface === 'annotation' && name) {
+        await expect(async () => {
+          await focusStatus();
+          // The status starts below the draft: bring its first sentence into the window.
+          await status.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+          await expect(status.getByText(copy.sessionLimitReached(2))).toBeInViewport({
+            timeout: 1000,
+          });
+        }).toPass({ timeout: 10_000 });
+        await shot(`${name}-start`);
+      }
+      // The popover re-lays out after a resize and keyboard scrolling settles after the key
+      // press, so the whole reach is retried until Reload is on screen.
+      await expect(async () => {
+        if (surface === 'annotation') {
+          await focusStatus();
+          await status.press('End');
+        }
+        await expectUncovered(status.getByRole('button', { name: copy.reload, exact: true }));
+      }).toPass({ timeout: 10_000 });
+      if (name) await shot(surface === 'annotation' ? `${name}-end` : name);
+    };
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await reach(`1440-${theme}`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await reach('390-dark');
+    if (surface === 'annotation') {
+      // With room below the selection the whole body and Reload fit the popover at once.
+      await page.setViewportSize({ width: 1440, height: 1500 });
+      await reach();
+      await expect(status.getByText(copy.sessionLimitReached(2))).toBeInViewport();
+      await shot('1440-tall');
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await reach();
+    // The card's one action is Reload: once a session frees, it opens the page again.
+    f.free();
+    await status.getByRole('button', { name: copy.reload, exact: true }).click();
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
+    ).toBeVisible();
+    await expect(page.getByText(copy.sessionLimitClose)).toHaveCount(0);
+  });
 
 // A tab that outlives an upgrade shows one row directly under the fixed header; the page
 // moves down by its height, so no control (Chat composer, annotate window) is covered.

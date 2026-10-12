@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { SessionEvictedError } from '../src/ask-remote.js';
 import { settle, terminal } from '../src/connection-model.js';
-import { ReopenFailedError } from '../src/registration.js';
+import { ReopenFailedError, SessionLimitError } from '../src/registration.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 
 const of = (message: string) => new Error(message);
@@ -42,6 +42,14 @@ describe('connection model: settle', () => {
     [of('SURPRISE_CODE'), 'generic', 'none'],
   ] as const)('%s ends as %s with the action %s', (error, reason, action) => {
     expect(settle(error)).toEqual({ phase: 'ended', reason, action });
+  });
+
+  it('ends a refused open at the session limit with a reload, never a retry', () => {
+    expect(settle(new SessionLimitError(2, 'https://x.test/settings'))).toEqual({
+      phase: 'ended',
+      reason: 'capacity',
+      action: 'reload',
+    });
   });
 
   it('ends an eviction with its own reason and no pairing action', () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { REMOTE_REFUSAL_CODES, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { SYNC_ERROR_CODES } from '../src/connection.js';
 import { classify, CONNECTION_CODES, SYNC_DISCONNECTED } from '../src/connection-state.js';
-import { ReopenFailedError } from '../src/registration.js';
+import { ReopenFailedError, SessionLimitError } from '../src/registration.js';
 
 const of = (code: string) => classify(new Error(code));
 
@@ -62,7 +62,8 @@ describe('connection classifier', () => {
     ['mismatch', 'none', 'unpaired'],
     ['revoked', 'none', 'access'],
     ['expired', 'none', 'access'],
-    // The cap notice is C1c (#2625): until then it stays a plain ended page.
+    // The verified limit is a SessionLimitError with its own card; a capacity reason without it
+    // is unverifiable and stays a plain ended page.
     ['capacity', 'none', 'generic'],
   ] as const)(
     'classifies a fresh open refused as %s: %s, ends as %s',
@@ -70,6 +71,10 @@ describe('connection classifier', () => {
       expect(classify(new ReopenFailedError(reason))).toEqual({ recovery, cause });
     },
   );
+
+  it('never recovers a refused open at the session limit', () => {
+    expect(classify(new SessionLimitError(2))).toEqual({ recovery: 'none', cause: 'capacity' });
+  });
 
   it('never recovers an eviction: the session limit has its own card', () => {
     expect(classify(new SessionEvictedError(8)).recovery).toBe('none');
