@@ -42,33 +42,39 @@ function fixture(
   return { controller, binding, opened, reopen, failed };
 }
 
-async function httpRefusal(code?: string): Promise<Error> {
+async function httpRefusal(code?: string, status = 403): Promise<Error> {
   return jsonResponse(
-    new Response(JSON.stringify(code === undefined ? {} : { code }), { status: 403 }),
+    new Response(JSON.stringify(code === undefined ? {} : { code }), { status }),
     8192,
   ).catch((error: unknown) => error as Error) as Promise<Error>;
 }
 
 describe('HTTP admission reopens', () => {
-  it('a 403 then successful admission replaces the binding once without a transport replay', async () => {
-    const refusal = await httpRefusal('DENIED');
-    let attempts = 0;
-    const { controller, reopen, opened, binding } = fixture({
-      reopen: async () => {
-        if (++attempts === 1) throw await httpRefusal('DENIED');
-        return { id: 'admitted' };
-      },
-    });
-    controller.report(refusal);
-    expect(controller.state).toMatchObject({ phase: 'reconnecting', kind: 'epoch' });
-    await settled();
-    expect(reopen).toHaveBeenCalledTimes(2);
-    expect(opened).toHaveBeenCalledExactlyOnceWith({ id: 'admitted' });
-    expect(binding.close).toHaveBeenCalledOnce();
-    expect(binding.reconnect).not.toHaveBeenCalled();
-    expect(controller.state).toEqual({ phase: 'connected' });
-    controller.dispose();
-  });
+  it.each([403, 503])(
+    'a %s then successful admission replaces the binding once without a transport replay',
+    async (status) => {
+      const refusal = await httpRefusal('DENIED', status);
+      let attempts = 0;
+      const { controller, reopen, opened, binding } = fixture({
+        reopen: async () => {
+          if (++attempts === 1) throw await httpRefusal('DENIED', status);
+          return jsonResponse(
+            new Response(JSON.stringify({ id: 'admitted' }), { status: 200 }),
+            8192,
+          );
+        },
+      });
+      controller.report(refusal);
+      expect(controller.state).toMatchObject({ phase: 'reconnecting', kind: 'epoch' });
+      await settled();
+      expect(reopen).toHaveBeenCalledTimes(2);
+      expect(opened).toHaveBeenCalledExactlyOnceWith({ id: 'admitted' });
+      expect(binding.close).toHaveBeenCalledOnce();
+      expect(binding.reconnect).not.toHaveBeenCalled();
+      expect(controller.state).toEqual({ phase: 'connected' });
+      controller.dispose();
+    },
+  );
 
   it('a 403 with a named revoke ends immediately with its own reason', async () => {
     const { controller, reopen, opened } = fixture();
