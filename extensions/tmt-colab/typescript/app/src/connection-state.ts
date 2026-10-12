@@ -1,5 +1,5 @@
 import { SessionEndedError } from './ask-remote.js';
-import { ReopenFailedError, SessionLimitError } from './registration.js';
+import { AdmissionRefusedError, ReopenFailedError, SessionLimitError } from './registration.js';
 
 /** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
 export type FailureCause =
@@ -98,6 +98,18 @@ export function classify(error: Error): Classification {
   // Nothing recovers it inside the page: Remote does not retry a limit refusal, and a reload
   // after another session frees is the reader's one action.
   if (error instanceof SessionLimitError) return end('capacity');
+  if (error instanceof AdmissionRefusedError) {
+    // Unlike an old transport closing, a named refusal of the fresh admission ends access.
+    if (error.code === 'REMOTE_CLOSED') return end('access');
+    const named =
+      error.code && Object.hasOwn(CONNECTION_CODES, error.code)
+        ? CONNECTION_CODES[error.code]
+        : undefined;
+    // A named ending keeps its reason. A stale or unclassified HTTP admission uses the
+    // existing finite reopen owner, never the indefinitely recoverable transport loop.
+    if (named?.recovery === 'none' && named.cause !== 'generic') return named;
+    return recover('reopen');
+  }
   const known = Object.hasOwn(CONNECTION_CODES, error.message)
     ? CONNECTION_CODES[error.message]!
     : generic;

@@ -199,7 +199,11 @@ then every 15 s with 20% jitter, paused while the tab is hidden (`ConnectionOwne
 connects or the failure is no longer recoverable. A series that gives up, or a binding with no
 `reconnect`, ends the connection with the failure it stopped on: nothing else drives
 `reconnecting`. An epoch advance stops that loop and reopens the page (`PageReopener`, at most
-three reopens a minute), then hands the new binding over. `ended` replaces
+three reopens a minute), then hands the new binding over. HTTP admission refusals retain their
+bounded body and code (`AdmissionRefusedError`): named endings stay terminal; stale or
+unclassified refusals use that same finite reopen path (five attempts at 0/1/3/8/15 s), with
+the existing reconnect-failure sentence if it is exhausted. They never extend the transport
+loop. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
@@ -209,14 +213,14 @@ action scroll- and keyboard-reachable within the existing composer overflow. `Li
 the transport owner: it keeps its bounded resync
 and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
-codes, Remote refusal codes, a few short messages, each `ReopenFailedError` reason): what recovers
+codes, Remote refusal codes, HTTP admission refusals, a few short messages, each `ReopenFailedError` reason): what recovers
 it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
 `retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).
 A terminal failure card shows one of seven `strings.ts` sentences (access ended, not paired, page
-gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
+gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown non-admission token is not
 recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
 `Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.

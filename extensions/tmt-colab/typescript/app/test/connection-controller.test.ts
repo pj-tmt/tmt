@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { SessionEvictedError } from '../src/ask-remote.js';
 import { ConnectionController } from '../src/connection-controller.js';
 import { ReadmitBudget } from '../src/readmit.js';
-import { ReopenFailedError } from '../src/registration.js';
+import { ReopenFailedError, jsonResponse } from '../src/registration.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
+import { terminalFailure } from '../src/terminal-failure.js';
+import { text } from '../src/strings.js';
 
 const lost = () => new RecoveryRequiredError(new Error('Sync disconnected'));
 const refusal = (code: string) => new Error(code);
@@ -39,6 +41,65 @@ function fixture(
   });
   return { controller, binding, opened, reopen, failed };
 }
+
+async function httpRefusal(code?: string): Promise<Error> {
+  return jsonResponse(
+    new Response(JSON.stringify(code === undefined ? {} : { code }), { status: 403 }),
+    8192,
+  ).catch((error: unknown) => error as Error) as Promise<Error>;
+}
+
+describe('HTTP admission reopens', () => {
+  it('a 403 then successful admission replaces the binding once without a transport replay', async () => {
+    const refusal = await httpRefusal('DENIED');
+    let attempts = 0;
+    const { controller, reopen, opened, binding } = fixture({
+      reopen: async () => {
+        if (++attempts === 1) throw await httpRefusal('DENIED');
+        return { id: 'admitted' };
+      },
+    });
+    controller.report(refusal);
+    expect(controller.state).toMatchObject({ phase: 'reconnecting', kind: 'epoch' });
+    await settled();
+    expect(reopen).toHaveBeenCalledTimes(2);
+    expect(opened).toHaveBeenCalledExactlyOnceWith({ id: 'admitted' });
+    expect(binding.close).toHaveBeenCalledOnce();
+    expect(binding.reconnect).not.toHaveBeenCalled();
+    expect(controller.state).toEqual({ phase: 'connected' });
+    controller.dispose();
+  });
+
+  it('a 403 with a named revoke ends immediately with its own reason', async () => {
+    const { controller, reopen, opened } = fixture();
+    controller.report(await httpRefusal('REMOTE_DEVICE_REVOKED'));
+    await settled();
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'access', action: 'pair' });
+    expect(reopen).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
+    if (controller.state.phase !== 'ended') throw new Error('Expected named ending');
+    expect(terminalFailure(controller.state.error).sentence).toBe(text.failureAccessEnded);
+  });
+
+  it('repeated unclassified 403 stops after the existing five attempts with reconnect failure copy', async () => {
+    const { controller, reopen, opened, binding } = fixture({
+      reopen: async () => {
+        throw await httpRefusal();
+      },
+    });
+    controller.report(await httpRefusal());
+    await settled();
+    expect(reopen).toHaveBeenCalledTimes(5);
+    expect(controller.state).toMatchObject({ phase: 'ended', reason: 'generic', action: 'none' });
+    expect(opened).not.toHaveBeenCalled();
+    expect(binding.reconnect).not.toHaveBeenCalled();
+    if (controller.state.phase !== 'ended') throw new Error('Expected bounded ending');
+    expect(terminalFailure(controller.state.error).sentence).toBe(text.reconnectFailed);
+    controller.report(await httpRefusal());
+    await settled();
+    expect(reopen).toHaveBeenCalledTimes(5);
+  });
+});
 
 describe('connection controller: a lost transport', () => {
   it('reconnects on its own and goes back to connected, with no click', async () => {
