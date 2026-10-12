@@ -222,6 +222,9 @@ without reload or duplicate dispatch/wake. The capacity case evicts only a detac
 keeps attached pages usable and verifies a new tab's shipped refusal. Revoke ends access with
 zero new effects; there is no unpair case because no public unpair action ships. Socket closure
 is observed before the grace-duration wait; `idle-tab.spec.ts` separately pins attached keepalive.
+Chromium's offline emulation leaves established WebSockets open. Only the two offline cases
+therefore pair it with a routed cut of both socket sides; online frames pass through unchanged
+from the real server. Other triggers use direct sockets.
 
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained

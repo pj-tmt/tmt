@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Page,
+  type WebSocketRoute,
+} from '@playwright/test';
 import {
   pairBrowser,
   restartColab,
@@ -36,10 +42,14 @@ interface OpenOwner {
   openedSockets(): number;
 }
 
-async function owner(world: AcceptanceWorld): Promise<OpenOwner> {
+async function owner(
+  world: AcceptanceWorld,
+  configure?: (context: BrowserContext) => Promise<void>,
+): Promise<OpenOwner> {
   const door = await startDoor(world, await freePort());
   const agent = await world.startAgent('soak-agent');
   const browser = await pairBrowser(world, 'soak-owner', { talk: true });
+  await configure?.(browser.context);
   const sockets = new Set<object>();
   let opened = 0;
   // Observe from page creation, before any SDK or mounted sync transport can attach.
@@ -177,10 +187,26 @@ for (const beyondGrace of [false, true]) {
   test(`connection soak: offline ${beyondGrace ? 'past detached grace' : 'and back online'} recovers without reload`, async () => {
     test.setTimeout(240_000);
     await withWorld(async (world) => {
-      const s = await owner(world);
+      let offline = false;
+      const routes = new Set<{ page: WebSocketRoute; server: WebSocketRoute }>();
+      const s = await owner(world, async (context) => {
+        // Chromium's offline emulation leaves established sockets open; cut the real passthrough too.
+        await context.routeWebSocket(/.*/, (page) => {
+          if (offline) {
+            void page.close();
+            return;
+          }
+          const server = page.connectToServer();
+          routes.add({ page, server });
+        });
+      });
       await readSendReceive(s, 'online positive control');
       expect(s.openedSockets()).toBeGreaterThan(0);
+      offline = true;
       await s.browser.context.setOffline(true);
+      // As in page-save's lost-reply case, default close (1000) is transient, not an ended frame.
+      await Promise.all([...routes].flatMap(({ page, server }) => [page.close(), server.close()]));
+      routes.clear();
       await expect.poll(() => s.sockets.size, { timeout: 30_000 }).toBe(0);
       await expect(s.page.locator('.status')).toContainText('Reconnecting…', { timeout: 30_000 });
       if (beyondGrace) {
@@ -188,6 +214,7 @@ for (const beyondGrace of [false, true]) {
         await s.page.waitForTimeout(detachedGraceMs + 5_000);
         expect(s.sockets.size).toBe(0);
       }
+      offline = false;
       await s.browser.context.setOffline(false);
       await readSendReceive(s, beyondGrace ? 'expired detached session' : 'offline recovery');
       expect(s.openedSockets()).toBeGreaterThan(1);
