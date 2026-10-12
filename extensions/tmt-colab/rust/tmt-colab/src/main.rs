@@ -1112,7 +1112,7 @@ fn main() -> ExitCode {
                     value["error"]["supportedSchema"] = json!(supported);
                 }
                 if let Some(next) = next {
-                    value["next"] = json!([next]);
+                    value["next"] = json!(next);
                 }
                 if let Some(path) = error
                     .downcast_ref::<tmt_colab::export::Fault>()
@@ -1141,25 +1141,24 @@ mod tests {
     fn schema_restart_hint_parses_without_execution() {
         let fault = tmt_colab::store::Fault::OutdatedSchema(4);
         let hint = fault.hint().unwrap();
-        // Explicit command boundaries in the actual presentation-owned hint.
-        let command = hint
-            .strip_prefix("Start or restart ")
-            .unwrap()
-            .strip_suffix(" to update it.")
+        assert_eq!(
+            hint,
+            "Run tmt colab stop, then tmt colab serve --background."
+        );
+        for command in fault.next().unwrap() {
+            let words = Example {
+                command,
+                note: "Stop the old service, then start the migration-owning serve",
+            }
+            .argv()
             .unwrap();
-        assert_eq!(fault.next(), Some(command));
-        let words = Example {
-            command,
-            note: "Restart the migration-owning serve",
+            assert_eq!(&words[..2], &["tmt", "colab"]);
+            grammar()
+                .try_get_matches_from(
+                    std::iter::once("colab").chain(words[2..].iter().map(String::as_str)),
+                )
+                .unwrap();
         }
-        .argv()
-        .unwrap();
-        assert_eq!(&words[..2], &["tmt", "colab"]);
-        grammar()
-            .try_get_matches_from(
-                std::iter::once("colab").chain(words[2..].iter().map(String::as_str)),
-            )
-            .unwrap();
         // Upgrade is a core-owned command, covered by its existing printed-command guard.
         assert_eq!(
             tmt_colab::store::Fault::UnsupportedSchema(99).hint(),
@@ -1167,7 +1166,7 @@ mod tests {
         );
         assert_eq!(
             tmt_colab::store::Fault::UnsupportedSchema(99).next(),
-            Some("tmt upgrade")
+            Some(&["tmt upgrade"][..])
         );
     }
     #[test]
