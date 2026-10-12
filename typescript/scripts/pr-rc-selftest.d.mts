@@ -1,4 +1,5 @@
 import type { RCPayload } from './pr-rc-coordinator.mjs';
+import type { ApplicationSchema } from './native-application-schema.mjs';
 export const QUALIFICATION: Readonly<{ pr: number; branch: string; workflow: number }>;
 interface Fixture {
   head: string;
@@ -104,3 +105,14 @@ export function cleanupExact(
 }>;
 export function readOwnedReceipt(world: string): Receipt;
 export function executeSelftest(stage: string): Promise<void>;
+
+export function schemaPreflight(
+  catalog: {
+    head_sha: string;
+    candidates: { target: string; application_schema: ApplicationSchema }[];
+  },
+  get?: (url: string, limit: number) => Buffer
+): {
+  alpha: { tag: string; manifest_sha256: string; schema: number };
+  candidates: { target: string; schema: number }[];
+};

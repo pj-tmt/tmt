@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { CLI_SCHEMA_TARGETS } from '../../scripts/native-application-schema.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   QUALIFICATION,
+  schemaPreflight,
   api,
   producerRunInput,
   waitForPull,
@@ -564,5 +567,188 @@ describe('one-shot PR RC reader qualification', () => {
     expect(jobs.length).toBe(11);
     expect(workflow).toContain("always() && needs.preflight.result == 'success'");
     expect(workflow).toContain('pr-rc-selftest.mjs seal');
+  });
+});
+
+function schemaCase(candidateVersion: number, alphaVersion = 3) {
+  const bytes = (value: unknown) => Buffer.from(JSON.stringify(value));
+  const schema = (version: number) => ({
+    schema_version: 1 as const,
+    product: 'cli' as const,
+    source_sha: FIXTURE.head,
+    databases: [{ domain: 'tmt-core-db' as const, version }],
+    source_files: [{ path: 'rust/schema.sql', sha256: 'a'.repeat(64) }],
+  });
+  const tag = 'v5.0.0-alpha.191';
+  const base = `https://github.com/pj-tmt/tmt/releases/download/${tag}/`;
+  const pointerUrl =
+    'https://raw.githubusercontent.com/pj-tmt/tmt/release-index/channels/cli/alpha.json';
+  const manifestUrl = `${base}dist-manifest.json`;
+  const recordUrl = `${base}tmt-release-record.json`;
+  const manifest = { announcement_tag: tag, tmt_application_schema: schema(alphaVersion) };
+  const descriptor = (name: string, body: Buffer) => ({
+    name,
+    url: `${base}${name}`,
+    size: body.length,
+    sha256: createHash('sha256').update(body).digest('hex'),
+  });
+  const record = {
+    schemaVersion: 1,
+    product: 'cli',
+    version: '5.0.0-alpha.191',
+    tag,
+    releaseId: 123,
+    sourceSha: FIXTURE.head,
+    manifest: descriptor('dist-manifest.json', bytes(manifest)),
+    archives: Object.fromEntries(
+      CLI_SCHEMA_TARGETS.map((target) => [
+        target,
+        descriptor(`tmt-cli-${target}.tar.gz`, Buffer.from('opaque archive')),
+      ])
+    ),
+  };
+  const pointer = {
+    schemaVersion: 1,
+    product: 'cli',
+    channel: 'alpha',
+    version: record.version,
+    tag,
+    record: descriptor('tmt-release-record.json', bytes(record)),
+  };
+  const catalog = {
+    head_sha: FIXTURE.head,
+    candidates: CLI_SCHEMA_TARGETS.map((target) => ({
+      target,
+      application_schema: schema(candidateVersion),
+    })),
+  };
+  const routes = new Map([
+    [pointerUrl, bytes(pointer)],
+    [recordUrl, bytes(record)],
+    [manifestUrl, bytes(manifest)],
+  ]);
+  const reads: { url: string; limit: number }[] = [];
+  const get = (url: string, limit: number) => {
+    reads.push({ url, limit });
+    const body = routes.get(url);
+    if (!body) throw new Error(`Unexpected public GET: ${url}`);
+    return body;
+  };
+  const seal = () => {
+    routes.set(manifestUrl, bytes(manifest));
+    record.manifest = descriptor('dist-manifest.json', bytes(manifest));
+    routes.set(recordUrl, bytes(record));
+    pointer.record = descriptor('tmt-release-record.json', bytes(record));
+    routes.set(pointerUrl, bytes(pointer));
+  };
+  return {
+    catalog,
+    get,
+    reads,
+    routes,
+    manifest,
+    record,
+    pointer,
+    seal,
+    pointerUrl,
+    recordUrl,
+    manifestUrl,
+  };
+}
+describe('selftest schema admission before baseline', () => {
+  it.each([2, 3])(
+    'admits candidate schema %i at or below the published alpha schema',
+    (version) => {
+      const test = schemaCase(version);
+      const result = schemaPreflight(test.catalog, test.get);
+      expect(result.alpha).toEqual({
+        tag: test.record.tag,
+        manifest_sha256: test.record.manifest.sha256,
+        schema: 3,
+      });
+      expect(result.candidates.map((item) => item.schema)).toEqual([
+        version,
+        version,
+        version,
+        version,
+      ]);
+      expect(test.reads).toEqual([
+        { url: test.pointerUrl, limit: 16 * 1024 },
+        { url: test.recordUrl, limit: test.pointer.record.size },
+        { url: test.manifestUrl, limit: test.record.manifest.size },
+      ]);
+    }
+  );
+  it('stops an ahead or mixed candidate with both schema numbers and the wait instruction', () => {
+    for (const mixed of [false, true]) {
+      const test = schemaCase(mixed ? 3 : 4);
+      test.catalog.candidates[3].application_schema.databases[0].version = 4;
+      expect(() => schemaPreflight(test.catalog, test.get)).toThrow(
+        'Candidate application schema 4 is ahead of latest published alpha schema 3 (v5.0.0-alpha.191); wait for a published alpha carrying schema 4 before running the selftest.'
+      );
+    }
+  });
+  it('refuses absent, malformed, unbound or wrong-channel evidence without another source', () => {
+    const mutations = [
+      (test: ReturnType<typeof schemaCase>) => test.routes.delete(test.pointerUrl),
+      (test: ReturnType<typeof schemaCase>) => test.routes.set(test.recordUrl, Buffer.from('{')),
+      (test: ReturnType<typeof schemaCase>) => {
+        test.pointer.record.sha256 = 'b'.repeat(64);
+        test.routes.set(test.pointerUrl, Buffer.from(JSON.stringify(test.pointer)));
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.pointer.record.size++;
+        test.routes.set(test.pointerUrl, Buffer.from(JSON.stringify(test.pointer)));
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.manifest.announcement_tag = 'v5.0.0-alpha.190';
+        test.seal();
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.record.sourceSha = 'b'.repeat(40);
+        test.seal();
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.manifest.tmt_application_schema.databases[0].version = -1;
+        test.seal();
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.catalog.candidates[0].application_schema.source_sha = 'b'.repeat(40);
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.catalog.candidates[0].application_schema.databases = [];
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.catalog.candidates.pop();
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.pointer.product = 'ops';
+        test.seal();
+      },
+      (test: ReturnType<typeof schemaCase>) => {
+        test.pointer.channel = 'stable';
+        test.seal();
+      },
+    ];
+    for (const mutate of mutations) {
+      const test = schemaCase(3);
+      mutate(test);
+      expect(() => schemaPreflight(test.catalog, test.get)).toThrow();
+      expect(test.reads.every(({ url }) => !url.includes('api.github.com'))).toBe(true);
+    }
+  });
+  it('gates manifest emission before baseline and refuses oversized evidence', () => {
+    const source = fs.readFileSync(
+      new URL('../../scripts/pr-rc-selftest.mjs', import.meta.url),
+      'utf8'
+    );
+    expect(source).toContain('const schemaAdmission = schemaPreflight(catalog);');
+    expect(source.indexOf('const schemaAdmission = schemaPreflight(catalog);')).toBeLessThan(
+      source.indexOf('fs.writeFileSync(manifestFile')
+    );
+    const test = schemaCase(3);
+    expect(() => schemaPreflight(test.catalog, () => Buffer.alloc(16 * 1024 + 1))).toThrow(
+      'Schema evidence exceeds its byte cap.'
+    );
   });
 });
