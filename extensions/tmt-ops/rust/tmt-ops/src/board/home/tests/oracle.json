@@ -13146,7 +13146,7 @@
       "s20": "Cell { symbol: Some(\"\"), fg: Rgb(23, 23, 23), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
       "s21": "Cell { symbol: Some(\"\"), fg: Rgb(79, 106, 51), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
       "s22": "Cell { symbol: Some(\"\"), fg: Rgb(182, 44, 59), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
-      "s23": "Cell { symbol: Some(\"\"), fg: Rgb(150, 80, 39), bg: Reset, underline_color: Reset, modifier: REVERSED, diff_option: None, skip: false }",
+      "s23": "Cell { symbol: Some(\"\"), fg: Rgb(79, 106, 51), bg: Reset, underline_color: Reset, modifier: REVERSED, diff_option: None, skip: false }",
       "s24": "Cell { symbol: Some(\"\"), fg: Rgb(23, 23, 23), bg: Rgb(224, 224, 224), underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
       "s25": "Cell { symbol: Some(\"\"), fg: Rgb(182, 44, 59), bg: Reset, underline_color: Reset, modifier: REVERSED, diff_option: None, skip: false }",
       "s26": "Cell { symbol: Some(\"\"), fg: Rgb(182, 44, 59), bg: Rgb(200, 200, 200), underline_color: Reset, modifier: BOLD, diff_option: None, skip: false }",
@@ -13163,7 +13163,7 @@
       "s5": "Cell { symbol: Some(\"\"), fg: Rgb(216, 216, 216), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
       "s6": "Cell { symbol: Some(\"\"), fg: Rgb(158, 206, 106), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
       "s7": "Cell { symbol: Some(\"\"), fg: Rgb(247, 118, 142), bg: Reset, underline_color: Reset, modifier: NONE, diff_option: None, skip: false }",
-      "s8": "Cell { symbol: Some(\"\"), fg: Rgb(255, 158, 100), bg: Reset, underline_color: Reset, modifier: REVERSED, diff_option: None, skip: false }",
+      "s8": "Cell { symbol: Some(\"\"), fg: Rgb(158, 206, 106), bg: Reset, underline_color: Reset, modifier: REVERSED, diff_option: None, skip: false }",
       "s9": "Cell { symbol: Some(\"\"), fg: Rgb(216, 216, 216), bg: Rgb(56, 56, 56), underline_color: Reset, modifier: NONE, diff_option: None, skip: false }"
     },
     "frames": [
