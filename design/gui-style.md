@@ -290,6 +290,36 @@ Comments, Chat, Source, Share and settings panels.
 - Basis: Radix (Dialog). Shared owner: [BrowserDrawer](browser-ui/README.md#drawer-and-menu), with native modal containment at every width.
 - Colab shared page drawers (Chat, Source, Agents, Files, Comments, Export and About) leave an 8 px gutter below the header and at the right and bottom edges; through 480 px use 4 px. Keep the header visible, a square opaque surface and one 1 px rule on every edge. Source may be wider; other drawers are at most 440 px. Compact drawers fill the available width between gutters. The scrim covers the visible header and author iframe; the first press only dismisses, with no click-through, and the second press acts. The drawer body contains overscroll; there is no body scroll lock. Neither changes the author frame width.
 
+### BrowserNotifications
+
+Transient reply cards below the header at the right, separate from persistent
+discussion state. Shipped Colab destinations are **Chat** and **Thread**; the
+visible text tag names the destination, with the quoted passage for Thread.
+
+- Opaque square cards, one thin edge, no shadow or motion. Use an 8 px header/right
+  gutter (4 px through 480 px), safe-area insets and at most 360 px width.
+- Three cards visible; additional replies wait in FIFO order with a waiting count.
+  Each gets 6,000 ms when first displayed; waiting does not consume that time.
+  Hover and keyboard focus independently pause the remaining time. Dismissal,
+  activation and expiry promote the oldest waiting reply.
+- Hold the queue while the document is hidden or a modal or anchored Thread window
+  is open. Resume rechecks current host eligibility before display and announcement.
+- Arrivals never take focus. Use natural Tab order and visible focus; focused plain
+  Escape dismisses only that card. Escape/Dismiss returns focus to its connected,
+  visible prior element; Open leaves destination focus to the host. The surface
+  has no catching backdrop; controls require trusted activation.
+- One persistent polite status announces each newly displayed reply once. Queue
+  counts and timer changes do not reannounce cards. Clamp display text to two lines
+  while retaining the full accessible text.
+- Expiry and dismissal leave persistent discussion state intact. Open activates
+  the host's existing destination; opening a canonical thread clears its New
+  agent-resolution attention without resolving it. All three leave the header's
+  open-thread total unchanged. A conversation's New messages attention follows
+  its history scroll position. Chat has no separate header unread counter.
+
+Shared owner: [BrowserNotifications](browser-ui/README.md#notifications).
+Basis: own.
+
 ### Page Chat
 
 - Shared Drawer header: Chat, `○ Everyone with access` caption and Close. Reuse the shared
