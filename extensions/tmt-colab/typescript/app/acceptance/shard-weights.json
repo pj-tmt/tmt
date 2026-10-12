@@ -1,0 +1,43 @@
+{
+  "$comment": [
+    "Approximate seconds each real-binary acceptance spec file takes in CI, used only to balance the Colab acceptance shards (typescript/scripts/colab-acceptance-shards.mjs).",
+    "A stale or missing weight costs balance, never coverage: every spec file always lands in exactly one shard (guarded by typescript/test/tooling/colab-acceptance-shards.test.ts).",
+    "Whole seconds from the per-test durations of one full green run of #2867 on 2026-10-12 (run 38218284566, two shards). Recompute from the colab-acceptance-results artifacts' outcomes.json when the suite changes."
+  ],
+  "defaultSeconds": 16,
+  "files": {
+    "agent-attachments.spec.ts": 14,
+    "agent-status.spec.ts": 3,
+    "ask-again.spec.ts": 11,
+    "ask.spec.ts": 219,
+    "attachments.spec.ts": 125,
+    "chat-order.spec.ts": 7,
+    "chat.spec.ts": 13,
+    "connection-readmit.spec.ts": 4,
+    "connection-reconnect.spec.ts": 16,
+    "discussion.spec.ts": 51,
+    "document-images.spec.ts": 50,
+    "export.spec.ts": 7,
+    "harness.spec.ts": 18,
+    "idle-tab.spec.ts": 153,
+    "management.spec.ts": 22,
+    "mention-send.spec.ts": 6,
+    "object-channel.spec.ts": 17,
+    "one-command.spec.ts": 6,
+    "page-author.spec.ts": 4,
+    "page-check.spec.ts": 3,
+    "page-compaction.spec.ts": 491,
+    "page-save-large.spec.ts": 112,
+    "page-save.spec.ts": 76,
+    "page-size-create.spec.ts": 26,
+    "page-size.spec.ts": 90,
+    "popover.spec.ts": 17,
+    "reader.spec.ts": 21,
+    "reply-notifications.spec.ts": 10,
+    "storage-lifecycle.spec.ts": 42,
+    "tabs.spec.ts": 13,
+    "talk-scope.spec.ts": 6,
+    "thread-status.spec.ts": 15,
+    "titles.spec.ts": 5
+  }
+}

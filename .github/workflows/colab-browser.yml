@@ -246,18 +246,26 @@ jobs:
           retention-days: 7
 
   colab-acceptance:
-    name: Colab real-binary acceptance (Chromium)
+    name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' && github.event.action != 'unlabeled' &&
        contains(github.event.pull_request.labels.*.name, 'colab-acceptance') &&
        (github.event.action != 'labeled' || github.event.label.name == 'colab-acceptance'))
     concurrency:
-      group: colab-acceptance-${{ github.event.pull_request.number || github.ref }}
+      group: colab-acceptance-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
       # A label edit must never cancel a running acceptance check.
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # The one-worker suite (~100 specs, 22 to 30+ minutes as one job, #2827) runs as two shards of
+    # whole spec files balanced by measured time (typescript/scripts/colab-acceptance-shards.mjs;
+    # Playwright's own --shard put the heavy page-* specs in one shard), each with its own real
+    # binaries and world; neither cancels the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     permissions:
       contents: read
     env:
@@ -304,10 +312,12 @@ jobs:
           printf 'pr-head: %s\ntested-merge: %s\n' "$PR_HEAD_SHA" "$(git rev-parse HEAD)" > "$RUNNER_TEMP/colab-acceptance-results/tested-head.txt"
           sha256sum rust/target/debug/tmt rust/target/debug/tmt-remote rust/target/debug/tmt-colab > "$RUNNER_TEMP/colab-acceptance-results/binaries.sha256"
           find extensions/tmt-colab/typescript/app/dist -type f -print0 | sort -z | xargs -0 sha256sum > "$RUNNER_TEMP/colab-acceptance-results/assets.sha256"
-      - name: Run the complete real-binary suite with one worker
+      - name: Run this shard of the real-binary suite with one worker
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces"
+        run: |
+          read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()
         shell: bash
@@ -317,7 +327,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: colab-acceptance-results
+          name: colab-acceptance-results-${{ matrix.shard }}
           path: ${{ runner.temp }}/colab-acceptance-results
           if-no-files-found: warn
           retention-days: 7
