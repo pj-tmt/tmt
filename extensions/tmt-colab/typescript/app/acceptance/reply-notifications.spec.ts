@@ -10,6 +10,8 @@ import {
   openPage,
   selectInRenderer,
   sendChat,
+  run,
+  annotationInput,
 } from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -37,7 +39,7 @@ test('own admitted Chat final notifies once, opens its exact turn, and survives 
     const card = page.locator('.tmt-ui-notification');
     await expect(card).toHaveCount(1);
     await expect(card).toContainText(reply);
-    await expect(page.locator('.reply-announcement')).toHaveText('');
+    await expect(page.locator('.reply-announcement')).toHaveCount(0);
     await expect(other.locator('.tmt-ui-notification')).toHaveCount(0);
     await captureResponsive(page, 'notification-chat-queue');
     await card.getByRole('button', { name: 'Open Chat', exact: true }).click();
@@ -100,7 +102,7 @@ test('an authenticated participant comment notifies the thread author and opens 
     await expect(
       original.getByTestId('comment-entry').filter({ hasText: 'A signed participant reply.' }),
     ).toBeInViewport();
-    await expect(page.locator('.reply-announcement')).toHaveText('');
+    await expect(page.locator('.reply-announcement')).toHaveCount(0);
     await captureResponsive(page, 'notification-thread-target');
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
@@ -113,3 +115,97 @@ test('an authenticated participant comment notifies the thread author and opens 
     await expect(original.getByTestId('comment-entry')).toHaveCount(2);
   });
 });
+
+for (const destination of ['Answer', 'Proposal'] as const)
+  test(`own admitted ${destination} follow-up reveals and focuses its block across the served Remote boundary`, async () => {
+    await withWorld(async (world) => {
+      const door = await startDoor(world, await freePort());
+      const agent = await world.startAgent('block-notification-agent', { gated: true });
+      const author = await pairBrowser(world, 'block-notification-author', { talk: true });
+      const viewer = await pairBrowser(world, 'block-notification-viewer');
+      const qid = '10000000-0000-4000-8000-000000000090';
+      const created = createPage(
+        world,
+        `${destination} notifications`,
+        `<div style="height:1100px">Context above the block.</div>${destination === 'Answer' ? `<tmt-question data-id="${qid}" data-kind="short" data-agent="${agent.name}"><p data-question>What should we do next?</p></tmt-question><div style="height:1000px">Context below the block.</div>` : ''}`,
+      );
+      if (destination === 'Proposal')
+        run(
+          world,
+          world.binaries.colab,
+          [
+            'proposal',
+            'add',
+            created.pageId,
+            '--title',
+            'Review this proposal',
+            '--body',
+            'A proposal with a follow-up.',
+            '--json',
+          ],
+          undefined,
+          agent.pane,
+        );
+      const page = await openPage(door, author, created);
+      const other = await openPage(door, viewer, created);
+      await expect(other.locator('.status.live')).toBeVisible();
+      const block = page.locator(
+        destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
+      );
+      await expect(block).toHaveCount(1);
+      if (destination === 'Answer') {
+        await block.getByLabel('Your answer', { exact: true }).fill('Follow this direction.');
+        await block.getByRole('button', { name: /^Send answer/ }).click();
+        await expect(
+          block.getByRole('button', { name: 'Change answer', exact: true }),
+        ).toBeEnabled();
+      } else {
+        await block.getByRole('button', { name: 'Follow up', exact: true }).click();
+        const input = block.getByRole('combobox', { name: 'Message', exact: true });
+        // Explicit visible recipient avoids racing the async fresh-draft seed;
+        // this scenario proves notifications, not creator-default initialization.
+        await input.fill(`@${agent.name} Please follow up on this proposal.`);
+        await annotationInput(block, agent.name);
+        await expect(block.locator('.annotation-status-row')).toContainText(`Asks @${agent.name}.`);
+        await block.getByRole('button', { name: 'Send', exact: true }).click();
+      }
+      await until(() => agent.received().length === 1, 'one admitted block follow-up Ask');
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect
+        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .toBeGreaterThan(900);
+      const requestId = agent.received()[0].requestId as string;
+      writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
+      await until(
+        () => agent.rows().some((row) => row.event === 'replied'),
+        'durable block follow-up reply',
+      );
+      const reply = agent.rows().find((row) => row.event === 'replied')!.body as string;
+      const card = page.locator('.tmt-ui-notification');
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText(reply);
+      await expect(other.locator('.tmt-ui-notification')).toHaveCount(0);
+      await expect(page.locator('.reply-announcement')).toHaveCount(0);
+      await captureResponsive(page, `notification-${destination.toLowerCase()}-queue`);
+      await card.getByRole('button', { name: `Open ${destination}`, exact: true }).click();
+      await expect(block).toBeFocused();
+      await expect(block).toHaveAttribute('data-arrived', '');
+      await expect(block).toContainText(reply);
+      await expect
+        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .toBeGreaterThanOrEqual(48);
+      await expect
+        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .toBeLessThan(900);
+      await captureResponsive(page, `notification-${destination.toLowerCase()}-target`);
+      await page.keyboard.press('Tab');
+      await expect(block).not.toHaveAttribute('data-arrived', '');
+      await page.reload();
+      await expect(page.locator('.status.live')).toBeVisible();
+      await expect(card).toHaveCount(0);
+      expect(agent.received()).toHaveLength(1);
+      expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+        1,
+      );
+    });
+  });

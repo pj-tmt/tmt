@@ -3,6 +3,8 @@ import { Check, CircleCheck, CircleDot, X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { ThreadView } from '../thread-records.js';
 import type { ProposalOutcome } from '../proposal-actions.js';
+import { useNotificationBlock } from '../use-notification-block.js';
+import { proposalNotificationDestination } from '../reply-notification-context.js';
 import { text } from '../strings.js';
 
 /** Authenticated parent presentation only; callbacks own all admission/effects. */
@@ -23,6 +25,7 @@ export function ProposalCard({
   toggleHistory,
   resolvedLabel = text.threadResolved,
   unseen,
+  notificationSurface = 'page',
 }: {
   thread: ThreadView;
   outcome?: ProposalOutcome;
@@ -40,10 +43,17 @@ export function ProposalCard({
   toggleHistory?(): void;
   resolvedLabel?: string;
   unseen?: boolean;
+  notificationSurface?: 'page' | 'comments';
 }) {
   const proposal = thread.proposal!;
   const titleId = useId();
   const card = useRef<HTMLElement>(null);
+  useNotificationBlock(
+    proposalNotificationDestination(thread.ref.writer, thread.ref.id),
+    card,
+    !thread.resolved || historyOpen,
+    notificationSurface,
+  );
   const followUpControl = useRef<HTMLSpanElement>(null);
   const focused = useRef<HTMLElement | null>(null);
   const returning = useRef(false);

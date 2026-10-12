@@ -16,7 +16,8 @@ export interface ReplySources {
 }
 export interface ReplyNotification {
   id: string;
-  destination: 'Chat' | 'Thread';
+  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
+  questionId?: string;
   firstLine: string;
   quote?: string;
   thread?: DiscussionRef;
@@ -25,7 +26,7 @@ export interface ReplyNotification {
 }
 export interface ReplyClassification {
   /** Undefined while the existing question layer is resolving associations. */
-  questionThreads: ReadonlySet<string> | undefined;
+  questionThreads: ReadonlyMap<string, string | null> | undefined;
 }
 const threadKey = (thread: DiscussionRef) => JSON.stringify([thread.writer, thread.id]);
 const askId = (ask: PageAsk) =>
@@ -48,11 +49,12 @@ export function projectReplyNotifications(
   const deferred = new Set<string>();
   const threads = sources.threads;
   const classify = (thread: ThreadView) => {
-    if (thread.proposal) return;
+    if (thread.proposal) return 'Proposal' as const;
     if (isChatThread(thread)) return 'Chat' as const;
     if (!thread.anchor) return;
     if (classification.questionThreads === undefined) return 'pending' as const;
     if (!classification.questionThreads.has(threadKey(thread.ref))) return 'Thread' as const;
+    if (classification.questionThreads.get(threadKey(thread.ref))) return 'Answer' as const;
   };
   if (!sources.askUnavailable)
     for (const ask of sources.asks ?? []) {
@@ -78,6 +80,9 @@ export function projectReplyNotifications(
         id,
         destination,
         firstLine: firstLine(ask.reply),
+        ...(destination === 'Answer'
+          ? { questionId: classification.questionThreads!.get(threadKey(thread!.ref))! }
+          : {}),
         ...(thread ? { thread: thread.ref } : {}),
         ...(destination === 'Thread' ? { quote: thread!.anchor!.exact } : {}),
         recordKey: conversationRecordKey('reply', ask.writer, ask.operationId),
@@ -104,6 +109,9 @@ export function projectReplyNotifications(
         id,
         destination,
         firstLine: firstLine(comment.body),
+        ...(destination === 'Answer'
+          ? { questionId: classification.questionThreads!.get(threadKey(thread.ref))! }
+          : {}),
         thread: thread.ref,
         ...(destination === 'Thread' ? { quote: thread.anchor!.exact } : {}),
         recordKey: conversationRecordKey('comment', comment.ref.writer, comment.messageId),
@@ -160,20 +168,4 @@ export class ReplyNotificationObserver {
         consider(commentId(comment.ref.writer, comment.messageId));
     return arrivals;
   }
-}
-
-/** The transitional announcer has disjoint sources; #2727 replaces these with
- * Answer/Proposal notifications and removes its modal live-region relocation. */
-export function legacyReplyAnnouncements(
-  sources: ReplySources,
-  classification: ReplyClassification,
-) {
-  return (sources.asks ?? []).filter((ask) =>
-    (sources.threads ?? []).some(
-      (thread) =>
-        !thread.deleted &&
-        (thread.proposal || classification.questionThreads?.has(threadKey(thread.ref))) &&
-        conversationAsks(thread, [ask]).length > 0,
-    ),
-  );
 }

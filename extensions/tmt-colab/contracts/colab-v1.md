@@ -2310,9 +2310,9 @@ the storage transaction completed. Source-editor text is outside this record.
 
 Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row with display-only Remote attribution before Colab, an original-author caption next to the title, and compact actions in More. The connection chip retains its existing owner; attribution never supplies connection state or authority.
 
-### Transient reply notifications (#2726)
+### Transient reply notifications (#2726, #2727)
 
-Chat and anchored Thread replies use the shared presentation-only FIFO queue.
+Chat, anchored Thread, Answer and Proposal replies use the shared presentation-only FIFO queue.
 The parent reads admitted page Ask finals from this device's ledger and new live
 comments in conversations where the authenticated Yours writer has participated.
 Names, author HTML, renderer messages and Send outcomes cannot admit a reply.
@@ -2320,7 +2320,9 @@ Initial history and the binding's first available current view establish baselin
 including when it follows a cached loader snapshot; repeated
 reads, edits, reconnects and remounts do not replay arrivals. Stable page/viewer,
 writer and record identities select events; no new signed record or storage field
-is introduced. Answer/Proposal destinations remain separate.
+is introduced. Answer destinations use the question layer's checked association;
+Proposal destinations use admitted proposal threads. Neither body labels nor
+proposer display metadata can establish participation or choose a destination.
 
 A destination already visible and following the history end suppresses its
 arrival. Trusted activation opens the existing Chat Drawer and reveals the exact
@@ -2333,11 +2335,19 @@ Before display or announcement,
 resume rechecks every retained/pending event against the latest admitted view and
 silently drops withdrawn destinations. Header counts remain the persistent record.
 
-Chat/Thread announce only on first display through the leaf's polite region.
-During staged adoption, the legacy announcer and modal relocation handle only
-Answer/Proposal, once each, with no event in both regions. #2727 replaces these
-remaining sources and removes the legacy owner. Presentation grants no routing,
-recipient, Send or storage authority.
+Answer/Proposal arrivals are suppressed only when their exact reply is in open,
+visible block history. Activation selects the answer tab or unfolds proposal
+history, scrolls and focuses the existing block; detached proposals use Comments.
+The pointer-visible arrival outline uses the focus token and clears on blur or
+the next pointer/key interaction. Activation never publishes a decision or Reopen,
+creates a composer, or changes Send/recipient admission. Busy clicks are retained
+behind the existing fence for at most five seconds; pending activation and reveal
+are cancelled on page change, withdrawal or timeout with no late visible effect.
+The destination remains accessible through normal Chat/Comments or inline blocks.
+All four tags announce once on first display through the leaf's existing polite
+region, deferred while suspended. There is no legacy announcer, relocation or
+second event observer. Presentation grants no routing, recipient, Send or storage
+authority.
 
 ### Page Chat (#1645)
 

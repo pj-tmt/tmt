@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BrowserNotification } from '@tmt/browser-ui/react';
 import type { ConversationReading, ReplyReveal } from './reply-notification-context.js';
-import { threadNotificationDestination } from './reply-notification-context.js';
+import {
+  answerNotificationDestination,
+  proposalNotificationDestination,
+  threadNotificationDestination,
+} from './reply-notification-context.js';
 import {
   projectReplyNotifications,
   type ReplyNotificationObserver,
@@ -10,10 +14,17 @@ import {
   type ReplyClassification,
 } from './reply-notifications.js';
 
-const destinationKey = (event: ReplyNotification) =>
-  event.destination === 'Chat'
-    ? 'Chat'
-    : threadNotificationDestination(event.thread!.writer, event.thread!.id);
+const destinationKey = (event: ReplyNotification) => {
+  if (event.destination === 'Chat') return 'Chat';
+  if (event.destination === 'Answer') return answerNotificationDestination(event.questionId!);
+  return (
+    event.destination === 'Proposal'
+      ? proposalNotificationDestination
+      : threadNotificationDestination
+  )(event.thread!.writer, event.thread!.id);
+};
+/** A click never becomes an unbounded future navigation after its source changes. */
+export const REPLY_REVEAL_WAIT_MS = 5000;
 
 export function useReplyNotifications({
   pageKey,
@@ -44,21 +55,85 @@ export function useReplyNotifications({
   const modals = useRef(new Set<string>());
   const readers = useRef(new Map<string, { destination: string; state: ConversationReading }>());
   const [, setReadingRevision] = useState(0);
-  const [reveal, setReveal] = useState<ReplyReveal>();
+  const [reveal, setReveal] = useState<{
+    pageKey: string;
+    event: ReplyNotification;
+    request: ReplyReveal;
+    expiresAt: number;
+  }>();
+  const [activation, setActivation] = useState<{ pageKey: string; event: ReplyNotification }>();
   const projection = useMemo(
     () =>
       projectReplyNotifications({ asks, threads, askUnavailable }, deviceId, { questionThreads }),
     [asks, threads, askUnavailable, deviceId, questionThreads],
   );
-  const latest = useRef({ projection, blocked, activate });
-  latest.current = { projection, blocked, activate };
+  const latest = useRef({ projection, blocked, activate, pageKey, reveal });
+  latest.current = { projection, blocked, activate, pageKey, reveal };
+  const matches = useCallback((event: ReplyNotification, key: string) => {
+    const current = latest.current.projection.candidates.get(event.id);
+    return (
+      latest.current.pageKey === key &&
+      !latest.current.blocked &&
+      !!current &&
+      current.revision === event.revision &&
+      destinationKey(current) === destinationKey(event)
+    );
+  }, []);
+  const current = useCallback(
+    (id: string) => {
+      const value = latest.current.reveal;
+      return (
+        !!value &&
+        performance.now() < value.expiresAt &&
+        value.request.id === id &&
+        matches(value.event, value.pageKey)
+      );
+    },
+    [matches],
+  );
+  useEffect(() => {
+    if (!activation) return;
+    let frame: number;
+    const deadline = performance.now() + REPLY_REVEAL_WAIT_MS;
+    const attempt = () => {
+      if (!matches(activation.event, activation.pageKey) || performance.now() >= deadline) {
+        setActivation(undefined);
+        return;
+      }
+      const event = latest.current.projection.candidates.get(activation.event.id)!;
+      if (!modals.current.size && latest.current.activate(event)) {
+        setReveal({
+          pageKey: activation.pageKey,
+          event,
+          expiresAt: performance.now() + REPLY_REVEAL_WAIT_MS,
+          request: { id: event.id, destination: destinationKey(event), recordKey: event.recordKey },
+        });
+        setActivation(undefined);
+      } else frame = requestAnimationFrame(attempt);
+    };
+    frame = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(frame);
+  }, [activation, matches]);
+  useEffect(() => {
+    if (!reveal) return;
+    const timeout = setTimeout(
+      () => setReveal((value) => (value === reveal ? undefined : value)),
+      REPLY_REVEAL_WAIT_MS,
+    );
+    return () => clearTimeout(timeout);
+  }, [reveal]);
+  useEffect(() => {
+    if (reveal && !matches(reveal.event, reveal.pageKey)) setReveal(undefined);
+  }, [projection, blocked, pageKey, reveal, matches]);
   const alreadyReading = useCallback(
     (event: ReplyNotification) =>
       [...readers.current.values()].some(
         (reader) =>
           reader.destination === destinationKey(event) &&
           reader.state.visible &&
-          reader.state.atEnd,
+          (event.destination === 'Answer' || event.destination === 'Proposal'
+            ? reader.state.recordKeys?.includes(event.recordKey)
+            : reader.state.atEnd),
       ),
     [],
   );
@@ -74,7 +149,8 @@ export function useReplyNotifications({
         state &&
         previous?.destination === destination &&
         previous.state.visible === state.visible &&
-        previous.state.atEnd === state.atEnd
+        previous.state.atEnd === state.atEnd &&
+        JSON.stringify(previous.state.recordKeys) === JSON.stringify(state.recordKeys)
       )
         return;
       if (!state && !previous) return;
@@ -85,7 +161,7 @@ export function useReplyNotifications({
     [],
   );
   const revealed = useCallback(
-    (id: string) => setReveal((current) => (current?.id === id ? undefined : current)),
+    (id: string) => setReveal((current) => (current?.request.id === id ? undefined : current)),
     [],
   );
   useEffect(() => {
@@ -101,18 +177,11 @@ export function useReplyNotifications({
     const events = arrivals.map((event): BrowserNotification => ({
       ...event,
       onActivate: () => {
-        const current = latest.current.projection.candidates.get(event.id);
-        if (!current || latest.current.blocked || current.revision !== event.revision) return;
-        if (latest.current.activate(current))
-          setReveal({
-            id: event.id,
-            destination: destinationKey(current),
-            recordKey: current.recordKey,
-          });
+        if (matches(event, pageKey)) setActivation({ pageKey, event });
       },
     }));
     setScope((current) => (current.observer === scope.observer ? { ...current, events } : current));
-  }, [scope, asks, threads, askUnavailable, projection, blocked, alreadyReading]);
+  }, [scope, asks, threads, askUnavailable, projection, blocked, alreadyReading, matches, pageKey]);
   const isEligible = useCallback(
     (event: BrowserNotification) => {
       const current = latest.current.projection.candidates.get(event.id);
@@ -131,7 +200,14 @@ export function useReplyNotifications({
     // when no new reply arrived. The leaf rechecks retained queue entries too.
     events: scope.events.filter(isEligible),
     modalCount,
+    activating: !!activation && matches(activation.event, activation.pageKey),
     isEligible,
-    context: { modal, reading, reveal, revealed },
+    context: {
+      modal,
+      reading,
+      reveal: reveal && current(reveal.request.id) ? reveal.request : undefined,
+      revealed,
+      current,
+    },
   };
 }

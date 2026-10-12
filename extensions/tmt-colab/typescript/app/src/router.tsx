@@ -30,9 +30,8 @@ import { useProposalLayer } from './proposal-layer.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
-import { ReplyAnnouncer } from './reply-announcer.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
-import { legacyReplyAnnouncements, ReplyNotificationObserver } from './reply-notifications.js';
+import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
@@ -1188,12 +1187,28 @@ function Page() {
     classification: notificationClassification,
     blocked: archived || !!endedError,
     activate: (event) => {
-      if (annotationBusy.current || statusBusy.current || chatBusy.current) return false;
+      if (
+        panel ||
+        annotationRef.current?.thread ||
+        annotationBusy.current ||
+        statusBusy.current ||
+        chatBusy.current
+      )
+        return false;
       if (event.destination === 'Chat') {
         if (annotationRef.current) closeRef.current(false);
         setChatOpened(true);
         setChatActivation(undefined);
         setPanel('chat');
+      } else if (event.destination === 'Answer') {
+        return questionLayer.activateNotification(event);
+      } else if (event.destination === 'Proposal' && event.thread) {
+        const target = proposalLayer.activateNotification(event.thread);
+        if (target === 'comments') {
+          setActiveThread(`${event.thread.writer}:${event.thread.id}`);
+          setPanel('comments');
+        }
+        return !!target;
       } else if (event.thread) openAnchoredThread(event.thread);
       else return false;
       return true;
@@ -1205,14 +1220,13 @@ function Page() {
         pageKey={notificationScope}
         events={notifications.events}
         suspended={
-          panel !== null || !!annotation?.thread || notifications.modalCount > 0 || recoveryRequired
+          notifications.activating ||
+          panel !== null ||
+          !!annotation?.thread ||
+          notifications.modalCount > 0 ||
+          recoveryRequired
         }
         isEligible={notifications.isEligible}
-      />
-      <ReplyAnnouncer
-        key={notificationScope}
-        initialRecords={snapshot.asks}
-        records={legacyReplyAnnouncements(view, notificationClassification)}
       />
       <ColabHeader
         headerRef={toolbar}
@@ -1647,7 +1661,19 @@ function Page() {
   ]);
   return (
     <CreatorDefaultProvider key={creatorScope} scope={creatorScope}>
-      <ReplyNotificationContext value={notifications.context}>
+      <ReplyNotificationContext
+        value={{
+          ...notifications.context,
+          blockSurface:
+            notifications.modalCount || annotation?.thread || recoveryRequired
+              ? 'covered'
+              : panel === 'comments'
+                ? 'comments'
+                : panel
+                  ? 'covered'
+                  : 'page',
+        }}
+      >
         <AgentPresentation value={agents}>{content}</AgentPresentation>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>

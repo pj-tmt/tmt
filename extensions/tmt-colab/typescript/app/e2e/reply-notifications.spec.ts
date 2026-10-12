@@ -395,67 +395,49 @@ test('typing focus and caret survive arrivals; hidden-document resume announces 
   );
 });
 
-test('staged Answer and Proposal replies remain polite-only once, disjoint from Chat/Thread', async ({
+test('Answer and Proposal share the sole polite queue and announce once after modal suspension', async ({
   page,
 }) => {
-  await mount(page);
+  await page.goto('/test/reply-notifications.html');
+  await run(page, 'mountBlocks');
+  await expect(page.locator('.reply-announcement')).toHaveCount(0);
+  await expect(live(page)).toHaveCount(1);
+  await expect(live(page)).toHaveAttribute('aria-live', 'polite');
+  await page.evaluate(() => {
+    const events: string[] = [];
+    Object.assign(window, { blockAnnouncements: events });
+    new MutationObserver((changes) => {
+      if (changes.length) {
+        const value = document.querySelector('.tmt-ui-notification-status')?.textContent;
+        if (value) events.push(value);
+      }
+    }).observe(document.querySelector('.tmt-ui-notification-status')!, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  });
+  await open(page, 'Agents');
+  await run(page, 'arrive', { destination: 'Answer', body: 'Answer notification one' });
   await run(page, 'arrive', {
-    destination: 'Chat',
-    body: 'Chat belongs to the notification region',
+    destination: 'Proposal',
+    human: true,
+    body: 'Proposal notification two',
   });
-  await expect(live(page)).toContainText('Chat belongs to the notification region');
-  await expect(page.locator('.reply-announcement')).toHaveText('');
-  const other = (method: string, argument?: unknown) =>
-    page.evaluate(async ({ path, method, argument }) => (await import(path))[method](argument), {
-      path: pageFixture,
-      method,
-      argument,
-    });
-  await other('question', { kind: 'short' });
-  const question = page.locator('.question-card');
-  await expect(question.getByLabel('Your answer', { exact: true })).toBeVisible();
-  await question.getByLabel('Your answer', { exact: true }).fill('My recorded answer');
-  await question.getByRole('button', { name: /^Send answer/ }).click();
-  await expect(question.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
-  await other('questionAsk', 'replied');
-  await expect(question.getByTestId('ask-reply')).toHaveText('I read your answer in this thread.');
-  await expect(page.locator('.reply-announcement')).toHaveText('Deterministic agent replied.');
-  await expect(live(page)).not.toContainText('I read your answer');
-  await expect(cards(page)).toHaveCount(0);
-  const legacy = await page.locator('.reply-announcement').evaluate((node) => {
-    let changes = 0;
-    const observer = new MutationObserver(() => {
-      if (node.textContent) changes++;
-    });
-    observer.observe(node, { subtree: true, characterData: true, childList: true });
-    Object.assign(window, { legacyChanges: () => changes });
-    return node.textContent;
+  await expect(live(page)).toHaveText('');
+  await close(page, 'Agents');
+  await expect(cards(page)).toHaveCount(2);
+  await expect(live(page)).toContainText('Proposal notification two');
+  await run(page, 'repeat');
+  const events = await page.evaluate(
+    () => (window as unknown as { blockAnnouncements: string[] }).blockAnnouncements,
+  );
+  expect(events.filter((value) => value.includes('Answer notification one'))).toHaveLength(1);
+  expect(events.filter((value) => value.includes('Proposal notification two'))).toHaveLength(1);
+  await test.info().attach('block-live-region-events.json', {
+    body: JSON.stringify(events),
+    contentType: 'application/json',
   });
-  await other('questionAsk', 'replied');
-  await expect(page.locator('.reply-announcement')).toHaveText(legacy!);
-  expect(
-    await page.evaluate(() => (window as unknown as { legacyChanges(): number }).legacyChanges()),
-  ).toBe(0);
-  await other('proposal', 'inline');
-  // The normal proposal input records the follow-up before its admitted reply.
-  const proposal = page.locator('.proposal-card');
-  await expect(proposal).toBeVisible();
-  await proposal.getByRole('button', { name: 'Follow up', exact: true }).click();
-  const input = proposal.getByRole('combobox', { name: 'Message', exact: true });
-  // Keep the existing admitted recipient chip; replacing the field would create only a comment.
-  await input.press('End');
-  await input.pressSequentially('A proposal follow-up');
-  await proposal.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect.poll(async () => (await other('proof')).sends.length).toBe(2);
-  await other('proposalAsk', 'replied');
-  await expect
-    .poll(() =>
-      page.evaluate(() => (window as unknown as { legacyChanges(): number }).legacyChanges()),
-    )
-    .toBe(1);
-  await expect(page.locator('.reply-announcement')).toHaveText('Deterministic agent replied.');
-  await expect(live(page)).not.toContainText('The supporting notes');
-  await expect(cards(page)).toHaveCount(0);
 });
 
 for (const width of [1440, 390]) {
@@ -528,7 +510,7 @@ for (const [width, theme] of [
     }
     await expect(cards(page)).toHaveCount(3);
     await expect(page.locator('.tmt-ui-notification-waiting')).toHaveText('2 more waiting');
-    await expect(page.locator('.reply-announcement')).toHaveText('');
+    await expect(page.locator('.reply-announcement')).toHaveCount(0);
     const count = await page.locator('.page-header-count').first().textContent();
     await page.screenshot({ path: capturePath(`replies-queue-${width}-${theme}.png`) });
     await cards(page)
@@ -561,3 +543,131 @@ for (const [width, theme] of [
     await expect(live(page)).not.toContainText('Chat reply 202');
   });
 }
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+  for (const destination of ['Answer', 'Proposal'] as const) {
+    test(`${destination} follow-up opens its block with a pointer-visible arrival cue ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto('/test/reply-notifications.html');
+      await run(page, 'mountBlocks');
+      const block = page.locator(
+        destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
+      );
+      await expect(block).toHaveCount(1);
+      await expect
+        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .toBeGreaterThan(900);
+      await run(page, 'arrive', { destination, body: `${destination} exact follow-up` });
+      await expect(cards(page)).toHaveCount(1);
+      await expect(cards(page)).toContainText(`${destination} exact follow-up`);
+      await cards(page)
+        .getByRole('button', { name: `Open ${destination}`, exact: true })
+        .click();
+      await expect(block).toBeFocused();
+      await expect(block).toHaveAttribute('data-arrived', '');
+      await expect(block).toContainText(`${destination} exact follow-up`);
+      const geometry = await block.evaluate((node) => {
+        const css = getComputedStyle(node);
+        const token = document.createElement('span');
+        token.style.color = 'var(--tmt-ui-color-focus)';
+        node.append(token);
+        const color = getComputedStyle(token).color;
+        token.remove();
+        return {
+          top: node.getBoundingClientRect().top,
+          header: document.querySelector('.tmt-ui-header')!.getBoundingClientRect().bottom,
+          width: css.outlineWidth,
+          style: css.outlineStyle,
+          color: css.outlineColor,
+          token: color,
+        };
+      });
+      expect(geometry.top).toBeGreaterThanOrEqual(geometry.header);
+      expect(geometry.top).toBeLessThan(900);
+      expect(geometry.width).toBe('2px');
+      expect(geometry.style).toBe('solid');
+      expect(geometry.color).toBe(geometry.token);
+      await page.screenshot({
+        path: capturePath(
+          `notification-${destination.toLowerCase()}-arrival-${width}-${theme}.png`,
+        ),
+      });
+      await page.keyboard.press('Tab');
+      await expect(block).not.toHaveAttribute('data-arrived', '');
+      await run(page, 'repeat');
+      await expect(cards(page)).toHaveCount(0);
+      expect(
+        (await page.evaluate(async (path) => (await import(path)).proof(), pageFixture)).sends,
+      ).toEqual([]);
+    });
+  }
+}
+
+test('visible open Answer and Proposal histories suppress arrivals; folded and detached proposals remain reachable', async ({
+  page,
+}) => {
+  await page.goto('/test/reply-notifications.html');
+  await run(page, 'mountBlocks');
+  const answer = page.locator('.question-card');
+  await answer.scrollIntoViewIfNeeded();
+  await run(page, 'arrive', {
+    destination: 'Answer',
+    human: true,
+    body: 'Visible answer follow-up',
+  });
+  await expect(answer).toContainText('Visible answer follow-up');
+  await expect(cards(page)).toHaveCount(0);
+  const proposal = page.locator('.proposal-inline .proposal-card');
+  await proposal.scrollIntoViewIfNeeded();
+  await run(page, 'arrive', {
+    destination: 'Proposal',
+    human: true,
+    body: 'Visible proposal follow-up',
+  });
+  await expect(proposal).toContainText('Visible proposal follow-up');
+  await expect(cards(page)).toHaveCount(0);
+  await run(page, 'mountBlocks', { detached: true, folded: true });
+  await run(page, 'arrive', {
+    destination: 'Proposal',
+    human: true,
+    body: 'Detached folded follow-up',
+  });
+  await expect(cards(page)).toHaveCount(1);
+  await cards(page).getByRole('button', { name: 'Open Proposal', exact: true }).click();
+  const fallback = page.locator('dialog:modal .proposal-card');
+  await expect(fallback).toBeFocused();
+  await expect(fallback).toHaveAttribute('data-arrived', '');
+  await expect(fallback).toContainText('Detached folded follow-up');
+});
+
+test('Answer activation selects its inactive tab; a covering modal holds the arrival instead of suppressing it', async ({
+  page,
+}) => {
+  await page.goto('/test/reply-notifications.html');
+  await run(page, 'mountBlocks', { grouped: true });
+  const block = page.getByRole('region', { name: 'Question for you?', exact: true });
+  await expect(block).toBeHidden();
+  await run(page, 'arrive', {
+    destination: 'Answer',
+    human: true,
+    body: 'Follow-up for the inactive question',
+  });
+  await expect(cards(page)).toHaveCount(1);
+  await cards(page).getByRole('button', { name: 'Open Answer', exact: true }).click();
+  await expect(block).toBeFocused();
+  await expect(block).toHaveAttribute('data-arrived', '');
+  await expect(block).toContainText('Follow-up for the inactive question');
+  await open(page, 'Agents');
+  await run(page, 'arrive', { destination: 'Answer', human: true, body: 'Held under the modal' });
+  await expect(cards(page)).toHaveCount(0);
+  await close(page, 'Agents');
+  // The block is visible after close, so it has now become read; never replay it.
+  await expect(block).toContainText('Held under the modal');
+  await expect(cards(page)).toHaveCount(0);
+});

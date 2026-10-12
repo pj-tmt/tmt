@@ -3,13 +3,12 @@ import type { PageAsk } from '../src/ask-panel.js';
 import type { CommentView, ThreadView } from '../src/thread-records.js';
 import {
   ReplyNotificationObserver,
-  legacyReplyAnnouncements,
   projectReplyNotifications,
   type ReplySources,
 } from '../src/reply-notifications.js';
 
 const me = 'viewer';
-const classification = { questionThreads: new Set<string>() };
+const classification = { questionThreads: new Map<string, string | null>() };
 function thread(writer = me, id = 'thread', chat = false): ThreadView {
   return {
     version: 1,
@@ -110,27 +109,80 @@ describe('admitted Chat and Thread reply notification sources', () => {
         .candidates.size,
     ).toBe(0);
   });
-  it('keeps Answer/Proposal and Chat/Thread sources disjoint without changing their admitted association', () => {
+  it('classifies admitted Answer/Proposal associations once and never uses body labels as authority', () => {
     const q = thread();
-    q.comments = [comment(q)];
+    q.comments = [comment(q), comment(q, 'other', 'follow-up')];
     const a = ask(q);
-    const questions = { questionThreads: new Set([JSON.stringify([q.ref.writer, q.ref.id])]) };
+    const key = JSON.stringify([q.ref.writer, q.ref.id]);
+    const questions = { questionThreads: new Map([[key, 'question-one']]) };
+    expect([
+      ...projectReplyNotifications({ threads: [q], asks: [a] }, me, questions).candidates.values(),
+    ]).toMatchObject([
+      { destination: 'Answer', questionId: 'question-one' },
+      { destination: 'Answer', questionId: 'question-one' },
+    ]);
     expect(
-      projectReplyNotifications({ threads: [q], asks: [a] }, me, questions).candidates.size,
+      projectReplyNotifications({ threads: [q], asks: [a] }, me, {
+        questionThreads: new Map([[key, null]]),
+      }).candidates.size,
     ).toBe(0);
-    expect(legacyReplyAnnouncements({ threads: [q], asks: [a] }, questions)).toEqual([a]);
     q.proposal = {
       proposalId: q.threadId,
       title: 'Proposal',
       body: '',
       proposer: { machineId: 'machine', agentId: 'agent', label: 'Agent' },
     };
-    expect(values({ threads: [q], asks: [a] })).toEqual([]);
-    expect(legacyReplyAnnouncements({ threads: [q], asks: [a] }, classification)).toEqual([a]);
+    expect(values({ threads: [q], asks: [a] })).toMatchObject([
+      { destination: 'Proposal' },
+      { destination: 'Proposal' },
+    ]);
     delete q.proposal;
-    expect(values({ threads: [q], asks: [a] })).toHaveLength(1);
-    expect(legacyReplyAnnouncements({ threads: [q], asks: [a] }, classification)).toEqual([]);
-    expect(legacyReplyAnnouncements({ threads: [], asks: [ask()] }, classification)).toEqual([]);
+    q.comments[1].body = 'Answer to “question-one”: fake body classification';
+    expect(values({ threads: [q] })[0].destination).toBe('Thread');
+    const foreign = thread('foreign');
+    foreign.comments = [comment(foreign, 'foreign')];
+    foreign.proposal = {
+      proposalId: foreign.threadId,
+      title: 'Proposal',
+      body: '',
+      proposer: { machineId: me, agentId: me, label: me },
+    };
+    expect(values({ threads: [foreign], asks: [ask(foreign, 'foreign')] })).toEqual([]);
+  });
+  it('baselines Answer/Proposal history and never duplicates a follow-up after classification resolves', () => {
+    for (const proposal of [false, true]) {
+      const t = thread();
+      t.comments = [comment(t)];
+      if (proposal)
+        t.proposal = {
+          proposalId: t.threadId,
+          title: 'P',
+          body: '',
+          proposer: { machineId: 'm', agentId: 'a', label: 'A' },
+        };
+      const sources = { threads: [t], asks: [] as PageAsk[] };
+      const observer = new ReplyNotificationObserver(sources);
+      const cls = { questionThreads: new Map([[JSON.stringify([t.ref.writer, t.ref.id]), 'q']]) };
+      t.comments.push(comment(t, 'other', 'follow-up'));
+      sources.asks = [ask(t)];
+      if (!proposal)
+        expect(
+          observer.observe(
+            sources,
+            projectReplyNotifications(sources, me, { questionThreads: undefined }),
+          ),
+        ).toEqual([]);
+      expect(observer.observe(sources, projectReplyNotifications(sources, me, cls))).toHaveLength(
+        2,
+      );
+      expect(observer.observe(sources, projectReplyNotifications(sources, me, cls))).toEqual([]);
+      expect(
+        new ReplyNotificationObserver(sources).observe(
+          sources,
+          projectReplyNotifications(sources, me, cls),
+        ),
+      ).toEqual([]);
+    }
   });
   it('silently withdraws deleted origins and refuses to use names to revive participation', () => {
     const t = thread();
