@@ -27,6 +27,8 @@ import {
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
+import { rememberPages } from './quick-switcher-source.js';
+import { noteOpened } from './recently-opened.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
@@ -461,7 +463,12 @@ const home = createRoute({
   getParentRoute: () => root,
   path: '/',
   validateSearch: validateHomeSearch,
-  loader: ({ context }) => context.transport.spaceHome(),
+  loader: async ({ context }) => {
+    const home = await context.transport.spaceHome();
+    // A quick switcher opened later shows this list at once and refreshes it.
+    rememberPages(context.transport, context.space, home.pages);
+    return home;
+  },
   component: Home,
 });
 const page = createRoute({
@@ -665,6 +672,10 @@ function Page() {
       document.title = text.product;
     };
   }, [view.title, snapshot.title]);
+  // This device remembers which pages it opened, for a quick switcher to offer first; local only.
+  useEffect(() => {
+    void noteOpened(space, snapshot.id);
+  }, [space, snapshot.id]);
   const latest = useRef(view),
     dirty = useRef(false),
     base = useRef(snapshot.source);
