@@ -4088,6 +4088,23 @@ fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool) {
 #[test]
 fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future_store() {
     let pilot = Pilot::new(None);
+    // Native workspace CI does not build or embed the browser app. This fixture
+    // supplies its own admitted inventory rather than relying on checkout output.
+    let app = pilot.root.join("app");
+    fs::create_dir_all(app.join("assets")).unwrap();
+    for name in ["index.html", "renderer.html", "reader.html"] {
+        fs::write(app.join(name), b"<html></html>").unwrap();
+    }
+    fs::write(app.join("assets/app.js"), b"// fixture").unwrap();
+    fs::write(app.join("assets/app.css"), b"body {}").unwrap();
+    let args = [
+        "serve",
+        "--upgrade-check",
+        "--json",
+        "--no-open",
+        "--app-dir",
+        app.to_str().unwrap(),
+    ];
     seed_page(&pilot);
     let db = pilot.root.join("selected/colab/space.db");
     let connection = rusqlite::Connection::open(&db).unwrap();
@@ -4096,7 +4113,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
         .unwrap();
     drop(connection);
     let before = fs::read(&db).unwrap();
-    let prepared = pilot.call(&["serve", "--upgrade-check", "--json", "--no-open"]);
+    let prepared = pilot.call(&args);
     assert_eq!(prepared["state"], "prepared");
     assert_eq!(prepared["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(prepared["schema"], tmt_colab::store::SCHEMA_VERSION);
@@ -4107,11 +4124,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     connection.pragma_update(None, "user_version", 99).unwrap();
     drop(connection);
     let before = fs::read(&db).unwrap();
-    failure(
-        &pilot,
-        &["serve", "--upgrade-check", "--json", "--no-open"],
-        "COLAB_STORE_NEWER",
-    );
+    failure(&pilot, &args, "COLAB_STORE_NEWER");
     assert_eq!(fs::read(&db).unwrap(), before);
     assert!(!pilot.root.join("selected/colab/door.sock").exists());
 }
