@@ -46,9 +46,16 @@ pub fn line_count(source: &str) -> usize {
     source.bytes().filter(|b| *b == b'\n').count() + usize::from(!source.ends_with('\n'))
 }
 
-/// The 1-based line holding the byte `offset` (`offset` <= the source's length).
+/// The 1-based line holding the byte `offset`. Any byte offset names a line, inside a multi-byte
+/// character or at the source's end included (an LF is one byte and never part of a longer
+/// character); an offset past the end counts as the end.
 pub fn line_number(source: &str, offset: usize) -> usize {
-    source[..offset].bytes().filter(|b| *b == b'\n').count() + 1
+    let bytes = source.as_bytes();
+    bytes[..offset.min(bytes.len())]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1
 }
 
 #[cfg(test)]
@@ -110,5 +117,28 @@ mod tests {
         assert_eq!(line_number("a\nb\nc", 0), 1);
         assert_eq!(line_number("a\nb\nc", 2), 2);
         assert_eq!(line_number("a\nb\nc", 5), 3);
+    }
+
+    #[test]
+    fn a_line_number_is_defined_for_every_byte_offset_even_inside_a_character() {
+        // "é" is two bytes, "🐈" four; the LF after each ends line 1 and 2.
+        let source = "é🐈\n🐈é\nx";
+        let first = source.find('\n').unwrap();
+        for offset in 0..=first {
+            assert_eq!(line_number(source, offset), 1, "offset {offset}");
+        }
+        assert_eq!(line_number(source, first + 1), 2);
+        let second = source.rfind('\n').unwrap();
+        for offset in first + 1..=second {
+            assert_eq!(line_number(source, offset), 2, "offset {offset}");
+        }
+        assert_eq!(line_number(source, second + 1), 3);
+        assert_eq!(line_number(source, source.len()), 3);
+        // The end of a match that ends a line is that line's offset one past its last byte.
+        let end = source.find("🐈é").unwrap() + "🐈é".len();
+        assert_eq!(line_number(source, end), 2);
+        // Past the end counts as the end, and an empty source is line 1.
+        assert_eq!(line_number(source, usize::MAX), 3);
+        assert_eq!(line_number("", 0), 1);
     }
 }
