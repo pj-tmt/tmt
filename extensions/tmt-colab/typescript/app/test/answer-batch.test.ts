@@ -454,8 +454,14 @@ it('a batch Ask belongs to every question thread it covers, and its reply to the
   expect(conversationAsks(list[0], asks)).toEqual([batch]);
   expect(conversationAsks(list[1], asks)).toEqual([batch, single]);
   expect(conversationAsks(list[2], asks)).toEqual([batch]);
-  expect(asksAbout(batch, list[2], id(3))).toBe(true);
-  expect(asksAbout(single, list[0], id(12))).toBe(false);
+  expect(asksAbout(batch, list[2], list[2].comments[0])).toBe(true);
+  expect(asksAbout(single, list[0], list[1].comments[0])).toBe(false);
+  // An Ask is only about comments its own writer wrote: another writer's Ask naming the same
+  // comment IDs is no association, for a batch or a single comment.
+  const foreign = { ...batch, writer: OTHER };
+  expect(asksAbout(foreign, list[2], list[2].comments[0])).toBe(false);
+  expect(conversationAsks(list[0], [foreign, { ...single, writer: OTHER }])).toEqual([]);
+  expect(conversationAsks(list[1], [foreign, { ...single, writer: OTHER }])).toEqual([]);
   // The earlier conversation a thread captures carries only the replies it is the canonical thread of.
   expect(captureConversation(list[0], asks).replies).toHaveLength(1);
   expect(captureConversation(list[1], asks).replies).toEqual([]);

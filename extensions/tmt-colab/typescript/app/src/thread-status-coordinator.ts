@@ -45,7 +45,7 @@ export function freezeThreadRecipients(
   for (const comment of thread.comments.filter((value) => !value.deleted)) {
     const pinned: typeof current = new Map();
     for (const ask of asks) {
-      if (asksAbout(ask, thread, comment.messageId)) put(pinned, ask.agentName, ask);
+      if (asksAbout(ask, thread, comment)) put(pinned, ask.agentName, ask);
     }
     const names = [...new Set([...current.keys(), ...pinned.keys()])]
       .filter(Boolean)

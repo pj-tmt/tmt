@@ -625,12 +625,17 @@ export function conversationText(
     : body;
 }
 
-/** Whether `ask` is about the comment `messageId` of `thread`. An Ask is a thread's own when it names
- * that thread; a batch Ask (several answer comments, #2875) is also about each comment it lists, in
- * whichever of the group's question threads that comment sits. */
-export function asksAbout(ask: PageAsk, thread: Pick<ThreadView, 'threadId'>, messageId: string) {
+/** Whether `ask` is about `comment` of `thread`: its writer wrote the comment, and the Ask lists it. An
+ * Ask is a thread's own when it names that thread; a batch Ask (several answer comments, #2875) is
+ * also about each comment it lists, in whichever of the group's question threads that comment sits. */
+export function asksAbout(
+  ask: PageAsk,
+  thread: Pick<ThreadView, 'threadId'>,
+  comment: Pick<CommentView, 'messageId' | 'ref'>,
+) {
   return (
-    !!ask.messageIds?.includes(messageId) &&
+    ask.writer === comment.ref.writer &&
+    !!ask.messageIds?.includes(comment.messageId) &&
     (ask.thread === thread.threadId || ask.messageIds.length > 1)
   );
 }
@@ -645,9 +650,7 @@ export function conversationAsks(
 ) {
   if (!thread) return [];
   const comments = thread.comments.filter((comment) => includeDeleted || !comment.deleted);
-  return asks.filter((ask) =>
-    comments.some((comment) => asksAbout(ask, thread, comment.messageId)),
-  );
+  return asks.filter((ask) => comments.some((comment) => asksAbout(ask, thread, comment)));
 }
 
 export function captureConversation(
