@@ -1,4 +1,948 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/remote-state.ts
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "not checked",
+		word: "not checked",
+		mark: "",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, tone, action] = state === "Connected" ? [
+		"Connected",
+		"connected",
+		"●",
+		"working",
+		""
+	] : state === "Checking" ? [
+		"Checking",
+		"connecting",
+		"◌",
+		"waiting",
+		""
+	] : state === "Access ended" ? [
+		"Access ended",
+		"access ended",
+		"✗",
+		"blocked",
+		"Pair again"
+	] : state === "Different machine" ? [
+		"Different machine",
+		"different machine",
+		"△",
+		"waiting",
+		"Pair again"
+	] : state === "Not paired" || state === "Pairing unreadable" ? [
+		state,
+		"not paired",
+		"○",
+		"waiting",
+		"Pair again"
+	] : [
+		"Unconfirmed",
+		"unreachable",
+		"○",
+		"blocked",
+		"Retry"
+	];
+	return {
+		text: `${mark} ${text}`,
+		word,
+		mark,
+		tone,
+		action
+	};
+}
+//#endregion
+//#region src/remote-menu.ts
+function remoteMenu(actions) {
+	const host = document.getElementById("remote-switcher");
+	if (!host) return () => {};
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.className = "tmt-ui-menu-trigger remote-chip";
+	trigger.setAttribute("aria-haspopup", "menu");
+	trigger.setAttribute("aria-controls", "remote-menu");
+	trigger.setAttribute("aria-expanded", "false");
+	const surface = document.createElement("div");
+	surface.id = "remote-menu";
+	surface.popover = "auto";
+	surface.className = "tmt-ui-menu-surface remote-menu";
+	surface.setAttribute("role", "menu");
+	surface.setAttribute("aria-label", "Remotes");
+	const status = document.createElement("p");
+	status.className = "tmt-ui-menu-reason";
+	host.append(trigger, surface);
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	let state = "Checking";
+	let address = "";
+	let search = "";
+	let searchAt = 0;
+	const buttons = /* @__PURE__ */ new Map();
+	const current = (entry) => entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", location.href).href);
+	const selected = () => catalog.entries.find(current);
+	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
+	function close(refocus = false) {
+		if (surface.matches(":popover-open")) surface.hidePopover();
+		if (refocus) trigger.focus({ preventScroll: true });
+	}
+	function item(key, label, run) {
+		let button = buttons.get(key);
+		if (!button) {
+			button = document.createElement("button");
+			button.type = "button";
+			button.className = "tmt-ui-menu-item";
+			button.tabIndex = -1;
+			button.dataset.key = key;
+			buttons.set(key, button);
+		}
+		button.onclick = () => {
+			close();
+			run();
+		};
+		button.dataset.search = label;
+		button.textContent = label;
+		return button;
+	}
+	function paint() {
+		const view = remoteState(state);
+		const alias = selected()?.name ?? "this machine";
+		trigger.textContent = `${view.mark} ${alias} ▾`;
+		trigger.title = `Remote: ${alias}, ${view.word}`;
+		trigger.setAttribute("aria-label", trigger.title);
+		trigger.dataset.tone = view.tone;
+		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const keep = /* @__PURE__ */ new Set();
+		const reason = actions.blocked();
+		const append = (key, label, run, checked, disabled) => {
+			const button = item(key, label, run);
+			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
+			button.setAttribute("role", "menuitemradio");
+			button.setAttribute("aria-checked", String(checked));
+			if (checked) {
+				const check = document.createElement("span");
+				check.textContent = "✓";
+				check.setAttribute("aria-hidden", "true");
+				button.append(check);
+			}
+			button.disabled = disabled;
+			button.dataset.tone = checked ? view.tone : "muted";
+			button.setAttribute("aria-describedby", "remote-menu-reason");
+			keep.add(key);
+			return button;
+		};
+		const rows = [];
+		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
+		for (const entry of entries) {
+			const here = current(entry), shown = remoteState(state, here);
+			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
+				if (!here) actions.open(entry);
+			}, here, here ? !!shown.action : !!reason));
+		}
+		if (view.action) {
+			const key = "recover";
+			keep.add(key);
+			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		for (const [key, label, run] of [[
+			"add",
+			"Add remote…",
+			actions.add
+		], [
+			"manage",
+			"Manage remotes",
+			actions.manage
+		]]) {
+			keep.add(key);
+			const button = item(key, label, run);
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		status.id = "remote-menu-reason";
+		status.textContent = reason || (view.action ? view.text : "");
+		status.hidden = !status.textContent;
+		for (const [key, button] of buttons) if (!keep.has(key)) {
+			button.remove();
+			buttons.delete(key);
+		}
+		rows.forEach((button, index) => {
+			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
+		});
+		surface.append(status);
+		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
+		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
+	}
+	function place() {
+		const anchor = trigger.getBoundingClientRect();
+		const box = surface.getBoundingClientRect();
+		const width = document.documentElement.clientWidth;
+		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
+		const below = innerHeight - anchor.bottom - 8;
+		const above = anchor.top - 8;
+		const up = box.height > below && above > below;
+		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
+	}
+	async function open(end = false) {
+		await actions.refresh();
+		if (document.activeElement !== trigger) return;
+		paint();
+		if (!surface.matches(":popover-open")) surface.showPopover();
+		place();
+		search = "";
+		(end ? enabled().at(-1) : enabled()[0])?.focus();
+	}
+	trigger.addEventListener("click", () => {
+		if (surface.matches(":popover-open")) close();
+		else open();
+	});
+	trigger.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			open(event.key === "ArrowUp");
+		}
+	});
+	surface.addEventListener("toggle", () => {
+		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
+		if (surface.matches(":popover-open")) place();
+	});
+	surface.addEventListener("focusin", () => {
+		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
+	});
+	surface.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			close(true);
+			return;
+		}
+		if (event.key === "Tab") {
+			close();
+			return;
+		}
+		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
+		let next;
+		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
+		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+		else if (event.key === "Home") next = items[0];
+		else if (event.key === "End") next = items.at(-1);
+		else if (event.key.length === 1 && event.key !== " ") {
+			const now = performance.now();
+			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
+			searchAt = now;
+			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
+		} else return;
+		event.preventDefault();
+		next?.focus();
+	});
+	window.addEventListener("resize", () => {
+		if (surface.matches(":popover-open")) place();
+	});
+	window.addEventListener("scroll", () => {
+		if (surface.matches(":popover-open")) place();
+	}, true);
+	return (next, observed, checkedAddress) => {
+		catalog = next;
+		state = observed;
+		address = checkedAddress;
+		paint();
+	};
+}
+new TextEncoder();
+function requireValue(condition, label) {
+	if (!condition) throw new Error(`Invalid ${label}.`);
+}
+var BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+/** Unpadded RFC 4648 base64url. */
+function base64url(bytes) {
+	requireValue(bytes instanceof Uint8Array, "base64url bytes");
+	let text = "";
+	for (let index = 0; index < bytes.length; index += 3) {
+		const chunk = bytes[index] << 16 | (bytes[index + 1] ?? 0) << 8 | (bytes[index + 2] ?? 0);
+		const symbols = Math.min(4, Math.ceil((bytes.length - index) * 8 / 6));
+		for (let symbol = 0; symbol < symbols; symbol++) text += BASE64URL[chunk >> 18 - 6 * symbol & 63];
+	}
+	return text;
+}
+//#endregion
+//#region src/operations.ts
+/** Known refusal; send/operation return pre-effect codes as state instead. */
+var RefusalError$1 = class extends Error {
+	code;
+	retryAfterMs;
+	limit;
+	settingsUrl;
+	scope;
+	constructor(code, retryAfterMs, limit, settingsUrl, scope) {
+		super(`Remote operation refused: ${code}.`);
+		this.code = code;
+		this.retryAfterMs = retryAfterMs;
+		this.limit = limit;
+		this.settingsUrl = settingsUrl;
+		this.scope = scope;
+		this.name = "RefusalError";
+	}
+};
+new TextEncoder();
+new TextDecoder("utf-8", { fatal: true });
+//#endregion
+//#region src/firebase-bootstrap.ts
+/** Hosted public configuration is a corruption-checked carrier, never an access grant. */
+var encoder$1 = new TextEncoder();
+var decoder$1 = new TextDecoder("utf-8", { fatal: true });
+var LINK_BYTES = 8192;
+function valid$1(condition) {
+	if (!condition) throw new RefusalError$1("REMOTE_INPUT_INVALID");
+}
+function object(value, keys) {
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	const record = value;
+	valid$1(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	return record;
+}
+function config(value) {
+	const r = object(value, [
+		"apiKey",
+		"appId",
+		"authDomain",
+		"projectId"
+	]);
+	valid$1(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$1(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$1(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	return Object.freeze(r);
+}
+function canonical(value) {
+	if (typeof value !== "object" || value === null) return JSON.stringify(value);
+	const r = value;
+	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical(r[k])}`).join(",")}}`;
+}
+async function verifyHostedLink(link, origin) {
+	try {
+		valid$1(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		const url = new URL(link);
+		valid$1(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		const fragment = url.hash.slice(1);
+		valid$1(/^[A-Za-z0-9_-]+$/.test(fragment));
+		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+		const text = decoder$1.decode(bytes);
+		const r = object(JSON.parse(text), [
+			"version",
+			"kind",
+			"publicWebConfig",
+			"checksum"
+		]);
+		valid$1(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		const publicConfig = config(r.publicWebConfig);
+		valid$1(origin === `https://${publicConfig.projectId}.web.app`);
+		const body = {
+			kind: r.kind,
+			publicWebConfig: publicConfig,
+			version: r.version
+		};
+		valid$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical(r));
+		valid$1(link === `${origin}/pair#${base64url(bytes)}`);
+		return publicConfig;
+	} catch {
+		throw new RefusalError$1("REMOTE_INPUT_INVALID");
+	}
+}
+//#endregion
+//#region src/browser-store.ts
+/** Private origin-local opener. Public registry APIs never expose the device record. */
+function request(open) {
+	return new Promise((resolve, reject) => {
+		const pending = open();
+		pending.onsuccess = () => resolve(pending.result);
+		pending.onerror = () => reject(pending.error ?? /* @__PURE__ */ new Error("Device storage failed."));
+	});
+}
+async function deviceObjects(mode) {
+	const opening = indexedDB.open("tmt-remote", 1);
+	opening.onupgradeneeded = () => opening.result.createObjectStore("device");
+	return (await request(() => opening)).transaction("device", mode).objectStore("device");
+}
+var REGISTRY = "remotes-v1";
+async function readRegistry() {
+	const objects = await deviceObjects("readonly");
+	try {
+		return await request(() => objects.get(REGISTRY));
+	} finally {
+		objects.transaction.db.close();
+	}
+}
+/** Compare and replace one public key atomically; no retry, clear or device access. */
+async function writeRegistry(expected, text) {
+	const objects = await deviceObjects("readwrite");
+	const transaction = objects.transaction;
+	await new Promise((resolve, reject) => {
+		let conflict = false;
+		transaction.oncomplete = () => resolve();
+		transaction.onabort = transaction.onerror = () => reject(/* @__PURE__ */ new Error(conflict ? "Registry changed" : "Registry unavailable"));
+		const read = objects.get(REGISTRY);
+		read.onsuccess = () => {
+			if (read.result !== expected) {
+				conflict = true;
+				transaction.abort();
+			} else objects.put(text, REGISTRY);
+		};
+	}).finally(() => transaction.db.close());
+}
+//#endregion
+//#region src/remote-registry.ts
+/** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
+var RemoteRegistryError = class extends Error {
+	code;
+	constructor(code, message) {
+		super(message);
+		this.code = code;
+	}
+};
+var LIMIT = 8192;
+var encoder = new TextEncoder();
+var decoder = new TextDecoder("utf-8", { fatal: true });
+var empty = {
+	version: 1,
+	entries: []
+};
+function valid(condition, message = "The remote name or link is invalid") {
+	if (!condition) throw new RemoteRegistryError("REMOTE_SELECTOR_INVALID", message);
+}
+function fields(value, keys) {
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	const object = value;
+	valid(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
+	return object;
+}
+function name(value) {
+	valid(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
+}
+function target(entry) {
+	return new URL(entry.url).href;
+}
+async function reference(alias, address) {
+	name(alias);
+	valid(typeof address === "string" && address.length <= LIMIT);
+	let url;
+	try {
+		url = new URL(address);
+	} catch {
+		valid(false);
+	}
+	if (url.protocol === "https:" && url.hostname.endsWith(".web.app") && url.pathname === "/pair") return {
+		name: alias,
+		kind: "firestore",
+		url: address,
+		project: (await verifyHostedLink(address, url.origin).catch(() => {
+			valid(false);
+		})).projectId
+	};
+	valid(address.length <= 2048 && /^https?:\/\/[A-Za-z0-9.:-]+\/[A-Za-z0-9/_-]*$/.test(address) && address.endsWith("/") && !url.search && !url.hash && !url.username && !url.password);
+	return {
+		name: alias,
+		kind: "local",
+		url: address,
+		project: null
+	};
+}
+async function parseCatalog(value) {
+	const row = fields(value, ["version", "entries"]);
+	valid(row.version === 1 && Array.isArray(row.entries));
+	valid(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
+	const entries = [];
+	for (const raw of row.entries) {
+		const r = fields(raw, [
+			"name",
+			"kind",
+			"url",
+			"project"
+		]);
+		const entry = await reference(r.name, r.url);
+		valid(entry.kind === r.kind && entry.project === r.project);
+		valid(!entries.some((old) => old.name === entry.name || target(old) === target(entry)));
+		entries.push(Object.freeze(entry));
+	}
+	const catalog = {
+		version: 1,
+		entries: Object.freeze(entries)
+	};
+	valid(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
+	return Object.freeze(catalog);
+}
+function json(catalog) {
+	return JSON.stringify(catalog);
+}
+function decode(value) {
+	valid(/^[A-Za-z0-9_-]+$/.test(value));
+	try {
+		const bytes = Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+		valid(base64url(bytes) === value);
+		return JSON.parse(decoder.decode(bytes));
+	} catch {
+		valid(false);
+	}
+}
+function hint(value) {
+	const r = fields(value, ["spaceId", "pageId"]);
+	valid(typeof r.spaceId === "string" && /^[a-z2-7]{32}$/.test(r.spaceId));
+	valid(typeof r.pageId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(r.pageId));
+	return {
+		spaceId: r.spaceId,
+		pageId: r.pageId
+	};
+}
+async function parseHandoff(fragment) {
+	valid(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
+	const params = new URLSearchParams(fragment.slice(1));
+	const keys = [...params.keys()];
+	valid(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
+	const raw = params.get("tmt-remotes");
+	valid(raw !== null);
+	const catalog = await parseCatalog(decode(raw));
+	valid(base64url(encoder.encode(json(catalog))) === raw);
+	const page = params.get("tmt-page");
+	const checkedHint = page === null ? void 0 : hint(decode(page));
+	if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
+	return {
+		catalog,
+		...checkedHint ? { hint: checkedHint } : {}
+	};
+}
+async function buildHandoff(destination, value, page) {
+	const checked = await reference(destination.name, destination.url);
+	valid(checked.kind === destination.kind && checked.project === destination.project);
+	if (checked.kind === "firestore") return checked.url;
+	const catalog = await parseCatalog(value);
+	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
+	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
+	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
+	return `${checked.url}#${params}`;
+}
+async function planImport(incoming, current) {
+	const next = await parseCatalog(incoming), before = await parseCatalog(current);
+	const used = new Set([...before.entries, ...next.entries].map((entry) => entry.name));
+	return {
+		incoming: next,
+		current: before,
+		rows: next.entries.map((entry) => {
+			const same = before.entries.find((old) => target(old) === target(entry));
+			if (same) return {
+				entry,
+				status: "duplicate",
+				suggestedName: entry.name,
+				existingName: same.name
+			};
+			if (!before.entries.some((old) => old.name === entry.name)) return {
+				entry,
+				status: "add",
+				suggestedName: entry.name
+			};
+			let n = 2;
+			let proposed;
+			do {
+				const suffix = `-${n++}`;
+				proposed = entry.name.slice(0, 63 - suffix.length) + suffix;
+			} while (used.has(proposed));
+			used.add(proposed);
+			return {
+				entry,
+				status: "collision",
+				suggestedName: proposed
+			};
+		})
+	};
+}
+async function mergeImport(plan, choices) {
+	const checked = await planImport(plan.incoming, plan.current);
+	valid(choices.length === checked.rows.length);
+	const entries = [...checked.current.entries];
+	for (const [index, row] of checked.rows.entries()) {
+		const alias = choices[index];
+		if (alias === null || row.status === "duplicate") continue;
+		name(alias);
+		if (entries.some((old) => old.name === alias)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", `You already have a remote named ${alias}`);
+		entries.push({
+			...row.entry,
+			name: alias
+		});
+	}
+	return parseCatalog({
+		version: 1,
+		entries
+	});
+}
+async function snapshot() {
+	try {
+		const raw = await readRegistry();
+		valid(raw === void 0 || typeof raw === "string" && raw.length <= LIMIT && encoder.encode(raw).length <= LIMIT);
+		const catalog = raw === void 0 ? empty : await parseCatalog(JSON.parse(raw));
+		valid(raw === void 0 || raw === json(catalog));
+		return {
+			raw,
+			catalog
+		};
+	} catch {
+		throw new RemoteRegistryError("REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be read");
+	}
+}
+async function commit(raw, catalog) {
+	try {
+		await writeRegistry(raw, json(catalog));
+	} catch (error) {
+		throw new RemoteRegistryError(error instanceof Error && error.message === "Registry changed" ? "REMOTE_SELECTOR_CONFLICT" : "REMOTE_SELECTOR_UNAVAILABLE", "The remotes could not be saved. Check the list again.");
+	}
+}
+var remoteRegistry = {
+	parseHandoff,
+	async list() {
+		return (await snapshot()).catalog;
+	},
+	async planImport(incoming) {
+		return planImport(incoming, (await snapshot()).catalog);
+	},
+	async confirmImport(plan, choices) {
+		const next = await mergeImport(plan, choices), latest = await snapshot();
+		if (json(latest.catalog) !== json(plan.current)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", "The remotes changed. Check the list again.");
+		await commit(latest.raw, next);
+	},
+	async add(alias, url) {
+		const entry = await reference(alias, url), latest = await snapshot();
+		const plan = await planImport({
+			version: 1,
+			entries: [entry]
+		}, latest.catalog);
+		valid(plan.rows[0].status !== "duplicate", `Already added as ${plan.rows[0].existingName}`);
+		await remoteRegistry.confirmImport(plan, [alias]);
+	},
+	async rename(previous, alias) {
+		name(alias);
+		const latest = await snapshot();
+		valid(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
+		const next = await parseCatalog({
+			version: 1,
+			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
+				...entry,
+				name: alias
+			} : entry)
+		});
+		await commit(latest.raw, next);
+	},
+	async remove(alias) {
+		const latest = await snapshot();
+		valid(latest.catalog.entries.some((entry) => entry.name === alias));
+		await commit(latest.raw, {
+			version: 1,
+			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
+		});
+	},
+	async navigation(entry, page) {
+		return buildHandoff(entry, await remoteRegistry.list(), page);
+	}
+};
+//#endregion
+//#region src/remote-registry-page.ts
+/** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
+function node$1(tag, text = "") {
+	const result = document.createElement(tag);
+	result.textContent = text;
+	return result;
+}
+function action(text, run) {
+	const button = node$1("button", text);
+	button.type = "button";
+	button.className = "tmt-ui-action";
+	button.addEventListener("click", run);
+	return button;
+}
+function field(label, value) {
+	const wrapper = node$1("label", label);
+	wrapper.className = "tmt-ui-field-label";
+	const input = node$1("input");
+	input.className = "tmt-ui-field-control";
+	input.value = value;
+	wrapper.append(input);
+	return {
+		label: wrapper,
+		input
+	};
+}
+function kindLabel(entry) {
+	return entry.kind === "local" ? "Local" : "Firebase";
+}
+function remoteRegistryPage(blocked = () => "") {
+	const root = document.getElementById("remotes");
+	if (!root) return () => {};
+	const fragment = location.hash;
+	if (fragment) history.replaceState(null, "", location.pathname + location.search);
+	const list = document.getElementById("remote-list");
+	const status = document.getElementById("remote-status");
+	const add = document.getElementById("remote-add");
+	let observed = "Checking";
+	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
+	let currentDialog;
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	const settings = new URL("settings", new URL("./", location.href));
+	const menu = remoteMenu({
+		refresh: () => render(),
+		open: (entry) => {
+			if (blocked()) return;
+			remoteRegistry.navigation(entry).then((url) => location.assign(url)).catch((error) => showError(error, status));
+		},
+		add: () => {
+			if (document.documentElement.dataset.tmtPage === "settings") add.click();
+			else location.assign(`${settings.href}#add-remote`);
+		},
+		manage: () => {
+			if (document.documentElement.dataset.tmtPage === "settings") {
+				root.scrollIntoView();
+				add.focus({ preventScroll: true });
+			} else location.assign(`${settings.href}#remotes`);
+		},
+		recover: (action) => {
+			if (action === "Retry") {
+				const retry = document.getElementById("check") ?? document.getElementById("refresh");
+				if (retry && !retry.disabled) retry.click();
+				else location.assign(new URL("./", location.href).href);
+			} else if (document.documentElement.dataset.tmtPage === "settings") location.assign(new URL("./", location.href).href);
+			else {
+				const pair = [
+					"copy-refused-pair",
+					"copy-missing-pair",
+					"copy-unreadable-pair",
+					"copy-different-pair"
+				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+				pair?.scrollIntoView();
+				pair?.focus();
+			}
+		},
+		blocked
+	});
+	const showError = (error, slot) => {
+		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
+	};
+	const dialog = (title, opener) => {
+		currentDialog?.close();
+		const box = node$1("dialog");
+		box.className = "remote-dialog";
+		const heading = node$1("h2", title);
+		heading.id = "remote-dialog-heading";
+		box.setAttribute("aria-labelledby", heading.id);
+		const body = node$1("div");
+		const message = node$1("p");
+		message.setAttribute("role", "status");
+		const buttons = node$1("div");
+		buttons.className = "remote-actions";
+		box.append(heading, body, message, buttons);
+		root.append(box);
+		const end = () => box.close();
+		box.addEventListener("close", () => {
+			box.remove();
+			if (currentDialog === box) {
+				currentDialog = void 0;
+				(opener.isConnected ? opener : add).focus();
+			}
+		}, { once: true });
+		currentDialog = box;
+		return {
+			box,
+			body,
+			buttons,
+			message,
+			end
+		};
+	};
+	const save = async (run, view) => {
+		const buttons = [...view.box.querySelectorAll("button")];
+		buttons.forEach((b) => {
+			b.disabled = true;
+		});
+		try {
+			await run();
+			await render();
+			view.end();
+		} catch (error) {
+			showError(error, view.message);
+		} finally {
+			buttons.forEach((b) => {
+				b.disabled = false;
+			});
+		}
+	};
+	const importView = (plan) => {
+		const view = dialog("Add these remotes to this browser?", add);
+		view.body.append(node$1("p", "Only names and addresses are copied. No keys, pairings or drafts."));
+		const choices = [];
+		for (const row of plan.rows) {
+			const item = node$1("section");
+			item.className = "remote-import-row";
+			item.append(node$1("h3", row.entry.name), node$1("p", `${kindLabel(row.entry)} · ${row.entry.url}`));
+			if (row.status === "duplicate") {
+				item.append(node$1("p", `Already added as ${row.existingName}`));
+				choices.push(() => null);
+			} else if (row.status === "collision") {
+				item.append(node$1("p", `You already have a remote named ${row.entry.name}`));
+				const alias = field("Remote name", row.suggestedName);
+				const skip = node$1("input");
+				skip.type = "checkbox";
+				const skipLabel = node$1("label", "Skip");
+				skipLabel.prepend(skip);
+				item.append(alias.label, skipLabel);
+				choices.push(() => skip.checked ? null : alias.input.value);
+			} else choices.push(() => row.entry.name);
+			view.body.append(item);
+		}
+		const submit = action("Add", () => {
+			save(() => remoteRegistry.confirmImport(plan, choices.map((choice) => choice())), view);
+		});
+		const update = () => {
+			submit.disabled = choices.every((choice) => choice() === null);
+			view.message.textContent = submit.disabled ? "Nothing new to add." : "";
+		};
+		view.body.addEventListener("change", update);
+		update();
+		view.buttons.append(submit, action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const confirmAdd = (entry, opener) => {
+		const view = dialog(entry.kind === "firestore" ? `Add Firebase remote ${entry.project}?` : `Add remote ${entry.name}?`, opener);
+		view.body.append(node$1("p", entry.kind === "firestore" ? `${entry.project}.web.app` : entry.url));
+		view.buttons.append(action("Add", () => {
+			save(() => remoteRegistry.add(entry.name, entry.url), view);
+		}), action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const rename = (entry, opener) => {
+		const view = dialog(`Rename ${entry.name}`, opener);
+		const alias = field("Remote name", entry.name);
+		view.body.append(alias.label);
+		const submit = action("Save", () => {
+			save(() => remoteRegistry.rename(entry.name, alias.input.value), view);
+		});
+		submit.disabled = true;
+		alias.input.addEventListener("input", () => {
+			submit.disabled = alias.input.value === entry.name;
+		});
+		view.buttons.append(submit, action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const remove = (entry, opener) => {
+		const view = dialog(`Remove ${entry.name} from this browser?`, opener);
+		view.body.append(node$1("p", "This only removes the entry here. It does not sign out or revoke access."));
+		view.buttons.append(action("Remove", () => {
+			save(() => remoteRegistry.remove(entry.name), view);
+		}), action("Cancel", view.end));
+		view.box.showModal();
+	};
+	const current = (entry) => entry.kind === "local" && (entry.url === address || new URL(entry.url).href === `${location.origin}/`);
+	const render = async () => {
+		try {
+			catalog = await remoteRegistry.list();
+			const rows = catalog.entries.map((entry) => {
+				const row = node$1("li");
+				row.dataset.remote = entry.name;
+				row.dataset.url = entry.url;
+				row.dataset.kind = entry.kind;
+				row.append(node$1("h3", entry.name), node$1("p", `${kindLabel(entry)} · ${entry.url}`));
+				const state = node$1("p", remoteState(observed, current(entry)).text);
+				state.className = "remote-state";
+				state.dataset.tone = remoteState(observed, current(entry)).tone;
+				row.append(state);
+				const actions = node$1("div");
+				actions.className = "remote-actions";
+				const open = action("Open", () => {
+					(async () => {
+						try {
+							if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
+						} catch (error) {
+							showError(error, status);
+						}
+					})();
+				});
+				open.dataset.action = "open";
+				const renameButton = action("Rename", () => rename(entry, renameButton));
+				const removeButton = action("Remove", () => remove(entry, removeButton));
+				renameButton.setAttribute("aria-label", `Rename ${entry.name}`);
+				removeButton.setAttribute("aria-label", `Remove ${entry.name}`);
+				if (!current(entry)) {
+					open.disabled = !!blocked();
+					open.title = blocked();
+					actions.append(open);
+				}
+				actions.append(renameButton, removeButton);
+				row.append(actions);
+				return row;
+			});
+			list.replaceChildren(...rows);
+			if (!rows.length) list.append(node$1("li", "No remotes added in this browser."));
+			menu(catalog, observed, address ?? "");
+		} catch (error) {
+			showError(error, status);
+		}
+	};
+	add.addEventListener("click", () => {
+		const view = dialog("Add remote", add);
+		const alias = field("Remote name", "");
+		const url = field("Door address or remote link", "");
+		view.body.append(alias.label, url.label);
+		view.buttons.append(action("Continue", () => {
+			reference(alias.input.value, url.input.value).then((entry) => {
+				view.end();
+				confirmAdd(entry, add);
+			}).catch((error) => showError(error, view.message));
+		}), action("Cancel", view.end));
+		view.box.showModal();
+	});
+	render().then(() => {
+		if (fragment === "#add-remote") add.click();
+		else if (fragment === "#remotes") {
+			root.scrollIntoView();
+			add.focus({ preventScroll: true });
+		}
+	});
+	const receive = (value) => {
+		remoteRegistry.parseHandoff(value).then(async (packet) => {
+			const plan = await remoteRegistry.planImport(packet.catalog);
+			importView(plan);
+		}).catch((error) => showError(error, status));
+	};
+	if (fragment && !["#remotes", "#add-remote"].includes(fragment)) receive(fragment);
+	window.addEventListener("hashchange", () => {
+		const value = location.hash;
+		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
+		history.replaceState(null, "", location.pathname + location.search);
+		receive(value);
+	});
+	return (state, checkedAddress) => {
+		observed = state;
+		if (checkedAddress) address = checkedAddress;
+		for (const row of list.querySelectorAll("[data-remote]")) {
+			const stateNode = row.querySelector(".remote-state");
+			const target = row.dataset.url;
+			const isCurrent = row.dataset.kind === "local" && (target === address || target === `${location.origin}/`);
+			const view = remoteState(observed, isCurrent);
+			stateNode.textContent = view.text;
+			stateNode.dataset.tone = view.tone;
+			const open = row.querySelector("[data-action=\"open\"]");
+			if (open) {
+				open.disabled = !!blocked();
+				open.title = blocked();
+			}
+			if (isCurrent) row.querySelector("[data-action=\"open\"]")?.remove();
+		}
+		menu(catalog, observed, address ?? "");
+	};
+}
+//#endregion
 //#region src/firestore.ts
 var firestoreTitles = {
 	sharing: "Page sharing",
@@ -345,6 +1289,16 @@ var first = element("first");
 var rows = /* @__PURE__ */ new Map();
 var initialized = false;
 var page;
+var registryState = remoteRegistryPage(() => {
+	if (!page) return "";
+	if (page.busy) return "A request is in progress. Wait for its outcome.";
+	if (page.outcome?.state === "unknown") return "Another change is still unconfirmed. Check its original result first.";
+	for (const device of page.devices?.devices ?? []) {
+		const name = rows.get(device.clientId)?.querySelector("input");
+		if (name && name.value !== device.name) return "Save or restore the unsent device name before changing pages.";
+	}
+	return "";
+});
 /** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
 function commandNotice(target, text) {
 	target.replaceChildren();
@@ -433,6 +1387,7 @@ function renderOutcome() {
 	}
 }
 function render() {
+	registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
 	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
 	const capacity = capacityCopy(page.accessRefusal);
 	const access = capacity ?? {
@@ -456,6 +1411,7 @@ function render() {
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
+		if (button.closest("#remotes, #remote-switcher")) continue;
 		if (reason) button.setAttribute("aria-describedby", "controls-reason");
 		else button.removeAttribute("aria-describedby");
 		button.setAttribute("aria-busy", String(page.busy));
@@ -728,6 +1684,7 @@ try {
 	].includes(error.code);
 	commandNotice(element("access"), capacity ?? (ended ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI."));
 	element("access-announcement").textContent = capacity ?? (ended ? "Access ended" : "Access unconfirmed");
+	registryState(error instanceof RefusalError && ["REMOTE_DEVICE_REVOKED", "REMOTE_GRANT_EXPIRED"].includes(error.code) ? "Access ended" : "Unconfirmed");
 	refresh.disabled = true;
 	element("access-notice").dataset.tone = "blocked";
 	element("controls-reason").textContent = capacity ?? "Current access is unavailable. Use the local CLI.";

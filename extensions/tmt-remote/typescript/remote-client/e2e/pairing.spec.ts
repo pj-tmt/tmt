@@ -3100,6 +3100,10 @@ for (const [width, theme] of [
     execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
     await page.click('#refresh');
     await expect(name).toBeEnabled();
+    await page.evaluate(async () => {
+      const { remoteRegistry } = await import('/sdk/remote-v1.js' as string);
+      await remoteRegistry.add('foreign', 'http://127.0.0.1:9876/');
+    });
     const published = routeBarrier();
     const joined = routeBarrier();
     const lostAck = async (route: import('@playwright/test').Route) => {
@@ -3124,6 +3128,13 @@ for (const [width, theme] of [
     await published.reached;
     try {
       await expect(slot).toHaveText('Saving…');
+      await page.locator('#remote-switcher .remote-chip').click();
+      await expect(page.getByRole('menuitemradio', { name: /^Open foreign/ })).toBeDisabled();
+      await expect(page.locator('#remote-menu-reason')).toHaveText(
+        'A request is in progress. Wait for its outcome.',
+      );
+      await page.keyboard.press('Escape');
+      await name.focus();
       await expect(name).toBeFocused();
       await name.fill('Unsent next draft');
       await name.evaluate((input) => (input as HTMLInputElement).setSelectionRange(2, 2));
@@ -3137,6 +3148,15 @@ for (const [width, theme] of [
     await expect(slot).toHaveAttribute('data-state', 'unknown');
     await expect(name).toBeFocused();
     await expect(name).toHaveValue('Unsent next draft');
+    await page.locator('#remote-switcher .remote-chip').click();
+    await expect(page.getByRole('menuitemradio', { name: /^Open foreign/ })).toBeDisabled();
+    await expect(page.locator('#remote-menu-reason')).toHaveText(
+      'Another change is still unconfirmed. Check its original result first.',
+    );
+    await expect(page.getByRole('menuitem', { name: 'Add remote…' })).toBeEnabled();
+    await expect(page.getByRole('menuitem', { name: 'Manage remotes' })).toBeEnabled();
+    await page.keyboard.press('Escape');
+    await name.focus();
     const originalId = writes.at(-1)!.input.operationId;
     await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
     await expect(row.locator(`#device-reason-${targetId}`)).toBeEmpty();
@@ -3395,8 +3415,23 @@ for (const [width, theme] of [
   });
 }
 
-// B1 is Remote's registry consumer, not Colab routing or a foreign health probe.
-test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {
+interface RegistryWorld {
+  page: Page;
+  context: import('@playwright/test').BrowserContext;
+  network: string[];
+  secondOrigin: string;
+  secondEnv: NodeJS.ProcessEnv;
+  pairAt(ownerEnv: NodeJS.ProcessEnv, label: string): Promise<void>;
+  identity(): Promise<{
+    paired: unknown;
+    publicKey: number[];
+    extractable: boolean;
+    signature: number[];
+  }>;
+  sdk<T>(run: string, input?: unknown): Promise<T>;
+}
+/** Fixture mechanics shared by independent registry and static-switcher scenarios. */
+async function withRegistryWorld(run: (world: RegistryWorld) => Promise<void>): Promise<void> {
   const secondRoot = await mkdtemp('/tmp/tmt-registry-');
   await writeFile(
     join(secondRoot, 'core.mjs'),
@@ -3480,233 +3515,402 @@ test('landing registry keeps two origins independent and confirms public-only ha
         { run, input },
       ) as Promise<T>;
     }
-    const captureDirectory = process.env.TMT_REMOTE_REGISTRY_CAPTURE_DIR;
-    async function capture(state: string, lookAt: string) {
-      await captureState(
-        page,
-        `registry-${state}`,
-        lookAt,
-        [1440],
-        ['light'],
-        undefined,
-        captureDirectory,
-      );
-      await captureState(
-        page,
-        `registry-${state}`,
-        lookAt,
-        [390],
-        ['dark'],
-        undefined,
-        captureDirectory,
-      );
+    await run({ page, context, network, secondOrigin, secondEnv, pairAt, identity, sdk });
+  } finally {
+    try {
+      await context.close();
+    } finally {
+      // A browser timeout must not skip the independently owned second door's cleanup.
+      secondPair?.kill('SIGTERM');
+      if (secondPair) await exited(secondPair);
+      secondServe.kill('SIGTERM');
+      await exited(secondServe);
+      await rm(secondRoot, { recursive: true, force: true });
     }
-    await pairAt(env, 'Registry A');
-    await page.goto(origin);
-    await expect(page.locator('#state-label')).toHaveText('Connected');
-    const first = await identity();
-    expect(first.extractable).toBe(false);
-    await sdk('add', ['studio', `${origin}/`]);
-    await sdk('add', ['desk', `${secondOrigin}/`]);
-    await page.reload();
-    await expect(page.locator('#state-label')).toHaveText('Connected');
-    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
-    await expect(
-      page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
-    ).toHaveCount(0);
-    await expect(
-      page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
-    ).toHaveText('Rename');
-    await expect(page.locator('[data-remote="desk"] .remote-state')).toHaveText('not checked');
-    await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
-    expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
-    await page.locator('#remotes').scrollIntoViewIfNeeded();
-    await capture('list', 'Current access is verified; the other origin is not probed or marked.');
-    await page.locator('#remote-add').click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await expect(page.getByLabel('Remote name')).toBeFocused();
-    await capture('add', 'Explicit public door address or remote link; no implicit sign-in.');
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('#remote-add')).toBeFocused();
-    await page.locator('#remote-add').click();
-    await page.getByLabel('Remote name').fill('spare');
-    await page.getByLabel('Door address or remote link').fill('http://127.0.0.1:9876/');
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Add remote spare?' })).toBeVisible();
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.locator('#remote-add')).toBeFocused();
-    await expect(page.locator('[data-remote="spare"] .remote-state')).toHaveText('not checked');
-    expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
-    expect(await identity()).toEqual(first);
-    await sdk('remove', ['spare']);
-    const openB = await sdk<string>('navigation', [
-      { name: 'desk', kind: 'local', url: `${secondOrigin}/`, project: null },
-    ]);
-    expect(openB).not.toContain('clientId');
-    expect(openB).not.toContain('machinePublicKey');
+  }
+}
+
+// B1 is Remote's registry consumer, not Colab routing or a foreign health probe.
+test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {
+  await withRegistryWorld(
+    async ({ page, context, network, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
+      const captureDirectory = process.env.TMT_REMOTE_REGISTRY_CAPTURE_DIR;
+      async function capture(state: string, lookAt: string) {
+        await captureState(
+          page,
+          `registry-${state}`,
+          lookAt,
+          [1440],
+          ['light'],
+          undefined,
+          captureDirectory,
+        );
+        await captureState(
+          page,
+          `registry-${state}`,
+          lookAt,
+          [390],
+          ['dark'],
+          undefined,
+          captureDirectory,
+        );
+      }
+      await pairAt(env, 'Registry A');
+      await page.goto(origin);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
+      const first = await identity();
+      expect(first.extractable).toBe(false);
+      await sdk('add', ['studio', `${origin}/`]);
+      await sdk('add', ['desk', `${secondOrigin}/`]);
+      await page.reload();
+      await expect(page.locator('#state-label')).toHaveText('Connected');
+      await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
+      await expect(
+        page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
+      ).toHaveCount(0);
+      await expect(
+        page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
+      ).toHaveText('Rename');
+      await expect(page.locator('[data-remote="desk"] .remote-state')).toHaveText('not checked');
+      await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
+      expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
+      await page.locator('#remotes').scrollIntoViewIfNeeded();
+      await capture(
+        'list',
+        'Current access is verified; the other origin is not probed or marked.',
+      );
+      await page.locator('#remote-add').click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.getByLabel('Remote name')).toBeFocused();
+      await capture('add', 'Explicit public door address or remote link; no implicit sign-in.');
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(page.locator('#remote-add')).toBeFocused();
+      await page.locator('#remote-add').click();
+      await page.getByLabel('Remote name').fill('spare');
+      await page.getByLabel('Door address or remote link').fill('http://127.0.0.1:9876/');
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Add remote spare?' })).toBeVisible();
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('#remote-add')).toBeFocused();
+      await expect(page.locator('[data-remote="spare"] .remote-state')).toHaveText('not checked');
+      expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
+      expect(await identity()).toEqual(first);
+      await sdk('remove', ['spare']);
+      const openB = await sdk<string>('navigation', [
+        { name: 'desk', kind: 'local', url: `${secondOrigin}/`, project: null },
+      ]);
+      expect(openB).not.toContain('clientId');
+      expect(openB).not.toContain('machinePublicKey');
+      await pairAt(secondEnv, 'Registry B');
+      await page.goto(secondOrigin);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
+      const second = await identity();
+      expect(second.publicKey).not.toEqual(first.publicKey);
+      await sdk('add', ['studio', `${secondOrigin}/`]);
+      await page.goto(openB);
+      await expect(page.getByRole('dialog')).toHaveAttribute(
+        'aria-labelledby',
+        'remote-dialog-heading',
+      );
+      await expect(
+        page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
+      ).toBeVisible();
+      expect(new URL(page.url()).hash).toBe('');
+      await expect(
+        page.getByText('You already have a remote named studio', { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel('Remote name')).toHaveValue('studio-2');
+      await expect(page.getByText('Already added as studio', { exact: true })).toBeVisible();
+      await capture('import-collision', 'Collision is renamed and the same target is skipped.');
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      expect(await sdk('list')).toEqual({
+        version: 1,
+        entries: [{ name: 'studio', kind: 'local', url: `${secondOrigin}/`, project: null }],
+      });
+      await page.goto(openB);
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.getByRole('button', { name: 'Add', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      expect(await identity()).toEqual(second);
+      await page.goto(openB);
+      await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+      await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Rename studio-2', exact: true }).click();
+      await page.getByLabel('Remote name').fill('studio');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(page.getByRole('dialog').getByRole('status')).toHaveText(
+        'You already have a remote named studio',
+      );
+      await page.getByLabel('Remote name').fill('first');
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Remove first', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Remove first from this browser?' }),
+      ).toBeVisible();
+      await capture(
+        'remove',
+        'Removing public reference data does not revoke or sign out the device.',
+      );
+      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeFocused();
+      await page.getByRole('button', { name: 'Remove first', exact: true }).click();
+      await page.getByRole('button', { name: 'Remove', exact: true }).click();
+      await expect(page.locator('#remote-add')).toBeFocused();
+      expect(await identity()).toEqual(second);
+      // A's old fixed-key device record remains readable and unchanged after a B round trip.
+      await page.goto(origin);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
+      expect(await identity()).toEqual(first);
+      expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
+      // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
+      const beforeInvalid = await sdk('list');
+      await page.goto(`${origin}/#tmt-remotes=bad`);
+      await expect(page.locator('#remote-status')).toHaveText('The remote name or link is invalid');
+      expect(new URL(page.url()).hash).toBe('');
+      expect(await sdk('list')).toEqual(beforeInvalid);
+      const concurrent = await page.evaluate(async () => {
+        const { remoteRegistry } = (await import(
+          '/sdk/remote-v1.js' as string
+        )) as typeof import('../src/browser.js');
+        const plan = await remoteRegistry.planImport({
+          version: 1,
+          entries: [
+            { name: 'incoming', kind: 'local', url: 'http://127.0.0.1:9123/', project: null },
+          ],
+        });
+        await remoteRegistry.add('other', 'http://127.0.0.1:9124/');
+        try {
+          await remoteRegistry.confirmImport(plan, ['incoming']);
+          return 'unexpected';
+        } catch (error) {
+          return (error as { code: string }).code;
+        }
+      });
+      expect(concurrent).toBe('REMOTE_SELECTOR_CONFLICT');
+      expect(
+        (await sdk<{ entries: { name: string }[] }>('list')).entries.map((entry) => entry.name),
+      ).toEqual(['studio', 'desk', 'other']);
+      await sdk('remove', ['other']);
+      expect(await identity()).toEqual(first);
+      const corruption = await page.evaluate(async () => {
+        const { remoteRegistry } = (await import(
+          '/sdk/remote-v1.js' as string
+        )) as typeof import('../src/browser.js');
+        const db = await new Promise<IDBDatabase>((resolve) => {
+          const r = indexedDB.open('tmt-remote', 1);
+          r.onsuccess = () => resolve(r.result);
+        });
+        const original = await new Promise<unknown>((resolve) => {
+          const r = db.transaction('device').objectStore('device').get('remotes-v1');
+          r.onsuccess = () => resolve(r.result);
+        });
+        const write = (value: unknown) =>
+          new Promise<void>((resolve) => {
+            const tx = db.transaction('device', 'readwrite');
+            tx.objectStore('device').put(value, 'remotes-v1');
+            tx.oncomplete = () => resolve();
+          });
+        const result: string[] = [];
+        for (const invalid of [
+          '{"version":1,"entries":[],"device":"PRIVATE_CANARY"}',
+          ' '.repeat(8193),
+          '{"version":1,"entries":[],"version":1}',
+        ]) {
+          await write(invalid);
+          try {
+            await remoteRegistry.list();
+            result.push('unexpected');
+          } catch (error) {
+            result.push((error as { code: string }).code);
+          }
+        }
+        await write(original);
+        db.close();
+        return result;
+      });
+      expect(corruption).toEqual(Array(3).fill('REMOTE_SELECTOR_UNAVAILABLE'));
+      expect(await identity()).toEqual(first);
+      // Replacing only a pairing (the legacy save path) cannot clear the public catalog.
+      await page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((resolve) => {
+          const r = indexedDB.open('tmt-remote', 1);
+          r.onsuccess = () => resolve(r.result);
+        });
+        const tx = db.transaction('device', 'readwrite');
+        tx.objectStore('device').delete('device');
+        await new Promise<void>((resolve) => {
+          tx.oncomplete = () => resolve();
+        });
+        db.close();
+      });
+      expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
+      await page.reload();
+      await expect(page.locator('#state-label')).toHaveText('Not paired');
+      // Browser-owned site-data clearing ends both records, unlike device-only replacement.
+      const storage = await context.newCDPSession(page);
+      await storage.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
+      await storage.detach();
+      expect(await sdk('list')).toEqual({ version: 1, entries: [] });
+      await page.goto(secondOrigin);
+      await expect(page.locator('#state-label')).toHaveText('Connected');
+      expect(await identity()).toEqual(second);
+      expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
+    },
+  );
+});
+
+test('static remote switcher preserves menu focus and settings drafts across two origins', async () => {
+  await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
     await page.goto(secondOrigin);
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const second = await identity();
-    expect(second.publicKey).not.toEqual(first.publicKey);
-    await sdk('add', ['studio', `${secondOrigin}/`]);
-    await page.goto(openB);
-    await expect(page.getByRole('dialog')).toHaveAttribute(
-      'aria-labelledby',
-      'remote-dialog-heading',
+    await pairAt(env, 'Registry A');
+    await page.goto(origin);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    const first = await identity();
+    await expect(
+      page.getByRole('button', { name: 'Remote: this machine, connected', exact: true }),
+    ).toBeVisible();
+    await sdk('add', ['studio', `${origin}/`]);
+    await sdk('add', ['desk', `${secondOrigin}/`]);
+    await page.reload();
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    const chip = page.getByRole('button', { name: 'Remote: studio, connected', exact: true });
+    await chip.click();
+    const menu = page.getByRole('menu', { name: 'Remotes', exact: true });
+    await expect(menu).toBeVisible();
+    await expect(menu).toHaveAttribute('popover', 'auto');
+    const currentItem = menu.getByRole('menuitemradio', { name: /studio/ });
+    const foreignItem = menu.getByRole('menuitemradio', { name: /^Open desk/ });
+    await expect(currentItem).toHaveAttribute('aria-checked', 'true');
+    await expect(currentItem.locator('[aria-hidden="true"]')).toHaveText('✓');
+    await expect(currentItem).toBeFocused();
+    await expect(menu.locator('button[tabindex="0"]')).toHaveCount(1);
+    await currentItem.press('ArrowDown');
+    await expect(foreignItem).toBeFocused();
+    await foreignItem.press('Home');
+    await expect(currentItem).toBeFocused();
+    await currentItem.press('d');
+    await expect(foreignItem).toBeFocused();
+    await page.keyboard.press('Escape');
+    await chip.press('Enter');
+    await currentItem.press('End');
+    await expect(menu.getByRole('menuitem', { name: 'Manage remotes', exact: true })).toBeFocused();
+    await page.keyboard.press('a');
+    await expect(menu.getByRole('menuitem', { name: 'Add remote…', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    await expect(chip).toBeFocused();
+    await chip.press('ArrowUp');
+    await expect(menu.getByRole('menuitem', { name: 'Manage remotes', exact: true })).toBeFocused();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Space');
+    await expect(menu).toBeHidden();
+    await chip.press('Enter');
+    await expect(menu).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(menu).toBeHidden();
+    expect(
+      await page.locator('#remote-menu').evaluate((node) => node.contains(document.activeElement)),
+    ).toBe(false);
+    await chip.click();
+    await expect(menu).toBeVisible();
+    await page.locator('#check').click();
+    await expect(menu).toBeHidden();
+    await expect(page.locator('#check')).toBeFocused();
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    await chip.click();
+    await expect(menu).toBeVisible();
+    await page.evaluate(() => {
+      const other = document.createElement('div');
+      other.id = 'other-popover';
+      other.popover = 'auto';
+      document.body.append(other);
+      other.showPopover();
+    });
+    await expect(menu).toBeHidden();
+    await page.evaluate(() => document.getElementById('other-popover')!.remove());
+    const switchCapture = process.env.TMT_REMOTE_SWITCHER_CAPTURE_DIR;
+    async function switchShot(state: string, lookAt: string) {
+      await captureState(page, state, lookAt, [1440], ['light'], undefined, switchCapture);
+      await captureState(page, state, lookAt, [390], ['dark'], undefined, switchCapture);
+    }
+    await chip.click();
+    await expect(menu).toBeVisible();
+    await expect(currentItem).toHaveCSS('color', tokenRgb('color', 'working', 'light'));
+    await expect(chip).toHaveCSS('color', tokenRgb('color', 'working', 'light'));
+    await switchShot(
+      'remote-menu',
+      'Current origin verified; foreign Open neutral; static popover menu roles and actions.',
     );
+    await page.keyboard.press('Escape');
+    const ownerDevices = JSON.parse(
+      execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+    );
+    execFileSync(BINARY, ['devices', 'designate', ownerDevices.devices[0].clientId, '--json'], {
+      env,
+    });
+    await chip.click();
+    await menu.getByRole('menuitem', { name: 'Manage remotes', exact: true }).click();
+    await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
+    await expect(page.locator('#remotes')).toBeVisible();
+    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
+    await switchShot(
+      'settings-remotes',
+      'Same B1 registry controller reused in settings; no browser default or signed projection.',
+    );
+    const settingsChip = page.getByRole('button', {
+      name: 'Remote: studio, connected',
+      exact: true,
+    });
+    const ownName = page.getByRole('textbox', { name: /^Device name for Registry A$/ });
+    await ownName.fill('Unsent Remote name');
+    await settingsChip.click();
+    await expect(page.getByRole('menuitemradio', { name: /^Open desk/ })).toBeDisabled();
+    await expect(page.locator('#remote-menu-reason')).toHaveText(
+      'Save or restore the unsent device name before changing pages.',
+    );
+    await page.keyboard.press('Escape');
+    await ownName.fill('Registry A');
+    await settingsChip.click();
+    await expect(page.getByRole('menuitemradio', { name: /^Open desk/ })).toBeEnabled();
+    await page.keyboard.press('Escape');
+    await settingsChip.click();
+    await page.getByRole('menuitemradio', { name: /^Open desk/ }).press('Enter');
     await expect(
       page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
     ).toBeVisible();
-    expect(new URL(page.url()).hash).toBe('');
-    await expect(
-      page.getByText('You already have a remote named studio', { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByLabel('Remote name')).toHaveValue('studio-2');
-    await expect(page.getByText('Already added as studio', { exact: true })).toBeVisible();
-    await capture('import-collision', 'Collision is renamed and the same target is skipped.');
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    expect(await sdk('list')).toEqual({
-      version: 1,
-      entries: [{ name: 'studio', kind: 'local', url: `${secondOrigin}/`, project: null }],
-    });
-    await page.goto(openB);
-    await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
     expect(await identity()).toEqual(second);
-    await page.goto(openB);
+    await page.getByRole('button', { name: 'Remote: desk, connected', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: /^Open studio/ }).press('Space');
     await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
-    await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'Rename studio-2', exact: true }).click();
-    await page.getByLabel('Remote name').fill('studio');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByRole('dialog').getByRole('status')).toHaveText(
-      'You already have a remote named studio',
-    );
-    await page.getByLabel('Remote name').fill('first');
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Remove first', exact: true }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Remove first from this browser?' }),
-    ).toBeVisible();
-    await capture(
-      'remove',
-      'Removing public reference data does not revoke or sign out the device.',
-    );
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeFocused();
-    await page.getByRole('button', { name: 'Remove first', exact: true }).click();
-    await page.getByRole('button', { name: 'Remove', exact: true }).click();
-    await expect(page.locator('#remote-add')).toBeFocused();
-    expect(await identity()).toEqual(second);
-    // A's old fixed-key device record remains readable and unchanged after a B round trip.
-    await page.goto(origin);
     await expect(page.locator('#state-label')).toHaveText('Connected');
     expect(await identity()).toEqual(first);
-    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
-    // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
-    const beforeInvalid = await sdk('list');
-    await page.goto(`${origin}/#tmt-remotes=bad`);
-    await expect(page.locator('#remote-status')).toHaveText('The remote name or link is invalid');
-    expect(new URL(page.url()).hash).toBe('');
-    expect(await sdk('list')).toEqual(beforeInvalid);
-    const concurrent = await page.evaluate(async () => {
-      const { remoteRegistry } = (await import(
-        '/sdk/remote-v1.js' as string
-      )) as typeof import('../src/browser.js');
-      const plan = await remoteRegistry.planImport({
-        version: 1,
-        entries: [
-          { name: 'incoming', kind: 'local', url: 'http://127.0.0.1:9123/', project: null },
-        ],
-      });
-      await remoteRegistry.add('other', 'http://127.0.0.1:9124/');
-      try {
-        await remoteRegistry.confirmImport(plan, ['incoming']);
-        return 'unexpected';
-      } catch (error) {
-        return (error as { code: string }).code;
-      }
-    });
-    expect(concurrent).toBe('REMOTE_SELECTOR_CONFLICT');
-    expect(
-      (await sdk<{ entries: { name: string }[] }>('list')).entries.map((entry) => entry.name),
-    ).toEqual(['studio', 'desk', 'other']);
-    await sdk('remove', ['other']);
-    expect(await identity()).toEqual(first);
-    const corruption = await page.evaluate(async () => {
-      const { remoteRegistry } = (await import(
-        '/sdk/remote-v1.js' as string
-      )) as typeof import('../src/browser.js');
-      const db = await new Promise<IDBDatabase>((resolve) => {
-        const r = indexedDB.open('tmt-remote', 1);
-        r.onsuccess = () => resolve(r.result);
-      });
-      const original = await new Promise<unknown>((resolve) => {
-        const r = db.transaction('device').objectStore('device').get('remotes-v1');
-        r.onsuccess = () => resolve(r.result);
-      });
-      const write = (value: unknown) =>
-        new Promise<void>((resolve) => {
-          const tx = db.transaction('device', 'readwrite');
-          tx.objectStore('device').put(value, 'remotes-v1');
-          tx.oncomplete = () => resolve();
-        });
-      const result: string[] = [];
-      for (const invalid of [
-        '{"version":1,"entries":[],"device":"PRIVATE_CANARY"}',
-        ' '.repeat(8193),
-        '{"version":1,"entries":[],"version":1}',
-      ]) {
-        await write(invalid);
-        try {
-          await remoteRegistry.list();
-          result.push('unexpected');
-        } catch (error) {
-          result.push((error as { code: string }).code);
-        }
-      }
-      await write(original);
-      db.close();
-      return result;
-    });
-    expect(corruption).toEqual(Array(3).fill('REMOTE_SELECTOR_UNAVAILABLE'));
-    expect(await identity()).toEqual(first);
-    // Replacing only a pairing (the legacy save path) cannot clear the public catalog.
+    // Attention controls are independent of the B1 browser-owned site-data clearing proof.
     await page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>((resolve) => {
-        const r = indexedDB.open('tmt-remote', 1);
-        r.onsuccess = () => resolve(r.result);
+        const opening = indexedDB.open('tmt-remote', 1);
+        opening.onsuccess = () => resolve(opening.result);
       });
-      const tx = db.transaction('device', 'readwrite');
-      tx.objectStore('device').delete('device');
+      const transaction = db.transaction('device', 'readwrite');
+      transaction.objectStore('device').delete('device');
       await new Promise<void>((resolve) => {
-        tx.oncomplete = () => resolve();
+        transaction.oncomplete = () => resolve();
       });
       db.close();
     });
-    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
     await page.reload();
     await expect(page.locator('#state-label')).toHaveText('Not paired');
-    // Browser-owned site-data clearing ends both records, unlike device-only replacement.
-    const storage = await context.newCDPSession(page);
-    await storage.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
-    await storage.detach();
-    expect(await sdk('list')).toEqual({ version: 1, entries: [] });
-    await page.goto(secondOrigin);
-    await expect(page.locator('#state-label')).toHaveText('Connected');
-    expect(await identity()).toEqual(second);
-    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
-  } finally {
-    await context.close();
-    secondPair?.kill('SIGTERM');
-    if (secondPair) await exited(secondPair);
-    secondServe.kill('SIGTERM');
-    await exited(secondServe);
-    await rm(secondRoot, { recursive: true, force: true });
-  }
+    await page.getByRole('button', { name: 'Remote: studio, not paired', exact: true }).click();
+    await expect(page.getByRole('menuitemradio', { name: /studio/ })).toBeDisabled();
+    await page.getByRole('menuitem', { name: 'Pair again', exact: true }).click();
+    await expect(page.locator('#copy-missing-pair')).toBeFocused();
+  });
 });

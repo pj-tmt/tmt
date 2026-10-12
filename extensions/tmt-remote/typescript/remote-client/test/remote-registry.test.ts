@@ -172,7 +172,20 @@ test('entire encoded handoff is bounded and duplicate members cannot collapse in
   // Valid catalog JSON fits storage, but its encoded fragment does not fit navigation.
   assert.ok(new TextEncoder().encode(JSON.stringify(large)).length < 8192);
   assert.equal((await parseCatalog(large)).entries.length, 4);
-  await assert.rejects(buildHandoff(b, large), /too large to open together/);
+  await assert.rejects(
+    parseCatalog({
+      ...large,
+      entries: [
+        ...large.entries,
+        { ...large.entries[0]!, name: 'extra', url: large.entries[0]!.url + 'extra/' },
+      ],
+    }),
+    /The remote list is too large to store in this browser\. Remove one before adding another\./,
+  );
+  await assert.rejects(
+    buildHandoff(b, large),
+    /The remote list is too large to send along when opening this remote\. Remove an entry, then try again\./,
+  );
   const under = {
     ...large,
     entries: large.entries.map((entry) => ({

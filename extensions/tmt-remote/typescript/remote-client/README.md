@@ -393,11 +393,17 @@ limits, fragment grammar and privacy rules have one owner in the
 [browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
 
 `navigation(reference, {spaceId, pageId}?)` validates a Local destination
-and produces its public handoff. The landing
-page erases the fragment before admission and asks before importing. No pairing key or draft
+and produces its public handoff. The Remote page erases the fragment before admission and asks before importing. No pairing key or draft
 crosses origins, and registry operations never read or replace the stored device identity.
-Local Open performs no foreign health probe; each origin uses its own pairing. The landing
+Local Open performs no foreign health probe; each origin uses its own pairing. The registry
 list observes only current access and shows other entries as `not checked`. Firebase entries
 validate the existing public remote link without Auth or fetching configuration, then Open
 navigates to that unchanged link; they carry no catalog handoff in this release. This API adds
 no default selection or bound client factory, and no Colab switcher or hosted registry receiver.
+
+Remote's landing/settings pages also use a static native-popover menu over that registry,
+with the current origin's observation in the header and foreign entries still `not checked`.
+Open is same-tab navigation; it neither rebinds a client nor transfers private state.
+Settings keeps foreign Open disabled during a request, an unknown original outcome, or an
+unsent device name; Add and Manage remain available. Default selection/projection and a
+bound-client factory are not part of this static consumer.
