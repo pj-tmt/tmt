@@ -25,6 +25,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly title: string;
   readonly sharing: 'private' | 'link' | 'public';
   readonly archived?: boolean;
+  /** Display-only labels from the owner store; absent where a source has none (fixtures, a reader). */
+  readonly labels?: readonly string[];
 }
 export interface PageSnapshot extends PageSummary {
   readonly originalAuthor?: Projection['originalAuthor'];

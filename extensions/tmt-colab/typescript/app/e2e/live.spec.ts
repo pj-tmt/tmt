@@ -151,6 +151,7 @@ async function wire(
             lastUpdateAtMs: null,
             expiresAtMs: null,
             warnings: ['expiry-unavailable'],
+            labels: [],
           },
         ],
       },

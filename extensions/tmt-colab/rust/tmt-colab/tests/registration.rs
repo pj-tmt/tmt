@@ -496,6 +496,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
+        DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; DROP TABLE baselines; DROP TABLE device_registrations; PRAGMA user_version=2;",
     )
     .unwrap();
@@ -510,7 +511,7 @@ fn schema_two_authority_rows_survive_registration_migration() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        6
+        tmt_colab::store::SCHEMA_VERSION
     );
     store.close().unwrap();
 }

@@ -16,6 +16,7 @@ pub mod hosting;
 pub mod inspection;
 mod ipc;
 pub mod keyring;
+pub mod labels;
 pub mod limits;
 pub mod management;
 mod object_channel;

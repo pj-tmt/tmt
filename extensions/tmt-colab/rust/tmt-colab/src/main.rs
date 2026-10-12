@@ -1,5 +1,6 @@
 mod cli_attachments;
 mod cli_grammar;
+mod cli_labels;
 mod cli_management;
 mod cli_page_check;
 mod cli_proposal;
@@ -323,6 +324,7 @@ fn grammar() -> Command {
             .subcommand(cli_threads::command())
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
+            .subcommand(cli_labels::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -430,6 +432,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "attachment" {
         return cli_attachments::run(&root, args);
+    }
+    if command == "label" {
+        return cli_labels::run(&root, args);
     }
     let json_output = args.get_flag("json");
     if command == "spaces" {

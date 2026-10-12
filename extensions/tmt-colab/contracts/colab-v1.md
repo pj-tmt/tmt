@@ -470,6 +470,9 @@ follows the page's `page.history` mode, never possession of a new key.
 | `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                       |
 | `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
+`page.labels` is not in this table: it is a management request that changes display-only
+owner-store state and appends no statement (see [Page labels](#page-labels-2588)).
+
 The root owner is implicit, not an assignable member role; v1 has no co-owner
 or signing delegation. Every log statement is produced and signed by the owner's
 `tmt colab`, whose keyring alone holds the root key. Page creation allocates a page ID, initial epoch
@@ -480,7 +483,7 @@ and baseline through the owner; `create` imports source without executing it.
 **Channel boundary: stays,** carried over the relay with the remote device context as sender.
 
 The owner's enrolled browser never receives the root key. To request sharing,
-member/link changes, epoch advance, script policy or retention, it submits a
+member/link changes, epoch advance, script policy, retention or display-only page labels, it submits a
 device-signed typed management request to the owner's `tmt colab`. Canonical
 input is LP("tmt-colab-management-v1", "1", space, page, expectedRevision,
 operationId, operation, SHA256(payloadBytes), senderDevice, issuedAt, expiresAt).
@@ -2500,8 +2503,8 @@ of the same version is "not stale". The serve also prints one stderr warning (ne
 `Restart \`tmt colab serve\` to update.`; the tab row says the same. Nothing restarts,
 signals or changes state; a serve that predates this route cannot report itself.
 `pages`is sorted by page ID, at most 1,000 entries, each exactly`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
-expiresAtMs, warnings}`. These time/expiry hints use the same verified projection
-as `ls/show`, defined in [Local management CLI](#local-management-cli-1307).
+expiresAtMs, warnings, labels}`; `labels`is the page's [display-only label set](#page-labels-2588). These time/expiry hints use the same verified projection
+as`ls/show`, defined in [Local management CLI](#local-management-cli-1307).
 Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
 Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
@@ -3243,6 +3246,11 @@ share history <page> <shared|current>
 retention <page> [<days>|forever]
 archive <page>
 delete <page> --yes
+label ls
+label add <page> <name>...
+label remove <page> <name>...
+label rename <name> <new-name>
+label delete <name>
 ```
 
 All commands support human output and one `--json` document. Human retention
@@ -3372,7 +3380,7 @@ map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
-`COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+`COLAB_LABEL_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
 older Colab." Its next action is "Start or restart tmt colab serve to update it."
@@ -3390,6 +3398,47 @@ The reserved management socket's unsuccessful response body is the exact textual
 management code with its corresponding HTTP status. The CLI maps that existing
 wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
 with captured correlation and no offline fallback.
+
+### Page labels (#2588)
+
+Labels are display-only names the owner uses to organize the page list. They carry no
+authority and are **not signed**: a label never changes who can read or write a page, is
+never an owner-log statement and never enters a page's content or any stream. They live in
+the owner store (`page_labels`, schema 7: one row per page and name, removed with the page's
+data when it is deleted; the page's tombstone row keeps none) and reach browsers only in the
+owner-served `GET /api/pages` entries and the CLI's `ls`/`show --json` pages as `labels`:
+an array sorted by code point, empty when a page has none. Their integrity is the Remote
+session's, like the other owner-served reads; a client treats them as untrusted text.
+
+A name is 1 to 32 code points (`LABEL_POINTS`) with no control character, no whitespace
+other than single interior spaces and no leading, trailing or doubled space; case is part
+of the name and two spellings are two labels. A page holds at most 8 names (`PAGE_LABELS`)
+and the space at most 1,000 assignments (`SPACE_LABELS`), so the discovery reply stays
+within its 512 KiB cap. The constants live in `limits.rs`; the app's `bootstrap.ts` and its
+test hold the same numbers.
+
+The one write is the management operation `page.labels`, available to a device-signed
+browser request from an admitted owner device and to the local CLI over the same local
+management path as every other command. It is not a log operation: it appends no statement,
+changes no membership head, uses no expected revision (the field must still be a positive
+decimal) and records no operation receipt. Its payload is exactly
+`{pages:[{pageId, labels}]}`: at most 64 entries (`LABEL_REQUEST_PAGES`), page IDs
+strictly ascending, the request's own page among them, every `labels` array the complete
+new set for that page. Last writer wins per page; the request applies in one store
+transaction, so it applies to every named page or to none. A malformed name, a repeated
+name, an unknown or deleted page, or a repeated page is `INVALID`; more than 8 names on a
+page, or more than 1,000 assignments in the space, is `CAPACITY`; both refuse the whole
+request with no partial effect. A read-only reader link has no write path and cannot
+label, and there is no owner-only gate beyond the paired owner device or local CLI that
+every management write already requires.
+
+The CLI keeps the commands above to that one operation. `label add` and `label remove`
+read a page's set and replace it, and report `changed:false` without writing when nothing
+differs. `label rename <name> <new>` and `label delete <name>` change every page that
+carries the name, archived pages included, one request per 64 pages; a page that already
+has the new name keeps one label, and no page is deleted. A name that no page carries is
+`COLAB_LABEL_NOT_FOUND`; a name outside the grammar is `COLAB_INPUT_INVALID`;
+a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its page count.
 
 ## Root-local page creation
 

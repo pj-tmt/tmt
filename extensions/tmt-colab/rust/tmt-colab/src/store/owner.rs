@@ -253,6 +253,31 @@ impl Store {
         tx.commit()?;
         Ok(outcome)
     }
+    /// Display-only page labels are projection state, not membership authority: one immediate
+    /// transaction, no statement, no head change and no receipt. An error rolls every change back.
+    pub fn label_transaction<T>(
+        &mut self,
+        space: &str,
+        root: &[u8; 32],
+        apply: impl FnOnce(&mut OwnerTransaction<'_>) -> Result<T>,
+    ) -> Result<T> {
+        if crypto::space_id(root)? != space {
+            return Err(OwnerFault::WrongOwner.into());
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let head = read_head(&tx, space, root)?;
+        let outcome = apply(&mut OwnerTransaction {
+            tx: &tx,
+            space,
+            root,
+            head,
+            clock: self.clock.as_ref(),
+        })?;
+        tx.commit()?;
+        Ok(outcome)
+    }
     /// Trusted remote event consumer only; no HTTP route grants this capability.
     /// Unknown IDs alone use this local tombstone; known devices require the engine.
     pub(crate) fn revoke_remote_device(
@@ -300,6 +325,52 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// One page's labels, sorted by code point.
+    pub fn page_labels(&self, page: &str) -> Result<Vec<String>> {
+        let mut query = self
+            .tx
+            .prepare("SELECT label FROM page_labels WHERE page=? ORDER BY label")?;
+        Ok(query
+            .query_map([page], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+    /// Replace the whole label set of every named page, all or nothing. A page must be open (not
+    /// unknown, not deleted) and named once; a refused set, a bad name or the space limit leaves
+    /// every page as it was because the caller's transaction ends without a commit.
+    pub fn set_labels(&mut self, changes: &[(String, Vec<String>)]) -> Result<()> {
+        use crate::labels::{Refusal, canonical};
+        let mut named = std::collections::BTreeSet::new();
+        for (page, labels) in changes {
+            values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
+            let open: bool = self.tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM epoch_secrets WHERE page=?)",
+                [page],
+                |r| r.get(0),
+            )?;
+            if !open || !named.insert(page.as_str()) {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let labels = canonical(labels).map_err(|refusal| match refusal {
+                Refusal::Invalid => OwnerFault::Invalid,
+                Refusal::Capacity => OwnerFault::Capacity,
+            })?;
+            self.tx
+                .execute("DELETE FROM page_labels WHERE page=?", [page])?;
+            for label in &labels {
+                self.tx.execute(
+                    "INSERT INTO page_labels(page,label) VALUES (?,?)",
+                    params![page, label],
+                )?;
+            }
+        }
+        let total: i64 = self
+            .tx
+            .query_row("SELECT COUNT(*) FROM page_labels", [], |r| r.get(0))?;
+        if usize::try_from(total).map_or(true, |total| total > crate::limits::SPACE_LABELS) {
+            return Err(OwnerFault::Capacity.into());
+        }
+        Ok(())
+    }
     /// Create-only page identity, committed with its authority, secret and content.
     pub(crate) fn create_page(&mut self, page: &str) -> Result<()> {
         values::generated_id(page)?;

@@ -154,6 +154,22 @@ impl Engine {
             decoders: BTreeMap::new(),
         })
     }
+    /// Display-only label writes (contract: Page labels): whole-set replacements for the named
+    /// pages in one store transaction, no statement, no receipt and no head change. Returns the
+    /// unchanged head for the reply. Last writer wins per page; an over-limit write refuses whole.
+    pub fn set_labels(
+        &self,
+        store: &mut Store,
+        key: &Keyring,
+        changes: &[(String, Vec<String>)],
+    ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
+        store
+            .label_transaction(&key.space_id, &key.owner_public(), |tx| {
+                tx.set_labels(changes)?;
+                tx.head().cloned().ok_or_else(|| OwnerFault::Invalid.into())
+            })
+            .map_err(TransitionError::from_error)
+    }
     pub fn advance_epoch(
         &mut self,
         store: &mut Store,

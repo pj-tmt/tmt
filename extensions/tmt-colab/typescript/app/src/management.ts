@@ -24,7 +24,8 @@ export interface Recipient {
   role: payload.Role;
   pages: string[];
 }
-export interface Policy extends PageInfo {
+/** Policy is what the signed log decides; display-only labels are not part of it. */
+export interface Policy extends Omit<PageInfo, 'labels'> {
   retentionDays: number | null;
   deleted: boolean;
 }
@@ -100,7 +101,10 @@ export function managementFailure(error: unknown, prepared: boolean): Management
 }
 
 /** Only an admitted contiguous owner chain supplies policy and assignments. */
-export function project(page: PageInfo, log: readonly statement.Verified[]): ManagementView {
+export function project(
+  page: Omit<PageInfo, 'labels'>,
+  log: readonly statement.Verified[],
+): ManagementView {
   requireValue(log.length > 0);
   const policy: Policy = {
     ...page,

@@ -77,6 +77,11 @@ pub fn operation(value: &str) -> Result<()> {
             | "page.delete"
     ))
 }
+/// A device-signed management request names a log operation or one of the display-only operations
+/// that change owner-store state without a log statement. Statements never use the second kind.
+pub fn management_operation(value: &str) -> Result<()> {
+    require(operation(value).is_ok() || value == "page.labels")
+}
 pub struct Management<'a> {
     pub space: &'a str,
     pub page: &'a str,
@@ -95,7 +100,7 @@ pub fn management_input(v: &Management<'_>) -> Result<Vec<u8>> {
         values::generated_id(id)?;
     }
     values::decimal(v.expected_revision, false)?;
-    operation(v.operation)?;
+    management_operation(v.operation)?;
     values::time(v.issued_at)?;
     values::time(v.expires_at)?;
     require(

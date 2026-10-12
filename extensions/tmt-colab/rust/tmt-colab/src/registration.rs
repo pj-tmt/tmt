@@ -290,6 +290,15 @@ impl Registration {
         self.engine
             .apply(&mut self.store, &self.keyring, request, now)
     }
+    /// Display-only label writes: the caller serializes management with sync before this mutex.
+    pub fn set_labels(
+        &mut self,
+        changes: &[(String, Vec<String>)],
+    ) -> std::result::Result<tmt_colab_model::statement::Head, crate::transitions::TransitionError>
+    {
+        self.engine
+            .set_labels(&mut self.store, &self.keyring, changes)
+    }
     /// The public key that must have signed a root-local batch; never request-selected.
     pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {
         Ok(self.keyring.local_writer()?.1)

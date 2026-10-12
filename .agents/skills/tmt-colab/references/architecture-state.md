@@ -335,13 +335,21 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 - `registration::Registration` owns the store/keyring pair. It verifies both
   remote-owned extension-key certificates against the full forwarded owner context before
   signing. Remote owns pairing, cookies and grants.
+- Page labels (`labels.rs`, `page_labels` in schema 7) are display-only owner-store state: the
+  one write `page.labels` is a management request that bypasses the engine's statement path
+  (`Engine::set_labels` -> `Store::label_transaction`, no head change, no receipt, last writer
+  wins, all-or-none per request) and `page_list()` serves them as `labels` in `/api/pages` and
+  the CLI catalog. They are never a log statement, so a label change never contends with
+  sharing or member changes. `delete_page_data` removes a page's rows; an open page is one
+  that still has its epoch secrets.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive`, `delete` and
+  `label` (`cli_labels.rs`).
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
   its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
   from the verified complete catalog, including retained deleted IDs, before

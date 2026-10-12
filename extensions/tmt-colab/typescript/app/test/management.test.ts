@@ -36,6 +36,7 @@ const page: PageInfo = {
   lastUpdateAtMs: null,
   expiresAtMs: null,
   warnings: ['expiry-unavailable'],
+  labels: [],
 };
 async function fixture() {
   const signer = await crypto.subtle.importKey(
