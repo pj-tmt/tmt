@@ -330,6 +330,8 @@ pub struct Mounts {
     /// Receives the origins of upgrades to object-declared extensions, when there is one.
     origins: Option<Arc<dyn OriginSink>>,
     activation: Option<Arc<dyn ActivationSink>>,
+    #[cfg(test)]
+    before_slot_drop: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 #[derive(Default)]
 struct Tunnels {
@@ -368,6 +370,8 @@ impl Mounts {
             tunnels: Mutex::default(),
             origins: None,
             activation: None,
+            #[cfg(test)]
+            before_slot_drop: None,
         }
     }
     /// The session resolver the mounts admit owner requests with.
@@ -433,6 +437,8 @@ impl Mounts {
             let _ = client.shutdown(Shutdown::Both);
             return false;
         }
+        #[cfg(test)]
+        let before_slot_drop = self.before_slot_drop.clone();
         let spawned = thread::Builder::new()
             .name("remote-tunnel".into())
             .spawn(move || {
@@ -445,6 +451,10 @@ impl Mounts {
                 );
                 if let Some(origin) = origin {
                     origin.close();
+                }
+                #[cfg(test)]
+                if let Some(observe) = before_slot_drop {
+                    observe();
                 }
             });
         match spawned {
@@ -1176,5 +1186,252 @@ mod session_cap_tests {
         let detached = Arc::new(SessionState::default());
         assert!(detached.end_if_detached());
         assert!(detached.attach().is_none());
+    }
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::*;
+    use crate::{
+        http::{Door, Handler},
+        pages::Pages,
+        routes::Routes,
+        site::Site,
+    };
+    use std::{
+        fs,
+        net::TcpListener,
+        os::unix::fs::PermissionsExt,
+        sync::{atomic::AtomicBool, mpsc},
+    };
+
+    const WAIT: Duration = Duration::from_secs(5);
+    const PREFIX: &str = "/r/k7qxm4tz2pbwn6rh";
+    const ONE: &[Extension] = &[Extension {
+        tunnels: 1,
+        ..EXTENSIONS[0]
+    }];
+
+    struct Mounted {
+        root: PathBuf,
+        address: std::net::SocketAddr,
+        origin: String,
+        mounts: Arc<Mounts>,
+        stop: Arc<AtomicBool>,
+        door: Option<JoinHandle<()>>,
+        listener: std::os::unix::net::UnixListener,
+    }
+    impl Mounted {
+        fn new(barrier: Arc<dyn Fn() + Send + Sync>) -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let root = PathBuf::from(format!(
+                "/tmp/t2217-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(root.join("colab")).unwrap();
+            fs::set_permissions(root.join("colab"), fs::Permissions::from_mode(0o700)).unwrap();
+            let listener =
+                std::os::unix::net::UnixListener::bind(root.join("colab/door.sock")).unwrap();
+            fs::set_permissions(
+                root.join("colab/door.sock"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+            let door = Door::bind(0).unwrap();
+            let address = door.socket_addr().unwrap();
+            let origin = door.origin.clone();
+            let mut mounts =
+                Mounts::with_extensions(root.clone(), &origin, PREFIX, Arc::new(NoSessions), ONE);
+            mounts.before_slot_drop = Some(barrier);
+            let mounts = Arc::new(mounts);
+            let site = Arc::new(Site {
+                routes: Routes::new(1024, PREFIX.into()).unwrap(),
+                mounts: Arc::clone(&mounts),
+                pages: Some(Pages::new(
+                    &origin,
+                    "fixture".into(),
+                    "window".into(),
+                    PREFIX,
+                )),
+            });
+            let stop = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&stop);
+            let running = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());
+            Self {
+                root,
+                address,
+                origin,
+                mounts,
+                stop,
+                door: Some(running),
+                listener,
+            }
+        }
+        fn request(&self, upgrade: bool) -> TcpStream {
+            let mut client = TcpStream::connect(self.address).unwrap();
+            client.set_read_timeout(Some(WAIT)).unwrap();
+            let path = if upgrade {
+                format!("{PREFIX}/x/colab/sync")
+            } else {
+                format!("{PREFIX}/append")
+            };
+            let headers = if upgrade {
+                "Connection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            } else {
+                ""
+            };
+            write!(
+                client,
+                "GET {path} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\n{headers}\r\n",
+                self.address, self.origin
+            )
+            .unwrap();
+            client
+        }
+        fn refused(&self) {
+            let mut response = String::new();
+            self.request(true).read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+            assert!(response.contains("retry-after: 5\r\n"), "{response}");
+            self.listener.set_nonblocking(true).unwrap();
+            assert!(
+                matches!(self.listener.accept(), Err(error) if error.kind() == io::ErrorKind::WouldBlock),
+                "full pool forwarded another request"
+            );
+            self.listener.set_nonblocking(false).unwrap();
+            let mut edge = String::new();
+            self.request(false).read_to_string(&mut edge).unwrap();
+            assert!(
+                edge.starts_with("HTTP/1.1 404"),
+                "edge sockets starved: {edge}"
+            );
+        }
+    }
+    impl Drop for Mounted {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Release);
+            self.door.take().unwrap().join().unwrap();
+            self.mounts.shutdown();
+            fs::remove_dir_all(&self.root).unwrap();
+        }
+    }
+    fn head(stream: &mut impl Read) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        while !bytes.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            stream.read_exact(&mut byte).unwrap();
+            bytes.push(byte[0]);
+            assert!(bytes.len() <= 4096);
+        }
+        bytes
+    }
+    fn reconnect(buffered: bool) {
+        let (finished, observed) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let gate = Mutex::new(Some(released));
+        let barrier = Arc::new(move || {
+            let receiver = gate.lock().unwrap().take();
+            if let Some(receiver) = receiver {
+                finished.send(()).unwrap();
+                receiver.recv_timeout(WAIT).unwrap();
+            }
+        });
+        let door = Mounted::new(barrier);
+        let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut old = TcpStream::connect(tcp.local_addr().unwrap()).unwrap();
+        let (client, _) = tcp.accept().unwrap();
+        let (mut upstream, mut extension) = UnixStream::pair().unwrap();
+        extension.set_read_timeout(Some(WAIT)).unwrap();
+        let mut queued = Vec::new();
+        if buffered {
+            // Fill the real upstream socket before adoption. It cannot drain until this
+            // test reads: EOF with later payload must preserve every queued byte.
+            nix::sys::socket::setsockopt(&upstream, nix::sys::socket::sockopt::SndBuf, &1024)
+                .unwrap();
+            upstream.set_nonblocking(true).unwrap();
+            for _ in 0..64 {
+                match upstream.write(&[b'P'; 1024]) {
+                    Ok(n) => queued.extend_from_slice(&vec![b'P'; n]),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                    result => panic!("socket fill failed: {result:?}"),
+                }
+            }
+            assert!(!queued.is_empty());
+            assert!(
+                matches!(upstream.write(b"P"), Err(error) if error.kind() == io::ErrorKind::WouldBlock)
+            );
+        }
+        let slot = door.mounts.reserve(0).unwrap();
+        assert!(
+            door.mounts
+                .adopt(client, upstream, slot, ONE[0].tunnel_idle, None, None)
+        );
+        door.refused(); // A still-attached tunnel consumes its one slot.
+        if buffered {
+            let payload = vec![b'B'; 32 * 1024];
+            old.write_all(&payload).unwrap();
+            queued.extend_from_slice(&payload);
+        }
+        old.shutdown(Shutdown::Write).unwrap();
+        if buffered {
+            door.refused(); // The closed writer does not free a draining tunnel.
+            assert!(matches!(
+                observed.try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ));
+            let mut bytes = vec![0; queued.len()];
+            extension.read_exact(&mut bytes).unwrap();
+            assert_eq!(
+                bytes, queued,
+                "buffered teardown dropped or reordered bytes"
+            );
+        }
+        observed.recv_timeout(WAIT).unwrap();
+        assert_eq!(
+            extension.read(&mut [0]).unwrap(),
+            0,
+            "splice did not close the extension"
+        );
+        assert_eq!(door.mounts.active[0].load(Ordering::Acquire), 1);
+        door.refused(); // Splice ended, but the worker still owns its slot.
+        release.send(()).unwrap();
+        let (_, worker) = door.mounts.tunnels.lock().unwrap().running.remove(0);
+        worker.join().unwrap();
+        assert_eq!(
+            door.mounts.active[0].load(Ordering::Acquire),
+            0,
+            "slot did not release exactly once"
+        );
+        // Scoped ownership also joins the fixture server if a reconnect assertion fails.
+        thread::scope(|scope| {
+            let server = door.listener.try_clone().unwrap();
+            let served = scope.spawn(move || {
+            let mut ready = [PollFd::new(server.as_fd(), PollFlags::POLLIN)];
+            assert!(poll(&mut ready, u16::try_from(WAIT.as_millis()).unwrap()).unwrap() > 0, "replacement never reached the extension");
+            let (mut stream, _) = server.accept().unwrap();
+            stream.set_read_timeout(Some(WAIT)).unwrap();
+            assert!(head(&mut stream).starts_with(b"GET /sync HTTP/1.1"));
+            stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n").unwrap();
+            let mut bytes = [0; 4];
+            stream.read_exact(&mut bytes).unwrap();
+            stream.write_all(&bytes).unwrap();
+        });
+            let mut replacement = door.request(true);
+            assert!(head(&mut replacement).starts_with(b"HTTP/1.1 101"));
+            replacement.write_all(b"ping").unwrap();
+            let mut echo = [0; 4];
+            replacement.read_exact(&mut echo).unwrap();
+            assert_eq!(&echo, b"ping");
+            served.join().unwrap();
+        });
+    }
+    #[test]
+    fn quiet_teardown_keeps_capacity_until_its_worker_exits() {
+        reconnect(false);
+    }
+    #[test]
+    fn buffered_teardown_keeps_capacity_and_drains_before_reconnect() {
+        reconnect(true);
     }
 }
