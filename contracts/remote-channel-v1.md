@@ -1965,14 +1965,49 @@ names that path and gives a command to move it aside; no legacy reader, conversi
 Removing local history leaves Firebase resources untouched; any later destructive takeover
 still requires authorization of the plan's observed foreign fingerprint.
 
+### Browser remote registry
+
+The browser SDK's `remoteRegistry` stores public references using the native catalog's
+`{version:1,entries:[{name,kind,url,project}]}` fields and name/URL grammar. It has at most
+16 references and 8 KiB of UTF-8 JSON. This origin's `tmt-remote` IndexedDB `device` store
+keeps the public catalog under `remotes-v1`, separately from the existing opaque device key
+and pairing under `device`; no database version change or key migration occurs. Add, rename,
+remove and confirmed import replace only that public entry. Removing a reference neither
+signs out nor revokes access. Site-data clearing removes both; changing a pairing preserves
+references. Registry validation, storage and concurrent-edit failures use the existing
+`REMOTE_SELECTOR_INVALID`, `_UNAVAILABLE` and `_CONFLICT` family, not signed access evidence.
+
+Local Open validates the destination and the whole public handoff before navigation.
+The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above),
+required `tmt-source` (lowercase `host[:port]`, at most 255 characters, no scheme/userinfo/path
+or whitespace), and
+optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
+grammar). All values count within the 8 KiB encoded-fragment bound. Unknown, duplicate or
+invalid members refuse the
+whole packet; no truncation or partial import occurs. The receiver strips the entire fragment
+before admission and confirms imports before storing anything. The source is an untrusted
+import-confirmation label only, never persisted or used for identity, authority, deduplication
+or destination selection. The page hint grants no access and is not consumed by this landing
+page; Colab resolves navigation after its own admission. No keys, grants, sessions, credentials,
+drafts, original operation IDs or reader seeds are carried.
+
+A duplicate canonical target is already added; a colliding name offers a new name or Skip,
+without overwriting the existing reference. Landing rows use only this origin's existing
+verified observation for current access. Foreign rows say `not checked`, carry no state mark
+and offer Open, with no probes or manufactured last-seen/default status. Firebase references
+reuse the validated public remote link and remain `not checked`; Open preserves that link
+unchanged, with no catalog handoff, Auth, configuration fetch or Firestore transport. Hosted
+catalog reception and the Colab switcher are later consumers, not shipped registry behavior.
+
 ### Native remote selection
 
 `add <name> <remote-link>`, `ls` and `rm <name>` manage an owner-only
 public catalog in `remotes.json`, not grants, private keys or deployment ownership. Local
 references have an absolute HTTP(S) door-root URL; Firebase references use the validated
 [remote link](#backends-and-deploy). A name cannot shadow a different owned project id. Removing a
-reference preserves cloud resources and deploy history. The catalog has no current/provider
-status observation; the browser handoff catalog and its observations are a separate slice.
+reference preserves cloud resources and deploy history. The native catalog has no current/provider
+status observation; origin-local browser references use the separate
+[browser registry](#browser-remote-registry).
 
 `ls --json` returns `{version:1,remotes:[{name,kind,project,region,default}]}` (names are strings,
 `kind` is `local` or `firestore`, project/region are strings or null, and `default` is boolean);

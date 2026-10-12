@@ -1,3 +1,13 @@
+import { deviceObjects as store, request } from './browser-store.js';
+import { landingRegistry } from './remote-registry-page.js';
+export { remoteRegistry, RemoteRegistryError } from './remote-registry.js';
+export type {
+  RemoteReference,
+  RemoteCatalog,
+  NavigationHint,
+  RegistryHandoff,
+  ImportPlan,
+} from './remote-registry.js';
 import type { HostedDeclaration } from './firebase-declaration.js';
 export type { HostedDeclaration } from './firebase-declaration.js';
 import { connectHosted, type HostedAuth } from './firebase-auth.js';
@@ -69,8 +79,6 @@ import {
  */
 
 const WORDS = wordlist.split('\n').slice(0, 2048);
-const DATABASE = 'tmt-remote';
-const STORE = 'device';
 const RECORD = 'device';
 
 interface Stored {
@@ -79,19 +87,6 @@ interface Stored {
   paired: Paired;
 }
 
-function request<T>(open: () => IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const pending = open();
-    pending.onsuccess = () => resolve(pending.result);
-    pending.onerror = () => reject(pending.error ?? new Error('Device storage failed.'));
-  });
-}
-async function store(mode: IDBTransactionMode): Promise<IDBObjectStore> {
-  const opening = indexedDB.open(DATABASE, 1);
-  opening.onupgradeneeded = () => opening.result.createObjectStore(STORE);
-  const database = await request(() => opening);
-  return database.transaction(STORE, mode).objectStore(STORE);
-}
 async function load(): Promise<Stored | undefined> {
   const objects = await store('readonly');
   return (await request(() => objects.get(RECORD))) as Stored | undefined;
@@ -344,6 +339,7 @@ export async function landingPage(): Promise<void> {
       document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
     );
   }
+  const registryState = landingRegistry();
   const button = element('check') as HTMLButtonElement;
   let attempt = 0;
   let departed = false;
@@ -418,6 +414,7 @@ export async function landingPage(): Promise<void> {
           ? 'waiting'
           : 'blocked';
     element('notice').dataset.state = state;
+    registryState(copy[1]!, element('protocol-address').textContent ?? undefined);
     for (const [copyState, command] of commandActions)
       element(`copy-feedback-${copyState}-${command}`).textContent = '';
     element('mark').textContent = copy[0]!;

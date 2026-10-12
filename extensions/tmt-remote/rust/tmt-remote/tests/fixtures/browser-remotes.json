@@ -1,0 +1,32 @@
+{
+  "catalog": {
+    "version": 1,
+    "entries": [
+      {
+        "name": "studio",
+        "kind": "local",
+        "url": "http://127.0.0.1:9001/r/aaaaaaaaaaaaaaaa/",
+        "project": null
+      },
+      {
+        "name": "desk",
+        "kind": "local",
+        "url": "http://127.0.0.1:9002/r/bbbbbbbbbbbbbbbb/",
+        "project": null
+      }
+    ]
+  },
+  "validNames": [
+    "studio",
+    "desk",
+    "a0",
+    "-"
+  ],
+  "invalidNames": [
+    "local",
+    "Studio",
+    "",
+    "a_b"
+  ],
+  "maxNameBytes": 63
+}

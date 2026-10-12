@@ -653,6 +653,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   expect(result.exports).toEqual([
     'ClientError',
     'RefusalError',
+    'RemoteRegistryError',
     'ReopenSessionError',
     'budget',
     'certifyKey',
@@ -661,6 +662,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'management',
     'operations',
     'pairingPage',
+    'remoteRegistry',
     'reopenSession',
     'transportUrl',
   ]);
@@ -3392,3 +3394,308 @@ for (const [width, theme] of [
     await movedContext.close();
   });
 }
+
+// B1 is Remote's registry consumer, not Colab routing or a foreign health probe.
+test('landing registry keeps two origins independent and confirms public-only handoffs', async () => {
+  const secondRoot = await mkdtemp('/tmp/tmt-registry-');
+  await writeFile(
+    join(secondRoot, 'core.mjs'),
+    await readFile(new URL('./core-fixture.mjs', import.meta.url)),
+    { mode: 0o700 },
+  );
+  const secondEnv = {
+    ...env,
+    HOME: secondRoot,
+    TMT_FIXTURE_ROOT: secondRoot,
+    TMT_EXECUTABLE: join(secondRoot, 'core.mjs'),
+    TMT_AGENT: '1',
+    BROWSER: '/usr/bin/true',
+  };
+  const secondServe = spawn(BINARY, ['serve', '--json'], { env: secondEnv });
+  let secondPair: ChildProcessWithoutNullStreams | undefined;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const network: string[] = [];
+  page.on('request', (request) => network.push(request.url()));
+  try {
+    const secondDescriptor = await lines(secondServe).next();
+    const secondOrigin = new URL(secondDescriptor.address as string).origin;
+    async function pairAt(ownerEnv: NodeJS.ProcessEnv, label: string) {
+      const child = spawn(BINARY, ['pair', '--json'], {
+        env: { ...ownerEnv, TMT_AGENT: '1', BROWSER: '/usr/bin/true' },
+      });
+      secondPair = child;
+      const events = lines(child),
+        offer = await events.next();
+      await page.goto(offer.link as string);
+      await page.locator('#name').fill(label);
+      await page.getByRole('button', { name: 'Pair', exact: true }).click();
+      const candidate = await events.next();
+      await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+      child.stdin.write('confirm\n');
+      expect((await events.next()).reason).toBe('paired');
+      await exited(child);
+      expect(child.exitCode).toBe(0);
+      await expect(page.locator('#entry-link')).toBeVisible();
+    }
+    async function identity() {
+      return page.evaluate(async () => {
+        const database = await new Promise<IDBDatabase>((resolve) => {
+          const r = indexedDB.open('tmt-remote', 1);
+          r.onsuccess = () => resolve(r.result);
+        });
+        const record = await new Promise<{
+          handle: CryptoKey;
+          publicKey: Uint8Array;
+          paired: unknown;
+        }>((resolve) => {
+          const r = database.transaction('device').objectStore('device').get('device');
+          r.onsuccess = () => resolve(r.result);
+        });
+        database.close();
+        return {
+          paired: record.paired,
+          publicKey: Array.from(record.publicKey),
+          extractable: record.handle.extractable,
+          signature: Array.from(
+            new Uint8Array(
+              await crypto.subtle.sign(
+                'Ed25519',
+                record.handle,
+                new TextEncoder().encode('registry identity control'),
+              ),
+            ),
+          ),
+        };
+      });
+    }
+    async function sdk<T>(run: string, input?: unknown): Promise<T> {
+      return page.evaluate(
+        async ({ run, input }) => {
+          const { remoteRegistry } = (await import('/sdk/remote-v1.js' as string)) as {
+            remoteRegistry: Record<string, (...args: unknown[]) => Promise<unknown>>;
+          };
+          return remoteRegistry[run]!(...((input as unknown[] | undefined) ?? []));
+        },
+        { run, input },
+      ) as Promise<T>;
+    }
+    const captureDirectory = process.env.TMT_REMOTE_REGISTRY_CAPTURE_DIR;
+    async function capture(state: string, lookAt: string) {
+      await captureState(
+        page,
+        `registry-${state}`,
+        lookAt,
+        [1440],
+        ['light'],
+        undefined,
+        captureDirectory,
+      );
+      await captureState(
+        page,
+        `registry-${state}`,
+        lookAt,
+        [390],
+        ['dark'],
+        undefined,
+        captureDirectory,
+      );
+    }
+    await pairAt(env, 'Registry A');
+    await page.goto(origin);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    const first = await identity();
+    expect(first.extractable).toBe(false);
+    await sdk('add', ['studio', `${origin}/`]);
+    await sdk('add', ['desk', `${secondOrigin}/`]);
+    await page.reload();
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
+    await expect(page.locator('[data-remote="desk"] .remote-state')).toHaveText('not checked');
+    await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
+    expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
+    await page.locator('#remotes').scrollIntoViewIfNeeded();
+    await capture('list', 'Current access is verified; the other origin is not probed or marked.');
+    await page.locator('#remote-add').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByLabel('Remote name')).toBeFocused();
+    await capture('add', 'Explicit public door address or remote link; no implicit sign-in.');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('#remote-add')).toBeFocused();
+    await page.locator('#remote-add').click();
+    await page.getByLabel('Remote name').fill('spare');
+    await page.getByLabel('Door address or remote link').fill('http://127.0.0.1:9876/');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Add remote spare?' })).toBeVisible();
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('#remote-add')).toBeFocused();
+    await expect(page.locator('[data-remote="spare"] .remote-state')).toHaveText('not checked');
+    expect(network.some((url) => url.startsWith('http://127.0.0.1:9876/'))).toBe(false);
+    expect(await identity()).toEqual(first);
+    await sdk('remove', ['spare']);
+    const openB = await sdk<string>('navigation', [
+      { name: 'desk', kind: 'local', url: `${secondOrigin}/`, project: null },
+      new URL(origin).host,
+    ]);
+    expect(openB).not.toContain('clientId');
+    expect(openB).not.toContain('machinePublicKey');
+    await pairAt(secondEnv, 'Registry B');
+    await page.goto(secondOrigin);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    const second = await identity();
+    expect(second.publicKey).not.toEqual(first.publicKey);
+    await sdk('add', ['studio', `${secondOrigin}/`]);
+    await page.goto(openB);
+    await expect(page.getByRole('dialog')).toHaveAttribute(
+      'aria-labelledby',
+      'remote-dialog-heading',
+    );
+    await expect(
+      page.getByRole('heading', { name: `Add 2 remotes from ${new URL(origin).host}?` }),
+    ).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('');
+    await expect(
+      page.getByText('You already have a remote named studio', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Remote name')).toHaveValue('studio-2');
+    await expect(page.getByText('Already added as studio', { exact: true })).toBeVisible();
+    await capture(
+      'import-collision',
+      'The source label is untrusted; collision is renamed and the same target is skipped.',
+    );
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(await sdk('list')).toEqual({
+      version: 1,
+      entries: [{ name: 'studio', kind: 'local', url: `${secondOrigin}/`, project: null }],
+    });
+    await page.goto(openB);
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(await identity()).toEqual(second);
+    await page.getByRole('button', { name: 'Rename studio-2', exact: true }).click();
+    await page.getByLabel('Remote name').fill('first');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Remove first', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Remove first from this browser?' }),
+    ).toBeVisible();
+    await capture(
+      'remove',
+      'Removing public reference data does not revoke or sign out the device.',
+    );
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeFocused();
+    await page.getByRole('button', { name: 'Remove first', exact: true }).click();
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.locator('#remote-add')).toBeFocused();
+    expect(await identity()).toEqual(second);
+    // A's old fixed-key device record remains readable and unchanged after a B round trip.
+    await page.goto(origin);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    expect(await identity()).toEqual(first);
+    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
+    // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
+    const beforeInvalid = await sdk('list');
+    await page.goto(`${origin}/#tmt-remotes=bad&tmt-source=host/path`);
+    await expect(page.locator('#remote-status')).toHaveText('The remote name or link is invalid');
+    expect(new URL(page.url()).hash).toBe('');
+    expect(await sdk('list')).toEqual(beforeInvalid);
+    const concurrent = await page.evaluate(async () => {
+      const { remoteRegistry } = (await import(
+        '/sdk/remote-v1.js' as string
+      )) as typeof import('../src/browser.js');
+      const plan = await remoteRegistry.planImport({
+        version: 1,
+        entries: [
+          { name: 'incoming', kind: 'local', url: 'http://127.0.0.1:9123/', project: null },
+        ],
+      });
+      await remoteRegistry.add('other', 'http://127.0.0.1:9124/');
+      try {
+        await remoteRegistry.confirmImport(plan, ['incoming']);
+        return 'unexpected';
+      } catch (error) {
+        return (error as { code: string }).code;
+      }
+    });
+    expect(concurrent).toBe('REMOTE_SELECTOR_CONFLICT');
+    expect(
+      (await sdk<{ entries: { name: string }[] }>('list')).entries.map((entry) => entry.name),
+    ).toEqual(['studio', 'desk', 'other']);
+    await sdk('remove', ['other']);
+    expect(await identity()).toEqual(first);
+    const corruption = await page.evaluate(async () => {
+      const { remoteRegistry } = (await import(
+        '/sdk/remote-v1.js' as string
+      )) as typeof import('../src/browser.js');
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const r = indexedDB.open('tmt-remote', 1);
+        r.onsuccess = () => resolve(r.result);
+      });
+      const original = await new Promise<unknown>((resolve) => {
+        const r = db.transaction('device').objectStore('device').get('remotes-v1');
+        r.onsuccess = () => resolve(r.result);
+      });
+      const write = (value: unknown) =>
+        new Promise<void>((resolve) => {
+          const tx = db.transaction('device', 'readwrite');
+          tx.objectStore('device').put(value, 'remotes-v1');
+          tx.oncomplete = () => resolve();
+        });
+      const result: string[] = [];
+      for (const invalid of [
+        '{"version":1,"entries":[],"device":"PRIVATE_CANARY"}',
+        ' '.repeat(8193),
+        '{"version":1,"entries":[],"version":1}',
+      ]) {
+        await write(invalid);
+        try {
+          await remoteRegistry.list();
+          result.push('unexpected');
+        } catch (error) {
+          result.push((error as { code: string }).code);
+        }
+      }
+      await write(original);
+      db.close();
+      return result;
+    });
+    expect(corruption).toEqual(Array(3).fill('REMOTE_SELECTOR_UNAVAILABLE'));
+    expect(await identity()).toEqual(first);
+    // Replacing only a pairing (the legacy save path) cannot clear the public catalog.
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const r = indexedDB.open('tmt-remote', 1);
+        r.onsuccess = () => resolve(r.result);
+      });
+      const tx = db.transaction('device', 'readwrite');
+      tx.objectStore('device').delete('device');
+      await new Promise<void>((resolve) => {
+        tx.oncomplete = () => resolve();
+      });
+      db.close();
+    });
+    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
+    await page.reload();
+    await expect(page.locator('#state-label')).toHaveText('Not paired');
+    // Browser-owned site-data clearing ends both records, unlike device-only replacement.
+    const storage = await context.newCDPSession(page);
+    await storage.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
+    await storage.detach();
+    expect(await sdk('list')).toEqual({ version: 1, entries: [] });
+    await page.goto(secondOrigin);
+    await expect(page.locator('#state-label')).toHaveText('Connected');
+    expect(await identity()).toEqual(second);
+    expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
+  } finally {
+    await context.close();
+    secondPair?.kill('SIGTERM');
+    if (secondPair) await exited(secondPair);
+    secondServe.kill('SIGTERM');
+    await exited(secondServe);
+    await rm(secondRoot, { recursive: true, force: true });
+  }
+});

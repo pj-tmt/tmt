@@ -554,7 +554,7 @@ skills. Publication gates belong to the [release skill](.agents/skills/tmt-relea
 sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
 discovery shapes, and the [hard lines and standing guarantees](contracts/remote-channel-v1.md#user-path)
 that open it. Remote owns authority; shared components supply presentation only. The door serves
-`remote-client`'s `remote-v1.js` (README owns re-admission and lazy hosted Auth)
+`remote-client`'s `remote-v1.js` (README: re-admission, hosted Auth, registry)
 and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
 `/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
 the extension object channel (`tmt-extension-objects`), never through Remote state files.

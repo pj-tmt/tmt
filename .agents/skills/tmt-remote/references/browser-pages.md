@@ -58,6 +58,15 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
+The landing page also consumes the SDK's origin-local public registry. Its list, Add,
+rename/remove and confirmed collision-aware import follow the
+[browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
+Handoff fragments are erased before admission. Registry changes touch only the public
+`remotes-v1` key; the existing device record and non-extractable handle remain unchanged.
+Current access reuses the landing observation; foreign entries remain `not checked`, without
+probes or a state mark. Firebase Open preserves its validated public link and does not send
+catalog data. This page is a registry consumer, not the Colab switcher or a default selector.
+
 ## Public short entries
 
 Remote forwards the allowlisted `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` entries
