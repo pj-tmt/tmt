@@ -18,6 +18,7 @@ import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
 import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
+import { conversationRecordKey } from './conversation-record-key.js';
 import { AgentPresentation, runningDriverFor } from './agent-directory.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
@@ -316,6 +317,7 @@ export function AskPanel({
     const reply = record.reply !== undefined && (
       <ConversationTurn
         role="agent"
+        data-conversation-record={conversationRecordKey('reply', record.writer, record.operationId)}
         runningDriver={runningDriverFor(agents, record.machine, record.agent)}
         author={record.agentName || text.askAgentLabel}
         at={record.issuedAt}

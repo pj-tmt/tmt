@@ -115,6 +115,10 @@ export interface ThreadView extends ThreadRecord {
   notifications?: ThreadNotificationRecord[];
   decision?: ProposalDecisionRecord;
 }
+
+/** The same authenticated writer comparison used by the conversation's Yours controls. */
+export const isOwnDiscussionWriter = (writer: string, deviceId: string | undefined) =>
+  deviceId !== undefined && writer === deviceId;
 export function validateSelector(value: unknown): asserts value is QuoteSelector {
   exactKeys(value, ['exact', 'prefix', 'suffix']);
   requireValue(typeof value.exact === 'string' && value.exact.length > 0);

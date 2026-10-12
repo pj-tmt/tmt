@@ -1,7 +1,8 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { Fragment } from 'react';
-import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
+import { ConversationWindow } from './components/conversation-window.js';
+import { conversationRecordKey } from './conversation-record-key.js';
 import { text } from './strings.js';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
@@ -122,6 +123,7 @@ export function ChatPanel({
   return (
     <ConversationPresentation value="chat">
       <ConversationWindow
+        notificationDestination="Chat"
         className="chat-panel"
         data-testid="chat-panel"
         aria-label="Page chat"

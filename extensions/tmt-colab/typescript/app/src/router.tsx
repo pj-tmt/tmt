@@ -1,5 +1,5 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { BrowserCommand, BrowserIconAction } from '@tmt/browser-ui/react';
+import { BrowserCommand, BrowserIconAction, BrowserNotifications } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
@@ -26,6 +26,9 @@ import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { ReplyAnnouncer } from './reply-announcer.js';
+import { useReplyNotifications } from './use-reply-notifications.js';
+import { legacyReplyAnnouncements, ReplyNotificationObserver } from './reply-notifications.js';
+import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
@@ -623,6 +626,7 @@ function Page() {
     next: typeof loaded;
   } | null>(null);
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
+  const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
@@ -706,9 +710,14 @@ function Page() {
     });
     connectionOwner.reset();
     setEditError(null);
+    let firstView = true;
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
         const next = { ...value, ownData: value.ownData ?? false };
+        if (firstView) {
+          firstView = false;
+          replyObserver.baselineFirstView(next);
+        }
         latest.current = next;
         setView(next);
         if (!dirty.current) {
@@ -721,7 +730,7 @@ function Page() {
     return () => {
       unsubscribe?.();
     };
-  }, [snapshot, loaded, transport, connectionOwner]);
+  }, [snapshot, loaded, transport, connectionOwner, replyObserver]);
   async function save() {
     if (!snapshot.binding || saving) return;
     setSaving(true);
@@ -1158,9 +1167,46 @@ function Page() {
       <EndedLink action={endedAction} />
     </div>
   );
+  const notificationScope = JSON.stringify([
+    space ?? '',
+    snapshot.id,
+    snapshot.binding?.discussion?.deviceId ?? '',
+  ]);
+  const notificationClassification = { questionThreads: questionLayer.notificationThreads };
+  const notifications = useReplyNotifications({
+    pageKey: notificationScope,
+    observer: replyObserver,
+    sources: view,
+    deviceId: snapshot.binding?.discussion?.deviceId,
+    classification: notificationClassification,
+    blocked: archived || !!endedError,
+    activate: (event) => {
+      if (annotationBusy.current || statusBusy.current || chatBusy.current) return false;
+      if (event.destination === 'Chat') {
+        if (annotationRef.current) closeRef.current(false);
+        setChatOpened(true);
+        setChatActivation(undefined);
+        setPanel('chat');
+      } else if (event.thread) openAnchoredThread(event.thread);
+      else return false;
+      return true;
+    },
+  });
   const content = (
     <section className="page">
-      <ReplyAnnouncer key={snapshot.id} initialRecords={snapshot.asks} records={view.asks} />
+      <BrowserNotifications
+        pageKey={notificationScope}
+        events={notifications.events}
+        suspended={
+          panel !== null || !!annotation?.thread || notifications.modalCount > 0 || recoveryRequired
+        }
+        isEligible={notifications.isEligible}
+      />
+      <ReplyAnnouncer
+        key={notificationScope}
+        initialRecords={snapshot.asks}
+        records={legacyReplyAnnouncements(view, notificationClassification)}
+      />
       <ColabHeader
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
@@ -1594,7 +1640,9 @@ function Page() {
   ]);
   return (
     <CreatorDefaultProvider key={creatorScope} scope={creatorScope}>
-      <AgentPresentation value={agents}>{content}</AgentPresentation>
+      <ReplyNotificationContext value={notifications.context}>
+        <AgentPresentation value={agents}>{content}</AgentPresentation>
+      </ReplyNotificationContext>
     </CreatorDefaultProvider>
   );
 }

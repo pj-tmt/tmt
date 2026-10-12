@@ -11,9 +11,7 @@ async function run(page: Page, method: string, argument?: unknown) {
 }
 async function mount(page: Page, surface: 'thread' | 'chat') {
   await page.goto('/');
-  await run(page, 'mount');
-  await run(page, 'conversation', { surface, state: 'waiting' });
-  await run(page, 'scrollHistory');
+  await run(page, 'mount', { history: surface });
   const host = page.locator('#ask-page-fixture');
   await expect(host.locator('.status')).toContainText('Live');
   if (surface === 'thread') {
@@ -220,6 +218,14 @@ for (const surface of ['chat', 'thread'] as const) {
       const toggle = await pageAction(host, 'Chat');
       await toggle.click();
     } else {
+      // Unread arrivals held by the active window now resume. Dismiss them
+      // through their real controls before reopening via the covered marker;
+      // notification activation deliberately reveals a different exact turn.
+      const dismiss = page.getByRole('button', { name: 'Dismiss Thread reply', exact: true });
+      await expect(dismiss).toHaveCount(2);
+      await dismiss.first().click();
+      await dismiss.first().click();
+      await expect(dismiss).toHaveCount(0);
       await page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]').click();
     }
     await expect(window).toBeVisible();

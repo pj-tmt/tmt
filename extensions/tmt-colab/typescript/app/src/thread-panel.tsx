@@ -6,15 +6,18 @@ import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
-import { ConversationWindow, conversationRecordKey } from './components/conversation-window.js';
+import { ConversationWindow } from './components/conversation-window.js';
+import { conversationRecordKey } from './conversation-record-key.js';
+import { threadNotificationDestination } from './reply-notification-context.js';
 import { MessageText } from './components/message-text.js';
 import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
-import { BrowserMenu } from '@tmt/browser-ui/react';
+import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
+import { isOwnDiscussionWriter } from './thread-records.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
@@ -131,7 +134,7 @@ export function DiscussionComment({
     [editRevision, setEditRevision] = useState(comment.revision);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
-  const owned = !readOnly && binding?.deviceId === comment.ref.writer;
+  const owned = !readOnly && isOwnDiscussionWriter(comment.ref.writer, binding?.deviceId);
   const menu = [
     ...(owned && allowEdit && !comment.attachments?.length
       ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
@@ -166,6 +169,11 @@ export function DiscussionComment({
       className="comment"
       data-testid="comment-entry"
       data-message-id={comment.messageId}
+      data-conversation-record={conversationRecordKey(
+        'comment',
+        comment.ref.writer,
+        comment.messageId,
+      )}
       data-writer={comment.ref.writer}
       meta={!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
       actions={
@@ -296,7 +304,9 @@ export function CommentExchange({
       blocked={blocked}
       renderUser={(_record, status, delivery) => user(status, delivery)}
       retryInput={
-        !thread.deleted && !comment.deleted && binding?.deviceId === comment.ref.writer
+        !thread.deleted &&
+        !comment.deleted &&
+        isOwnDiscussionWriter(comment.ref.writer, binding?.deviceId)
           ? {
               quote: thread.anchor?.exact ?? '',
               comment: comment.body,
@@ -379,7 +389,7 @@ export function ThreadWindow({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
-  const owned = !!thread && binding?.deviceId === thread.ref.writer;
+  const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
   // observed until Reopen restores the marker.
@@ -437,6 +447,9 @@ export function ThreadWindow({
   return (
     <AttachmentDropPanel target="thread">
       <ConversationWindow
+        notificationDestination={
+          thread ? threadNotificationDestination(thread.ref.writer, thread.ref.id) : undefined
+        }
         className="comment-thread"
         data-layout={layout}
         data-testid={thread ? 'comment-thread' : 'annotation-window'}

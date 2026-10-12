@@ -1,6 +1,6 @@
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
-import { BrowserMenu } from '@tmt/browser-ui/react';
+import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
 
