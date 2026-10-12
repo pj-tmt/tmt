@@ -3,6 +3,7 @@ mod cli_grammar;
 mod cli_labels;
 mod cli_management;
 mod cli_page_check;
+mod cli_patch;
 mod cli_proposal;
 mod cli_threads;
 mod door;
@@ -354,20 +355,10 @@ fn grammar() -> Command {
                                 Arg::new("expected-revision")
                                     .long("expected-revision")
                                     .value_name("revision")
-                                    .value_parser(|value: &str| {
-                                        if value.strip_prefix("v1:").is_some_and(|h| {
-                                            h.len() == 64
-                                                && h.bytes().all(|b| {
-                                                    b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
-                                                })
-                                        }) {
-                                            Ok(value.to_owned())
-                                        } else {
-                                            Err("Use the opaque revision returned by page read")
-                                        }
-                                    }),
+                                    .value_parser(revision_token),
                             ),
-                    ),
+                    )
+                    .subcommand(cli_patch::command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -380,6 +371,18 @@ fn grammar() -> Command {
                     ),
             ),
     )
+}
+/// The opaque revision `page read` returns, as `--expected-revision` takes it.
+fn revision_token(value: &str) -> std::result::Result<String, &'static str> {
+    if value.strip_prefix("v1:").is_some_and(|h| {
+        h.len() == 64
+            && h.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }) {
+        Ok(value.to_owned())
+    } else {
+        Err("Use the opaque revision returned by page read")
+    }
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
     let (command, args) = matches.subcommand().expect("required subcommand");
@@ -589,6 +592,110 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     Ok(())
 }
+/// One whole-source commit against the page's current state: prepares the minimal text diff
+/// from `store`'s snapshot, closes `store`, and publishes the frozen batch. `page write` and
+/// `page patch` both end here, so size limits, the retained revision, the no-op and the
+/// lost-reply behaviour are one path. `base_source_sha256` refuses a page whose source is no
+/// longer the one the caller evaluated its edit against.
+#[allow(clippy::too_many_arguments)]
+fn commit_source(
+    layout: &Layout,
+    key: &Keyring,
+    store: Store,
+    id: &str,
+    source: &str,
+    expected_revision: Option<&str>,
+    base_source_sha256: Option<[u8; 32]>,
+    decoder: &mut tmt_colab::decoder::Decoder,
+) -> Result<tmt_colab::page::Receipt> {
+    use tmt_colab::page::{self, PublishOptions};
+    let publisher_agent = core::publisher_agent();
+    // Read once after the page snapshot to prepare, and again to commit.
+    let clock = || -> tmt_colab::Result<u64> {
+        Ok(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis()
+            .try_into()?)
+    };
+    let preparation = page::prepare_publication_with_clock(
+        &store,
+        key,
+        id,
+        tmt_colab::decoder::ContentEdit {
+            source,
+            publisher_agent: publisher_agent.as_deref(),
+            attachments: None,
+        },
+        PublishOptions {
+            expected_revision,
+            base_source_sha256,
+            operation_id: None,
+        },
+        decoder,
+        &clock,
+    )?;
+    store.close()?;
+    Ok(match preparation {
+        page::PublicationPreparation::Noop {
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        } => page::Receipt::unchanged(
+            key,
+            id,
+            source,
+            epoch,
+            membership_head,
+            base_revision,
+            memory_limit,
+        ),
+        page::PublicationPreparation::Write(frozen) => {
+            let published = publish_write(layout, key, id, &frozen, decoder, clock()?)?;
+            let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            // A write's combine can move the revision after its outcome was retained. The
+            // revision read by the writer that excluded every other writer is the one a next
+            // `--expected-revision` must carry; a lost reply leaves the committed one.
+            if let Some(revision) = published.revision {
+                receipt.revision = revision;
+            }
+            receipt
+        }
+    })
+}
+/// The result of `page write` or `page patch`: JSON, or one detail block and the warnings.
+fn print_receipt(
+    receipt: tmt_colab::page::Receipt,
+    warnings: &[tmt_colab::page_check::Finding],
+    json_output: bool,
+    written: &str,
+) -> Result<()> {
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        let mut value = serde_json::to_value(&receipt)?;
+        value["warnings"] = cli_page_check::warnings_json(warnings);
+        writeln!(output, "{value}")?;
+    } else {
+        let terminal = output.terminal();
+        tmt_cli_style::detail::write(
+            &mut output,
+            terminal,
+            if receipt.changed {
+                written
+            } else {
+                "PAGE UNCHANGED"
+            },
+            &[
+                ("page", receipt.page_id),
+                ("revision", receipt.revision),
+                ("epoch", receipt.epoch),
+                ("update", receipt.update.to_string()),
+            ],
+        )?;
+        cli_page_check::print_warnings(warnings)?;
+    }
+    Ok(())
+}
 fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{
         decoder::Decoder,
@@ -604,6 +711,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         // A new page has no attachments: every reference in its first source is unresolved.
         let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
         return cli_management::create_page(root, args, source, &warnings);
+    }
+    if command == "patch" {
+        return cli_patch::run(root, args);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
@@ -647,79 +757,18 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if let Some(source) = source {
-        let publisher_agent = core::publisher_agent();
-        // Read once after the page snapshot to prepare, and again to commit.
-        let clock = || -> tmt_colab::Result<u64> {
-            Ok(std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_millis()
-                .try_into()?)
-        };
-        let preparation = page::prepare_publication_with_clock(
-            &store,
+        let receipt = commit_source(
+            &layout,
             &key,
+            store,
             &id,
-            tmt_colab::decoder::ContentEdit {
-                source: &source,
-                publisher_agent: publisher_agent.as_deref(),
-                attachments: None,
-            },
+            &source,
             args.get_one::<String>("expected-revision")
                 .map(String::as_str),
+            None,
             &mut decoder,
-            &clock,
         )?;
-        store.close()?;
-        let receipt = match preparation {
-            page::PublicationPreparation::Noop {
-                epoch,
-                membership_head,
-                base_revision,
-                memory_limit,
-            } => page::Receipt::unchanged(
-                &key,
-                &id,
-                &source,
-                epoch,
-                membership_head,
-                base_revision,
-                memory_limit,
-            ),
-            page::PublicationPreparation::Write(frozen) => {
-                let published = publish_write(&layout, &key, &id, &frozen, &mut decoder, clock()?)?;
-                let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
-                // A write's combine can move the revision after its outcome was retained. The
-                // revision read by the writer that excluded every other writer is the one a next
-                // `--expected-revision` must carry; a lost reply leaves the committed one.
-                if let Some(revision) = published.revision {
-                    receipt.revision = revision;
-                }
-                receipt
-            }
-        };
-        if json_output {
-            let mut value = serde_json::to_value(&receipt)?;
-            value["warnings"] = cli_page_check::warnings_json(&warnings);
-            writeln!(output, "{value}")?;
-        } else {
-            let terminal = output.terminal();
-            tmt_cli_style::detail::write(
-                &mut output,
-                terminal,
-                if receipt.changed {
-                    "PAGE WRITTEN"
-                } else {
-                    "PAGE UNCHANGED"
-                },
-                &[
-                    ("page", receipt.page_id),
-                    ("revision", receipt.revision),
-                    ("epoch", receipt.epoch),
-                    ("update", receipt.update.to_string()),
-                ],
-            )?;
-            cli_page_check::print_warnings(&warnings)?;
-        }
+        print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;
     } else {
         let value = page::read(&store, &key, &id, &mut decoder);
         let closed = store.close();

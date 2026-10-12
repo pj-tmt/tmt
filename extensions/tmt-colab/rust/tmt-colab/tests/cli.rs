@@ -1496,6 +1496,221 @@ fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
         }
     }
 }
+fn borrowed(parts: &[String]) -> Vec<&str> {
+    parts.iter().map(String::as_str).collect()
+}
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+#[test]
+fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        let filler = varied_source(7, 60 * 1024);
+        let mut source = format!(
+            "<p>alpha</p>\n<p>beta</p>\n<p>gamma</p>\n<p>beta</p>\n{filler}\n<p>omega</p>\n"
+        );
+        fs::write(&file, &source).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Patched",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap().to_owned();
+        let read = || pilot.call(&["page", "read", &id, "--json"]);
+        let patch = |args: &[&str]| -> Value {
+            let mut command = vec!["page", "patch", &id];
+            command.extend_from_slice(args);
+            command.push("--json");
+            pilot.call(&command)
+        };
+        let refused = |args: &[&str]| -> Value {
+            let mut command = vec!["page", "patch", &id];
+            command.extend_from_slice(args);
+            command.push("--json");
+            failure_args(&pilot, &command)
+        };
+        let write = |text: &str| {
+            fs::write(&file, text).unwrap();
+            pilot.call(&[
+                "page",
+                "write",
+                &id,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ]);
+        };
+
+        // One exact find: only that passage changes, as one small update.
+        let done = patch(&["--find", "<p>gamma</p>", "--replace", "<p>GAMMA</p>"]);
+        assert_eq!(done["changed"], true);
+        assert_eq!(done["update"]["count"], 1, "{done}");
+        assert!(done["update"]["bytes"].as_u64().unwrap() < 2_048, "{done}");
+        source = source.replacen("<p>gamma</p>", "<p>GAMMA</p>", 1);
+        assert_eq!(read()["source"], source);
+
+        // A missing or ambiguous anchor refuses and writes nothing.
+        let before = read();
+        let ambiguous = refused(&["--find", "<p>beta</p>", "--replace", "x"]);
+        assert_eq!(ambiguous["error"]["code"], "COLAB_PATCH_CONFLICT");
+        assert!(
+            ambiguous["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("2 times"),
+            "{ambiguous}"
+        );
+        let missing = refused(&["--find", "<p>nope</p>", "--replace", "x"]);
+        assert_eq!(missing["error"]["code"], "COLAB_PATCH_CONFLICT");
+        assert_eq!(read(), before, "a refused patch wrote something");
+        // A find without its replacement is input, not a conflict.
+        let incomplete = refused(&["--find", "<p>omega</p>"]);
+        assert_eq!(incomplete["error"]["code"], "COLAB_INPUT_INVALID");
+
+        // An edit elsewhere does not stand in the way: the anchor is the text, not the page.
+        let top = format!("<p>top</p>\n{source}");
+        write(&top);
+        source = top;
+        let merged = patch(&["--find", "<p>omega</p>", "--replace", "<p>OMEGA</p>"]);
+        assert_eq!(merged["changed"], true);
+        source = source.replacen("<p>omega</p>", "<p>OMEGA</p>", 1);
+        assert_eq!(read()["source"], source);
+        // ...but the whole-page fence still refuses it when asked.
+        let stale = before["revision"].as_str().unwrap();
+        let fenced = refused(&[
+            "--find",
+            "<p>OMEGA</p>",
+            "--replace",
+            "<p>Omega</p>",
+            "--expected-revision",
+            stale,
+        ]);
+        assert_eq!(fenced["error"]["code"], "COLAB_STALE_BASE");
+        assert_eq!(read()["source"], source);
+        // An edit on the anchor itself refuses it.
+        let moved = source.replacen("<p>OMEGA</p>", "<p>Omega</p>", 1);
+        write(&moved);
+        source = moved;
+        let changed = refused(&["--find", "<p>OMEGA</p>", "--replace", "<p>Z</p>"]);
+        assert_eq!(changed["error"]["code"], "COLAB_PATCH_CONFLICT");
+        assert_eq!(read()["source"], source);
+
+        // A line range applies only while its lines still hash to what was read.
+        let replacement = pilot.root.join("lines.html");
+        fs::write(&replacement, "<p>ALPHA</p>\n<p>BETA</p>\n").unwrap();
+        let hash = sha256_hex("<p>top</p>\n<p>alpha</p>\n");
+        let lines = |range: &str, hash: &str| {
+            [
+                "--lines".to_owned(),
+                range.to_owned(),
+                "--range-sha256".to_owned(),
+                hash.to_owned(),
+                "--file".to_owned(),
+                replacement.to_str().unwrap().to_owned(),
+            ]
+        };
+        let stale_hash = lines("1:2", &sha256_hex("<p>alpha</p>\n<p>beta</p>\n"));
+        assert_eq!(
+            refused(&borrowed(&stale_hash))["error"]["code"],
+            "COLAB_PATCH_CONFLICT"
+        );
+        let past_end = lines("999999:999999", &hash);
+        assert_eq!(
+            refused(&borrowed(&past_end))["error"]["code"],
+            "COLAB_PATCH_CONFLICT"
+        );
+        assert_eq!(read()["source"], source);
+        let held = lines("1:2", &hash);
+        let applied = patch(&borrowed(&held));
+        assert_eq!(applied["changed"], true);
+        source = source.replacen(
+            "<p>top</p>\n<p>alpha</p>\n",
+            "<p>ALPHA</p>\n<p>BETA</p>\n",
+            1,
+        );
+        assert_eq!(read()["source"], source);
+
+        // A unified diff applies all of its hunks or none of them.
+        let diff = pilot.root.join("change.diff");
+        fs::write(
+            &diff,
+            "--- a/page.html\n+++ b/page.html\n@@ -1,2 +1,2 @@\n <p>ALPHA</p>\n-<p>BETA</p>\n+<p>Beta</p>\n@@ -3,1 +3,1 @@\n-<p>not there</p>\n+<p>x</p>\n",
+        )
+        .unwrap();
+        let bad = refused(&["--diff", diff.to_str().unwrap()]);
+        assert_eq!(bad["error"]["code"], "COLAB_PATCH_CONFLICT");
+        assert!(
+            bad["error"]["message"].as_str().unwrap().contains("Hunk 2"),
+            "{bad}"
+        );
+        assert_eq!(read()["source"], source, "one failed hunk wrote the other");
+        fs::write(
+            &diff,
+            "--- a/page.html\n+++ b/page.html\n@@ -1,2 +1,2 @@\n <p>ALPHA</p>\n-<p>BETA</p>\n+<p>Beta</p>\n",
+        )
+        .unwrap();
+        let applied = patch(&["--diff", diff.to_str().unwrap()]);
+        assert_eq!(applied["changed"], true);
+        source = source.replacen("<p>BETA</p>", "<p>Beta</p>", 1);
+        assert_eq!(read()["source"], source);
+
+        // The markup check runs on the result: --strict refuses findings, and nothing is written.
+        let dirty = dirty_page();
+        let strict = refused(&["--find", "<p>ALPHA</p>", "--replace", &dirty, "--strict"]);
+        assert_eq!(strict["error"]["code"], "COLAB_PAGE_CHECK");
+        assert_eq!(read()["source"], source);
+        // A source over the page limit is refused at the file, as for page write.
+        let huge = pilot.root.join("huge.txt");
+        fs::write(&huge, "x".repeat(2 * 1024 * 1024 + 1)).unwrap();
+        let too_large = refused(&[
+            "--find",
+            "<p>ALPHA</p>",
+            "--replace-file",
+            huge.to_str().unwrap(),
+        ]);
+        assert_eq!(too_large["error"]["code"], "COLAB_CAPACITY");
+        assert_eq!(read()["source"], source);
+        // Nothing to change is a no-op, and the human output says so in one block.
+        let same = patch(&["--find", "<p>ALPHA</p>", "--replace", "<p>ALPHA</p>"]);
+        assert_eq!(same["changed"], false);
+        assert_eq!(same["update"], json!({"count": 0, "bytes": 0}));
+        let human = pilot
+            .command()
+            .args([
+                "page",
+                "patch",
+                &id,
+                "--find",
+                "<p>ALPHA</p>",
+                "--replace",
+                "<p>Alpha</p>",
+            ])
+            .output()
+            .unwrap();
+        assert!(human.status.success(), "{human:?}");
+        assert!(
+            String::from_utf8(human.stdout)
+                .unwrap()
+                .contains("PAGE PATCHED")
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
+}
 #[test]
 fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
     const SIZE: usize = 1_536 * 1024;
