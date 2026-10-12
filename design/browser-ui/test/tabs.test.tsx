@@ -39,8 +39,13 @@ it('associates every persistent panel with its tab and keeps one selected tab st
     expect(html.match(/role="tabpanel"/g)).toHaveLength(2);
     expect(html.match(/hidden=""/g)).toHaveLength(1);
     expect(html.match(/tabindex="0"/g)).toHaveLength(1);
-    expect(html).toContain('aria-controls="panel-one"');
-    expect(html).toContain('aria-labelledby="tab-one"');
+    const elements = html.match(/<(?:button|div)\b[^>]*>/g) ?? [];
+    for (const tab of tabs) {
+      const tabElement = elements.find((element) => element.includes(` id="${tab.tabId}"`));
+      const panelElement = elements.find((element) => element.includes(` id="${tab.panelId}"`));
+      expect(tabElement).toContain(`aria-controls="${tab.panelId}"`);
+      expect(panelElement).toContain(`aria-labelledby="${tab.tabId}"`);
+    }
     expect(html).toContain('aria-label="✓ Layout · Answered"');
     expect(html).toContain('aria-label="◆ Pages · Waiting"');
     expect(html).toContain('value="one"');
