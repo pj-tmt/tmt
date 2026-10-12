@@ -1,6 +1,8 @@
 import { disclosureScope } from './attachment-service.js';
 import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
+import { commentsForAnswerBatch } from './answer-batch.js';
+import { inspectQuestions } from './questions.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
 import { readThreads, type DiscussionRef } from './thread-records.js';
 import { ThreadStatusCoordinator } from './thread-status-coordinator.js';
@@ -158,6 +160,22 @@ export class Live implements PageBinding {
               connection.objects.ownSigningKey(writer),
             );
             return conversationForAsk(threads, context, asks);
+          },
+          answerContext: (batch) => {
+            const connection = this.#connection;
+            if (!connection) throw new Error('Discussion connection unavailable');
+            const threads = readThreads(
+              this.#admitted.own ?? {},
+              { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
+              (writer) => connection.objects.ownSigningKey(writer),
+              (writer) => connection.objects.statusWriter(writer),
+            );
+            return commentsForAnswerBatch(
+              threads,
+              batch,
+              inspectQuestions(this.#admitted.source),
+              registration.deviceId,
+            );
           },
           statusContext: (context) => {
             const connection = this.#connection;

@@ -1,4 +1,4 @@
-import type { CommentContext, commentForAsk } from './thread-store.js';
+import type { AnswerBatchContext, CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
 import {
   AskController,
@@ -57,6 +57,11 @@ export interface LiveAskOptions {
   own(): OwnState;
   commentContext?(
     context: CommentContext,
+  ): ReturnType<typeof commentForAsk> | Promise<ReturnType<typeof commentForAsk>>;
+  /** The verified origin of a batch of answer comments: the canonical thread, all their IDs sorted,
+   * and the composed answers. */
+  answerContext?(
+    batch: AnswerBatchContext,
   ): ReturnType<typeof commentForAsk> | Promise<ReturnType<typeof commentForAsk>>;
   statusContext?(
     context: StatusNotificationContext,
@@ -155,24 +160,37 @@ export class LiveAsk implements AskBinding {
     requireValue(!this.#closed);
     const controller = this.#controller;
     const c = await this.#admit();
+    // The comments this Ask is about, as the verified projection reports them (a retry's key).
+    let askedIds: readonly string[] = [];
     const preview = await c.run(async () => {
       requireValue(!this.#closed && c.active);
       requireValue(!statusContext || !captured.context);
+      // A batch is the answers of its own first comment's thread and nothing else.
+      requireValue(
+        !captured.batch ||
+          (captured.context !== undefined &&
+            captured.batch.answers[0]?.context.message.id === captured.context.message.id),
+      );
       const notificationOrigin = statusContext
         ? await this.options.statusContext?.(statusContext)
         : undefined;
       const origin =
         notificationOrigin ??
-        (captured.context ? await this.options.commentContext?.(captured.context) : undefined);
+        (captured.batch
+          ? await this.options.answerContext?.(captured.batch)
+          : captured.context
+            ? await this.options.commentContext?.(captured.context)
+            : undefined);
       requireValue(
         !this.#closed && c.active && (!(captured.context || statusContext) || origin !== undefined),
       );
+      askedIds = origin?.messageIds ?? [];
       if (captured.retryOf !== undefined) {
         requireValue(captured.context?.message.writer === this.options.deviceId);
-        requireValue(origin !== undefined && origin.messageIds.length === 1);
+        requireValue(origin !== undefined && origin.messageIds.length > 0);
         await this.#store.checkRetry(
           origin.thread,
-          origin.messageIds[0],
+          origin.messageIds,
           captured.destination.machine,
           captured.destination.agent,
           captured.retryOf,
@@ -213,7 +231,8 @@ export class LiveAsk implements AskBinding {
               await this.#admit();
               if (captured.retryOf !== undefined) {
                 requireValue(captured.context?.message.writer === this.options.deviceId);
-                await this.options.commentContext?.(captured.context);
+                if (captured.batch) await this.options.answerContext?.(captured.batch);
+                else await this.options.commentContext?.(captured.context);
               }
             } catch (error) {
               throw new UnadoptedAskError(error);
@@ -229,7 +248,7 @@ export class LiveAsk implements AskBinding {
                 await this.#store.releaseRetry({
                   ...preview.view,
                   thread: captured.context.thread.id,
-                  messageIds: [captured.context.message.id],
+                  messageIds: askedIds,
                 });
               }
               state = { state: 'failed', adopted: false };

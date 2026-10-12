@@ -30,6 +30,7 @@ async function fixture(
   },
   statusContext?: LiveAskOptions['statusContext'],
   publication?: (own: OwnState) => void,
+  answerContext?: LiveAskOptions['answerContext'],
 ) {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, action: () => unknown) => action() },
@@ -79,6 +80,7 @@ async function fixture(
     sessionEnded,
     own: () => own,
     commentContext,
+    answerContext,
     statusContext,
     async publish(root, key, value) {
       own[id(4)] ??= { threads: {}, messages: {}, intents: {}, replies: {} };
@@ -507,6 +509,117 @@ it('Ask again re-admits the original own comment and typed refusal before freezi
   await expect(
     f.ask.prepare({ ...f.input, context, retryOf: original.preview.view.operationId }),
   ).rejects.toThrow();
+  f.ask.close();
+});
+
+const batchContexts = (): CommentContext[] =>
+  [3, 12].map((message, index) => ({
+    thread: { writer: id(4), id: id(index === 0 ? 2 : 11) },
+    message: { writer: id(4), id: id(message) },
+    threadRevision: '1',
+    messageRevision: '1',
+  }));
+const batchOf = (contexts: CommentContext[]) => ({
+  group: 'g1',
+  answers: contexts.map((context, index) => ({ question: `q${index + 1}`, context })),
+});
+const batchOrigin = () => ({
+  thread: id(2),
+  messageIds: [id(3), id(12)],
+  quote: 'Verified quote',
+  comment: 'Answers to 2 questions:\nScope: API\nOwner: Ada',
+});
+
+it('a batch Ask freezes the verified canonical thread, every comment ID and the composed answers', async () => {
+  const [first, second] = batchContexts();
+  let current = true;
+  const f = await fixture(undefined, undefined, undefined, (batch) => {
+    expect(batch).toEqual(batchOf([first, second]));
+    if (!current) throw new Error('stale batch');
+    return batchOrigin();
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const attempt = await f.ask.prepare({
+    ...f.input,
+    quote: 'substituted',
+    comment: 'substituted',
+    context: first,
+    batch: batchOf([first, second]),
+  });
+  expect(f.remote.sends).toHaveLength(0);
+  expect(attempt.preview.view.message).toContain('Verified quote');
+  expect(attempt.preview.view.message).toContain('Scope: API\nOwner: Ada');
+  expect(attempt.preview.view.message).not.toContain('substituted');
+  // A batch whose first answer is not the context's comment is refused before anything is read.
+  await expect(
+    f.ask.prepare({ ...f.input, context: second, batch: batchOf([first, second]) }),
+  ).rejects.toThrow();
+  await expect(f.ask.prepare({ ...f.input, batch: batchOf([first, second]) })).rejects.toThrow();
+  current = false;
+  await expect(
+    f.ask.prepare({ ...f.input, context: first, batch: batchOf([first, second]) }),
+  ).rejects.toThrow('stale batch');
+  await attempt.send();
+  const record = Object.values(f.own[id(4)].intents)[0] as { signed: unknown };
+  expect(decodeAsk(record.signed)).toMatchObject({ thread: id(2), messageIds: [id(3), id(12)] });
+  expect(f.remote.sends).toHaveLength(1);
+  f.ask.close();
+});
+
+it('Ask again for a batch re-admits the whole batch and is of exactly those comments', async () => {
+  const [first, second] = batchContexts();
+  let current = true;
+  const f = await fixture(undefined, undefined, undefined, () => {
+    if (!current) throw new Error('stale batch');
+    return batchOrigin();
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const send = f.remote.send.bind(f.remote);
+  let firstSend = true;
+  f.remote.send = async (input) => {
+    if (firstSend) {
+      firstSend = false;
+      f.remote.sends.push(input);
+      return { state: 'refused', operationId: input.operationId, reason: 'REMOTE_RATE_LIMITED' };
+    }
+    return send(input);
+  };
+  const input = { ...f.input, context: first, batch: batchOf([first, second]) };
+  const original = await f.ask.prepare(input);
+  await original.send();
+  const retry = await f.ask.prepare({ ...input, retryOf: original.preview.view.operationId });
+  expect(await retry.send()).toEqual({ state: 'accepted', adopted: true });
+  const rows = Object.values(f.own[id(4)].intents) as { signed: unknown }[];
+  expect(rows.map((row) => decodeAsk(row.signed).messageIds)).toEqual([
+    [id(3), id(12)],
+    [id(3), id(12)],
+  ]);
+  expect(f.remote.sends).toHaveLength(2);
+  await expect(
+    f.ask.prepare({ ...input, retryOf: original.preview.view.operationId }),
+  ).rejects.toThrow();
+  f.ask.close();
+});
+
+it('a batch changed between preparation and Send is unadopted and releases its reservation', async () => {
+  const [first, second] = batchContexts();
+  let current = true;
+  const f = await fixture(undefined, undefined, undefined, () => {
+    if (!current) throw new Error('stale batch');
+    return batchOrigin();
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const retry = await f.ask.prepare({
+    ...f.input,
+    context: first,
+    batch: batchOf([first, second]),
+    retryOf: null,
+  });
+  current = false;
+  expect(await retry.send()).toEqual({ state: 'failed', adopted: false });
+  expect(f.remote.sends).toHaveLength(0);
+  expect(f.own).toEqual({});
+  expect([...records.keys()].filter((key) => key.startsWith('ask-recipient:'))).toEqual([]);
   f.ask.close();
 });
 

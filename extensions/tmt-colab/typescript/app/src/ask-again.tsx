@@ -3,14 +3,14 @@ import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
 import { Send } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import type { AskBinding } from './ask-panel.js';
-import type { CommentContext } from './thread-store.js';
+import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 import type { PreviewAttempt } from './ask-preview.js';
 import { text } from './strings.js';
 
 export type AskAgainInput = Pick<
   Parameters<AskBinding['prepare']>[0],
   'quote' | 'comment' | 'title' | 'url'
-> & { context: CommentContext };
+> & { context: CommentContext; batch?: AnswerBatchContext };
 
 /** One explicit parent action, shared by local failures and signed refusals.
  * It prepares a new operation for the original UUID pair, never a comment. */

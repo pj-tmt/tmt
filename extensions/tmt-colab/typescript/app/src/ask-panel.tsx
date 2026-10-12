@@ -1,10 +1,11 @@
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import type { CommentContext } from './thread-store.js';
+import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
-import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
+import { ASK_OBSERVATION_MS, sameMessageIds, type LedgerState } from './ask-records.js';
+import { askedMessageIds } from './answer-batch.js';
 import {
   ReadRefusedError,
   REMOTE_REFUSAL_CODES,
@@ -34,6 +35,9 @@ export interface AskBinding {
     url: string;
     destination: AskDestination;
     context?: CommentContext;
+    /** Several answer comments of one question group, asked in one Ask (#2875); `context` is the
+     * first of them, the batch's canonical thread. */
+    batch?: AnswerBatchContext;
     /** Absent for Send; null for a trusted local pre-adoption failure; otherwise
      * the own refused operation. The store rechecks the recipient before adoption. */
     retryOf?: string | null;
@@ -212,9 +216,12 @@ export function AskPanel({
         value.machine === record.machine &&
         value.agent === record.agent,
     );
+    // The retry is of exactly the comments that Ask was about: one answer, or the whole batch.
+    const retryable =
+      retryInput !== undefined &&
+      sameMessageIds(record.messageIds ?? [], askedMessageIds(retryInput));
     const canAskAgain =
-      !!retryInput &&
-      record.messageIds?.length === 1 &&
+      retryable &&
       retryInput.context.message.writer === record.writer &&
       record.canTrack &&
       recipientRecords.every(provablyUnsent) &&
@@ -304,9 +311,7 @@ export function AskPanel({
         {record.reply === undefined &&
           record.state === 'refused' &&
           REMOTE_REFUSAL_CODES.some((code) => code === record.reason) &&
-          (!retryInput || record.messageIds?.length !== 1) && (
-            <p className="ask-supporting">{text.messageAskAgain(agent)}</p>
-          )}
+          !retryable && <p className="ask-supporting">{text.messageAskAgain(agent)}</p>}
         {record.state === 'uncertain' &&
           ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(record.reason ?? '') && (
             <p className="ask-supporting">{text.askSessionEnded}</p>
