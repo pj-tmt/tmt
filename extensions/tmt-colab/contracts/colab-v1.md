@@ -3743,6 +3743,49 @@ before every disclosure. Separate queued deliveries that overflow the queue and 
 writes still end in `RESYNC_REQUIRED`. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
 undo a durable outcome. The service never receives or decodes plaintext source.
 
+### Ranged read and anchored patch (#2836)
+
+`tmt colab page patch <page> <form> [--expected-revision <token>] [--strict] [--json]` changes
+part of a page's source without moving the rest. Exactly one form names the change; each carries
+the text the caller expects, so the change is anchored to that text and not to the page as a whole:
+
+- `--find TEXT --replace TEXT` (or `--find-file PATH`, `--replace-file PATH`, `-` for stdin): the
+  find text must occur exactly once, anywhere on the page, overlapping occurrences included; the
+  replacement may be empty. Files are read byte for byte.
+- `--lines A:B --range-sha256 HASH --file PATH`: lines `A` through `B` (1-based, split on LF only,
+  a CR is content, a final LF ends the last line instead of starting another, an empty page is one
+  empty line) are replaced by the file's exact bytes, only while their `rangeSha256` is `HASH`. The
+  range is the exact bytes from the first byte of line `A` through the LF that ends line `B`, or
+  the end of the source when `B` is the last line and has none, so a replacement of whole lines
+  ends with an LF. `page/lines.rs` is the one definition of these lines, shared with the ranged
+  read (#2840) that reports each range's `rangeSha256`.
+- `--diff PATH`: a unified diff. Anything before the first `@@` header is ignored; a hunk is read by
+  the counts in its header, so a removed line that starts with `--` is content. A hunk's context
+  and removed lines are matched exactly, with no fuzz and no whitespace tolerance, at the start
+  of a line: it applies where that text occurs once, or, when it occurs more than once, where it
+  starts at the hunk's stated old line. A hunk with no context or removed line (a pure insertion
+  with no context) has nothing to anchor it and is refused. Hunks are placed against the page as
+  read, may not overlap, and apply together or not at all.
+
+The patch is evaluated, as a pure function of the source, against the exact source the page folds
+to when the command reads it, and its result is written through the whole-source write
+(`page write`'s preparation, commit and receipt), which commits the minimal text diff of old to
+new source. Everything `page write` guarantees therefore holds unchanged: one atomic batch, the
+source, tail and page limits (`COLAB_CAPACITY`), the markup check on the result (`--strict` refuses
+findings in the result before anything is written), `changed:false` when the result equals the
+source, the retained revision and the lost-reply behaviour, and the `update` field of the result.
+
+A missing, ambiguous or changed anchor refuses with `COLAB_PATCH_CONFLICT`, naming the find text,
+line range or hunk and, for an ambiguous match, how many there were; nothing is written. A
+malformed diff, an empty find text, a `--find` without its replacement or a malformed line range
+is `COLAB_INPUT_INVALID`. A concurrent edit elsewhere on the page does not refuse a patch: the
+preparation refuses a page whose source is no longer the one the patch was evaluated against, and
+the commit refuses a page that moved after preparation (`COLAB_STALE_BASE`), and the command then
+evaluates the same patch against the page as it now is, preparing and committing again, at most 3
+more times; an edit to the addressed text makes that evaluation fail with `COLAB_PATCH_CONFLICT`.
+`--expected-revision` is the optional strict fence of the whole-source write: with it any change
+to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is retried.
+
 ### Content publication (#1908, #1928, #1934)
 
 `publication.rs` exports pure native content-job, original-ID outcome and proposed local IPC

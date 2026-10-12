@@ -390,6 +390,15 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.
+- `page/lines.rs` is the one definition of a page's numbered lines (LF records that keep their
+  LF, a CR is content, an empty page is one empty line) and of a range's hash; the anchored patch
+  and the ranged read both use it.
+- `page patch` (`cli_patch.rs`, `page/patch.rs`) evaluates an anchored change (exact find,
+  hash-fenced line range or unified diff) as a pure function of the source `page::read` folds
+  to, then goes through `commit_source` (`main.rs`), the one whole-source path `page write`
+  also uses, so limits, the markup check, the no-op and lost-reply replay are shared. The
+  evaluated base is fenced by `PublishOptions::base_source_sha256`; a stale base or commit
+  re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:

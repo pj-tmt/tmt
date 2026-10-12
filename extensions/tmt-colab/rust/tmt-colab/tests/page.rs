@@ -382,6 +382,65 @@ fn a_replayed_write_reports_the_batch_it_originally_committed() {
     assert_eq!(again.update.count, again.publication.unwrap().count);
 }
 #[test]
+fn a_patch_is_evaluated_on_the_base_it_commits_against_and_merges_a_concurrent_edit_elsewhere() {
+    use page::patch::Patch;
+    use tmt_colab_model::crypto;
+    let mut f = Fixture::new();
+    f.write("alpha\nbeta\ngamma\n");
+    let patch = Patch::Replace {
+        find: "beta".into(),
+        replace: "BETA".into(),
+    };
+    // The patch is evaluated against the page as read...
+    let base = f.read();
+    let edited = patch.apply(&base.source).unwrap();
+    assert_eq!(edited, "alpha\nBETA\ngamma\n");
+    // ...a concurrent writer changes the page elsewhere before the edit is prepared...
+    f.write("alpha\nbeta\ngamma\ndelta\n");
+    let options = page::PublishOptions {
+        base_source_sha256: Some(crypto::digest(base.source.as_bytes())),
+        ..Default::default()
+    };
+    let prepare = |f: &Fixture, source: &str, options: page::PublishOptions| {
+        page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            tmt_colab::decoder::ContentEdit {
+                source,
+                publisher_agent: None,
+                attachments: None,
+            },
+            options,
+            &mut f.decoder(),
+            NOW,
+        )
+    };
+    // ...so the edit, whose base is gone, is refused instead of overwriting that change.
+    assert_eq!(
+        prepare(&f, &edited, options)
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
+        Some(&Fault::StaleBase)
+    );
+    assert_eq!(f.read().source, "alpha\nbeta\ngamma\ndelta\n");
+    // Evaluated again on the new base, the same patch applies and keeps both edits.
+    let base = f.read();
+    let edited = patch.apply(&base.source).unwrap();
+    let options = page::PublishOptions {
+        base_source_sha256: Some(crypto::digest(base.source.as_bytes())),
+        ..Default::default()
+    };
+    let page::PublicationPreparation::Write(frozen) = prepare(&f, &edited, options).unwrap() else {
+        panic!("the patch changes the source");
+    };
+    // One update for one changed word: the rest of the page is not rewritten.
+    assert_eq!(frozen.job().manifest.entries.len(), 1);
+    f.commit(&frozen, NOW).unwrap();
+    assert_eq!(f.read().source, "alpha\nBETA\ngamma\ndelta\n");
+}
+#[test]
 fn stale_concurrent_bases_and_exact_replay_never_overwrite_or_reseal() {
     use tmt_colab::publication::{Outcome, Rejection};
     let mut f = Fixture::new();
