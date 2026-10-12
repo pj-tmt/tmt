@@ -94,9 +94,14 @@ describe('Colab acceptance shards', () => {
       path.join(repository, '.github/workflows/colab-browser.yml'),
       'utf8'
     );
+    // The listing is assigned first under `set -e`, so a failing script fails the step, and an empty
+    // list is refused: with no filters Playwright would run the whole suite in every shard.
+    expect(workflow).toContain('set -euo pipefail\n');
     expect(workflow).toContain(
-      'read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"'
     );
+    expect(workflow).toContain('read -r -a files <<< "$shard_files"');
+    expect(workflow).toContain('if [ "${#files[@]}" -eq 0 ]; then');
     expect(files.every((file) => /^[a-z0-9-]+\.spec\.ts$/.test(file))).toBe(true);
   });
 });
