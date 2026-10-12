@@ -26,6 +26,7 @@ interface Listed extends Identity {
   command: string;
   target?: string;
   cwd?: string;
+  location?: { host: string; session?: string; window?: string };
 }
 interface Listing {
   identities: Listed[];
@@ -495,6 +496,19 @@ describe('binding publication, reconciliation and presentation', { concurrent: f
           )
         );
         expect(scoped.pane).toMatchObject({ id: fixture.pane, target: live[0]!.target });
+        // Core publishes the host's own session and window beside the displayed target,
+        // for the same presentation of the linked window; `withoutAddress` removes them.
+        const raw = expectJsonResult(await fixture.runJsonCli<Listing>(['ls'])).identities[0]!;
+        const window = /^attached:(\d+)\./.exec(raw.target ?? '')?.[1];
+        expect(window).toBeDefined();
+        expect(raw.location).toEqual({ host: 'tmux', session: 'attached', window });
+        const rawScoped = expectJsonResult(
+          await fixture.runJsonCli<{ pane: { location?: Listed['location'] } }>([
+            'ls',
+            fixture.pane,
+          ])
+        );
+        expect(rawScoped.pane.location).toEqual(raw.location);
         expect(durableState(fixture).bindings).toHaveLength(1);
       }, inputLog);
     }

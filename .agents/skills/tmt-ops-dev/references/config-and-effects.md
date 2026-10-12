@@ -272,12 +272,20 @@ their required squad scope.
 
 - `action` parses `[bind]` and `[squad.<name>.section.bind]` once per load into events and
   actions whose arguments are templates; bad events, actions or field syntax are config
-  errors. The board resolves the selected row's section binding, then `[bind]`, then the
-  host preset (tmux: Enter and double-click jump; plain terminal: they open the row's
-  action menu) into a fully filled request before anything runs; a missing value is a
-  notice, never a partial action. One parser/dispatcher owns `toggle <pane>...`.
+  errors. The board resolves the selected row's section binding, then the `[bind.<host>]`
+  table named by the host Core publishes in the row's `location` (`tmux`, or an external
+  host's name; no location, no table), then `[bind]`, then the host preset (tmux: Enter and
+  double-click jump; plain terminal: they open the row's action menu) into a fully filled
+  request before anything runs; a missing value is a notice, never a partial action. A
+  `[bind.<host>]` table takes the same events and actions as `[bind]`, is parsed apart from
+  the flat entries (`Config::host_bindings`), and its name must be a host token
+  (`[a-z][a-z0-9-]{0,31}`); an unknown host never matches. One parser/dispatcher owns
+  `toggle <pane>...`.
 - `effects` holds the row actions behind plain `jump`, `open` and `copy` and the board.
-  `template` fills `{field}` placeholders into one value and refuses empty values.
+  `template` fills `{field}` placeholders into one value and refuses empty values. Built-in
+  names win over a squad field of the same name; `{host}`, `{session}` and `{window}` come
+  only from the pane `location` that `join_presence` copies from `ls --json` (never parsed
+  from `target`), so a host that reports no session or window refuses the action.
   Programs run as argv, never through a shell: the top-level `opener` and `clipboard`
   arrays, or the system opener. An opener starts in its own process group with null stdio
   and a reaper thread. `run` fills one argv element per template (refusing a value that

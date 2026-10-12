@@ -140,6 +140,65 @@ fn server_id_concurrent_callers_adopt_one_id_on_a_fresh_server() {
 
 #[test]
 #[ignore = "requires tmux; creates and stops only a private explicit-socket server"]
+fn real_tmux_reports_the_session_and_window_beside_the_joined_target() {
+    let directory = TestDirectory::new();
+    let server = PrivateServer {
+        socket: directory
+            .path
+            .join("location.sock")
+            .to_str()
+            .unwrap()
+            .to_owned(),
+        directory: Some(directory),
+    };
+    // A session name with a colon, a dot and a space: tmux versions differ in whether they
+    // keep or rewrite it, so the fields are compared with tmux's own answer, not a constant.
+    server
+        .command(&[
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            "a:b.c d",
+            "/bin/sleep 60",
+        ])
+        .unwrap();
+    server
+        .command(&["new-window", "-d", "/bin/sleep 60"])
+        .unwrap();
+    let id = Tmux::default()
+        .ensure_server_id_on(Some(&server.socket), OperationOptions::default())
+        .unwrap();
+    let raw = server
+        .command(&["list-panes", "-a", "-F", &evidence::endpoint_format()])
+        .unwrap();
+    let snapshot = evidence::parse_snapshot(&raw, Some(&id)).unwrap();
+    assert_eq!(snapshot.panes.len(), 2);
+    let mut windows = Vec::new();
+    for pane in &snapshot.panes {
+        let location = pane.location.as_ref().unwrap();
+        assert_eq!(location.host, "tmux");
+        let session = location.session.as_deref().unwrap();
+        let window = location.window.as_deref().unwrap();
+        let asked = server
+            .command(&["display-message", "-p", "-t", &pane.id, "#{session_name}"])
+            .unwrap();
+        assert_eq!(session, asked.trim_end_matches('\n'));
+        assert!(session.contains(' '), "{session:?}");
+        // The fields are tmux's own and agree with the target tmux formats beside them.
+        assert_eq!(
+            pane.target.as_deref(),
+            Some(format!("{session}:{window}.0").as_str())
+        );
+        windows.push(window.to_owned());
+    }
+    windows.sort();
+    assert_eq!(windows, ["0", "1"]);
+}
+
+#[test]
+#[ignore = "requires tmux; creates and stops only a private explicit-socket server"]
 fn option_rename_compares_native_binding_and_exact_values_without_editing_user_formats() {
     use tmt_core::{
         binding::{Binding, BindingEntry},

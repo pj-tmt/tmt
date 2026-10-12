@@ -114,6 +114,8 @@ pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
         "pane" => row["pane"]["id"].as_str(),
         "target" => row["pane"]["target"].as_str(),
         "cwd" => row["pane"]["cwd"].as_str(),
+        // Core's published `location`; never parsed out of `target`.
+        "host" | "session" | "window" => row["pane"]["location"][field].as_str(),
         "activity" => row["activity"]["activity"].as_str(),
         other => row["fields"][other].as_str(),
     }
@@ -123,6 +125,34 @@ pub fn field_value<'a>(row: &'a Value, field: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn host_session_and_window_fill_only_from_the_published_location() {
+        let row = json!({
+            "name": "a",
+            "pane": {
+                "id": "%5", "target": "ignored:9.9",
+                "location": {"host": "tmux", "session": "my session", "window": "2"}
+            },
+            "fields": {"session": "a squad field", "window": "also a squad field"}
+        });
+        let fill = |text: &str| Template::parse(text).unwrap().fill(&row);
+        assert_eq!(fill("{host}"), Ok("tmux".into()));
+        assert_eq!(fill("{session}:{window}"), Ok("my session:2".into()));
+        // A host that reports no coordinates, and a row with no location, refuse.
+        for pane in [
+            json!({"id": "%5", "target": "work:2.1", "location": {"host": "herdr"}}),
+            json!({"id": "%5", "target": "work:2.1"}),
+        ] {
+            let row = json!({"name": "a", "pane": pane, "fields": {"session": "ignored"}});
+            let fill = |text: &str| Template::parse(text).unwrap().fill(&row);
+            assert_eq!(
+                fill("{session}"),
+                Err("session is empty for this row".into())
+            );
+            assert_eq!(fill("{window}"), Err("window is empty for this row".into()));
+        }
+    }
 
     #[test]
     fn fields_fill_whole_or_embedded_and_missing_values_refuse() {

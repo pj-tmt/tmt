@@ -80,6 +80,19 @@ projection and can name a remembered harness even after its process ends or
 while offline; it is not verified current runtime evidence. Named or direct-pane
 inspection and storage-only `identity ls` do not gain `runningDriver`.
 
+## List pane location
+
+Collection `tmt ls --json` identity rows with a live pane optionally include
+`location`, and the `pane` document of `tmt ls <target>` carries the same object:
+`{"host": "tmux", "session": "work", "window": "2"}`. `host` is the host token
+(`tmux`, or an external host's name). `session` and `window` are the host's own
+session name and window index (decimal text), present only when the host reports
+them; external hosts report only `host`. The object is absent, never null, when the
+row has no live observation or the observation carries no location. `target` keeps
+its text and meaning as a display string: consumers read `location`, never parse
+`target`, for coordinates. The projection reuses the command's existing observation;
+it adds no probe and grants no dispatch authority.
+
 ## Verification
 
 Verify byte/control/duration boundaries, exact expiry and clock rollback, atomic

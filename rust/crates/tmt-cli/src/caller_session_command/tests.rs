@@ -229,6 +229,7 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
             pane_incarnation: Some("pane".into()),
             suggested_name: None,
             marker: None,
+            location: None,
         };
         let harness = HarnessId::new("claude").unwrap();
         let mode = RuntimeMode::new("default").unwrap();
@@ -351,6 +352,7 @@ fn insert_discovery_binding(storage: &mut Storage, identity: &tmt_core::identity
         pane_incarnation: Some("pane-start".into()),
         suggested_name: None,
         marker: None,
+        location: None,
     };
     storage
         .with_binding_transaction::<_, StorageError>(|records| {

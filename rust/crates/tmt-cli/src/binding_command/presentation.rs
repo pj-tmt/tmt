@@ -33,6 +33,16 @@ fn pane_document(pane: &PaneObservation) -> Value {
     if let Some(cwd) = &pane.cwd {
         value["cwd"] = cwd.clone().into();
     }
+    // Absent, never null, when the host did not observe a location.
+    if let Some(location) = &pane.location {
+        let mut place = json!({"host": location.host});
+        for (key, part) in [("session", &location.session), ("window", &location.window)] {
+            if let Some(part) = part {
+                place[key] = part.clone().into();
+            }
+        }
+        value["location"] = place;
+    }
     value
 }
 
@@ -52,7 +62,7 @@ fn presence_document(row: &IdentityPresence) -> Value {
         .into();
     if let Some(pane) = &row.pane {
         let details = pane_document(pane);
-        for key in ["target", "cwd"] {
+        for key in ["target", "cwd", "location"] {
             if let Some(detail) = details.get(key) {
                 value[key] = detail.clone();
             }

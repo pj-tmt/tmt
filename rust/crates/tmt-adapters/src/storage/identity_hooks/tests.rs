@@ -176,6 +176,7 @@ fn saved_detach_does_not_enqueue_and_registration_serializes_with_retirement() {
                     pane_incarnation: None,
                     suggested_name: None,
                     marker: None,
+                    location: None,
                 },
             )
         })

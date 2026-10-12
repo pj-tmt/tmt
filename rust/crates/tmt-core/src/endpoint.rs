@@ -90,6 +90,17 @@ pub struct BindingMarker {
     pub pane_pid: u64,
 }
 
+/// Where a host places a pane, as the host reports it, for consumers that must not
+/// parse `target`. `session` and `window` are present only when the host reports them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneLocation {
+    /// The host's token, such as `tmux` or an external host's name.
+    pub host: String,
+    pub session: Option<String>,
+    /// The host-reported window index, as text.
+    pub window: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneObservation {
     pub id: String,
@@ -102,6 +113,7 @@ pub struct PaneObservation {
     pub pane_incarnation: Option<String>,
     pub suggested_name: Option<String>,
     pub marker: Option<BindingMarker>,
+    pub location: Option<PaneLocation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
