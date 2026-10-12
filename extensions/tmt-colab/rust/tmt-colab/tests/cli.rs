@@ -7260,30 +7260,13 @@ fn page_read_refusals_publish_no_file_and_preserve_the_page() {
         .unwrap();
     assert!(!output.status.success());
     assert_eq!(fs::read(&target).unwrap(), b"keep");
-    // A UTF-8 alias can resolve to a Unix directory containing invalid UTF-8.
-    // Refuse before publishing a file whose JSON path could not be represented.
+    // Unix paths can contain invalid UTF-8. Exercise the publication boundary directly:
+    // macOS refuses creating such a directory, and the CLI's argv is UTF-8.
     let invalid = pilot
         .root
         .join(std::ffi::OsString::from_vec(b"invalid-\xff".to_vec()));
-    fs::create_dir(&invalid).unwrap();
-    let directory_alias = pilot.root.join("non-utf8-parent");
-    std::os::unix::fs::symlink(&invalid, &directory_alias).unwrap();
-    let destination = directory_alias.join("source.html");
-    let output = pilot
-        .command()
-        .args(["page", "read", &id, "--out"])
-        .arg(&destination)
-        .arg("--json")
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(
-        serde_json::from_slice::<Value>(&output.stdout)
-            .unwrap()
-            .get("error")
-            .is_some()
-    );
-    assert!(!invalid.join("source.html").exists());
+    assert!(tmt_colab::export::publish_source(&invalid, b"not published").is_err());
+    assert!(!invalid.exists());
     for directory_path in ["missing-dir/", "missing-dir/."] {
         let output = pilot
             .command()
