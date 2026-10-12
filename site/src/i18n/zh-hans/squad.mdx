@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
+sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
 title: Ops：lead、成员和一个看板
 ---
 
@@ -350,7 +350,7 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-绑定只来自你自己的配置文件，不来自 agent 在看板上写的内容。`run` 直接启动程序，不经过 shell：每个 `{field}` 恰好填入一个参数，因此行内容无法夹带额外命令；如果值会让参数以 `-` 开头，也会被拒绝，防止夹带选项。`open` 只打开网页链接。`tmt ops sq ls` 使用相同分区，因此文本和 JSON 视图与看板一致。不匹配任何分区的成员放在后面的无标题分区，分区筛选不会悄悄隐藏它们。
+绑定只来自你自己的配置文件，不来自 agent 在看板上写的内容。`run` 直接启动程序，不经过 shell：每个 `{field}` 恰好填入一个参数，因此行内容无法夹带额外命令；如果值会让参数以 `-` 开头，也会被拒绝，防止夹带选项。除了 squad 自己的字段，`{host}`、`{session}` 和 `{window}` 表示成员的窗格所在的位置；内置名称优先于同名的 squad 字段，如果 host 不报告 session 或 window（外部 host 只报告名称），使用它们的动作会被拒绝。`open` 只打开网页链接。`tmt ops sq ls` 使用相同分区，因此文本和 JSON 视图与看板一致。不匹配任何分区的成员放在后面的无标题分区，分区筛选不会悄悄隐藏它们。
 
 **字段提供程序**用 tmt 本身没有的数据填充列，例如拉取请求的状态。它为每个成员运行你指定的程序，遵循与 `run` 相同的规则，并将输出第一行显示为与提供程序同名的字段。看板不会等待它：后台运行时显示上一次的值，经过 `every` 指定的时间后再次运行。运行失败时显示淡化的 `?`，不会显示错误。`tmt ops sq ls --refresh-fields` 会先运行到期的提供程序，再输出列表。程序可以输出 `{"value": "#412 open", "color": "review"}`，为单元格建议一个主题 token；列自身的 `color` 阈值优先。
 
@@ -510,7 +510,7 @@ blocked = "blocked" # and of one with a blocked member
 
 **刷新。** 看板按间隔重新加载，默认每 5 秒一次。你可以在 `[board]` 下为所有看板设置 `refresh`，或在 `[squad.<name>.board]` 下为单个 squad 设置。使用 `"1s"` 到 `"60m"` 之间的整秒或整分钟，也可用 `"off"`，只在按 **ctrl-r** 和看板自身操作时重新加载。
 
-**绑定。** 绑定的格式为 `event = "action"`。事件可以是按原样输入的可打印按键（`o` 与 `O` 不同）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1` 到 `f12`、`ctrl-<letter>`（不包括始终用于退出的 `ctrl-c`），或鼠标的 `click` 和 `double-click`。`q`、`j`、`k`、`/` 和 `?` 是保留按键。分区的绑定优先于 `[bind]`，`[bind]` 优先于 host 默认值。**leads** 和 **all** 标签页分别从 `[tabs.leads.bind]` 和 `[tabs.all.bind]` 获取自己的绑定。
+**绑定。** 绑定的格式为 `event = "action"`。事件可以是按原样输入的可打印按键（`o` 与 `O` 不同）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1` 到 `f12`、`ctrl-<letter>`（不包括始终用于退出的 `ctrl-c`），或鼠标的 `click` 和 `double-click`。`q`、`j`、`k`、`/` 和 `?` 是保留按键。分区的绑定优先于窗格位于该 host 的行所对应的 `[bind.<host>]` 表，该表优先于 `[bind]`，`[bind]` 优先于 host 默认值。`<host>` 是 `tmux` 或外部 host 的名称（小写字母、数字和 `-`，以字母开头）；该表接受与 `[bind]` 相同的事件和动作，没有已知 host 的行不会匹配任何一个。**leads** 和 **all** 标签页分别从 `[tabs.leads.bind]` 和 `[tabs.all.bind]` 获取自己的绑定。
 
 | 操作                           | 作用                                                              |
 | ------------------------------ | ----------------------------------------------------------------- |
