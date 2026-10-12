@@ -168,6 +168,11 @@ for (const destination of ['Answer', 'Proposal'] as const)
         await annotationInput(block, agent.name);
         await expect(block.locator('.annotation-status-row')).toContainText(`Asks @${agent.name}.`);
         await block.getByRole('button', { name: 'Send', exact: true }).click();
+        // Dispatch receipt can precede the UI's committed Send completion.
+        // Move away only after the existing composer has closed, so its final
+        // layout/focus work cannot bring the block back into view.
+        await expect(input).toHaveCount(0);
+        await expect(block.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
       }
       await until(() => agent.received().length === 1, 'one admitted block follow-up Ask');
       await page.evaluate(() => window.scrollTo(0, 0));
