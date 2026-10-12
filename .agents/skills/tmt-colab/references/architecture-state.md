@@ -377,7 +377,10 @@ space and plans only what remains) converges. `ManagementClient.setLabels` signs
 `page.labels` request with an empty `expectedRevision` (no view, head or verification: labels
 are display-only and the reply is only checked for shape). Management controls (the page
 menu, list options, label dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `labels` arrive in `/api/pages`.
+keeps search, sort and filters because `labels` arrive in `/api/pages`. The list-options gear is
+icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
+the label chips count the pages shown, while the manage dialog counts every page carrying the
+name and says how many of them are archived.
 `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
 its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
 from the verified complete catalog, including retained deleted IDs, before

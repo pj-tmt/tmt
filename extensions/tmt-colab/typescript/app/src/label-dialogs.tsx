@@ -233,13 +233,16 @@ export function ManageLabelsDialog({
                 <li key={name}>
                   <span className="label-manage-text">
                     <span className="label-manage-name">{name}</span>
-                    <span className="label-manage-count">{t.pageCount(count)}</span>
+                    <span className="label-manage-count">
+                      {t.pageCount(count, carrying(name).filter((page) => page.archived).length)}
+                    </span>
                   </span>
                   <span className="label-manage-actions">
                     <BrowserAction
                       type="button"
                       variant="text"
                       label={`${t.rename} ${name}`}
+                      visibleLabel={t.rename}
                       onActivate={() => {
                         setMessage(undefined);
                         setStep({ kind: 'rename', name, to: name });
@@ -249,6 +252,7 @@ export function ManageLabelsDialog({
                       type="button"
                       variant="destructive"
                       label={`${t.remove} ${name}`}
+                      visibleLabel={t.remove}
                       onActivate={() => {
                         setMessage(undefined);
                         setStep({ kind: 'delete', name });
@@ -317,7 +321,7 @@ export function ManageLabelsDialog({
         </p>
       )}
       {step.kind === 'list' && (
-        <div className="label-actions">
+        <div className="label-actions label-footer">
           <BrowserAction type="button" variant="primary" label={t.close} onActivate={close} />
         </div>
       )}

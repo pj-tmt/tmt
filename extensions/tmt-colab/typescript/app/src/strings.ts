@@ -441,8 +441,10 @@ export const text = {
     retry: 'Retry',
     close: 'Done',
     noLabels: 'No labels yet.',
-    newLabelHint: 'Tick the pages that get this label.',
-    pageCount: (count: number) => `${count} ${count === 1 ? 'page' : 'pages'}`,
+    newLabelHint: 'Tick at least one page to create the label.',
+    pageCount: (count: number, archived = 0) =>
+      `${count} ${count === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,
+    archivedView: 'Archived pages',
     renameConfirm: (from: string, to: string, count: number, archived: number) =>
       `Rename ${from} to ${to} on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''

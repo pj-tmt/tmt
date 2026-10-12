@@ -282,7 +282,7 @@ export function Home() {
         role={status?.failed ? 'alert' : 'status'}
         data-tone={status?.failed ? 'error' : undefined}
       >
-        {status?.text}
+        {[archived ? t.archivedView : '', status?.text].filter(Boolean).join(' · ')}
       </p>
       {pages.length ? (
         <BrowserList label={text.pages} className="pages">

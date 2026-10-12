@@ -98,8 +98,11 @@ test('sort orders by title and the list menu shows archived pages', async ({ pag
   await app(page).getByRole('button', { name: 'List options' }).click();
   const archived = app(page).getByRole('menuitemcheckbox', { name: 'Show archived' });
   await expect(archived).toHaveAttribute('aria-checked', 'false');
+  // Closed, the menu leaves no mark, so the status line says which pages the list shows.
+  await expect(app(page).locator('.page-list-status')).toHaveText('');
   await archived.click();
   await expect(titles(page)).toHaveText(['Archived spec']);
+  await expect(app(page).locator('.page-list-status')).toHaveText('Archived pages');
   // The label row counts only what the toggle shows.
   await expect(app(page).getByRole('button', { name: 'design, 1 page' })).toBeVisible();
   await expect(app(page).getByRole('button', { name: 'ops, 1 page' })).toHaveCount(0);
@@ -168,6 +171,7 @@ test('a new label needs a name and a page, then lands on every ticked page in on
   const dialog = app(page).getByRole('dialog', { name: 'New label' });
   const create = dialog.getByRole('button', { name: 'Create' });
   await expect(create).toBeDisabled();
+  await expect(dialog).toContainText('Tick at least one page to create the label.');
   const name = dialog.getByRole('textbox', { name: 'Label name' });
   await name.fill(' bad');
   await expect(dialog).toContainText('Use single spaces inside the name');
@@ -231,6 +235,9 @@ test('delete removes the name from every page and keeps the pages', async ({ pag
   await app(page).getByRole('button', { name: 'List options' }).click();
   await page.getByRole('menuitem', { name: 'Manage labels…' }).click();
   const dialog = app(page).getByRole('dialog', { name: 'Manage labels' });
+  // The list shows the active pages (2 carry design); the dialog counts the archived one too.
+  await expect(dialog.locator('.label-manage li').first()).toContainText('3 pages · 1 archived');
+  await expect(dialog.locator('.label-manage li').nth(1)).toContainText('ops');
   await dialog.getByRole('button', { name: 'Delete design' }).click();
   await expect(dialog).toContainText('Delete design from 3 pages (1 archived). The pages stay.');
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -277,6 +284,8 @@ for (const width of [1440, 390])
       await page.screenshot({ path: await capturePath(`2588-new-label-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
       await app(page).getByRole('button', { name: 'List options' }).click();
+      await expect(page.getByRole('menuitemcheckbox', { name: 'Show archived' })).toBeVisible();
+      await page.screenshot({ path: await capturePath(`2588-gear-menu-${width}-${theme}.png`) });
       await page.getByRole('menuitem', { name: 'Manage labels…' }).click();
       await expect(app(page).getByRole('dialog', { name: 'Manage labels' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
