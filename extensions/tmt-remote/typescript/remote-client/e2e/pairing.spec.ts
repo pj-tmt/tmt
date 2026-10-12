@@ -3793,6 +3793,43 @@ test('static remote switcher preserves menu focus and settings drafts across two
     await expect(currentItem).toHaveAttribute('aria-checked', 'true');
     await expect(currentItem.locator('[aria-hidden="true"]')).toHaveText('✓');
     await expect(currentItem).toBeFocused();
+    // Real pointer input must toggle an open auto popover closed, not light-dismiss and reopen.
+    await chip.evaluate((button) => {
+      // Count synchronous open attempts so a transient hidden interval cannot pass this control.
+      const original = indexedDB.open;
+      button.dataset.testRegistryOpens = '0';
+      indexedDB.open = function (...args) {
+        button.dataset.testRegistryOpens = String(Number(button.dataset.testRegistryOpens) + 1);
+        return original.apply(indexedDB, args);
+      };
+      button.addEventListener(
+        'click',
+        () => {
+          queueMicrotask(() => {
+            indexedDB.open = original;
+          });
+        },
+        { once: true },
+      );
+      button.addEventListener(
+        'pointerdown',
+        () => {
+          button.dataset.testPointerdownOpen = String(
+            document.getElementById('remote-menu')!.matches(':popover-open'),
+          );
+        },
+        { once: true },
+      );
+    });
+    await chip.click();
+    await expect(chip).toHaveAttribute('data-test-pointerdown-open', 'true');
+    await expect(chip).toHaveAttribute('data-test-registry-opens', '0');
+    await expect(menu).toBeHidden();
+    await expect(chip).toHaveAttribute('aria-expanded', 'false');
+    await expect(chip).toBeFocused();
+    await chip.click();
+    await expect(menu).toBeVisible();
+    await expect(currentItem).toBeFocused();
     await expect(menu.locator('button[tabindex="0"]')).toHaveCount(1);
     await currentItem.press('ArrowDown');
     await expect(foreignItem).toBeFocused();

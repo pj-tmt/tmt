@@ -176,8 +176,15 @@ export function remoteMenu(actions: Actions) {
     const first = end ? enabled().at(-1) : enabled()[0];
     first?.focus();
   }
-  trigger.addEventListener('click', () => {
-    if (surface.matches(':popover-open')) close();
+  let openAtPointerdown = false;
+  trigger.addEventListener('pointerdown', () => {
+    openAtPointerdown = surface.matches(':popover-open');
+  });
+  trigger.addEventListener('click', (event) => {
+    // Auto light-dismiss runs before click; keyboard activation has no pointer press.
+    const dismiss = event.detail > 0 && openAtPointerdown;
+    openAtPointerdown = false;
+    if (dismiss || surface.matches(':popover-open')) close();
     else {
       trigger.focus({ preventScroll: true });
       void open();

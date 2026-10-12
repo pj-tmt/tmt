@@ -201,8 +201,14 @@ function remoteMenu(actions) {
 		search = "";
 		(end ? enabled().at(-1) : enabled()[0])?.focus();
 	}
-	trigger.addEventListener("click", () => {
-		if (surface.matches(":popover-open")) close();
+	let openAtPointerdown = false;
+	trigger.addEventListener("pointerdown", () => {
+		openAtPointerdown = surface.matches(":popover-open");
+	});
+	trigger.addEventListener("click", (event) => {
+		const dismiss = event.detail > 0 && openAtPointerdown;
+		openAtPointerdown = false;
+		if (dismiss || surface.matches(":popover-open")) close();
 		else {
 			trigger.focus({ preventScroll: true });
 			open();
