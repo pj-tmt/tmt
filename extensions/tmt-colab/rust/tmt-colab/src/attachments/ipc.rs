@@ -72,7 +72,7 @@ pub fn read(layout: &Layout, page: &str, selector: &AttachmentSelector) -> Resul
     }
 }
 /// The serve's typed refusal, or the plain answer of a server that does not have this route.
-pub(super) fn refusal(code: u16, response: &[u8]) -> Box<dyn std::error::Error + Send + Sync> {
+pub(crate) fn refusal(code: u16, response: &[u8]) -> Box<dyn std::error::Error + Send + Sync> {
     match serde_json::from_slice::<WriteError>(response) {
         Ok(failure) => failure.into(),
         Err(_) if matches!(code, 404 | 413) => Fault::ServerMismatch.into(),

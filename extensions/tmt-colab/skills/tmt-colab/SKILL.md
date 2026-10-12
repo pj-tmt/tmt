@@ -99,8 +99,8 @@ tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
 Pass the returned token, not `REVISION`. `update` reports the write's cost
-(`count`, `bytes`; zero when unchanged). Writing keeps the title and discussion.
-For a small change use `page patch PAGE --find T --replace T --json` (`--help`). On `COLAB_STALE_BASE`, read again,
+(`count`, `bytes`; zero if unchanged). Writing keeps the title and discussion.
+For a small change use `page patch PAGE --find T --replace T --json`. On `COLAB_STALE_BASE`, read again,
 merge the intervening edit and submit against the new token. Never blindly retry
 the old replacement. After a timeout or uncertain outcome, read back and compare
 the intended source before another write; after an uncertain create, inspect `ls`
@@ -108,8 +108,8 @@ not duplicating pages.
 
 Page source, updates and history have size limits; keep pages compact
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
-On `COLAB_CAPACITY`, read the named limit and recovery instruction. Export a
-readable page to preserve it, then create a fresh page from the exported HTML:
+`page read` reports `usage`. On `COLAB_CAPACITY`, read the named limit; if it offers
+`page compact PAGE`, run it, then write again. If still full, export the page and create a fresh one:
 
 ```sh
 tmt colab export PAGE --dir EXISTING_DIRECTORY --json
@@ -117,7 +117,7 @@ tmt colab page create --title "Weekly plan" --file EXPORTED_DIRECTORY/page.html 
 ```
 
 Use the export directory the first command returns, not its parent.
-Exports are unencrypted and include discussions; keep them private to the task. The new page has a new identity and inherits no discussions or
+Exports are unencrypted and include discussions; keep them private. The new page has a new identity and inherits no discussions or
 sharing. Do not delete the original to clear a limit.
 
 ## Page look

@@ -475,6 +475,35 @@ fn serve(
         }
         return;
     }
+    if request.path == crate::page::compact_ipc::PATH {
+        // Requested combine of this device's own stream. Like the publish route, the authority
+        // is this owned private socket; it runs under the sync mutex that excludes every write.
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let page = crate::page::compact_ipc::parse(&request.body)?;
+            let report = sync
+                .ok_or(crate::page::Fault::Unavailable)?
+                .compact_page(&page, request.received)?;
+            Ok(serde_json::to_vec(&report)?)
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
     if request.path == crate::attachments::ipc::PATH {
         // Native root-local admitted read through this serve's established object channel. The
         // authority is this owned private socket; it never activates storage, opens a backend
@@ -1520,6 +1549,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
+            | crate::page::compact_ipc::PATH
             | crate::attachments::ipc::PATH
             | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH

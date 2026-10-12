@@ -1410,6 +1410,111 @@ fn varied_source(seed: u64, bytes: usize) -> String {
     text
 }
 #[test]
+fn page_compact_combines_this_devices_changes_and_reports_usage_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>first</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Compact",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let mut written = Value::Null;
+        for i in 0..6 {
+            fs::write(&file, format!("<p>first</p><p>{i}</p>")).unwrap();
+            written = pilot.call(&[
+                "page",
+                "write",
+                id,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ]);
+        }
+        let read = pilot.call(&["page", "read", id, "--json"]);
+        let usage = &read["usage"];
+        assert_eq!(
+            written["usage"], *usage,
+            "a write reports the page as read next"
+        );
+        assert!(usage["updates"].as_u64().unwrap() >= 6, "{usage}");
+        assert_eq!(usage["updateLimit"], 200);
+        assert_eq!(usage["tailBytesLimit"], 4 * 1024 * 1024);
+        assert_eq!(usage["checkpointBytes"], 0);
+        assert_eq!(
+            usage["percent"],
+            usage["updates"].as_u64().unwrap() * 100 / 200
+        );
+
+        let compacted = pilot.call(&["page", "compact", id, "--json"]);
+        assert_eq!(compacted["compacted"], true, "{compacted}");
+        assert_eq!(compacted["pageId"], id);
+        assert_eq!(
+            compacted["before"], *usage,
+            "the report starts where read ended"
+        );
+        assert!(
+            compacted["mergedObjects"].as_u64().unwrap() >= 6,
+            "{compacted}"
+        );
+        assert_eq!(compacted["sourceSha256"], written["sourceSha256"]);
+        assert!(
+            compacted["after"]["updates"].as_u64().unwrap()
+                < compacted["before"]["updates"].as_u64().unwrap()
+        );
+        assert!(compacted["after"]["checkpointBytes"].as_u64().unwrap() > 0);
+        let after = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(after["usage"], compacted["after"]);
+        assert_eq!(
+            after["source"], read["source"],
+            "the source is byte-identical"
+        );
+
+        // Nothing is left on this device, so a second run reports that and writes nothing.
+        let again = pilot.call(&["page", "compact", id, "--json"]);
+        assert_eq!(again["compacted"], false, "{again}");
+        assert_eq!(again["skipped"], "nothing-to-combine");
+        assert_eq!(again["before"], again["after"]);
+        assert_eq!(
+            pilot.call(&["page", "read", id, "--json"])["revision"],
+            after["revision"]
+        );
+
+        // Human output names the outcome and both usages.
+        fs::write(&file, "<p>first</p><p>again</p>").unwrap();
+        pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let human = pilot
+            .command()
+            .args(["page", "compact", id])
+            .output()
+            .unwrap();
+        assert!(human.status.success(), "{human:?}");
+        let shown = String::from_utf8(human.stdout).unwrap();
+        assert!(shown.contains("PAGE COMPACTED"), "{shown}");
+        for label in ["before", "after", "covers", "source"] {
+            assert!(shown.contains(label), "{label} in {shown}");
+        }
+        assert!(shown.contains("of 200 changes"), "{shown}");
+    }
+}
+
+#[test]
 fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
     const SIZE: usize = 300 * 1024;
     for serving in [false, true] {

@@ -1501,6 +1501,303 @@ fn a_device_combines_its_own_tail_and_the_page_still_reads_back_exact() {
     assert_eq!(f.read().source, source);
 }
 
+/// What the stored envelopes hold, counted without the code that reports usage: AES-GCM adds a
+/// 16-byte tag and no padding, so a stored object's plaintext is its ciphertext minus the tag.
+fn stored_usage(f: &Fixture) -> (usize, usize, usize) {
+    let plaintext = |table: &str| -> Vec<usize> {
+        let db = f.sql();
+        let mut statement = db
+            .prepare(&format!(
+                "SELECT payload FROM {table} WHERE page = ?1 AND payload IS NOT NULL"
+            ))
+            .unwrap();
+        statement
+            .query_map([PAGE], |row| row.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .map(|payload| {
+                object::Envelope::from_json(&payload.unwrap())
+                    .unwrap()
+                    .ciphertext()
+                    .len()
+                    - 16
+            })
+            .collect()
+    };
+    let tail = plaintext("receipts");
+    (
+        tail.len(),
+        tail.iter().sum(),
+        plaintext("checkpoints").iter().sum(),
+    )
+}
+
+fn request_compaction(f: &mut Fixture) -> page::compact::Report {
+    let mut decoder = f.decoder();
+    page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, None).unwrap()
+}
+
+#[test]
+fn usage_counts_what_the_page_stores_and_a_request_reports_it_before_and_after() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    let mut last = None;
+    for i in 0..12 {
+        source.push_str(&format!("<p>{i}</p>"));
+        last = Some(f.write(&source));
+    }
+    let before = f.read().usage;
+    let (count, bytes, checkpoints) = stored_usage(&f);
+    assert_eq!(
+        (before.updates, before.tail_bytes, before.checkpoint_bytes),
+        (count, bytes, checkpoints),
+        "usage is the stored tail and checkpoints, counted independently"
+    );
+    assert_eq!(
+        before.other_device_updates, 1,
+        "the page's creator wrote the first update"
+    );
+    assert_eq!(before.update_limit, 200);
+    assert_eq!(before.tail_bytes_limit, 4 * 1024 * 1024);
+    assert_eq!(before.gzip_limit, 5_000_000);
+    assert_eq!(
+        before.state_bytes,
+        bytes + checkpoints,
+        "no baseline on a first-epoch page"
+    );
+    assert_eq!(
+        before.gzip_bytes, None,
+        "a small state is not gzipped just to be measured"
+    );
+    assert_eq!(before.percent, before.updates * 100 / 200);
+    assert_eq!(before.limiting, page::Limiting::Changes);
+
+    let report = request_compaction(&mut f);
+    assert!(report.compacted && report.skipped.is_none());
+    assert_eq!((report.through, report.merged_objects), (12, 12));
+    let last = last.unwrap();
+    assert_eq!(report.by, last.publication.as_ref().unwrap().stream_id);
+    assert_eq!(report.page_id, PAGE);
+    assert_eq!(report.before, before);
+    assert_eq!(report.after, f.read().usage);
+    assert_eq!(
+        (report.after.updates, report.after.other_device_updates),
+        (1, 1),
+        "only the other device's change is left, and this device cannot combine it"
+    );
+    assert!(report.after.tail_bytes < before.tail_bytes);
+    assert!(report.after.checkpoint_bytes > 0);
+    let (count, bytes, checkpoints) = stored_usage(&f);
+    assert_eq!(
+        (
+            report.after.updates,
+            report.after.tail_bytes,
+            report.after.checkpoint_bytes
+        ),
+        (count, bytes, checkpoints)
+    );
+    // The source is byte-identical, and its hash is the one the last write reported.
+    assert_eq!(f.read().source, source);
+    assert_eq!(report.source_sha256, last.source_sha256);
+}
+
+#[test]
+fn a_second_requested_compaction_finds_nothing_to_combine_and_writes_nothing() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..5 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    assert!(request_compaction(&mut f).compacted);
+    let stored = f.bytes();
+    let revision = f.read().revision;
+    let again = request_compaction(&mut f);
+    assert!(!again.compacted);
+    assert_eq!(
+        again.skipped,
+        Some(page::compact::Skipped::NothingToCombine)
+    );
+    assert_eq!((again.through, again.merged_objects), (0, 0));
+    assert_eq!(again.before, again.after);
+    assert_eq!(
+        f.bytes(),
+        stored,
+        "a no-op leaves the stored state byte-identical"
+    );
+    assert_eq!(f.read().revision, revision);
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn a_requested_compaction_past_its_deadline_says_it_could_not_combine_and_writes_nothing() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..4 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    let late = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap();
+    let stored = f.bytes();
+    let mut decoder = f.decoder();
+    let report =
+        page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, Some(late)).unwrap();
+    assert!(!report.compacted);
+    assert_eq!(report.skipped, Some(page::compact::Skipped::NotCombined));
+    assert_eq!((report.through, report.merged_objects), (0, 0));
+    assert_eq!(report.before, report.after);
+    assert_eq!(f.bytes(), stored, "a combine that gave up changed nothing");
+    // The same request with time left combines, so the refusal was the deadline and nothing else.
+    assert!(request_compaction(&mut f).compacted);
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn a_write_after_a_requested_compaction_lands_in_the_tail_and_the_next_one_keeps_it() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..4 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    assert!(request_compaction(&mut f).compacted);
+    source.push_str("<p>after</p>");
+    f.write(&source);
+    let report = request_compaction(&mut f);
+    assert!(report.compacted);
+    assert_eq!(
+        report.merged_objects, 2,
+        "the earlier checkpoint and the one new change"
+    );
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn writes_racing_requested_compactions_are_never_lost() {
+    // The product serializes a combine with every write (the sync mutex, or the lifecycle lock),
+    // so this is the harder case: a second connection writes at any moment. Whatever the
+    // interleaving, every write that committed is in the page, and the page never reads back
+    // anything but the last source written.
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..3 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    let layout = Layout::existing(&f.root).unwrap().unwrap();
+    let start = source.clone();
+    let writer = std::thread::spawn(move || {
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::write_existing(&layout).unwrap();
+        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+        let mut source = start;
+        for i in 0..10 {
+            source.push_str(&format!("<b>{i}</b>"));
+            // A combine moves the revision, so a write prepared before it is stale: prepare again.
+            loop {
+                let prepared = page::prepare_publication(
+                    &store,
+                    &key,
+                    PAGE,
+                    tmt_colab::decoder::ContentEdit {
+                        source: &source,
+                        publisher_agent: None,
+                        attachments: None,
+                    },
+                    None,
+                    &mut decoder,
+                    NOW,
+                )
+                .unwrap();
+                let page::PublicationPreparation::Write(frozen) = prepared else {
+                    panic!("each write changes the source")
+                };
+                let committed = page::commit_publication(
+                    &mut store,
+                    &key,
+                    frozen.job(),
+                    frozen.packet(),
+                    frozen.chain(),
+                    NOW,
+                )
+                .unwrap();
+                if matches!(
+                    committed.record.outcome,
+                    tmt_colab::publication::Outcome::Committed { .. }
+                ) {
+                    break;
+                }
+            }
+        }
+        source
+    });
+    let mut combined = 0;
+    while !writer.is_finished() || combined < 3 {
+        combined += usize::from(request_compaction(&mut f).compacted);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let last = writer.join().unwrap();
+    assert_eq!(f.read().source, last);
+    // Once writes stop, one more combine leaves the same source and a second finds nothing.
+    request_compaction(&mut f);
+    assert_eq!(f.read().source, last);
+    assert!(!request_compaction(&mut f).compacted);
+}
+
+/// A measurement, not a gate: how large the checkpoint grows when a page is rewritten over and
+/// over and its device combines each batch. Run it with
+/// `cargo test -p tmt-colab --test page churn -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement: several hundred rewrites with a decoder run each"]
+fn churn_measurement_records_checkpoint_growth_after_merge() {
+    // Pseudo-random words so a rewrite shares almost nothing with the page it replaces.
+    let rewrite = |seed: u64, bytes: usize| -> String {
+        let mut state = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let mut text = String::with_capacity(bytes + 16);
+        while text.len() < bytes {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            text.push_str(&format!("<p>{:x}</p>", state >> 20));
+        }
+        text
+    };
+    let rows = std::env::var("CHURN_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(20 * 1024);
+    let cycles: u64 = std::env::var("CHURN_CYCLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(300);
+    let mut f = Fixture::new();
+    println!(
+        "cycle, source bytes, checkpoint bytes, tail updates, tail bytes, state bytes, gzip bytes, percent"
+    );
+    for cycle in 1..=cycles {
+        let source = rewrite(cycle, rows);
+        f.write(&source);
+        if cycle % 10 == 0 {
+            let report = request_compaction(&mut f);
+            if cycle % 50 == 0 || cycle == 10 {
+                println!(
+                    "{cycle}, {}, {}, {}, {}, {}, {:?}, {}",
+                    source.len(),
+                    report.after.checkpoint_bytes,
+                    report.after.updates,
+                    report.after.tail_bytes,
+                    report.after.state_bytes,
+                    report.after.gzip_bytes,
+                    report.after.percent
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn a_page_takes_more_than_two_hundred_changes_when_its_device_combines() {
     let mut f = Fixture::new();

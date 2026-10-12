@@ -1512,7 +1512,7 @@ encoding byte order; declare all schema root types before projection.
 | Message body                                 | 16 KiB UTF-8                                  |
 | Threads per page                             | 1,000                                         |
 | Update-envelope plaintext                    | 256 KiB                                       |
-| Compaction trigger per stream                | 200 updates or 256 KiB tail                   |
+| Automatic combine of a device's own stream   | 50 updates or 1 MiB tail, after a write       |
 | Per-device append rate                       | 10/s sustained, burst 50                      |
 | Per-page decoder concurrency                 | 1                                             |
 | Rust decoder batch deadline                  | 2 seconds                                     |
@@ -3610,7 +3610,8 @@ codes apply; failures exit 1. The browser home empty state names this command.
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
 source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
-revision,memoryLimit}` with optional bounded `publisherAgent` and `originalAuthor` and optional complete `creationRecipient`, omitted
+revision,memoryLimit,usage}` (`usage` is defined under
+[Page usage and requested compaction](#page-usage-and-requested-compaction-2846)) with optional bounded `publisherAgent` and `originalAuthor` and optional complete `creationRecipient`, omitted
 when absent. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
@@ -3664,7 +3665,8 @@ records a terminal rejection and no content; a commit never splits a batch. Exac
 retries return the original outcome bytes without re-signing, re-appending or overwriting
 later content; changed bytes conflict. JSON success is
 `{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed,update,warnings}`
-plus, when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `update` is
+and `usage` (the page's usage after the write, omitted when the page cannot be read back
+right after it) plus, when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `update` is
 `{count,bytes}`, plus `minimal:true` when `changed` is true: the number of updates in the
 committed batch (equal to `count`) and the total bytes of their sealed envelopes (the signed
 manifest's `packetBytes`), so what an edit cost is measurable. `minimal` says the batch came from
@@ -3785,6 +3787,73 @@ evaluates the same patch against the page as it now is, preparing and committing
 more times; an edit to the addressed text makes that evaluation fail with `COLAB_PATCH_CONFLICT`.
 `--expected-revision` is the optional strict fence of the whole-source write: with it any change
 to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is retried.
+
+### Page usage and requested compaction (#2846)
+
+`page read --json` reports `usage`, the accounting a write is refused against:
+
+| Field                              | Meaning                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `updates`, `updateLimit` (200)     | Changes after the checkpoints, over every device's stream.                                                                                                                                                   |
+| `tailBytes`, `tailBytesLimit`      | Their plaintext bytes (4 MiB).                                                                                                                                                                               |
+| `checkpointBytes`                  | Plaintext bytes of the checkpoints.                                                                                                                                                                          |
+| `otherDeviceUpdates`               | Of `updates`, those on other devices' streams. Only those devices can combine them.                                                                                                                          |
+| `stateBytes`                       | The whole state, uncompressed: baseline, checkpoints and tail.                                                                                                                                               |
+| `gzipBytes`, `gzipLimit` (5000000) | The state gzipped as a browser loads it. Measured from a `stateBytes` of 256 KiB; absent below, where `stateBytes` bounds it by 5% of the limit.                                                             |
+| `limiting`                         | Which of the three `percent` is: `changes`, `recent-data` (the tail's bytes) or `stored-size` (the gzipped state); the first of the fullest wins a tie. Combining changes makes room only for the first two. |
+| `percent`                          | The fullest of `updates`/`updateLimit`, `tailBytes`/`tailBytesLimit` and (`gzipBytes`, else `stateBytes`)/`gzipLimit`, rounded down; above 100 for a reader that holds more than a write accepts.            |
+
+`page write` and `page patch` report the same `usage` in their JSON receipt, and their human output
+adds a `usage` line only from 80%, saying how full the page is and, when this device has changes of
+its own to combine, naming `tmt colab page compact`.
+
+The numbers are the write path's own: the tail count and bytes `admit_deltas` refuses at, and the
+gzipped state `admit_gzip` refuses at. A refusal caused by the tail (`COLAB_CAPACITY`: more than
+200 changes or 4 MiB since the checkpoints) names `tmt colab page compact <page>` before the
+export-and-recreate way out; one caused by the source size or the gzipped state does not, because
+combining changes does not make those smaller.
+
+`tmt colab page compact <page> [--json]` combines the root-local device's own stream with the
+automatic combine's rules and a trigger of one change (`page/compact.rs`: the stream's own
+verified updates, merged inside the isolated decoder, one checkpoint per namespace at the
+stream's head). While `tmt colab serve` runs it asks the serve over the owner-only socket route
+`POST /.tmt/colab/local/page-compact` with `{"version":1,"page":ID}`; otherwise it runs under the
+serve lifecycle lock. The route answers local callers only: a forwarded device context or device
+event is `COLAB_DENIED`, another body version `COLAB_SERVER_MISMATCH`, a malformed body
+`COLAB_INPUT_INVALID`; it runs under the sync mutex that excludes every write, so a combine
+never races a write through the serve. The reply is a `Report`: `pageId`, `compacted`,
+`skipped` (`nothing-to-combine` when this device has no change after its checkpoints,
+`not-combined` when it has but the merge could not be published, for example because it would be
+over one checkpoint's size or did not finish in time), `by` (the device whose stream was combined),
+`through` (the checkpoints now cover that stream's changes `1..=through`; 0 when nothing was
+combined), `mergedObjects`, `sourceSha256` (the folded source after) and `before` / `after`
+usage. The folded source is the same before and after: the merge is compared with the page's own
+projections before its first checkpoint is published, or nothing is. A second request finds no
+change after the checkpoints and writes nothing (`compacted:false`, the stored state
+byte-identical). Archived and deleted pages refuse as a write does.
+
+A combine moves the page revision, so a revision read before it is `COLAB_STALE_BASE` for the
+next write. The merged changes' per-edit attribution is replaced by the checkpoint, which is
+signed by the device and covers `1..=through`; no ledger or schema is added. Only a device can
+combine its own stream: the browser does not yet combine its own `own` updates (#2846), so they stay
+in `updates` and `otherDeviceUpdates` until it does.
+
+Merging keeps the text each rewrite deleted, so combining ends the tail, not the growth of the
+checkpoint. Measured with `cargo test --release -p tmt-colab --test page churn -- --ignored
+--nocapture` (a 20 KiB page of random words replaced whole each time, combined every 10
+rewrites), the checkpoint grows by about the page's own size per rewrite and the gzipped state by
+about 42% of that:
+
+| Rewrites | Checkpoint | Gzipped state | `percent` |
+| -------- | ---------- | ------------- | --------- |
+| 100      | 2.05 MB    | 0.87 MB       | 17        |
+| 200      | 4.11 MB    | 1.73 MB       | 34        |
+| 300      | 6.16 MB    | 2.60 MB       | 51        |
+| 400      | 8.21 MB    | 3.46 MB       | 69        |
+
+Only a rebuild into a new epoch drops deleted text; compaction does not, so a page rewritten
+whole a few hundred times reaches its gzipped budget however often it is combined. That is why
+`percent` includes the gzipped state.
 
 ### Content publication (#1908, #1928, #1934)
 

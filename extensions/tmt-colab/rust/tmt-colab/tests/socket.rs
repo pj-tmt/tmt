@@ -4685,3 +4685,99 @@ fn serve_release_route_names_both_versions_only_when_the_install_moved() {
         let _ = fs::remove_dir_all(&scratch);
     }
 }
+
+#[test]
+fn a_requested_compaction_runs_in_the_serve_for_the_local_cli_only_and_keeps_live_peers_and_source()
+{
+    use tmt_colab::{decoder::Decoder, page, publication::Outcome};
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut cursor = None;
+    let mut last = String::new();
+    for i in 0..3 {
+        last = format!("<h1>Source {i}</h1>");
+        let frozen = prepare_write(&layout, &key, &last);
+        let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+        assert!(matches!(
+            published.record.outcome,
+            Outcome::Committed { .. }
+        ));
+        receive_batch(&server, &mut peer, 1, &mut cursor);
+    }
+    let body = format!(r#"{{"version":1,"page":"{PAGE}"}}"#);
+    let db = layout.directory.join("space.db");
+    let before = fs::read(&db).unwrap();
+    // A forwarded browser context, or any device event, never combines a stream.
+    for header in [
+        format!("{}\r\n", owner(DEVICE)),
+        "tmt-device-event: 1\r\n".into(),
+    ] {
+        let denied = server.event(page::compact_ipc::PATH, &header, &body);
+        assert!(
+            denied.contains("403") && denied.contains("COLAB_DENIED"),
+            "{denied}"
+        );
+    }
+    let wrong_method = server.request_with_timeout(
+        &format!("GET {} HTTP/1.1\r\n\r\n", page::compact_ipc::PATH),
+        support::DECODER_DEADLINE,
+    );
+    assert!(
+        wrong_method.contains("COLAB_INPUT_INVALID"),
+        "{wrong_method}"
+    );
+    for malformed in [
+        "{}".to_owned(),
+        body.replace(r#""version":1"#, r#""version":1,"agent":"x""#),
+        body.replace(PAGE, "page"),
+    ] {
+        let refused = server.event(page::compact_ipc::PATH, "", &malformed);
+        assert!(
+            refused.contains("400") && refused.contains("COLAB_INPUT_INVALID"),
+            "{refused}"
+        );
+    }
+    let other_version = server.event(
+        page::compact_ipc::PATH,
+        "",
+        &body.replace(r#""version":1"#, r#""version":2"#),
+    );
+    assert!(
+        other_version.contains("409") && other_version.contains("COLAB_SERVER_MISMATCH"),
+        "{other_version}"
+    );
+    assert_eq!(fs::read(&db).unwrap(), before, "a refusal changes nothing");
+
+    let report = page::compact_ipc::request(&layout, PAGE).unwrap();
+    assert!(report.compacted && report.skipped.is_none(), "{report:?}");
+    assert!(report.merged_objects >= 3, "{report:?}");
+    assert!(report.after.updates < report.before.updates, "{report:?}");
+    let digest = tmt_colab_model::crypto::digest(last.as_bytes());
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(report.source_sha256, hex);
+    let again = page::compact_ipc::request(&layout, PAGE).unwrap();
+    assert!(!again.compacted, "{again:?}");
+    assert_eq!(
+        again.skipped,
+        Some(page::compact::Skipped::NothingToCombine)
+    );
+
+    // The live peer survived, a write after the combine reaches it, and the source is exact.
+    peer.send(Message::Ping(vec![7].into())).unwrap();
+    assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
+    last = "<h1>After the combine</h1>".into();
+    let frozen = prepare_write(&layout, &key, &last);
+    page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    receive_batch(&server, &mut peer, 1, &mut cursor);
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
+        last
+    );
+}
