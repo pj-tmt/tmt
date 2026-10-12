@@ -78,7 +78,7 @@ where
         }
         let bytes = (self.get)(
             &format!("{ROOT}/actions/artifacts/{artifact_id}/zip"),
-            "application/octet-stream",
+            "application/vnd.github+json",
             maximum,
             self.deadline,
         )?
