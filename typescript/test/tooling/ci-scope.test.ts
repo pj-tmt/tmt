@@ -2897,7 +2897,10 @@ describe('required CI gate', () => {
     // keeps its own concurrency group and evidence, and neither cancels the other.
     expect(acceptance).toContain('fail-fast: false');
     expect(acceptance).toContain('shard: [1, 2]');
-    expect(acceptance).toContain('--shard=${{ matrix.shard }}/2 --output');
+    expect(acceptance).toContain(
+      '$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)'
+    );
+    expect(acceptance).not.toContain('--shard=');
     expect(acceptance).toContain('-${{ matrix.shard }}\n      # A label edit must never cancel');
     expect(acceptance).toContain('name: colab-acceptance-results-${{ matrix.shard }}');
     expect(acceptance).not.toContain('continue-on-error');

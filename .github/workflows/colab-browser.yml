@@ -258,8 +258,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # The one-worker suite (~100 specs, 22 to 30+ minutes as one job, #2827) runs as two shards,
-    # each with its own real binaries and world; neither cancels the other.
+    # The one-worker suite (~100 specs, 22 to 30+ minutes as one job, #2827) runs as two shards of
+    # whole spec files balanced by measured time (typescript/scripts/colab-acceptance-shards.mjs;
+    # Playwright's own --shard put the heavy page-* specs in one shard), each with its own real
+    # binaries and world; neither cancels the other.
     strategy:
       fail-fast: false
       matrix:
@@ -313,7 +315,7 @@ jobs:
       - name: Run this shard of the real-binary suite with one worker
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --shard=${{ matrix.shard }}/2 --output "$RUNNER_TEMP/colab-acceptance-private/traces"
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" $(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()
         shell: bash
