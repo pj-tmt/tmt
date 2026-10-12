@@ -23,6 +23,87 @@ pub const CONVERSATIONS_BYTES: usize = 8 * 1024 * 1024;
 pub const DISCLOSURE: &str =
     "This creates an unencrypted copy of the page. Anyone with these files can read it.";
 
+/// Publish exact admitted source to a new private file. Like the full export, all writes
+/// happen in owned staging, and an existing destination (including a symlink) is never replaced.
+pub fn publish_source(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
+    let encoded = path.as_os_str().as_encoded_bytes();
+    if encoded.ends_with(b"/") || encoded.ends_with(b"/.") {
+        return Err("Source destination needs a filename, not a directory path.".into());
+    }
+    if path
+        .components()
+        .any(|part| matches!(part, Component::ParentDir))
+    {
+        return Err("Source destination must not contain parent traversal.".into());
+    }
+    let absolute = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let leaf = absolute
+        .file_name()
+        .ok_or("Source destination needs a filename.")?;
+    let parent_path = std::fs::canonicalize(absolute.parent().ok_or("Missing parent.")?)?;
+    let destination = parent_path.join(leaf);
+    destination
+        .to_str()
+        .ok_or("Source destination must be representable as a UTF-8 path.")?;
+    let parent = directory(&parent_path)?;
+    let mut random = [0; 16];
+    getrandom::fill(&mut random)?;
+    let stage_name = format!(".tmt-colab-source-{}", hex(&random));
+    let mut stage = Staging::new(&parent, &stage_name)?;
+    let result = (|| -> Result<()> {
+        let file = File::from(openat(
+            stage.tree.existing(None),
+            "source",
+            OFlag::O_RDWR | OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::S_IRUSR | Mode::S_IWUSR,
+        )?);
+        stage.files.push(("source".into(), file));
+        let file = &mut stage.files[0].1;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        let info = FileInfo::new("source", bytes);
+        stage.check()?;
+        verify_file(stage.tree.existing(None), "source", &info, bytes)?;
+        check_destination(&parent_path, &parent)?;
+        linkat(
+            stage.tree.existing(None),
+            "source",
+            &parent,
+            leaf,
+            AtFlags::empty(),
+        )?;
+        same_entry(&parent, leaf, &stage.files[0].1)?;
+        verify_file(
+            &parent,
+            leaf.to_str().expect("validated UTF-8 destination"),
+            &info,
+            bytes,
+        )?;
+        check_destination(&parent_path, &parent)?;
+        parent.sync_all()?;
+        Ok(())
+    })();
+    let cleanup = stage.cleanup();
+    match (result, cleanup) {
+        (Ok(()), Ok(())) => Ok(destination),
+        (result, cleanup) => Err(Fault::Publication {
+            partial_directory: None,
+            reason: [result.err(), cleanup.err()]
+                .into_iter()
+                .flatten()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+                .join("; "),
+        }
+        .into()),
+    }
+}
+
 #[derive(Debug)]
 pub enum Fault {
     Inactive,

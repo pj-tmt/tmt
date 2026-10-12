@@ -33,6 +33,11 @@ pub use crate::decoder::UPDATE_BYTES as CONTENT_UPDATE_BYTES;
 pub const OWNER_WRAPS: usize = 512;
 /// Local page catalog bound, including retained tombstones.
 pub const PAGES: usize = 1000;
+/// Literal page-search inputs and complete ranged/search output (never silently truncated).
+pub const PAGE_READ_PATTERN_BYTES: usize = 4 * 1024;
+pub const PAGE_READ_CONTEXT_LINES: usize = 1000;
+pub const PAGE_READ_MATCHES: usize = 1000;
+pub const PAGE_READ_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Worst-case JSON escaping of bounded source/title plus the payload's base64 layer.
 pub const LOCAL_CREATE_PAYLOAD_BYTES: usize =
     6 * (crate::decoder::BASELINE_BYTES + crate::decoder::BASELINE_TITLE_BYTES) + 1024;

@@ -3759,6 +3759,39 @@ undo a durable outcome. The service never receives or decodes plaintext source.
 
 ### Ranged read and anchored patch (#2836)
 
+`page read PAGE --lines A:B [--json]` reads the inclusive line range from the same
+owner-admitted snapshot as the whole-page read, with the identical opaque `revision`.
+Lines follow `page/lines.rs`: 1-based LF records include their terminating LF, CR remains
+content, trailing LF adds no synthetic record, and an empty page is one empty record.
+`rangeSha256` is lowercase SHA-256 of their exact concatenated UTF-8 bytes, with no
+number prefixes, escaping, normalization or inserted newline. JSON retains the whole-read
+metadata but its `source` is only those bytes, with `lineStart`, `lineEnd`, and
+`rangeSha256`. Human output numbers each line and prints the range/hash; its verified
+metadata remains on stderr. An out-of-page range refuses with `COLAB_READ_RANGE`.
+
+`--grep TEXT [--context N]` finds non-overlapping occurrences of nonempty literal text,
+including text across LF boundaries. Regex is not supported in v1. Context defaults to zero,
+expands each match to surrounding lines, and overlapping or adjacent ranges merge. JSON
+replaces the whole source with `matches` (occurrences) and `blocks`, each containing
+`lineStart`, `lineEnd`, `source`, and `rangeSha256`; human output numbers those same blocks.
+No match is a successful empty block list. `--lines` and `--grep` are exclusive, and
+`--context` requires `--grep`. Pattern inputs are at most 4 KiB, context 0..1000 lines,
+matches at most 1,000, and complete ranged/search output at most 8 MiB (including JSON
+escaping or human number prefixes). Exceeding a result bound is `COLAB_READ_TOO_LARGE`
+before any output or file publication, never a truncated result. The byte bound admits a
+huge single line; it is not a line-length bound. Unflagged reads are unchanged.
+
+`--out FILE [--lines A:B] [--json]` publishes only the exact whole-page or selected range
+bytes to a new 0600 file, with no added newline, JSON, or display labels in the file. It
+conflicts with `--grep`. JSON reports `path` (canonical parent), `bytes`, `sha256`,
+`revision`, and `pageId`, plus the range fields when selected; human output reports the
+path and the unencrypted-copy disclosure. The parent must exist; aliases are resolved once,
+parent traversal, a non-UTF-8 destination, and an existing path (including a symlink) are
+refused. File bytes also obey the 8 MiB output bound. Publication
+uses the existing plaintext export's owned staging and exclusive no-follow file rules;
+failed prepublication removes staging without replacing user data. This is a source-only
+copy: `tmt colab export` remains the full-fidelity page/conversation/attachment export.
+
 `tmt colab page patch <page> <form> [--expected-revision <token>] [--strict] [--json]` changes
 part of a page's source without moving the rest. Exactly one form names the change; each carries
 the text the caller expects, so the change is anchored to that text and not to the page as a whole:

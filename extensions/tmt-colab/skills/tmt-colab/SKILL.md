@@ -91,20 +91,20 @@ refuses to publish while any remain.
 tmt colab page read PAGE --json
 ```
 
-Retain its exact `source` and opaque `revision`. Edit the source in a file and
-write against that verified revision:
+Edit its exact `source`; retain the opaque `revision` and write:
 
 ```sh
 tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
-Pass the returned token, not `REVISION`. `update` reports the write's cost
-(`count`, `bytes`; zero if unchanged). Writing keeps the title and discussion.
-For a small change use `page patch PAGE --find T --replace T --json`. On `COLAB_STALE_BASE`, read again,
-merge the intervening edit and submit against the new token. Never blindly retry
-the old replacement. After a timeout or uncertain outcome, read back and compare
-the intended source before another write; after an uncertain create, inspect `ls`
-not duplicating pages.
+Use the returned token. `update` reports cost (`count`, `bytes`; zero for no-op);
+title and discussion stay. Read `--lines A:B`, or literal `--grep TEXT --context N`.
+`--out FILE` writes exact whole/range bytes to a new private, unencrypted file.
+Small edits: `page patch PAGE --find T --replace T --json` (`--help`).
+On `COLAB_STALE_BASE`, reread, merge edits and use the new token;
+never blindly retry the old replacement. After a timeout or uncertainty, read back
+and compare the intended source before writing; for uncertain creates inspect `ls`,
+never duplicate pages.
 
 Page source, updates and history have size limits; keep pages compact
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
