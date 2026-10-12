@@ -26,6 +26,14 @@ import { Frames } from './frames.js';
 import { SYNC_DISCONNECTED } from './connection-state.js';
 import { hex } from './export.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
+import {
+  compactReport,
+  pageReply,
+  pageUsage,
+  UsageRefused,
+  type CompactReport,
+  type PageUsage,
+} from './page-usage.js';
 import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
 import { text as strings } from './strings.js';
 
@@ -49,6 +57,8 @@ function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
 const CHUNK_BYTES = 32 * 1024;
 /** The whole reply budget for one save: upload window, native preparation and commit. */
 const SAVE_REPLY_MS = 30_000;
+/** The reply budget for a usage or compact request: a combine decodes the page several times. */
+const PAGE_REPLY_MS = 20_000;
 /** Bytes the socket may hold unsent before the next chunk waits; keeps a 2 MiB save paced. */
 const SAVE_BUFFER_BYTES = 256 * 1024;
 
@@ -100,6 +110,13 @@ export class Connection {
   #reply: {
     operationId: string;
     resolve(value: SaveResult): void;
+    reject(error: Error): void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  /** At most one usage or compact request is in flight per connection. */
+  #pageReply: {
+    kind: 'usage' | 'compact';
+    resolve(value: PageUsage | CompactReport): void;
     reject(error: Error): void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
@@ -420,7 +437,51 @@ export class Connection {
       this.#reply = null;
       clearTimeout(pending.timer);
       pending.resolve(result);
+    } else if (frame.type === 'usageresult' || frame.type === 'compactresult') {
+      const pending = this.#pageReply;
+      requireValue(pending !== null && frame.type === `${pending.kind}result`);
+      // A malformed reply throws from here and closes the connection, which rejects the request;
+      // only a well-formed answer, or the serve's own refusal, settles it.
+      let value: PageUsage | CompactReport;
+      try {
+        value =
+          pending.kind === 'usage'
+            ? pageReply(frame, 'usage', pageUsage)
+            : pageReply(frame, 'report', compactReport);
+      } catch (error) {
+        if (!(error instanceof UsageRefused)) throw error;
+        this.#pageReply = null;
+        clearTimeout(pending.timer);
+        pending.reject(error);
+        return;
+      }
+      this.#pageReply = null;
+      clearTimeout(pending.timer);
+      pending.resolve(value);
     } else throw new Error('Unexpected sync message');
+  }
+  /** How full the page is, from the serve's own snapshot. Owner devices only. */
+  async usage(): Promise<PageUsage> {
+    return (await this.#pageRequest('usage')) as PageUsage;
+  }
+  /** Combine the serve's root-local stream and report what changed. Owner devices only; the
+   * reply is the only answer, and a lost one closes this connection. */
+  async compact(): Promise<CompactReport> {
+    return (await this.#pageRequest('compact')) as CompactReport;
+  }
+  async #pageRequest(kind: 'usage' | 'compact'): Promise<PageUsage | CompactReport> {
+    await this.ready;
+    this.admission.validatePage(this.sharing);
+    requireValue(!this.#stopped && this.#pageReply === null);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => this.close(new Error('Page reply timed out')), PAGE_REPLY_MS);
+      this.#pageReply = { kind, resolve, reject, timer };
+      try {
+        this.send(kind, {});
+      } catch (error) {
+        this.close(error instanceof Error ? error : new Error('Page request unavailable'));
+      }
+    });
   }
   /** Publish the whole source through native preparation. The reply says what happened; a lost
    * reply closes this connection and is settled by one `saveStatus` on the next. */
@@ -557,6 +618,11 @@ export class Connection {
       clearTimeout(this.#reply.timer);
       this.#reply.reject(error);
       this.#reply = null;
+    }
+    if (this.#pageReply) {
+      clearTimeout(this.#pageReply.timer);
+      this.#pageReply.reject(error);
+      this.#pageReply = null;
     }
     for (const pending of this.#ownPublications) {
       clearTimeout(pending.timer);

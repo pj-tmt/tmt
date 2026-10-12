@@ -121,6 +121,18 @@ pub trait Admission: Send {
     ) -> crate::Result<crate::page::save::SaveResult> {
         Err(crate::page::Fault::Denied.into())
     }
+    /// How full the page is. `Denied` for an admission with no native reader.
+    fn usage(&mut self, _page: &str) -> crate::Result<crate::page::PageUsage> {
+        Err(crate::page::Fault::Denied.into())
+    }
+    /// Combine the root-local writer's own stream, giving up at `until`.
+    fn compact(
+        &mut self,
+        _page: &str,
+        _until: Instant,
+    ) -> crate::Result<crate::page::compact::Report> {
+        Err(crate::page::Fault::Denied.into())
+    }
 }
 struct Peer {
     principal: String,
@@ -739,6 +751,8 @@ impl<A: Admission> State<A> {
                 | Frame::Awareness { .. }
                 | Frame::Save { .. }
                 | Frame::SaveStatus { .. }
+                | Frame::Usage { .. }
+                | Frame::Compact { .. }
         ) {
             self.admission
                 .authorize(&principal, &scope, Access::Publish)?;
@@ -746,7 +760,10 @@ impl<A: Admission> State<A> {
         if self.draining
             && matches!(
                 &frame,
-                Frame::Append { .. } | Frame::Chunk { .. } | Frame::Save { .. }
+                Frame::Append { .. }
+                    | Frame::Chunk { .. }
+                    | Frame::Save { .. }
+                    | Frame::Compact { .. }
             )
         {
             return Err(Code::ResyncRequired);
@@ -987,6 +1004,26 @@ impl<A: Admission> State<A> {
                     }
                 }
             }
+            Frame::Usage { .. } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                let result = self
+                    .admission
+                    .usage(&scope.page)
+                    .map(|usage| serde_json::json!({ "usage": usage }));
+                self.reply_page(id, &scope, "usageresult", result)?;
+            }
+            Frame::Compact { .. } => {
+                if self.peers[&id].incoming.is_some() {
+                    return Err(Code::Invalid);
+                }
+                let result = self
+                    .admission
+                    .compact(&scope.page, now + limits::COMPACT_COMBINE)
+                    .map(|report| serde_json::json!({ "report": report }));
+                self.reply_page(id, &scope, "compactresult", result)?;
+            }
             Frame::SaveStatus { operation_id, .. } => {
                 if self.peers[&id].incoming.is_some() {
                     return Err(Code::Invalid);
@@ -1060,6 +1097,25 @@ impl<A: Admission> State<A> {
                 self.saving.remove(&key);
             }
         }
+    }
+    /// The one reply to a usage or compact request: its payload, or the code and message of the
+    /// refusal in the shape of a local write error. Only the asking peer receives it.
+    fn reply_page(
+        &mut self,
+        id: u64,
+        scope: &SyncScope,
+        kind: &str,
+        result: crate::Result<serde_json::Value>,
+    ) -> Result<(), Code> {
+        let fields = result.unwrap_or_else(|error| {
+            serde_json::to_value(crate::page::ipc::WriteError::from_error(error.as_ref()))
+                .unwrap_or_default()
+        });
+        let text = wire::output(scope, kind, fields)?;
+        if let Some(peer) = self.peers.get_mut(&id) {
+            peer.push(text);
+        }
+        Ok(())
     }
     fn reply_save(
         &mut self,

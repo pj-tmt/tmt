@@ -1,3 +1,4 @@
+import type { CompactReport, PageUsage } from './page-usage.js';
 import { disclosureScope } from './attachment-service.js';
 import { LiveDocumentFiles, type DocumentFiles } from './document-files.js';
 import { shortPageId } from './short-links.js';
@@ -690,6 +691,17 @@ export class Live implements PageBinding {
     }
     settled(result);
     await this.#shows(source, expected);
+  }
+  /** How full the page is now. Never retried: the next request asks again. */
+  async usage(): Promise<PageUsage> {
+    if (this.#closed || this.#error) throw new Error('Page usage unavailable');
+    return (await this.#current).usage();
+  }
+  /** Combine the serve's own stream. The page's content is unchanged, so the editor's base is
+   * too; nothing is saved or resent by this request. */
+  async compact(): Promise<CompactReport> {
+    if (this.#closed || this.#error) throw new Error('Page compaction unavailable');
+    return (await this.#current).compact();
   }
   async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
     try {

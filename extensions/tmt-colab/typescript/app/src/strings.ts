@@ -1,9 +1,14 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
-/** A size as a person reads it, and exactly: 2.5 MiB (2,621,440 bytes). */
-function formatBytes(bytes: number): string {
+/** A size in binary units, short: 18 bytes, 1.2 KiB, 2.5 MiB. */
+export function binarySize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} ${bytes === 1 ? 'byte' : 'bytes'}`;
   const [value, unit] =
     bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MiB'] : [bytes / 1024, 'KiB'];
-  return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit} (${bytes.toLocaleString('en-US')} bytes)`;
+  return `${value.toFixed(2).replace(/\.?0+$/, '')} ${unit}`;
+}
+/** A size as a person reads it, and exactly: 2.5 MiB (2,621,440 bytes). */
+function formatBytes(bytes: number): string {
+  return `${binarySize(bytes)} (${bytes.toLocaleString('en-US')} bytes)`;
 }
 
 /** One short size a person reads: 18 bytes, 2.4 KB, 8 MB. */
@@ -402,6 +407,39 @@ export const text = {
   saveNotSaved: 'Not saved',
   saveUnconfirmed: 'Unconfirmed',
   saveNotApplied: 'The save did not reach the page, so nothing changed. Save again.',
+  pageSize: {
+    heading: 'Page size',
+    full: (percent: number) => `✗ Full · ${Math.min(percent, 100)}%`,
+    nearlyFull: (percent: number) => `◆ Nearly full · ${percent}%`,
+    percentFull: (percent: number) => `${percent}% full`,
+    changes: 'Changes',
+    recentData: 'Recent data',
+    storedSize: 'Stored size',
+    of: (used: string, limit: string) => `${used} of ${limit}`,
+    otherDevices: (count: number) =>
+      count === 1
+        ? '1 change is on another device. Only that device can combine it.'
+        : `${count} changes are on other devices. Only those devices can combine them.`,
+    compact: 'Compact page',
+    compacting: 'Compacting…',
+    export: 'Export page',
+    cannotFree: 'Combining cannot free more room. Export this page and continue in a new one.',
+    noticeNearly: 'Nearly full',
+    noticeFull: 'Full',
+    noticeUsed: (percent: number) => `${percent}% of this page's room is used.`,
+    noticeCannotFree: 'Combining cannot free more room.',
+    combined: (merged: number, after: number, before: number) =>
+      `Combined ${merged} ${merged === 1 ? 'change' : 'changes'} into one. Content is unchanged. Now ${after}% full, was ${before}%.`,
+    combinedStillHigh: (after: number) =>
+      `Combined, but this page is still ${after}% full. Combining keeps every change, so it frees no more room. Export this page and continue in a new one.`,
+    nothingToCombine: 'Nothing to combine on this device.',
+    failed: 'Could not combine this page. Nothing was changed. Try again.',
+    saveFullTail: 'This page is full. Compact it, then save again.',
+    saveFullBudget:
+      'This page is full, and combining cannot free room. Export it and continue in a new page.',
+    compactedSaveAgain: 'Compacted. Save again to keep your edit.',
+    stateCompacted: 'Compacted',
+  },
   saveUnknown: (operationId: string) =>
     `The connection dropped before the save was confirmed. Copy your changes, then reload to see whether they were saved. Reference: ${operationId}`,
   reload: 'Reload',

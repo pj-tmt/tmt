@@ -456,3 +456,110 @@ it('an unanswered object request settles as storage unavailable within its origi
   expect(connection.active).toBe(false);
   expect(sent(socket).filter((frame) => frame.type === 'object')).toHaveLength(1);
 });
+
+const fullUsage = {
+  updates: 124,
+  updateLimit: 200,
+  tailBytes: 1_258_291,
+  tailBytesLimit: 4_194_304,
+  checkpointBytes: 4000,
+  otherDeviceUpdates: 4,
+  stateBytes: 1_262_291,
+  gzipLimit: 5_000_000,
+  percent: 62,
+  limiting: 'changes',
+};
+const reportOf = (extra: Record<string, unknown> = {}) => ({
+  pageId: '10000000-0000-4000-8000-000000000001',
+  compacted: true,
+  by: '30000000-0000-4000-8000-000000000001',
+  through: 120,
+  mergedObjects: 120,
+  sourceSha256: 'a'.repeat(64),
+  before: fullUsage,
+  after: { ...fullUsage, updates: 5, percent: 3 },
+  ...extra,
+});
+
+it('asks for usage with an empty frame and resolves to exactly what the serve answered', async () => {
+  const { connection, socket, failed } = await open();
+  try {
+    const pending = connection.usage();
+    await awaitSent(socket, 1);
+    expect(sent(socket)).toEqual([{ ...scope, type: 'usage' }]);
+    socket.receive({ ...scope, type: 'usageresult', usage: fullUsage });
+    await expect(pending).resolves.toEqual(fullUsage);
+    expect(failed).not.toHaveBeenCalled();
+    expect(connection.active).toBe(true);
+  } finally {
+    connection.close();
+  }
+});
+
+it('asks to compact with an empty frame and resolves to the report', async () => {
+  const { connection, socket } = await open();
+  try {
+    const pending = connection.compact();
+    await awaitSent(socket, 1);
+    expect(sent(socket)).toEqual([{ ...scope, type: 'compact' }]);
+    socket.receive({ ...scope, type: 'compactresult', report: reportOf() });
+    await expect(pending).resolves.toEqual(reportOf());
+  } finally {
+    connection.close();
+  }
+});
+
+it('a refusal rejects the request with its code and keeps the connection', async () => {
+  const { connection, socket, failed } = await open();
+  try {
+    const pending = connection.compact();
+    await awaitSent(socket, 1);
+    socket.receive({
+      ...scope,
+      type: 'compactresult',
+      error: { code: 'COLAB_PAGE_INACTIVE', message: 'Archived.' },
+    });
+    await expect(pending).rejects.toMatchObject({ code: 'COLAB_PAGE_INACTIVE' });
+    expect(failed).not.toHaveBeenCalled();
+    expect(connection.active).toBe(true);
+    // The slot is free again: a second request goes out.
+    const next = connection.usage();
+    await awaitSent(socket, 2);
+    socket.receive({ ...scope, type: 'usageresult', usage: fullUsage });
+    await expect(next).resolves.toEqual(fullUsage);
+  } finally {
+    connection.close();
+  }
+});
+
+it('closes the connection for a reply nobody asked for, of the wrong kind or malformed', async () => {
+  for (const [ask, reply] of [
+    [null, { type: 'usageresult', usage: fullUsage }],
+    ['usage', { type: 'compactresult', report: reportOf() }],
+    ['usage', { type: 'usageresult', usage: { ...fullUsage, extra: 1 } }],
+    ['compact', { type: 'compactresult', report: reportOf({ compacted: false }) }],
+  ] as const) {
+    const { connection, socket, failed } = await open();
+    const pending = ask ? connection[ask]() : null;
+    const rejected = pending ? expect(pending).rejects.toThrow() : null;
+    if (ask) await awaitSent(socket, 1);
+    socket.receive({ ...scope, ...reply });
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+    expect(connection.active).toBe(false);
+    await rejected;
+  }
+});
+
+it('keeps one usage or compact request in flight, and closes when the reply never comes', async () => {
+  vi.useFakeTimers();
+  const { connection, socket, failed } = await open();
+  const pending = connection.compact();
+  const rejected = expect(pending).rejects.toThrow('Page reply timed out');
+  await awaitSent(socket, 1);
+  await expect(connection.usage()).rejects.toThrow();
+  expect(sent(socket)).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(20_000);
+  await rejected;
+  expect(failed).toHaveBeenCalledWith(new Error('Page reply timed out'));
+  expect(connection.active).toBe(false);
+});
