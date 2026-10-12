@@ -99,7 +99,7 @@ describe('CLI executable selection', () => {
     const roots = () =>
       fs
         .readdirSync(os.tmpdir())
-        .filter((name) => name.startsWith('tmux-team-e2e-') || name.startsWith('te2e-'))
+        .filter((name) => name.startsWith('tmt-e2e-') || name.startsWith('te2e-'))
         .sort();
     const before = roots();
     expect(() => new E2EFixture({ executableEnv: { TMT_TEST_PEER_CLI: '' } })).toThrow(
