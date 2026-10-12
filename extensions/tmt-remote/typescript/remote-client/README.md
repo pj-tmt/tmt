@@ -379,3 +379,25 @@ serves `/sdk/remote-v1.js`, lazy `/sdk/remote-firebase-v1.js` and the separate
 `/sdk/THIRD-PARTY-NOTICES-remote.txt`. The door does not embed the lazy asset; attempting hosted
 bootstrap where it is absent returns `REMOTE_STATE_UNAVAILABLE`. This slice exposes Auth
 only, not Firestore document transport or remote agent operations.
+
+## Browser remote references
+
+`remoteRegistry` manages public references, not access: `list()`, `add(name, address)`,
+`rename(name, newName)`, `remove(name)`, `planImport(catalog)` and
+`confirmImport(plan, namesOrNull)` operate on this origin's catalog. An import plan
+reports duplicates and suggests a new name for collisions; null skips a row.
+`parseHandoff(fragment)` validates public data without storing it; the receiver must erase
+the fragment before admission and ask for confirmation. Confirmation
+atomically refuses a concurrent catalog edit rather than overwriting it. The native fields,
+limits, fragment grammar and privacy rules have one owner in the
+[browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
+
+`navigation(reference, {spaceId, pageId}?)` validates a Local destination
+and produces its public handoff. The landing
+page erases the fragment before admission and asks before importing. No pairing key or draft
+crosses origins, and registry operations never read or replace the stored device identity.
+Local Open performs no foreign health probe; each origin uses its own pairing. The landing
+list observes only current access and shows other entries as `not checked`. Firebase entries
+validate the existing public remote link without Auth or fetching configuration, then Open
+navigates to that unchanged link; they carry no catalog handoff in this release. This API adds
+no default selection or bound client factory, and no Colab switcher or hosted registry receiver.

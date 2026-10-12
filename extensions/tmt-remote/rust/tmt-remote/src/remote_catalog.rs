@@ -188,3 +188,27 @@ fn update(
     let _ = fs::remove_file(&path);
     result
 }
+
+#[cfg(test)]
+mod browser_fixture_tests {
+    use super::*;
+    #[test]
+    fn browser_catalog_fixture_matches_native_public_reference_fields_and_names() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/browser-remotes.json")).unwrap();
+        let catalog: Catalog = serde_json::from_value(fixture["catalog"].clone()).unwrap();
+        for entry in &catalog.entries {
+            validate(entry).unwrap();
+        }
+        assert_eq!(serde_json::to_value(catalog).unwrap(), fixture["catalog"]);
+        for name in fixture["validNames"].as_array().unwrap() {
+            assert!(name_ok(name.as_str().unwrap()));
+        }
+        for name in fixture["invalidNames"].as_array().unwrap() {
+            assert!(!name_ok(name.as_str().unwrap()));
+        }
+        assert_eq!(fixture["maxNameBytes"], 63);
+        assert!(name_ok(&"a".repeat(63)));
+        assert!(!name_ok(&"a".repeat(64)));
+    }
+}
