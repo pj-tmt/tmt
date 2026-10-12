@@ -63,6 +63,7 @@ async function servedEntry(): Promise<string | null> {
 export interface ServeRelease {
   running: string;
   installed?: string;
+  restartFailed?: true;
 }
 const RELEASE_VERSION = /^[0-9A-Za-z.+-]{1,64}$/;
 
@@ -70,11 +71,25 @@ const RELEASE_VERSION = /^[0-9A-Za-z.+-]{1,64}$/;
 export function parseServeRelease(value: unknown): ServeRelease | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const keys = Object.keys(value);
-  const { running, installed } = value as Record<string, unknown>;
-  const known = keys.every((key) => key === 'running' || key === 'installed');
+  const { running, installed, restartFailed } = value as Record<string, unknown>;
+  const known = keys.every(
+    (key) => key === 'running' || key === 'installed' || key === 'restartFailed',
+  );
   const plain = (v: unknown): v is string => typeof v === 'string' && RELEASE_VERSION.test(v);
-  if (!known || !plain(running) || (keys.includes('installed') && !plain(installed))) return null;
-  return keys.includes('installed') ? { running, installed: installed as string } : { running };
+  if (
+    !known ||
+    !plain(running) ||
+    (keys.includes('installed') && !plain(installed)) ||
+    (keys.includes('restartFailed') && (restartFailed !== true || !plain(installed)))
+  )
+    return null;
+  return keys.includes('installed')
+    ? {
+        running,
+        installed: installed as string,
+        ...(restartFailed === true ? { restartFailed: true as const } : {}),
+      }
+    : { running };
 }
 
 /** The serve's release, or null when the route is absent (an older serve) or unreadable. */

@@ -64,7 +64,7 @@ impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OutdatedSchema(_) => {
-                f.write_str("The running Colab service is older than this CLI.")
+                f.write_str("This space was saved by an older Colab service.")
             }
             Self::UnsupportedSchema(_) => f.write_str("This space was saved by a newer Colab."),
             _ => write!(f, "{self:?}"),

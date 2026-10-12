@@ -610,7 +610,7 @@ bytes without core and storage access.
   in its own process group, reading pairing from `tmt remote devices --json`. This
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its group, after closing its own
-  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals). Schema refusals name stop, then background serve as recovery.
+  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals). Installed serves follow verified current releases; [cutoff and door ownership](.agents/skills/tmt-colab/references/architecture-state.md) stay Colab-owned.
 - **Message editing.** The Colab-local shared Lexical 0.52.0 rich input owns plaintext/history and an optional presentation slot; its MessageComposer wrapper owns mentions and send policy, following the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary). The parent records one comment and an Ask per distinct visible mention (up to 8); Ask again keeps the comment and uses a fresh operation after pair-marker/own-ledger checks. The editor grants no dispatch authority.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque

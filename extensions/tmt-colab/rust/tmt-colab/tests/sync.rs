@@ -266,6 +266,37 @@ fn closed(peer: &mut Peer, code: &str) {
     assert_eq!(peer.1.poll(), Progress::Closed);
 }
 #[test]
+fn a_service_drain_refuses_new_appends_without_changing_the_saved_page() {
+    let f = Fixture::new();
+    let mut peer = f.peer(ALICE);
+    send(
+        &mut peer,
+        f.frame(
+            "hello",
+            json!({"device":ALICE,"membershipRevision":"1","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut peer)["type"], "catchup");
+    assert!(f.server.is_idle());
+    f.server.drain().unwrap();
+    let (append, _, _) = f.append(ALICE, 1, [0; 32], "content", 20);
+    send(&mut peer, append);
+    error(&mut peer, "RESYNC_REQUIRED");
+    assert_eq!(f.payload(ALICE, 1), None);
+    assert!(f.server.is_idle());
+    // A fresh read still uses normal admission; the drain is not an authority change.
+    let mut reader = f.peer(ALICE);
+    send(
+        &mut reader,
+        f.frame(
+            "hello",
+            json!({"device":ALICE,"membershipRevision":"1","cursors":[]}),
+        ),
+    );
+    assert_eq!(receive(&mut reader)["type"], "catchup");
+}
+
+#[test]
 fn membership_transfer_refuses_sql_oversize_before_loading_bytes() {
     let f = Fixture::new();
     let hello = || {

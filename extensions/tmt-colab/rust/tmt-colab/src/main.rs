@@ -272,6 +272,14 @@ fn grammar() -> Command {
                             .requires("foreground"),
                     )
                     .arg(
+                        Arg::new("upgrade-check")
+                            .long("upgrade-check")
+                            .hide(true)
+                            .action(ArgAction::SetTrue)
+                            .requires("json")
+                            .conflicts_with_all(["worker", "background"]),
+                    )
+                    .arg(
                         Arg::new("app-dir")
                             .long("app-dir")
                             .value_name("DIRECTORY")
