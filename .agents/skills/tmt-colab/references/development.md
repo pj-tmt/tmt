@@ -78,6 +78,25 @@ parallel roots do not match. Process inspection must be available (including mac
 `cargo test --offline --locked -p tmt-colab --test cli fixture_` for panic, early-error,
 real worker and guard-removal sensitivity controls.
 
+Native tests never reach a host browser: `page create` hands the new page to the platform
+opener even without a terminal. Every fixture that spawns the CLI takes its `PATH` from
+`core_fixture::opener_guard(root)` (`tests/support/core_fixture.rs`): failing stand-ins for
+`open`, `xdg-open`, `wslview` and `explorer.exe` under `<root>/opener-guard`, then `/bin`, never
+`/usr/bin`. A fixture that does not check opening also sets `TMT_AGENT=1`, and its `Drop` calls
+`assert_no_open`. A test that does check opening puts its own recording stand-in first
+(`Pilot::opener` in `cli.rs`) and asserts what was opened. After changing these fixtures, run the
+suite with a recording opener first on the inherited `PATH`; its file must stay empty (a spawn
+that clears the environment ignores that `PATH`, which is why `assert_no_open` is the proof there):
+
+```bash
+shadow=$(mktemp -d)
+for name in open xdg-open; do
+  printf '#!/bin/sh\necho "$@" >> %s/opened\n' "$shadow" > "$shadow/$name" && chmod +x "$shadow/$name"
+done
+(cd rust && PATH="$shadow:$PATH" cargo test --offline --locked -p tmt-colab)
+test ! -s "$shadow/opened"
+```
+
 Model crate: `cargo test --offline --locked -p tmt-colab-model` and its clippy, from
 `rust/`. Independent oracles (need Python `cryptography`; add `--write` only after
 reviewing changed bytes; Rust consumes the frozen vectors without Python):

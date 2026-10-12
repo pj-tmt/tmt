@@ -245,11 +245,15 @@ impl Fixture {
     fn command(&self) -> Command {
         let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let mut c = Command::new(BINARY);
+        // Opening a browser is never what these commands check: no agent opens one, and the
+        // `PATH` holds no real opener.
         c.env("TMT_EXECUTABLE", core)
             .env(
                 "TMT_COLAB_TEST_REPLY",
                 json!({"dataRoot":self.root}).to_string(),
             )
+            .env("TMT_AGENT", "1")
+            .env("PATH", core_fixture::opener_guard(&self.root))
             .current_dir(&self.root);
         c
     }
@@ -257,6 +261,9 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         fixture_process::clean_root(&self.root);
+        if !std::thread::panicking() {
+            core_fixture::assert_no_open(&self.root);
+        }
         if !self.retain_diagnostic {
             fs::remove_dir_all(&self.root).unwrap();
         }
@@ -1692,7 +1699,9 @@ else:
             .env_clear()
             .env("TMT_EXECUTABLE", &core)
             .env("HOME", &f.root)
-            .env("PATH", "/usr/bin:/bin")
+            // Creation opens the new page; opening is not under test here, and no real opener is reachable.
+            .env("TMT_AGENT", "1")
+            .env("PATH", core_fixture::opener_guard(&f.root))
             .args(["page", "create", "--title", "Created", "--json"])
             .output()
             .unwrap();
