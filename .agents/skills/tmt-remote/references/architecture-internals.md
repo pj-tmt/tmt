@@ -17,6 +17,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `objects`                                        | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
 | `declaration`, `deploy_plan`, `hosting`, `rules` | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (bytes in; installed discovery belongs to `deploy_discovery`)                     |
 | `deploy_command`, `deploy_record`, `remote_link` | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
+| `remote_catalog`, `remote_selector`              | Public references and explicit/default/local targeting; imported configuration never grants access or ownership                                                                                                       |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                             |
@@ -225,7 +226,8 @@ and independent marker/body digest to `tests/fixtures/rules/deployed.rules`. The
 loads that exact artifact for member admission, expiry, isolation and create-only refusal;
 it does not prove project/database/Auth provisioning, login, billing or quotas.
 
-`deploy.json` and `deploy.lock` belong to Remote's private layout, separately from the
+Project-local `deployments/<project>/deploy.json` and the shared home `deploy.lock` belong to
+Remote's private layout, separately from the
 serving lease and database. The writer retains the nonblocking lock for a plan/run, writes a
 create-new private staging file, syncs it, atomically renames it and syncs the directory.
 Readers never take `deploy.lock`: an opened snapshot is a complete old or new record, so a
@@ -235,8 +237,11 @@ visible publication rolled back. Staging cleanup only removes admitted deploymen
 names under the writer lock. Existing status/stop, settings, store and machine-key owners
 keep the deployment identity and binding. Bound records persist the immutable project/region
 with the first authorized run; plan-only drafts stay unbound v1 records. The writer checks it
-before provider creation, login or inventory. Every v1 record is unbound regardless of its old
-binding: reads never convert or infer a target, and the next authorized plan binds it. A conflicting
+before provider creation, login or inventory. Project-local v1 previews are unbound; reads never
+infer a region or convert a file. The old
+single path is refused without migration. `remote_selector` owns explicit/default/local resolution;
+`remote_catalog` owns public references, never grants or deployment authority. The contract owns
+[native selection](../../../../contracts/remote-channel-v1.md#native-remote-selection). A conflicting
 target leaves record and staging untouched. Foreign Rules replacement consent is the whole frozen plan digest, including its live
 fingerprint; the run refuses a changed foreign fingerprint before the Rules effect. The contract
 owns the one-deployer/tenant boundary and single-writer-project limitation.

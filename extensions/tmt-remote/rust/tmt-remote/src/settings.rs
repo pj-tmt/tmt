@@ -21,12 +21,30 @@ const LIMIT: u64 = 4096;
 pub struct RemoteSettings {
     /// `None` when the file does not say: the default applies.
     open: Option<bool>,
+    default_remote: Option<Value>,
     sessions_per_device: Option<usize>,
     sessions_configured: bool,
     /// The file exists but could not be read; defaults apply.
     pub malformed: bool,
 }
 impl RemoteSettings {
+    pub fn default_remote(&self) -> Option<&str> {
+        self.default_remote.as_ref().and_then(Value::as_str)
+    }
+    pub fn default_valid(&self) -> bool {
+        self.default_remote.as_ref().is_none_or(|value| {
+            value
+                .as_str()
+                .is_some_and(|s| s == "local" || crate::remote_catalog::name_ok(s))
+        })
+    }
+    pub fn default_source(&self) -> &'static str {
+        if self.default_remote.is_some() {
+            FILE
+        } else {
+            "default"
+        }
+    }
     pub fn open(&self) -> bool {
         self.open.unwrap_or(true)
     }
@@ -55,6 +73,7 @@ impl RemoteSettings {
         match serde_json::from_slice::<Value>(bytes) {
             Ok(value) if value.is_object() => Self {
                 open: value["open"].as_bool(),
+                default_remote: value.get("defaultRemote").cloned(),
                 sessions_configured: value
                     .as_object()
                     .expect("object")
@@ -71,6 +90,7 @@ impl RemoteSettings {
             },
             _ => Self {
                 open: None,
+                default_remote: None,
                 sessions_per_device: None,
                 sessions_configured: false,
                 malformed: true,
@@ -93,6 +113,7 @@ pub fn read_or_default(root: &Path) -> RemoteSettings {
         .filter(|settings| !settings.malformed)
         .unwrap_or(RemoteSettings {
             open: None,
+            default_remote: None,
             sessions_per_device: None,
             sessions_configured: false,
             malformed: true,
@@ -144,6 +165,17 @@ pub fn set_sessions_per_device(root: &Path, limit: Option<usize>) -> Result<Remo
         ));
     }
     set(root, "sessionsPerDevice", json!(limit))
+}
+/// Only syntax is admitted here; the CLI validates the current catalog/owned project.
+pub fn set_default_remote(root: &Path, reference: &str) -> Result<RemoteSettings> {
+    if reference != "local" && !crate::remote_catalog::name_ok(reference) {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_INVALID",
+            "Invalid remote name or project id.",
+        )
+        .with_hint("Run tmt remote settings default-remote local."));
+    }
+    set(root, "defaultRemote", json!(reference))
 }
 /// Preserve other settings under the same read/write lock.
 fn set(root: &Path, key: &str, value: Value) -> Result<RemoteSettings> {

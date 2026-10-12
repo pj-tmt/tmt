@@ -159,3 +159,8 @@ pub const HOSTING_UPLOAD_REQUEST_BYTES: usize =
 
 /// Complete public remote-link URL, including its canonical descriptor fragment.
 pub const REMOTE_LINK_BYTES: usize = 8 * 1024;
+
+/// Local directory admission bound, not a quota on owned Firebase projects.
+pub const OWNED_PROJECT_SCAN: usize = 4096;
+/// Public native catalog admission bound; browser handoff has its own policy.
+pub const REMOTE_CATALOG_BYTES: usize = 65_536;

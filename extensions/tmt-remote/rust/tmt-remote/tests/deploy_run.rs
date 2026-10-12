@@ -1002,7 +1002,7 @@ fn emulator_artifact_is_the_exact_verified_deployment_output() {
     .unwrap();
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut sink = DeployRecordStore::open(&layout).unwrap();
+    let mut sink = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let mut fake = Fake::new(ACCOUNT);
     let record = run(
         &plan,
@@ -1039,7 +1039,11 @@ fn emulator_artifact_is_the_exact_verified_deployment_output() {
         tmt_remote::deploy_record::read(&layout).unwrap(),
         Some(record)
     );
-    assert!(root.remote().join("deploy.json").exists());
+    assert!(
+        root.remote()
+            .join("deployments/demo-remote-1/deploy.json")
+            .exists()
+    );
     let evidence = DeployRecordEvidence::new(&layout).evidence().unwrap();
     assert_eq!(
         (evidence.project, evidence.sign_in, evidence.rules),

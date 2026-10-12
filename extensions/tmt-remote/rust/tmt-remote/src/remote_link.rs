@@ -111,6 +111,34 @@ pub fn validate(url: &str) -> Result<(), RemoteError> {
     Ok(())
 }
 
+/// Public reference identity is project/app/auth domain, never catalog import authority.
+pub fn matches_record(url: &str, record: &DeployRecord) -> bool {
+    if validate(url).is_err() {
+        return false;
+    }
+    let bytes = URL_SAFE_NO_PAD
+        .decode(url.split_once('#').expect("validated fragment").1)
+        .expect("validated encoding");
+    let descriptor: Descriptor = serde_json::from_slice(&bytes).expect("validated descriptor");
+    record.verified_publication().is_some_and(|publication| {
+        let config = publication.public_config();
+        config["projectId"] == descriptor.public_web_config.project_id
+            && config["appId"] == descriptor.public_web_config.app_id
+            && config["authDomain"] == descriptor.public_web_config.auth_domain
+    })
+}
+/// Extract a project only after validating the complete public reference.
+pub fn project(url: &str) -> Result<String, RemoteError> {
+    validate(url)?;
+    Ok(url
+        .strip_prefix("https://")
+        .expect("validated scheme")
+        .split_once(".web.app/pair#")
+        .expect("validated entry")
+        .0
+        .to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

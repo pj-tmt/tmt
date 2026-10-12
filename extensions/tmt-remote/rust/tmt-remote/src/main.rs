@@ -198,6 +198,7 @@ fn grammar() -> Command {
         .version(env!("CARGO_PKG_VERSION"))
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
+        .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
         .subcommand(
             tmt_cli_style::command(&SERVE)
                 .arg(
@@ -233,7 +234,10 @@ fn grammar() -> Command {
             name: "deploy", summary: "Plan and authorize cloud sharing deployment", examples: &[Example { command: "tmt remote deploy firestore --help", note: "Inspect the Firestore deployment inputs and authorization" }],
             outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
         }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
-        .subcommand(tmt_cli_style::command(&LINK))
+        .subcommand(tmt_cli_style::command(&CommandSpec { name: "ls", summary: "List remotes", examples: &[Example { command: "tmt remote ls --json", note: "List names, projects and regions" }], outputs: OutputModes::HumanAndJson, details: "The default column marks only the configured default. This is not live provider status." }))
+        .subcommand(tmt_cli_style::command(&CommandSpec { name: "add", summary: "Add a public remote reference", examples: &[Example { command: "tmt remote add test <remote-link> --json", note: "Register public configuration without granting access" }], outputs: OutputModes::HumanAndJson, details: "Adding a reference changes no cloud resources or access." }).arg(Arg::new("name").required(true)).arg(Arg::new("url").required(true)))
+        .subcommand(tmt_cli_style::command(&CommandSpec { name: "rm", summary: "Remove only a remote reference", examples: &[Example { command: "tmt remote rm test --json", note: "Keep deploy history and cloud resources" }], outputs: OutputModes::HumanAndJson, details: "Removing the default leaves it pointing to a removed remote until you change default-remote." }).arg(Arg::new("name").required(true)))
+        .subcommand(tmt_cli_style::command(&LINK).arg(Arg::new("project").long("project").help("Project deployed from this machine")))
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(
             tmt_cli_style::command(&STATUS)
@@ -258,6 +262,9 @@ fn grammar() -> Command {
                         .action(ArgAction::SetTrue)
                         .conflicts_with_all(["machine", "objects"])
                         .help("Show which Firestore layers are enabled and what is missing"),
+                )
+                .arg(
+                    Arg::new("project").long("project").requires("layers").help("Project deployed from this machine"),
                 )
                 .arg(
                     Arg::new("budget")
@@ -310,7 +317,7 @@ fn grammar() -> Command {
             tmt_cli_style::command(&SETTINGS)
                 .arg(
                     Arg::new("key")
-                        .value_parser(["open", "sessions-per-device"])
+                        .value_parser(["open", "sessions-per-device", "default-remote"])
                         .requires("value"),
                 )
                 .arg(Arg::new("value").requires("key")),
@@ -356,8 +363,24 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
+    let explicit = matches.get_one::<String>("remote").map(String::as_str);
+    if !matches!(name, "link" | "deploy")
+        && !(name == "status" && arguments.get_flag("layers"))
+        && explicit.is_some()
+    {
+        let root = discovery_root()?;
+        let layout = Layout::open(&root)?;
+        tmt_remote::remote_selector::local(&layout, explicit, name)?;
+    }
+    if matches!(name, "add" | "ls" | "rm") {
+        return remotes_command(name, arguments);
+    }
     if name == "link" {
-        return link_command(arguments.get_flag("json"));
+        return link_command(
+            arguments.get_flag("json"),
+            explicit,
+            arguments.get_one::<String>("project").map(String::as_str),
+        );
     }
     if name == "deploy" {
         return deploy_firestore_command(arguments);
@@ -394,6 +417,8 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             } else {
                 StatusProjection::Ordinary
             },
+            explicit,
+            arguments.get_one::<String>("project").map(String::as_str),
         );
     }
     if name == "stop" {
@@ -407,10 +432,122 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     serve::run(arguments)
 }
-fn link_command(json_output: bool) -> Result<(), RemoteError> {
+fn remotes_command(action: &str, words: &clap::ArgMatches) -> Result<(), RemoteError> {
+    let root = discovery_root()?;
+    let layout = Layout::open(&root)?;
+    let json_output = words.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if action == "add" {
+        let entry = tmt_remote::remote_catalog::add(
+            &layout,
+            words.get_one::<String>("name").unwrap(),
+            words.get_one::<String>("url").unwrap(),
+        )?;
+        if json_output {
+            writeln!(output, "{}", json!({"added":true}))?;
+        } else {
+            let name = words.get_one::<String>("name").unwrap();
+            if let Some(project) = entry.project {
+                let region = tmt_remote::deploy_record::metadata(&layout, &project)?
+                    .and_then(|identity| identity["region"].as_str().map(str::to_owned));
+                writeln!(
+                    output,
+                    "Added remote '{name}' ({project}, {})",
+                    region.as_deref().unwrap_or("-")
+                )?;
+            } else {
+                writeln!(output, "Added remote '{name}' (local)")?;
+            }
+        }
+        return Ok(());
+    } else if action == "rm" {
+        tmt_remote::remote_catalog::remove(&layout, words.get_one::<String>("name").unwrap())?;
+        if json_output {
+            writeln!(
+                output,
+                "{}",
+                json!({"removed":true,"cloudResourcesChanged":false,"deployHistoryChanged":false})
+            )?;
+        } else {
+            writeln!(
+                output,
+                "Removed remote '{}'; its project and this machine's deploy records are untouched",
+                words.get_one::<String>("name").unwrap()
+            )?;
+        }
+        return Ok(());
+    }
+    let mut entries = tmt_remote::remote_catalog::read(&layout)?;
+    for project in tmt_remote::deploy_record::projects(&layout)? {
+        if !entries
+            .iter()
+            .any(|entry| entry.project.as_deref() == Some(&project))
+        {
+            entries.push(tmt_remote::remote_catalog::RemoteReference {
+                name: project.clone(),
+                kind: "firestore".into(),
+                url: String::new(),
+                project: Some(project),
+            });
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    let settings = settings::read(&root)?;
+    let mut rows = vec![];
+    for entry in entries {
+        let region = entry
+            .project
+            .as_deref()
+            .map(|p| tmt_remote::deploy_record::metadata(&layout, p))
+            .transpose()?
+            .flatten()
+            .map(|m| m["region"].clone())
+            .unwrap_or(json!(null));
+        rows.push(json!({"name":entry.name,"kind":entry.kind,"project":entry.project,"region":region,"default":settings.default_remote() == Some(entry.name.as_str())}));
+    }
+    if json_output {
+        writeln!(output, "{}", json!({"version":1,"remotes":rows}))?;
+    } else {
+        if rows.is_empty() {
+            writeln!(
+                output,
+                "No remotes yet; add one with tmt remote add <name> <link>"
+            )?;
+        } else {
+            use tmt_cli_style::table::{Column, Table};
+            let mut table =
+                Table::new(&[Column::Name, Column::Detail, Column::Fixed, Column::Fixed]);
+            table.row(["REMOTE", "TARGET", "REGION", "DEFAULT"]);
+            for row in rows {
+                table.row([
+                    row["name"].as_str().unwrap(),
+                    row["project"].as_str().unwrap_or("local"),
+                    row["region"].as_str().unwrap_or("-"),
+                    if row["default"] == true {
+                        "default"
+                    } else {
+                        ""
+                    },
+                ]);
+            }
+            let terminal = output.terminal();
+            table.write(&mut output, terminal)?;
+        }
+    }
+    Ok(())
+}
+fn link_command(
+    json_output: bool,
+    explicit: Option<&str>,
+    selected_project: Option<&str>,
+) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let layout = Layout::existing(&root)?.ok_or_else(tmt_remote::remote_link::unavailable)?;
-    let link = tmt_remote::deploy_record::read_link(&layout)?;
+    let project = tmt_remote::remote_selector::existing(&layout, explicit, selected_project)?
+        .ok_or_else(tmt_remote::remote_link::unavailable)?;
+    let record = tmt_remote::deploy_record::read_project(&layout, &project)?
+        .ok_or_else(tmt_remote::remote_link::unavailable)?;
+    let link = tmt_remote::remote_link::from_record(&record)?;
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         writeln!(output, "{}", json!({"version":1,"remoteLink":link}))?;
@@ -541,11 +678,21 @@ fn stop_command(json_output: bool) -> Result<(), RemoteError> {
 }
 /// Public discovery for local extensions. Only the control socket supplies
 /// live values; stopped reads hold the same lease as every database opener.
-fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteError> {
+fn status(
+    json_output: bool,
+    projection: StatusProjection,
+    explicit: Option<&str>,
+    selected_project: Option<&str>,
+) -> Result<(), RemoteError> {
     let root = discovery_root()?;
-    let answer = match Layout::existing(&root)? {
+    let door_projection = if projection == StatusProjection::Layers {
+        StatusProjection::Ordinary
+    } else {
+        projection
+    };
+    let mut answer = match Layout::existing(&root)? {
         None => json!({"running":false,"lastPort":null}),
-        Some(layout) => match control::status_projection(&layout.directory, projection) {
+        Some(layout) => match control::status_projection(&layout.directory, door_projection) {
             Ok(Some(answer)) => answer,
             Ok(None) => {
                 let last_port = match layout.existing_serve_lock()? {
@@ -557,6 +704,44 @@ fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteE
             Err(error) => return Err(error),
         },
     };
+    let mut recorded_summary = None;
+    if projection == StatusProjection::Layers {
+        let layout = Layout::existing(&root)?;
+        let evidence = match layout {
+            None => None,
+            Some(layout) => {
+                let project =
+                    tmt_remote::remote_selector::existing(&layout, explicit, selected_project)?;
+                if let Some(project) = project {
+                    match tmt_remote::deploy_record::snapshot(&layout, &project) {
+                        Ok(Some(snapshot)) => {
+                            recorded_summary = Some(match snapshot.record.run.as_ref() {
+                                None => "Firestore setup has not started",
+                                Some(run)
+                                    if run.state != tmt_remote::deploy_run::RunState::Complete =>
+                                {
+                                    "Firestore setup is not finished"
+                                }
+                                Some(_) => "",
+                            });
+                            if let Some(identity) = snapshot.identity() {
+                                answer["firestoreDeployment"] = identity;
+                            }
+                            readiness::from_record(&snapshot.record)
+                        }
+                        Ok(None) => None,
+                        Err(error) if error.code == "REMOTE_SELECTOR_CONFLICT" => {
+                            return Err(error);
+                        }
+                        Err(_) => Some(readiness::FirestoreEvidence::unknown()),
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+        answer["firestoreLayers"] = readiness::project(evidence.as_ref(), &readiness::LAYERS);
+    }
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         writeln!(output, "{answer}")?;
@@ -575,30 +760,43 @@ fn status(json_output: bool, projection: StatusProjection) -> Result<(), RemoteE
                     writeln!(output, "{line}")?;
                 }
             }
-            if projection == StatusProjection::Layers {
-                writeln!(
-                    output,
-                    "One Remote home deploys to one Firebase project and region."
-                )?;
-                for line in readiness::human_lines(&answer["firestoreLayers"], &readiness::LAYERS) {
-                    if line.enabled {
-                        tmt_cli_style::message::success(&mut output, terminal, &line.what)?;
-                    } else {
-                        tmt_cli_style::message::warning(
-                            &mut output,
-                            terminal,
-                            &line.what,
-                            line.hint.as_deref(),
-                        )?;
-                    }
-                }
-            }
         } else {
             let detail = answer["lastPort"]
                 .as_u64()
                 .map(|port| format!("Remote is not running; last bound port {port}"))
                 .unwrap_or_else(|| "Remote is not running".into());
             tmt_cli_style::message::warning(&mut output, terminal, &detail, None)?;
+        }
+        if projection == StatusProjection::Layers {
+            if let Some(selected) = answer.get("firestoreDeployment") {
+                writeln!(
+                    output,
+                    "Recorded Firestore setup: {} ({})",
+                    selected["project"].as_str().unwrap(),
+                    selected["region"].as_str().unwrap()
+                )?;
+            }
+            if let Some(summary) = recorded_summary.filter(|summary| !summary.is_empty()) {
+                tmt_cli_style::message::warning(&mut output, terminal, summary, None)?;
+            }
+            let lines = readiness::human_lines(&answer["firestoreLayers"], &readiness::LAYERS);
+            for line in lines.into_iter().filter(|_| {
+                recorded_summary.is_none()
+                    || answer["firestoreLayers"]
+                        .as_array()
+                        .is_some_and(|rows| !rows.is_empty())
+            }) {
+                if line.enabled {
+                    tmt_cli_style::message::success(&mut output, terminal, &line.what)?;
+                } else {
+                    tmt_cli_style::message::warning(
+                        &mut output,
+                        terminal,
+                        &line.what,
+                        line.hint.as_deref(),
+                    )?;
+                }
+            }
         }
     }
     Ok(())
@@ -927,6 +1125,13 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             Some("open") if matches!(value.as_str(), "on" | "off") => {
                 settings::set_open(&root, value == "on")?
             }
+            Some("default-remote") => {
+                let layout = Layout::open(&root)?;
+                if value != "local" {
+                    tmt_remote::remote_selector::validate_reference(&layout, value)?;
+                }
+                settings::set_default_remote(&root, value)?
+            }
             Some("sessions-per-device") => {
                 let limit = if value == "off" {
                     None
@@ -958,7 +1163,10 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let json_output = arguments.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        writeln!(output, "{}", loaded.json())?;
+        let mut value = loaded.json();
+        value["defaultRemote"] = json!(loaded.default_remote().unwrap_or("local"));
+        value["defaultRemoteSource"] = json!(loaded.default_source());
+        writeln!(output, "{}", value)?;
     } else {
         let terminal = output.terminal();
         tmt_cli_style::detail::write(
@@ -966,6 +1174,18 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             terminal,
             "REMOTE SETTINGS",
             &[
+                (
+                    "default-remote",
+                    format!(
+                        "{} ({})",
+                        if loaded.default_remote().unwrap_or("local") == "local" {
+                            "local"
+                        } else {
+                            loaded.default_remote().unwrap()
+                        },
+                        loaded.default_source()
+                    ),
+                ),
                 (
                     "open",
                     format!(
@@ -1194,12 +1414,16 @@ fn main() -> ExitCode {
             } else {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
+                let mut hints = error.hint.as_deref().unwrap_or("").lines();
                 let _ = tmt_cli_style::message::error(
                     &mut output,
                     terminal,
                     &error.message,
-                    error.hint.as_deref(),
+                    hints.next(),
                 );
+                for hint in hints {
+                    let _ = tmt_cli_style::message::hint(&mut output, terminal, hint);
+                }
             }
             ExitCode::FAILURE
         }

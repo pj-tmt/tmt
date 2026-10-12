@@ -2806,7 +2806,10 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
       },
     },
   };
-  await writeFile(join(root, 'state/remote/deploy.json'), JSON.stringify(partial), { mode: 0o600 });
+  const projectDirectory = join(root, 'state/remote/deployments/demo-remote-fixture');
+  await mkdir(projectDirectory, { recursive: true, mode: 0o700 });
+  const recordPath = join(projectDirectory, 'deploy.json');
+  await writeFile(recordPath, JSON.stringify(partial), { mode: 0o600 });
   await page.goto(`${origin}/settings`);
   await expect(page.locator('[data-item="rules"]')).toContainText(
     'Firestore rules are only partly deployed.',
@@ -2837,7 +2840,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     'same private fixture record, not provider currentness',
   );
 
-  await writeFile(join(root, 'state/remote/deploy.json'), 'damaged fixture', { mode: 0o600 });
+  await writeFile(recordPath, 'damaged fixture', { mode: 0o600 });
   await page.goto(`${origin}/settings`);
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Not checked');
   expect((await recorded()).firestoreLayers).toEqual(
@@ -2890,7 +2893,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     `Observed signed operations: ${JSON.stringify(observed)}`,
   ).toBe(true);
   // The damaged fixture is never repaired by inspection.
-  expect(await readFile(join(root, 'state/remote/deploy.json'), 'utf8')).toBe('damaged fixture');
+  expect(await readFile(recordPath, 'utf8')).toBe('damaged fixture');
   await context.close();
 });
 

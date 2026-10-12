@@ -8,7 +8,7 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 10] = [
+const FILES: [&str; 12] = [
     "machine.key",
     "key.lock",
     "serve.lock",
@@ -19,6 +19,8 @@ const FILES: [&str; 10] = [
     "serve-error.json",
     "deploy.json",
     "deploy.lock",
+    "remotes.json",
+    "remotes.lock",
 ];
 
 fn unsafe_directory() -> RemoteError {
@@ -101,6 +103,37 @@ impl Layout {
                 Ok(None)
             }
             Err(error) => Err(state_error(error)),
+        }
+    }
+    /// Project names are admitted before they become a private subtree component.
+    pub(crate) fn project(&self, project: &str, create: bool) -> Result<Option<Self>, RemoteError> {
+        if !crate::deploy_run::project_ok(project) {
+            return Err(RemoteError::new(
+                "REMOTE_SELECTOR_INVALID",
+                "Invalid Firebase project id.",
+            ));
+        }
+        const PROJECT_FILES: &[&str] = &["deploy.json"];
+        let parent = if create {
+            Some(
+                tmt_extension_state::Layout::open(&self.directory, "deployments", &[])
+                    .map_err(state_error)?,
+            )
+        } else {
+            tmt_extension_state::Layout::existing(&self.directory, "deployments", &[])
+                .map_err(state_error)?
+        };
+        let Some(parent) = parent else {
+            return Ok(None);
+        };
+        if create {
+            tmt_extension_state::Layout::open(&parent.directory, project, PROJECT_FILES)
+                .map(|shared| Some(Self { shared }))
+                .map_err(state_error)
+        } else {
+            tmt_extension_state::Layout::existing(&parent.directory, project, PROJECT_FILES)
+                .map(|shared| shared.map(|shared| Self { shared }))
+                .map_err(state_error)
         }
     }
     /// Take an existing lease without creating a lock file. A missing lease

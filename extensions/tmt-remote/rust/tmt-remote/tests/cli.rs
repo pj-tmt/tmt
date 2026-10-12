@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
@@ -31,10 +32,10 @@ const STARTUP: Duration = executable_fixture::COMPLETION_WINDOW;
 // This fixture wait models that possibility; it is not a deployment retry.
 const DEPLOY_WRITER_RELEASE_WAIT: Duration = Duration::from_secs(3);
 const DEPLOY_WRITER_RELEASE_POLL: Duration = Duration::from_millis(5);
-fn wait_for_deploy_writer<'a>(
+fn wait_for_deploy_writer(
     deadline: Instant,
-    mut reopen: impl FnMut() -> Result<DeployRecordStore<'a>, RemoteError>,
-) -> Result<DeployRecordStore<'a>, RemoteError> {
+    mut reopen: impl FnMut() -> Result<DeployRecordStore, RemoteError>,
+) -> Result<DeployRecordStore, RemoteError> {
     let started = Instant::now();
     loop {
         match reopen() {
@@ -1464,19 +1465,19 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
     for (args, expected) in [
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "open", "off", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "open", "on", "--json"],
-            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
     ] {
         let answer = pilot.command().args(args).output().unwrap();
@@ -1715,7 +1716,7 @@ fn session_limit_settings_show_source_and_preserve_open() {
     let value: Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(
         value,
-        serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":2,"sessionsPerDeviceSource":"settings.json"})
+        serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":2,"sessionsPerDeviceSource":"settings.json","defaultRemote":"local","defaultRemoteSource":"default"})
     );
     let plain = pilot.command().arg("settings").output().unwrap();
     let text = String::from_utf8(plain.stdout).unwrap();
@@ -2890,10 +2891,7 @@ fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     let with = String::from_utf8(run(&pilot, &["status", "--layers"]).stdout).unwrap();
     assert!(with.starts_with(&human), "{with}");
     assert!(with.contains("Firestore is not configured"), "{with}");
-    assert!(
-        with.contains("One Remote home deploys to one Firebase project and region."),
-        "{with}"
-    );
+    assert!(!with.contains("One Remote home deploys"), "{with}");
     assert!(!with.contains("tmt remote deploy"), "{with}");
     assert!(!human.contains("One Remote home"), "{human}");
     // The three optional projections are exclusive.
@@ -2905,7 +2903,7 @@ fn status_layers_is_opt_in_and_empty_until_firestore_exists() {
     }
     terminate(pilot.child.take().unwrap());
     let stopped = json(&pilot, &["status", "--layers", "--json"]);
-    assert_eq!(keys(&stopped), ["running", "lastPort"]);
+    assert_eq!(keys(&stopped), ["running", "lastPort", "firestoreLayers"]);
     assert!(
         String::from_utf8(run(&pilot, &["status", "--layers"]).stdout)
             .unwrap()
@@ -2963,15 +2961,19 @@ fn status_budget_is_opt_in_and_static() {
 fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_record() {
     let root = deploy_fixture::Root::new();
     let layout = root.layout();
-    let path = root.remote().join("deploy.json");
+    let path = root.remote().join("deployments/demo-remote-1/deploy.json");
     let before = serde_json::to_vec(&serde_json::json!({
         "version": 1,
         "record": tmt_remote::deploy_run::DeployRecord::new(deploy_fixture::ID),
     }))
     .unwrap();
     // Seed valid private bytes before any lock owner exists; no preliminary release race.
-    layout
-        .file("deploy.json")
+    drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
         .unwrap()
         .write_all(&before)
         .unwrap();
@@ -2989,7 +2991,7 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
             drop(copy);
         });
         let result = wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            let result = DeployRecordStore::open(&layout);
+            let result = DeployRecordStore::open(&layout, "demo-remote-1");
             if matches!(&result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY")
                 && let Some(release) = release.take()
             {
@@ -3008,15 +3010,17 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
 fn deploy_writer_wait_still_refuses_a_held_writer_at_its_absolute_deadline() {
     let root = deploy_fixture::Root::new();
     let layout = root.layout();
-    let writer = DeployRecordStore::open(&layout).unwrap();
+    let writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let deadline = Instant::now() + DEPLOY_WRITER_RELEASE_POLL * 2;
-    let result = wait_for_deploy_writer(deadline, || DeployRecordStore::open(&layout));
+    let result = wait_for_deploy_writer(deadline, || {
+        DeployRecordStore::open(&layout, "demo-remote-1")
+    });
     assert!(matches!(result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY"));
     assert!(Instant::now() >= deadline);
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout)
+            DeployRecordStore::open(&layout, "demo-remote-1")
         })
         .expect("released writer was not available"),
     );
@@ -3043,11 +3047,13 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     use tmt_remote::{deploy_record::DeployRecordStore, deploy_run::DeployRecord, state::Layout};
     let mut pilot = Pilot::new();
     let layout = Layout::open(&pilot.root.join("state")).unwrap();
-    let mut writer = DeployRecordStore::open(&layout).unwrap();
+    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     writer
         .persist(&DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11"))
         .unwrap();
-    let path = layout.directory.join("deploy.json");
+    let path = layout
+        .directory
+        .join("deployments/demo-remote-1/deploy.json");
     let before = fs::read(&path).unwrap();
     assert_eq!(status_json(&pilot)["running"], false);
     assert_eq!(stop_json(&pilot)["running"], false);
@@ -3060,7 +3066,7 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout)
+            DeployRecordStore::open(&layout, "demo-remote-1")
         })
         .expect("deploy writer leaked its lock"),
     );
@@ -3075,7 +3081,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     };
     let mut pilot = Pilot::new();
     let layout = Layout::open(&pilot.root.join("state")).unwrap();
-    let mut writer = DeployRecordStore::open(&layout).unwrap();
+    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let mut record = DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11");
     writer.persist(&record).unwrap();
     start_door(&mut pilot, &[], false);
@@ -3104,7 +3110,9 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
             .collect(),
     });
     writer.persist(&record).unwrap();
-    let path = layout.directory.join("deploy.json");
+    let path = layout
+        .directory
+        .join("deployments/demo-remote-1/deploy.json");
     let snapshot = fs::read(&path).unwrap();
     let layers = status_answer(&pilot, &["status", "--layers", "--json"]);
     let sharing = &layers["firestoreLayers"][0];
@@ -3135,15 +3143,17 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     );
     assert_eq!(fs::read(&path).unwrap(), snapshot);
     assert_eq!(stop_json(&pilot)["stopped"], true);
+    let stopped = status_answer(&pilot, &["status", "--layers", "--json"]);
     assert_eq!(
-        member_keys(&status_answer(&pilot, &["status", "--layers", "--json"])),
-        ["running", "lastPort"]
+        member_keys(&stopped),
+        ["running", "lastPort", "firestoreLayers"]
     );
+    assert_eq!(stopped["firestoreLayers"], partial["firestoreLayers"]);
     assert_eq!(fs::read(&path).unwrap(), snapshot);
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout)
+            DeployRecordStore::open(&layout, "demo-remote-1")
         })
         .expect("deploy writer leaked its lock"),
     );

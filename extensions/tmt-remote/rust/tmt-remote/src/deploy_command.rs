@@ -48,7 +48,7 @@ pub struct DeployCommandOutput {
 pub fn execute(
     input: &DeployCommandInput<'_>,
     options: &DeployCommandOptions<'_>,
-    store: &mut DeployRecordStore<'_>,
+    store: &mut DeployRecordStore,
     port: &mut dyn DeployPort,
     now_ms: u64,
 ) -> Result<DeployCommandOutput, DeployCommandError> {
@@ -59,7 +59,7 @@ pub fn execute(
 pub fn execute_with_hosting(
     input: &DeployCommandInput<'_>,
     options: &DeployCommandOptions<'_>,
-    store: &mut DeployRecordStore<'_>,
+    store: &mut DeployRecordStore,
     port: &mut dyn DeployPort,
     now_ms: u64,
     hosting: Option<&crate::hosting::HostingDeploymentView>,
@@ -112,10 +112,9 @@ pub fn execute_with_hosting(
     let mut json = json!({ "authorized": authorized, "plan": plan.view(), "planDigest": plan.digest(),
         "extensions": input.extensions.view(), "record": record });
     let mut human = format!(
-        "Firestore sharing plan\nAccount: {}\nProject: {}\nDeployment: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} ({})\nIndex configs: {}\nRoles: none created\nTTL: not set up\nPlan digest: {}\n",
+        "Firestore sharing plan\nAccount: {}\nProject: {}\nDatabase: {} ({}), {}\nSign-in: {}\nRules: {} ({})\nIndex configs: {}\nRoles: none created\nTTL: not set up\nPlan digest: {}\n",
         plan.account(),
         input.project,
-        plan.deployment_id(),
         plan.view().database.name,
         plan.view().database.edition,
         input.location,
