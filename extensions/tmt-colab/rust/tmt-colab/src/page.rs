@@ -120,8 +120,44 @@ pub struct Receipt {
     pub source_sha256: String,
     pub memory_limit: MemoryLimit,
     pub changed: bool,
+    pub update: UpdateSize,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub publication: Option<PublicationReceipt>,
+}
+/// What the committed batch cost: how many updates, and their sealed envelope bytes (the manifest's
+/// `packetBytes`). A write from the text diff says `minimal`; a no-op has no batch, so none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSize {
+    pub count: usize,
+    pub bytes: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal: Option<bool>,
+}
+impl UpdateSize {
+    pub const NONE: Self = Self {
+        count: 0,
+        bytes: 0,
+        minimal: None,
+    };
+    /// The batch a signed job froze: always the original one, so a replay reports it unchanged.
+    fn of(manifest: &crate::publication::Manifest) -> Self {
+        Self {
+            count: manifest.entries.len(),
+            bytes: manifest.packet_bytes,
+            minimal: Some(true),
+        }
+    }
+}
+impl std::fmt::Display for UpdateSize {
+    /// The human line: `none` for a no-op, otherwise `3 updates, 1204 bytes`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.count {
+            0 => f.write_str("none"),
+            1 => write!(f, "1 update, {} bytes", self.bytes),
+            count => write!(f, "{count} updates, {} bytes", self.bytes),
+        }
+    }
 }
 /// The original operation and the last envelope of an admitted batch.
 #[derive(Clone, Serialize)]
@@ -153,6 +189,7 @@ impl Receipt {
             source_sha256: hex(&crypto::digest(source.as_bytes())),
             memory_limit,
             changed: false,
+            update: UpdateSize::NONE,
             publication: None,
         }
     }
@@ -999,6 +1036,7 @@ pub fn publication_receipt(
                 source_sha256: evidence.source_sha256.clone(),
                 memory_limit: evidence.memory_limit,
                 changed: true,
+                update: UpdateSize::of(manifest),
                 publication: Some(PublicationReceipt {
                     operation_id: key.operation_id.clone(),
                     stream_id: key.stream_id.clone(),

@@ -365,6 +365,23 @@ fn exact_source_title_authenticated_receipts_and_reopening() {
     assert_eq!(f.read().title, "Exact title 🐈");
 }
 #[test]
+fn a_replayed_write_reports_the_batch_it_originally_committed() {
+    let mut f = Fixture::new();
+    let first = f.prepare("one", None).unwrap();
+    let accepted = f.commit(&first, NOW).unwrap();
+    let original = page::publication_receipt(first.job(), &accepted.record).unwrap();
+    assert!(original.changed && original.update.count == 1 && original.update.bytes > 0);
+    assert_eq!(original.update.minimal, Some(true));
+    // A later, larger write moves the page on; its batch is its own.
+    let later = f.write(&"a longer replacement ".repeat(50));
+    assert_ne!(later.update.bytes, original.update.bytes);
+    let replay = f.commit(&first, NOW).unwrap();
+    assert_eq!(replay.accepted, Accepted::Replay);
+    let again = page::publication_receipt(first.job(), &replay.record).unwrap();
+    assert_eq!(again.update, original.update);
+    assert_eq!(again.update.count, again.publication.unwrap().count);
+}
+#[test]
 fn stale_concurrent_bases_and_exact_replay_never_overwrite_or_reseal() {
     use tmt_colab::publication::{Outcome, Rejection};
     let mut f = Fixture::new();

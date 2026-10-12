@@ -98,7 +98,8 @@ write against that verified revision:
 tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
-Pass the returned token, not the placeholder `REVISION`. Writing retains
+Pass the returned token, not the placeholder `REVISION`. `update` reports the
+write's cost (`count`, `bytes`; zero when unchanged). Writing retains
 the title and preserves discussion records. On `COLAB_STALE_BASE`, read again,
 merge the intervening edit and submit against the new token. Never blindly retry
 the old replacement. After a timeout or uncertain outcome, read back and compare
