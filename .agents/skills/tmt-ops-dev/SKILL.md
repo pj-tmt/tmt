@@ -144,7 +144,7 @@ grammar or key tables into the references below.
 - Command grammar, help and human output go through `tmt-cli-style`
   (`CommandSpec`, `Interaction`); `ui` runs only when `Interaction::view()` is
   `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt ops squad` lists members and adds
-  `tmt ops ui opens the board`; bare squad `--json` is identical to squad `ls --json`. Bare Ops shows help. Consent for hotkeys and playbooks is a `Consent` decided in
+  `tmt ops ui opens the board`; bare squad `--json` is identical to squad `ls --json`. Bare Ops shows help; help and version have no JSON form (`JSON_UNSUPPORTED`, exit 1), and every usage error exits 1, a JSON one carrying clap's text. Consent for hotkeys and playbooks is a `Consent` decided in
   `main` from `--yes` and `prompt()`.
 - Squad's dependencies must not change the CLI product: prove it package-scoped
   (`cargo ... -p tmt-cli` alone), because combined workspace builds can unify

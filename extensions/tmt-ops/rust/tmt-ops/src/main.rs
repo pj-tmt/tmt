@@ -1075,13 +1075,19 @@ fn main() -> ExitCode {
         Err(error) if error.kind() == ErrorKind::DisplayHelp => {
             return print_help(&error.render(), json);
         }
+        // Version, like help, has no JSON form.
+        Err(error) if json && error.kind() == ErrorKind::DisplayVersion => {
+            return json_unsupported();
+        }
+        // Clap's rendered text names the argument and the usage, as Core's does.
         Err(error) if json && error.use_stderr() => {
-            let failure = SquadError::new("USAGE_ERROR", error.kind().to_string());
-            return print_document(&failure.to_json(), 2);
+            let message = error.render().to_string();
+            let failure = SquadError::new("USAGE_ERROR", message.trim_end());
+            return print_document(&failure.to_json(), USAGE_EXIT);
         }
         Err(error) => {
             let _ = error.print();
-            return ExitCode::from(if error.use_stderr() { 2 } else { 0 });
+            return ExitCode::from(if error.use_stderr() { USAGE_EXIT } else { 0 });
         }
     };
     let Some((root, flags)) = matches.subcommand() else {
@@ -1203,9 +1209,22 @@ fn reload_all(json: bool) -> ExitCode {
     }
 }
 
+/// Invalid command syntax exits 1, as in Core; failures of a valid command use their own codes.
+const USAGE_EXIT: u8 = 1;
+
+/// `--json` on help or version: one error document, as Core answers.
+fn json_unsupported() -> ExitCode {
+    let failure = SquadError::new("JSON_UNSUPPORTED", "This command does not support --json.");
+    print_document(&failure.to_json(), 1)
+}
+
 /// Both help routes use the shared rendered-clap formatter before core discovery.
+/// Help is text: with `--json` it is refused rather than printed.
 fn print_help(help: &clap::builder::StyledStr, json: bool) -> ExitCode {
-    let mut stdout = tmt_cli_style::stream::stdout(json);
+    if json {
+        return json_unsupported();
+    }
+    let mut stdout = tmt_cli_style::stream::stdout(false);
     let text = tmt_cli_style::rendered_help(help, stdout.terminal());
     match stdout
         .write_all(text.as_bytes())
