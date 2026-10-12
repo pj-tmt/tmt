@@ -715,6 +715,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     ("page", receipt.page_id),
                     ("revision", receipt.revision),
                     ("epoch", receipt.epoch),
+                    ("update", receipt.update.to_string()),
                 ],
             )?;
             cli_page_check::print_warnings(&warnings)?;

@@ -1410,6 +1410,93 @@ fn varied_source(seed: u64, bytes: usize) -> String {
     text
 }
 #[test]
+fn a_write_reports_the_size_of_the_update_it_committed_offline_and_serving() {
+    const SIZE: usize = 300 * 1024;
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        let first = varied_source(1, SIZE);
+        fs::write(&file, &first).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Sized",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let write = |args: &[&str]| {
+            let mut command = vec!["page", "write", id, "--file", file.to_str().unwrap()];
+            command.extend_from_slice(args);
+            pilot.command().args(command).output().unwrap()
+        };
+        let json = |args: &[&str]| -> Value {
+            let output = write(&[args, &["--json"]].concat());
+            assert!(output.status.success(), "{output:?}");
+            serde_json::from_slice(&output.stdout).unwrap()
+        };
+        // One character in the middle of a 300 KiB page is one small update, not a page.
+        let middle = SIZE / 2;
+        let mut edited = first.clone().into_bytes();
+        edited[middle] = if edited[middle] == b'z' { b'y' } else { b'z' };
+        let edited = String::from_utf8(edited).unwrap();
+        fs::write(&file, &edited).unwrap();
+        let small = json(&[]);
+        assert_eq!(small["changed"], true);
+        assert_eq!(small["update"]["count"], 1, "{small}");
+        assert_eq!(small["update"]["count"], small["count"]);
+        assert_eq!(small["update"]["minimal"], true);
+        let bytes = small["update"]["bytes"].as_u64().unwrap();
+        assert!(
+            0 < bytes && bytes < 2_048,
+            "one character cost {bytes} bytes"
+        );
+        // A full rewrite reports what it really carried, so the number is a measurement.
+        let rewritten = varied_source(2, SIZE / 3);
+        fs::write(&file, &rewritten).unwrap();
+        let large = json(&[]);
+        assert!(
+            large["update"]["bytes"].as_u64().unwrap() >= (SIZE / 3) as u64,
+            "{large}"
+        );
+        assert_eq!(large["update"]["count"], large["count"]);
+        assert_eq!(large["update"]["minimal"], true);
+        // Nothing to publish: no batch, no `minimal`.
+        let none = json(&[]);
+        assert_eq!(none["changed"], false);
+        assert_eq!(none["update"], json!({"count": 0, "bytes": 0}));
+        // Human output adds one line, and it is the same measurement.
+        fs::write(&file, &edited).unwrap();
+        let human = write(&[]);
+        assert!(human.status.success(), "{human:?}");
+        let shown = String::from_utf8(human.stdout).unwrap();
+        assert!(shown.contains("PAGE WRITTEN"), "{shown}");
+        assert!(
+            shown
+                .lines()
+                .any(|line| line.contains("update") && line.contains("bytes")),
+            "{shown}"
+        );
+        let human = write(&[]);
+        let shown = String::from_utf8(human.stdout).unwrap();
+        assert!(
+            shown.contains("PAGE UNCHANGED")
+                && shown
+                    .lines()
+                    .any(|line| line.contains("update") && line.contains("none")),
+            "{shown}"
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
 fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
     const SIZE: usize = 1_536 * 1024;
     for serving in [false, true] {

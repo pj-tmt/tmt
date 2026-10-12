@@ -3587,8 +3587,16 @@ every signed encrypted append of the batch and the scoped terminal outcome toget
 records a terminal rejection and no content; a commit never splits a batch. Exact frozen
 retries return the original outcome bytes without re-signing, re-appending or overwriting
 later content; changed bytes conflict. JSON success is
-`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed,warnings}` plus,
-when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
+`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed,update,warnings}`
+plus, when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `update` is
+`{count,bytes}`, plus `minimal:true` when `changed` is true: the number of updates in the
+committed batch (equal to `count`) and the total bytes of their sealed envelopes (the signed
+manifest's `packetBytes`), so what an edit cost is measurable. `minimal` says the batch came from
+the text diff, which every write does today; it stays so a future whole-replace path can say
+`false`. `changed:false` reports `update:{count:0,bytes:0}` with no `minimal`, since no batch
+exists. The numbers come from the frozen job, so a reply lost to doubt and answered from the
+retained outcome reports the original batch. The human output adds one `update` line
+(`1 update, 214 bytes`, or `none`). `revision` is the
 page revision read, after the write and its best-effort combine, by the writer while no
 other writer can run (the serve under its sync lock, or this process under the serve
 lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
