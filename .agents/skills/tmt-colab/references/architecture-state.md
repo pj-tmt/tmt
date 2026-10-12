@@ -202,7 +202,7 @@ connects or the failure is no longer recoverable. A series that gives up, or a b
 three reopens a minute), then hands the new binding over. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
-page that is gone; none otherwise). A modal drawer makes that card inert, so a live Chat
+page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
 composer owns its ended sentence/action once; an archived Chat and every other drawer keep
 the same sentence/action in the `notice` row under the header. An ended annotation keeps its
 action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
@@ -215,12 +215,19 @@ it (`resync` on the same session, replace the `session`, `reopen` the page for a
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).
-A terminal failure card shows one of six `strings.ts` sentences (access ended, not paired, page
-gone, session ended, too large, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
+A terminal failure card shows one of seven `strings.ts` sentences (access ended, not paired, page
+gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
 recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
 `Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
-Eviction and management-changed keep their own cards.
+Eviction and management-changed keep their own cards. A device at its Remote session limit
+(`REMOTE_SESSION_LIMIT`: Remote never evicts an attached session, #2585) is refused with the
+verified `limit` and `settingsUrl`; `sessionLimit()` (`registration.ts`) turns the boot open's raw
+`RefusalError` and a bounded re-admission's `capacity` cause into one `SessionLimitError`, which ends
+the page or the mounted tab (`MountedNotice`) with `SessionLimitBody` (`session-limit.tsx`, shared with the
+eviction card): close another page, the limit, the one `tmt remote settings sessions-per-device <limit+1>`
+command, the settings link and `Reload`, which opens the page once a session frees. A capacity reason
+without its verified refusal stays a generic ended page.
 Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
 readiness, publications and diagnosis cannot alter the current attempt. Recovery
 never re-sends an Ask or generates a new mutation. Pending own-stream envelopes

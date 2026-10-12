@@ -1,4 +1,5 @@
 import { pageAction } from '../test/page-actions.js';
+import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
@@ -61,8 +62,8 @@ test('Remote keeps concurrent sessions per device and reports the evicted limit'
 });
 
 // Remote never evicts an attached session (#2566): at the device cap a new page is refused and
-// every open page stays live. The refused tab shows the paired-space failure until C1c names the
-// cap; closing an open tab frees a session for a reload.
+// every open page stays live. The refused tab names the cap and the one command that raises it
+// (#2625); closing an open tab frees a session for a reload.
 test('a device at its session cap refuses a new page and keeps the open pages live', async () => {
   await withWorld(async (world) => {
     run(world, world.binaries.remote, ['settings', 'sessions-per-device', '2']);
@@ -80,6 +81,11 @@ test('a device at its session cap refuses a new page and keeps the open pages li
     }
     const refused = await openPage(door, browser, created);
     await expect(refused.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+    await expect(refused.getByText(text.sessionLimitClose)).toBeVisible();
+    await expect(refused.getByText(text.sessionLimitReached(2))).toBeVisible();
+    await expect(refused.getByText('tmt remote settings sessions-per-device 3')).toBeVisible();
+    await expect(refused.getByRole('link', { name: text.remoteSettings })).toBeVisible();
+    await expect(refused.getByText(text.registrationFailed)).toHaveCount(0);
     await expect(heading(refused)).toHaveCount(0);
     for (const tab of tabs) await expect(heading(tab)).toBeVisible();
     await expect(tabs[0].getByRole('alert')).toHaveCount(0);

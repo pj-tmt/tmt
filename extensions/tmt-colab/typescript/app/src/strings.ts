@@ -249,6 +249,10 @@ export const text = {
   reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair for page access with ${reconnectCommand}.`,
   sessionEvicted: (limit: number) =>
     `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
+  sessionLimitTitle: 'Remote session limit reached',
+  sessionLimitClose: 'Close another page to open this one.',
+  sessionLimitReached: (limit: number) =>
+    `Your paired device is at its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
   remoteSettings: 'Open Remote settings',
   ask: 'Ask agent',
@@ -513,6 +517,7 @@ export const text = {
   failureSessionEnded: 'The Remote session for this page ended. Reopen the page to continue.',
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
+  failureSessionLimit: 'Your paired device is at its Remote session limit.',
   failureCodeLabel: 'Code:',
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',

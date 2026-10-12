@@ -1,8 +1,15 @@
 import { SessionEndedError } from './ask-remote.js';
-import { ReopenFailedError } from './registration.js';
+import { ReopenFailedError, SessionLimitError } from './registration.js';
 
 /** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
-export type FailureCause = 'access' | 'gone' | 'session' | 'large' | 'unpaired' | 'generic';
+export type FailureCause =
+  | 'access'
+  | 'gone'
+  | 'session'
+  | 'large'
+  | 'unpaired'
+  | 'capacity'
+  | 'generic';
 
 /**
  * What the page does about a failure before it gives up:
@@ -80,13 +87,17 @@ const REOPEN_REASONS: Readonly<Record<ReopenFailedError['reason'], Classificatio
   mismatch: end('unpaired'),
   revoked: end('access'),
   expired: end('access'),
-  // The cap notice is C1c (#2625); until then it ends as a plain failure.
+  // The verified limit refusal arrives as a `SessionLimitError` (registration.ts) and has its own
+  // card; a capacity reason without one is unverifiable and ends as a plain failure.
   capacity: generic,
 };
 
 /** The single decision for a live-path failure; callers never read raw messages. */
 export function classify(error: Error): Classification {
   if (error instanceof ReopenFailedError) return REOPEN_REASONS[error.reason];
+  // Nothing recovers it inside the page: Remote does not retry a limit refusal, and a reload
+  // after another session frees is the reader's one action.
+  if (error instanceof SessionLimitError) return end('capacity');
   const known = Object.hasOwn(CONNECTION_CODES, error.message)
     ? CONNECTION_CODES[error.message]!
     : generic;

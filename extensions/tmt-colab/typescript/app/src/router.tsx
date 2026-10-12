@@ -1,5 +1,10 @@
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import { BrowserCommand, BrowserIconAction, BrowserNotifications } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserCommand,
+  BrowserIconAction,
+  BrowserNotifications,
+} from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
@@ -44,6 +49,8 @@ import { useConnection } from './use-connection.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
+import { SessionLimitError } from './registration.js';
+import { SessionLimitBody } from './session-limit.js';
 import { ExportPanel } from './export-panel.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
@@ -350,18 +357,9 @@ function EndedBody({
   compact?: boolean;
 }) {
   if (error instanceof SessionEvictedError)
-    return (
-      <>
-        <p>{text.sessionEvicted(error.limit)}</p>
-        <p>{text.sessionLimitCommand} </p>
-        <BrowserCommand text={`tmt remote settings sessions-per-device ${error.limit + 1}`} />
-        {error.settingsUrl && (
-          <p>
-            <a href={error.settingsUrl}>{text.remoteSettings}</a>
-          </p>
-        )}
-      </>
-    );
+    return <SessionLimitBody limit={error.limit} settingsUrl={error.settingsUrl} />;
+  if (error instanceof SessionLimitError)
+    return <SessionLimitBody refused limit={error.limit} settingsUrl={error.settingsUrl} />;
   return (
     <>
       <TerminalFailure error={error} reference={!compact} />
@@ -376,6 +374,15 @@ function EndedBody({
 }
 
 function EndedLink({ action }: { action: EndedAction }) {
+  if (action === 'reload')
+    return (
+      <BrowserAction
+        type="button"
+        variant="text"
+        label={text.reload}
+        onActivate={() => location.reload()}
+      />
+    );
   return action === 'pages' ? (
     <Link className={ui.action} data-variant="text" to="/">
       {text.retry}
