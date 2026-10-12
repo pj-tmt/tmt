@@ -12,6 +12,9 @@ no earlier than that skip; the aggregate validates its selection. The other requ
 contexts must succeed. Held-draft recovery belongs to
 [main cuts](main-cuts.md#publication-gates-and-recovery).
 
+Code quality checks local relative-link targets in tracked Markdown outside `site/`,
+excluding fences, inline code and HTML comments; it does not fetch URLs or validate anchors.
+
 ## Diff and scope selection
 
 - PRs use the merge-base diff. Merge groups use the common ancestor of fetched
