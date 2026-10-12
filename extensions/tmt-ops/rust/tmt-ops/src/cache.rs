@@ -11,14 +11,31 @@ use std::{
 
 /// `$XDG_CACHE_HOME/tmt-ops/<name>`, else `~/.cache/tmt-ops/<name>`.
 pub fn directory(name: &str) -> Option<PathBuf> {
+    cache_root().map(|cache| cache.join("tmt-ops").join(name))
+}
+
+#[cfg(not(test))]
+fn cache_root() -> Option<PathBuf> {
     let absolute = |name: &str| {
         std::env::var_os(name)
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
     };
-    let cache =
-        absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))?;
-    Some(cache.join("tmt-ops").join(name))
+    absolute("XDG_CACHE_HOME").or_else(|| absolute("HOME").map(|home| home.join(".cache")))
+}
+
+/// A test build never resolves the host's cache (TEST_ISOLATION): every test in
+/// the process shares one directory private to it, so none reads or writes the
+/// user's cache and the many entry points that resolve it need no injection.
+#[cfg(test)]
+fn cache_root() -> Option<PathBuf> {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    Some(
+        ROOT.get_or_init(|| {
+            std::env::temp_dir().join(format!("tmt-ops-cache-{}", std::process::id()))
+        })
+        .clone(),
+    )
 }
 
 /// Replaces `path` atomically with a file only the user can read, creating
@@ -81,6 +98,31 @@ mod tests {
         let entries: Vec<_> = fs::read_dir(path.parent().unwrap()).unwrap().collect();
         assert_eq!(entries.len(), 1, "no temporary file is left behind");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_test_build_never_resolves_the_host_cache() {
+        let path = directory("staleness").unwrap();
+        assert!(path.starts_with(std::env::temp_dir()), "{path:?}");
+        assert!(path.ends_with("tmt-ops/staleness"), "{path:?}");
+        // The host's cache roots, when the process has them, are never the answer.
+        let host = [
+            std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from),
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")),
+        ];
+        for root in host.into_iter().flatten().filter(|root| root.is_absolute()) {
+            assert!(!path.starts_with(&root), "{path:?} is under {root:?}");
+        }
+    }
+
+    #[test]
+    fn every_resolution_in_a_test_shares_one_private_root_that_is_writable() {
+        let first = directory("isolation-check").unwrap();
+        assert_eq!(first.parent(), directory("limits").unwrap().parent());
+        let file = first.join("squad.json");
+        replace(&file, b"{}").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"{}");
+        fs::remove_dir_all(first).unwrap();
     }
 }
 

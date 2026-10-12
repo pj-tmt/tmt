@@ -329,13 +329,13 @@ jobs:
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
           cargo build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
       - name: Test Ops and architecture
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
         run: |
-          cargo test --locked -p tmt-ops
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
           cargo test --locked -p tmt-cli --test architecture
 
   native-office-build:
