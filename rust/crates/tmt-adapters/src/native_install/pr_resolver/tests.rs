@@ -74,6 +74,7 @@ struct Fixture {
     routes: BTreeMap<String, Vec<u8>>,
     fresh: BTreeMap<String, Vec<u8>>,
     calls: Vec<String>,
+    accepts: Vec<(String, String)>,
     links: BTreeMap<String, String>,
     local: u32,
     opt_in: bool,
@@ -101,6 +102,7 @@ impl Fixture {
             routes: BTreeMap::new(),
             fresh: BTreeMap::new(),
             calls: Vec::new(),
+            accepts: Vec::new(),
             links: BTreeMap::new(),
             local: 48,
             opt_in: false,
@@ -177,7 +179,8 @@ impl Fixture {
                 repository_id: 7001,
                 workflow_id: WORKFLOW_ID,
             },
-            |url, _, maximum, _| {
+            |url, accept, maximum, _| {
+                self.accepts.push((url.into(), accept.into()));
                 let fresh = self.calls.iter().any(|called| called == url);
                 self.calls.push(url.into());
                 let body = if fresh {
@@ -206,6 +209,25 @@ impl Fixture {
 
 pub(in crate::native_install) fn downloaded() -> DownloadedRelease {
     Fixture::new().download().unwrap()
+}
+
+#[test]
+fn actions_zip_callback_uses_the_authenticated_actions_accept_value() {
+    let mut fixture = Fixture::new();
+    fixture.download().unwrap();
+    let zip_accepts: Vec<_> = fixture
+        .accepts
+        .iter()
+        .filter(|(url, _)| url.ends_with("/zip"))
+        .collect();
+    assert_eq!(
+        zip_accepts.len(),
+        2,
+        "catalog and payload ZIP reads required"
+    );
+    for (url, accept) in zip_accepts {
+        assert_eq!(accept, "application/vnd.github+json", "Actions ZIP {url}");
+    }
 }
 
 #[test]
