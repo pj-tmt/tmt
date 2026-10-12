@@ -1,7 +1,7 @@
 /** Page/Remote doubles for real parent chrome; no production import or native stores. */
 import { mount as mountPage, notificationSources, discussionProof } from './ask-page-browser.js';
 // Read the mounted module's state even when Vite gives its dependency a timestamp.
-export { proof } from './ask-page-browser.js';
+export { proof, agentResolves, seenProof, discussionProof } from './ask-page-browser.js';
 import { id, selection } from './ask-fixtures.js';
 import type { PageAsk } from '../src/ask-panel.js';
 import type { ThreadView } from '../src/thread-records.js';

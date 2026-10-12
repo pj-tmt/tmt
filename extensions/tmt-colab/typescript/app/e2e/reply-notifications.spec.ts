@@ -125,7 +125,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
         .locator('.page-header-actions')
         .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
       await expect(discussion).toHaveAccessibleName('Discussion (2)');
-      await page.evaluate(async (path) => (await import(path)).agentResolves(), pageFixture);
+      await run(page, 'agentResolves');
       await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
       if (removal === 'expiry') {
         await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
@@ -159,9 +159,7 @@ for (const destination of ['Chat', 'Thread'] as const) {
       await expect(cards(page)).toHaveCount(0);
       if (removal !== 'Open') {
         await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
-        expect(
-          await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture),
-        ).toBe(0);
+        expect(await run(page, 'seenProof')).toBe(0);
         // The record remains available even after the transient card is gone.
         const snapshot = await run(page, 'snapshot');
         expect(snapshot.threads).toHaveLength(3);
@@ -176,12 +174,10 @@ for (const destination of ['Chat', 'Thread'] as const) {
       await expect(discussion).toHaveAccessibleName(
         destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
       );
-      const proof = await page.evaluate(async (path) => (await import(path)).proof(), pageFixture);
+      const proof = await run(page, 'proof');
       expect(proof.sends).toEqual([]);
       expect(proof.actions).toEqual([]);
-      expect(
-        await page.evaluate(async (path) => (await import(path)).discussionProof(), pageFixture),
-      ).toHaveLength(3);
+      expect(await run(page, 'discussionProof')).toHaveLength(3);
       if (destination === 'Chat') await close(page, 'Chat');
       else if ((await surface.getAttribute('data-layout')) === 'anchored') {
         await surface.getByRole('button', { name: 'Collapse thread', exact: true }).click();
@@ -270,12 +266,8 @@ test('Chat New messages attention clears at the history end without changing the
     'Retained reply beyond the reading position',
   );
   await expect(page.locator('.page-header-count').first()).toHaveText('1');
-  expect(await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture)).toBe(
-    0,
-  );
-  expect(
-    (await page.evaluate(async (path) => (await import(path)).proof(), pageFixture)).sends,
-  ).toEqual([]);
+  expect(await run(page, 'seenProof')).toBe(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
 });
 
 test('Menu and Manage suspension recheck withdrawn records before display and announcement', async ({
@@ -447,7 +439,7 @@ for (const width of [1440, 390]) {
       await page.clock.install();
       await mount(page);
       await run(page, 'secondThread');
-      await page.evaluate(async (path) => (await import(path)).agentResolves(), pageFixture);
+      await run(page, 'agentResolves');
       const discussion = page
         .locator('.page-header-actions')
         .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
@@ -468,9 +460,7 @@ for (const width of [1440, 390]) {
       await page.clock.runFor(6000);
       await expect(cards(page)).toHaveCount(0);
       await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
-      expect(
-        await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture),
-      ).toBe(0);
+      expect(await run(page, 'seenProof')).toBe(0);
       await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
       await page.clock.resume();
       await open(page, 'Comments');
