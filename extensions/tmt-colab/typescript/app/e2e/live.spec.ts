@@ -1752,6 +1752,17 @@ test('a tab refused at the session limit names the limit and opens on reload onc
   await expect(card).toContainText(copy.sessionLimitClose);
   await expect(card).toContainText(copy.sessionLimitReached(2));
   await expect(card).toContainText('tmt remote settings sessions-per-device 3');
+  // The cause comes first, then the fixes, so the two remedies sit together.
+  const order = (await card.innerText()).replace(/\s+/g, ' ');
+  const at = (part: string) => order.indexOf(part);
+  expect(at(copy.sessionLimitReached(2))).toBeGreaterThan(-1);
+  expect(at(copy.sessionLimitClose)).toBeGreaterThan(at(copy.sessionLimitReached(2)));
+  expect(at(copy.sessionLimitCommand)).toBeGreaterThan(at(copy.sessionLimitClose));
+  // The settings link looks actionable, like the Reload text action.
+  const link = card.getByRole('link', { name: copy.remoteSettings });
+  expect(await link.evaluate((node) => getComputedStyle(node).textDecorationLine)).toContain(
+    'underline',
+  );
   await expect(card.getByRole('link', { name: copy.remoteSettings })).toHaveAttribute(
     'href',
     'https://127.0.0.1:9000/settings',
@@ -1807,14 +1818,53 @@ for (const surface of ['Chat', 'annotation'] as const)
     await expect(container.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
     await expect(input).toHaveText(draft);
     expect(f.sends).toBe(0);
+    // The status keeps its whole body and Reload reachable: a keyboard reader scrolls it to its
+    // top and to its end. The annotation popover is a few lines tall, so it is captured at both.
+    const shot = (name: string) =>
+      page.screenshot({ path: capturePath(`2625-limit-${surface}-${name}.png`) });
+    const focusStatus = async () => {
+      await container.getByRole('button', { name: copy.threadCollapse, exact: true }).focus();
+      await page.keyboard.press('Tab');
+      await expect(status).toBeFocused({ timeout: 1000 });
+    };
+    const reach = async (name?: string) => {
+      if (surface === 'annotation' && name) {
+        await expect(async () => {
+          await focusStatus();
+          // The status starts below the draft: bring its first sentence into the window.
+          await status.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+          await expect(status.getByText(copy.sessionLimitReached(2))).toBeInViewport({
+            timeout: 1000,
+          });
+        }).toPass({ timeout: 10_000 });
+        await shot(`${name}-start`);
+      }
+      // The popover re-lays out after a resize and keyboard scrolling settles after the key
+      // press, so the whole reach is retried until Reload is on screen.
+      await expect(async () => {
+        if (surface === 'annotation') {
+          await focusStatus();
+          await status.press('End');
+        }
+        await expectUncovered(status.getByRole('button', { name: copy.reload, exact: true }));
+      }).toPass({ timeout: 10_000 });
+      if (name) await shot(surface === 'annotation' ? `${name}-end` : name);
+    };
     for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme });
-      await page.screenshot({ path: await capturePath(`2625-limit-${surface}-1440-${theme}.png`) });
+      await reach(`1440-${theme}`);
     }
-    if (surface === 'Chat') {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.screenshot({ path: await capturePath('2625-limit-Chat-390-dark.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await reach('390-dark');
+    if (surface === 'annotation') {
+      // With room below the selection the whole body and Reload fit the popover at once.
+      await page.setViewportSize({ width: 1440, height: 1500 });
+      await reach();
+      await expect(status.getByText(copy.sessionLimitReached(2))).toBeInViewport();
+      await shot('1440-tall');
     }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await reach();
     // The card's one action is Reload: once a session frees, it opens the page again.
     f.free();
     await status.getByRole('button', { name: copy.reload, exact: true }).click();
