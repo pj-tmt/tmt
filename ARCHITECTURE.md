@@ -448,7 +448,7 @@ builds fail without host or retired-runtime fallback. State, provider roots,
 prefixes, sockets and processes remain fixture-owned. Adapters' default-off
 `test-isolation` feature admits private discovery paths in consumer test builds.
 `typescript/scripts/private-world.mjs` runs suite commands in a private HOME/XDG/TMPDIR world
-and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
+(under `/tmp` when the temporary directory is too long for sockets) and reports what they leave behind; Ops test builds resolve their cache to a process-private root.
 Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
 and peers. Host tmux, provider installs and global environment mutation are not evidence.
 

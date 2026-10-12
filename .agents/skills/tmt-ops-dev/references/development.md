@@ -94,8 +94,9 @@ cron_service` and the native `ops.test.ts` cron cases cover actor permission, lo
   views and `ls --tab` to project identical documents, including hidden squads/tabs
   and partial-read recovery. `board::home::tests` checks the retained board model
   against that aggregate. Ops test builds resolve `cache::directory` to one
-  directory private to the test process (never the host's `XDG_CACHE_HOME`/`~/.cache`), so
-  tests need no cache injection; process tests still set their own roots.
+  create-new directory private to the test process (never the host's `XDG_CACHE_HOME`/`~/.cache`;
+  a later run sweeps the directories of finished owners), so tests need no cache injection;
+  process tests still set their own roots.
 - Home tile checks cover literal 200/160/113/100/80 single-column geometry, exclusive non-lead marks/counts,
   missing/zero/partial observations, configured and mixed window labels, full selection
   in `tmt`, `tmt-light` and `NO_COLOR`, continuation clicks, complete selected-range

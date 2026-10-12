@@ -30,13 +30,11 @@ fn cache_root() -> Option<PathBuf> {
 #[cfg(test)]
 fn cache_root() -> Option<PathBuf> {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    Some(
-        ROOT.get_or_init(|| {
-            std::env::temp_dir().join(format!("tmt-ops-cache-{}", std::process::id()))
-        })
-        .clone(),
-    )
+    Some(ROOT.get_or_init(test_root::create).clone())
 }
+
+#[cfg(test)]
+mod test_root;
 
 /// Replaces `path` atomically with a file only the user can read, creating
 /// its directory the same way, so a reader never sees half a file.

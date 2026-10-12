@@ -15,6 +15,8 @@ export interface WorldLeaks {
   /** Entries left in the private TMPDIR. */
   readonly temp: string[];
 }
+export const ROOT_LIMIT: number;
+export function defaultParent(preferred?: string): string;
 export function createWorld(parent?: string): PrivateWorld;
 export function worldEnvironment(world: PrivateWorld, base?: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function findLeaks(world: PrivateWorld): WorldLeaks;
