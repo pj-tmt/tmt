@@ -63,7 +63,9 @@ pub enum Fault {
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OutdatedSchema(_) => f.write_str("This space was saved by an older Colab."),
+            Self::OutdatedSchema(_) => {
+                f.write_str("The running Colab service is older than this CLI.")
+            }
             Self::UnsupportedSchema(_) => f.write_str("This space was saved by a newer Colab."),
             _ => write!(f, "{self:?}"),
         }
@@ -77,16 +79,18 @@ impl Fault {
             _ => None,
         }
     }
-    pub fn next(&self) -> Option<&'static str> {
+    pub fn next(&self) -> Option<&'static [&'static str]> {
         match self {
-            Self::OutdatedSchema(_) => Some("tmt colab serve"),
-            Self::UnsupportedSchema(_) => Some("tmt upgrade"),
+            Self::OutdatedSchema(_) => Some(&["tmt colab stop", "tmt colab serve --background"]),
+            Self::UnsupportedSchema(_) => Some(&["tmt upgrade"]),
             _ => None,
         }
     }
     pub fn hint(&self) -> Option<&'static str> {
         match self {
-            Self::OutdatedSchema(_) => Some("Start or restart tmt colab serve to update it."),
+            Self::OutdatedSchema(_) => {
+                Some("Run tmt colab stop, then tmt colab serve --background.")
+            }
             Self::UnsupportedSchema(_) => Some("Run tmt upgrade, then try again."),
             _ => None,
         }

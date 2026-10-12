@@ -1186,20 +1186,20 @@ fn management_read_refuses_unsafe_state_without_changes() {
 
 #[test]
 fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
-    for (version, code, message, hint, command) in [
+    for (version, code, message, hint, commands) in [
         (
             4,
             "COLAB_STORE_OUTDATED",
-            "This space was saved by an older Colab.",
-            "Start or restart tmt colab serve to update it.",
-            "tmt colab serve",
+            "The running Colab service is older than this CLI.",
+            "Run tmt colab stop, then tmt colab serve --background.",
+            &["tmt colab stop", "tmt colab serve --background"][..],
         ),
         (
             99,
             "COLAB_STORE_NEWER",
             "This space was saved by a newer Colab.",
             "Run tmt upgrade, then try again.",
-            "tmt upgrade",
+            &["tmt upgrade"][..],
         ),
     ] {
         let pilot = Pilot::new(None);
@@ -1229,7 +1229,7 @@ fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
             assert_eq!(result["error"]["message"], message);
             assert_eq!(result["error"]["storeSchema"], version);
             assert_eq!(result["error"]["supportedSchema"], supported);
-            assert_eq!(result["next"], json!([command]));
+            assert_eq!(result["next"], json!(commands));
             let output = pilot.command().args(&args).output().unwrap();
             assert_eq!(output.status.code(), Some(1));
             assert!(output.stdout.is_empty());

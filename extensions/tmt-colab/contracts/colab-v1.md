@@ -3418,12 +3418,13 @@ CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CO
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
 `COLAB_LABEL_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a
-known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
-older Colab." Its next action is "Start or restart tmt colab serve to update it."
+known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
+older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
 A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
 saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
 Human output uses a separate styled `hint:` line for those sentences. JSON uses
-runnable commands in its top-level `next` array: `["tmt colab serve"]` for an
+ordered runnable commands in its top-level `next` array:
+`["tmt colab stop", "tmt colab serve --background"]` for an
 older store and `["tmt upgrade"]` for a newer one. It adds numeric `storeSchema` and `supportedSchema` fields in
 `error`. The supported version is derived from the migration history. Refused
 reads leave the database unchanged; only the existing initializing/serving paths

@@ -285,10 +285,10 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
   schema fails closed with `COLAB_STORE_NEWER` and the `tmt upgrade` instruction.
   Current-schema CLI inspection rejects an older migratable schema with
-  `COLAB_STORE_OUTDATED` and "Start or restart tmt colab serve to update it."
+  `COLAB_STORE_OUTDATED` and "Run tmt colab stop, then tmt colab serve --background."
   Refusal never migrates; serve applies the existing migration history. Human
   errors omit schema numbers; JSON preserves both versions and a runnable `next`
-  command array (`tmt colab serve` or `tmt upgrade`), including through
+  command array (`tmt colab stop`, then `tmt colab serve --background`, or `tmt upgrade`), including through
   operation-correlated errors. Human hint sentences stay separate.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
