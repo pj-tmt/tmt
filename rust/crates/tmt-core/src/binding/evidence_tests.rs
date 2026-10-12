@@ -40,6 +40,7 @@ fn fixture(name: &str) -> (Identity, Binding, EndpointSnapshot) {
         pane_incarnation: None,
         suggested_name: Some("codex".into()),
         marker: Some(binding.marker(&identity)),
+        location: None,
     };
     (
         identity,

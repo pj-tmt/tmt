@@ -235,6 +235,10 @@ pub fn join_presence(members: &mut [Member], listed: &Value) {
         if seen["pane"].is_string() {
             member.pane =
                 json!({"id": seen["pane"], "target": seen.get("target"), "cwd": seen.get("cwd")});
+            // Core's own coordinates for the pane; absent when it published none.
+            if let Some(location) = seen.get("location") {
+                member.pane["location"] = location.clone();
+            }
         }
     }
 }
@@ -350,6 +354,40 @@ case \"$1\" in\n\
             ),
         );
         (Core::at(fake), dir)
+    }
+
+    #[test]
+    fn a_live_row_carries_cores_location_into_the_members_pane() {
+        let member = |id: &str| Member {
+            lead_marker: None,
+            id: id.into(),
+            name: id.into(),
+            lifetime: "saved".into(),
+            presence: "offline".into(),
+            pane: Value::Null,
+            activity: Value::Null,
+            fields: BTreeMap::new(),
+            meta: BTreeMap::new(),
+            seen: Value::Null,
+            numbers: BTreeMap::new(),
+            colors: BTreeMap::new(),
+            failed: Default::default(),
+        };
+        let mut members = [member("a"), member("b"), member("c")];
+        let place = json!({"host": "tmux", "session": "work", "window": "2"});
+        let listed = json!({"identities": [
+            {"id": "a", "presence": "active", "pane": "%1", "target": "work:2.1",
+             "cwd": "/w", "location": place},
+            {"id": "b", "presence": "active", "pane": "%2", "target": "x:0.0", "cwd": "/w"},
+            {"id": "c", "presence": "offline", "pane": null},
+        ]});
+        join_presence(&mut members, &listed);
+        assert_eq!(members[0].pane["location"], place);
+        assert_eq!(members[0].pane["id"], "%1");
+        assert_eq!(members[0].pane["target"], "work:2.1");
+        let observed = members[1].pane.as_object().unwrap();
+        assert!(!observed.contains_key("location"), "absent, never null");
+        assert_eq!(members[2].pane, Value::Null);
     }
 
     #[test]

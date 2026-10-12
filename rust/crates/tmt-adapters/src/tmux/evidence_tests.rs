@@ -1,7 +1,7 @@
 use super::{evidence, metadata};
 use serde_json::{Value, json};
 use tmt_core::{
-    endpoint::{BindingMarker, EndpointSnapshot, ServerEvidence},
+    endpoint::{BindingMarker, EndpointSnapshot, PaneLocation, ServerEvidence},
     limits::MAX_JS_SAFE_INTEGER,
 };
 
@@ -123,9 +123,20 @@ fn endpoint_row(
     attached: &str,
     metadata: &str,
 ) -> String {
+    // The session and window tmux reports as their own fields, beside the joined target.
+    let (session, window) = target.split_once(':').map_or(("", ""), |(session, rest)| {
+        (session, rest.split('.').next().unwrap_or(""))
+    });
+    endpoint_row_at(
+        [server_id, SOCKET, server_pid, START_TIME, pane_id, target],
+        [pane_pid, attached, session, window, metadata],
+    )
+}
+
+fn endpoint_row_at(head: [&str; 6], tail: [&str; 5]) -> String {
     [
-        server_id, SOCKET, server_pid, START_TIME, pane_id, target, "/repo", "codex", pane_pid,
-        attached, metadata,
+        head[0], head[1], head[2], head[3], head[4], head[5], "/repo", "codex", tail[0], tail[1],
+        tail[2], tail[3], tail[4],
     ]
     .join(evidence::SEPARATOR)
 }
@@ -270,15 +281,18 @@ fn rejects_empty_truncated_mismatched_and_non_v4_server_evidence() {
 fn rejects_empty_truncated_and_incomplete_snapshot_rows() {
     assert_evidence_error(evidence::parse_snapshot("", None), "empty snapshot");
 
-    let truncated = valid_endpoint_row()
-        .split(evidence::SEPARATOR)
-        .take(10)
-        .collect::<Vec<_>>()
-        .join(evidence::SEPARATOR);
-    assert_evidence_error(
-        evidence::parse_snapshot(&truncated, None),
-        "truncated endpoint row",
-    );
+    // Ten fields lack the metadata; eleven and twelve lack the session or window.
+    for kept in [10, 11, 12] {
+        let truncated = valid_endpoint_row()
+            .split(evidence::SEPARATOR)
+            .take(kept)
+            .collect::<Vec<_>>()
+            .join(evidence::SEPARATOR);
+        assert_evidence_error(
+            evidence::parse_snapshot(&truncated, None),
+            &format!("endpoint row truncated to {kept} fields"),
+        );
+    }
 
     for (label, row) in [
         (
@@ -642,6 +656,62 @@ fn snapshot_retains_server_and_pane_observations_as_typed_values() {
     assert_eq!(snapshot.panes[0].pane_pid, 654);
     assert_eq!(snapshot.panes[0].target.as_deref(), Some("main:1.0"));
     assert_eq!(snapshot.panes[0].cwd.as_deref(), Some("/repo"));
+}
+
+#[test]
+fn a_pane_location_is_the_hosts_own_session_and_window_never_a_parsed_target() {
+    let located = |target: &str, session: &str, window: &str| {
+        let row = endpoint_row_at(
+            [SERVER_ID, SOCKET, SERVER_PID, START_TIME, "%9", target],
+            [PANE_PID, "0", session, window, r#"{"version":1}"#],
+        );
+        evidence::parse_snapshot(&row, None)
+            .unwrap()
+            .panes
+            .remove(0)
+    };
+    let location = |session: Option<&str>, window: Option<&str>| {
+        Some(PaneLocation {
+            host: "tmux".into(),
+            session: session.map(Into::into),
+            window: window.map(Into::into),
+        })
+    };
+    // Names with spaces, colons and dots come through verbatim from their own field;
+    // `target` is only displayed and stays byte-identical.
+    for (target, session, window) in [
+        ("main:1.0", "main", "1"),
+        ("my session:12.3", "my session", "12"),
+        ("a:b.c:7.0", "a:b.c", "7"),
+        ("x.y z:0.1", "x.y z", "0"),
+    ] {
+        let pane = located(target, session, window);
+        assert_eq!(pane.target.as_deref(), Some(target), "{target}");
+        assert_eq!(
+            pane.location,
+            location(Some(session), Some(window)),
+            "{target}"
+        );
+    }
+    // A host-reported empty session is absent, not an empty string.
+    assert_eq!(
+        located("main:1.0", "", "1").location,
+        location(None, Some("1"))
+    );
+}
+
+#[test]
+fn a_pane_without_a_numeric_window_index_is_incomplete_evidence() {
+    for window in ["", "x", "-1", "1.0", "9007199254740992"] {
+        let row = endpoint_row_at(
+            [SERVER_ID, SOCKET, SERVER_PID, START_TIME, "%9", "main:1.0"],
+            [PANE_PID, "0", "main", window, r#"{"version":1}"#],
+        );
+        assert_evidence_error(
+            evidence::parse_snapshot(&row, None),
+            &format!("window {window:?}"),
+        );
+    }
 }
 
 #[test]

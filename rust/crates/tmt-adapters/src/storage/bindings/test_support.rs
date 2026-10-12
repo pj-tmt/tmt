@@ -39,6 +39,7 @@ pub(super) fn pane(id: &str, pid: u64) -> PaneObservation {
         pane_incarnation: None,
         suggested_name: None,
         marker: None,
+        location: None,
     }
 }
 

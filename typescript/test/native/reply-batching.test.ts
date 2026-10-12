@@ -97,6 +97,8 @@ async function fixture(sandbox: Sandbox, window: number, coldHost = false) {
     'bash',
     '5678',
     '1',
+    'test',
+    '0',
     JSON.stringify(marker),
   ].join('__TMT_FIELD_4f1c__');
   fs.writeFileSync(path.join(sandbox.root, 'endpoint'), row);

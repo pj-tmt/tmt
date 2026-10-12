@@ -205,6 +205,8 @@ mod tests {
             "codex".into(),
             pane_pid.to_string(),
             "0".into(),
+            "main".into(),
+            "1".into(),
             document.to_string(),
         ]
         .join(evidence::SEPARATOR)

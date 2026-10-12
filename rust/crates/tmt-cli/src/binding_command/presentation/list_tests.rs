@@ -7,7 +7,7 @@ use tmt_core::{
             BindingSessionState, HarnessId, ObservedSessionKey, ProviderSessionId, RuntimeMode,
         },
     },
-    endpoint::{ProcessIncarnation, ServerEvidence},
+    endpoint::{PaneLocation, ProcessIncarnation, ServerEvidence},
 };
 
 const CLAUDE: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
@@ -34,6 +34,7 @@ fn pane(id: &str, command: &str, cwd: &str) -> PaneObservation {
         pane_incarnation: None,
         suggested_name: None,
         marker: None,
+        location: None,
     }
 }
 
@@ -546,5 +547,78 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
     assert_eq!(
         project(&binding, &remembered, RuntimeState::Running)["state"],
         "unknown"
+    );
+}
+
+fn located(host: &str, session: Option<&str>, window: Option<&str>) -> Option<PaneLocation> {
+    Some(PaneLocation {
+        host: host.into(),
+        session: session.map(Into::into),
+        window: window.map(Into::into),
+    })
+}
+
+fn listed_row(pane: PaneObservation) -> Value {
+    let row = row(
+        "lead",
+        Lifetime::Saved,
+        Some((pane, binding(RuntimeState::Running, None))),
+        None,
+    );
+    document(&Report::Listed {
+        rows: vec![row],
+        scope: ListScope::default(),
+    })["identities"][0]
+        .clone()
+}
+
+#[test]
+fn a_live_row_publishes_the_hosts_location_and_leaves_the_target_untouched() {
+    let mut tmux = pane("%7", "codex", "/repo");
+    tmux.location = located("tmux", Some("my session"), Some("12"));
+    let json = listed_row(tmux.clone());
+    assert_eq!(
+        json["location"],
+        serde_json::json!({"host": "tmux", "session": "my session", "window": "12"})
+    );
+    assert_eq!(json["target"], "work:1.7");
+    assert_eq!(pane_document(&tmux)["location"], json["location"]);
+    assert_eq!(pane_document(&tmux)["target"], "work:1.7");
+}
+
+#[test]
+fn an_external_host_publishes_only_its_host() {
+    let mut herdr = pane("%7", "codex", "/repo");
+    herdr.location = located("herdr", None, None);
+    let json = listed_row(herdr.clone());
+    assert_eq!(json["location"], serde_json::json!({"host": "herdr"}));
+    assert_eq!(pane_document(&herdr)["location"], json["location"]);
+}
+
+#[test]
+fn a_row_without_a_live_observation_has_no_location_key_at_all() {
+    // Unobserved location on a live pane.
+    let json = listed_row(pane("%7", "codex", "/repo"));
+    assert!(
+        json.as_object().unwrap().get("location").is_none(),
+        "{json}"
+    );
+    assert!(
+        pane_document(&pane("%7", "codex", "/repo"))
+            .as_object()
+            .unwrap()
+            .get("location")
+            .is_none()
+    );
+    // An offline identity has no pane at all, so nothing to locate.
+    let offline = row("gone", Lifetime::Saved, None, None);
+    let json = document(&Report::Listed {
+        rows: vec![offline],
+        scope: ListScope::default(),
+    })["identities"][0]
+        .clone();
+    assert!(
+        json.as_object().unwrap().get("location").is_none(),
+        "{json}"
     );
 }

@@ -39,6 +39,7 @@ fn recipient() -> PaneIdentity {
         pane_incarnation: None,
         suggested_name: None,
         marker: Some(binding.marker(&identity)),
+        location: None,
     };
     PaneIdentity {
         server,

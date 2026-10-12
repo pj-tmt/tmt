@@ -2,7 +2,8 @@ use super::valid_pane_id;
 use std::collections::{HashMap, HashSet};
 use tmt_core::{
     endpoint::{
-        EndpointSnapshot, PaneObservation, ServerEvidence, valid_process_id, valid_server_id,
+        EndpointSnapshot, PaneLocation, PaneObservation, ServerEvidence, valid_process_id,
+        valid_server_id,
     },
     host::HostKind,
 };
@@ -35,6 +36,8 @@ pub(super) fn endpoint_format() -> String {
             "#{pane_current_command}",
             "#{pane_pid}",
             "#{session_attached}",
+            "#{session_name}",
+            "#{window_index}",
             "#{@tmt.agent}",
         ]
         .join(SEPARATOR),
@@ -108,7 +111,7 @@ pub(super) fn parse_snapshot(
     let mut indexes: HashMap<&str, usize> = HashMap::new();
     let mut observations: Vec<(PaneObservation, String, bool)> = Vec::new();
     for fields in rows {
-        if fields.len() < 11 {
+        if fields.len() < 13 {
             return Err(TmuxError::evidence(
                 "tmux endpoint snapshot contains inconsistent server evidence",
             ));
@@ -118,7 +121,11 @@ pub(super) fn parse_snapshot(
             .ok_or_else(|| {
                 TmuxError::evidence("tmux endpoint snapshot contains incomplete pane evidence")
             })?;
-        let raw_metadata = fields[10..].join(SEPARATOR);
+        // The window index is the host's own number; anything else is not evidence.
+        let window = wire_integer(fields[11]).ok_or_else(|| {
+            TmuxError::evidence("tmux endpoint snapshot contains incomplete pane evidence")
+        })?;
+        let raw_metadata = fields[12..].join(SEPARATOR);
         let attached = positive_id(fields[9]).is_some();
         let text = |value: &str| (!value.is_empty()).then(|| value.to_string());
         let pane = PaneObservation {
@@ -131,6 +138,11 @@ pub(super) fn parse_snapshot(
             pane_incarnation: None,
             suggested_name: suggested_name(fields[7]),
             marker: metadata::marker(&metadata::decode(&raw_metadata)),
+            location: Some(PaneLocation {
+                host: HostKind::Tmux.as_str().into(),
+                session: text(fields[10]),
+                window: Some(window.to_string()),
+            }),
         };
         if let Some(index) = indexes.get(fields[4]) {
             let previous = &mut observations[*index];

@@ -118,6 +118,8 @@ pub struct View {
     /// Each document section's own bindings, in document order.
     pub section_bindings: Vec<Bindings>,
     pub configured_bindings: Bindings,
+    /// `[bind.<host>]`: over `bindings` for a row whose pane is on that host.
+    pub host_bindings: std::collections::BTreeMap<String, Bindings>,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
     pub links: crate::links::Handlers,
@@ -2256,7 +2258,8 @@ impl App {
             .and_then(|(slot, _)| slot.section())
     }
 
-    /// The selected row's section overrides its tab/global/host bindings.
+    /// The selected row's section overrides its host table, which overrides the
+    /// tab/global bindings and the preset.
     pub fn bindings(&self) -> Bindings {
         let Some(view) = &self.view else {
             return Bindings::new();
@@ -2273,7 +2276,16 @@ impl App {
                 .meter
                 .as_ref()
                 .is_some_and(|meter| meter.settings.enabled);
-        crate::action::effective_bindings(view.bindings.clone(), section, enabled)
+        let mut bindings = view.bindings.clone();
+        // Core's published host for the row's pane picks the table; no host, no table.
+        if let Some(host) = self
+            .selected_row()
+            .and_then(|row| row["pane"]["location"]["host"].as_str())
+            .and_then(|host| view.host_bindings.get(host))
+        {
+            bindings.extend(host.clone());
+        }
+        crate::action::effective_bindings(bindings, section, enabled)
     }
 
     pub(super) fn say(&mut self, notice: impl Into<String>) -> Effect {
@@ -4440,6 +4452,7 @@ pub(crate) mod tests {
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
+            host_bindings: Default::default(),
             opener: None,
             clipboard: None,
             links: Default::default(),
@@ -5665,6 +5678,107 @@ pub(crate) mod tests {
             app.notice.as_deref(),
             Some("open: pr_link is empty for this row.")
         );
+    }
+
+    fn located(name: &str, pane: Value) -> Value {
+        let mut row = member(name, json!({}));
+        row["pane"] = pane;
+        row
+    }
+
+    #[test]
+    fn a_host_table_overrides_bind_for_rows_on_that_host_and_only_for_them() {
+        let mut flat = crate::action::preset(true, &[]);
+        flat.extend(bind(&[("enter", "run flat {name}")]));
+        let hosts = [
+            (
+                "tmux".to_owned(),
+                bind(&[(
+                    "enter",
+                    "run tmux switch-client -t {pane} {host} {session} {window}",
+                )]),
+            ),
+            (
+                "herdr".to_owned(),
+                bind(&[("enter", "run herdr pane focus {pane} {session}")]),
+            ),
+        ];
+        let mut snapshot = snapshot(
+            "product",
+            json!([{"title": "Crew", "rows": [
+                located("a", json!({"id": "%1", "location":
+                    {"host": "tmux", "session": "work", "window": "2"}})),
+                located("b", json!({"id": "%2", "location": {"host": "herdr"}})),
+                located("c", json!({"id": "%3"})),
+                located("d", json!({"id": "%4", "location": {"host": "other"}})),
+            ]}]),
+        );
+        let view = snapshot.view.as_mut().unwrap();
+        view.configured_bindings = flat.clone();
+        view.bindings = flat;
+        view.host_bindings = hosts.into_iter().collect();
+        view.section_bindings = vec![Bindings::new()];
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot);
+        let run = |args: &[&str]| {
+            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
+        };
+        // The tmux table fills its coordinates from Core's published location.
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            run(&["tmux", "switch-client", "-t", "%1", "tmux", "work", "2"])
+        );
+        // A host table with a field its host does not report refuses; nothing runs.
+        press(&mut app, KeyCode::Down);
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("run: session is empty for this row.")
+        );
+        // No location, or a host with no table, keeps the flat binding.
+        for _ in 0..2 {
+            press(&mut app, KeyCode::Down);
+            let name = app.selected_row().unwrap()["name"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            assert_eq!(
+                press(&mut app, KeyCode::Enter),
+                run(&["flat", &name]),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_section_binding_still_wins_over_a_host_table() {
+        let mut flat = crate::action::preset(true, &[]);
+        flat.extend(bind(&[("enter", "run flat {name}")]));
+        let mut snapshot = snapshot(
+            "product",
+            json!([{"title": "Crew", "rows": [located(
+                "a",
+                json!({"id": "%1", "location": {"host": "tmux", "session": "s", "window": "0"}})
+            )]}]),
+        );
+        let view = snapshot.view.as_mut().unwrap();
+        view.configured_bindings = flat.clone();
+        view.bindings = flat;
+        view.host_bindings = [(
+            "tmux".to_owned(),
+            bind(&[("enter", "run host {pane}"), ("o", "run host-o {pane}")]),
+        )]
+        .into_iter()
+        .collect();
+        view.section_bindings = vec![bind(&[("enter", "run section {name}")])];
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot);
+        let run = |args: &[&str]| {
+            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
+        };
+        assert_eq!(press(&mut app, KeyCode::Enter), run(&["section", "a"]));
+        // The host table still supplies what the section leaves alone.
+        assert_eq!(press(&mut app, KeyCode::Char('o')), run(&["host-o", "%1"]));
     }
 
     #[test]

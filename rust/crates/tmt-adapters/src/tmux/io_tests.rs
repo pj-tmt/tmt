@@ -39,6 +39,8 @@ fn marked_row() -> String {
         "zsh",
         "900",
         "1",
+        "e2e",
+        "0",
         "",
     ]
     .join(evidence::SEPARATOR)

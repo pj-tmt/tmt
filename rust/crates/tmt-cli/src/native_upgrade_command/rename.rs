@@ -326,6 +326,7 @@ mod tests {
                 pane_incarnation: Some("captured".into()),
                 suggested_name: None,
                 marker: None,
+                location: None,
             };
             let binding = storage
                 .with_binding_transaction(|records| {
@@ -458,6 +459,8 @@ mod tests {
                     "sh",
                     &binding.pane_pid.to_string(),
                     "1",
+                    "e2e",
+                    "0",
                     &raw,
                 ]
                 .join("__TMT_FIELD_4f1c__")
@@ -595,6 +598,8 @@ mod tests {
                         "sh",
                         "900",
                         "1",
+                        "e2e",
+                        "0",
                         &self.raw,
                     ]
                     .join("__TMT_FIELD_4f1c__")
@@ -651,6 +656,7 @@ mod tests {
             pane_incarnation: Some("captured".into()),
             suggested_name: None,
             marker: None,
+            location: None,
         };
         let binding = storage
             .with_binding_transaction(|records| records.insert_binding(&identity, &server, &pane))

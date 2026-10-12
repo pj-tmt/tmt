@@ -29,8 +29,8 @@ use tmt_core::{
     binding::{Binding, session::RuntimeState},
     driver::{ActionResult, DeliveryAcceptance, Focused, SendFailure},
     endpoint::{
-        BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ProcessIncarnation,
-        ServerEvidence,
+        BindingMarker, EndpointProbe, EndpointSnapshot, PaneLocation, PaneObservation,
+        ProcessIncarnation, ServerEvidence,
     },
     host::{HostKind, HostName, HostServerIds, HostServerIncarnation},
     identity::Identity,
@@ -365,7 +365,7 @@ impl<R: CommandRunner> ExternalDriver<'_, R> {
                 .into_iter()
                 .map(|pane| {
                     let start = starts.remove(&pane.pane_pid);
-                    observation(pane, start)
+                    observation(&self.host, pane, start)
                 })
                 .collect()
         });
@@ -380,8 +380,14 @@ struct Observed {
     panes: Option<Vec<PaneObservation>>,
 }
 
-fn observation(pane: Pane, start: Option<ProcessIncarnation>) -> PaneObservation {
+fn observation(host: &HostName, pane: Pane, start: Option<ProcessIncarnation>) -> PaneObservation {
     PaneObservation {
+        // An external host's wire has no session or window; only the host is known.
+        location: Some(PaneLocation {
+            host: host.as_str().into(),
+            session: None,
+            window: None,
+        }),
         suggested_name: crate::drivers::suggested_name(&pane.command),
         id: pane.id,
         target: pane.target,

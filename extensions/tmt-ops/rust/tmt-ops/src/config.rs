@@ -9,6 +9,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     os::unix::fs::OpenOptionsExt,
@@ -741,6 +742,16 @@ fn field_name(value: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
+/// A host token as Core publishes it: a driver name, `[a-z][a-z0-9-]{0,31}`.
+fn valid_host(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=32).contains(&bytes.len())
+        && bytes[0].is_ascii_lowercase()
+        && bytes[1..]
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
 fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
     let table = item
         .as_table_like()
@@ -977,12 +988,42 @@ impl Config {
         Ok(bindings)
     }
 
+    /// The flat `[bind]` entries; `[bind.<host>]` tables are [`Self::host_bindings`].
     pub fn configured_bindings(&self) -> Result<Bindings, SquadError> {
-        self.document
-            .get("bind")
-            .map(|item| bindings_table(item, "bind"))
-            .transpose()
-            .map(Option::unwrap_or_default)
+        let Some(item) = self.document.get("bind") else {
+            return Ok(Bindings::new());
+        };
+        let table = item
+            .as_table_like()
+            .ok_or_else(|| invalid("`bind` must be a table of bindings."))?;
+        parse_bindings(
+            table
+                .iter()
+                .filter(|(_, entry)| !entry.is_table_like())
+                .map(|(event, action)| (event, action.as_str())),
+            "bind",
+        )
+        .map_err(invalid)
+    }
+
+    /// `[bind.<host>]`: bindings for rows on one host, over `[bind]` and the
+    /// preset. The host is the token Core publishes in a row's `location`.
+    pub fn host_bindings(&self) -> Result<BTreeMap<String, Bindings>, SquadError> {
+        let Some(table) = self.document.get("bind").and_then(Item::as_table_like) else {
+            return Ok(BTreeMap::new());
+        };
+        table
+            .iter()
+            .filter(|(_, entry)| entry.is_table_like())
+            .map(|(host, entry)| {
+                if !valid_host(host) {
+                    return Err(invalid(format!(
+                        "`bind.{host}` is not a host name; a table in `bind` is named for a host such as `tmux`."
+                    )));
+                }
+                bindings_table(entry, &format!("bind.{host}")).map(|bindings| (host.to_owned(), bindings))
+            })
+            .collect()
     }
 
     /// Top-level `opener` and `clipboard`: programs that replace the system
@@ -3278,6 +3319,82 @@ sort = ["state", "-name"]
                 .and_then(|config| config.bindings(true, &[]))
                 .unwrap_err();
             assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn host_tables_in_bind_parse_apart_from_the_flat_table_with_located_errors() {
+        let path = temp("bind-hosts");
+        fs::write(
+            &path,
+            "[bind]\nf5 = \"copy\"\n\n[bind.tmux]\nenter = \"run tmux switch-client -t {pane}\"\n\n\
+             [bind.herdr]\nenter = \"run herdr pane focus {pane}\"\nb = \"refresh\"\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let flat = config.configured_bindings().unwrap();
+        assert_eq!(
+            flat.keys().collect::<Vec<_>>(),
+            ["f5"],
+            "tables are not flat entries"
+        );
+        assert_eq!(
+            config.bindings(true, &[]).unwrap()["f5"].verb,
+            crate::action::Verb::Copy
+        );
+        assert_eq!(
+            config.bindings(true, &[]).unwrap()["enter"].verb,
+            crate::action::Verb::Jump,
+            "a host table never changes the preset"
+        );
+        let hosts = config.host_bindings().unwrap();
+        assert_eq!(hosts.keys().collect::<Vec<_>>(), ["herdr", "tmux"]);
+        assert_eq!(hosts["tmux"]["enter"].verb, crate::action::Verb::Run);
+        assert_eq!(hosts["herdr"]["b"].verb, crate::action::Verb::Refresh);
+        for (body, expected) in [
+            (
+                "[bind.tmux]\nenter = 1\n",
+                "`bind.tmux.enter` must be an action string",
+            ),
+            (
+                "[bind.tmux]\nnope = \"jump\"\n",
+                "`bind.tmux.nope` is not a bindable key or mouse event",
+            ),
+            ("[bind.tmux]\nenter = \"launch\"\n", "`bind.tmux.enter`"),
+            (
+                "[bind.tmux]\nenter = \"run ./x {pane}\"\n",
+                "`bind.tmux.enter`",
+            ),
+            (
+                "[bind.tmux.deeper]\nenter = \"jump\"\n",
+                "`bind.tmux.deeper` is not a bindable key or mouse event",
+            ),
+            (
+                "[bind.\"Tmux X\"]\nenter = \"jump\"\n",
+                "`bind.Tmux X` is not a host name",
+            ),
+            (
+                "[bind.\"9x\"]\nenter = \"jump\"\n",
+                "`bind.9x` is not a host name",
+            ),
+        ] {
+            fs::write(&path, body).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.host_bindings())
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID", "{body}");
+            assert!(
+                error.message.contains(expected),
+                "{body}: {}",
+                error.message
+            );
+        }
+        // A scalar `bind` and a bad flat entry still fail where they always did.
+        for body in ["bind = \"o\"\n", "[bind]\no = 1\n"] {
+            fs::write(&path, body).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert!(config.configured_bindings().is_err(), "{body}");
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
