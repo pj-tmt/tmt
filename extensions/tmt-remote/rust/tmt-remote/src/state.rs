@@ -178,6 +178,14 @@ impl Serving {
         .map_err(io)?;
         Ok(())
     }
+    #[cfg(test)]
+    pub(crate) fn lease_diagnostics(&self) -> String {
+        use std::os::unix::fs::MetadataExt;
+        let identity = self._lock.metadata().map(|meta| (meta.dev(), meta.ino()));
+        let cloexec = nix::fcntl::fcntl(&self._lock, nix::fcntl::FcntlArg::F_GETFD)
+            .map(|flags| flags & nix::fcntl::FdFlag::FD_CLOEXEC.bits() != 0);
+        format!("dev/inode={identity:?}; pre-drop cloexec={cloexec:?}")
+    }
     pub fn layout(&self) -> &Layout {
         &self.layout
     }

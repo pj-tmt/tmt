@@ -355,6 +355,7 @@ fn observation_drop_releases_the_view_before_a_second_serving_lease() {
     let mut env = Env::new();
     let (service, peer) = running(&env, bounds());
     let weak = view(&service);
+    let lease = env.serving.lease_diagnostics();
     drop(service);
     assert!(weak.upgrade().is_none());
     drop(peer);
@@ -366,8 +367,48 @@ fn observation_drop_releases_the_view_before_a_second_serving_lease() {
         .unwrap();
     let original = std::mem::replace(&mut env.serving, replacement);
     drop(original);
-    let second = Layout::open(&env.root).unwrap().serve_lock().unwrap();
+    let layout = Layout::open(&env.root).unwrap();
+    let second = layout.serve_lock().unwrap_or_else(|error| {
+        let path = env.root.join("remote/serve.lock");
+        panic!(
+            "second serving lease refused after view vanished, service/peer joined and original \
+             lease handle dropped: {}: {}; path={}; {lease}; holder={}",
+            error.code,
+            error.message,
+            path.display(),
+            lease_holder(&path),
+        )
+    });
     drop(second);
+}
+
+// Query only this lock, on failure; no retained descriptor or unbounded diagnostic child.
+fn lease_holder(path: &Path) -> String {
+    let Some(program) = ["/usr/sbin/lsof", "/usr/bin/lsof"]
+        .iter()
+        .map(Path::new)
+        .find(|program| tmt_invoke::is_executable(program))
+    else {
+        return "unknown (lsof unavailable)".into();
+    };
+    let args = ["-Fpcfn".into(), "--".into(), path.as_os_str().to_owned()];
+    let request = tmt_invoke::Request {
+        program,
+        args: &args,
+        input: &[],
+        deadline: Instant::now() + Duration::from_secs(1),
+        max_stream_bytes: 4096,
+        launch: tmt_invoke::LaunchOptions {
+            environment: tmt_invoke::EnvironmentPolicy::ClearAllowlist(&[]),
+            ..Default::default()
+        },
+    };
+    match tmt_invoke::invoke(request, Some(&AtomicBool::new(false))) {
+        Ok(output) if output.status.success() && !output.stdout.is_empty() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        _ => "unknown (holder query unavailable or no holder observed)".into(),
+    }
 }
 
 #[test]
