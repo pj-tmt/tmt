@@ -7,6 +7,7 @@ import {
   rmSync,
   chmodSync,
   existsSync,
+  statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -760,5 +761,103 @@ it('sanitizes only extensionless regular executable adapter dummies in the depen
       expect(readFileSync(path.join(deps, file), 'utf8')).toBe('fixture');
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('keeps adapter selection after the shared native RUN and omits only the unused test compile', () => {
+  const text = readFileSync(path.join(root, 'typescript/test/e2e/Dockerfile'), 'utf8');
+  const lines = instructions(text);
+  const native = lines.slice(
+    0,
+    lines.findIndex((line, index) => index > 0 && /^FROM\s/i.test(line))
+  );
+  const runs = native.filter((line) => /^RUN /i.test(line));
+  expect(runs).toHaveLength(2);
+  expect(runs[0]).not.toContain('TMT_E2E_ADAPTER_TESTS');
+  expect(runs[0]).not.toContain('cargo test');
+  expect(runs[0]).toContain('cp "target/$native_output/tmt-remote" /native-artifacts/tmt-remote');
+  const arg = 'ARG TMT_E2E_ADAPTER_TESTS=1';
+  expect(native.indexOf(arg)).toBeGreaterThan(native.indexOf(runs[0]));
+  expect(native[native.indexOf(arg) + 1]).toBe(runs[1]);
+  expect(text).toContain(
+    'COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests'
+  );
+  const defaultFlag = /^ARG TMT_E2E_ADAPTER_TESTS=(\S+)$/m.exec(text)![1];
+  for (const flag of [undefined, '1', '0', 'compile failure']) {
+    const directory = mkdtempSync(path.join(tmpdir(), 'tmt-e2e-adapter-build-'));
+    try {
+      const bin = path.join(directory, 'bin');
+      const artifacts = path.join(directory, 'artifacts');
+      mkdirSync(bin);
+      mkdirSync(artifacts);
+      const cargo = path.join(bin, 'cargo');
+      writeFileSync(
+        cargo,
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.appendFileSync('calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
+if (process.env.COMPILE_FAILURE === '1') process.exit(23);
+fs.mkdirSync('target/debug/deps', { recursive: true });
+fs.writeFileSync('target/debug/deps/tmt_adapters-aaaaaaaa', 'test-owned executable');
+fs.chmodSync('target/debug/deps/tmt_adapters-aaaaaaaa', 0o755);
+`
+      );
+      chmodSync(cargo, 0o755);
+      // The fixture is mode 0755; map GNU find's executable predicate for BSD hosts.
+      const find = path.join(bin, 'find');
+      writeFileSync(
+        find,
+        `#!/usr/bin/env node
+const args = process.argv.slice(2).flatMap(arg => arg === '-executable' ? ['-perm', '-111'] : [arg]);
+const result = require('node:child_process').spawnSync('/usr/bin/find', args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`
+      );
+      chmodSync(find, 0o755);
+      const result = spawnSync(
+        'sh',
+        ['-c', runs[1].slice(4).replaceAll('/native-artifacts', '"$ARTIFACTS"')],
+        {
+          cwd: directory,
+          encoding: 'utf8',
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+            ARTIFACTS: artifacts,
+            TMT_E2E_ADAPTER_TESTS: flag === 'compile failure' ? '1' : (flag ?? defaultFlag),
+            COMPILE_FAILURE: flag === 'compile failure' ? '1' : '0',
+          },
+        }
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
+      expect(result.status, `${flag ?? 'default'}: ${result.stderr}`).toBe(
+        flag === 'compile failure' ? 23 : 0
+      );
+      const calls = existsSync(path.join(directory, 'calls.jsonl'))
+        ? readFileSync(path.join(directory, 'calls.jsonl'), 'utf8')
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line))
+        : [];
+      expect(calls).toEqual(
+        flag === '0' ? [] : [['test', '--locked', '--no-run', '-p', 'tmt-adapters']]
+      );
+      const artifact = path.join(artifacts, 'adapter-tests');
+      if (flag === 'compile failure') expect(existsSync(artifact)).toBe(false);
+      else if (flag === '0') {
+        expect(result.stdout).toContain(
+          'Skipping tmt-adapters test compile (TMT_E2E_ADAPTER_TESTS=0)'
+        );
+        expect(statSync(artifact).size).toBe(0);
+        expect(statSync(artifact).mode & 0o111).toBe(0);
+      } else {
+        expect(readFileSync(artifact, 'utf8')).toBe('test-owned executable');
+        expect(statSync(artifact).mode & 0o111).not.toBe(0);
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
 });

@@ -30,16 +30,23 @@ RUN cargo build --locked --example tmux-probe --example runtime-caller-fixture -
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-ops \
   && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-remote \
-  && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
   && cp target/debug/examples/runtime-caller-fixture /native-artifacts/codex \
   && cp target/debug/examples/claude-hook-fixture /native-artifacts/claude \
   && cp "target/$native_output/tmt" /native-artifacts/tmt \
   && cp "target/$native_output/tmt-ops" /native-artifacts/tmt-ops \
-  && cp "target/$native_output/tmt-remote" /native-artifacts/tmt-remote \
-  && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
-    -exec cp {} /native-artifacts/adapter-tests \;
+  && cp "target/$native_output/tmt-remote" /native-artifacts/tmt-remote
+# Keep the shared build layer independent of this shard-only selection.
+ARG TMT_E2E_ADAPTER_TESTS=1
+RUN if [ "$TMT_E2E_ADAPTER_TESTS" = 0 ]; then \
+    echo "Skipping tmt-adapters test compile (TMT_E2E_ADAPTER_TESTS=0)"; \
+    touch /native-artifacts/adapter-tests; \
+  else \
+    cargo test --locked --no-run -p tmt-adapters \
+      && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
+        -exec cp {} /native-artifacts/adapter-tests ';'; \
+  fi
 
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 ARG TMUX_VERSION=3.3a-3

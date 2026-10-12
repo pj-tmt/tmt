@@ -9,7 +9,7 @@ import { dependencyCacheKey } from '../../scripts/e2e-dependency-cache.mjs';
 import { createSandbox, runCli } from '../support/cli-process.js';
 
 describe('Docker wrapper executable forwarding', () => {
-  it('preserves a failed image build without running the container', () => {
+  it.each(['', '0', '1'])('forwards adapter flag %j on failed image build', (flag) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-build-failure-'));
     try {
       const log = path.join(root, 'docker.jsonl');
@@ -34,7 +34,7 @@ process.exitCode = args[0] === 'build' ? 23 : 0;
             PATH: `${root}${path.delimiter}${process.env.PATH ?? ''}`,
             TMT_RUNNER_LOG: log,
             TMT_E2E_FILES: '',
-            TMT_E2E_ADAPTER_TESTS: '',
+            TMT_E2E_ADAPTER_TESTS: flag,
             CARGO_BUILD_JOBS: '',
           },
         }
@@ -51,6 +51,9 @@ process.exitCode = args[0] === 'build' ? 23 : 0;
         .map((line) => JSON.parse(line) as string[]);
       expect(calls).toHaveLength(2);
       expect(calls[0].slice(0, 2)).toEqual(['build', '--tag']);
+      expect(calls[0].slice(3, -3)).toEqual(
+        flag === '' ? [] : ['--build-arg', `TMT_E2E_ADAPTER_TESTS=${flag}`]
+      );
       expect(calls[1]).toEqual(['image', 'rm', '--force', calls[0][2]]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -191,11 +194,14 @@ require('node:fs').appendFileSync(process.env.TMT_RUNNER_LOG, JSON.stringify(pro
     ['1', ['--env', 'TMT_E2E_ADAPTER_TESTS=1']],
     ['', []],
   ])(
-    'passes the adapter-test flag %j to the container as one environment value',
+    'passes the adapter-test flag %j to both image build and container',
     async (flag, expected) => {
       const { result, calls } = await runWrapper('', flag);
       expect(result).toEqual({ status: 0, signal: null, stdout: '', stderr: '' });
       expect(calls[1].slice(5, -1)).toEqual(expected);
+      expect(calls[0].slice(3, -3)).toEqual(
+        flag === '' ? [] : ['--build-arg', `TMT_E2E_ADAPTER_TESTS=${flag}`]
+      );
     }
   );
 

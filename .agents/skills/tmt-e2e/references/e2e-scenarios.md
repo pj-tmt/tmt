@@ -7,7 +7,8 @@ Run-count requirements and isolation are in
 
 `TMT_E2E_FILES="ops.e2e.test.ts"` (space-separated plain file names) limits the
 run; the image anchors each name as `test/e2e/<name>` because vitest filters by
-substring. `TMT_E2E_ADAPTER_TESTS=0` skips the Rust adapter tests, and a host
+substring. `TMT_E2E_ADAPTER_TESTS=0` skips both compiling and running the Rust adapter tests;
+the default still builds and runs them, and a host
 `CARGO_BUILD_JOBS` (a positive count or `default`) limits the image's builds. CI
 runs two shards behind the required `Docker E2E` gate, balanced by
 `typescript/test/e2e/shard-weights.json` through `typescript/scripts/e2e-shards.mjs`
