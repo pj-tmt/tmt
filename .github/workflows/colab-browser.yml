@@ -201,15 +201,20 @@ jobs:
           key: ${{ steps.browsers.outputs.cache-primary-key }}
 
   colab-app:
-    name: Colab app component specs (Chromium)
+    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/3)
     needs: changes
     concurrency:
-      group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}
+      group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
     runs-on: ubuntu-latest
-    # The single-worker suite (~700 specs) now needs 17 to 21 minutes on a hosted runner (#2827).
-    timeout-minutes: 30
+    timeout-minutes: 20
+    # The single-worker suite (~730 specs) took 17 to 21 minutes as one job (#2827); three shards
+    # of about 240 specs each take about a third of that. No shard cancels another.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     permissions:
       contents: read
     steps:
@@ -230,12 +235,12 @@ jobs:
       - name: Run the app component specs
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/3 --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
       - name: Upload run log and failure traces
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: colab-app-results
+          name: colab-app-results-${{ matrix.shard }}
           path: ${{ runner.temp }}/colab-app-results
           if-no-files-found: warn
           retention-days: 7
