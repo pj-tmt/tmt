@@ -145,8 +145,10 @@ for (const width of [1440, 390, 320])
               const path = '/test/chrome-browser.tsx';
               await (await import(path)).mount(screen);
             }, screen);
-            if (screen === 'archived')
-              await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+            if (screen === 'archived') {
+              await page.getByRole('button', { name: 'List options' }).click();
+              await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+            }
             if (screen === 'page' || screen === 'reader') {
               await expect(page.locator('iframe')).toHaveAttribute('data-scroll-mode', 'window');
               await expect
@@ -281,7 +283,7 @@ for (const width of [1440, 390, 320])
     });
   }
 
-test('the page list filters archived pages with a square text toggle, not a native checkbox', async ({
+test('the list options menu filters archived pages with a checkable item, not a native checkbox', async ({
   page,
 }) => {
   await page.goto('/');
@@ -289,45 +291,32 @@ test('the page list filters archived pages with a square text toggle, not a nati
     const path = '/test/chrome-browser.tsx';
     await (await import(path)).mount('pages');
   });
-  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
-  const toggle = page.getByRole('button', { name: 'Show archived', exact: true });
-  const box = toggle.locator('.tmt-ui-toggle-indicator');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
-  const before = await toggle.boundingBox();
-  await expect(box).toHaveText('');
-  // Synthetic activation cannot bypass Colab admission after adopting BrowserToggle.
-  await toggle.evaluate((node) => (node as HTMLButtonElement).click());
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  // Space and Enter both toggle; the label is fixed, so the toggle never changes width.
-  await toggle.focus();
-  await page.keyboard.press('Space');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  expect((await toggle.boundingBox())!.width).toBe(before!.width);
-  await expect(box).toHaveText('✓');
+  await expect(page.locator('#chrome-fixture input[type="checkbox"]')).toHaveCount(0);
+  const rows = page.locator('#chrome-fixture ul.pages li');
+  await expect(rows.first()).toContainText('Release notes');
+  const options = page.locator('#chrome-fixture').getByRole('button', { name: 'List options' });
+  await options.click();
+  const archived = page.getByRole('menuitemcheckbox', { name: 'Show archived' });
+  await expect(archived).toHaveAttribute('aria-checked', 'false');
+  // Synthetic activation cannot bypass Colab admission.
+  await archived.evaluate((node) => (node as HTMLButtonElement).click());
+  await expect(archived).toHaveAttribute('aria-checked', 'false');
   await page.keyboard.press('Enter');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
-  await expect(toggle).toBeFocused();
-  // Space also reverses a trusted keyboard selection without changing geometry.
+  await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
+  await expect(options).toBeFocused();
+  await options.click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Show archived' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
   await page.keyboard.press('Space');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(box).toHaveText('✓');
-  expect((await toggle.boundingBox())!.width).toBe(before!.width);
-  await page.keyboard.press('Space');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  // Shared selected presentation keeps the label and square indicator in place.
-  await expect(toggle).toHaveClass('tmt-ui-toggle');
-  await expect(toggle).toHaveCSS('border-top-width', '1px');
-  await expect(toggle).toHaveCSS('box-shadow', 'none');
-  await expect(box).toHaveCSS('border-radius', '0px');
-  await expect(box).toHaveText('');
+  await expect(rows.first()).toContainText('Release notes');
+  await expect(options).toBeFocused();
 });
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`archived toggle captures: ${width}px ${theme}`, async ({ page }) => {
+    test(`archived menu captures: ${width}px ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 700 });
       await page.emulateMedia({ colorScheme: theme });
       await page.addInitScript((theme) => {
@@ -338,11 +327,12 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('archived');
       });
-      const toggle = page.getByRole('button', { name: 'Show archived', exact: true });
-      await expect(toggle).toBeVisible();
+      const options = page.locator('#chrome-fixture').getByRole('button', { name: 'List options' });
+      await expect(options).toBeVisible();
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-off.png` });
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      await options.click();
+      await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+      await expect(page.getByText('No archived pages.', { exact: true })).toHaveCount(0);
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-on.png` });
     });
 

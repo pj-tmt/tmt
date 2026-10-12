@@ -109,7 +109,13 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
     assert!(auth::management_input(&request).is_err());
     // Display-only labels are a management request, never a log statement.
     request.operation = "page.labels";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "labels carry no revision"
+    );
+    request.expected_revision = "";
     assert!(auth::management_input(&request).is_ok());
+    request.expected_revision = "1";
     assert!(auth::operation("page.labels").is_err());
     assert!(auth::management_operation("page.labels").is_ok());
     assert!(auth::management_operation("page.history").is_ok());
@@ -121,6 +127,11 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
     request.expires_at -= 1;
     request.expected_revision = "01";
     assert!(auth::management_input(&request).is_err());
+    request.expected_revision = "";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "a log operation names a membership head"
+    );
 }
 #[test]
 fn cuts_bind_namespace_and_reject_impossible_boundaries() {

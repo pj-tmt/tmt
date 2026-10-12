@@ -99,7 +99,10 @@ and keyboard policy; its optional `accessory` slot is presentation inside the in
 below text, aligned to its left edge; adding or removing it retains the editor root,
 focus, caret and selection. A caller without mentions uses
 `plainRichInputDocument`; it receives no recipient, transport or send capability.
-Page-list search semantics and filter metadata remain with their own feature owners. Exact 0.52.0
+`rich-input-document.ts` also owns the token, caret and range helpers both callers use
+(`$richInputTokens`, `$richInputCaret`, `$selectRichInputRange`, `$replaceRichInput` with
+caller tokens), so the composer's mentions and the page list's `label:` tokens share one
+document model and no second editor exists. Exact 0.52.0
 `lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
 runtime dependencies; only plaintext/history extensions are imported. The source
 editor is a separate editing mode. Reader and recovery entries have no composer.
@@ -356,22 +359,45 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
   `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive`, `delete` and
   `label` (`cli_labels.rs`).
-  `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
-  its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
-  from the verified complete catalog, including retained deleted IDs, before
-  read/write/export/management effects. Domain requests, JSON and confirmations keep
-  full IDs. Ambiguity lists authenticated titles and shortest candidate IDs;
-  missing/deleted prefixes refuse without changing state. Other ID operands stay strict.
-  Member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
-  Explicit frozen delete retries bypass only the missing catalog view so the engine
-  can replay the retained receipt. Retention reads use verified policy without a decoder.
-  It uses the private socket IPC when `serve`
-  holds the lifecycle lock and the offline path otherwise; an uncertain IPC reply never
-  falls back to a second writer (`cli_management.rs`, `page/ipc.rs`). Management errors
-  are exact plain codes/statuses; malformed or mismatched replies remain uncertain.
-  A non-frozen CLI management intent may rebuild once after a verified pre-effect stale
-  head, revalidating the same target and confirmation scope; explicit IDs/revisions,
-  changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 Local management CLI).
+
+## Page list
+
+`home.tsx` renders the space home from the loader's `spaceHome()` pages; `manage-page.tsx`
+holds the shared management dialog host. The filter lives in the route search
+(`validateHomeSearch`: `q`, `label[]`, `sort`, `archived`), never in component state, so a
+reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
+rich input with a `LabelFilterNode` token) holds only a draft until Enter applies it, and a
+chip click or token removal applies at once. `labels.ts` is pure: label grammar (the owner
+store's), counts, filtering and sorting, the whole-set `withLabel` change and the
+`relabel` planner that rename and delete use over every page carrying the name, archived
+included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGES`
+(64) pages per request in ascending order, sequentially: each request is atomic on the owner,
+the batch is not, and a failed batch reports "Updated N of M" so a retry (which re-reads the
+space and plans only what remains) converges. `ManagementClient.setLabels` signs a
+`page.labels` request with an empty `expectedRevision` (no view, head or verification: labels
+are display-only and the reply is only checked for shape). Management controls (the page
+menu, list options, label dialogs) render only when the transport has `management`; a reader
+keeps search, sort and filters because `labels` arrive in `/api/pages`. The list-options gear is
+icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
+the label chips count the pages shown, while the manage dialog counts every page carrying the
+name and says how many of them are archived.
+`cli_management::selection` adapts public CLI inputs to strict existing DTOs;
+its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
+from the verified complete catalog, including retained deleted IDs, before
+read/write/export/management effects. Domain requests, JSON and confirmations keep
+full IDs. Ambiguity lists authenticated titles and shortest candidate IDs;
+missing/deleted prefixes refuse without changing state. Other ID operands stay strict.
+Member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
+Explicit frozen delete retries bypass only the missing catalog view so the engine
+can replay the retained receipt. Retention reads use verified policy without a decoder.
+It uses the private socket IPC when `serve`
+holds the lifecycle lock and the offline path otherwise; an uncertain IPC reply never
+falls back to a second writer (`cli_management.rs`, `page/ipc.rs`). Management errors
+are exact plain codes/statuses; malformed or mismatched replies remain uncertain.
+A non-frozen CLI management intent may rebuild once after a verified pre-effect stale
+head, revalidating the same target and confirmation scope; explicit IDs/revisions,
+changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 Local management CLI).
+
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).

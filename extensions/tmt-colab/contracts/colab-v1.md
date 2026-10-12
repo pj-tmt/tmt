@@ -3183,7 +3183,8 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text and payload is canonical base64url of the same typed JSON.
+positive decimal text (the empty string for `page.labels`, see [Page labels](#page-labels-2588))
+and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent` and optional complete `creationRecipient` as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
@@ -3426,8 +3427,9 @@ test hold the same numbers.
 The one write is the management operation `page.labels`, available to a device-signed
 browser request from an admitted owner device and to the local CLI over the same local
 management path as every other command. It is not a log operation: it appends no statement,
-changes no membership head, uses no expected revision (the field must still be a positive
-decimal) and records no operation receipt. Its payload is exactly
+changes no membership head and records no operation receipt. It carries no revision: its
+signed `expectedRevision` field is the empty string, any other value is `INVALID`, and a log
+operation with an empty field is `INVALID` too. Its payload is exactly
 `{pages:[{pageId, labels}]}`: at most 64 entries (`LABEL_REQUEST_PAGES`), page IDs
 strictly ascending, the request's own page among them, every `labels` array the complete
 new set for that page. Last writer wins per page; the request applies in one store

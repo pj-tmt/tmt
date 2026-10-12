@@ -65,6 +65,9 @@ export async function mountPageIndex(
       verify: async () => {
         throw new Error('No writes in index fixture');
       },
+      setLabels: async () => {
+        throw new Error('No writes in index fixture');
+      },
     },
     spaceHome: async () => ({ title: 'Studio pages', pages }),
   });

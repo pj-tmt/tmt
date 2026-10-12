@@ -181,7 +181,8 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     // Navigate explicitly: the archived page has no editing route.
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
-    await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+    await page.getByRole('button', { name: 'List options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
     const row = page.locator(`ul.pages li[data-page-id="${first.pageId}"]`);
     await expect(row).toContainText('Archived');
     await row.getByRole('button', { name: /^Actions for/ }).click();
@@ -193,7 +194,8 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
     await expect(managementStatus(dialog)).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+    await page.getByRole('button', { name: 'List options' }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
     const remaining = page.locator(`ul.pages li[data-page-id="${second.pageId}"]`);
     await remaining.getByRole('button', { name: /^Actions for/ }).click();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();

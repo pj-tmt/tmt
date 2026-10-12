@@ -342,3 +342,33 @@ it('opaque HKDF roots seal/open exactly the frozen raw-root envelope', async () 
     await expect(frozen().open(context, invalid, hex(fixture.public))).rejects.toThrow();
   }
 });
+
+it('signs display-only label requests with an empty revision and log operations with a head', async () => {
+  const parts = c.fields(hex(fixture.management), 11);
+  const management = {
+    space: c.decodeText(parts[2]),
+    page: c.decodeText(parts[3]),
+    expectedRevision: c.decodeText(parts[4]),
+    operationId: c.decodeText(parts[5]),
+    operation: c.decodeText(parts[6]),
+    payload: hex(fixture.payload),
+    senderDevice: c.decodeText(parts[8]),
+    issuedAt: Number(c.decodeText(parts[9])),
+    expiresAt: Number(c.decodeText(parts[10])),
+  };
+  expect(await c.managementInput(management)).toEqual(hex(fixture.management));
+  const labels = {
+    ...management,
+    expectedRevision: '',
+    operation: 'page.labels',
+    payload: hex(fixture.labelsPayload),
+  };
+  expect(await c.managementInput(labels)).toEqual(hex(fixture.managementLabels));
+  // A label request never names a head, and a log operation always does.
+  await expect(c.managementInput({ ...labels, expectedRevision: '1' })).rejects.toThrow();
+  await expect(c.managementInput({ ...labels, expectedRevision: '0' })).rejects.toThrow();
+  await expect(c.managementInput({ ...management, expectedRevision: '' })).rejects.toThrow();
+  // The label operation is a management request, never a statement operation.
+  expect(() => c.managementOperation('page.labels')).not.toThrow();
+  expect(() => c.operation('page.labels')).toThrow();
+});

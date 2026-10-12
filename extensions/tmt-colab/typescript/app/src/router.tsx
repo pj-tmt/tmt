@@ -1,12 +1,5 @@
-import type { Selection } from './management.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
-import {
-  BrowserCommand,
-  BrowserIconAction,
-  BrowserList,
-  BrowserListRow,
-  BrowserToggle,
-} from '@tmt/browser-ui/react';
+import { BrowserCommand, BrowserIconAction } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
@@ -14,9 +7,7 @@ import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
-import { RetentionHint } from './retention-hint.js';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import {
   createHashHistory,
   createBrowserHistory,
@@ -26,11 +17,9 @@ import {
   Link,
   redirect,
   Outlet,
-  useRouter,
   useRouterState,
 } from '@tanstack/react-router';
-import type { PageSummary, PageView, PageTransport } from './transport.js';
-import { orderPages, pageTitle, pageUpdate } from './page-index.js';
+import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
 import { useQuestionLayer } from './question-layer.js';
@@ -41,7 +30,8 @@ import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
-import { ShareDialog } from './share-dialog.js';
+import { Home, validateHomeSearch } from './home.js';
+import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
@@ -52,7 +42,7 @@ import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
-import { BrowserDrawer, BrowserMenu } from '@tmt/browser-ui/react';
+import { BrowserDrawer } from '@tmt/browser-ui/react';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
@@ -460,6 +450,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport; space?: stri
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
+  validateSearch: validateHomeSearch,
   loader: ({ context }) => context.transport.spaceHome(),
   component: Home,
 });
@@ -621,149 +612,6 @@ function Shell() {
         <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
       )}
     </>
-  );
-}
-function ManagePage({
-  pageId,
-  title,
-  open,
-  close,
-  changed,
-}: {
-  pageId: string;
-  title: string;
-  open: boolean;
-  close(): void;
-  changed?(operation: Selection['operation']): void;
-}) {
-  const port = root.useRouteContext().transport.management;
-  const router = useRouter();
-  const touched = useRef(false);
-  return open && port
-    ? createPortal(
-        <ShareDialog
-          port={port}
-          pageId={pageId}
-          title={title}
-          committed={(operation) => {
-            touched.current = true;
-            changed?.(operation);
-          }}
-          close={() => {
-            close();
-            if (touched.current) {
-              touched.current = false;
-              void router.invalidate();
-            }
-          }}
-        />,
-        document.body,
-      )
-    : null;
-}
-function PageListActions({ page }: { page: PageSummary }) {
-  const port = root.useRouteContext().transport.management;
-  const [manageOpen, setManageOpen] = useState(false);
-  return (
-    <>
-      <BrowserMenu
-        label={text.pageActionsFor(pageTitle(page))}
-        description={
-          <>
-            <p>Page ID: {page.id}</p>
-            <RetentionHint page={page} />
-          </>
-        }
-        items={port ? [{ key: 'manage', label: text.managePage }] : []}
-        onSelect={() => setManageOpen(true)}
-      />
-      {port && (
-        <ManagePage
-          pageId={page.id}
-          title={page.title}
-          open={manageOpen}
-          close={() => setManageOpen(false)}
-        />
-      )}
-    </>
-  );
-}
-
-function Home() {
-  const space = home.useLoaderData();
-  const { transport } = root.useRouteContext();
-  const [archived, setArchived] = useState(false);
-  const pages = orderPages(space.pages.filter((p) => Boolean(p.archived) === archived));
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => setNow(Date.now()), [space.pages, archived]);
-  useEffect(() => {
-    document.title =
-      space.title === text.product ? text.product : `${space.title} · ${text.product}`;
-  }, [space.title]);
-  return (
-    <section className="home">
-      <p className="eyebrow">{text.pages}</p>
-      <h1>{space.title}</h1>
-      <p className="intro">{text.intro}</p>
-      {transport.management && (
-        <BrowserToggle
-          pressed={archived}
-          label={text.showArchived}
-          onActivate={(event) => {
-            if (event.isTrusted) setArchived(!archived);
-          }}
-        />
-      )}
-      {pages.length ? (
-        <BrowserList label={text.pages} className="pages">
-          {pages.map((p) => {
-            const title = pageTitle(p);
-            const updated = pageUpdate(p.lastUpdateAtMs, now);
-            return (
-              <BrowserListRow
-                key={p.id}
-                data-page-id={p.id}
-                title={
-                  <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
-                    {title}
-                  </Link>
-                }
-                metadata={
-                  updated.dateTime ? (
-                    <time
-                      dateTime={updated.dateTime}
-                      title={updated.absolute}
-                      aria-label={`${text.lastUpdated}: ${updated.label}`}
-                    >
-                      {updated.label}
-                    </time>
-                  ) : (
-                    updated.label
-                  )
-                }
-                state={
-                  p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared
-                }
-                actions={transport.management ? <PageListActions page={p} /> : undefined}
-              />
-            );
-          })}
-        </BrowserList>
-      ) : (
-        <p>
-          {archived ? (
-            'No archived pages.'
-          ) : space.pages.length ? (
-            'No active pages.'
-          ) : (
-            <>
-              {text.empty}
-              <code className="tmt-ui-code">tmt colab page create --title "Notes"</code>.
-            </>
-          )}
-        </p>
-      )}
-    </section>
   );
 }
 function Page() {

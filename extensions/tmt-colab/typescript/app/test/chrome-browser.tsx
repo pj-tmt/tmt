@@ -79,6 +79,9 @@ export async function mount(screen: Screen) {
         verify: async () => {
           throw new Error('No writes in layout fixture');
         },
+        setLabels: async () => {
+          throw new Error('No writes in layout fixture');
+        },
       },
       spaceHome: async () => {
         if (screen === 'reconnect-error') throw new Error(text.reconnectFailed);

@@ -82,6 +82,16 @@ pub fn operation(value: &str) -> Result<()> {
 pub fn management_operation(value: &str) -> Result<()> {
     require(operation(value).is_ok() || value == "page.labels")
 }
+/// The signed revision field of a management request. A log operation names the membership head it
+/// was prepared against, a positive decimal. A display-only operation changes no membership head, so
+/// its field is empty and nothing can be read into it.
+pub fn management_revision(operation: &str, value: &str) -> Result<Option<u64>> {
+    if operation == "page.labels" {
+        require(value.is_empty())?;
+        return Ok(None);
+    }
+    values::decimal(value, false).map(Some)
+}
 pub struct Management<'a> {
     pub space: &'a str,
     pub page: &'a str,
@@ -99,8 +109,8 @@ pub fn management_input(v: &Management<'_>) -> Result<Vec<u8>> {
     for id in [v.page, v.operation_id, v.sender_device] {
         values::generated_id(id)?;
     }
-    values::decimal(v.expected_revision, false)?;
     management_operation(v.operation)?;
+    management_revision(v.operation, v.expected_revision)?;
     values::time(v.issued_at)?;
     values::time(v.expires_at)?;
     require(

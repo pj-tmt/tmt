@@ -35,6 +35,25 @@ fn management_decoder_binds_exact_payload_and_rejects_single_field_mutations() {
     }
 }
 #[test]
+fn label_management_frames_carry_an_empty_revision_and_nothing_else_does() {
+    let v = fixture();
+    let (input, payload) = (hex(&v, "managementLabels"), hex(&v, "labelsPayload"));
+    let decoded = auth::decode_management(&input, &payload).unwrap();
+    assert_eq!(decoded.operation, "page.labels");
+    assert_eq!(decoded.expected_revision, "");
+    assert_eq!(auth::management_input(&decoded).unwrap(), input);
+    let fields = framing::fields(&input, 11, 1024).unwrap();
+    for revision in [b"1".as_slice(), b"0", b"01"] {
+        let mut changed = fields.clone();
+        changed[4] = revision;
+        assert!(auth::decode_management(&framing::frame(&changed).unwrap(), &payload).is_err());
+    }
+    // The same empty field on a log operation is refused.
+    let mut changed = fields;
+    changed[6] = b"page.history";
+    assert!(auth::decode_management(&framing::frame(&changed).unwrap(), &payload).is_err());
+}
+#[test]
 fn shared_baseline_decoder_has_the_same_strict_schema_as_epoch_payloads() {
     let key = values::encode_binary(&[3; 32]);
     let baseline = json!({"pageId":"00000000-0000-4000-8000-000000000002","epoch":"1","sourceDigest":key,"baselineCommitment":key,"title":"Page","objectEnvelopeHash":key,"membershipRevision":"2"});
