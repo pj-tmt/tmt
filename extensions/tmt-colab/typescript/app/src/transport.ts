@@ -1,3 +1,4 @@
+import type { CompactReport, PageUsage } from './page-usage.js';
 import type { attachment } from '@tmt/colab-client';
 import type { ThreadPresentation } from './thread-status-presentation.js';
 import type { ThreadStatusCoordinator } from './thread-status-coordinator.js';
@@ -53,6 +54,10 @@ export interface PageBinding {
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   /** Save the whole source; a typed change also sets or removes document attachment references. */
   edit(source: string, base: string, attachments?: attachment.DocumentChange): Promise<void>;
+  /** How full the page is, from the serve. Present only where this device may save. */
+  usage?(): Promise<PageUsage>;
+  /** Combine this serve's own stream and report what changed. Present only where `usage` is. */
+  compact?(): Promise<CompactReport>;
   export(): Promise<ExportBundle>;
   close(): void;
 }

@@ -400,6 +400,11 @@ impl Registration {
         let decoder = self.engine.decoder(page)?;
         crate::page::compact::request(&mut self.store, &self.keyring, page, decoder, Some(until))
     }
+    /// How full the page is. The caller holds the sync mutex first.
+    pub(crate) fn usage(&mut self, page: &str) -> crate::Result<crate::page::PageUsage> {
+        let decoder = self.engine.decoder(page)?;
+        crate::page::usage(&self.store, &self.keyring, page, decoder)
+    }
     /// What the root-local stream recorded for an operation a browser Save chose. Read-only.
     pub(crate) fn save_status(
         &self,
@@ -931,6 +936,22 @@ impl crate::sync::Admission for OwnerAdmission {
             .lock()
             .map_err(|_| crate::page::Fault::Unavailable)?
             .save_status(page, operation_id)
+    }
+    fn usage(&mut self, page: &str) -> crate::Result<crate::page::PageUsage> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .usage(page)
+    }
+    fn compact(
+        &mut self,
+        page: &str,
+        until: std::time::Instant,
+    ) -> crate::Result<crate::page::compact::Report> {
+        self.0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .compact(page, until)
     }
 
     fn alive(&self, principal: &str) -> std::result::Result<(), crate::sync::Code> {

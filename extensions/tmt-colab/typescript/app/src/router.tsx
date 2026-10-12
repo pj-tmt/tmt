@@ -64,7 +64,9 @@ import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
-import { SaveOutcomeUnknown, saveMessage } from './save.js';
+import { SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
+import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
+import { compactOffered } from './page-usage.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 
 /** The control belongs to trusted chrome; only mode is projected into author content. */
@@ -682,6 +684,7 @@ function Page() {
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<SaveProblem | null>(null);
+  const size = usePageSize(snapshot.binding);
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
     binding: () => snapshot.binding,
@@ -758,15 +761,48 @@ function Page() {
       dirty.current = false;
       base.current = latest.current.source;
       setDraft(latest.current.source);
+      void size.refresh();
     } catch (error) {
-      setEditError({
+      const problem: SaveProblem = {
         message: saveMessage(error),
         unconfirmed: error instanceof SaveOutcomeUnknown,
-      });
+      };
+      // A full page names the way out that can help, decided by what the serve says is limiting
+      // it now: combining changes frees room only when the changes are the limit.
+      if (error instanceof SaveRefused && error.code === 'COLAB_CAPACITY') {
+        const usage = await size.refresh();
+        // A device that cannot ask the serve to combine is told who can.
+        if (!snapshot.binding.compact) problem.message = text.pageSize.saveFullReader;
+        else if (usage) {
+          problem.full = compactOffered(usage) ? 'compact' : 'export';
+          problem.message = compactOffered(usage)
+            ? text.pageSize.saveFullTail
+            : text.pageSize.saveFullBudget;
+        }
+      }
+      setEditError(problem);
     } finally {
       setSaving(false);
     }
   }
+  /** Compact from the save refusal: the draft stays, nothing is saved or resent; the person
+   * presses Save again. */
+  async function compactFromRefusal() {
+    const outcome = await size.compact();
+    setEditError(
+      outcome.kind === 'failed'
+        ? { message: text.pageSize.failed, unconfirmed: false, full: 'compact' }
+        : outcome.kind === 'nothing'
+          ? { message: text.pageSize.nothingToCombine, unconfirmed: false, full: 'export' }
+          : outcome.kind === 'still-high'
+            ? { message: text.pageSize.saveFullBudget, unconfirmed: false, full: 'export' }
+            : { message: text.pageSize.compactedSaveAgain, unconfirmed: false, full: 'compacted' },
+    );
+  }
+  const refreshSize = size.refresh;
+  useEffect(() => {
+    if (panel === 'about' || panel === 'source') void refreshSize();
+  }, [panel, refreshSize]);
   const [selectionMode, setSelectionMode] = useState(false);
   useEffect(() => {
     if (!archived) return;
@@ -1318,6 +1354,7 @@ function Page() {
           originalAuthor={view.originalAuthor}
           publisherAgent={view.publisherAgent}
         />
+        <PageSizeSection size={size} exportPage={() => setPanel('export')} />
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
@@ -1501,6 +1538,8 @@ function Page() {
         onDismiss={() => setPanel(null)}
       >
         <div className="source">
+          {/* A refused Save already says the page is full and carries the way out. */}
+          {!editError?.full && <PageSizeNotice size={size} exportPage={() => setPanel('export')} />}
           <span>
             <label htmlFor="source-edit">{text.source}</label>
             {snapshot.binding && !archived && (
@@ -1512,7 +1551,29 @@ function Page() {
               </button>
             )}
           </span>
-          {editError && <SaveNotice problem={editError} />}
+          {editError && (
+            <SaveNotice
+              problem={editError}
+              actions={
+                editError.full === 'compact' ? (
+                  <BrowserAction
+                    type="button"
+                    label={text.pageSize.compact}
+                    variant="text"
+                    disabled={size.compacting}
+                    onActivate={() => void compactFromRefusal()}
+                  />
+                ) : editError.full === 'export' ? (
+                  <BrowserAction
+                    type="button"
+                    label={text.pageSize.export}
+                    variant="text"
+                    onActivate={() => setPanel('export')}
+                  />
+                ) : undefined
+              }
+            />
+          )}
           <textarea
             id="source-edit"
             readOnly={archived || !snapshot.binding || saving || !!liveError}

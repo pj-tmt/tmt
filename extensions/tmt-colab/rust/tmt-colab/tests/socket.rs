@@ -4781,3 +4781,74 @@ fn a_requested_compaction_runs_in_the_serve_for_the_local_cli_only_and_keeps_liv
         last
     );
 }
+
+#[test]
+fn an_owner_device_asks_for_usage_and_a_combine_and_a_public_reader_cannot() {
+    use tmt_colab::{decoder::Decoder, page, publication::Outcome};
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut cursor = None;
+    for i in 0..3 {
+        let frozen = prepare_write(&layout, &key, &format!("<h1>Source {i}</h1>"));
+        let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+        assert!(matches!(
+            published.record.outcome,
+            Outcome::Committed { .. }
+        ));
+        receive_batch(&server, &mut peer, 1, &mut cursor);
+    }
+    send(&mut peer, server.frame("usage", json!({})));
+    let (usage, _) = receive_until(&mut peer, "usageresult");
+    assert!(usage["usage"]["updates"].as_u64().unwrap() >= 3, "{usage}");
+    assert_eq!(usage["usage"]["updateLimit"], 200);
+    assert!(usage.get("error").is_none(), "{usage}");
+
+    send(&mut peer, server.frame("compact", json!({})));
+    let (combined, _) = receive_until(&mut peer, "compactresult");
+    let report = &combined["report"];
+    assert_eq!(report["compacted"], true, "{combined}");
+    assert_eq!(
+        report["before"], usage["usage"],
+        "the report starts where usage ended"
+    );
+    assert!(
+        report["after"]["updates"].as_u64().unwrap()
+            < report["before"]["updates"].as_u64().unwrap()
+    );
+    send(&mut peer, server.frame("usage", json!({})));
+    let (after, _) = receive_until(&mut peer, "usageresult");
+    assert_eq!(after["usage"], report["after"]);
+    send(&mut peer, server.frame("compact", json!({})));
+    let (again, _) = receive_until(&mut peer, "compactresult");
+    assert_eq!(again["report"]["compacted"], false, "{again}");
+    assert_eq!(again["report"]["skipped"], "nothing-to-combine");
+
+    // The peer keeps receiving writes, and the source is exact.
+    let last = "<h1>After the combine</h1>";
+    let frozen = prepare_write(&layout, &key, last);
+    page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    receive_batch(&server, &mut peer, 1, &mut cursor);
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
+        last
+    );
+
+    // A public reader can neither ask how full the page is nor combine it.
+    server.publish();
+    let session = server.reader_session();
+    let mut reader = server.reader_peer(&session);
+    let before = fs::read(layout.directory.join("space.db")).unwrap();
+    for kind in ["usage", "compact"] {
+        send(&mut reader, server.reader_frame(&session, kind, json!({})));
+        assert_eq!(
+            receive_until(&mut reader, "error").0["type"],
+            "error",
+            "{kind}"
+        );
+    }
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+}

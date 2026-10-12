@@ -2412,20 +2412,24 @@ upgrade cannot establish authorship. Removed access terminates live subscription
 space, page and epoch. The backend moves bytes, not Yjs state vectors. The wire
 operations are:
 
-| Type         | Additional fields / behavior                                                                                                                        |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                               |
-| `catchup`    | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail        |
-| `subscribe`  | `cursors`; observe only the admitted page/current epoch                                                                                             |
-| `append`     | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                   |
-| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]`; owner device only; the browser's whole-source Save, prepared and committed natively |
-| `savestatus` | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                      |
-| `saveresult` | `operationId, state` and `revision` or `code, message`; the one reply to a `save` or `savestatus`                                                   |
-| `receipt`    | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                              |
-| `broadcast`  | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                     |
-| `ack`        | `cursors`; scoped delivery positions only                                                                                                           |
-| `awareness`  | `device, data`; bounded ephemeral presence, never persisted or authority                                                                            |
-| `error`      | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                      |
+| Type            | Additional fields / behavior                                                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`         | `device, membershipRevision, cursors`; authenticated session/proof from upgrade, page/epoch admission before catch-up                               |
+| `catchup`       | `membershipHead, baseline, optional baselineObject, streams, more`; bounded pages of each stream's namespace checkpoints and subsequent tail        |
+| `subscribe`     | `cursors`; observe only the admitted page/current epoch                                                                                             |
+| `append`        | `streamId, seq, envelopeHash, envelope`; create-only, exact frozen retry returns original receipt                                                   |
+| `save`          | `operationId, baseSha256, sourceSha256, source[, attachments]`; owner device only; the browser's whole-source Save, prepared and committed natively |
+| `savestatus`    | `operationId`; owner device only; what the page recorded for an earlier `save`                                                                      |
+| `saveresult`    | `operationId, state` and `revision` or `code, message`; the one reply to a `save` or `savestatus`                                                   |
+| `usage`         | no fields; owner device only; how full the page is                                                                                                  |
+| `usageresult`   | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                           |
+| `compact`       | no fields; owner device only; combine the root-local device's own stream                                                                            |
+| `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                          |
+| `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                              |
+| `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                     |
+| `ack`           | `cursors`; scoped delivery positions only                                                                                                           |
+| `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                            |
+| `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                      |
 
 ### Implemented stream subset (#1156, #1166)
 
@@ -2447,6 +2451,8 @@ wrong types, noncanonical values and unsupported operations reject.
 | `chunk`      | `objectId, envelopeHash, index, count, bytes`                  | Complete the connection's pending referenced append or save; no standalone upload or partial append.                       |
 | `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                      |
 | `savestatus` | `operationId`                                                  | Owner device only. Answers from the root-local operation record; see Browser Save below.                                   |
+| `usage`      | none                                                           | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                      |
+| `compact`    | none                                                           | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.          |
 | `ack`        | `cursors`                                                      | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
 | `awareness`  | `device, data`                                                 | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
 
@@ -2483,8 +2489,8 @@ and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
 #### Browser Save (#2032)
 
 The browser publishes its whole source over this socket, never as a content update it signs
-itself. Only a registered owner device may send `save` or `savestatus`; readers and public readers
-are denied by the same per-frame admission as `append`, and the socket gains no body route and no
+itself. Only a registered owner device may send `save`, `savestatus`, `usage` or `compact`; readers
+and public readers are denied by the same per-frame admission as `append`, and the socket gains no body route and no
 change to any body cap.
 
 `save` carries `operationId` (a client-chosen generated ID), `baseSha256` (canonical base64url
