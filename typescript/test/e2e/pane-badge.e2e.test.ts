@@ -339,8 +339,9 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
             await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'off', '--global'])
           );
         fixture.tmux(['send-keys', '-t', pane, 'C-c']);
-        await fixture.waitFor(() => fs.existsSync(done), 5000, 'run completed');
-        expect(fs.readFileSync(done, 'utf8')).toBe('130');
+        expect(
+          await waitForFileContent(done, { timeoutMs: 5000, description: 'run completed' })
+        ).toBe('130');
         expect(readBadge()).toBe(
           disable ? '' : '#[push-default]#[dim]○ State (tmt)#[default]#[pop-default]'
         );
