@@ -6,10 +6,15 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 const LIMIT: u64 = 4096;
 const LEASE_MS: i64 = 30_000;
+/// Another reader or publisher holds the clock lock for one small read or rename. Renewing
+/// and acquiring retry on the next tick; releasing runs once, at shutdown, so it waits.
+const RELEASE_WAIT: Duration = Duration::from_millis(500);
+const RELEASE_POLL: Duration = Duration::from_millis(5);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Holder {
@@ -123,6 +128,21 @@ impl Clock {
                     ),
                 )
             })
+    }
+
+    /// Like `lock(false)`, but waits up to `wait` for a holder that is mid-operation.
+    fn lock_within(&self, wait: Duration) -> Result<Option<Flock<File>>, Error> {
+        let deadline = Instant::now() + wait;
+        loop {
+            match self.lock(false) {
+                Err(error)
+                    if error.code == "SQUAD_CRON_CLOCK_BUSY" && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(RELEASE_POLL);
+                }
+                result => return result,
+            }
+        }
     }
 
     fn read(&self) -> Result<Option<Holder>, Error> {
@@ -241,7 +261,7 @@ impl Lease {
     }
 
     pub fn release(self) -> Result<(), Error> {
-        let Some(_lock) = self.clock.lock(false)? else {
+        let Some(_lock) = self.clock.lock_within(RELEASE_WAIT)? else {
             return Ok(());
         };
         if self.clock.read()?.as_ref() == Some(&self.holder) {
