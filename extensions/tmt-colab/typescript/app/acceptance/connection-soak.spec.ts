@@ -32,12 +32,24 @@ interface OpenOwner {
   created: CreatedPage;
   page: Page;
   navigations: string[];
+  sockets: Set<object>;
+  openedSockets(): number;
 }
 
 async function owner(world: AcceptanceWorld): Promise<OpenOwner> {
   const door = await startDoor(world, await freePort());
   const agent = await world.startAgent('soak-agent');
   const browser = await pairBrowser(world, 'soak-owner', { talk: true });
+  const sockets = new Set<object>();
+  let opened = 0;
+  // Observe from page creation, before any SDK or mounted sync transport can attach.
+  browser.context.on('page', (next) => {
+    next.on('websocket', (socket) => {
+      opened++;
+      sockets.add(socket);
+      socket.once('close', () => sockets.delete(socket));
+    });
+  });
   const created = createPage(world, 'Connection soak', '<h1 id="source">Before</h1>', agent.pane);
   const page = await openPage(door, browser, created);
   await expect(page.frameLocator('iframe').locator('#source')).toHaveText('Before');
@@ -45,7 +57,17 @@ async function owner(world: AcceptanceWorld): Promise<OpenOwner> {
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.push(frame.url());
   });
-  return { world, door, agent, browser, created, page, navigations };
+  return {
+    world,
+    door,
+    agent,
+    browser,
+    created,
+    page,
+    navigations,
+    sockets,
+    openedSockets: () => opened,
+  };
 }
 
 /** A new source and reply must cross the recovered connection, not a retained screenshot. */
@@ -155,39 +177,20 @@ for (const beyondGrace of [false, true]) {
   test(`connection soak: offline ${beyondGrace ? 'past detached grace' : 'and back online'} recovers without reload`, async () => {
     test.setTimeout(240_000);
     await withWorld(async (world) => {
-      const door = await startDoor(world, await freePort());
-      const agent = await world.startAgent('soak-agent');
-      const browser = await pairBrowser(world, 'soak-owner', { talk: true });
-      const created = createPage(world, 'Offline soak', '<h1 id="source">Before</h1>', agent.pane);
-      const sockets = new Set<object>();
-      let opened = 0;
-      // Observe from page creation, before any SDK or mounted sync transport can attach.
-      browser.context.on('page', (next) => {
-        next.on('websocket', (socket) => {
-          opened++;
-          sockets.add(socket);
-          socket.once('close', () => sockets.delete(socket));
-        });
-      });
-      const page = await openPage(door, browser, created);
-      const navigations: string[] = [];
-      page.on('framenavigated', (frame) => {
-        if (frame === page.mainFrame()) navigations.push(frame.url());
-      });
-      const s: OpenOwner = { world, door, agent, browser, created, page, navigations };
+      const s = await owner(world);
       await readSendReceive(s, 'online positive control');
-      expect(opened).toBeGreaterThan(0);
-      await browser.context.setOffline(true);
-      await expect.poll(() => sockets.size, { timeout: 30_000 }).toBe(0);
-      await expect(page.locator('.status')).toContainText('Reconnecting…', { timeout: 30_000 });
+      expect(s.openedSockets()).toBeGreaterThan(0);
+      await s.browser.context.setOffline(true);
+      await expect.poll(() => s.sockets.size, { timeout: 30_000 }).toBe(0);
+      await expect(s.page.locator('.status')).toContainText('Reconnecting…', { timeout: 30_000 });
       if (beyondGrace) {
         // This elapsed-time wait is the property under test, after proven transport closure.
-        await page.waitForTimeout(detachedGraceMs + 5_000);
-        expect(sockets.size).toBe(0);
+        await s.page.waitForTimeout(detachedGraceMs + 5_000);
+        expect(s.sockets.size).toBe(0);
       }
-      await browser.context.setOffline(false);
+      await s.browser.context.setOffline(false);
       await readSendReceive(s, beyondGrace ? 'expired detached session' : 'offline recovery');
-      expect(opened).toBeGreaterThan(1);
+      expect(s.openedSockets()).toBeGreaterThan(1);
     });
   });
 }
