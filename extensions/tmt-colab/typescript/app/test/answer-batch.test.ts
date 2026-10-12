@@ -456,12 +456,19 @@ it('a batch Ask belongs to every question thread it covers, and its reply to the
   expect(conversationAsks(list[2], asks)).toEqual([batch]);
   expect(asksAbout(batch, list[2], list[2].comments[0])).toBe(true);
   expect(asksAbout(single, list[0], list[1].comments[0])).toBe(false);
-  // An Ask is only about comments its own writer wrote: another writer's Ask naming the same
-  // comment IDs is no association, for a batch or a single comment.
+  // A batch Ask reaches another question thread only for comments its own writer wrote: another
+  // writer's batch Ask naming the same IDs is associated only with the thread it names.
   const foreign = { ...batch, writer: OTHER };
   expect(asksAbout(foreign, list[2], list[2].comments[0])).toBe(false);
-  expect(conversationAsks(list[0], [foreign, { ...single, writer: OTHER }])).toEqual([]);
-  expect(conversationAsks(list[1], [foreign, { ...single, writer: OTHER }])).toEqual([]);
+  expect(conversationAsks(list[1], [foreign])).toEqual([]);
+  expect(conversationAsks(list[2], [foreign])).toEqual([]);
+  expect(conversationAsks(list[0], [foreign])).toEqual([foreign]);
+  // A single Ask stays associated with its own thread's comment whoever wrote it.
+  const aboutForeignComment = { ...single, writer: OTHER };
+  expect(asksAbout(aboutForeignComment, list[1], list[1].comments[0])).toBe(true);
+  expect(conversationAsks(list[1], [aboutForeignComment])).toEqual([aboutForeignComment]);
+  const foreignComment = { ...list[1].comments[0], ref: { writer: OTHER, id: id(12) } };
+  expect(asksAbout(single, list[1], foreignComment)).toBe(true);
   // The earlier conversation a thread captures carries only the replies it is the canonical thread of.
   expect(captureConversation(list[0], asks).replies).toHaveLength(1);
   expect(captureConversation(list[1], asks).replies).toEqual([]);

@@ -625,19 +625,18 @@ export function conversationText(
     : body;
 }
 
-/** Whether `ask` is about `comment` of `thread`: its writer wrote the comment, and the Ask lists it. An
- * Ask is a thread's own when it names that thread; a batch Ask (several answer comments, #2875) is
- * also about each comment it lists, in whichever of the group's question threads that comment sits. */
+/** Whether `ask` is about `comment` of `thread`. An Ask is a thread's own when it names that thread and
+ * lists the comment, whoever wrote it (a single Ask may be about another writer's comment). A batch
+ * Ask (several answer comments, #2875) is also about each comment it lists in another of the group's
+ * question threads, but only a comment its own writer wrote: batch comments are the asking device's. */
 export function asksAbout(
   ask: PageAsk,
   thread: Pick<ThreadView, 'threadId'>,
   comment: Pick<CommentView, 'messageId' | 'ref'>,
 ) {
-  return (
-    ask.writer === comment.ref.writer &&
-    !!ask.messageIds?.includes(comment.messageId) &&
-    (ask.thread === thread.threadId || ask.messageIds.length > 1)
-  );
+  if (!ask.messageIds?.includes(comment.messageId)) return false;
+  if (ask.thread === thread.threadId) return true;
+  return ask.messageIds.length > 1 && ask.writer === comment.ref.writer;
 }
 
 /** One admitted comment/Ask association used by display, reply routing and immutable context capture.
