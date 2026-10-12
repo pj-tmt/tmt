@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -12,7 +13,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
+  ROOT_LIMIT,
   createWorld,
+  defaultParent,
   findLeaks,
   runInPrivateWorld,
   worldEnvironment,
@@ -50,6 +53,29 @@ const hostIsUntouched = () => {
 };
 
 describe('private world', () => {
+  it('keeps the world root short enough for socket paths, whatever the temporary directory is', () => {
+    // The real default must always fit; a long temporary directory (macOS) falls back to /tmp.
+    const fitted = createWorld();
+    try {
+      expect(fitted.root.length).toBeLessThanOrEqual(ROOT_LIMIT);
+    } finally {
+      rmSync(fitted.root, { recursive: true, force: true });
+    }
+    const long = join(sandbox, 'a-deliberately-long-temporary-directory-name', 'nested');
+    mkdirSync(long, { recursive: true });
+    expect(defaultParent(long)).not.toBe(realpathSync(long));
+    expect(join(defaultParent(long), 'tmt-pw-XXXXXX').length).toBeLessThanOrEqual(ROOT_LIMIT);
+    // A short one is kept, so TMPDIR still chooses where worlds live when it can.
+    const short = mkdtempSync(join(tmpdir(), 'w-'));
+    try {
+      if (join(realpathSync(short), 'tmt-pw-XXXXXX').length <= ROOT_LIMIT) {
+        expect(defaultParent(short)).toBe(realpathSync(short));
+      }
+    } finally {
+      rmSync(short, { recursive: true, force: true });
+    }
+  });
+
   it('moves every application root into the world and keeps only the toolchain homes', () => {
     const world = createWorld(sandbox);
     const env = worldEnvironment(world, {

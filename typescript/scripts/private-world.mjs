@@ -1,7 +1,7 @@
 // Runs one command in a private application world, so a test that reaches HOME,
 // XDG or temporary state cannot touch the host's, then reports what it left behind.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { constants, homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,17 @@ const CLEARED = [
 ];
 const LISTED = 40;
 
-export function createWorld(parent = tmpdir()) {
+/** The longest world root that leaves room for a socket path under it (sun_path is 104 bytes on macOS). */
+export const ROOT_LIMIT = 32;
+
+/** The temporary directory, unless a world under it would be too long: macOS gives a long /var/folders path. */
+export function defaultParent(preferred = tmpdir()) {
+  const real = realpathSync(preferred);
+  if (path.join(real, 'tmt-pw-XXXXXX').length <= ROOT_LIMIT) return real;
+  return existsSync('/tmp') ? realpathSync('/tmp') : real;
+}
+
+export function createWorld(parent = defaultParent()) {
   // A short name keeps socket paths under the platform limit.
   const root = mkdtempSync(path.join(realpathSync(parent), 'tmt-pw-'));
   for (const directory of SKELETON) mkdirSync(path.join(root, directory), { recursive: true });
