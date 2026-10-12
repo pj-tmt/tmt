@@ -75,6 +75,43 @@ export class Objects {
   statusWriter(writer: string): boolean {
     return this.#ownerWriters.get(writer) === true;
   }
+  /** The updates a stream holds after its checkpoints (all of them when it has none): the ones
+   * only the device that wrote the stream can combine into a checkpoint. */
+  tail(stream: string): number {
+    return Number(this.head(stream).seq - (this.#prefixes.get(stream)?.head.seq ?? 0n));
+  }
+  /** This device sealed a checkpoint over its own stream's `own` namespace at the stream's head
+   * and the serve receipted it: the cut moves exactly as admitting it at catch-up would move it,
+   * so the revision this device computes stays the serve's. */
+  recordCheckpoint(stream: string, entry: ObjectEntry, head: Uint8Array) {
+    const seq = decimal(entry.seq),
+      current = this.head(stream),
+      hash = binary(entry.envelopeHash, 32, 32),
+      prior = this.#prefixes.get(stream);
+    // The same checkpoint again (a retry after a restart) changes nothing.
+    if (
+      prior &&
+      prior.head.seq === seq &&
+      equal(prior.checkpoints.get('own') ?? new Uint8Array(), hash)
+    )
+      return;
+    requireValue(
+      seq > 0n &&
+        seq === current.seq &&
+        equal(head, current.hash) &&
+        seq > (this.#prefixes.get(stream)?.head.seq ?? 0n),
+    );
+    this.#prefixes.set(stream, {
+      head: { seq, hash: head.slice() },
+      checkpoints: new Map([['own', hash]]),
+    });
+    this.#positions.set(`${stream}:own`, {
+      streamId: stream,
+      namespace: 'own',
+      seq: entry.seq,
+      envelopeHash: entry.envelopeHash,
+    });
+  }
   cursors() {
     return [...this.#positions]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

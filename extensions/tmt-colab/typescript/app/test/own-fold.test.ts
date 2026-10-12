@@ -564,3 +564,72 @@ it('preserves attachment creation proofs through checkpoints and refuses mutatio
     doc.destroy();
   }
 });
+it("encodes a device's own document as a checkpoint only when the encoding decodes back identically", async () => {
+  const run = await worker();
+  await run({
+    type: 'apply',
+    updates: [],
+    own: v.updates.map((update: string) => ({ writer: a, update: bytes(update) })),
+  });
+  const encoded = await run({ type: 'encode-own', writer: a });
+  // Frozen: native decodes these exact bytes to the same projection (own_vectors.rs).
+  expect(encoded.update).toEqual(bytes(v.stateEncoding));
+  expect(encoded.update.length).toBeLessThan(bytes(v.checkpoint).length);
+  expect(encoded.own[a]).toEqual(v.expectedPrefix);
+  // Reads only: nothing was committed or changed by asking.
+  const again = await run({ type: 'apply', updates: [] });
+  expect(again.own[a]).toEqual(v.expectedPrefix);
+  // A fresh device reading checkpoint then tail ends where the original updates end.
+  const fresh = await worker();
+  await fresh({ type: 'checkpoint', writer: b, update: encoded.update });
+  const after = await fresh({
+    type: 'apply',
+    updates: [],
+    own: [{ writer: b, update: bytes(v.tail) }],
+  });
+  expect(after.own[b]).toEqual(v.expected);
+  // A writer with no admitted updates has nothing to checkpoint.
+  expect((await run({ type: 'encode-own', writer: b })).update).toHaveLength(0);
+});
+it('publishes no checkpoint for an own document that does not fit one update', async () => {
+  const run = await worker();
+  const doc = new Y.Doc();
+  for (const name of ['threads', 'messages', 'intents', 'replies']) doc.getMap(name);
+  for (let index = 0; index < 20; index++)
+    doc.getMap('messages').set(`m${index}`, {
+      id: `m${index}`,
+      thread: 't',
+      body: String(index % 10).repeat(16 * 1024),
+    });
+  await run({
+    type: 'apply',
+    updates: [],
+    own: [{ writer: a, update: Y.encodeStateAsUpdate(doc) }],
+  });
+  expect((await run({ type: 'encode-own', writer: a })).update).toHaveLength(0);
+});
+it('encodes a stream whose updates came from different Yjs clients, whatever order its keys arrived in', async () => {
+  const run = await worker();
+  // The Worker prepares each own update on a fresh document rebuilt from the state so far, so
+  // every update has its own Yjs client: the order a decode of the whole state yields (by client)
+  // is not the order the updates arrived in.
+  const updates: Uint8Array[] = [];
+  let state: Uint8Array = new Uint8Array();
+  for (const key of ['m7', 'm3', 'm5', 'm1', 'm6', 'm2', 'm4', 'm0']) {
+    const doc = new Y.Doc();
+    for (const name of ['threads', 'messages', 'intents', 'replies']) doc.getMap(name);
+    if (state.length) Y.applyUpdate(doc, state);
+    const vector = Y.encodeStateVector(doc);
+    doc.getMap('messages').set(key, { id: key, thread: 't', body: `body ${key}` });
+    updates.push(Y.encodeStateAsUpdate(doc, vector));
+    state = Y.encodeStateAsUpdate(doc);
+  }
+  for (const update of updates)
+    await run({ type: 'apply', updates: [], own: [{ writer: a, update }] });
+  const encoded = await run({ type: 'encode-own', writer: a });
+  expect(encoded.update.length).toBeGreaterThan(0);
+  const fresh = await worker();
+  await fresh({ type: 'checkpoint', writer: b, update: encoded.update });
+  const after = await fresh({ type: 'apply', updates: [] });
+  expect(after.own[b]).toEqual(encoded.own[a]);
+});

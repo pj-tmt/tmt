@@ -14,6 +14,31 @@ interface SavedWriter {
   pending: { id: string; entry: ObjectEntry } | null;
   completed: string[];
 }
+/** What combining this device's own stream did: `merged` updates now sit in one checkpoint at
+ * `through`, nothing was there to combine, or the stream could not be combined (its state would
+ * not fit one checkpoint, did not decode back identically, or the serve did not take it). */
+export type OwnCompaction =
+  | { outcome: 'combined'; merged: number; through: number }
+  | { outcome: 'nothing' }
+  | { outcome: 'not-combined' };
+function ownCompaction(value: unknown): OwnCompaction {
+  requireValue(typeof value === 'object' && value !== null && !Array.isArray(value));
+  const raw = value as Record<string, unknown>;
+  if (raw.outcome === 'combined') {
+    exactKeys(raw, ['outcome', 'merged', 'through']);
+    requireValue(
+      Number.isSafeInteger(raw.merged) &&
+        (raw.merged as number) > 0 &&
+        Number.isSafeInteger(raw.through) &&
+        (raw.through as number) >= (raw.merged as number),
+    );
+    return { outcome: 'combined', merged: raw.merged as number, through: raw.through as number };
+  }
+  exactKeys(raw, ['outcome']);
+  requireValue(raw.outcome === 'nothing' || raw.outcome === 'not-combined');
+  return { outcome: raw.outcome as 'nothing' | 'not-combined' };
+}
+const COMPACT_RELAY_MS = 30_000;
 
 /** A lifetime Web Lock owns this device stream. Other tabs relay plaintext
  * update bytes; the leader validates them before signing, and persists exact
@@ -26,6 +51,16 @@ export class Writer {
   #closed = false;
   #tasks = Promise.resolve();
   #working = new Map<string, Promise<void>>();
+  /** A tab that asked is answered from here when its answer was lost and it asks again. */
+  #combined = new Map<string, OwnCompaction>();
+  #compactions = new Map<
+    string,
+    {
+      resolve(result: OwnCompaction): void;
+      reject(error: Error): void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   #pending = new Map<
     string,
     { resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
@@ -41,6 +76,21 @@ export class Writer {
         if (value?.type === 'submit' && this.#leader) {
           exactKeys(value, ['type', 'id', 'update']);
           void this.#accept(value.id, value.update);
+        } else if (value?.type === 'compact' && this.#leader) {
+          exactKeys(value, ['type', 'id']);
+          requireValue(typeof value.id === 'string');
+          generatedId(value.id);
+          void this.#acceptCompact(value.id);
+        } else if (value?.type === 'compacted') {
+          exactKeys(value, ['type', 'id', 'result']);
+          requireValue(typeof value.id === 'string');
+          generatedId(value.id);
+          const pending = this.#compactions.get(value.id);
+          if (!pending) return;
+          const result = ownCompaction(value.result);
+          this.#compactions.delete(value.id);
+          clearTimeout(pending.timer);
+          pending.resolve(result);
         } else if (value?.type === 'result') {
           exactKeys(value, ['type', 'id', 'ok']);
           requireValue(typeof value.id === 'string');
@@ -117,10 +167,9 @@ export class Writer {
       else pending.reject(new Error('Edit was not accepted; reconnect before retrying'));
     }
   }
-  async #write(id: string, update: Uint8Array) {
-    requireValue(!this.#closed && this.#leader);
-    const c = await this.connection();
-    await c.ready;
+  /** The saved writer state with any interrupted append finished first: exact stored bytes are
+   * retried, never resealed. */
+  async #settled(c: Connection): Promise<SavedWriter> {
     const state = (await record<SavedWriter>(this.key)) ?? { pending: null, completed: [] };
     exactKeys(state, ['pending', 'completed']);
     requireValue(
@@ -139,6 +188,13 @@ export class Writer {
       state.pending = null;
       await record(this.key, state);
     }
+    return state;
+  }
+  async #write(id: string, update: Uint8Array) {
+    requireValue(!this.#closed && this.#leader);
+    const c = await this.connection();
+    await c.ready;
+    const state = await this.#settled(c);
     if (state.completed.includes(id)) return;
     const entry = await c.run(async () => {
       await c.fold.run({
@@ -181,6 +237,121 @@ export class Writer {
     state.completed.push(id);
     state.completed = state.completed.slice(-64);
     await record(this.key, state);
+  }
+  /** Combine this device's own stream into a checkpoint at its head. Only the leader tab runs it,
+   * in the same queue as this device's writes, so no update of its own can land in between. */
+  async #compactOwn(): Promise<OwnCompaction> {
+    requireValue(!this.#closed && this.#leader);
+    const c = await this.connection();
+    await c.ready;
+    const state = await this.#settled(c);
+    const device = c.admission.registration.deviceId;
+    const merged = c.objects.tail(device);
+    if (merged === 0) return { outcome: 'nothing' };
+    const entry = await c.run(async () => {
+      const encoded = await c.fold.run({ type: 'encode-own', writer: device });
+      try {
+        // An empty encoding means the worker would not vouch for it: publish nothing.
+        if (encoded.update.length === 0) return null;
+        const a = c.admission,
+          head = c.objects.head(device);
+        requireValue(a.root !== null && a.head !== null && c.objects.tail(device) === merged);
+        a.author(device, a.head.revision.toString());
+        const envelope = await Envelope.seal(
+          {
+            space: a.space,
+            page: a.page,
+            epoch: a.epoch,
+            kind: 'checkpoint',
+            namespace: 'own',
+            authorDevice: device,
+            membershipRevision: a.head.revision.toString(),
+            streamSeq: head.seq.toString(),
+            prevHash: head.hash,
+          },
+          a.root,
+          a.registration.keys.sign,
+          encoded.update,
+        );
+        requireValue(c.active && !this.#closed);
+        return {
+          seq: head.seq.toString(),
+          envelopeHash: encodeBinary(await envelope.hash()),
+          envelope: encodeBinary(envelope.toJson()),
+        };
+      } finally {
+        encoded.update.fill(0);
+      }
+    });
+    if (!entry) return { outcome: 'not-combined' };
+    const id = crypto.randomUUID();
+    state.pending = { id, entry };
+    await record(this.key, state);
+    requireValue(!this.#closed);
+    await c.append(entry);
+    state.pending = null;
+    state.completed.push(id);
+    state.completed = state.completed.slice(-64);
+    await record(this.key, state);
+    return { outcome: 'combined', merged, through: Number(entry.seq) };
+  }
+  #acceptCompact(id: string): Promise<void> {
+    const done = this.#combined.get(id);
+    if (done) {
+      this.#compactResult(id, done);
+      return Promise.resolve();
+    }
+    const existing = this.#working.get(id);
+    if (existing) return existing;
+    if (this.#working.size >= 8) return Promise.resolve();
+    const task = this.#tasks.then(() => this.#compactOwn());
+    this.#tasks = task.then(
+      () => {},
+      () => {},
+    );
+    const completed = task
+      .then(
+        (result) => {
+          this.#combined.set(id, result);
+          if (this.#combined.size > 8) this.#combined.delete(this.#combined.keys().next().value!);
+          this.#compactResult(id, result);
+        },
+        () => this.#compactResult(id, { outcome: 'not-combined' }),
+      )
+      .finally(() => this.#working.delete(id));
+    this.#working.set(id, completed);
+    return completed;
+  }
+  #compactResult(id: string, result: OwnCompaction) {
+    if (this.#closed) return;
+    this.#channel.postMessage({ type: 'compacted', id, result });
+    const pending = this.#compactions.get(id);
+    if (pending) {
+      this.#compactions.delete(id);
+      clearTimeout(pending.timer);
+      pending.resolve(result);
+    }
+  }
+  /** Combine this device's own stream, from any tab: the leader tab does the work. A relay that
+   * finds no leader in time rejects, and the caller says the stream could not be combined. */
+  compact(): Promise<OwnCompaction> {
+    requireValue(!this.#closed);
+    const id = crypto.randomUUID(),
+      deadline = Date.now() + COMPACT_RELAY_MS;
+    return new Promise<OwnCompaction>((resolve, reject) => {
+      const send = () => {
+        if (this.#closed || Date.now() >= deadline) {
+          this.#compactions.delete(id);
+          reject(new Error('Writer relay timed out'));
+          return;
+        }
+        if (this.#leader) void this.#acceptCompact(id);
+        else this.#channel.postMessage({ type: 'compact', id });
+        const pending = this.#compactions.get(id);
+        if (pending) pending.timer = setTimeout(send, 500);
+      };
+      this.#compactions.set(id, { resolve, reject, timer: setTimeout(send, 0) });
+    });
   }
   submit(update: Uint8Array): Promise<void> {
     requireValue(!this.#closed && update.length <= UPDATE_BYTES && this.#pending.size < 8);
@@ -252,5 +423,10 @@ export class Writer {
       pending.reject(new Error('Page writer closed'));
     }
     this.#pending.clear();
+    for (const pending of this.#compactions.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Page writer closed'));
+    }
+    this.#compactions.clear();
   }
 }

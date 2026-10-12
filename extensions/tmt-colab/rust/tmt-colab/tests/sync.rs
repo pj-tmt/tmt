@@ -174,11 +174,33 @@ impl Fixture {
         namespace: &str,
         size: usize,
     ) -> (Value, [u8; 32], Vec<u8>) {
+        self.object("update", id, seq, previous, namespace, size)
+    }
+    /// A checkpoint covers the stream through `seq` and cites the update hash there.
+    fn checkpoint(
+        &self,
+        id: &str,
+        seq: u64,
+        head: [u8; 32],
+        namespace: &str,
+        size: usize,
+    ) -> (Value, [u8; 32], Vec<u8>) {
+        self.object("checkpoint", id, seq, head, namespace, size)
+    }
+    fn object(
+        &self,
+        kind: &str,
+        id: &str,
+        seq: u64,
+        previous: [u8; 32],
+        namespace: &str,
+        size: usize,
+    ) -> (Value, [u8; 32], Vec<u8>) {
         let context = object::Context {
             space: self.space.clone(),
             page: PAGE.into(),
             epoch: "1".into(),
-            kind: "update".into(),
+            kind: kind.into(),
             namespace: namespace.into(),
             author_device: id.into(),
             membership_revision: "1".into(),
@@ -362,6 +384,114 @@ fn two_clients_broadcast_exact_retry_and_durable_bytes() {
     assert_eq!(alice.1.poll(), Progress::Advanced);
     assert_eq!(receive(&mut alice)["streamId"], BOB);
 }
+#[test]
+fn a_device_checkpoints_its_own_stream_and_the_store_prunes_what_it_covers() {
+    let f = Fixture::new();
+    let mut alice = f.peer(ALICE);
+    let mut bob = f.peer(BOB);
+    send(&mut alice, f.frame("subscribe", json!({"cursors":[]})));
+    let mut previous = [0; 32];
+    let mut bytes = Vec::new();
+    for seq in 1..=3 {
+        let (frame, hash, update) = f.append(BOB, seq, previous, "own", 8);
+        send(&mut bob, frame);
+        assert_eq!(receive(&mut bob)["type"], "receipt");
+        assert_eq!(alice.1.poll(), Progress::Advanced);
+        assert_eq!(receive(&mut alice)["type"], "broadcast");
+        previous = hash;
+        bytes.push(update);
+    }
+    // A checkpoint at the head: a receipt for the sender, nothing for the peers, and the covered
+    // updates leave the store because `own` is the only namespace with updates in the prefix.
+    let (frame, hash, checkpoint) = f.checkpoint(BOB, 3, previous, "own", 4);
+    send(&mut bob, frame.clone());
+    let receipt = receive(&mut bob);
+    assert_eq!(receipt["type"], "receipt");
+    assert_eq!(receipt["envelopeHash"], values::encode_binary(&hash));
+    assert_eq!(alice.1.poll(), Progress::Pending);
+    for seq in 1..=3 {
+        assert_eq!(f.payload(BOB, seq), None);
+    }
+    // The same checkpoint again answers with the same receipt and changes nothing.
+    send(&mut bob, frame);
+    assert_eq!(receive(&mut bob), receipt);
+    // The updates after it continue the chain from the same head.
+    let (next, _, _) = f.append(BOB, 4, previous, "own", 8);
+    send(&mut bob, next);
+    assert_eq!(receive(&mut bob)["type"], "receipt");
+    // A new subscriber is caught up from the checkpoint and the tail after it.
+    let mut late = f.peer(ALICE);
+    send(
+        &mut late,
+        f.frame(
+            "hello",
+            json!({"membershipRevision":"0","device":ALICE,"cursors":[]}),
+        ),
+    );
+    let first = receive(&mut late);
+    ack(&mut late, &first);
+    let wraps = receive(&mut late);
+    ack(&mut late, &wraps);
+    let mut stored = Vec::new();
+    loop {
+        let frame = receive(&mut late);
+        ack(&mut late, &frame);
+        if frame["more"] == false {
+            break;
+        }
+        for stream in frame["streams"].as_array().unwrap() {
+            if stream["streamId"] != BOB {
+                continue;
+            }
+            let entry = if stream["checkpoint"].is_null() {
+                &stream["tail"][0]
+            } else {
+                &stream["checkpoint"]
+            };
+            stored.push(values::binary(entry["envelope"].as_str().unwrap(), 65536).unwrap());
+        }
+    }
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0], checkpoint);
+}
+#[test]
+fn only_a_checkpoint_of_the_senders_own_stream_at_its_exact_head_is_accepted() {
+    let f = Fixture::new();
+    let mut alice = f.peer(ALICE);
+    let mut bob = f.peer(BOB);
+    let (frame, first, _) = f.append(BOB, 1, [0; 32], "own", 8);
+    send(&mut bob, frame);
+    receive(&mut bob);
+    let (frame, head, _) = f.append(BOB, 2, first, "own", 8);
+    send(&mut bob, frame);
+    receive(&mut bob);
+    // Another device's stream, a wrong head hash, a head that does not exist yet.
+    let (other, _, _) = f.checkpoint(BOB, 2, head, "own", 4);
+    let mut as_alice = other.clone();
+    as_alice["streamId"] = json!(ALICE);
+    send(&mut alice, as_alice);
+    error(&mut alice, "INVALID");
+    let (wrong, _, _) = f.checkpoint(BOB, 2, first, "own", 4);
+    send(&mut bob, wrong);
+    error(&mut bob, "GAP");
+    let (ahead, _, _) = f.checkpoint(BOB, 3, head, "own", 4);
+    send(&mut bob, ahead);
+    error(&mut bob, "GAP");
+    // The content namespace is the owner's: a device's own namespace is the only one it seals.
+    let (content, _, _) = f.checkpoint(ALICE, 1, [0; 32], "content", 4);
+    send(&mut alice, content);
+    error(&mut alice, "INVALID");
+    // Nothing of that pruned or replaced the updates; the real checkpoint still lands.
+    assert!(f.payload(BOB, 1).is_some() && f.payload(BOB, 2).is_some());
+    send(&mut bob, other);
+    assert_eq!(receive(&mut bob)["type"], "receipt");
+    assert!(f.payload(BOB, 1).is_none() && f.payload(BOB, 2).is_none());
+    // An older checkpoint cannot replace a newer one.
+    let (older, _, _) = f.checkpoint(BOB, 1, first, "own", 4);
+    send(&mut bob, older);
+    error(&mut bob, "INVALID");
+}
+
 #[test]
 fn gap_conflict_role_signature_and_epoch_denials_have_no_new_payload() {
     let f = Fixture::new();

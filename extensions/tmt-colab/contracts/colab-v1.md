@@ -1438,9 +1438,15 @@ reproducers should be checked against upstream fixes before submission to yrs;
 this contract does not authorize external reporting by itself.
 
 Compaction is by the stream's own original device, from only that writer's
-verified update set using Yjs `mergeUpdates` / yrs `merge_updates_v1`. Never use
-`encodeStateAsUpdate` of the merged shared document: that would reattribute
-others' updates. A checkpoint covers seq 1..n and embeds the authenticated update head
+verified update set: the state encoding of exactly those updates, never of a
+document that also holds another writer's. The native writer merges them with yrs
+`merge_updates_v1`. A browser device encodes the state of the document that holds
+exactly its own admitted `own` updates (Yjs `encodeStateAsUpdate`), which also drops
+the deleted content a merge keeps. A browser checkpoint is published only when that
+encoding fits one update and decodes back to the same state vector, the same bytes
+when encoded again and the same own projection, and carries no unresolved
+dependency. Never use `encodeStateAsUpdate` of the merged shared document: that would
+reattribute others' updates. A checkpoint covers seq 1..n and embeds the authenticated update head
 hash at n, preserving namespace-specific updates and dependencies without
 advancing the update chain. A namespace checkpoint covers that namespace's
 subset within the shared sequence prefix; the signed descriptor binds the
@@ -2443,18 +2449,18 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type  | Exact additional fields                                        | Implemented behavior                                                                                                       |
-| ------------ | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`                          | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.            |
-| `subscribe`  | `cursors`                                                      | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                    |
-| `append`     | `streamId, seq, envelopeHash, envelope`                        | Inline update or object reference; verify complete exact bytes and durably append before receipt.                          |
-| `chunk`      | `objectId, envelopeHash, index, count, bytes`                  | Complete the connection's pending referenced append or save; no standalone upload or partial append.                       |
-| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                      |
-| `savestatus` | `operationId`                                                  | Owner device only. Answers from the root-local operation record; see Browser Save below.                                   |
-| `usage`      | none                                                           | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                      |
-| `compact`    | none                                                           | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.          |
-| `ack`        | `cursors`                                                      | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority. |
-| `awareness`  | `device, data`                                                 | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                              |
+| Client type  | Exact additional fields                                        | Implemented behavior                                                                                                                                                                                                                                                                          |
+| ------------ | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`                          | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.                                                                                                                                                                               |
+| `subscribe`  | `cursors`                                                      | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                                                                                                                                                                                       |
+| `append`     | `streamId, seq, envelopeHash, envelope`                        | Inline update or object reference; verify complete exact bytes and durably append before receipt. Kind `checkpoint` is accepted only for the sender's own stream, namespace `own`, at its head (`streamSeq` the head, `prevHash` the head hash); it is stored and receipted, never broadcast. |
+| `chunk`      | `objectId, envelopeHash, index, count, bytes`                  | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                          |
+| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                         |
+| `savestatus` | `operationId`                                                  | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                      |
+| `usage`      | none                                                           | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                         |
+| `compact`    | none                                                           | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                             |
+| `ack`        | `cursors`                                                      | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                    |
+| `awareness`  | `device, data`                                                 | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                                                                                                                                                                                                 |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -3841,8 +3847,20 @@ byte-identical). Archived and deleted pages refuse as a write does.
 A combine moves the page revision, so a revision read before it is `COLAB_STALE_BASE` for the
 next write. The merged changes' per-edit attribution is replaced by the checkpoint, which is
 signed by the device and covers `1..=through`; no ledger or schema is added. Only a device can
-combine its own stream: the browser does not yet combine its own `own` updates (#2846), so they stay
-in `updates` and `otherDeviceUpdates` until it does.
+combine its own stream. A browser device combines its own `own` stream by sealing a `checkpoint` at
+its head and sending it as an `append` (the browser's Compact asks the serve to combine the
+root-local stream, then does this); it counts its own changes as its own, so only the changes of
+other devices are `otherDeviceUpdates` to it. Where a stream is rewritten, the state encoding a
+browser publishes is far smaller than a merge, which keeps deleted content (bytes, Yjs 13.6.32):
+
+| An own stream of                       | The updates | `mergeUpdates` | State encoding |
+| -------------------------------------- | ----------- | -------------- | -------------- |
+| 200 comments of 1 KiB, each once       | 215,052     | 213,787        | 213,787        |
+| one 2 KiB reply record, rewritten 100x | 210,744     | 209,660        | 2,122          |
+| one 20 KiB record, rewritten 300x      | 6,157,418   | 6,153,793      | 20,540         |
+
+A merge of the last two would not fit the 256 KiB one update may hold, so only the state encoding
+can be published as a checkpoint.
 
 Merging keeps the text each rewrite deleted, so combining ends the tail, not the growth of the
 checkpoint. Measured with `cargo test --release -p tmt-colab --test page churn -- --ignored

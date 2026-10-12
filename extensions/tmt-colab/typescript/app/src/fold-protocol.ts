@@ -15,6 +15,9 @@ export type OwnRoot = 'threads' | 'intents' | 'messages' | 'replies';
 export type FoldCommand =
   | { type: 'apply' | 'check'; updates: Uint8Array[]; own?: OwnUpdate[] }
   | { type: 'checkpoint'; update: Uint8Array; writer?: string }
+  /** The state encoding of one writer's own document, or an empty update when it must not be
+   * published as a checkpoint (see `encodeOwn` in the worker). Reads only; commits nothing. */
+  | { type: 'encode-own'; writer: string }
   | {
       type: 'prepare-own';
       writer: string;
