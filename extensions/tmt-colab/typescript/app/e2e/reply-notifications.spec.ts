@@ -4,7 +4,6 @@ import { capturePath } from './captures.js';
 import { PNG, attach, send } from '../test/attachment-page.js';
 
 const fixture = '/test/reply-notifications-browser.ts';
-const pageFixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
     async ({ fixture, method, argument }) => (await import(fixture))[method](argument),
@@ -57,7 +56,7 @@ test('own replies notify once; foreign conversations and re-delivery do not noti
   await run(page, 'foreignConversation');
   await run(page, 'arrive', { destination: 'Thread', human: true, foreign: true });
   await expect(cards(page)).toHaveCount(0);
-  const proof = await page.evaluate(async (path) => (await import(path)).proof(), pageFixture);
+  const proof = await run(page, 'proof');
   expect(proof.sends).toEqual([]);
 });
 
@@ -108,7 +107,7 @@ test('Thread activation opens the canonical anchored window and quote without cr
   await expect(
     thread.getByTestId('comment-entry').filter({ hasText: 'A participant replied at this quote' }),
   ).toBeVisible();
-  const proof = await page.evaluate(async (path) => (await import(path)).proof(), pageFixture);
+  const proof = await run(page, 'proof');
   expect(proof.sends).toEqual([]);
   const snapshot = await run(page, 'snapshot');
   expect(snapshot.threads).toHaveLength(2);
@@ -602,9 +601,7 @@ for (const [width, theme] of [
       await expect(block).not.toHaveAttribute('data-arrived', '');
       await run(page, 'repeat');
       await expect(cards(page)).toHaveCount(0);
-      expect(
-        (await page.evaluate(async (path) => (await import(path)).proof(), pageFixture)).sends,
-      ).toEqual([]);
+      expect((await run(page, 'proof')).sends).toEqual([]);
     });
   }
 }
