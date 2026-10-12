@@ -49,7 +49,7 @@ pub fn execute(
         let lifecycle = registry.lifecycle(&harness).ok_or(())?;
         let channel_duration = (!worker).then(|| lifecycle.hook_work_duration()).flatten();
         let duration = if worker {
-            worker_duration(work_budget_ms)
+            crate::invocation::hook_worker_duration(work_budget_ms)
         } else {
             channel_duration.unwrap_or(BUDGET)
         };
@@ -73,7 +73,8 @@ pub fn execute(
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
             .map_err(|_| ())?;
-        let mut args = worker_arguments(provider, deadline)?;
+        let mut args =
+            worker_arguments(provider, deadline.saturating_duration_since(Instant::now()))?;
         if activity_only {
             args.push("--activity-only".into());
         }
@@ -919,26 +920,16 @@ fn commit_observation(
         .map_err(|_| ())
 }
 
-fn worker_arguments(provider: &str, deadline: Instant) -> Result<Vec<std::ffi::OsString>, ()> {
+fn worker_arguments(provider: &str, remaining: Duration) -> Result<Vec<std::ffi::OsString>, ()> {
     let mut args = vec!["__hook".into(), provider.into(), "--worker".into()];
     // Every worker shares its supervisor's remaining budget, including plain
     // hooks. The parent remains the hard deadline owner through child startup.
-    let budget = deadline
-        .saturating_duration_since(Instant::now())
-        .min(BUDGET)
-        .as_millis();
+    let budget = remaining.min(BUDGET).as_millis();
     if budget == 0 {
         return Err(());
     }
     args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
     Ok(args)
-}
-
-fn worker_duration(work_budget_ms: Option<u64>) -> Duration {
-    work_budget_ms
-        .map(Duration::from_millis)
-        .unwrap_or(BUDGET)
-        .min(BUDGET)
 }
 
 #[cfg(test)]
@@ -947,40 +938,60 @@ mod budget_tests {
 
     #[test]
     fn full_admission_gate_leaves_only_the_actual_worker_remainder() {
-        let started =
-            Instant::now() - tmt_adapters::drivers::codex::MAXIMUM_HOOK_ADMISSION_DURATION;
-        let deadline = started + tmt_adapters::drivers::codex::MAXIMUM_HOOK_WORK_DURATION;
-        let args = worker_arguments("codex", deadline).unwrap();
+        let remaining_budget = tmt_adapters::drivers::codex::MAXIMUM_HOOK_WORK_DURATION
+            - tmt_adapters::drivers::codex::MAXIMUM_HOOK_ADMISSION_DURATION;
+        let args = worker_arguments("codex", remaining_budget).unwrap();
         let remaining = args[4].to_str().unwrap().parse::<u64>().unwrap();
-        assert!(remaining > 0 && remaining <= 500);
+        assert_eq!(remaining, 500);
         assert_eq!(
-            worker_duration(Some(remaining)),
+            crate::invocation::hook_worker_duration(Some(remaining)),
             Duration::from_millis(remaining)
         );
-        assert!(worker_arguments("codex", Instant::now()).is_err());
+        assert!(worker_arguments("codex", Duration::ZERO).is_err());
     }
 
     #[test]
     fn plain_hooks_pass_the_parent_remainder_instead_of_restarting_two_seconds() {
-        let args = worker_arguments("claude", Instant::now() + Duration::from_millis(731)).unwrap();
+        let args = worker_arguments("claude", Duration::from_millis(731)).unwrap();
         assert_eq!(
             &args[..4],
             &["__hook", "claude", "--worker", "--work-budget-ms"].map(std::ffi::OsString::from)
         );
         let remaining = args[4].to_str().unwrap().parse::<u64>().unwrap();
-        assert!(remaining > 0 && remaining <= 731);
-        assert!(worker_arguments("claude", Instant::now()).is_err());
+        assert_eq!(remaining, 731);
+        assert!(worker_arguments("claude", Duration::ZERO).is_err());
     }
 
     #[test]
     fn absent_worker_budget_keeps_two_seconds() {
-        assert_eq!(worker_duration(None), Duration::from_secs(2));
+        assert_eq!(
+            crate::invocation::hook_worker_duration(None),
+            Duration::from_secs(2)
+        );
     }
 
     #[test]
     fn worker_budget_preserves_remaining_time_and_caps_direct_calls() {
-        assert_eq!(worker_duration(Some(0)), Duration::ZERO);
-        assert_eq!(worker_duration(Some(731)), Duration::from_millis(731));
-        assert_eq!(worker_duration(Some(u64::MAX)), BUDGET);
+        assert_eq!(
+            crate::invocation::hook_worker_duration(Some(0)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            crate::invocation::hook_worker_duration(Some(731)),
+            Duration::from_millis(731)
+        );
+        assert_eq!(
+            crate::invocation::hook_worker_duration(Some(u64::MAX)),
+            BUDGET
+        );
+    }
+
+    #[test]
+    fn worker_arguments_cap_and_floor_the_remaining_budget() {
+        let args = worker_arguments("claude", Duration::from_secs(3)).unwrap();
+        assert_eq!(args[4], "2000");
+        let args = worker_arguments("claude", Duration::from_micros(1_999)).unwrap();
+        assert_eq!(args[4], "1");
+        assert!(worker_arguments("claude", Duration::from_micros(999)).is_err());
     }
 }
