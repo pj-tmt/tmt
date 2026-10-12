@@ -3418,8 +3418,9 @@ an array sorted by code point, empty when a page has none. Their integrity is th
 session's, like the other owner-served reads; a client treats them as untrusted text.
 
 A name is 1 to 32 code points (`LABEL_POINTS`) with no control character, no whitespace
-other than single interior spaces and no leading, trailing or doubled space; case is part
-of the name and two spellings are two labels. A page holds at most 8 names (`PAGE_LABELS`)
+(Unicode `White_Space`) other than single interior spaces and no leading, trailing or doubled
+space; case is part of the name and two spellings are two labels. `vectors/label-name-v1.json`
+pins the grammar for the owner store and the browser. A page holds at most 8 names (`PAGE_LABELS`)
 and the space at most 1,000 assignments (`SPACE_LABELS`), so the discovery reply stays
 within its 512 KiB cap. The constants live in `limits.rs`; the app's `bootstrap.ts` and its
 test hold the same numbers.

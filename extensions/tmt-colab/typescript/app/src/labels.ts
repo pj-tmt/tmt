@@ -20,7 +20,10 @@ export interface LabelChange {
 }
 export type LabelNameError = 'empty' | 'long' | 'form';
 
-/** The owner store's grammar: single interior spaces, no control or other whitespace. */
+/**
+ * The owner store's grammar: single interior spaces, no control character and no other Unicode
+ * `White_Space` (not `\s`, which also takes U+FEFF); `label-name-v1.json` pins both sides.
+ */
 export function labelNameError(name: string): LabelNameError | undefined {
   const points = [...name].length;
   if (points === 0) return 'empty';
@@ -29,7 +32,7 @@ export function labelNameError(name: string): LabelNameError | undefined {
     name.startsWith(' ') ||
     name.endsWith(' ') ||
     name.includes('  ') ||
-    /[\p{Cc}]|[^\S ]/u.test(name)
+    /\p{Cc}|(?! )\p{White_Space}/u.test(name)
   )
     return 'form';
   return undefined;
