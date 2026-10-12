@@ -130,6 +130,7 @@ fn no_rate_and_zero_never_add_negative_pace_text_or_invent_a_countdown() {
     assert!(!content.contains("no use measured"));
     assert!(!content.contains("5h"));
     assert!(!content.contains("%/h"));
+    assert!(!content.contains("│"));
     assert!(!content.contains("empties") && !content.contains("!"));
 }
 
@@ -158,7 +159,7 @@ fn fill_and_track_keep_their_roles_without_selection_even_in_light_and_no_color(
                 .unwrap();
             assert_eq!(
                 fill.style.fg.unwrap_or(ratatui::style::Color::Reset),
-                look.role(Role::Waiting)
+                look.role(Role::Working)
                     .fg
                     .unwrap_or(ratatui::style::Color::Reset)
             );
@@ -269,6 +270,8 @@ fn overview_detail_contains_only_the_values_hidden_at_each_width() {
         assert!(!detail.contains("~2.1%/h"), "{width}: {detail}");
         assert!(detail.contains("5h 97%"), "{width}: {detail}");
         assert!(!detail.contains("4d03h"), "{width}: {detail}");
+        assert!(detail.contains("2d10h"), "{width}: {detail}");
+        assert!(detail.contains("~0.4%/h"), "{width}: {detail}");
         assert!(!hidden.iter().any(|(label, _)| *label == "provider"));
         assert!(
             !detail.contains("44%"),
@@ -321,5 +324,77 @@ fn arrows_fit_only_beside_pace_and_use_their_semantic_roles() {
             !painted(Some(&standings), 32).join("\n").contains(glyph),
             "a hidden pace cannot have an arrow"
         );
+    }
+}
+
+#[test]
+fn remaining_bands_do_not_follow_forecast_urgency() {
+    for (left, expected) in [
+        (0.0, Role::Blocked),
+        (14.99, Role::Blocked),
+        (15.0, Role::Waiting),
+        (40.0, Role::Waiting),
+        (40.01, Role::Working),
+        (100.0, Role::Working),
+    ] {
+        for burn in [None, Some(100.0)] {
+            let sample = standing(
+                Provider::named("claude"),
+                Some(reading(MINUTE, window(left, 100 * HOUR), None)),
+                burn,
+            );
+            let Outlook::Known(figures) = sample.outlook(NOW) else {
+                panic!("fresh reading")
+            };
+            assert_eq!(state(&figures), expected, "{left}, {burn:?}");
+        }
+    }
+    for (left, burn, glyph, warning_role) in [
+        (89.0, 10.0, "✗", Role::Blocked),
+        (14.0, 0.5, "!", Role::Waiting),
+    ] {
+        let sample = standing(
+            Provider::named("claude"),
+            Some(reading(MINUTE, window(left, 100 * HOUR), None)),
+            Some(burn),
+        );
+        let parts = meter(&sample, NOW, 60);
+        let warning = parts.iter().find(|p| p["id"] == "warning").unwrap();
+        assert!(warning["text"].as_str().unwrap().contains(glyph));
+        assert_eq!(warning["role"], warning_role.name());
+    }
+}
+
+#[test]
+fn forecast_tail_requires_depletion_strictly_before_reset_at_every_width() {
+    for (burn, forecasts) in [
+        (None, false),
+        (Some(0.0), false),
+        (Some(1.0), false),
+        (Some(2.0), false),
+        (Some(2.1), true),
+    ] {
+        let mut sample = standing(
+            Provider::named("claude"),
+            Some(reading(MINUTE, window(40.0, 20 * HOUR), None)),
+            burn,
+        );
+        sample.trend = Some(Trend::Up);
+        for width in [160, 100, 80, 60] {
+            let parts = meter(&sample, NOW, width);
+            for id in ["warning", "reset", "detail", "trend"] {
+                assert_eq!(
+                    parts.iter().any(|p| p["id"] == id),
+                    forecasts,
+                    "{burn:?}, {width}, {id}"
+                );
+            }
+            if !forecasts {
+                assert_eq!(
+                    painted(Some(&[sample.clone()]), width),
+                    [" Claude 40% (7d)"]
+                );
+            }
+        }
     }
 }

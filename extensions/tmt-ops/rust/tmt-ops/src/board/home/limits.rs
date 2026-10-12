@@ -18,6 +18,10 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub(crate) const PENDING: &str = "Updating limits…";
 
+// Remaining weekly balance, independent of the depletion forecast.
+const LOW_REMAINING_PERCENT: f64 = 15.0;
+const HEALTHY_REMAINING_PERCENT: f64 = 40.0;
+
 const MINUTE_MS: u64 = 60_000;
 const HOUR_MS: u64 = 60 * MINUTE_MS;
 const DAY_MS: u64 = 24 * HOUR_MS;
@@ -50,9 +54,9 @@ fn percent(value: f64) -> String {
 }
 
 fn state(figures: &Figures) -> Role {
-    if figures.empties_soon() {
+    if figures.weekly.percent < LOW_REMAINING_PERCENT {
         Role::Blocked
-    } else if figures.runs_out_before_reset {
+    } else if figures.weekly.percent <= HEALTHY_REMAINING_PERCENT {
         Role::Waiting
     } else {
         Role::Working
@@ -134,7 +138,11 @@ fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
         }
     };
     let warning = warning(&figures);
-    let reset_text = format!(" │ {}", reset(figures.weekly.resets_in_ms));
+    let reset_text = if figures.runs_out_before_reset {
+        format!(" │ {}", reset(figures.weekly.resets_in_ms))
+    } else {
+        String::new()
+    };
     let cells = 18.min(usize::from(width).saturating_sub(warning.width() + reset_text.width()));
     let critical = format!(" {} (7d) ", percent(figures.weekly.percent));
     let name = fit(&provider, cells.saturating_sub(critical.width() + 1));
@@ -148,12 +156,20 @@ fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
         piece("track", track, Role::Text),
     ];
     if !warning.is_empty() {
-        pieces.push(piece("warning", warning, state(&figures)));
+        let role = if figures.empties_soon() {
+            Role::Blocked
+        } else {
+            Role::Waiting
+        };
+        pieces.push(piece("warning", warning, role));
     }
-    pieces.push(piece("reset", reset_text, Role::Muted));
-    if figures
-        .burn
-        .is_some_and(|rate| rate.is_finite() && rate > 0.0)
+    if figures.runs_out_before_reset {
+        pieces.push(piece("reset", reset_text, Role::Muted));
+    }
+    if figures.runs_out_before_reset
+        && figures
+            .burn
+            .is_some_and(|rate| rate.is_finite() && rate > 0.0)
     {
         let extra = format!(" {}", rate_text(&figures));
         let used: usize = pieces

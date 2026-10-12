@@ -102,10 +102,7 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     let mut app = app(true);
     app.set_limits(standings());
     let rows = rows(&app, 100);
-    assert_eq!(
-        rows[index_of(&rows, "Codex 78%")],
-        " Codex 78% (7d)    │ 2d10h ~0.4%/h"
-    );
+    assert_eq!(rows[index_of(&rows, "Codex 78%")], " Codex 78% (7d)");
     assert!(index_of(&rows, "product-lead") > index_of(&rows, "Codex 78%"));
 }
 
@@ -165,7 +162,10 @@ fn help_explains_the_row_only_where_it_can_show() {
         .map(|entry| format!("{} {}", entry.keys, entry.description))
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("share of each account window left"), "{text}");
+    assert!(
+        text.contains("weekly remaining share inside the bar"),
+        "{text}"
+    );
     assert!(text.contains("older than 2 hours"), "{text}");
     assert!(section(&app(false)).is_none());
 }

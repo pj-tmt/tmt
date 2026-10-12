@@ -166,10 +166,11 @@ Hide this stop during search; retain target identity on refresh and resize.
 Provider bars use an approximately 18-cell inside label, such as `Claude 36% (7d)`.
 At 160 cells two fit side by side; narrower widths give each its own row. Keep
 percentage inside and depletion warning outside. Reverse-fill the existing
-working/waiting/blocked role; use Text over the neutral Track background.
-NO_COLOR reverses fill and underlines track. Only a positive measured pace adds
-`~N%/h`; before-reset depletion is `! ~duration`, at or within 12h `✗ ~duration`.
-`│ duration` names time to reset. Beside the pace, show ↗ (waiting), → (muted) or
+working role above 40% remaining, waiting from 15% through 40%, and blocked below
+15%; use Text over the neutral Track background.
+NO_COLOR reverses fill and underlines track. Only depletion before reset adds reset time, a positive measured pace
+`~N%/h` and an eligible trend; otherwise show just the bar. Its warning is `! ~duration`, at or within 12h `✗ ~duration`.
+Warning urgency is independent of remaining-balance colour. `│ duration` names time to reset. Beside the pace, show ↗ (waiting), → (muted) or
 ↘ (working) when recent pace is clearly faster, similar or slower than the
 displayed baseline. Insufficient history omits the arrow; missing and stale
 readings use plain words. Short-window readings remain in overview detail.
