@@ -263,10 +263,17 @@ another kind (pairing guidance, the reader) never counts. There is no polling an
 automatic reload: Reload is the reader's action, and unsent in-tab drafts follow the existing
 rules (device-stored per page, so a reload restores them when storage works; see
 `draft-store.ts`).
-The same check also reads `GET api/serve-release` (`serve_release.rs`, contract): when the serve is
-older than the release installed beside it, the row says to restart `tmt colab serve` (naming both
-versions, no Reload, `data-colab-update='serve'` for its two-line height) and the serve prints one
-terminal warning. A reload cannot help, so nothing restarts or reloads itself.
+The same check reads `GET api/serve-release` (`serve_release.rs`, contract). An installed serve
+follows verified `current` selections without an installer hook: receipt-bound executable,
+read-only app/store preflight, idle drain up to 60 seconds, then ordinary store startup.
+New writes stop during the drain; admitted saves and attachment maintenance finish first.
+Pre-cutoff failure keeps the old serve and names manual recovery (`restartFailed:true` in
+its release status). Post-cutoff failure names the release and manual recovery, exits
+unsuccessfully and never claims rollback. `serve.rs` uses
+normal stop: an owned Remote is reaped, an attached Remote stays up. The selected release
+execs through ordinary startup, so Remote ownership/stop reporting stay truthful without a
+guardian or handoff. An owned door briefly restarts on its saved port. Browser
+reload stays explicit; old serves still show the named manual restart row.
 A recovery press does not dismiss it or take focus from an active composer. Mobile
 Chat closes its modal drawer to reach Reconnect; its DOM selection is retained only
 for that recovery and restored when the same connected composer regains focus.

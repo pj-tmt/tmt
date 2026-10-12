@@ -85,6 +85,11 @@ it('reads only a strict serve release', () => {
     running: '0.1.0-alpha.46',
     installed: '0.1.0-alpha.57+b1',
   });
+  expect(parseServeRelease({ running: '1', installed: '2', restartFailed: true })).toEqual({
+    running: '1',
+    installed: '2',
+    restartFailed: true,
+  });
   for (const bad of [
     null,
     [],
@@ -98,6 +103,9 @@ it('reads only a strict serve release', () => {
     { running: '1', installed: undefined },
     { running: '1', installed: 2 },
     { running: '1', extra: true },
+    { running: '1', restartFailed: true },
+    { running: '1', installed: '2', restartFailed: false },
+    { running: '1', installed: '2', restartFailed: 'true' },
   ])
     expect(parseServeRelease(bad)).toBeNull();
 });

@@ -131,6 +131,7 @@ struct Peer {
     catchup: Option<Catchup>,
     chains: std::collections::HashSet<String>,
     in_flight: usize,
+    object_pending: usize,
     incoming: Option<Incoming>,
     buffered_slot: bool,
     terminal: Option<Code>,
@@ -171,6 +172,7 @@ impl Peer {
             catchup: None,
             chains: Default::default(),
             in_flight: 0,
+            object_pending: 0,
             incoming: None,
             buffered_slot: false,
             terminal: None,
@@ -402,6 +404,8 @@ struct State<A> {
     /// one is preparing, a status request for it is `pending`, never `absent`, even after the
     /// connection that sent it is gone.
     saving: HashMap<(String, String), usize>,
+    /// A service replacement finishes admitted saves but admits no new peer mutations.
+    draining: bool,
 }
 /// Shared queue/admission/store owner. No worker threads; dropping a Connection
 /// removes its subscriber. Mutate authority only through update_admission.
@@ -513,7 +517,19 @@ impl<A: Admission> Server<A> {
             peers: HashMap::new(),
             next: 0,
             saving: HashMap::new(),
+            draining: false,
         })))
+    }
+    /// A preparation outside the mutex remains a live operation until its saved outcome settles.
+    pub fn is_idle(&self) -> bool {
+        self.0.try_lock().is_ok_and(|state| {
+            state.saving.is_empty() && state.peers.values().all(|peer| peer.object_pending == 0)
+        })
+    }
+    /// Fence new peer writes; already admitted preparations still use `finish_save`.
+    pub fn drain(&self) -> Result<(), Code> {
+        self.0.lock().map_err(|_| Code::Denied)?.draining = true;
+        Ok(())
     }
     /// Serializes live-authority changes with append and clears revoked peers'
     /// pending data before any subsequent poll. Persistent owner transitions
@@ -603,6 +619,7 @@ impl<A: Admission> DetachedCatchup<A> {
             peers: HashMap::new(),
             next: 1,
             saving: HashMap::new(),
+            draining: false,
         };
         // The consumer already admitted current membership and eligible opaque
         // historical keys on its live connection. Name that exact head without
@@ -710,6 +727,14 @@ impl<A: Admission> State<A> {
         ) {
             self.admission
                 .authorize(&principal, &scope, Access::Publish)?;
+        }
+        if self.draining
+            && matches!(
+                &frame,
+                Frame::Append { .. } | Frame::Chunk { .. } | Frame::Save { .. }
+            )
+        {
+            return Err(Code::ResyncRequired);
         }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
@@ -1485,17 +1510,29 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             state
                 .admission
                 .authorize(&peer.principal, scope, Access::Read)?;
-        }
-        if let Some(objects) = &self.objects {
-            match objects.submit(
-                scope.clone(),
-                id.clone(),
-                request,
-                now + limits::OBJECT_REPLY,
-            ) {
-                Ok(()) => return Ok(()),
-                Err(Code::Capacity | Code::Denied) => {}
-                Err(code) => return Err(code),
+            if state.draining {
+                return Err(Code::ResyncRequired);
+            }
+            if let Some(objects) = &self.objects {
+                // Admission and bounded submission share the drain lock. The count remains
+                // live through backend work and publication, until its correlated reply settles.
+                match objects.submit(
+                    scope.clone(),
+                    id.clone(),
+                    request,
+                    now + limits::OBJECT_REPLY,
+                ) {
+                    Ok(()) => {
+                        state
+                            .peers
+                            .get_mut(&self.id)
+                            .ok_or(Code::Denied)?
+                            .object_pending += 1;
+                        return Ok(());
+                    }
+                    Err(Code::Capacity | Code::Denied) => {}
+                    Err(code) => return Err(code),
+                }
             }
         }
         values::generated_id(&id)?;
@@ -1679,6 +1716,9 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
             while let Some(reply) = objects.take_reply() {
                 if let Ok(mut state) = self.server.0.lock() {
                     state.recheck();
+                    if let Some(peer) = state.peers.get_mut(&self.id) {
+                        peer.object_pending = peer.object_pending.saturating_sub(1);
+                    }
                     if let Some(peer) = state.peers.get_mut(&self.id)
                         && peer.terminal.is_none()
                         && peer.scope.as_ref() == Some(&reply.scope)

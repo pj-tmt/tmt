@@ -51,6 +51,7 @@ struct Shared {
     due: Mutex<bool>,
     wake: Condvar,
     stop: AtomicBool,
+    active: AtomicBool,
 }
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -81,6 +82,7 @@ impl Rekeyer {
             due: Mutex::new(true),
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
+            active: AtomicBool::new(false),
         });
         let worker = Arc::clone(&shared);
         let thread = thread::Builder::new()
@@ -94,14 +96,30 @@ impl Rekeyer {
     pub fn nudge(&self) -> Nudge {
         Nudge(Arc::clone(&self.shared))
     }
+    pub fn is_idle(&self) -> bool {
+        !self.shared.active.load(Ordering::Acquire)
+    }
+    /// Stop between pages without interrupting the pass that is already publishing.
+    pub fn request_stop(&self) {
+        self.shared.stop.store(true, Ordering::Release);
+        self.shared.wake.notify_all();
+    }
+    pub fn is_finished(&self) -> bool {
+        self.thread.as_ref().is_none_or(JoinHandle::is_finished)
+    }
     /// End the worker. The caller closes the object channel first, so a pass blocked on the
     /// backend ends quickly.
     pub fn stop(mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        self.shared.wake.notify_all();
+        self.request_stop();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+struct ActivePass<'a>(&'a AtomicBool);
+impl Drop for ActivePass<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 fn work(
@@ -145,6 +163,8 @@ fn work(
         }
         due = false;
         retry_at = None;
+        shared.active.store(true, Ordering::Release);
+        let active = ActivePass(&shared.active);
         let source = locked(registration).save_source();
         let unfinished = match source {
             Some(source) => {
@@ -152,6 +172,7 @@ fn work(
             }
             None => true,
         };
+        drop(active);
         if unfinished {
             retry_at = Some(Instant::now() + backoff.next());
         } else {
@@ -281,6 +302,7 @@ mod tests {
             due: Mutex::new(false),
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
+            active: AtomicBool::new(false),
         };
         let mut after = None;
         assert!(

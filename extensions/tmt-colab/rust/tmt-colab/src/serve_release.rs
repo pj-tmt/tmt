@@ -1,13 +1,14 @@
-//! Whether the running serve is older than the Colab release installed beside it.
+//! The running Colab release, the installed selection and bounded restart verification.
 //!
-//! `tmt upgrade` publishes a new release directory and flips `<lib>/tmt-colab/current`; a serve
-//! already running keeps its old release directory and bundled app. This reads the install
-//! layout only: two path resolutions and, when the active release changed, one bounded receipt
-//! read. It never spawns a process, uses the network, signals the serve or changes state, and
-//! any doubt means "not stale" so a warning is never a false alarm.
+//! Installation moves `<lib>/tmt-colab/current`; the running service retains its release.
+//! Notice reads stay bounded and read-only. Restart selection additionally checks the owned
+//! executable against that release's receipt before the executable owner runs its preflight.
+//! This module never spawns a process, uses the network, signals the serve or changes stored state.
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::{
     io::Read,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant},
@@ -16,6 +17,8 @@ use std::{
 /// A receipt larger than this is not read (the CLI receipt bound is the largest in use).
 const RECEIPT_BYTES: u64 = 64 * 1024;
 const VERSION_BYTES: usize = 64;
+/// Bound a restart verification read independently of the installed artifact size.
+const EXECUTABLE_BYTES: u64 = 512 * 1024 * 1024;
 /// The most often the layout is read, however many requests ask.
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 
@@ -24,6 +27,24 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 pub struct Stale {
     pub running: String,
     pub installed: String,
+}
+
+/// A captured installed executable whose receipt still binds its bytes.
+/// The executable owner additionally checks its app and store before the restart cutoff.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    program: PathBuf,
+    version: String,
+    digest: [u8; 32],
+}
+
+impl Candidate {
+    pub fn program(&self) -> &Path {
+        &self.program
+    }
+    pub fn version(&self) -> &str {
+        &self.version
+    }
 }
 
 /// The serve's own install location: `<lib>/tmt-colab/releases/<id>/tmt-colab`.
@@ -52,6 +73,89 @@ impl Running {
             version: version.to_owned(),
         })
     }
+    /// Follow the installed current release; the installer owns version direction.
+    /// No executable runs until its owned regular file matches the retained receipt.
+    pub fn verified_current(&self) -> Result<Option<Candidate>, &'static str> {
+        let active = self
+            .current
+            .canonicalize()
+            .map_err(|_| "Installed current release is unavailable.")?;
+        if active == self.release {
+            return Ok(None);
+        }
+        let releases = self
+            .release
+            .parent()
+            .ok_or("Installed release layout is invalid.")?;
+        if active.parent() != Some(releases) {
+            return Err("Installed current is outside the release directory.");
+        }
+        let receipt = owned_file(&active.join("receipt.json"))?;
+        let mut bytes = Vec::new();
+        receipt
+            .take(RECEIPT_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "Installed receipt could not be read.")?;
+        if bytes.len() as u64 > RECEIPT_BYTES {
+            return Err("Installed receipt is too large.");
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| "Installed receipt is invalid.")?;
+        let version = value
+            .get("version")
+            .and_then(serde_json::Value::as_str)
+            .filter(|version| plain_version(version))
+            .ok_or("Installed receipt version is invalid.")?;
+        if version == self.version {
+            return Ok(None);
+        }
+        let expected = value
+            .get("file_sha256")
+            .and_then(|files| files.get("tmt-colab"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .ok_or("Installed receipt has no executable digest.")?;
+        let program = active.join("tmt-colab");
+        let mut file = owned_file(&program)?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| "Installed executable could not be inspected.")?;
+        if metadata.mode() & 0o111 == 0 {
+            return Err("Installed executable is not executable.");
+        }
+        if metadata.len() == 0 || metadata.len() > EXECUTABLE_BYTES {
+            return Err("Installed executable exceeds restart verification bounds.");
+        }
+        let mut digest = Sha256::new();
+        let mut buffer = [0; 64 * 1024];
+        let mut read_bytes = 0u64;
+        let started = Instant::now();
+        loop {
+            let size = file
+                .read(&mut buffer)
+                .map_err(|_| "Installed executable could not be read.")?;
+            if size == 0 {
+                break;
+            }
+            read_bytes += size as u64;
+            if read_bytes > EXECUTABLE_BYTES || started.elapsed() > Duration::from_secs(10) {
+                return Err("Installed executable exceeds restart verification bounds.");
+            }
+            digest.update(&buffer[..size]);
+        }
+        let digest: [u8; 32] = digest.finalize().into();
+        if read_bytes != metadata.len() || digest_text(&digest) != expected {
+            return Err("Installed executable differs from its receipt.");
+        }
+        if self.current.canonicalize().ok().as_ref() != Some(&active) {
+            return Err("Installed current changed during verification.");
+        }
+        Ok(Some(Candidate {
+            program,
+            version: version.to_owned(),
+            digest,
+        }))
+    }
     /// The installed version when it differs from this serve's, else `None`.
     pub fn stale(&self) -> Option<Stale> {
         let active = self.current.canonicalize().ok()?;
@@ -66,6 +170,36 @@ impl Running {
     }
 }
 
+fn digest_text(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn owned_file(path: &Path) -> Result<std::fs::File, &'static str> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
+        .open(path)
+        .map_err(|_| "Installed release file could not be opened.")?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Installed release file could not be inspected.")?;
+    if !metadata.is_file()
+        || metadata.uid() != nix::unistd::Uid::effective().as_raw()
+        || metadata.mode() & 0o7022 != 0
+    {
+        return Err("Installed release file is not an owned regular file.");
+    }
+    Ok(file)
+}
+
+fn plain_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= VERSION_BYTES
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+'))
+}
+
 fn receipt_version(path: &Path) -> Option<String> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
@@ -78,18 +212,14 @@ fn receipt_version(path: &Path) -> Option<String> {
     }
     let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     let version = value.get("version")?.as_str()?;
-    let plain = !version.is_empty()
-        && version.len() <= VERSION_BYTES
-        && version
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'+'));
-    plain.then(|| version.to_owned())
+    plain_version(version).then(|| version.to_owned())
 }
 
 /// The serve's cached answer, shared by the terminal watcher and the browser route.
 pub struct ServeRelease {
     running: Option<Running>,
     cache: Mutex<Option<(Instant, Option<Stale>)>>,
+    failed: Mutex<Option<String>>,
 }
 
 impl ServeRelease {
@@ -97,12 +227,28 @@ impl ServeRelease {
         Self {
             running,
             cache: Mutex::new(None),
+            failed: Mutex::new(None),
         }
     }
     pub fn version(&self) -> &str {
         self.running
             .as_ref()
             .map_or(env!("CARGO_PKG_VERSION"), |r| &r.version)
+    }
+    /// A failed pre-cutoff check is diagnostic only; the old service stays live.
+    pub fn verification_failed(&self, version: String) {
+        if let Ok(mut failed) = self.failed.lock() {
+            *failed = Some(version);
+        }
+    }
+    pub fn failed_version(&self) -> Option<String> {
+        self.failed.lock().ok()?.clone()
+    }
+    /// Verify the selected release before the serving process begins its drain.
+    pub fn verified_current(&self) -> Result<Option<Candidate>, &'static str> {
+        self.running
+            .as_ref()
+            .map_or(Ok(None), Running::verified_current)
     }
     /// An uncached read, for the one terminal watcher that already paces itself.
     pub fn fresh(&self) -> Option<Stale> {
@@ -220,6 +366,80 @@ mod tests {
         );
         // The serve keeps its own release; nothing was moved or removed.
         assert!(layout.lib.join("releases/old/tmt-colab").is_file());
+    }
+
+    fn restart_release(layout: &Layout, id: &str, version: &str) -> PathBuf {
+        let bytes = b"verified executable fixture";
+        let receipt = serde_json::json!({
+            "version": version,
+            "file_sha256": {"tmt-colab": digest_text(&Sha256::digest(bytes))}
+        });
+        let dir = layout.release(id, Some(&receipt.to_string()));
+        fs::write(dir.join("tmt-colab"), bytes).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir.join("tmt-colab"), fs::Permissions::from_mode(0o755)).unwrap();
+        dir
+    }
+
+    #[test]
+    fn restart_follows_current_without_second_guessing_the_version_direction() {
+        let layout = Layout::new();
+        restart_release(&layout, "old", "0.1.0-alpha.57");
+        let active = restart_release(&layout, "selected", "0.1.0-alpha.46");
+        layout.activate("old");
+        let running = layout.running("old", "0.1.0-alpha.57");
+        assert_eq!(running.verified_current(), Ok(None));
+        layout.activate("selected");
+        let candidate = running.verified_current().unwrap().unwrap();
+        assert_eq!(candidate.program(), active.join("tmt-colab"));
+        assert_eq!(candidate.version(), "0.1.0-alpha.46");
+        assert!(layout.lib.join("releases/old/tmt-colab").exists());
+    }
+
+    #[test]
+    fn a_changed_executable_or_unbound_receipt_never_becomes_a_restart_candidate() {
+        let layout = Layout::new();
+        restart_release(&layout, "old", "1");
+        let active = restart_release(&layout, "selected", "2");
+        let running = layout.running("old", "1");
+        layout.activate("selected");
+        assert!(running.verified_current().unwrap().is_some());
+        fs::write(active.join("tmt-colab"), b"changed bytes").unwrap();
+        assert_eq!(
+            running.verified_current(),
+            Err("Installed executable differs from its receipt.")
+        );
+        restart_release(&layout, "selected", "2");
+        fs::write(active.join("receipt.json"), receipt("2")).unwrap();
+        assert_eq!(
+            running.verified_current(),
+            Err("Installed receipt has no executable digest.")
+        );
+        restart_release(&layout, "selected", "2");
+        fs::remove_file(active.join("tmt-colab")).unwrap();
+        std::os::unix::fs::symlink(
+            layout.lib.join("releases/old/tmt-colab"),
+            active.join("tmt-colab"),
+        )
+        .unwrap();
+        assert_eq!(
+            running.verified_current(),
+            Err("Installed release file could not be opened.")
+        );
+    }
+
+    #[test]
+    fn current_outside_the_release_directory_is_never_a_restart_candidate() {
+        let layout = Layout::new();
+        restart_release(&layout, "old", "1");
+        let running = layout.running("old", "1");
+        let foreign = Temp::new();
+        fs::create_dir(foreign.0.join("foreign")).unwrap();
+        std::os::unix::fs::symlink(foreign.0.join("foreign"), layout.lib.join("current")).unwrap();
+        assert_eq!(
+            running.verified_current(),
+            Err("Installed current is outside the release directory.")
+        );
     }
 
     #[test]

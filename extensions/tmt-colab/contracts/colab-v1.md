@@ -2555,15 +2555,32 @@ no title/content of deleted pages is exposed. Its non-deleted IDs exactly match 
 Browser discovery caps the complete serialized metadata response at 1 MiB.
 
 A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
-compares itself with `<lib>/tmt-colab/current` (`serve_release.rs`). When another release
-with a different `receipt.json` `version` is active, `GET /api/serve-release` (same admission
-as session) returns exactly `{running, installed}`; otherwise exactly `{running}`. Versions
-are at most 64 characters of `[0-9A-Za-z.+-]`. The check reads only the install layout (one
-bounded receipt read, cached for a minute), and any doubt, a development binary or a reinstall
-of the same version is "not stale". The serve also prints one stderr warning (never in
-`--json`): `Colab <installed> is installed, but <running> is still running.` and
-`Restart \`tmt colab serve\` to update.`; the tab row says the same. Nothing restarts,
-signals or changes state; a serve that predates this route cannot report itself.
+follows the install's `current` selection (`serve_release.rs`); version direction belongs to
+installation, not Colab. A different release with a different receipt version is checked
+at most every five seconds while serving, including background and JSON modes. The release
+must remain under the same `releases` directory, with an owned regular executable matching
+its receipt SHA-256 (bounded to 512 MiB and ten seconds). The selected executable's hidden,
+read-only `serve --upgrade-check --json --no-open` confirms its bundled app, existing root
+keys and supported store before any cutoff. It does not migrate, open a door or pair a device.
+A failed check leaves the old service live and prints one warning naming both versions and
+`Run tmt colab stop, then tmt colab serve --background.` The same session-admitted
+`GET /api/serve-release` returns `{running, installed, restartFailed:true}` for that failed
+selection; otherwise the existing `{running, installed}` or `{running}` shapes apply.
+Versions are at most 64 characters of `[0-9A-Za-z.+-]`; malformed selections and development
+binaries cannot start a replacement. A same-version reinstall remains unchanged.
+
+A verified replacement waits up to 60 seconds for an idle point, then fences new requests
+and peer writes. Admitted page saves, attachment work and commits finish before the old
+socket and store close. The new service opens the store through ordinary startup, applying
+its existing migrations. Normal stop first reaps only a Remote door this serve started;
+an attached door stays up. The selected release then execs in place and performs normal
+startup, attaching or starting Remote as usual. An owned door has a brief outage and Remote
+reuses its saved port, so page links stay unchanged. There is no guardian, ownership handoff,
+browser opening, pairing or installer hook. Failure after the
+cutoff makes no rollback claim: `COLAB_RELEASE_REPLACEMENT` and the private failure record
+name the selected release and manual recovery, and the service exits unsuccessfully.
+An older serve that predates this behavior still needs the named manual restart. Browser
+reload remains explicit and follows the existing draft rules.
 `pages`is sorted by page ID, at most 1,000 entries, each exactly`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
 expiresAtMs, warnings, labels}`; `labels`is the page's [display-only label set](#page-labels-2588). These time/expiry hints use the same verified projection
 as`ls/show`, defined in [Local management CLI](#local-management-cli-1307).

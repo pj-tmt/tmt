@@ -1199,7 +1199,7 @@ fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
         (
             4,
             "COLAB_STORE_OUTDATED",
-            "The running Colab service is older than this CLI.",
+            "This space was saved by an older Colab service.",
             "Run tmt colab stop, then tmt colab serve --background.",
             &["tmt colab stop", "tmt colab serve --background"][..],
         ),
@@ -3937,10 +3937,9 @@ fn serve_without_remote_runs_local_only_and_names_the_install_step() {
     assert!(serving.running());
     serving.stop(Signal::SIGTERM);
 }
-/// The serve running from an installed release directory is told, once and only on its
-/// terminal, when `current` moves to another version; it keeps serving and nothing is changed.
+/// A selected release without a verified executable keeps the old service live.
 #[test]
-fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current() {
+fn an_unverified_selected_release_keeps_the_old_service_with_manual_recovery() {
     let pilot = Pilot::new(None);
     let lib = pilot.root.join("lib/tmt-colab");
     for (id, version) in [("old", "0.0.0-running"), ("new", "9.9.9-installed")] {
@@ -3968,7 +3967,7 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     let err = pilot.root.join("serve.err");
     let child = command
         .env("TMT_EXECUTABLE", pilot.remote_core(None, Serve::Fail))
-        .args(["serve", "--foreground"])
+        .args(["serve", "--foreground", "--no-open"])
         .stdout(fs::File::create(&out).unwrap())
         .stderr(fs::File::create(&err).unwrap())
         .spawn_owned()
@@ -3983,20 +3982,301 @@ fn serve_in_an_installed_release_warns_once_when_a_newer_version_becomes_current
     );
     std::fs::remove_file(&current).unwrap();
     std::os::unix::fs::symlink("releases/new", &current).unwrap();
-    // The warning and its hint are written separately: wait for the last of them.
-    let warning = Serving::wait_for(&serving.err, "to update");
+    let warning = Serving::wait_for(&serving.err, "then tmt colab serve --background");
     assert!(
-        warning.contains("Colab 9.9.9-installed is installed, but ")
-            && warning.contains(" is still running")
-            && warning.contains("Restart `tmt colab serve` to update"),
+        warning.contains("Colab 9.9.9-installed could not be verified;")
+            && warning.contains("keeps running"),
         "{warning}"
     );
-    assert_eq!(warning.matches("is installed, but").count(), 1, "{warning}");
-    // Still serving; no restart, no change to the installed release it was told about.
+    assert_eq!(
+        warning.matches("could not be verified").count(),
+        1,
+        "{warning}"
+    );
     assert!(serving.running());
     assert!(exe.is_file());
     serving.stop(Signal::SIGTERM);
 }
+/// An installed running binary, with all environment inherited solely from the private world.
+fn installed_service(pilot: &Pilot, core: PathBuf, json_output: bool) -> (Serving, PathBuf) {
+    let lib = pilot.root.join("lib/tmt-colab");
+    let old = lib.join("releases/old");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(
+        old.join("receipt.json"),
+        json!({"version":env!("CARGO_PKG_VERSION")}).to_string(),
+    )
+    .unwrap();
+    let exe = old.join("tmt-colab");
+    tmt_test_support::write_executable(&exe, &fs::read(BINARY).unwrap(), 0o755).unwrap();
+    std::os::unix::fs::symlink("releases/old", lib.join("current")).unwrap();
+    let base = pilot.command();
+    let mut command = Command::new(exe);
+    command.current_dir(&pilot.root).env_clear();
+    for (key, value) in base.get_envs() {
+        if let Some(value) = value {
+            command.env(key, value);
+        }
+    }
+    let out = pilot.root.join("serve.out");
+    let err = pilot.root.join("serve.err");
+    command.args(["serve", "--foreground", "--no-open"]);
+    if json_output {
+        command.arg("--json");
+    }
+    let child = command
+        .env("TMT_EXECUTABLE", core)
+        .stdout(fs::File::create(&out).unwrap())
+        .stderr(fs::File::create(&err).unwrap())
+        .spawn_owned()
+        .unwrap();
+    let serving = Serving { child, out, err };
+    if json_output {
+        assert_eq!(serving.ready()["state"], "mounted");
+    } else {
+        Serving::wait_for(&serving.out, "LOCAL SPACE");
+    }
+    (serving, lib)
+}
+
+/// A receipt-bound replacement driver supplies the selected version's bounded preflight,
+/// then either execs the real current binary or fails after the cutoff. Real Colab owns the
+/// migrated store, page write and socket; the driver only makes two versions reproducible.
+fn select_replacement(pilot: &Pilot, lib: &std::path::Path, fail: bool) {
+    use sha2::{Digest, Sha256};
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+    let prepared = json!({"state":"prepared","version":"9.9.9-installed","spaceId":key.space_id,
+        "schema":tmt_colab::store::SCHEMA_VERSION});
+    let program = format!(
+        "#!/bin/sh\nif [ \"$2\" = '--upgrade-check' ]; then printf '%s\\n' {}; exit 0; fi\necho $$ > replacement.pid\n{}\n",
+        quote(&prepared.to_string()),
+        if fail {
+            format!(
+                "exec {} \"$@\" --app-dir {}",
+                quote(BINARY),
+                quote(pilot.root.join("missing-app").to_str().unwrap())
+            )
+        } else {
+            format!("exec {} \"$@\"", quote(BINARY))
+        }
+    );
+    let new = lib.join("releases/new");
+    fs::create_dir_all(&new).unwrap();
+    let exe = new.join("tmt-colab");
+    tmt_test_support::write_executable(&exe, program.as_bytes(), 0o755).unwrap();
+    let digest: String = Sha256::digest(program.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    fs::write(
+        new.join("receipt.json"),
+        json!({"version":"9.9.9-installed","file_sha256":{"tmt-colab":digest}}).to_string(),
+    )
+    .unwrap();
+    // A real door becomes stopped when its owned process exits. The stand-in follows that
+    // same discovery boundary, so normal replacement starts a new owned door, not a ghost.
+    fs::write(pilot.root.join("remote-status"), format!(
+        "if [ ! -f serve.pid ] || kill -0 $(/bin/cat serve.pid) 2>/dev/null; then printf '%s\\n' {}; else printf '%s\\n' {}; fi\nexit 0",
+        quote(DOOR), quote(STOPPED))).unwrap();
+    fs::remove_file(lib.join("current")).unwrap();
+    std::os::unix::fs::symlink("releases/new", lib.join("current")).unwrap();
+}
+
+#[test]
+fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future_store() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute_batch("DROP TABLE page_labels; PRAGMA user_version=6")
+        .unwrap();
+    drop(connection);
+    let before = fs::read(&db).unwrap();
+    let prepared = pilot.call(&["serve", "--upgrade-check", "--json", "--no-open"]);
+    assert_eq!(prepared["state"], "prepared");
+    assert_eq!(prepared["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(prepared["schema"], tmt_colab::store::SCHEMA_VERSION);
+    assert_eq!(prepared.as_object().unwrap().len(), 4);
+    assert_eq!(fs::read(&db).unwrap(), before);
+    assert!(!pilot.root.join("selected/colab/door.sock").exists());
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection.pragma_update(None, "user_version", 99).unwrap();
+    drop(connection);
+    let before = fs::read(&db).unwrap();
+    failure(
+        &pilot,
+        &["serve", "--upgrade-check", "--json", "--no-open"],
+        "COLAB_STORE_NEWER",
+    );
+    assert_eq!(fs::read(&db).unwrap(), before);
+    assert!(!pilot.root.join("selected/colab/door.sock").exists());
+}
+
+fn replacement_ready(serving: &Serving) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = fs::read_to_string(&serving.out).unwrap();
+        let ready: Vec<Value> = text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|value| value["state"] == "mounted")
+            .collect();
+        if ready.len() == 2 {
+            return ready[1].clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "replacement readiness missing in {text}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_release_replacement_leaves_an_attached_door_untouched() {
+    let pilot = Pilot::new(None);
+    let core = pilot.remote_core(Some(DOOR), Serve::Fail);
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    let first = serving.ready();
+    assert_eq!(first["door"], "attached");
+    select_replacement(&pilot, &lib, false);
+    let ready = replacement_ready(&serving);
+    assert_eq!(ready["url"], first["url"]);
+    assert_eq!(ready["door"], "attached");
+    assert!(!pilot.root.join("serve.calls").exists());
+    assert!(!pilot.root.join("serve.term").exists());
+    serving.stop(Signal::SIGTERM);
+    assert!(!pilot.root.join("serve.term").exists());
+}
+
+#[test]
+fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json() {
+    let pilot = Pilot::new(None);
+    let core = pilot.remote_core(Some(DOOR), Serve::Fail);
+    let (mut serving, lib) = installed_service(&pilot, core, false);
+    select_replacement(&pilot, &lib, false);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let output = loop {
+        let output = fs::read_to_string(&serving.out).unwrap();
+        if output.matches("Colab is running in this terminal").count() == 2 {
+            break output;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "human replacement readiness missing in {output}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(output.matches("LOCAL SPACE").count(), 2);
+    assert!(!output.contains("\"profile\""), "{output}");
+    serving.stop(Signal::SIGTERM);
+}
+
+#[test]
+fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    let door = pilot.serve_pid().unwrap();
+    let first = serving.ready();
+    let db = pilot.root.join("selected/colab/space.db");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute_batch("DROP TABLE page_labels; PRAGMA user_version=6")
+        .unwrap();
+    drop(connection);
+    failure(
+        &pilot,
+        &["page", "read", PAGE, "--json"],
+        "COLAB_STORE_OUTDATED",
+    );
+    select_replacement(&pilot, &lib, false);
+    Serving::wait_for(&pilot.root.join("replacement.pid"), "\n");
+    let new = pid_file(&pilot, "replacement.pid");
+    assert_eq!(new.as_raw() as u32, serving.child.id());
+    let ready = replacement_ready(&serving);
+    assert_eq!(ready["url"], first["url"]);
+    assert_eq!(ready["door"], "started");
+    assert_gone(door);
+    let next_door = pilot.serve_pid().unwrap();
+    assert_ne!(next_door, door);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        let version: u32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        if version == tmt_colab::store::SCHEMA_VERSION {
+            break;
+        }
+        assert!(Instant::now() < deadline, "new service did not migrate");
+        thread::sleep(Duration::from_millis(20));
+    }
+    let source = pilot.root.join("upgraded.html");
+    fs::write(&source, "<p>Written after the Colab upgrade</p>").unwrap();
+    let written = pilot.call(&[
+        "page",
+        "write",
+        PAGE,
+        "--file",
+        source.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(written["pageId"], PAGE);
+    assert_eq!(
+        pilot.call(&["page", "read", PAGE, "--json"])["source"],
+        "<p>Written after the Colab upgrade</p>"
+    );
+    assert_eq!(kill(next_door, None), Ok(()));
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("serve.calls")).unwrap(),
+        "remote serve --json\nremote serve --json\n"
+    );
+    assert!(serving.running());
+    serving.stop(Signal::SIGTERM);
+    assert_gone(new);
+    assert_gone(next_door);
+}
+
+#[test]
+fn a_post_cutoff_release_failure_names_the_release_and_manual_recovery_without_rollback() {
+    let pilot = Pilot::new(None);
+    let core = pilot.remote_core(Some(STOPPED), Serve::Hold);
+    let (mut serving, lib) = installed_service(&pilot, core, true);
+    let door = pilot.serve_pid().unwrap();
+    select_replacement(&pilot, &lib, true);
+    Serving::wait_for(&serving.out, "COLAB_RELEASE_REPLACEMENT");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = serving.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "failed replacement did not exit");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(!status.success());
+    let record: Value = serde_json::from_slice(
+        &fs::read(pilot.root.join("selected/colab/serve-error.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(record["phase"], "replacement");
+    assert_eq!(record["code"], "COLAB_RELEASE_REPLACEMENT");
+    let message = record["message"].as_str().unwrap();
+    assert!(
+        message.contains(env!("CARGO_PKG_VERSION"))
+            && message.contains("previous service stopped")
+            && message.contains("then tmt colab serve --background."),
+        "{message}"
+    );
+    assert_gone(pid_file(&pilot, "replacement.pid"));
+    assert_gone(door);
+}
+
 #[test]
 fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_install_line() {
     let pilot = Pilot::new(None);

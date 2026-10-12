@@ -71,6 +71,7 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 type SaveGate = Arc<Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
 struct Running {
     save_gate: SaveGate,
+    replacement: Arc<AtomicBool>,
     registration: Arc<Mutex<Registration>>,
     root: PathBuf,
     path: PathBuf,
@@ -164,9 +165,14 @@ impl Running {
         );
         let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
-        let worker = std::thread::spawn(move || socket.run(&flag).unwrap());
+        let replacement = Arc::new(AtomicBool::new(false));
+        let requested = Arc::clone(&replacement);
+        let worker = std::thread::spawn(move || {
+            socket.run_until_replacement(&flag, &requested).unwrap();
+        });
         Self {
             save_gate,
+            replacement,
             registration,
             root,
             path,
@@ -221,7 +227,9 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        self.worker.take().unwrap().join().unwrap();
+        if let Some(worker) = self.worker.take() {
+            worker.join().unwrap();
+        }
         assert!(!self.path.exists(), "socket left behind");
         fs::remove_dir_all(&self.root).unwrap();
     }
@@ -4471,6 +4479,41 @@ fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports
 }
 
 #[test]
+fn a_service_replacement_finishes_an_admitted_save_before_closing_the_socket() {
+    let (mut server, layout, key, mut peer) = publish_fixture();
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.save_gate.lock().unwrap() = Some((entered, wait));
+    let source = "<p>Saved before the service replacement</p>";
+    for frame in server.save_frames(SAVE_ONE, "", source) {
+        send(&mut peer, frame);
+    }
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    server.replacement.store(true, Ordering::Release);
+    let mut observer = server.peer(DEVICE);
+    send(
+        &mut observer,
+        server.frame("savestatus", json!({"operationId":SAVE_ONE})),
+    );
+    let (status, _) = receive_until(&mut observer, "saveresult");
+    assert_eq!(status["state"], "pending", "{status}");
+    assert!(!server.worker.as_ref().unwrap().is_finished());
+    assert_eq!(native_source(&layout, &key), "");
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !server.worker.as_ref().unwrap().is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "replacement never completed its admitted save"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    server.worker.take().unwrap().join().unwrap();
+    assert_eq!(native_source(&layout, &key), source);
+    assert!(!server.path.exists());
+}
+
+#[test]
 fn a_status_request_while_a_dropped_save_still_prepares_is_pending_never_absent() {
     let (server, layout, key, mut peer) = publish_fixture();
     let (entered, parked) = std::sync::mpsc::channel();
@@ -4583,7 +4626,7 @@ fn serve_release_route_names_both_versions_only_when_the_install_moved() {
         let exe = install_layout(&scratch, active);
         let running = tmt_colab::serve_release::Running::at(&exe, "0.0.0-running").unwrap();
         let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(Some(running)));
-        let server = Running::start_with(Tunnels::PRODUCT, None, Some(release));
+        let server = Running::start_with(Tunnels::PRODUCT, None, Some(Arc::clone(&release)));
         // Same admission as `/api/session`: no context and a non-owner are refused.
         let denied = server.request(&Running::get("/api/serve-release", ""));
         assert!(denied.starts_with("HTTP/1.1 403"), "{denied}");
@@ -4607,6 +4650,21 @@ fn serve_release_route_names_both_versions_only_when_the_install_moved() {
             assert_eq!(
                 body,
                 json!({"running":"0.0.0-running","installed":"9.9.9-installed"})
+            );
+        } else {
+            assert_eq!(body, json!({"running":"0.0.0-running"}));
+        }
+        release.verification_failed("9.9.9-installed".into());
+        let reply = server.request(&Running::get(
+            "/api/serve-release",
+            &format!("{}\r\n", owner(DEVICE)),
+        ));
+        let (_, body) = reply.split_once("\r\n\r\n").unwrap();
+        let body: Value = serde_json::from_str(body).unwrap();
+        if stale {
+            assert_eq!(
+                body,
+                json!({"running":"0.0.0-running","installed":"9.9.9-installed","restartFailed":true})
             );
         } else {
             assert_eq!(body, json!({"running":"0.0.0-running"}));

@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createPage, openPage } from './harness/ask.js';
+import { createPage, openPage, run } from './harness/ask.js';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   doorAnswers,
   openColab,
@@ -11,6 +14,96 @@ import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
+
+// #2839: the receipt-bound driver represents a second version; the frozen production binaries
+// own the real Remote restart, paired browser, page write and rendering.
+test('an installed Colab upgrade restarts its owned door on the same link and admits the new CLI', async () => {
+  await withWorld(async (world) => {
+    world.linkExtensions();
+    const lib = path.join(world.root, 'lib/tmt-colab');
+    const old = path.join(lib, 'releases/old');
+    const next = path.join(lib, 'releases/next');
+    fs.mkdirSync(old, { recursive: true });
+    fs.mkdirSync(next);
+    fs.copyFileSync(world.binaries.colab, path.join(old, 'tmt-colab'));
+    fs.chmodSync(path.join(old, 'tmt-colab'), 0o755);
+    fs.writeFileSync(
+      path.join(old, 'receipt.json'),
+      JSON.stringify({ version: 'running-fixture' }),
+    );
+    fs.symlinkSync('releases/old', path.join(lib, 'current'));
+    const colab = world.spawn('installed-colab', path.join(old, 'tmt-colab'), [
+      'serve',
+      '--json',
+      '--no-open',
+    ]);
+    const first = await colab.event((value) => value.state === 'mounted');
+    expect(first.door).toBe('started');
+    world.recordColabServe();
+    const address = String(first.url).replace(/\/x\/colab\/$/, '');
+    const origin = String(first.origin);
+    const device = await pairBrowser(world, 'upgrade-device');
+    const created = createPage(world, 'Upgrade', '<p id="body">Before upgrade</p>');
+    const page = await openPage({ address }, device, created);
+    await expect(page.frameLocator('iframe').locator('#body')).toHaveText('Before upgrade');
+    const prepared = JSON.parse(
+      run(world, world.binaries.colab, ['serve', '--upgrade-check', '--json', '--no-open']),
+    ) as Record<string, unknown>;
+    prepared.version = '9.9.9-upgrade-proof';
+    const word = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+    const program = `#!/bin/sh
+if [ "$2" = '--upgrade-check' ]; then printf '%s\\n' ${word(JSON.stringify(prepared))}; exit 0; fi
+exec ${word(world.binaries.colab)} "$@"
+`;
+    fs.writeFileSync(path.join(next, 'tmt-colab'), program, { mode: 0o755 });
+    fs.writeFileSync(
+      path.join(next, 'receipt.json'),
+      JSON.stringify({
+        version: prepared.version,
+        file_sha256: { 'tmt-colab': createHash('sha256').update(program).digest('hex') },
+      }),
+    );
+    fs.unlinkSync(path.join(lib, 'current'));
+    fs.symlinkSync('releases/next', path.join(lib, 'current'));
+    let ready: Record<string, unknown> | undefined;
+    await until(
+      () => {
+        const mounted = colab.lines.flatMap((line) => {
+          try {
+            const value = JSON.parse(line) as Record<string, unknown>;
+            return value.state === 'mounted' ? [value] : [];
+          } catch {
+            return [];
+          }
+        });
+        ready = mounted[1];
+        return ready !== undefined;
+      },
+      'replacement Colab readiness',
+      30_000,
+    );
+    expect(ready).toMatchObject({ door: 'started', origin, url: first.url, opened: false });
+    world.recordColabServe();
+    run(
+      world,
+      world.binaries.colab,
+      ['page', 'write', created.pageId, '--file', '-', '--json'],
+      '<p id="body">After upgrade</p>',
+    );
+    expect(
+      JSON.parse(run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']))
+        .source,
+    ).toBe('<p id="body">After upgrade</p>');
+    const reopened = await openPage({ address }, device, created);
+    await expect(reopened.frameLocator('iframe').locator('#body')).toHaveText('After upgrade');
+    expect(await doorAnswers(origin)).toBe(true);
+    const stopped = await world.tmt(['colab', 'stop', '--json']);
+    expect(stopped.code, stopped.stdout + stopped.stderr).toBe(0);
+    expect(JSON.parse(stopped.stdout)).toEqual({ state: 'stopped', door: 'started' });
+    await colab.exited;
+    await until(async () => !(await doorAnswers(origin)), 'the replacement owned door closing');
+  });
+});
 
 // #1584: from a clean state one `tmt-colab serve` plus pairing opens a page, and stopping it
 // closes both. Real core, Remote and Colab binaries and a real Chromium device; Colab reaches

@@ -206,6 +206,18 @@ impl MountSocket {
         Ok(self)
     }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
+        self.run_until_replacement(stop, &AtomicBool::new(false))
+            .map(|_| ())
+    }
+
+    /// A verified replacement waits for an idle point for at most a minute. Once draining,
+    /// no new request is admitted; already admitted saves and maintenance finish before close.
+    /// The caller performs normal door cleanup after this socket and registration close.
+    pub fn run_until_replacement(
+        self,
+        stop: &AtomicBool,
+        replacement: &AtomicBool,
+    ) -> Result<bool> {
         let mut workers: Vec<Worker> = Vec::new();
         let live = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(Mutex::new(Vec::new()));
@@ -221,7 +233,9 @@ impl MountSocket {
             )?),
             _ => None,
         };
-        let result = (|| -> Result<()> {
+        let result = (|| -> Result<bool> {
+            let mut requested = None;
+            let mut draining = false;
             // SIGTERM/SIGINT or a root-local stop request ends serving the same way.
             let halted = || stop.load(Ordering::Acquire) || stopping.load(Ordering::Acquire);
             while !halted() {
@@ -232,6 +246,36 @@ impl MountSocket {
                             .handle
                             .join()
                             .map_err(|_| "Socket worker panicked.")?;
+                    }
+                }
+                let busy = workers.len().saturating_sub(live.load(Ordering::Acquire));
+                let saves_idle = self.sync.as_ref().is_none_or(Server::is_idle);
+                if replacement.load(Ordering::Acquire) {
+                    let since = requested.get_or_insert_with(Instant::now);
+                    let maintenance_idle = rekeyer.as_ref().is_none_or(Rekeyer::is_idle);
+                    if !draining
+                        && ((busy == 0 && saves_idle && maintenance_idle)
+                            || since.elapsed() >= Duration::from_secs(60))
+                    {
+                        if let Some(sync) = &self.sync {
+                            sync.drain().map_err(|_| "Sync drain failed.")?;
+                        }
+                        if let Some(rekeyer) = &rekeyer {
+                            rekeyer.request_stop();
+                        }
+                        draining = true;
+                    }
+                    if draining {
+                        // Finished, rather than merely idle, closes the race with a maintenance
+                        // pass that was about to start when the stop request arrived.
+                        if busy == 0
+                            && saves_idle
+                            && rekeyer.as_ref().is_none_or(Rekeyer::is_finished)
+                        {
+                            return Ok(true);
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                        continue;
                     }
                 }
                 let mut events = [PollFd::new(self.listener.as_fd(), PollFlags::POLLIN)];
@@ -290,7 +334,7 @@ impl MountSocket {
                     });
                 }
             }
-            Ok(())
+            Ok(false)
         })();
         // Close retained handles before joining, interrupting blocked reads,
         // writes and held tunnels.
@@ -657,7 +701,13 @@ fn serve(
                 (
                     200,
                     serde_json::to_vec(&match stale {
-                        Some(stale) => serde_json::json!({"running": stale.running, "installed": stale.installed}),
+                        Some(stale) => {
+                            let failed = browser.release.as_ref().and_then(|release| release.failed_version())
+                                .as_ref() == Some(&stale.installed);
+                            let mut value = serde_json::json!({"running": stale.running, "installed": stale.installed});
+                            if failed { value["restartFailed"] = serde_json::json!(true); }
+                            value
+                        },
                         None => serde_json::json!({"running": running}),
                     })
                     .expect("release JSON"),

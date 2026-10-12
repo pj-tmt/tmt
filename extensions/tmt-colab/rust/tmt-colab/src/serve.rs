@@ -1,6 +1,6 @@
 //! Binary-private serve lifecycle composition: the foreground serve, the detached worker and the
-//! launcher that starts it. The handoff, cleanup and failure-record rules live once in
-//! `tmt-extension-serve`; this module only supplies Colab's readiness shape, wording and codes.
+//! launcher and installed-release restart. Background handoff and failure-record encoding live
+//! in `tmt-extension-serve`; Colab owns preflight, drain, normal stop and replacement startup.
 use crate::{open, status, supervisor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -241,6 +241,9 @@ fn present(
 
 pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) -> Result<()> {
     let json_output = args.get_flag("json");
+    if args.get_flag("upgrade-check") {
+        return upgrade_check(root, args);
+    }
     if args.get_flag("worker") {
         let mut handoff = adopt(&handshake(), stop).map_err(StartFault::from)?;
         let result = serve(root, args, json_output, stop, Some(&mut handoff));
@@ -260,8 +263,36 @@ pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) 
             result => result,
         }
     } else {
-        serve(root, args, json_output, stop, None)
+        let result = serve(root, args, json_output, stop, None);
+        if std::env::var_os("TMT_COLAB_REPLACEMENT").is_some_and(|value| value == "1") {
+            result.map_err(|_| replacement_failure(root, env!("CARGO_PKG_VERSION")))
+        } else {
+            result
+        }
     }
+}
+
+/// After the cutoff there is no rollback promise. This marker only selects diagnostics; it
+/// grants no admission and cannot start, stop or open anything by itself.
+fn replacement_failure(root: &Path, version: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    let message = format!("Colab {version} replacement failed after the previous service stopped.");
+    let hint = "Run tmt colab stop, then tmt colab serve --background.";
+    if let Ok(Some(layout)) = Layout::existing(root)
+        && let Ok(file) = layout.file("serve-error.json")
+        && let Ok(mut record) = ErrorRecord::clear(file, RECORD_BYTES)
+    {
+        record.failure(
+            "replacement",
+            "COLAB_RELEASE_REPLACEMENT",
+            &format!("{message} {hint}"),
+        );
+    }
+    StartFault {
+        code: "COLAB_RELEASE_REPLACEMENT".into(),
+        message,
+        hint: Some(hint.into()),
+    }
+    .into()
 }
 
 fn is_already_serving(error: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
@@ -314,10 +345,37 @@ fn already_running(root: &Path, args: &clap::ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Read-only candidate prerequisites while the previous service owns the root.
+/// The store's future-schema check runs without migration; only the later serve initializes it.
+fn upgrade_check(root: &Path, args: &clap::ArgMatches) -> Result<()> {
+    let app = App::selected(
+        args.get_one::<std::path::PathBuf>("app-dir")
+            .map(|path| path.as_path()),
+    )?;
+    if app.is_none() {
+        return Err("The installed release has no usable browser app.".into());
+    }
+    let layout = Layout::existing(root)?.ok_or("The serving Colab root is unavailable.")?;
+    let key = Keyring::read(&layout)?;
+    let _store = Store::read(&layout)?;
+    let mut output = tmt_cli_style::stream::stdout(true);
+    writeln!(
+        output,
+        "{}",
+        json!({
+            "state": "prepared", "version": env!("CARGO_PKG_VERSION"),
+            "spaceId": key.space_id, "schema": tmt_colab::store::SCHEMA_VERSION
+        })
+    )?;
+    output.flush()?;
+    Ok(())
+}
+
 /// Whether this invocation starts a detached serve instead of being one. Bare `--json` stays
 /// foreground, so existing supervisors keep owning the serve they start.
 pub(crate) fn is_launcher(args: &clap::ArgMatches) -> bool {
     !args.get_flag("worker")
+        && !args.get_flag("upgrade-check")
         && !args.get_flag("foreground")
         && (!args.get_flag("json") || args.get_flag("background"))
 }
@@ -407,7 +465,7 @@ fn serve(
             .map(|path| path.as_path()),
     )?;
     let layout = Layout::open(root)?;
-    let _lock = layout.serve_lock()?;
+    let lock = layout.serve_lock()?;
     let mut diagnostic = if handoff.is_some() {
         Some(ErrorRecord::clear(
             layout.file("serve-error.json")?,
@@ -417,7 +475,7 @@ fn serve(
         None
     };
     let detached = handoff.is_some();
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Option<tmt_colab::serve_release::Candidate>> {
         fence(stop, detached)?;
         let keyring = Keyring::open(&layout)?;
         let store = Store::open(&layout)?;
@@ -485,59 +543,170 @@ fn serve(
                 .map_err(StartFault::from)?,
             None => present(presentation, args, root, json_output, false)?,
         }
-        // The watcher ends with the serve, however the socket loop was stopped. A detached
-        // worker has no terminal to tell.
         let serving = Arc::new(AtomicBool::new(true));
-        let watcher =
-            (!json_output && handoff.is_none()).then(|| watch_release(&release, &serving));
-        let result = socket.run(stop);
-        serving.store(false, Ordering::Relaxed);
-        if let Some(watcher) = watcher {
-            let _ = watcher.join();
-        }
+        let requested = Arc::new(AtomicBool::new(false));
+        let candidate = Arc::new(Mutex::new(None));
+        let watcher = watch_release(&release, &serving, stop, &requested, &candidate, &space_id);
+        let result = socket.run_until_replacement(stop, &requested);
+        serving.store(false, Ordering::Release);
+        let _ = watcher.join();
         let closed = Arc::try_unwrap(registration)
             .map_err(|_| "Registration worker retained.")?
             .into_inner()
             .map_err(|_| "Registration lock poisoned.")?
             .close();
-        // The door Colab started stops after its own socket is closed.
+        let replacing = result?;
+        closed?;
+        // Normal stop preserves its ownership rule: stop only the door this serve started.
         drop(access);
-        result?;
-        closed
+        if replacing && !stop.load(Ordering::Acquire) {
+            let candidate = candidate
+                .lock()
+                .map_err(|_| "Release lock poisoned.")?
+                .take()
+                .ok_or("Verified release missing.")?;
+            Ok(Some(candidate))
+        } else {
+            Ok(None)
+        }
     })();
     if let (Some(diagnostic), Err(error)) = (&mut diagnostic, &result) {
         record_failure(diagnostic, error.as_ref());
     }
     // The record is written and closed while the serve lock is still held.
     drop(diagnostic);
-    result
+    drop(lock);
+    match result? {
+        Some(candidate) if !stop.load(Ordering::Acquire) => {
+            use std::os::unix::process::CommandExt;
+            let mut command = std::process::Command::new(candidate.program());
+            command.args(["serve", "--foreground", "--no-open"]);
+            if json_output || detached {
+                command.arg("--json");
+            }
+            command.env("TMT_COLAB_REPLACEMENT", "1");
+            // Exec retains ordinary foreground/background supervision and its owned PID.
+            // Normal startup attaches to an untouched door or restarts the one just stopped.
+            let _error = command.exec();
+            Err(replacement_failure(root, candidate.version()))
+        }
+        _ => Ok(()),
+    }
 }
 
-/// Tells the foreground user, once, when the installed release is no longer the one serving.
-/// The check reads only the install layout; it never restarts, signals or changes the serve.
-/// It runs until `serving` clears and a stop within a tenth of a second.
+/// The candidate confirms assets and read-only store prerequisites while the old serve still
+/// owns its lock. No migration or door operation occurs before the cutoff.
+fn verify_replacement(
+    candidate: &tmt_colab::serve_release::Candidate,
+    space: &str,
+    stop: &AtomicBool,
+) -> Result<()> {
+    let args = [
+        "serve".into(),
+        "--upgrade-check".into(),
+        "--json".into(),
+        "--no-open".into(),
+    ];
+    let output = tmt_invoke::invoke(
+        tmt_invoke::Request {
+            program: candidate.program(),
+            args: &args,
+            input: &[],
+            deadline: std::time::Instant::now() + STARTUP,
+            max_stream_bytes: RECORD_BYTES,
+            launch: Default::default(),
+        },
+        Some(stop),
+    )?;
+    if !output.status.success() {
+        return Err("Selected Colab release failed its readiness check.".into());
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)?;
+    if value["state"] != "prepared"
+        || value["version"] != candidate.version()
+        || value["spaceId"] != space
+        || value["schema"].as_u64().is_none()
+        || value.as_object().is_none_or(|object| object.len() != 4)
+    {
+        return Err("Selected Colab release returned an invalid readiness check.".into());
+    }
+    Ok(())
+}
+
+/// Verify a selected release while serving, then hand the candidate to the socket's drain.
+/// A failed check keeps the old service live and reports the manual recovery path once.
 fn watch_release(
     release: &Arc<tmt_colab::serve_release::ServeRelease>,
     serving: &Arc<AtomicBool>,
+    stop: &Arc<AtomicBool>,
+    requested: &Arc<AtomicBool>,
+    candidate: &Arc<Mutex<Option<tmt_colab::serve_release::Candidate>>>,
+    space: &str,
 ) -> std::thread::JoinHandle<()> {
-    let (release, serving) = (Arc::clone(release), Arc::clone(serving));
+    let (release, serving, stop, requested, candidate, space) = (
+        Arc::clone(release),
+        Arc::clone(serving),
+        Arc::clone(stop),
+        Arc::clone(requested),
+        Arc::clone(candidate),
+        space.to_owned(),
+    );
     std::thread::spawn(move || {
-        // Check at most every `PERIOD`, but notice a stop within a tenth of a second.
         const PERIOD: u32 = 50;
         let mut ticks = PERIOD;
-        while serving.load(Ordering::Relaxed) {
+        let mut failed = None;
+        while serving.load(Ordering::Acquire) && !stop.load(Ordering::Acquire) {
             if ticks >= PERIOD {
                 ticks = 0;
                 if let Some(stale) = release.fresh() {
-                    let mut warning = tmt_cli_style::stream::stderr();
-                    let terminal = warning.terminal();
-                    let _ = tmt_cli_style::message::warning(
-                        &mut warning,
-                        terminal,
-                        &tmt_colab::serve_release::restart_text(&stale),
-                        Some(tmt_colab::serve_release::RESTART_HINT),
-                    );
-                    return;
+                    if failed.as_ref() == Some(&stale.installed) {
+                        continue;
+                    }
+                    let checked = release
+                        .verified_current()
+                        .map_err(|reason| -> Box<dyn std::error::Error + Send + Sync> {
+                            reason.into()
+                        })
+                        .and_then(|candidate| {
+                            let Some(candidate) = candidate else {
+                                return Ok(None);
+                            };
+                            verify_replacement(&candidate, &space, &stop)?;
+                            // Selection can change while the candidate checks its prerequisites.
+                            if release.verified_current().ok().flatten().as_ref()
+                                != Some(&candidate)
+                            {
+                                return Err(
+                                    "Selected Colab release changed during verification.".into()
+                                );
+                            }
+                            Ok(Some(candidate))
+                        });
+                    match checked {
+                        Ok(Some(verified)) => {
+                            if let Ok(mut candidate) = candidate.lock() {
+                                *candidate = Some(verified);
+                                requested.store(true, Ordering::Release);
+                            }
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(_) => {
+                            failed = Some(stale.installed.clone());
+                            release.verification_failed(stale.installed.clone());
+                            let mut warning = tmt_cli_style::stream::stderr();
+                            let terminal = warning.terminal();
+                            let _ = tmt_cli_style::message::warning(
+                                &mut warning,
+                                terminal,
+                                &format!(
+                                    "Colab {} could not be verified; {} keeps running.",
+                                    stale.installed, stale.running
+                                ),
+                                Some("Run tmt colab stop, then tmt colab serve --background."),
+                            );
+                        }
+                    }
                 }
             }
             ticks += 1;
