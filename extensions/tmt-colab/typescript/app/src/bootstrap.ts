@@ -18,6 +18,20 @@ import type { ExpiryInfo } from './expiry.js';
 export const LABEL_POINTS = 32;
 export const LABELS_PER_PAGE = 8;
 
+/** Page summary limits; the contract's Page summary section holds the same numbers. */
+export const AUTHOR_BYTES = 128;
+const COMMENTS_MAX = 4_294_967_295;
+/** The complete `/api/pages` reply: 1,000 pages with the longest labels and summaries (about 780 KB) fit. */
+export const DISCOVERY_BYTES = 1024 * 1024;
+
+/** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
+export interface PageActivity {
+  comments: number;
+  /** At least one undecided, unresolved proposal; in v1 the mark means "a proposal awaits you". */
+  waiting: boolean;
+  /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
+  author?: string;
+}
 export interface PageInfo extends ExpiryInfo {
   pageId: string;
   epoch: string;
@@ -26,6 +40,8 @@ export interface PageInfo extends ExpiryInfo {
   archived: boolean;
   /** Display-only names the owner organizes pages with; sorted by the owner store, at most 8. */
   labels: readonly string[];
+  /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
+  summary?: PageActivity;
 }
 export interface PageId {
   pageId: string;
@@ -37,6 +53,24 @@ export interface Bootstrap {
   revision: string;
   pages: PageInfo[];
   pageIds: PageId[];
+}
+/** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
+function activity(value: unknown): asserts value is PageActivity {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, 'author' in value ? ['comments', 'waiting', 'author'] : ['comments', 'waiting']);
+  requireValue(
+    Number.isSafeInteger(value.comments) &&
+      Number(value.comments) >= 0 &&
+      Number(value.comments) <= COMMENTS_MAX &&
+      typeof value.waiting === 'boolean',
+  );
+  if ('author' in value)
+    requireValue(
+      typeof value.author === 'string' &&
+        value.author.length >= 1 &&
+        new TextEncoder().encode(value.author).length <= AUTHOR_BYTES &&
+        !/\p{Cc}/u.test(value.author),
+    );
 }
 export function mountUrl(): URL {
   const url = new URL(location.href);
@@ -57,7 +91,7 @@ export async function discover(
         ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
         : AbortSignal.timeout(10_000),
     }),
-    512 * 1024,
+    DISCOVERY_BYTES,
   );
   exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'pages', 'pageIds']);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
@@ -79,7 +113,9 @@ export async function discover(
       'expiresAtMs',
       'warnings',
       'labels',
+      ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
     ]);
+    if ('summary' in page) activity(page.summary);
     requireValue(
       page.retentionDays === null ||
         (Number.isSafeInteger(page.retentionDays) && Number(page.retentionDays) > 0),

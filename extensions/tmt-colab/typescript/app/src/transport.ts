@@ -17,7 +17,7 @@ export interface PageView extends Projection {
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
-import type { PageId } from './bootstrap.js';
+import type { PageActivity, PageId } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
@@ -27,6 +27,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly archived?: boolean;
   /** Display-only labels from the owner store; absent where a source has none (fixtures, a reader). */
   readonly labels?: readonly string[];
+  /** The owner's display-only summary (comment count, a proposal awaiting you, the creator); absent until derived. */
+  readonly summary?: PageActivity;
 }
 export interface PageSnapshot extends PageSummary {
   readonly originalAuthor?: Projection['originalAuthor'];

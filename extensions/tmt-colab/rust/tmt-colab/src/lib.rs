@@ -31,6 +31,7 @@ pub mod settings;
 pub mod short_links;
 pub mod socket;
 pub mod store;
+pub mod summary;
 pub mod sync;
 pub mod threads;
 pub mod transitions;

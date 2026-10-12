@@ -19,7 +19,12 @@ pub struct View {
     #[serde(flatten)]
     pub conversations: Conversations,
 }
-fn project(key: &Keyring, page: &str, snapshot: &Snapshot, folded: &Folded) -> Conversations {
+pub(crate) fn project(
+    key: &Keyring,
+    page: &str,
+    snapshot: &Snapshot,
+    folded: &Folded,
+) -> Conversations {
     Conversations::project(
         conversations::Capture {
             space_id: &key.space_id,

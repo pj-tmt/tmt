@@ -58,6 +58,97 @@ test('typing label: suggests names, Enter takes one, Enter again applies free te
   expect(new URL(page.url()).hash).not.toContain('label');
 });
 
+test('a row shows the creator, the comment count and a proposal waiting for you', async ({
+  page,
+}) => {
+  await mount(page);
+  const metadata = (title: string) =>
+    rows(page).filter({ hasText: title }).locator('.page-metadata');
+  await expect(metadata('Alpha plan')).toContainText('by Studio agent');
+  await expect(metadata('Alpha plan')).toContainText('3 comments');
+  await expect(metadata('Beta review')).toContainText('1 comment');
+  await expect(metadata('Beta review')).not.toContainText('1 comments');
+  await expect(metadata('Delta ops')).toContainText('0 comments');
+  // A separator leads the part after it, so a wrap can start a line with a dot and never end one.
+  const separators = await metadata('Alpha plan')
+    .locator('> *')
+    .evaluateAll((parts) =>
+      parts.map((part) => [
+        getComputedStyle(part, '::before').content,
+        getComputedStyle(part, '::after').content,
+      ]),
+    );
+  expect(separators.map(([, after]) => after)).toEqual(['none', 'none', 'none']);
+  expect(separators.map(([before]) => before !== 'none')).toEqual([false, true, true]);
+  // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
+  await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
+  await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
+    '◆ Waiting for you',
+  );
+  // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
+  const gamma = metadata('Gamma notes');
+  await expect(gamma).not.toContainText('comment');
+  await expect(gamma).not.toContainText('by ');
+  await expect(gamma.locator('time')).toBeVisible();
+});
+
+test('typing by: suggests creators, a token filters by creator and free text matches them too', async ({
+  page,
+}) => {
+  await mount(page);
+  await search(page).click();
+  await page.keyboard.type('by:');
+  await expect(page.getByRole('option')).toHaveText(['Ada (1)', 'Studio agent (1)']);
+  await page.keyboard.type('stu');
+  await expect(page.getByRole('option')).toHaveText(['Studio agent (1)']);
+  await page.keyboard.press('Enter');
+  await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  expect(new URL(page.url()).hash).toContain('by');
+  // Creators combine with labels as an AND, and several creators as an OR.
+  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await expect(titles(page)).toHaveCount(0);
+  await app(page).getByRole('button', { name: 'Remove label filter ops' }).click();
+  await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
+  await expect(titles(page)).toHaveCount(4);
+  await expect(app(page).locator('[data-by-filter]')).toHaveCount(0);
+  await search(page).click();
+  await page.keyboard.type('ada');
+  await page.keyboard.press('Enter');
+  await expect(titles(page)).toHaveText(['Beta review']);
+});
+
+test('a multi-word creator keeps its space in the token and the address, and an unknown one finds nothing', async ({
+  page,
+}) => {
+  await mount(page);
+  await search(page).click();
+  await page.keyboard.type('by:stu');
+  await page.keyboard.press('Enter');
+  const token = app(page).locator('[data-by-filter="Studio agent"]');
+  await expect(token).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  // The name travels through the address whole, so a reload restores the same token and rows.
+  const hash = new URL(page.url()).hash;
+  expect(new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).get('by')).toBe('["Studio agent"]');
+  await page.evaluate((hash) => {
+    location.hash = '/';
+    location.hash = hash;
+  }, hash);
+  await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  // A creator no page has is the ordinary empty result, not an error.
+  await app(page).getByRole('button', { name: 'Remove author filter Studio agent' }).click();
+  await search(page).click();
+  await page.keyboard.type('by:nobody');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(rows(page)).toHaveCount(0);
+  await expect(app(page).getByText('No pages match.')).toBeVisible();
+});
+
 test('free text matches titles and labels, a miss says so and clears', async ({ page }) => {
   await mount(page);
   await search(page).click();
@@ -274,6 +365,12 @@ for (const width of [1440, 390])
       await expect(page.getByRole('option')).toHaveText(['ops (1)']);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-search-${width}-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      for (const _ of 'label:o') await page.keyboard.press('Backspace');
+      await page.keyboard.type('by:');
+      await expect(page.getByRole('option')).toHaveText(['Ada (1)', 'Studio agent (1)']);
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`2588-search-by-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
       await app(page).getByRole('button', { name: 'Labels for Alpha plan' }).click();
       await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toBeVisible();

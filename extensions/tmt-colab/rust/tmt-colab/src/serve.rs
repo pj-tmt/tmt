@@ -424,15 +424,21 @@ fn serve(
         let space_id = keyring.space_id.clone();
         let (pages, all_pages) = open_pages(&store, &keyring);
         let save_root = root.to_path_buf();
+        let summary_root = root.to_path_buf();
         let registration = Arc::new(Mutex::new(
-            Registration::new(store, keyring, std::env::current_exe()?)?.with_save_source(
-                Arc::new(move || {
+            Registration::new(store, keyring, std::env::current_exe()?)?
+                .with_save_source(Arc::new(move || {
                     tmt_colab::page::save::open_source(
                         &save_root,
                         tmt_colab::decoder::Config::new(std::env::current_exe()?),
                     )
-                }),
-            ),
+                }))
+                .with_summary_source(Arc::new(move || {
+                    tmt_colab::page::save::open_source(
+                        &summary_root,
+                        tmt_colab::decoder::Config::new(std::env::current_exe()?),
+                    )
+                })),
         ));
         let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(
             tmt_colab::serve_release::Running::detect(),

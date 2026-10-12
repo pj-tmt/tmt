@@ -10,7 +10,9 @@ export type PageSort = 'updated' | 'title';
 export interface PageFilter {
   /** Label names a page must all carry. */
   labels: readonly string[];
-  /** Words that must each appear in the title or a label, ignoring case. */
+  /** Creators a page may have: any one of them (a page has one), none given means any. */
+  authors: readonly string[];
+  /** Words that must each appear in the title, a label or the creator, ignoring case. */
   text: string;
 }
 export interface LabelChange {
@@ -49,6 +51,18 @@ export function compareLabels(a: string, b: string): number {
   return x.length - y.length;
 }
 
+/** Creators with their page counts, in code point order; pages without a known creator add none. */
+export function authorCounts(pages: readonly PageSummary[]): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const page of pages) {
+    const author = page.summary?.author;
+    if (author) counts.set(author, (counts.get(author) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => compareLabels(a.name, b.name));
+}
+
 export function labelCounts(pages: readonly PageSummary[]): { name: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const page of pages)
@@ -67,7 +81,11 @@ export function filterPages(
   const kept = pages.filter((page) => {
     const labels = page.labels ?? [];
     if (!filter.labels.every((name) => labels.includes(name))) return false;
-    const haystacks = [pageTitle(page), ...labels].map((value) => value.toLocaleLowerCase());
+    const author = page.summary?.author;
+    if (filter.authors.length && (!author || !filter.authors.includes(author))) return false;
+    const haystacks = [pageTitle(page), ...labels, ...(author ? [author] : [])].map((value) =>
+      value.toLocaleLowerCase(),
+    );
     return words.every((word) => haystacks.some((value) => value.includes(word)));
   });
   return sort === 'title'

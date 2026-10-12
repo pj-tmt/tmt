@@ -171,6 +171,32 @@ impl OwnerTransaction<'_> {
         }
         Ok((out, false))
     }
+    /// One opaque string per page that changes whenever the page's folded content, or the authority
+    /// that admits it, can: the epoch, the membership head and the page's receipt and checkpoint
+    /// counts (both only grow within an epoch). The owner list's summary cache keys on it.
+    pub(crate) fn page_fingerprints(&self) -> Result<std::collections::BTreeMap<String, String>> {
+        let head = self.head().map(|h| h.revision).unwrap_or_default();
+        let mut query = self.tx.prepare(
+            "SELECT p.page,p.epoch,
+                (SELECT COUNT(*) FROM receipts r WHERE r.page=p.page AND r.epoch=p.epoch),
+                (SELECT COUNT(*) FROM checkpoints c WHERE c.page=p.page AND c.epoch=p.epoch)
+             FROM pages p ORDER BY p.page LIMIT 1001",
+        )?;
+        let rows = query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut out = std::collections::BTreeMap::new();
+        for row in rows {
+            let (page, epoch, receipts, checkpoints) = row?;
+            out.insert(page, format!("{epoch}:{head}:{receipts}:{checkpoints}"));
+        }
+        Ok(out)
+    }
     pub(crate) fn page_list(&self) -> Result<serde_json::Value> {
         let mut query = self
             .tx
