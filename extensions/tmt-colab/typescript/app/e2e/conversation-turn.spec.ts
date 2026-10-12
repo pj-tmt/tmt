@@ -925,7 +925,10 @@ for (const [width, theme] of [
     await expect(panel.locator('.annotation-status-row')).toContainText(text.messageComment);
     await expect(panel.locator('.creator-toggle')).toHaveCount(0);
     await capture(page, panel, `chat-polish-comment-${width}-${theme}`);
-    await input.fill('');
+    // Lexical admits the selection through trusted editing keys.
+    await input.press('ControlOrMeta+A');
+    await input.press('Backspace');
+    await expect(input).toHaveText('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
     await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
