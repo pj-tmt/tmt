@@ -127,23 +127,28 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
   No browser default mark; Manage remotes keeps
   the copyable `tmt remote settings default-remote <ref|local>` command for the
   separate CLI/API default. Never silently fall back.
-- **Add remote:** a dialog offers Local host or Firebase project. Local host shows
-  `tmt remote pair` to run on that host, the existing pairing words flow, and
-  `--talk` for allowing sending; completion adds the host's name. Firebase uses a
-  **remote link** printed by `tmt remote deploy firestore` (or a terminal QR),
-  re-printable by a read-only command. It carries public configuration only;
-  access still requires sign-in, admission and deployed Rules. Opening or pasting
-  it in `Paste remote link` asks `Add Firebase remote <project ID>?`, with its
-  public Hosting address `<project>.web.app` on the next line and Add / Cancel,
-  then starts sign-in. No free-form JSON field. A tenant link says
-  `You'll join project <project ID> as a tenant`; the link grants no space access.
+- **Remotes list:** the current remote's observed connected state is
+  `● Connected`; a foreign row is `not checked`, without a state mark or probe.
+  Row actions are `Rename` and `Remove`, with full accessible names
+  `Rename <name>` and `Remove <name>`. Only foreign rows have `Open`; the current
+  row has no Open action.
+- **Add remote:** the dialog has `Remote name` and `Door address or remote link`
+  fields, with Continue / Cancel. A Local door asks `Add remote <name>?`, showing
+  its address; a Firebase remote link asks `Add Firebase remote <project ID>?`,
+  with the public Hosting address `<project>.web.app` on the next line. Add /
+  Cancel confirms a public reference; pairing, sign-in and space admission stay
+  separate. No free-form JSON field. Invalid input says
+  `The remote name or link is invalid`; capacity refusal says
+  `This browser can store at most 16 remotes. Remove one before adding another.`
 - **Catalog handoff:** before storing anything, show
-  `Add <N> remotes from <source host>?`, the names, kinds and addresses, and
+  `Add these remotes to this browser?`, the names, kinds and addresses, and
   `Only names and addresses are copied. No keys, pairings or drafts.` with
-  Add / Cancel. A name used for another target says
+  Add / Cancel. The unverified source host and a count are absent from the
+  confirmation. With nothing addable, Add is disabled and says `Nothing new to add.`
+  A name used for another target says
   `You already have a remote named <name>` with an editable `<name>-2` to confirm,
   or Skip. A duplicate canonical target says `Already added as <name>` and is
-  skipped without a prompt. Invalid, oversize or colliding packets are refused
+  excluded from Add. Invalid, oversize or colliding packets are refused
   as a whole with one sentence and no partial import. Removal asks
   `Remove <name> from this browser?` and
   `This only removes the entry here. It does not sign out or revoke access.`
@@ -167,7 +172,8 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
   the selected remote's own origin; separate tabs stay independent. Drafts and
   device keys stay per origin. Only when an unsent draft exists, confirm
   `Your draft stays on <remote>.` with Switch / Cancel; the draft remains on return.
-  Colab owns this trigger and never transfers drafts or keys across origins.
+  Colab owns this draft confirmation and any message for an in-flight or uncertain
+  send; the registry owns no send state. Drafts and keys never transfer across origins.
 - **Static menu:** Remote uses the leaf's static entry and shared class names,
   without React. Its native popover and minimal script meet the BrowserMenu
   keyboard/focus contract: roving focus, Escape restores focus, outside-click
@@ -175,10 +181,10 @@ handbook copy, **Local** / **Firebase** for kinds and **this machine** for the h
   the leaf's static entry. B1 needs only the landing page Remotes list; the header
   chip/menu requirement binds at B2.
 
-B1 look review at 1440 light / 390 dark covers the Remotes list (current connected
-and foreign not checked), Add remote (door address and remote link), import
-confirmation with one collision, and remove confirmation. B2 also covers the
-four chip states, menu and unreachable-page notice.
+Look review at 1440 light / 390 dark covers the Remotes list (current connected
+and foreign not checked), Add remote (door address and remote link), catalog
+confirmation with a collision and nothing addable, remove confirmation, and the
+Remote header's four chip states, menu and unreachable-page notice.
 
 ### Setup guide
 
