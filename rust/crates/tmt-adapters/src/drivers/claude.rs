@@ -8,7 +8,7 @@ use serde::Deserialize;
 mod caller_session;
 pub mod channel;
 mod digest;
-mod plugin;
+pub mod picker;
 use tmt_core::binding::session::{
     BindingSessionState, ObservedSessionKey, ProviderSessionId, RuntimeLiveness, RuntimeState,
     SessionTransition,

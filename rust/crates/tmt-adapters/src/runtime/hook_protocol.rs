@@ -31,7 +31,6 @@ pub struct LaunchHooks<'a> {
     pub launch: &'a HookLaunch,
     pub tmt: &'a std::path::Path,
     pub environment: &'a crate::skill_installation::ProviderEnvironment,
-    pub paths: &'a crate::config::ConfigPaths,
 }
 
 /// Internal worker result, never provider output or evidence of delivery.

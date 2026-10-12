@@ -33,9 +33,8 @@ mod publication;
 #[cfg(test)]
 mod publication_tests;
 mod receipt;
-mod retention;
-pub(crate) use retention::retained_cli_versions;
 mod repair;
+mod retention;
 pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_from_archive};
 mod release;
 mod skills_tree;

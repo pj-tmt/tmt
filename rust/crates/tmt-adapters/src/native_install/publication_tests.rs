@@ -672,7 +672,7 @@ fn retention_never_follows_a_generation_symlink() {
 }
 
 #[test]
-fn provider_retention_protects_all_retained_cli_versions_and_refuses_uncertain_receipts() {
+fn publishing_retires_the_oldest_generation_and_keeps_the_pinned_and_recent_ones() {
     let (_directory, layout, oldest) = published_layout();
     let pinned_artifact = synthetic_artifact("1.2.4", b"pinned");
     publish(
@@ -688,15 +688,6 @@ fn provider_retention_protects_all_retained_cli_versions_and_refuses_uncertain_r
             &Receipt::new(&artifact, state(version, None)),
         );
     }
-    let executable = layout.root.join("current/tmt");
-    let versions = super::retained_cli_versions(&executable).unwrap();
-    assert_eq!(
-        versions,
-        ["1.2.5", "1.2.6"]
-            .into_iter()
-            .map(|v| Version::parse(v).unwrap())
-            .collect()
-    );
     assert!(
         !layout
             .root
@@ -704,12 +695,6 @@ fn provider_retention_protects_all_retained_cli_versions_and_refuses_uncertain_r
             .join(oldest.id.to_string())
             .exists()
     );
-    let uncertain = layout
-        .root
-        .join("releases")
-        .join(uuid::Uuid::new_v4().to_string());
-    fs::create_dir(uncertain).unwrap();
-    assert!(super::retained_cli_versions(&executable).is_err());
 }
 
 #[test]

@@ -22,14 +22,6 @@ impl ConfigPaths {
             .join(tmt_core::content_digest::sha256(socket.as_bytes()))
     }
 
-    /// Immutable, versioned assets loaded only by this invocation's provider child.
-    pub fn provider_plugin_directory(&self, provider: &str, version: &str) -> PathBuf {
-        self.global_dir
-            .join("provider-plugins")
-            .join(provider)
-            .join(version)
-    }
-
     /// Disposable, private per-provider session restart advisory markers.
     pub fn hook_notice_directory(&self) -> PathBuf {
         self.global_dir.join("hook-notices")

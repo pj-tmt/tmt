@@ -29,7 +29,6 @@ fn fixture(
         launch: &launch,
         tmt: Path::new("/a b/tm't"),
         environment: &environment,
-        paths: &crate::config::ConfigPaths::resolve(&directory.path, &directory.path, None, None),
     })
     .unwrap();
     assert_eq!(
@@ -53,10 +52,9 @@ fn settings(command: &RuntimeCommand) -> Value {
 #[test]
 fn launch_options_precede_the_literal_prompt_boundary() {
     let (_directory, command) = fixture(&["--", "--settings", "literal prompt"], None);
-    assert_eq!(command.args[0], "--plugin-dir");
-    assert_eq!(command.args[2], "--settings");
+    assert_eq!(command.args[0], "--settings");
     assert_eq!(
-        &command.args[4..],
+        &command.args[2..],
         &["--", "--settings", "literal prompt"].map(std::ffi::OsString::from)
     );
     assert!(settings(&command)["hooks"]["Stop"].is_array());
@@ -83,7 +81,6 @@ fn explicit_regular_file_is_read_without_rewriting_it() {
         launch: &launch,
         tmt: Path::new("/tmt"),
         environment: &environment,
-        paths: &crate::config::ConfigPaths::resolve(&directory.path, &directory.path, None, None),
     })
     .unwrap();
     assert_eq!(
@@ -92,7 +89,7 @@ fn explicit_regular_file_is_read_without_rewriting_it() {
     );
     assert_eq!(settings(&prepared)["model"], "kept");
     assert!(
-        prepared.args[3]
+        prepared.args[1]
             .to_str()
             .unwrap()
             .contains("123456789012345678901234567890")
@@ -130,7 +127,7 @@ fn existing_setup_hooks_are_the_only_observers_and_user_hooks_remain() {
     let global = json!({"hooks":{"SessionStart":[observer], "SessionEnd":[observer], "UserPromptSubmit":[observer], "Stop":[observer]}}).to_string();
     let inline = r#"{"permissions":{"allow":["Read"]},"unknown":123456789012345678901234567890,"hooks":{"Stop":[{"hooks":[{"type":"command","command":"user-hook"}]}]}}"#;
     let (_directory, command) = fixture(&["--settings", inline], Some(&global));
-    let raw = command.args[3].to_str().unwrap();
+    let raw = command.args[1].to_str().unwrap();
     assert!(raw.contains("123456789012345678901234567890"));
     let settings: Value = serde_json::from_str(raw).unwrap();
     assert_eq!(settings["permissions"]["allow"][0], "Read");
@@ -197,12 +194,6 @@ fn disabled_ambiguous_and_edited_settings_refuse_composition() {
                 launch: &launch,
                 tmt: Path::new("/tmt"),
                 environment: &environment,
-                paths: &crate::config::ConfigPaths::resolve(
-                    &directory.path,
-                    &directory.path,
-                    None,
-                    None
-                ),
             })
             .is_err()
         );
@@ -282,120 +273,33 @@ fn lifecycle_ancestry_uses_the_callers_process_owner() {
 }
 
 #[test]
-fn fresh_and_resume_launches_compose_the_picker_and_preserve_user_plugins() {
+fn launches_add_no_plugin_dir_and_keep_the_users_own() {
     for args in [
+        vec![],
         vec!["--plugin-dir", "/user/plugin"],
         vec!["--resume", "session-id", "--plugin-dir", "/user/plugin"],
     ] {
         let (directory, command) = fixture(&args, Some("{}"));
+        // The picker is a user-installed Claude plugin; the launch never injects one.
         let plugins = command
             .args
             .windows(2)
             .filter(|pair| pair[0] == "--plugin-dir")
             .map(|pair| Path::new(&pair[1]))
             .collect::<Vec<_>>();
-        assert_eq!(plugins.len(), 2);
-        assert_eq!(plugins[0], Path::new("/user/plugin"));
-        assert!(plugins[1].starts_with(&directory.path));
-        assert!(plugins[1].join("hooks/register.mjs").is_file());
+        assert_eq!(plugins.len(), usize::from(args.contains(&"--plugin-dir")));
+        assert!(
+            plugins
+                .iter()
+                .all(|plugin| *plugin == Path::new("/user/plugin"))
+        );
         assert_eq!(command.args[command.args.len() - 2], "--settings");
         assert!(settings(&command)["hooks"]["Stop"].is_array());
         assert_eq!(
             fs::read_to_string(directory.path.join(".claude/settings.json")).unwrap(),
             "{}"
         );
-    }
-}
-
-#[test]
-fn unavailable_picker_keeps_composed_hooks_and_the_original_prompt() {
-    let (directory, first) = fixture(&["--", "literal prompt"], None);
-    let path = first
-        .args
-        .windows(2)
-        .find(|pair| pair[0] == "--plugin-dir")
-        .unwrap()[1]
-        .clone();
-    fs::write(Path::new(&path).join("hooks/register.mjs"), "modified").unwrap();
-    let environment = ProviderEnvironment::from_parts(&directory.path, &directory.path, vec![], []);
-    let command = RuntimeCommand {
-        executable: "claude".into(),
-        args: vec!["--".into(), "literal prompt".into()],
-    };
-    let launch = HookLaunch {
-        identity_id: "11111111-1111-4111-8111-111111111111".into(),
-        binding_id: "22222222-2222-4222-8222-222222222222".into(),
-        owner_pid: 42,
-        owner_start: "start".into(),
-    };
-    let prepared = prepare(&LaunchHooks {
-        command: &command,
-        launch: &launch,
-        tmt: Path::new("/tmt"),
-        environment: &environment,
-        paths: &crate::config::ConfigPaths::resolve(&directory.path, &directory.path, None, None),
-    })
-    .unwrap();
-    assert!(!prepared.args.iter().any(|arg| arg == "--plugin-dir"));
-    assert_eq!(&prepared.args[2..], &command.args);
-    assert!(settings(&prepared)["hooks"]["Stop"].is_array());
-    assert_eq!(
-        fs::read_to_string(Path::new(&path).join("hooks/register.mjs")).unwrap(),
-        "modified"
-    );
-}
-
-#[test]
-fn later_launches_reuse_the_picker_after_claude_generates_editor_files() {
-    for args in [vec![], vec!["--resume", "session-1"]] {
-        let (directory, first) = fixture(&args, None);
-        let plugin_index = first
-            .args
-            .iter()
-            .position(|arg| arg == "--plugin-dir")
-            .unwrap();
-        let plugin = Path::new(&first.args[plugin_index + 1]).to_path_buf();
-        fs::write(plugin.join("tsconfig.json"), r#"{"compilerOptions":{}}"#).unwrap();
-        fs::create_dir(plugin.join(".claude-plugin/types")).unwrap();
-        fs::write(plugin.join(".claude-plugin/types/hooks.d.ts"), "export {};").unwrap();
-        let environment =
-            ProviderEnvironment::from_parts(&directory.path, &directory.path, vec![], []);
-        let launch = HookLaunch {
-            identity_id: "11111111-1111-4111-8111-111111111111".into(),
-            binding_id: "22222222-2222-4222-8222-222222222222".into(),
-            owner_pid: 42,
-            owner_start: "start".into(),
-        };
-        let command = RuntimeCommand {
-            executable: "claude".into(),
-            args: args.iter().map(|arg| (*arg).into()).collect(),
-        };
-        let paths =
-            crate::config::ConfigPaths::resolve(&directory.path, &directory.path, None, None);
-        let later = prepare(&LaunchHooks {
-            command: &command,
-            launch: &launch,
-            tmt: Path::new("/tmt"),
-            environment: &environment,
-            paths: &paths,
-        })
-        .unwrap();
-        let index = later
-            .args
-            .iter()
-            .position(|arg| arg == "--plugin-dir")
-            .expect("later launch must retain the picker");
-        assert_eq!(Path::new(&later.args[index + 1]), plugin);
-        assert!(settings(&later)["hooks"]["Stop"].is_array());
-        assert_eq!(
-            fs::read_to_string(plugin.join(".claude-plugin/types/hooks.d.ts")).unwrap(),
-            "export {};"
-        );
-        assert_eq!(
-            fs::read_to_string(plugin.join("tsconfig.json")).unwrap(),
-            r#"{"compilerOptions":{}}"#
-        );
-        assert!(!paths.global_config.exists());
-        assert!(!paths.database.exists());
+        // Nothing is materialized for the provider child.
+        assert!(!directory.path.join("provider-plugins").exists());
     }
 }

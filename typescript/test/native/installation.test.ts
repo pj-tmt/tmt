@@ -437,6 +437,72 @@ describe('native installation process contract', () => {
     });
   });
 
+  describe('Claude Code picker plugin hint', () => {
+    const hint =
+      'Claude Code is installed without the tmt-picker plugin. Add it: claude plugin marketplace add pj-tmt/tmt && claude plugin install tmt-picker@tmt';
+
+    // A stand-in `claude` first on PATH: it records its arguments and prints
+    // the given plugin list, or fails when `exitCode` is set. PATH holds no
+    // system tools here, so the script uses shell builtins only.
+    function fakeClaude(sandbox: Sandbox, output: string, exitCode = 0): string {
+      const bin = path.join(sandbox.root, 'fake-claude');
+      mkdirSync(bin, { recursive: true });
+      const calls = path.join(bin, 'calls.log');
+      writeExecutable(
+        path.join(bin, 'claude'),
+        `#!/bin/sh\necho "$@" >> '${calls}'\nprintf '%s\\n' '${output}'\nexit ${exitCode}\n`
+      );
+      sandbox.env.PATH = `${bin}${path.delimiter}${sandbox.env.PATH}`;
+      return calls;
+    }
+    const asked = (calls: string) => (existsSync(calls) ? readFileSync(calls, 'utf8') : '');
+
+    it('prints one install line, in JSON and for people, when Claude Code lacks the picker', async () => {
+      await withSandbox(async (sandbox) => {
+        await isolateExternalCommands(sandbox);
+        const calls = fakeClaude(sandbox, '[{"id":"other@market","scope":"user","enabled":true}]');
+        const json = installDocument(await runCli(sandbox, ['install', '--json']));
+        expect((json as unknown as { pickerHint?: string }).pickerHint).toBe(hint);
+        const human = await runCli(sandbox, ['install']);
+        expect(human.status).toBe(0);
+        expect(human.stdout.split(hint).length - 1).toBe(1);
+        expect(asked(calls)).toBe('plugin list --json\nplugin list --json\n');
+      });
+    });
+
+    it('stays silent when the picker is installed or the answer cannot be read', async () => {
+      for (const [output, exitCode] of [
+        ['[{"id":"tmt-picker@tmt","scope":"user","enabled":true}]', 0],
+        ['not json', 0],
+        ['[]', 1],
+      ] as const) {
+        await withSandbox(async (sandbox) => {
+          await isolateExternalCommands(sandbox);
+          const calls = fakeClaude(sandbox, output, exitCode);
+          const json = installDocument(await runCli(sandbox, ['install', '--json']));
+          expect(json).not.toHaveProperty('pickerHint');
+          const human = await runCli(sandbox, ['install']);
+          expect(human.status).toBe(0);
+          expect(human.stdout).not.toContain('tmt-picker');
+          expect(asked(calls)).toBe('plugin list --json\nplugin list --json\n');
+        });
+      }
+    });
+
+    it('does not ask Claude Code for another provider or a custom directory', async () => {
+      await withSandbox(async (sandbox) => {
+        await isolateExternalCommands(sandbox);
+        const calls = fakeClaude(sandbox, '[]');
+        const codex = installDocument(await runCli(sandbox, ['install', 'codex', '--json']));
+        expect(codex).not.toHaveProperty('pickerHint');
+        const custom = path.join(sandbox.root, 'custom-skills');
+        const dir = installDocument(await runCli(sandbox, ['install', '--dir', custom, '--json']));
+        expect(dir).not.toHaveProperty('pickerHint');
+        expect(asked(calls)).toBe('');
+      });
+    });
+  });
+
   it('isolates custom installation roots and preserves unrelated siblings', async () => {
     await withSandbox(async (sandbox) => {
       const expected = canonicalSkill();

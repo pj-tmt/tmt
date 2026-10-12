@@ -127,7 +127,6 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
     let settings =
         setup::compose_launch_hooks(&super::DRIVER, &input, &global, &observations, &digest)
             .map_err(io::Error::other)?;
-    let settings_index = selected.as_ref().map_or(boundary, |(index, _, _)| *index);
     match selected {
         Some((index, count, _)) => {
             command
@@ -139,13 +138,6 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
                 .args
                 .splice(boundary..boundary, ["--settings".into(), settings.into()]);
         }
-    }
-    // Picker availability never changes the provider's hook composition or exit.
-    if let Ok(plugin) = super::plugin::materialize(plan.paths) {
-        command.args.splice(
-            settings_index..settings_index,
-            ["--plugin-dir".into(), plugin.into_os_string()],
-        );
     }
     Ok(command)
 }
