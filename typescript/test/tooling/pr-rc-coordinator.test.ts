@@ -582,6 +582,60 @@ describe('one no-checkout exact-ID RC cleanup implementation', () => {
       f.calls.findIndex((call) => call.method === 'DELETE' && call.route.endsWith('/131'))
     ).toBeGreaterThan(cancelled);
   });
+  it('settles a cancel 409 only when one readback proves the owned run completed', async () => {
+    const f = cleanupFixture();
+    f.pull.state = 'closed';
+    f.runs[2].status = 'in_progress';
+    let waits = 0;
+    f.options.sleep = async () => {
+      waits++;
+    };
+    const call = f.call;
+    f.options.call = (method, route) => {
+      if (method === 'POST') {
+        f.runs[2].status = 'completed';
+        return { status: 409, data: { message: 'Run is already completed.' } };
+      }
+      return call(method, route);
+    };
+    const result = await cleanupPRRC(f.options);
+    expect(result.deleted).toContain(134);
+    expect(waits).toBe(0);
+    expect(f.calls.filter(({ route }) => route.endsWith('/runs/13'))).toHaveLength(1);
+    for (const artifacts of f.all.values())
+      expect(artifacts.map(({ name }) => name)).toEqual(['ordinary-preparation']);
+  });
+  it.each(['running', 'identity', '403', '500'] as const)(
+    'keeps cancel %s failures visible before payload cleanup',
+    async (kind) => {
+      const f = cleanupFixture();
+      f.pull.state = 'closed';
+      f.runs[2].status = 'in_progress';
+      let waits = 0;
+      f.options.sleep = async () => {
+        waits++;
+      };
+      const call = f.call;
+      f.options.call = (method, route) => {
+        if (method === 'POST')
+          return { status: kind === '403' ? 403 : kind === '500' ? 500 : 409, data: null };
+        const result = call(method, route);
+        if (kind === 'identity' && route.endsWith('/runs/13'))
+          return { status: 200, data: { ...f.runs[2], id: 999, status: 'completed' } };
+        return result;
+      };
+      await expect(cleanupPRRC(f.options)).rejects.toThrow(
+        kind === 'identity'
+          ? 'Cancelled run identity changed.'
+          : `RC cleanup API POST failed (${kind === 'running' ? '409' : kind}).`
+      );
+      expect(waits).toBe(0);
+      expect(f.all.get(13)!.some(({ id }) => id === 131)).toBe(true);
+      expect(f.calls.filter(({ route }) => route.endsWith('/runs/13'))).toHaveLength(
+        kind === 'running' || kind === 'identity' ? 1 : 0
+      );
+    }
+  );
   it('reports late uploads rather than declaring absence', async () => {
     const f = cleanupFixture();
     f.pull.state = 'closed';
