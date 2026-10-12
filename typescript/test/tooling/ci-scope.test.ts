@@ -760,6 +760,7 @@ describe('component map', () => {
     // Code quality runs these on every pull request, so skipping Unit tests does not skip
     // them: they check inputs that Ops-only changes can also change.
     const alwaysRun = [
+      'typescript/test/tooling/markdown-links.test.ts',
       'typescript/test/tooling/ci-scope.test.ts',
       'typescript/test/tooling/component-skills.test.ts',
       'typescript/test/tooling/release-cut.test.ts',
@@ -836,6 +837,8 @@ describe('component map', () => {
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       'typescript/test/tooling/guide-budget.test.ts':
         'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
+      'typescript/test/tooling/markdown-links.test.ts':
+        'reads inert tracked Markdown link destinations; Code quality runs it on every change',
       'typescript/test/tooling/pr-agent-check.test.ts':
         'reads the preset table of native-release.md; Code quality runs it on every change',
       '.github/components.json': 'the map names the prose in its own rules',

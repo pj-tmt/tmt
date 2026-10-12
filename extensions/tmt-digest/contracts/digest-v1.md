@@ -99,7 +99,7 @@ required fields are unavailable, not guessed defaults.
 
 Each label is `{text, colorClass, action}`. Text is plain display text (no markup,
 ANSI or shell syntax); `colorClass` is a semantic role from the shared
-[design tokens](../../../../design/tokens/tokens.json), not a raw color or CSS.
+[design tokens](../../../design/tokens/tokens.json), not a raw color or CSS.
 This version uses only `text`, `dim`, `muted` and `waiting`. Consumers render the
 supplied text and role; they do not recalculate Digest rules. `action` is null
 for a display-only label. There are at most three labels, in this order:
