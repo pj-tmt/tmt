@@ -1,4 +1,4 @@
-import { BrowserIconAction } from '@tmt/browser-ui/react';
+import { BrowserChip } from '@tmt/browser-ui/react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   $createTextNode,
@@ -14,7 +14,6 @@ import {
   type SerializedLexicalNode,
   type Spread,
 } from 'lexical';
-import { X } from 'lucide-react';
 import {
   createContext,
   createElement,
@@ -174,24 +173,15 @@ function FilterTokenChip({
   const [editor] = useLexicalComposerContext();
   const removed = useContext(RemovedToken);
   return (
-    <span
-      className="label-filter-chip"
-      {...(kind === 'label' ? { 'data-label-filter': name } : { 'data-by-filter': name })}
-    >
-      <span className="label-filter-name">
-        {TRIGGERS[kind]}
-        {name}
-      </span>
-      <BrowserIconAction
-        type="button"
-        variant="text"
-        label={
+    <span {...(kind === 'label' ? { 'data-label-filter': name } : { 'data-by-filter': name })}>
+      <BrowserChip
+        label={`${TRIGGERS[kind]}${name}`}
+        removeLabel={
           kind === 'label'
             ? text.pageList.removeFilter(name)
             : text.pageList.removeAuthorFilter(name)
         }
-        icon={<X />}
-        onActivate={(event) => {
+        onRemove={(event) => {
           if (!event.isTrusted || !editor.isEditable()) return;
           editor.update(
             () => {
@@ -386,7 +376,11 @@ function SearchField(props: PageListSearchProps) {
             className="page-list-search-field"
             trigger={trigger}
             onKeyDownCapture={(event) => {
-              if ((event.target as HTMLElement).closest('.label-filter-chip')) return;
+              if ((event.target as HTMLElement).closest('[data-label-filter],[data-by-filter]')) {
+                // Native remove-button activation must not become an editor Enter/Space command.
+                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                return;
+              }
               if (trigger['aria-expanded'] === true) {
                 trigger.onKeyDown?.(event);
                 if (event.defaultPrevented) return;

@@ -1,4 +1,13 @@
 export const browserUiClasses = Object.freeze({
+  chips: 'tmt-ui-chips',
+  chip: 'tmt-ui-chip',
+  chipLabel: 'tmt-ui-chip-label',
+  chipsAdd: 'tmt-ui-chips-add',
+  chipsStatus: 'tmt-ui-chips-status',
+  chipsSurface: 'tmt-ui-chips-surface',
+  chipsSearch: 'tmt-ui-chips-search',
+  chipsOption: 'tmt-ui-chips-option',
+
   notifications: 'tmt-ui-notifications',
   notification: 'tmt-ui-notification',
   notificationStatus: 'tmt-ui-notification-status',
@@ -82,4 +91,17 @@ export interface BrowserNotificationData {
   destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
   firstLine: string;
   quote?: string;
+}
+
+export interface BrowserChipItem {
+  id: string;
+  label: string;
+  removeLabel: string;
+  disabled?: boolean;
+}
+export interface BrowserChipOption {
+  id: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
 }

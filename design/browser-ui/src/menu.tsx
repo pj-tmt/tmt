@@ -10,7 +10,7 @@ import {
 import { Ellipsis } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
-import { browserMenuPosition } from './menu-position.js';
+import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
 
 export interface BrowserMenuItem<Key extends string = string> {
   key: Key;
@@ -33,7 +33,6 @@ export interface BrowserMenuProps<Key extends string = string> {
   /** Presentation transitions only; commands and selected values remain host-owned. */
   onOpenChange?(open: boolean): void;
 }
-const activeMenus = new WeakMap<Document, () => void>();
 
 /** Only transient visibility/focus live here; selected values and commands remain host-owned. */
 export function BrowserMenu<Key extends string>({
@@ -73,52 +72,15 @@ export function BrowserMenu<Key extends string>({
     if (!open || !node || !anchor) return;
     search.current = { text: '', at: 0 };
     const document = anchor.ownerDocument;
-    activeMenus.get(document)?.();
-    const dismiss = () => close(false);
-    activeMenus.set(document, dismiss);
+    const release = claimBrowserPopup(document, () => close(false));
     node.showModal();
     report(true);
-    const view = document.defaultView!;
-    const viewport = view.visualViewport;
-    const place = () => {
-      if (!anchor.isConnected || !anchor.getClientRects().length) return close(false);
-      const bounds = {
-        left: viewport?.offsetLeft ?? 0,
-        top: viewport?.offsetTop ?? 0,
-        width: viewport?.width ?? view.innerWidth,
-        height: viewport?.height ?? view.innerHeight,
-      };
-      node.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
-      const box = node.getBoundingClientRect();
-      const position = browserMenuPosition(
-        anchor.getBoundingClientRect(),
-        box.width,
-        Math.max(box.height, node.scrollHeight + node.offsetHeight - node.clientHeight),
-        bounds,
-      );
-      Object.assign(node.style, {
-        left: `${position.left}px`,
-        top: `${position.top}px`,
-        maxHeight: `${position.maxHeight}px`,
-      });
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(anchor);
-    observer.observe(node);
-    view.addEventListener('resize', place);
-    view.addEventListener('scroll', place, true);
-    viewport?.addEventListener('resize', place);
-    viewport?.addEventListener('scroll', place);
+    const disposePosition = placeBrowserPopup(anchor, node, () => close(false));
     const entry = entries.current[first.current === 'last' ? enabled.at(-1)! : enabled[0]];
     (entry ?? node).focus();
     return () => {
-      observer.disconnect();
-      view.removeEventListener('resize', place);
-      view.removeEventListener('scroll', place, true);
-      viewport?.removeEventListener('resize', place);
-      viewport?.removeEventListener('scroll', place);
-      if (activeMenus.get(document) === dismiss) activeMenus.delete(document);
+      disposePosition();
+      release();
       node.close();
       // StrictMode replays effects while the node remains connected. Only a
       // real removal owes a final transition; ordinary close already reported it.

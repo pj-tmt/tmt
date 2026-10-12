@@ -15,25 +15,3 @@
 .label-filter-host {
   display: inline;
 }
-.label-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  vertical-align: baseline;
-  max-width: 100%;
-  box-sizing: border-box;
-  gap: 4px;
-  padding: 0 2px 0 6px;
-  border: 1px solid var(--tmt-ui-color-edge);
-  border-radius: 0;
-  background: var(--tmt-ui-surface-sheet);
-  color: var(--tmt-ui-color-text);
-  line-height: 1.4;
-  --tmt-ui-host-icon-action-size: 24px;
-  --tmt-ui-header-icon-size: 12px;
-}
-.label-filter-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}

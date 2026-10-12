@@ -15,7 +15,7 @@ import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { PlainTextExtension } from '@lexical/plain-text';
 import { HistoryExtension } from '@lexical/history';
-import { CLEAR_HISTORY_COMMAND, defineExtension } from 'lexical';
+import { CLEAR_HISTORY_COMMAND, defineExtension, SKIP_DOM_SELECTION_TAG } from 'lexical';
 import { $richInputText, $replaceRichInput } from './rich-input-document.js';
 import './rich-input.css';
 
@@ -109,7 +109,10 @@ function EditingLifetime<Edit extends RichInputEdit>(props: RichInputProps<Edit>
     const value = editor.getEditorState().read(() => props.document.read(props.edit));
     if (explicit || value.value !== props.edit.value) {
       editor.update(() => props.document.replace(props.edit), {
-        tag: RICH_INPUT_RESET_TAG,
+        // A background editor replacement must not move the active editor's caret.
+        tag: editor.getRootElement()?.contains(document.activeElement)
+          ? RICH_INPUT_RESET_TAG
+          : [RICH_INPUT_RESET_TAG, SKIP_DOM_SELECTION_TAG],
         discrete: true,
       });
       editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);

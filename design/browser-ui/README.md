@@ -14,7 +14,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
@@ -321,3 +321,39 @@ existing modal live-region relocation with this suspension contract.
 The isolated fake-source fixture is `test/fixtures/notifications.html`. Its
 headless Chromium conformance spec uses the pinned Colab browser runner; no
 product sources or navigation are wired by the fixture.
+
+## Chips
+
+`BrowserChips` presents a controlled removable list and an Add search popup.
+The host supplies `label`, `items` (`id`, `label`, `removeLabel`, optional `disabled`),
+filtered `options` (`id`, `label`, optional `description`/`disabled`), `query` and
+`onQueryChange`, `onAdd(id, event)` and `onRemove(id, event)`. It also supplies
+`addLabel`, `searchLabel`, `emptyText`, optional `maxItems`/`limitText`, `statusText`,
+`disabled`, `addDisabled`, and a `focusFallback` when its opener can disappear.
+Values, filtering, directory loading, product limits and effects stay host-owned.
+Callbacks retain the original event; the host admits trusted actions.
+`BrowserChip` is the same item primitive for a host-owned rich editor, with
+`label`, `removeLabel`, `disabled`, `buttonRef` and `onRemove(event)`; that host
+restores editor focus and owns removal. Enter/Space on the remove control belongs
+to that button, not the surrounding editor. Static classes and item/option types live
+in the React-free static entry; checked CSS comes from the generator.
+
+Chips have square 1px edges, one-line labels and explicit remove controls. The list
+wraps; long names ellipsize without shortening accessible names. Add is disabled
+at the host's cap, with its supplied reason. Empty, loading and failure copy is
+host-supplied. Colab page-list label tokens use BrowserChip; their Lexical model,
+search application and autocomplete retain their owners.
+
+Enter/Space or Up/Down on Add opens a native top-layer surface with a combobox/listbox,
+not a menu. Focus
+stays in its search field while Up/Down moves the active enabled option. Enter
+adds one, closes and returns focus; Escape closes without adding; Tab closes and
+continues normal focus order. Empty-field Backspace removes the last enabled chip;
+text deletion and composition keep normal input behavior. Selected IDs are excluded,
+disabled options cannot be added, and modified/default-prevented keys do not act.
+A remove action focuses the next/previous surviving remove control, then Add or
+the supplied fallback. Menu and Chips share replacement and visual-viewport
+placement/cleanup; outside presses dismiss only. Optional `onOpenChange` reports
+real transitions only, including native close, replacement, anchor removal and
+unmount; StrictMode replay owes no false transition. `test/fixtures/chips.html`
+provides isolated keyboard, cap, empty, status and long-name examples.

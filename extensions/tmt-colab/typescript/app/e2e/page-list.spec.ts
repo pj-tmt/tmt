@@ -34,6 +34,44 @@ test('a label button filters the list, adds a token and removes it again', async
   await expect(titles(page)).toHaveText(['Alpha plan']);
 });
 
+test('keyboard removing a filter token keeps editor focus and applies the token removal', async ({
+  page,
+}) => {
+  await mount(page);
+  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  const remove = app(page).getByRole('button', { name: 'Remove label filter design' });
+  await remove.focus();
+  await remove.press('Enter');
+  await expect(app(page).locator('[data-label-filter="design"]')).toHaveCount(0);
+  await expect(titles(page)).toHaveCount(4);
+  await expect(search(page)).toBeFocused();
+  await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
+  await remove.focus();
+  await remove.press('Space');
+  await expect(app(page).locator('[data-label-filter="design"]')).toHaveCount(0);
+  await expect(titles(page)).toHaveCount(4);
+  await expect(search(page)).toBeFocused();
+  // The same native chip contract applies to creator tokens introduced on main.
+  for (const key of ['Enter', 'Space']) {
+    await page.keyboard.type('by:stu');
+    await expect(search(page)).toContainText('by:stu');
+    await expect(page.getByRole('option')).toHaveText(['Studio agent (1)']);
+    await page.keyboard.press('Enter');
+    await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(titles(page)).toHaveText(['Alpha plan']);
+    const authorRemove = app(page).getByRole('button', {
+      name: 'Remove author filter Studio agent',
+    });
+    await authorRemove.focus();
+    await authorRemove.press(key);
+    await expect(app(page).locator('[data-by-filter]')).toHaveCount(0);
+    await expect(titles(page)).toHaveCount(4);
+    await expect(search(page)).toBeFocused();
+  }
+});
+
 test('typing label: suggests names, Enter takes one, Enter again applies free text, Escape clears', async ({
   page,
 }) => {
