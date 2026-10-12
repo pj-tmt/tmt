@@ -11,7 +11,9 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { createSandbox, runCli, withSandbox } from '../support/cli-process.js';
 
 const roots: string[] = [];
-function fixture(mode = 'exit', output = 'ignore') {
+// A peer never outlives `lifetimeMs`, and a controlled-exit peer also ends with its launcher,
+// so a failed or timed-out case cannot leave a live process group behind.
+function fixture(mode = 'exit', output = 'ignore', lifetimeMs = 30_000) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-process-lifetime-'));
   roots.push(root);
   const marker = path.join(root, 'ready.json');
@@ -24,6 +26,7 @@ function fixture(mode = 'exit', output = 'ignore') {
     if (process.argv[2] === 'child') {
       process.send('ready');
       setInterval(() => {}, 1000);
+      setTimeout(() => process.exit(1), ${lifetimeMs}).unref();
     } else {
       const child = spawn(process.execPath, [import.meta.filename, 'child'], {
         stdio: ['ignore', '${output}', '${output}', 'ipc'],
@@ -34,12 +37,18 @@ function fixture(mode = 'exit', output = 'ignore') {
         const pendingMarker = process.argv[2] + '.pending';
         fs.writeFileSync(pendingMarker, JSON.stringify({ child: child.pid, group, launcherGroup }));
         fs.renameSync(pendingMarker, process.argv[2]);
+        const stop = (code) => {
+          child.kill('SIGKILL');
+          process.exit(code);
+        };
+        setTimeout(() => stop(1), ${lifetimeMs}).unref();
         if (process.argv[3] === 'controlled-exit') {
-          const exit = () => {
+          // Poll: no file-system notification service is needed for the release.
+          const launcher = process.ppid;
+          setInterval(() => {
             if (fs.existsSync(process.argv[2] + '.exit')) process.exit(0);
-          };
-          fs.watch(import.meta.dirname, exit);
-          exit();
+            if (process.ppid !== launcher) stop(0);
+          }, 10);
         }
         if (process.argv[3] === 'exit') process.exit(0);
         if (process.argv[3] === 'overflow') process.stdout.write('over the limit');
@@ -141,7 +150,17 @@ async function cleanup(marker: string) {
   };
   if (![child, group].every((pid) => Number.isSafeInteger(pid) && pid > 0) || group === process.pid)
     throw new Error('Invalid owned fixture process identity; retaining files.');
-  if (alive(-group)) {
+  // On macOS a probe can answer EPERM while the only members left are zombies that launchd has
+  // not reaped yet. That is neither presence nor absence and never authority to signal.
+  const groupLive = (): boolean => {
+    try {
+      return alive(-group);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') return false;
+      throw error;
+    }
+  };
+  if (groupLive()) {
     // Recheck the still-live child's group and private fixture path before any fallback signal.
     const resident = childProcess
       .execFileSync('/bin/ps', ['-o', 'pgid=,command=', '-p', String(child)], { encoding: 'utf8' })
@@ -155,7 +174,7 @@ async function cleanup(marker: string) {
       throw new Error('Owned fixture child identity changed; retaining files.');
     process.kill(-group, 'SIGKILL');
   }
-  await until(() => !alive(-group));
+  await knownProcessState(-group, false);
   await knownProcessState(child, false);
 }
 afterEach(() => {
@@ -738,6 +757,115 @@ it.each(['signal', 'probe'])(
   },
   5_000
 );
+
+async function exited(peer: childProcess.ChildProcess, ms: number) {
+  return await new Promise<number | null | 'timeout'>((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), ms);
+    peer.once('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
+it('a controlled-exit fixture exits on release without any file-system notification', async () => {
+  const f = fixture('controlled-exit');
+  // The notification service is the only thing taken away; the release is still a file.
+  const preload = path.join(f.root, 'no-watch.mjs');
+  fs.writeFileSync(
+    preload,
+    "import fs from 'node:fs';\nfs.watch = () => ({ close() {}, on() { return this; }, unref() { return this; } });\n"
+  );
+  const peer = childProcess.spawn(process.execPath, ['--import', preload, ...f.cli.args], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  try {
+    await until(() => fs.existsSync(f.marker));
+    f.releaseExit();
+    expect(await exited(peer, 3_000)).toBe(0);
+  } finally {
+    await cleanup(f.marker);
+  }
+});
+
+it('an orphaned controlled-exit fixture ends itself and its child', async () => {
+  const f = fixture('controlled-exit');
+  // The bridge starts the peer detached and exits once it is ready, orphaning the peer.
+  const bridge = path.join(f.root, 'bridge.mjs');
+  fs.writeFileSync(
+    bridge,
+    `import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+spawn(process.execPath, ${JSON.stringify(f.cli.args)}, { detached: true, stdio: 'ignore' }).unref();
+setInterval(() => { if (fs.existsSync(${JSON.stringify(f.marker)})) process.exit(0); }, 10);
+`
+  );
+  try {
+    const result = childProcess.spawnSync(process.execPath, [bridge], { timeout: 5_000 });
+    expect(result.status).toBe(0);
+    const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8')) as {
+      child: number;
+      group: number;
+    };
+    expect(await knownProcessState(group, false)).toBe(false);
+    expect(await knownProcessState(child, false)).toBe(false);
+  } finally {
+    await cleanup(f.marker);
+  }
+});
+
+it('a fixture that is never released ends itself and its child after its lifetime', async () => {
+  const f = fixture('controlled-exit', 'ignore', 1_500);
+  const peer = childProcess.spawn(process.execPath, f.cli.args, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  try {
+    await until(() => fs.existsSync(f.marker));
+    const { child, group } = JSON.parse(fs.readFileSync(f.marker, 'utf8')) as {
+      child: number;
+      group: number;
+    };
+    expect(await exited(peer, 4_000)).toBe(1);
+    expect(await knownProcessState(child, false)).toBe(false);
+    expect(await knownProcessState(-group, false)).toBe(false);
+  } finally {
+    await cleanup(f.marker);
+  }
+});
+
+it('fixture cleanup waits through a transient EPERM while the killed group is reaped', async () => {
+  const f = fixture('controlled-exit');
+  const peer = childProcess.spawn(process.execPath, f.cli.args, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  const kill = process.kill.bind(process);
+  let probe = { mockRestore: () => {} };
+  try {
+    await until(() => fs.existsSync(f.marker));
+    const { group } = JSON.parse(fs.readFileSync(f.marker, 'utf8')) as { group: number };
+    // The leader exits and its child stays: the shape that leaves zombies for launchd to reap.
+    f.releaseExit();
+    expect(await exited(peer, 3_000)).toBe(0);
+    let killed = false;
+    let denied = false;
+    probe = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === -group && signal === 'SIGKILL') killed = true;
+      if (pid === -group && signal === 0 && killed && !denied) {
+        denied = true;
+        throw Object.assign(new Error('Simulated unreaped-zombie probe'), { code: 'EPERM' });
+      }
+      return kill(pid, signal);
+    });
+    await cleanup(f.marker);
+    expect(denied).toBe(true);
+  } finally {
+    probe.mockRestore();
+    await cleanup(f.marker);
+  }
+});
 
 it('callback failure stops an unawaited run before removing the sandbox', async () => {
   const f = fixture('hold');
