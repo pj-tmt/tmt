@@ -96,6 +96,9 @@ export interface AskLedgerView {
   reason: string | null;
   reply: AskReplyRecord | null;
 }
+/** Two sorted message-ID sets are the same set: a retry is of the same batch, never a part of it. */
+export const sameMessageIds = (left: readonly string[], right: readonly string[]) =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
 export function requestId(value: unknown): asserts value is string {
   requireValue(typeof value === 'string' && value.startsWith('req_'));
   coreId(value.slice(4));

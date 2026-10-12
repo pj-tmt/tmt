@@ -49,6 +49,13 @@ export interface CommentContext {
     replies: { writer: string; operationId: string; reply: string; agentName: string }[];
   };
 }
+/** The answer comments one Send recorded in the question threads of one `tmt-questions` group
+ * (#2875): `answers` are in tab order, the first one's thread is the batch's canonical thread, and
+ * each names the question it answers. A batch Ask is one signed Ask over all of these comments. */
+export interface AnswerBatchContext {
+  group: string;
+  answers: readonly { question: string; context: CommentContext }[];
+}
 export interface ThreadBinding {
   readonly deviceId: string;
   /** Absent where this binding cannot upload or open attachments. */
@@ -618,7 +625,19 @@ export function conversationText(
     : body;
 }
 
-/** One admitted comment/Ask association used by display, reply routing and immutable context capture. */
+/** Whether `ask` is about the comment `messageId` of `thread`. An Ask is a thread's own when it names
+ * that thread; a batch Ask (several answer comments, #2875) is also about each comment it lists, in
+ * whichever of the group's question threads that comment sits. */
+export function asksAbout(ask: PageAsk, thread: Pick<ThreadView, 'threadId'>, messageId: string) {
+  return (
+    !!ask.messageIds?.includes(messageId) &&
+    (ask.thread === thread.threadId || ask.messageIds.length > 1)
+  );
+}
+
+/** One admitted comment/Ask association used by display, reply routing and immutable context capture.
+ * A batch Ask is returned for every question thread it covers; its agent reply belongs to the
+ * canonical thread, the one it names (`ask.thread`). */
 export function conversationAsks(
   thread: ThreadView | undefined,
   asks: readonly PageAsk[],
@@ -626,10 +645,8 @@ export function conversationAsks(
 ) {
   if (!thread) return [];
   const comments = thread.comments.filter((comment) => includeDeleted || !comment.deleted);
-  return asks.filter(
-    (ask) =>
-      ask.thread === thread.threadId &&
-      ask.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
+  return asks.filter((ask) =>
+    comments.some((comment) => asksAbout(ask, thread, comment.messageId)),
   );
 }
 
@@ -646,7 +663,7 @@ export function captureConversation(
       deviceName: value.deviceName,
     })),
     replies: conversationAsks(thread, asks)
-      .filter((value) => value.reply !== undefined)
+      .filter((value) => value.reply !== undefined && value.thread === thread?.threadId)
       .map((value) => ({
         writer: value.writer,
         operationId: value.operationId,

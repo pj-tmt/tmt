@@ -400,6 +400,18 @@ export function answerComment(
   return bytes(comment) <= COMMENT_BYTES ? comment : undefined;
 }
 
+const answerPrefix = (question: Pick<Question, 'title'>) => `Answer to “${question.title}”: `;
+
+/** The answer a comment body carries for `question`, without the `Page:` line and the recipient
+ * mentions `answerComment` appends; undefined for any other comment. */
+export function answerOf(question: Pick<Question, 'title'>, body: string): string | undefined {
+  const prefix = answerPrefix(question);
+  if (!body.startsWith(prefix)) return undefined;
+  const answer = body.slice(prefix.length);
+  const page = answer.lastIndexOf('\nPage: ');
+  return page >= 0 ? answer.slice(0, page) : answer;
+}
+
 /** The caller supplies only verified comments associated by resolved normal quote selectors.
  * Publisher timestamps and agent replies never decide the current answer. */
 export function currentAnswer(question: Question, comments: readonly CommentView[]) {
@@ -408,7 +420,7 @@ export function currentAnswer(question: Question, comments: readonly CommentView
       (comment) =>
         comment.deviceAuthor === true &&
         !comment.deleted &&
-        comment.body.startsWith(`Answer to “${question.title}”: `),
+        comment.body.startsWith(answerPrefix(question)),
     )
     .sort((a, b) =>
       compareCommentOrder(

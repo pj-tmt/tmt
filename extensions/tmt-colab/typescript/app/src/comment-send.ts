@@ -1,7 +1,7 @@
 import type { AskAgainInput } from './ask-again.js';
 import type { AskBinding } from './ask-panel.js';
 import type { AgentDestination } from './live-ask.js';
-import type { CommentContext } from './thread-store.js';
+import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 
 export type MessageSendFailure = {
   agent: string;
@@ -11,13 +11,17 @@ export type MessageSendFailure = {
   input: AskAgainInput;
 };
 
-/** An explicit trusted Send has already recorded this comment and frozen visible recipients.
+/** An explicit trusted Send has already recorded this comment (or, with `batch`, these answer
+ * comments, `origin` being the first) and frozen visible recipients. Each recipient gets one Ask.
  * Preparation failure is unadopted; send failure is uncertain and never replayed here. */
 export async function sendCommentAsks(
   binding: AskBinding | undefined,
   origin: CommentContext,
   destinations: readonly AgentDestination[],
-  input: Omit<AskAgainInput, 'context'> & { conversation?: CommentContext['conversation'] },
+  input: Omit<AskAgainInput, 'context' | 'batch'> & {
+    conversation?: CommentContext['conversation'];
+  },
+  batch?: AnswerBatchContext,
 ): Promise<MessageSendFailure[]> {
   const failures: MessageSendFailure[] = [];
   for (const destination of destinations) {
@@ -26,6 +30,7 @@ export async function sendCommentAsks(
     const askInput: AskAgainInput = {
       ...detail,
       context: { ...origin, conversation },
+      ...(batch ? { batch } : {}),
     };
     const failure = {
       agent: destination.agentName,
