@@ -2,6 +2,7 @@
 import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
+import { StrictMode } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
@@ -22,6 +23,7 @@ import { createAppRouter } from '../src/router.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
+import type { ManagementPort } from '../src/management.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
@@ -115,6 +117,9 @@ export async function mount(
     pastReplies?: boolean;
     /** Retain the committed answer until the test releases the verified projection. */
     holdQuestionView?: boolean;
+    /** Presentation-only test port for the real Manage dialog. */
+    management?: ManagementPort;
+    strict?: boolean;
   } = {},
 ) {
   root?.unmount();
@@ -132,6 +137,7 @@ export async function mount(
     ? [
         {
           operationId: id(21),
+          requestId: `req_${id(901)}`,
           writer: id(4),
           agent: id(6),
           agentName: 'Agent 1',
@@ -626,9 +632,10 @@ export async function mount(
         releaseDraftRead = resolve;
       })
     : undefined;
-  root.render(
+  const app = (
     <RouterProvider
       router={createAppRouter({
+        management: options.management,
         drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
@@ -650,8 +657,9 @@ export async function mount(
           };
         },
       })}
-    />,
+    />
   );
+  root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
 /** The local device loses owner-member provenance (a non-owner member). */
 export function nonOwnerDevice() {
@@ -695,6 +703,15 @@ export function proof() {
 export function discussionProof() {
   return structuredClone(current.threads);
 }
+
+/** Notification scenarios supply already admitted view data, never a Send result. */
+export function notificationSources(
+  value: Pick<PageView, 'asks' | 'threads' | 'askUnavailable'> & { source?: string },
+) {
+  records = structuredClone([...(value.asks ?? [])]);
+  current = { ...current, ...structuredClone(value), asks: records };
+  emit();
+}
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();
@@ -719,6 +736,7 @@ export function syncRecords(state: PageAsk['state'] = 'uncertain', operationId =
   records = [
     {
       operationId,
+      ...(state === 'accepted' ? { requestId: `req_${id(901)}` } : {}),
       writer: id(4),
       agent: id(6),
       agentName: 'Agent 1',
@@ -732,6 +750,7 @@ export function syncRecords(state: PageAsk['state'] = 'uncertain', operationId =
     },
     {
       operationId: id(22),
+      requestId: `req_${id(902)}`,
       writer: id(99),
       agent: id(7),
       agentName: 'Agent 2',

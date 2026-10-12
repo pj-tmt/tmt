@@ -2283,6 +2283,35 @@ the storage transaction completed. Source-editor text is outside this record.
 
 Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row with display-only Remote attribution before Colab, an original-author caption next to the title, and compact actions in More. The connection chip retains its existing owner; attribution never supplies connection state or authority.
 
+### Transient reply notifications (#2726)
+
+Chat and anchored Thread replies use the shared presentation-only FIFO queue.
+The parent reads admitted page Ask finals from this device's ledger and new live
+comments in conversations where the authenticated Yours writer has participated.
+Names, author HTML, renderer messages and Send outcomes cannot admit a reply.
+Initial history and the binding's first available current view establish baselines,
+including when it follows a cached loader snapshot; repeated
+reads, edits, reconnects and remounts do not replay arrivals. Stable page/viewer,
+writer and record identities select events; no new signed record or storage field
+is introduced. Answer/Proposal destinations remain separate.
+
+A destination already visible and following the history end suppresses its
+arrival. Trusted activation opens the existing Chat Drawer and reveals the exact
+reply, or scrolls the canonical Thread quote and opens its anchored window with
+the existing unresolved-anchor fallback. It never sends or creates a conversation.
+Actual Drawer/Menu/Manage/attachment owners, an open anchored Thread window and
+document visibility suspend the queue; closures cannot resume it while another
+active surface remains. Held items retain FIFO order and do not re-announce.
+Before display or announcement,
+resume rechecks every retained/pending event against the latest admitted view and
+silently drops withdrawn destinations. Header counts remain the persistent record.
+
+Chat/Thread announce only on first display through the leaf's polite region.
+During staged adoption, the legacy announcer and modal relocation handle only
+Answer/Proposal, once each, with no event in both regions. #2727 replaces these
+remaining sources and removes the legacy owner. Presentation grants no routing,
+recipient, Send or storage authority.
+
 ### Page Chat (#1645)
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right

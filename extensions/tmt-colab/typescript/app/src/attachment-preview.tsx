@@ -1,6 +1,7 @@
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { ArrowLeft, ArrowRight, Download, X } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { useLayoutEffect, useId, useRef } from 'react';
+import { useNotificationModalPresence } from './reply-notification-context.js';
 import { createPortal } from 'react-dom';
 import type { attachment } from '@tmt/colab-client';
 import { text } from './strings.js';
@@ -31,13 +32,16 @@ export function AttachmentPreview({
   const label = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
   const image = images[index];
-  useEffect(() => {
+  const reportModal = useNotificationModalPresence();
+  useLayoutEffect(() => {
     const node = dialog.current!;
     const conversation = trigger.closest<HTMLElement>('.conversation-turn');
     node.showModal();
+    reportModal(node.open);
     closeButton.current?.focus();
     return () => {
       node.close();
+      reportModal(false);
       if (trigger.isConnected && trigger.getClientRects().length)
         trigger.focus({ preventScroll: true });
       else if (conversation?.isConnected)
@@ -46,12 +50,13 @@ export function AttachmentPreview({
           ?.focus({ preventScroll: true });
       else document.querySelector<HTMLButtonElement>('.page-header-actions button')?.focus();
     };
-  }, [trigger]);
+  }, [trigger, reportModal]);
   return createPortal(
     <dialog
       ref={dialog}
       className="attachment-viewer"
       aria-labelledby={label}
+      onClose={() => reportModal(false)}
       onCancel={(event) => {
         event.preventDefault();
         close();

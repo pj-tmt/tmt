@@ -9,20 +9,12 @@ import {
 } from 'react';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { text } from '../strings.js';
+import { useNotificationConversation } from '../reply-notification-context.js';
 
 const bottomThreshold = 24;
 function atBottom(node: HTMLDivElement) {
   return node.scrollHeight - node.clientHeight - node.scrollTop <= bottomThreshold;
 }
-/** Display identities distinguish comments/user turns from admitted agent replies. */
-export function conversationRecordKey(
-  kind: 'comment' | 'ask' | 'reply',
-  writer: string,
-  id: string,
-) {
-  return `${kind}:${writer}:${id}`;
-}
-
 /** Owns history scrolling; callers retain placement, draft and action lifetimes. */
 export function ConversationWindow({
   title,
@@ -36,6 +28,7 @@ export function ConversationWindow({
   notice,
   composer,
   overlay,
+  notificationDestination,
   children,
   className = '',
   ...attributes
@@ -51,6 +44,7 @@ export function ConversationWindow({
   notice?: ReactNode;
   composer?: ReactNode;
   overlay?: ReactNode;
+  notificationDestination?: string;
 }) {
   if (hideHeader && !historyLabel)
     throw new Error('A headerless conversation requires a history label');
@@ -62,12 +56,52 @@ export function ConversationWindow({
   const following = useRef(true);
   const position = useRef(0);
   const [pending, setPending] = useState(false);
+  const notification = useNotificationConversation(notificationDestination);
+  const notificationRef = useRef(notification);
+  const revealFrame = useRef<number>(undefined);
+  notificationRef.current = notification;
   const clearPending = useCallback(() => {
     // Removing a focused action must not drop keyboard focus to the document.
     if (arrivals.current?.contains(document.activeElement))
       history.current?.focus({ preventScroll: true });
     setPending(false);
   }, []);
+  const reportReading = useCallback(() => {
+    const node = history.current;
+    notificationRef.current.report({
+      visible:
+        !!node &&
+        !node.ownerDocument.hidden &&
+        node.clientHeight > 0 &&
+        node.getClientRects().length > 0,
+      atEnd: following.current,
+    });
+  }, []);
+  const revealRecord = useCallback(() => {
+    const node = history.current;
+    const request = notificationRef.current.reveal;
+    if (!node || !request || !node.clientHeight || !node.getClientRects().length) return;
+    const record = [...node.querySelectorAll<HTMLElement>('[data-conversation-record]')].find(
+      (element) => element.dataset.conversationRecord === request.recordKey,
+    );
+    if (!record) return;
+    node.scrollTop += record.getBoundingClientRect().top - node.getBoundingClientRect().top;
+    position.current = node.scrollTop;
+    following.current = atBottom(node);
+    if (following.current) clearPending();
+    node.focus({ preventScroll: true });
+    reportReading();
+    notificationRef.current.revealed?.(request.id);
+  }, [clearPending, reportReading]);
+  const requestReveal = useCallback(() => {
+    if (!notificationRef.current.reveal || revealFrame.current !== undefined) return;
+    // Native Drawer promotion/focus runs in its parent's layout effect. Reveal
+    // after that opening phase rather than racing it from the child effect.
+    revealFrame.current = requestAnimationFrame(() => {
+      revealFrame.current = undefined;
+      revealRecord();
+    });
+  }, [revealRecord]);
   const latest = useCallback(() => {
     const node = history.current;
     if (!node) return;
@@ -75,7 +109,8 @@ export function ConversationWindow({
     node.scrollTop = node.scrollHeight;
     position.current = node.scrollTop;
     clearPending();
-  }, [clearPending]);
+    reportReading();
+  }, [clearPending, reportReading]);
   useLayoutEffect(() => {
     const ids = new Set(messageIds);
     const opened = previous.current === undefined;
@@ -90,17 +125,31 @@ export function ConversationWindow({
     else if (added.length) setPending(true);
   }, [messageIds, ownWriter, latest]);
   useLayoutEffect(() => {
+    requestReveal();
+    return () => {
+      if (revealFrame.current !== undefined) cancelAnimationFrame(revealFrame.current);
+      revealFrame.current = undefined;
+    };
+  }, [notification.reveal, messageIds, requestReveal]);
+  useLayoutEffect(() => {
     const observer = new ResizeObserver(() => {
       // Chat keeps its drawer mounted while closed. A hidden history has no
       // reading position to retain; its next visible size opens at latest.
       const node = history.current;
       if (node && (!node.clientHeight || atBottom(node))) following.current = true;
       if (following.current) latest();
+      requestReveal();
+      reportReading();
     });
     if (history.current) observer.observe(history.current);
     if (content.current) observer.observe(content.current);
-    return () => observer.disconnect();
-  }, [latest]);
+    document.addEventListener('visibilitychange', reportReading);
+    reportReading();
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', reportReading);
+    };
+  }, [latest, requestReveal, reportReading]);
   return (
     <section {...attributes} className={`conversation-window ${className}`}>
       {!hideHeader && (
@@ -132,6 +181,7 @@ export function ConversationWindow({
             position.current = node.scrollTop;
             following.current = atBottom(node);
             if (following.current) clearPending();
+            reportReading();
           }}
         >
           <div className="conversation-message-content" ref={content}>

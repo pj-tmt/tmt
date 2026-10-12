@@ -2,9 +2,10 @@ import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
 import { text } from './strings.js';
 import { RetentionHint } from './retention-hint.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useNotificationModalPresence } from './reply-notification-context.js';
 import type { payload } from '@tmt/colab-client';
-import { BrowserMenu } from '@tmt/browser-ui/react';
+import { PageMenu as BrowserMenu } from './page-menu.js';
 import {
   managementFailure,
   newLink,
@@ -82,22 +83,25 @@ export function ShareDialog({
     [signKey, setSignKey] = useState(''),
     [encKey, setEncKey] = useState('');
   const [role, setRole] = useState<payload.Role>('viewer');
+  const reportModal = useNotificationModalPresence();
   function showView(next: ManagementView) {
     setView(next);
     setForever(next.page.retentionDays === null);
   }
-  useEffect(() => {
+  useLayoutEffect(() => {
     const trigger = document.activeElement;
     const element = dialog.current;
     element?.showModal();
+    reportModal(element?.open ?? false);
     heading.current?.focus({ preventScroll: true });
     return () => {
       element?.close();
+      reportModal(false);
       if (trigger instanceof HTMLElement && trigger.isConnected && trigger.getClientRects().length)
         trigger.focus();
       else document.querySelector<HTMLButtonElement>('.page-header-actions button')?.focus();
     };
-  }, []);
+  }, [reportModal]);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -202,6 +206,7 @@ export function ShareDialog({
       ref={dialog}
       className="management-dialog"
       aria-labelledby="management-title"
+      onClose={() => reportModal(false)}
       onClickCapture={(e) => {
         if (!e.isTrusted) e.stopPropagation();
       }}

@@ -91,8 +91,24 @@ export function useQuestionLayer({
       JSON.parse(renderedGroups),
     );
   }, [state, questions, renderedGroups, identity, renderer]);
+  const notificationThreads = useMemo(
+    () =>
+      !questions.length
+        ? new Set<string>()
+        : anchors === null
+          ? undefined
+          : new Set(
+              questions.flatMap((question) =>
+                associated(question.id).map((thread) =>
+                  JSON.stringify([thread.ref.writer, thread.ref.id]),
+                ),
+              ),
+            ),
+    [questions, anchors, associated],
+  );
   return {
     onQuestions,
+    notificationThreads,
     inline: (
       <>
         {groups.map((group) => {

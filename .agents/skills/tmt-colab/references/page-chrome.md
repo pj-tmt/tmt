@@ -212,11 +212,26 @@ single header count uses `openThreadCount` for undecided unresolved proposals pl
 unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.
 
-`reply-announcer.ts` owns one persistent polite status per loaded page. It baselines
-admitted reply history, deduplicates writer/operation/reply identity across mirrored
-views, and announces new replies without moving focus or acknowledging a thread.
-Its node moves into the active native modal after clearing old text, so mobile
-inertness cannot hide it. Reload/page changes reset the baseline. Proposal cards
+`use-reply-notifications.ts` owns page-local Chat/Thread presentation over admitted
+Ask finals and discussion comments; `reply-notifications.ts` reuses authenticated
+Yours refs and existing comment/Ask associations. The page read owner baselines
+the binding's first current view after loading, including a cached snapshot;
+initial and unavailable reads never replay history. The shared leaf owns FIFO budgets,
+hover/focus pause, hidden-document suspension and once-only polite display.
+ConversationWindow reports visible/following state and reveals stable record keys;
+Chat activation opens its existing Drawer, while Thread activation reuses the
+canonical quote/anchored-window path. Visible-at-end destinations suppress arrivals.
+PageMenu and native Manage/attachment owners report actual visibility to the page;
+An open anchored Thread window also holds the queue so toasts cannot cover its
+history or composer. All active surfaces must close before resume rechecks the
+latest admitted view; retained items preserve FIFO order and are not re-announced.
+Header counts, drafts, Send and recipient admission keep their current owners.
+
+During #2726's staged adoption, `reply-announcer.ts` retains its persistent polite
+status and modal relocation for Answer/Proposal only. Its sources are disjoint
+from Chat/Thread: no event enters both regions, and each announces once. #2727
+replaces those remaining sources with notifications and removes the legacy owner.
+Proposal cards
 return Cancel and completed decision actions to Follow up; while busy they keep
 focus on the card and never reclaim it after the reader moves elsewhere.
 
