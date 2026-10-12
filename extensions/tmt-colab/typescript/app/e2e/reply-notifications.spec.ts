@@ -114,6 +114,94 @@ test('Thread activation opens the canonical anchored window and quote without cr
   expect(snapshot.threads).toHaveLength(2);
 });
 
+for (const destination of ['Chat', 'Thread'] as const) {
+  for (const removal of ['expiry', 'Escape', 'Open'] as const) {
+    test(`${destination} ${removal} preserves the total and only opening the canonical thread clears Unseen`, async ({
+      page,
+    }) => {
+      if (removal === 'expiry') await page.clock.install();
+      await mount(page);
+      await run(page, 'secondThread');
+      const discussion = page
+        .locator('.page-header-actions')
+        .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
+      await expect(discussion).toHaveAccessibleName('Discussion (2)');
+      await page.evaluate(async (path) => (await import(path)).agentResolves(), pageFixture);
+      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      if (removal === 'expiry') {
+        await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
+      }
+      const openDestination = async () => {
+        if (destination === 'Chat') await open(page, 'Chat');
+        else {
+          await open(page, 'Comments');
+          await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
+        }
+      };
+      const body = `Retained ${destination} reply after ${removal}`;
+      await run(page, 'arrive', { destination, body });
+      await expect(cards(page)).toHaveCount(1);
+      await expect(cards(page)).toContainText(body);
+      if (removal === 'expiry') {
+        await page.mouse.move(0, 800);
+        await page.clock.runFor(5999);
+        await expect(cards(page)).toHaveCount(1);
+        await page.clock.runFor(1);
+      } else if (removal === 'Escape') {
+        await cards(page)
+          .getByRole('button', { name: `Open ${destination}`, exact: true })
+          .focus();
+        await page.keyboard.press('Escape');
+      } else {
+        await cards(page)
+          .getByRole('button', { name: `Open ${destination}`, exact: true })
+          .click();
+      }
+      await expect(cards(page)).toHaveCount(0);
+      if (removal !== 'Open') {
+        await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+        expect(
+          await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture),
+        ).toBe(0);
+        // The record remains available even after the transient card is gone.
+        const snapshot = await run(page, 'snapshot');
+        expect(snapshot.threads).toHaveLength(3);
+        expect(snapshot.asks).toHaveLength(1);
+        expect(snapshot.asks[0].reply).toBe(body);
+        if (removal === 'expiry') await page.clock.resume();
+        await openDestination();
+      }
+      const surface = page.getByTestId(destination === 'Chat' ? 'chat-panel' : 'comment-thread');
+      await expect(surface).toBeVisible();
+      await expect(surface.getByTestId('ask-reply')).toHaveText(body);
+      await expect(discussion).toHaveAccessibleName(
+        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+      );
+      const proof = await page.evaluate(async (path) => (await import(path)).proof(), pageFixture);
+      expect(proof.sends).toEqual([]);
+      expect(proof.actions).toEqual([]);
+      expect(
+        await page.evaluate(async (path) => (await import(path)).discussionProof(), pageFixture),
+      ).toHaveLength(3);
+      if (destination === 'Chat') await close(page, 'Chat');
+      else if ((await surface.getAttribute('data-layout')) === 'anchored') {
+        await surface.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+      } else await close(page, 'Comments');
+      await run(page, 'repeat');
+      await expect(cards(page)).toHaveCount(0);
+      await expect(discussion).toHaveAccessibleName(
+        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+      );
+      await openDestination();
+      await expect(surface.getByTestId('ask-reply')).toHaveText(body);
+      await expect(discussion).toHaveAccessibleName(
+        destination === 'Thread' ? 'Discussion (1)' : 'Discussion (1) · New',
+      );
+      await expect(live(page)).toHaveText('');
+    });
+  }
+}
+
 test('an open Chat at the end suppresses the toast after closing; scrolled-away arrivals wait for its modal', async ({
   page,
 }) => {
@@ -148,6 +236,47 @@ test('an open Chat at the end suppresses the toast after closing; scrolled-away 
   await close(page, 'Chat');
   await expect(cards(page)).toHaveCount(1);
   await expect(cards(page)).toContainText('Not at the reader position');
+});
+
+test('Chat New messages attention clears at the history end without changing the discussion total', async ({
+  page,
+}) => {
+  await mount(page);
+  await run(page, 'history', 'Chat');
+  await open(page, 'Chat');
+  const chat = page.getByTestId('chat-panel');
+  const history = chat.locator('.conversation-messages');
+  const index = await run(page, 'arrive', { destination: 'Chat', pending: true });
+  await expect(chat.getByTestId('ask-state')).toBeVisible();
+  await history.evaluate(async (node) => {
+    node.scrollTop = 100;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+  await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(100);
+  await run(page, 'complete', { index, body: 'Retained reply beyond the reading position' });
+  const attention = chat.getByRole('button', { name: 'New messages', exact: true });
+  await expect(attention).toBeVisible();
+  await expect(live(page)).toHaveText('');
+  await expect(page.locator('.page-header-count').first()).toHaveText('1');
+  await run(page, 'repeat');
+  await expect(attention).toBeVisible();
+  await expect.poll(() => history.evaluate((node) => node.scrollTop)).toBe(100);
+  await attention.click();
+  await expect(attention).toHaveCount(0);
+  await expect(history).toBeFocused();
+  await expect
+    .poll(() => history.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop))
+    .toBeLessThanOrEqual(1);
+  await expect(chat.getByTestId('ask-reply')).toHaveText(
+    'Retained reply beyond the reading position',
+  );
+  await expect(page.locator('.page-header-count').first()).toHaveText('1');
+  expect(await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture)).toBe(
+    0,
+  );
+  expect(
+    (await page.evaluate(async (path) => (await import(path)).proof(), pageFixture)).sends,
+  ).toEqual([]);
 });
 
 test('Menu and Manage suspension recheck withdrawn records before display and announcement', async ({
@@ -328,6 +457,61 @@ test('staged Answer and Proposal replies remain polite-only once, disjoint from 
   await expect(live(page)).not.toContainText('The supporting notes');
   await expect(cards(page)).toHaveCount(0);
 });
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`persistent count and attention captures ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.clock.install();
+      await mount(page);
+      await run(page, 'secondThread');
+      await page.evaluate(async (path) => (await import(path)).agentResolves(), pageFixture);
+      const discussion = page
+        .locator('.page-header-actions')
+        .getByRole('button', { name: /^Discussion \(/, includeHidden: true });
+      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      await page.clock.pauseAt(await page.evaluate(() => new Date(Date.now() + 100)));
+      for (const destination of ['Chat', 'Thread', 'Chat', 'Thread'] as const) {
+        await run(page, 'arrive', { destination });
+      }
+      await expect(cards(page)).toHaveCount(3);
+      await expect(page.locator('.tmt-ui-notification-waiting')).toHaveText('1 more waiting');
+      await page.screenshot({ path: capturePath(`counts-queue-${width}-${theme}.png`) });
+      await cards(page).first().getByRole('button', { name: 'Open Chat', exact: true }).focus();
+      await page.keyboard.press('Escape');
+      await expect(cards(page)).toHaveCount(3);
+      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      await page.screenshot({ path: capturePath(`counts-dismissed-${width}-${theme}.png`) });
+      await page.mouse.move(0, 800);
+      await page.clock.runFor(6000);
+      await expect(cards(page)).toHaveCount(0);
+      await expect(discussion).toHaveAccessibleName('Discussion (1) · New');
+      expect(
+        await page.evaluate(async (path) => (await import(path)).seenProof(), pageFixture),
+      ).toBe(0);
+      await page.screenshot({ path: capturePath(`counts-expired-${width}-${theme}.png`) });
+      await page.clock.resume();
+      await open(page, 'Comments');
+      await page.getByTestId('annotation-row').filter({ hasText: 'Resolved by Atlas' }).click();
+      await expect(page.getByTestId('comment-thread').getByTestId('ask-reply')).toHaveText([
+        'Thread reply 201\nSecond reply line',
+        'Thread reply 203\nSecond reply line',
+      ]);
+      await expect(discussion).toHaveAccessibleName('Discussion (1)');
+      await page.screenshot({ path: capturePath(`counts-thread-open-${width}-${theme}.png`) });
+      await close(page, 'Comments');
+      await open(page, 'Chat');
+      await expect(page.getByTestId('chat-panel').getByTestId('ask-reply')).toHaveText([
+        'Chat reply 200\nSecond reply line',
+        'Chat reply 202\nSecond reply line',
+      ]);
+      await expect(discussion).toHaveAccessibleName('Discussion (1)');
+      await expect(live(page)).toHaveText('');
+      await page.screenshot({ path: capturePath(`counts-chat-open-${width}-${theme}.png`) });
+    });
+  }
+}
 
 for (const [width, theme] of [
   [1440, 'light'],

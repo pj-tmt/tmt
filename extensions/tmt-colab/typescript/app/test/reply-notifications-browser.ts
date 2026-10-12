@@ -144,6 +144,21 @@ export function complete({ index, body }: { index: number; body: string }) {
 export function repeat() {
   publish();
 }
+/** A second unresolved annotation keeps the total nonzero after an agent resolution. */
+export function secondThread() {
+  const value = thread(false);
+  value.threadId = id(43);
+  value.ref = { writer: own, id: id(43) };
+  value.comments = value.comments.map((comment) => ({
+    ...comment,
+    thread: value.ref,
+    messageId: id(44),
+    ref: { writer: own, id: id(44) },
+    body: 'A separate unresolved annotation',
+  }));
+  threads = [...(discussionProof() ?? []), value];
+  publish();
+}
 export function withdraw(destination: 'Chat' | 'Thread') {
   threads = threads.map((t) =>
     (t.anchor === null) === (destination === 'Chat') ? { ...t, deleted: true } : t,
