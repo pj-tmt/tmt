@@ -455,14 +455,14 @@ describe('fetchUpgrade and proveStaged', () => {
 
     it('stages the local candidate beside the published previous release in the draft plan shape', () => {
       const published = [
-        release('v5.0.0-alpha.36', { targets: TARGETS }),
-        release('v5.0.0-alpha.45', { targets: TARGETS }),
+        release('v5.0.0-alpha.150', { targets: TARGETS }),
+        release('v5.0.0-alpha.159', { targets: TARGETS }),
       ];
       const { plan, directory, downloads } = stageLocal('cli', SYNTHETIC, {
         releases: published,
         directory: bundle('cli', SYNTHETIC, { install: true }),
       });
-      expect(plan.previous).toBe('v5.0.0-alpha.45');
+      expect(plan.previous).toBe('v5.0.0-alpha.159');
       // Only published releases are downloaded; the candidate is copied from the bundle.
       expect(downloads).toHaveLength(4 * TARGETS.length);
       expect(new Set(downloads)).toEqual(
@@ -490,7 +490,7 @@ describe('fetchUpgrade and proveStaged', () => {
         tag: SYNTHETIC,
         skill: 'SKILL.md',
       });
-      expect(result.previous).toBe('v5.0.0-alpha.45');
+      expect(result.previous).toBe('v5.0.0-alpha.159');
       expect(value(calls[0].args, '--archive')).toBe(
         path.join(directory, TARGET, 'candidate', `tmt-cli-${TARGET}.tar.gz`)
       );
@@ -504,14 +504,14 @@ describe('fetchUpgrade and proveStaged', () => {
 
     it('stages the candidate bootstrap that the declared support floor needs', () => {
       const entries = [
-        release('v5.0.0-alpha.36', { targets: TARGETS }),
-        release('v5.0.0-alpha.45', { targets: TARGETS }),
+        release('v5.0.0-alpha.150', { targets: TARGETS }),
+        release('v5.0.0-alpha.159', { targets: TARGETS }),
       ];
       const { plan } = stageLocal('cli', SYNTHETIC, {
         releases: entries,
         directory: bundle('cli', SYNTHETIC, { install: true }),
       });
-      expect(plan.floor).toBe('v5.0.0-alpha.36');
+      expect(plan.floor).toBe('v5.0.0-alpha.150');
       expect(plan.files[`${TARGET}/candidate/install.sh`]).toBe(digestOf('bootstrap'));
     });
 
@@ -565,9 +565,9 @@ describe('fetchUpgrade and proveStaged', () => {
 
   it('stages both the declared CLI floor and last published source with the candidate bootstrap', () => {
     const entries = [
-      release('v5.0.0-alpha.36', { targets: TARGETS }),
-      release('v5.0.0-alpha.45', { targets: TARGETS }),
-      release('v5.0.0-alpha.46', { draft: true, targets: TARGETS }),
+      release('v5.0.0-alpha.150', { targets: TARGETS }),
+      release('v5.0.0-alpha.159', { targets: TARGETS }),
+      release('v5.0.0-alpha.160', { draft: true, targets: TARGETS }),
     ];
     let candidate = entries[2];
     const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
@@ -577,8 +577,8 @@ describe('fetchUpgrade and proveStaged', () => {
     const { directory, plan, downloads } = fetchInto('cli', candidate.tag_name, {
       releases: entries,
     });
-    expect(plan.floor).toBe('v5.0.0-alpha.36');
-    expect(plan.previous).toBe('v5.0.0-alpha.45');
+    expect(plan.floor).toBe('v5.0.0-alpha.150');
+    expect(plan.previous).toBe('v5.0.0-alpha.159');
     expect(downloads).toHaveLength(7 * TARGETS.length);
     const { calls } = prove(directory, {
       product: 'cli',
@@ -629,8 +629,8 @@ describe('fetchUpgrade and proveStaged', () => {
 
   it('reuses the previous source when it is the floor and refuses missing bootstrap evidence', () => {
     const entries = [
-      release('v5.0.0-alpha.36', { targets: TARGETS }),
-      release('v5.0.0-alpha.37', { draft: true, targets: TARGETS }),
+      release('v5.0.0-alpha.150', { targets: TARGETS }),
+      release('v5.0.0-alpha.151', { draft: true, targets: TARGETS }),
     ];
     expect(() => fetchInto('cli', entries[1].tag_name, { releases: entries })).toThrow(
       'digest-checked install.sh'
@@ -668,18 +668,18 @@ describe('fetchUpgrade and proveStaged', () => {
   });
 
   it('selects only the exact published floor, failing closed instead of substituting another source', () => {
-    const input = { product: 'cli', candidateTag: 'v5.0.0-alpha.46' };
+    const input = { product: 'cli', candidateTag: 'v5.0.0-alpha.160' };
     for (const entries of [
       [],
-      [release('v5.0.0-alpha.36', { draft: true })],
-      [release('v5.0.0-alpha.35')],
-      [release('v5.0.0-alpha.36'), release('v5.0.0-alpha.36')],
+      [release('v5.0.0-alpha.150', { draft: true })],
+      [release('v5.0.0-alpha.149')],
+      [release('v5.0.0-alpha.150'), release('v5.0.0-alpha.150')],
     ])
       expect(() => selectSupportFloor({ ...input, releases: entries })).toThrow(
         'exactly one published support floor'
       );
     expect(
-      selectSupportFloor({ ...input, candidateTag: 'v5.0.0-alpha.36', releases: [] })
+      selectSupportFloor({ ...input, candidateTag: 'v5.0.0-alpha.150', releases: [] })
     ).toBeNull();
     expect(
       selectSupportFloor({ product: 'ops', candidateTag: 'tmt-ops-v1.0.0', releases: [] })
@@ -956,9 +956,9 @@ describe('fetchUpgrade and proveStaged', () => {
 
     it.each([false, true])('times the separate floor run, including failure=%s', (fail) => {
       const entries = [
-        release('v5.0.0-alpha.36', { targets: TARGETS }),
-        release('v5.0.0-alpha.45', { targets: TARGETS }),
-        release('v5.0.0-alpha.46', { draft: true, targets: TARGETS }),
+        release('v5.0.0-alpha.150', { targets: TARGETS }),
+        release('v5.0.0-alpha.159', { targets: TARGETS }),
+        release('v5.0.0-alpha.160', { draft: true, targets: TARGETS }),
       ];
       const asset = { id: nextId++, name: 'install.sh', digest: digestOf('bootstrap') };
       contents.set(asset.id, 'bootstrap');
@@ -1695,7 +1695,7 @@ describe('release-upgrade.mjs', () => {
 describe('REST evidence for a published CLI tag', () => {
   const registration = '3'.repeat(40);
   const driverSha = '8'.repeat(40);
-  const published = release('v5.0.0-alpha.84', { sha: '9'.repeat(40) });
+  const published = release('v5.0.0-alpha.198', { sha: '9'.repeat(40) });
   const comparison = (status: string, mergeBase = registration) => ({
     status,
     base_commit: { sha: registration },
@@ -1720,7 +1720,7 @@ describe('REST evidence for a published CLI tag', () => {
     });
     expect(observe(published, registration)).toEqual({ sha, status });
     expect(calls.map((c) => [c.command, ...c.args])).toEqual([
-      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.84', '--jq', '{sha: .sha}'],
+      ['gh', 'api', 'repos/fixture/repository/commits/v5.0.0-alpha.198', '--jq', '{sha: .sha}'],
       [
         'gh',
         'api',

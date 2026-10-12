@@ -72,11 +72,9 @@ await withNativeArtifact(values.archive, current, async (source) => {
     try {
       const prefix = path.join(root, 'prefix with spaces');
       const state = path.join(root, 'separate application state');
-      // Harness only: remove when the prior release is post-rename.
       const env = {
         HOME: root,
         TMT_HOME: state,
-        TMUX_TEAM_HOME: state,
         PATH: '',
         LANG: 'C',
         TMPDIR: root,
