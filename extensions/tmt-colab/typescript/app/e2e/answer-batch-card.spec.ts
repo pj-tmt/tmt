@@ -113,6 +113,57 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   ).toBe(true);
 });
 
+test('same-named agents have no ambiguous default; explicit chip keys stay distinct in Send and shared copy', async ({
+  page,
+}) => {
+  const agents = [
+    { ...destination(), agentName: 'Review', machineName: 'First machine' },
+    {
+      ...destination(),
+      agentName: 'Review',
+      machine: id(7),
+      agent: id(8),
+      machineName: 'Second machine',
+    },
+  ];
+  const group = await mount(page, { count: 2, agents: ['Review', 'Review'] }, { agents });
+  await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
+  await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Find an agent' }).fill('Review');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await page.getByRole('option').filter({ hasText: 'First machine' }).click();
+  await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Find an agent' }).fill('Review');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await page.getByRole('option').filter({ hasText: 'Second machine' }).click();
+  await expect(group.locator('.tmt-ui-chip')).toHaveCount(2);
+  await card(page).getByLabel('Keep it', { exact: true }).check();
+  await group.getByRole('tab').nth(1).click();
+  await card(page).getByLabel('Your answer', { exact: true }).fill('Ask both chosen identities');
+  await group
+    .getByRole('button', { name: 'Send 2 answers · to @Review, @Review', exact: true })
+    .click();
+  await recorded(page, 2);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
+  const attempts = await run(page, 'answerBatchProof');
+  expect(
+    attempts.map(
+      (attempt: { input: { destination: { machine: string; agent: string } } }) =>
+        `${attempt.input.destination.machine}:${attempt.input.destination.agent}`,
+    ),
+  ).toEqual(agents.map((agent) => `${agent.machine}:${agent.agent}`));
+  await run(page, 'questionBatchAsk', 'replied');
+  await expect(card(page).locator('.question-shared-ask')).toHaveText(
+    'Asked @Review, @Review with 2 answers.',
+  );
+  await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
+  await group.getByRole('tab').nth(0).click();
+  await expect(card(page).locator('.question-shared-ask')).toHaveText(
+    'Asked @Review, @Review with 2 answers.',
+  );
+  await expect(card(page).getByTestId('ask-reply')).toHaveCount(2);
+});
+
 test('partial Send publishes only complete drafts; a later Send leaves earlier comments alone', async ({
   page,
 }) => {

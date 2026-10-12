@@ -297,7 +297,11 @@ export function QuestionGroupCard({
     const canonical = rows.find((value) =>
       value.threads.some((thread) => thread.threadId === batch[0]?.thread),
     );
-    const names = [...new Set(records.map((record) => `@${record.agentName}`))].join(', ');
+    const names = [
+      ...new Map(records.map((record) => [recipientId(record), record.agentName])).values(),
+    ]
+      .map((name) => `@${name}`)
+      .join(', ');
     const sharedAsk = records.length
       ? batch.length
         ? `Asked ${names} with ${batch[0].messageIds!.length} answers.`
