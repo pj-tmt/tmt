@@ -242,8 +242,8 @@ projects its typed results/errors. The board consumes the same typed service dir
   acknowledgement returns `CHECKLIST_OUTCOME_UNKNOWN`. Readback never proves which earlier
   uncertain operation committed; a new operation needs a freshly reviewed revision.
   Checklist errors and authorized conflict/deletion projections are typed locally;
-  `checklist_command` emits one JSON stdout document with success exit 0, operation
-  error exit 1 and grammar error exit 2. Only typed `Error.current` becomes optional
+  `checklist_command` emits one JSON stdout document with success exit 0 and every error,
+  grammar errors included, exit 1. Only typed `Error.current` becomes optional
   `error.current`; refusal never invents a projection. Human failures use main's
   existing stderr error/hint path and emit no success text. UUID/revision/text/order/
   confirmation validity remains operation input validation rather than clap usage.
