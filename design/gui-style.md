@@ -102,57 +102,83 @@ width shows `tmt ▾`. Not shipped. Basis: Radix (Dropdown Menu).
 
 ### Remote switcher
 
-Design target for [#2463](https://github.com/pj-tmt/tmt/issues/2463); not shipped.
-Remote owns the registry, chip, menu, registration and Remotes settings; Colab owns
-page-follow behavior. Use **remote** throughout UI, CLI help and handbook copy,
-**Local** / **Firebase** for kinds and **this machine** for the current host.
+Design target for [#2463](https://github.com/pj-tmt/tmt/issues/2463) and the
+[#2461 browser registry](https://github.com/pj-tmt/tmt/issues/2461); not shipped.
+Remote owns the registry, registration, static header and Remotes view; Colab owns
+the React header glue and page-follow behavior. Use **remote** throughout UI, CLI help and
+handbook copy, **Local** / **Firebase** for kinds and **this machine** for the host.
 
 - **Header:** immediately after the logo, before the separate Product switcher:
-  `[● studio ▾] [Colab ▾] <page title>`. Show the display name with a state mark:
+  `[● studio ▾] [Colab ▾] <page title>`. Show the current origin's live state:
   `● connected`, `◌ connecting`, `○ unreachable`, `✗ access ended` (revoked/expired).
-  Compact width keeps the mark and a truncated name; the tooltip and accessible
-  name retain the full name and state (`Remote: studio, connected`). State words
-  remain available; colour alone never carries state.
+  Never show `not checked` in the chip. Compact width keeps the mark and a
+  truncated name; tooltip and accessible name retain the full name and state
+  (`Remote: studio, connected`). State words remain available; colour alone never
+  carries state.
 - **Menu:** Local rows first, then Firebase rows with their project ID. Every
-  registered remote stays listed with mark plus state word; the selected one has
-  a check. Attention rows cannot be selected until fixed and expose the reason
-  and one action: `Unreachable · Retry`, `Access ended · Pair again`,
-  `Sign-in needed · Sign in`. Footer actions are `Add remote…` and
-  `Manage remotes`, opening Remote settings' Remotes section. Mark the configured
-  default `default`; choosing a row changes browser selection, while changing the
-  per-home default happens only in Manage remotes. Never silently fall back.
+  registered remote stays listed; the selected one has a check. A foreign row
+  shows muted `not checked`, without a state mark, and is selectable with `Open`:
+  navigation checks it at its own origin, with no foreign probe. Never claim
+  Connected, Revoked, Not paired or last seen for an unchecked remote. Attention
+  rows this origin knows are broken cannot be selected until fixed:
+  `Unreachable · Retry`, `Access ended · Pair again`, `Sign-in needed · Sign in`.
+  Retry only rechecks the current origin with its own keys. Footer actions are
+  `Add remote…` and `Manage remotes`, opening Remote settings' Remotes section.
+  No browser default mark; Manage remotes keeps
+  the copyable `tmt remote settings default-remote <ref|local>` command for the
+  separate CLI/API default. Never silently fall back.
 - **Add remote:** a dialog offers Local host or Firebase project. Local host shows
   `tmt remote pair` to run on that host, the existing pairing words flow, and
   `--talk` for allowing sending; completion adds the host's name. Firebase uses a
   **remote link** printed by `tmt remote deploy firestore` (or a terminal QR),
   re-printable by a read-only command. It carries public configuration only;
   access still requires sign-in, admission and deployed Rules. Opening or pasting
-  it in `Paste remote link` imports that configuration and asks
-  `Add Firebase remote <project ID>, deployed by <host>?` with Add / Cancel, then
-  starts that remote's sign-in. No free-form JSON field. Tenant registration uses
-  the same link and says `You'll join as a tenant of <host>'s project` before Add;
-  the link grants no space access.
-- **Per-remote states:** menu rows and Remotes settings show `Not paired` →
+  it in `Paste remote link` asks `Add Firebase remote <project ID>?`, with its
+  public Hosting address `<project>.web.app` on the next line and Add / Cancel,
+  then starts sign-in. No free-form JSON field. A tenant link says
+  `You'll join project <project ID> as a tenant`; the link grants no space access.
+- **Catalog handoff:** before storing anything, show
+  `Add <N> remotes from <source host>?`, the names, kinds and addresses, and
+  `Only names and addresses are copied. No keys, pairings or drafts.` with
+  Add / Cancel. A name used for another target says
+  `You already have a remote named <name>` with an editable `<name>-2` to confirm,
+  or Skip. A duplicate canonical target says `Already added as <name>` and is
+  skipped without a prompt. Invalid, oversize or colliding packets are refused
+  as a whole with one sentence and no partial import. Removal asks
+  `Remove <name> from this browser?` and
+  `This only removes the entry here. It does not sign out or revoke access.`
+  with Remove / Cancel.
+- **Per-remote states:** this origin's observed state shows `Not paired` →
   `Pairing…` → `Connected · read only` / `Connected · can send`. Firebase adds
-  `Sign-in needed` → `Signing in…` → `Signed in as <account>`. Show
-  `Unreachable · last seen <age>`, `Access ended · Pair again`, or
-  `Over budget today · resets at <time>` only from observed state/budget refusal;
-  never invent a usage percentage. With only the current host registered, show
+  `Sign-in needed` → `Signing in…` → `Signed in`; anonymous Auth has no account
+  name, and sign-in alone grants no space access. Show
+  `Unreachable · last seen <age>` or `Access ended · Pair again` only from this
+  origin's observed state. `Over budget today · resets at <time>` appears only
+  after an actual budget refusal here, never on a foreign row; no counter,
+  percentage or budget-ok state. With only the current host registered, show
   `● this machine`, its single menu row and Add remote, without another banner.
-- **Page states:** an unreachable selected remote keeps the last verified page
-  read-only and its draft, with `<remote> is unreachable. Changes can't be saved.`
-  and Retry / Switch remote. Access ended hides page content and says
+- **Page states and switching:** an unreachable selected remote keeps the last
+  verified page read-only and its draft, with
+  `<remote> is unreachable. Changes can't be saved.` and Retry / Switch remote.
+  Access ended hides page content and says
   `Access to <remote> ended. Pair again or switch remote.` Colab shows
-  `This page is not on <remote>` when its space is not published there, with Publish
-  for the owner or Back to pages. Drafts and device keys stay per remote; warn
-  `Your draft stays on <remote>` before leaving an unsent draft, which remains on
-  return. Do not transfer drafts or keys across origins.
+  `This page is not on <remote>` when its space is not published there, with
+  Publish for the owner or Back to pages. Switching navigates in the same tab to
+  the selected remote's own origin; separate tabs stay independent. Drafts and
+  device keys stay per origin. Only when an unsent draft exists, confirm
+  `Your draft stays on <remote>.` with Switch / Cancel; the draft remains on return.
+  Colab owns this trigger and never transfers drafts or keys across origins.
+- **Static menu:** Remote uses the leaf's static entry and shared class names,
+  without React. Its native popover and minimal script meet the BrowserMenu
+  keyboard/focus contract: roving focus, Escape restores focus, outside-click
+  dismissal and correct roles. A second static consumer moves this behavior into
+  the leaf's static entry. B1 needs only the landing page Remotes list; the header
+  chip/menu requirement binds at B2.
 
-**Open point:** the switch's reload/navigation target, origin and registry handoff
-await Remote's [#2461 registry plan](https://github.com/pj-tmt/tmt/issues/2461).
-
-Implementation look review covers the four chip states, a menu with three remotes,
-both Add remote choices and the unreachable-page notice at 1440 light / 390 dark.
+B1 look review at 1440 light / 390 dark covers the Remotes list (current connected
+and foreign not checked), Add remote (door address and remote link), import
+confirmation with one collision, and remove confirmation. B2 also covers the
+four chip states, menu and unreachable-page notice.
 
 ### Setup guide
 
