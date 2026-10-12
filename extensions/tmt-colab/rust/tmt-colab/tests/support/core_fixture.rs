@@ -228,6 +228,46 @@ pub fn link(root: &Path, name: &str, program: Program) -> PathBuf {
     path
 }
 
+/// Every opener name the CLI's discovery looks for (`tmt_invoke::open::find_opener`).
+const OPENERS: [&str; 4] = ["open", "xdg-open", "wslview", "explorer.exe"];
+fn unexpected_open(root: &Path) -> PathBuf {
+    root.join("opener-guard/unexpected-open")
+}
+/// A `PATH` that cannot reach a host browser opener: `<root>/opener-guard` holds a failing
+/// stand-in for every opener name, and `/bin` follows only for the fixture's shell programs
+/// (never `/usr/bin`, where macOS keeps the real `open`). A stand-in records the link it was
+/// given, so `assert_no_open` fails the test that reached it. Every fixture that spawns the CLI
+/// takes its `PATH` from here, so a command that opens a page (`page create` does without a
+/// terminal) cannot start the host's browser. Not every test binary spawns the CLI.
+#[allow(dead_code)]
+pub fn opener_guard(root: &Path) -> std::ffi::OsString {
+    let directory = root.join("opener-guard");
+    fs::create_dir_all(&directory).unwrap();
+    let record = unexpected_open(root);
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\nexit 97\n",
+        record.display().to_string().replace('\'', "'\\''")
+    );
+    for name in OPENERS {
+        let path = directory.join(name);
+        if !path.exists() {
+            tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
+        }
+    }
+    std::env::join_paths([directory.as_path(), Path::new("/bin")]).unwrap()
+}
+/// The test reached a browser opener: it must install a recording stand-in of its own, or run
+/// with `TMT_AGENT=1`, when opening is not what it checks.
+#[allow(dead_code)]
+pub fn assert_no_open(root: &Path) {
+    let record = unexpected_open(root);
+    assert!(
+        !record.exists(),
+        "a test reached a browser opener with {:?}",
+        fs::read_to_string(&record).unwrap_or_default()
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -141,12 +141,18 @@ impl Fixture {
                 "TMT_COLAB_TEST_REPLY",
                 json!({"dataRoot":self.root}).to_string(),
             )
+            // No export opens a browser, and the `PATH` holds no real opener to start one.
+            .env("TMT_AGENT", "1")
+            .env("PATH", core_fixture::opener_guard(&self.root))
             .current_dir(&self.root);
         command
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if !std::thread::panicking() {
+            core_fixture::assert_no_open(&self.root);
+        }
         fs::remove_dir_all(&self.root).unwrap();
     }
 }
@@ -569,8 +575,12 @@ fn missing_legacy_and_unsafe_state_are_never_initialized_or_migrated() {
         "COLAB_EXPORT_STATE_MISSING"
     );
     assert!(!f.layout.directory.exists());
+    // The fixture's own `core` link and the opener guard's directory are all that may exist.
     assert_eq!(
-        fs::read_dir(&f.root).unwrap().count(),
+        fs::read_dir(&f.root)
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != "opener-guard")
+            .count(),
         1,
         "missing-state export created files"
     );

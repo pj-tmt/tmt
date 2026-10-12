@@ -155,12 +155,18 @@ exec {core} "$@"
             .env("TMT_EXECUTABLE", self.root.join("core"))
             .env("TMT_COLAB_TEST_ROOT", &self.root)
             .env("TMT_COLAB_TEST_REPLY", &self.response)
-            // A stub opener lives in `bin`; a real one must never be reached by a test.
-            .env(
-                "PATH",
-                format!("{}:/usr/bin:/bin", self.root.join("bin").display()),
-            );
+            // A recording stub opener lives in `bin` (see `opener`); behind it only the guard's
+            // failing stand-ins, so a real opener is unreachable and `Drop` fails a test that
+            // reached one it did not install.
+            .env("PATH", self.path());
         cmd
+    }
+    fn path(&self) -> std::ffi::OsString {
+        let guard = core_fixture::opener_guard(&self.root);
+        std::env::join_paths(
+            std::iter::once(self.root.join("bin")).chain(std::env::split_paths(&guard)),
+        )
+        .unwrap()
     }
     /// A stand-in for the platform opener (`open` / `xdg-open`) that records each link it gets.
     fn opener(&self, exit: i32) {
@@ -249,6 +255,9 @@ impl Drop for Pilot {
         fixture_process::clean_root(&self.root);
         if let Some(reader) = self.reader.take() {
             reader.join().unwrap();
+        }
+        if !std::thread::panicking() {
+            core_fixture::assert_no_open(&self.root);
         }
         fs::remove_dir_all(&self.root).unwrap();
     }
@@ -3657,7 +3666,8 @@ impl Pilot {
             Some(envelope) => format!("printf '%s\\n' {}\nexit 1", quote(envelope)),
             None => format!("printf '%s\\n' {}\nexit 0", quote(s)),
         });
-        let hold = "trap 'touch serve.term; exit 0' TERM\nwhile :; do sleep 0.1; done";
+        // Only shell builtins and `/bin` tools: the `PATH` is the opener guard's, without `/usr/bin`.
+        let hold = "trap ': > serve.term; exit 0' TERM\nwhile :; do sleep 0.1; done";
         let serve = match serve {
             Serve::Fail => "exit 2".to_owned(),
             Serve::Error { stderr } => {

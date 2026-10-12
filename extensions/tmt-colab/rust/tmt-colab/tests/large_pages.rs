@@ -130,6 +130,9 @@ impl Fixture {
                 "TMT_COLAB_TEST_REPLY",
                 json!({"dataRoot":self.root}).to_string(),
             )
+            // Reading pages never opens a browser, and the `PATH` holds no real opener.
+            .env("TMT_AGENT", "1")
+            .env("PATH", core_fixture::opener_guard(&self.root))
             .current_dir(&self.root)
             .args(args)
             .output()
@@ -144,6 +147,9 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if !std::thread::panicking() {
+            core_fixture::assert_no_open(&self.root);
+        }
         let _ = fs::remove_dir_all(&self.root);
     }
 }
@@ -415,6 +421,8 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
             "TMT_COLAB_TEST_REPLY",
             json!({"dataRoot":f.root}).to_string(),
         )
+        .env("TMT_AGENT", "1")
+        .env("PATH", core_fixture::opener_guard(&f.root))
         .current_dir(&f.root)
         .arg("ls")
         .output()
