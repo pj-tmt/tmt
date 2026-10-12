@@ -137,7 +137,7 @@ fn existing_project_run_uses_the_real_process_boundary_and_real_record_owner() {
     );
     let mut adapter = DeployFirestore::at(node(), package.clone(), &stop).unwrap();
     let auth = deploy_run::authorize(&plan, plan.digest()).unwrap();
-    let mut writer = DeployRecordStore::open(&layout).unwrap();
+    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let record = deploy_run::run(
         &plan,
         &auth,
@@ -150,7 +150,11 @@ fn existing_project_run_uses_the_real_process_boundary_and_real_record_owner() {
     assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
     assert!(record.usable_binding().is_some());
     assert_eq!(writer.load_or_draft().unwrap(), record);
-    assert!(root.remote().join("deploy.json").is_file());
+    assert!(
+        root.remote()
+            .join("deployments/demo-remote-1/deploy.json")
+            .is_file()
+    );
     for line in fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()

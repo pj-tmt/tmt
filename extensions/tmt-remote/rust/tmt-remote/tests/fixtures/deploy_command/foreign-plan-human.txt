@@ -1,7 +1,6 @@
 Firestore sharing plan
 Account: owner@example.test
 Project: demo-remote-1
-Deployment: 3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11
 Database: (default) (standard), asia-east1
 Sign-in: anonymous, google.com
 Rules: d84fe141967e (replaces the live Rules)

@@ -23,7 +23,6 @@ def project(view, digest):
     projection = {"authorized": False, "plan": view, "planDigest": digest, "extensions": extensions, "record": record}
     lines = [
         "Firestore sharing plan", "Account: " + view["account"], "Project: " + view["project"],
-        "Deployment: " + view["deploymentId"],
         f'Database: (default) (standard), {view["database"]["location"]}',
         "Sign-in: " + ", ".join(view["signIn"]),
         f'Rules: {view["rules"]["digest"][:12]} ({"no existing Rules" if view["rules"]["replaces"] == "none" else "replaces the live Rules" if view["rules"]["replaces"] == "foreign" else view["rules"]["replaces"]})',

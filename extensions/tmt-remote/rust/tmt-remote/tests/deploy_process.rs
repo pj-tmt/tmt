@@ -6,6 +6,17 @@ mod deploy_fixture;
 mod executable_fixture;
 use deploy_fixture::Root;
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-remote");
+// Optional delivery export; ordinary test assertions always run and no production input uses it.
+fn export_human(name: &str, output: &std::process::Output) {
+    if let Some(directory) = std::env::var_os("TMT_REMOTE_GOLDENS") {
+        let directory = std::path::PathBuf::from(directory);
+        assert!(directory.is_absolute());
+        fs::create_dir_all(&directory).unwrap();
+        let mut bytes = output.stdout.clone();
+        bytes.extend_from_slice(&output.stderr);
+        fs::write(directory.join(format!("{name}.txt")), bytes).unwrap();
+    }
+}
 fn base(root: &Root) -> Command {
     let mut command = Command::new(BINARY);
     command
@@ -82,14 +93,15 @@ fn help_and_invalid_authorization_do_not_invoke_core_or_provider() {
 fn old_installed_colab_is_truthfully_unavailable_without_tool_or_storage_calls() {
     let root = Root::new();
     let layout = root.layout();
-    let mut record = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    let mut record =
+        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     record
         .persist(&tmt_remote::deploy_run::DeployRecord::new(
             deploy_fixture::ID,
         ))
         .unwrap();
     drop(record);
-    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     executable_fixture::write_executable(&root.0.join("tmt"),&format!("[ \"$PWD\" = / ] || exit 4\nprintf '%s\\n' \"$*\" >> '{}'\n[ \"$1 $2 $3\" = 'colab deploy-declaration --json' ] || exit 5\nprintf '%s' '{{\"error\":{{\"code\":\"COLAB_INPUT_INVALID\"}}}}'; exit 1",root.0.join("calls").display())).unwrap();
     let out = base(&root).args(ARGS).arg("--json").output().unwrap();
     assert!(out.status.success(), "{:?}", out);
@@ -102,7 +114,10 @@ fn old_installed_colab_is_truthfully_unavailable_without_tool_or_storage_calls()
         fs::read_to_string(root.0.join("calls")).unwrap(),
         "colab deploy-declaration --json\n"
     );
-    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        before
+    );
     let human = base(&root).args(ARGS).output().unwrap();
     assert!(human.status.success());
     assert_eq!(
@@ -203,6 +218,15 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     let root = Root::new();
     available(&root);
     let package = installed(&root, "process");
+    let mut writer =
+        tmt_remote::deploy_record::DeployRecordStore::open(&root.layout(), "demo-remote-1")
+            .unwrap();
+    writer
+        .persist(&tmt_remote::deploy_run::DeployRecord::new(
+            deploy_fixture::ID,
+        ))
+        .unwrap();
+    drop(writer);
     let preview = json_output(&invoke(&root, &["--json"]));
     assert_eq!(preview["authorized"], false);
     let draft = tmt_remote::deploy_record::read(&root.layout())
@@ -214,7 +238,7 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     );
     assert!(preview["record"]["run"].is_null());
     assert!(preview["record"]["binding"].is_null());
-    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let draft_document: serde_json::Value = serde_json::from_slice(&before).unwrap();
     assert_eq!(draft_document["version"], 1);
     assert!(draft_document.get("target").is_none());
@@ -234,9 +258,13 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
         "To deploy this plan, run the same command with --authorize {}",
         &digest[..12]
     )));
+    export_human("plan", &invoke(&root, &[]));
     assert!(human.contains("object 256 KiB"));
     assert!(human.contains("TTL: not set up"));
-    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        before
+    );
     let done = json_output(&invoke(&root, &["--authorize", &digest[..12], "--json"]));
     assert_eq!(
         done["record"]["deploymentId"],
@@ -244,17 +272,17 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
     );
     assert_eq!(done["record"]["run"]["state"], "complete");
     assert!(done["record"]["binding"].is_object());
-    let saved: serde_json::Value =
-        serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(saved["record"], done["record"]);
-    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();
     // Even with no installed Firebase tool on PATH, a retained target conflict is
     // the refusal: no login, inventory or provider process is reached.
-    for (project, region) in [
-        ("demo-remote-2", "asia-east1"),
-        ("demo-remote-1", "us-central1"),
-    ] {
+    {
+        let (project, region) = ("demo-remote-1", "us-central1");
         let mut words = ARGS.to_vec();
         words[3] = project;
         words[5] = region;
@@ -264,21 +292,32 @@ fn available_binary_plan_is_read_only_and_authorization_completes_the_saved_orig
         let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(reply["error"]["code"], "REMOTE_DEPLOY_PROJECT_CONFLICT");
         let message = reply["error"]["message"].as_str().unwrap();
-        assert!(message.contains(&root.remote().join("deploy.json").display().to_string()));
-        assert!(message.contains("nothing else is deleted"));
         assert_eq!(
             message,
-            format!(
-                "This Remote home deploys to demo-remote-1 (asia-east1), not {project} ({region}). To move it, remove '{}'; nothing else is deleted. The old project's Rules stay until a new plan, authorized from any home, replaces them.",
-                root.layout().directory.join("deploy.json").display()
-            )
+            "Project demo-remote-1 uses region asia-east1, not us-central1.: Run tmt remote deploy firestore --project demo-remote-1 --region asia-east1 --sign-in anonymous"
         );
-        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+        assert_eq!(
+            fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+            before
+        );
         assert_eq!(
             fs::read_to_string(package.join("calls.jsonl")).unwrap(),
             calls
         );
     }
+    let mut another = ARGS.to_vec();
+    another[3] = "demo-remote-2";
+    let out = base(&root).args(another).arg("--json").output().unwrap();
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reply["error"]["code"], "REMOTE_DEPLOY_TOOL_MISSING");
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        before
+    );
+    assert_eq!(
+        fs::read_to_string(package.join("calls.jsonl")).unwrap(),
+        calls
+    );
     let methods: Vec<_> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
         .lines()
@@ -323,7 +362,12 @@ fn available_binary_reports_missing_tool_and_missing_login_without_creating_a_pl
         assert!(!String::from_utf8_lossy(&out.stdout).contains("TOKEN_CANARY"));
         // The target preflight takes the local writer lock before tool/login setup;
         // no valid plan exists yet, so neither identity nor target is published.
-        assert!(!root.remote().join("deploy.json").exists());
+        assert!(
+            !root
+                .remote()
+                .join("deployments/demo-remote-1/deploy.json")
+                .exists()
+        );
         assert!(
             tmt_remote::deploy_record::read(&root.layout())
                 .unwrap()
@@ -400,6 +444,11 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
     fs::write(&auth_path, &auth).unwrap();
     let unconfirmed = json_output(&unconfirmed_output);
     assert_eq!(unconfirmed["record"]["run"]["state"], "partial");
+    let unfinished = base(&root).args(["status", "--layers"]).output().unwrap();
+    let unfinished_text = String::from_utf8_lossy(&unfinished.stdout);
+    assert!(unfinished_text.contains("warning: Firestore setup is not finished"));
+    assert!(!unfinished_text.contains("Firestore is not configured"));
+    export_human("status-unfinished", &unfinished);
     let provider_state: Value =
         serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
     assert!(!provider_state["hosting"]["live"].is_null());
@@ -433,8 +482,10 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         .unwrap();
     assert!(saved.usable_binding().is_some());
     assert!(saved.verified_publication().is_some());
-    let document: Value =
-        serde_json::from_slice(&fs::read(root.remote().join("deploy.json")).unwrap()).unwrap();
+    let document: Value = serde_json::from_slice(
+        &fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(document["version"], 3);
     let calls: Vec<Value> = fs::read_to_string(package.join("calls.jsonl"))
         .unwrap()
@@ -471,13 +522,26 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
     assert!(stage < rules && rules < live);
     // Re-print derives one snapshot while the writer is held, without saving
     // anything or invoking declarations, Node or the provider.
+    export_human(
+        "status-complete",
+        &base(&root).args(["status", "--layers"]).output().unwrap(),
+    );
+    export_human(
+        "link",
+        &base(&root)
+            .args(["link", "--remote", "demo-remote-1"])
+            .output()
+            .unwrap(),
+    );
     let derived_link = complete["remoteLink"].as_str().unwrap();
     tmt_remote::remote_link::validate(derived_link).unwrap();
     assert!(document.get("remoteLink").is_none());
-    let bytes_before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let bytes_before =
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let provider_before = fs::read(package.join("calls.jsonl")).unwrap();
     let layout = root.layout();
-    let writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    let writer =
+        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let first = base(&root).args(["link", "--json"]).output().unwrap();
     let second = base(&root).args(["link", "--json"]).output().unwrap();
     assert!(first.status.success(), "{:?}", first);
@@ -487,7 +551,7 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         json!({"version":1,"remoteLink":derived_link})
     );
     assert_eq!(
-        fs::read(root.remote().join("deploy.json")).unwrap(),
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
         bytes_before
     );
     assert_eq!(
@@ -508,7 +572,7 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         derived_link
     );
     assert_eq!(
-        fs::read(root.remote().join("deploy.json")).unwrap(),
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
         bytes_before
     );
     // A partial publication cannot yield a link; the reader changes nothing.
@@ -520,7 +584,11 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         }
     }
     let partial_bytes = serde_json::to_vec(&partial).unwrap();
-    fs::write(root.remote().join("deploy.json"), &partial_bytes).unwrap();
+    fs::write(
+        root.remote().join("deployments/demo-remote-1/deploy.json"),
+        &partial_bytes,
+    )
+    .unwrap();
     let refused = base(&root).args(["link", "--json"]).output().unwrap();
     assert!(!refused.status.success());
     assert_eq!(
@@ -528,10 +596,14 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         "REMOTE_LINK_UNAVAILABLE"
     );
     assert_eq!(
-        fs::read(root.remote().join("deploy.json")).unwrap(),
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
         partial_bytes
     );
-    fs::write(root.remote().join("deploy.json"), &bytes_before).unwrap();
+    fs::write(
+        root.remote().join("deployments/demo-remote-1/deploy.json"),
+        &bytes_before,
+    )
+    .unwrap();
     // Checkpoint data is validated on read, never converted or silently repaired.
     for corrupt in [
         "extra-envelope-key",
@@ -548,13 +620,267 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
                 json!("another-project");
         }
         let bytes = serde_json::to_vec(&damaged).unwrap();
-        fs::write(root.remote().join("deploy.json"), &bytes).unwrap();
+        fs::write(
+            root.remote().join("deployments/demo-remote-1/deploy.json"),
+            &bytes,
+        )
+        .unwrap();
         assert_eq!(
             tmt_remote::deploy_record::read(&root.layout())
                 .unwrap_err()
                 .code,
             "REMOTE_STATE_UNSAFE"
         );
-        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), bytes);
+        assert_eq!(
+            fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+            bytes
+        );
     }
+}
+
+#[test]
+fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history() {
+    let root = Root::new();
+    available(&root);
+    let layout = root.layout();
+    let empty = base(&root).args(["ls"]).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&empty.stdout),
+        "No remotes yet; add one with tmt remote add <name> <link>\n"
+    );
+    export_human("empty-ls", &empty);
+    export_human(
+        "status-unconfigured",
+        &base(&root).args(["status", "--layers"]).output().unwrap(),
+    );
+    for (project, region, id) in [
+        ("demo-remote-1", "asia-east1", deploy_fixture::ID),
+        (
+            "demo-remote-2",
+            "us-central1",
+            "ad2fb77d-b5e8-4a32-bf35-413f2220d909",
+        ),
+    ] {
+        let mut writer =
+            tmt_remote::deploy_record::DeployRecordStore::open_for_target(&layout, project, region)
+                .unwrap();
+        writer.bind_target(project, region).unwrap();
+        writer
+            .persist(&tmt_remote::deploy_run::DeployRecord::new(id))
+            .unwrap();
+    }
+    let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
+    let unregistered = base(&root).args(["ls"]).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&unregistered.stdout),
+        "  REMOTE         TARGET         REGION       DEFAULT\n  demo-remote-1  demo-remote-1  asia-east1\n  demo-remote-2  demo-remote-2  us-central1\n"
+    );
+    export_human("owned-unregistered-ls", &unregistered);
+    let selected = base(&root)
+        .args(["status", "--layers", "--remote", "demo-remote-2", "--json"])
+        .output()
+        .unwrap();
+    let value = json_output(&selected);
+    assert_eq!(
+        value["firestoreDeployment"],
+        serde_json::json!({"project":"demo-remote-2", "region":"us-central1", "deploymentId":"ad2fb77d-b5e8-4a32-bf35-413f2220d909"})
+    );
+    assert_eq!(value["firestoreLayers"], serde_json::json!([]));
+    let required = base(&root)
+        .args(["status", "--layers", "--json"])
+        .output()
+        .unwrap();
+    assert!(!required.status.success());
+    let required: serde_json::Value = serde_json::from_slice(&required.stdout).unwrap();
+    assert_eq!(required["error"]["code"], "REMOTE_SELECTOR_REQUIRED");
+    let ordinary = json_output(&base(&root).args(["status", "--json"]).output().unwrap());
+    assert_eq!(
+        ordinary,
+        serde_json::json!({"running":false, "lastPort":null})
+    );
+    let set = base(&root)
+        .args(["settings", "default-remote", "demo-remote-2", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(json_output(&set)["defaultRemote"], "demo-remote-2");
+    let default = json_output(
+        &base(&root)
+            .args(["status", "--layers", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(default, value);
+    assert_eq!(
+        json_output(
+            &base(&root)
+                .args(["status", "--layers", "--project", "demo-remote-2", "--json"])
+                .output()
+                .unwrap()
+        ),
+        value
+    );
+    let conflict = base(&root)
+        .args([
+            "status",
+            "--layers",
+            "--project",
+            "demo-remote-1",
+            "--remote",
+            "demo-remote-2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!conflict.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&conflict.stdout).unwrap()["error"]["code"],
+        "REMOTE_SELECTOR_INVALID"
+    );
+    let conflict_human = base(&root)
+        .args([
+            "status",
+            "--layers",
+            "--project",
+            "demo-remote-1",
+            "--remote",
+            "demo-remote-2",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&conflict_human.stderr),
+        "error: The --project and --remote options name different projects: demo-remote-1 and demo-remote-2\nhint: Run the same command with only one of --project or --remote\n"
+    );
+    export_human("invalid-selectors", &conflict_human);
+
+    assert_eq!(
+        json_output(
+            &base(&root)
+                .args([
+                    "status",
+                    "--layers",
+                    "--project",
+                    "demo-remote-2",
+                    "--remote",
+                    "demo-remote-2",
+                    "--json"
+                ])
+                .output()
+                .unwrap()
+        ),
+        value
+    );
+    let selected_human = base(&root).args(["status", "--layers"]).output().unwrap();
+    let selected_text = String::from_utf8_lossy(&selected_human.stdout);
+    assert!(selected_text.contains("Recorded Firestore setup: demo-remote-2 (us-central1)\nwarning: Firestore setup has not started"));
+    assert!(!selected_text.contains("Firestore is not configured"));
+    export_human("two-project-default-layers", &selected_human);
+    let add = base(&root)
+        .args(["add", "other", "https://remote.example/r/abc/", "--json"])
+        .output()
+        .unwrap();
+    assert!(add.status.success(), "{:?}", add);
+    let owned_command = base(&root)
+        .args(["devices", "--remote", "other", "--json"])
+        .output()
+        .unwrap();
+    let refused: serde_json::Value = serde_json::from_slice(&owned_command.stdout).unwrap();
+    assert_eq!(refused["error"]["code"], "REMOTE_SELECTOR_LOCAL_REQUIRED");
+    let remove = base(&root)
+        .args(["rm", "other", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(json_output(&remove)["deployHistoryChanged"], false);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        before
+    );
+    export_human(
+        "status-layers",
+        &base(&root)
+            .args(["status", "--layers", "--remote", "demo-remote-2"])
+            .output()
+            .unwrap(),
+    );
+    export_human(
+        "default-remote",
+        &base(&root).args(["settings"]).output().unwrap(),
+    );
+    let added = base(&root)
+        .args(["add", "other", "https://remote.example/r/abc/"])
+        .output()
+        .unwrap();
+    assert!(added.status.success());
+    export_human("remotes-add", &added);
+    export_human(
+        "local-required",
+        &base(&root)
+            .args(["devices", "--remote", "other"])
+            .output()
+            .unwrap(),
+    );
+    tmt_remote::settings::set_default_remote(&root.0, "local").unwrap();
+    let required_human = base(&root).args(["status", "--layers"]).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&required_human.stderr),
+        "error: Several projects are deployed from this machine: demo-remote-1, demo-remote-2\nhint: Run the same command with --project demo-remote-1\nhint: Run tmt remote settings default-remote demo-remote-1\n"
+    );
+    export_human("selection-required", &required_human);
+    export_human(
+        "default-local",
+        &base(&root).args(["settings"]).output().unwrap(),
+    );
+    let mut descriptor: serde_json::Value =
+        serde_json::from_slice(&fixture("remote_link/descriptor-v1.json")).unwrap();
+    descriptor.sort_all_objects();
+    use base64::Engine;
+    let link = format!(
+        "https://demo-remote-1.web.app/pair#{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&descriptor).unwrap())
+    );
+    let tenant = base(&root).args(["add", "tenant", &link]).output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&tenant.stdout),
+        "Added remote 'tenant' (demo-remote-1, asia-east1)\n"
+    );
+    export_human("remotes-add-firebase", &tenant);
+    tmt_remote::settings::set_default_remote(&root.0, "tenant").unwrap();
+    export_human("remotes-ls", &base(&root).args(["ls"]).output().unwrap());
+    export_human(
+        "not-owned",
+        &base(&root)
+            .args(["link", "--remote", "tenant"])
+            .output()
+            .unwrap(),
+    );
+    export_human(
+        "kind-unsupported",
+        &base(&root)
+            .args(["devices", "--remote", "tenant"])
+            .output()
+            .unwrap(),
+    );
+    export_human(
+        "remotes-rm",
+        &base(&root).args(["rm", "tenant"]).output().unwrap(),
+    );
+    export_human(
+        "stale-default",
+        &base(&root).args(["status", "--layers"]).output().unwrap(),
+    );
+    export_human(
+        "not-found",
+        &base(&root)
+            .args(["link", "--remote", "removed"])
+            .output()
+            .unwrap(),
+    );
+    fs::write(root.remote().join("deploy.json"), b"{}").unwrap();
+    export_human(
+        "old-single-path",
+        &base(&root).args(["link"]).output().unwrap(),
+    );
+    fs::remove_file(root.remote().join("deploy.json")).unwrap();
+    assert!(!root.remote().join("deploy.json").exists());
 }

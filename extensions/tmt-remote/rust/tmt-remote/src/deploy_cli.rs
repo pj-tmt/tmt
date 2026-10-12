@@ -12,6 +12,7 @@ use serde_json::json;
 #[derive(Debug, PartialEq, Eq)]
 pub struct FirestoreArgs {
     pub project: String,
+    pub remote: Option<String>,
     pub region: String,
     pub sign_in: Vec<SignInProvider>,
     pub authorize: Option<String>,
@@ -77,9 +78,9 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. One Remote home deploys to one project and region. Uses Firebase's free Spark plan; no paid features are set up.",
+        details: "Needs the Firebase CLI and your own firebase login. Without --authorize it only prints the plan. To deploy, pass --authorize with the first 12 or more characters of the plan digest; signing in alone never deploys. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
     })
-        .arg(Arg::new("project").long("project").required(true))
+        .arg(Arg::new("project").long("project"))
         .arg(Arg::new("region").long("region").required(true))
         .arg(
             Arg::new("sign-in")
@@ -106,10 +107,15 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(FirestoreArgs {
+        remote: matches
+            .try_get_one::<String>("remote")
+            .ok()
+            .flatten()
+            .cloned(),
         project: matches
             .get_one::<String>("project")
-            .ok_or(DeployCliError::Usage)?
-            .clone(),
+            .cloned()
+            .unwrap_or_default(),
         region: matches
             .get_one::<String>("region")
             .ok_or(DeployCliError::Usage)?
@@ -149,11 +155,27 @@ pub fn execute<P: FirestoreCommandPort>(
         ));
     }
     let layout = layout_factory()?;
+    let project = crate::remote_selector::owned(
+        &layout,
+        args.remote.as_deref(),
+        (!args.project.is_empty()).then_some(args.project.as_str()),
+    )
+    .map_err(DeployCliError::Local)?
+    .ok_or(DeployCliError::Usage)?;
+    let selected = FirestoreArgs {
+        project,
+        remote: args.remote.clone(),
+        region: args.region.clone(),
+        sign_in: args.sign_in.clone(),
+        authorize: args.authorize.clone(),
+        json: args.json,
+    };
+    let args = &selected;
     let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
         .map_err(DeployCliError::Local)?;
     let mut provider = provider_factory()?;
     provider.login().map_err(DeployCliError::Setup)?;
-    let path = layout.directory.join("deploy.json");
+    let path = store.record_path();
     let mut output = execute_prepared(args, &discovered, &mut provider, &mut store, now()?, &path)?;
     if output.json["record"]["run"]["state"] == "partial" {
         output.human.push_str(&uncertain_message(&path));
@@ -177,7 +199,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
     args: &FirestoreArgs,
     discovered: &deploy_discovery::DiscoveredPlan,
     provider: &mut P,
-    store: &mut DeployRecordStore<'_>,
+    store: &mut DeployRecordStore,
     now_ms: u64,
     record_path: &std::path::Path,
 ) -> Result<DeployCommandOutput, DeployCliError> {

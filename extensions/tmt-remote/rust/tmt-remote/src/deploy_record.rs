@@ -135,9 +135,116 @@ fn valid(record: &DeployRecord) -> bool {
 
 /// A read-only snapshot, including while another process holds the writer lock.
 /// Missing is not damaged; malformed, oversized and unsafe state never becomes a draft.
-pub fn read(layout: &Layout) -> Result<Option<DeployRecord>, RemoteError> {
-    Ok(read_document(layout)?.map(|document| document.record))
+pub fn read_project(layout: &Layout, project: &str) -> Result<Option<DeployRecord>, RemoteError> {
+    Ok(snapshot(layout, project)?.map(|snapshot| snapshot.record))
 }
+/// Evidence and selected identity come from the same atomic file snapshot.
+pub struct OwnedSnapshot {
+    pub record: DeployRecord,
+    pub project: String,
+    pub region: Option<String>,
+}
+impl OwnedSnapshot {
+    pub fn identity(&self) -> Option<serde_json::Value> {
+        self.region.as_ref().map(|region| serde_json::json!({"project":self.project,"region":region,"deploymentId":self.record.deployment_id}))
+    }
+}
+pub fn snapshot(layout: &Layout, project: &str) -> Result<Option<OwnedSnapshot>, RemoteError> {
+    refuse_legacy(layout)?;
+    let Some(selected) = layout.project(project, false)? else {
+        return Ok(None);
+    };
+    let document = read_document(&selected)?;
+    if let Some(target) = document
+        .as_ref()
+        .and_then(|d| d.target.as_ref())
+        .filter(|t| t.project != project)
+    {
+        return Err(copy_conflict(layout, project, &target.project));
+    }
+    Ok(document.map(|d| OwnedSnapshot {
+        record: d.record,
+        project: project.into(),
+        region: d.target.map(|t| t.region),
+    }))
+}
+fn copy_conflict(layout: &Layout, selected: &str, retained: &str) -> RemoteError {
+    RemoteError::new(
+        "REMOTE_SELECTOR_CONFLICT",
+        &format!(
+            "Conflicting copies: '{}' and '{}'.",
+            layout
+                .directory
+                .join("deployments")
+                .join(selected)
+                .join(FILE)
+                .display(),
+            layout
+                .directory
+                .join("deployments")
+                .join(retained)
+                .join(FILE)
+                .display()
+        ),
+    )
+    .with_hint("Run tmt remote ls")
+}
+/// No legacy path is inferred, moved, converted or silently skipped.
+pub fn refuse_legacy(layout: &Layout) -> Result<(), RemoteError> {
+    if layout.directory.join(FILE).symlink_metadata().is_ok() {
+        return Err(RemoteError::new(
+            "REMOTE_SELECTOR_LEGACY",
+            "An older single-project Firestore setup file must be moved aside before choosing a project",
+        )
+        .with_hint(&format!(
+            "Run mv '{}' '{}.old'",
+            layout.directory.join(FILE).display(),
+            layout.directory.join(FILE).display()
+        )));
+    }
+    Ok(())
+}
+/// Bounded local directory inventory; this is an admission bound, not a project quota.
+pub fn projects(layout: &Layout) -> Result<Vec<String>, RemoteError> {
+    refuse_legacy(layout)?;
+    let Some(parent) = tmt_extension_state::Layout::existing(&layout.directory, "deployments", &[])
+        .map_err(crate::state::state_error)?
+    else {
+        return Ok(vec![]);
+    };
+    let entries = match fs::read_dir(&parent.directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(_) => return Err(unavailable()),
+    };
+    let mut projects = vec![];
+    for (index, entry) in entries.enumerate() {
+        if index >= limits::OWNED_PROJECT_SCAN {
+            return Err(invalid());
+        }
+        let entry = entry.map_err(|_| unavailable())?;
+        let name = entry.file_name().into_string().map_err(|_| invalid())?;
+        let Some(selected) = layout.project(&name, false)? else {
+            return Err(invalid());
+        };
+        if selected.read_file(FILE)?.is_some() {
+            projects.push(name);
+        }
+    }
+    projects.sort();
+    Ok(projects)
+}
+pub fn read(layout: &Layout) -> Result<Option<DeployRecord>, RemoteError> {
+    match crate::remote_selector::owned(layout, None, None)? {
+        Some(project) => read_project(layout, &project),
+        None => Ok(None),
+    }
+}
+/// Metadata is local and opt-in; it does not claim live provider readiness.
+pub fn metadata(layout: &Layout, project: &str) -> Result<Option<serde_json::Value>, RemoteError> {
+    Ok(snapshot(layout, project)?.and_then(|snapshot| snapshot.identity()))
+}
+
 fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError> {
     let Some(file) = layout.read_file(FILE)? else {
         return Ok(None);
@@ -194,7 +301,9 @@ impl DeployRecordEvidence {
 }
 impl FirestoreEvidenceSource for DeployRecordEvidence {
     fn evidence(&self) -> Option<FirestoreEvidence> {
-        match read(&self.layout) {
+        match crate::remote_selector::owned(&self.layout, None, None).and_then(|project| {
+            project.map_or(Ok(None), |project| read_project(&self.layout, &project))
+        }) {
             Ok(Some(record)) => readiness::from_record(&record),
             Ok(None) => None,
             Err(_) => Some(FirestoreEvidence::unknown()),
@@ -204,30 +313,33 @@ impl FirestoreEvidenceSource for DeployRecordEvidence {
 
 /// One writer for the whole plan/run. Drop releases only the writer lock, not identity.
 /// It never holds the serving lease; status readers do not wait for this owner.
-pub struct DeployRecordStore<'a> {
-    layout: &'a Layout,
+pub struct DeployRecordStore {
+    layout: Layout,
+    project: String,
     _lock: File,
     target: Option<DeployTarget>,
 }
-impl<'a> DeployRecordStore<'a> {
+impl DeployRecordStore {
     pub(crate) fn record_path(&self) -> PathBuf {
         self.layout.directory.join(FILE)
     }
-    pub fn open(layout: &'a Layout) -> Result<Self, RemoteError> {
-        Self::open_checked(layout, None)
+    pub fn open(layout: &Layout, project: &str) -> Result<Self, RemoteError> {
+        Self::open_checked(layout, project, None)
     }
     /// Check a retained target under the writer lock, before cleanup or provider setup.
     pub fn open_for_target(
-        layout: &'a Layout,
+        layout: &Layout,
         project: &str,
         region: &str,
     ) -> Result<Self, RemoteError> {
-        Self::open_checked(layout, Some((project, region)))
+        Self::open_checked(layout, project, Some((project, region)))
     }
     fn open_checked(
-        layout: &'a Layout,
+        layout: &Layout,
+        project: &str,
         requested: Option<(&str, &str)>,
     ) -> Result<Self, RemoteError> {
+        refuse_legacy(layout)?;
         let lock = layout.file("deploy.lock")?;
         lock.try_lock().map_err(|error| match error {
             std::fs::TryLockError::WouldBlock => RemoteError::new(
@@ -236,14 +348,25 @@ impl<'a> DeployRecordStore<'a> {
             ),
             std::fs::TryLockError::Error(_) => unavailable(),
         })?;
-        // Every v1 record is unbound, even when its old binding names a project.
-        // Never infer a target or convert a record on a read.
-        let target = read_document(layout)?.and_then(|document| document.target);
+        let home = layout;
+        let layout = layout
+            .project(project, true)?
+            .expect("created project directory");
+        // A preview stays unbound until authorization; its directory already identifies the project.
+        let target = read_document(&layout)?.and_then(|document| document.target);
         let owner = Self {
-            layout,
+            layout: layout.clone(),
+            project: project.into(),
             _lock: lock,
             target,
         };
+        if let Some(target) = owner
+            .target
+            .as_ref()
+            .filter(|target| target.project != project)
+        {
+            return Err(copy_conflict(home, project, &target.project));
+        }
         if let Some((project, region)) = requested {
             owner.check_target(project, region)?;
         }
@@ -278,14 +401,14 @@ impl<'a> DeployRecordStore<'a> {
             return Err(RemoteError::new(
                 "REMOTE_DEPLOY_PROJECT_CONFLICT",
                 &format!(
-                    "This Remote home deploys to {} ({}), not {} ({}). To move it, remove '{}'; nothing else is deleted. The old project's Rules stay until a new plan, authorized from any home, replaces them.",
-                    target.project,
-                    target.region,
-                    project,
-                    region,
-                    self.layout.directory.join("deploy.json").display()
+                    "Project {} uses region {}, not {}.",
+                    target.project, target.region, region
                 ),
-            ));
+            )
+            .with_hint(&format!(
+                "Run tmt remote deploy firestore --project {} --region {} --sign-in anonymous",
+                target.project, target.region
+            )));
         }
         Ok(())
     }
@@ -293,6 +416,9 @@ impl<'a> DeployRecordStore<'a> {
     /// together with the plan identity, before any provider effect.
     pub fn bind_target(&mut self, project: &str, region: &str) -> Result<(), RemoteError> {
         self.check_target(project, region)?;
+        if project != self.project {
+            return Err(invalid());
+        }
         let target = DeployTarget {
             project: project.into(),
             region: region.into(),
@@ -304,7 +430,9 @@ impl<'a> DeployRecordStore<'a> {
         Ok(())
     }
     pub fn load_or_draft(&self) -> Result<DeployRecord, RemoteError> {
-        read(self.layout)?.map_or_else(|| uuid_v4().map(|id| DeployRecord::new(&id)), Ok)
+        read_document(&self.layout)?
+            .map(|document| document.record)
+            .map_or_else(|| uuid_v4().map(|id| DeployRecord::new(&id)), Ok)
     }
     pub fn persist(&mut self, record: &DeployRecord) -> Result<(), RemoteError> {
         if !valid(record) {
@@ -326,7 +454,10 @@ impl<'a> DeployRecordStore<'a> {
             return Err(invalid());
         }
         // Validate the destination through the admitted no-follow reader before replacing.
-        if read(self.layout)?.is_some_and(|old| old.deployment_id != record.deployment_id) {
+        if read_document(&self.layout)?
+            .map(|document| document.record)
+            .is_some_and(|old| old.deployment_id != record.deployment_id)
+        {
             return Err(invalid());
         }
         let path = self
@@ -353,7 +484,7 @@ impl<'a> DeployRecordStore<'a> {
         self.layout.sync().map_err(|_| unavailable())
     }
 }
-impl DeploySink for DeployRecordStore<'_> {
+impl DeploySink for DeployRecordStore {
     fn save(&mut self, record: &DeployRecord) -> Result<(), DeploySinkError> {
         self.persist(record).map_err(|_| DeploySinkError)
     }

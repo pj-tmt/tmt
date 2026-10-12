@@ -48,14 +48,15 @@ fn supplied_exact_bytes_compose_once_and_absence_never_uses_fixture_bytes() {
     assert!(one.artifacts.rules.contains("match /x/colab"));
     let root = Root::new();
     let layout = root.layout();
-    let mut record = tmt_remote::deploy_record::DeployRecordStore::open(&layout).unwrap();
+    let mut record =
+        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     record
         .persist(&tmt_remote::deploy_run::DeployRecord::new(
             deploy_fixture::ID,
         ))
         .unwrap();
     drop(record);
-    let before = fs::read(root.remote().join("deploy.json")).unwrap();
+    let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let mut source = DeclaredFixture(None, Vec::new());
     let absent = deploy_discovery::discover(&mut source, &["colab"]).unwrap();
     assert!(absent.extensions.view().extensions.is_empty());
@@ -65,7 +66,10 @@ fn supplied_exact_bytes_compose_once_and_absence_never_uses_fixture_bytes() {
     );
     assert!(!absent.artifacts.rules.contains("match /x/colab"));
     assert_eq!(source.1, ["colab"]);
-    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        before
+    );
 }
 #[test]
 fn wrong_identity_unknown_field_digest_and_artifact_drift_refuse() {
@@ -265,6 +269,7 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
         }
     }
     let args = tmt_remote::deploy_cli::FirestoreArgs {
+        remote: None,
         project: "demo-remote-1".into(),
         region: "asia-east1".into(),
         sign_in: vec![tmt_remote::deploy_run::SignInProvider::Anonymous],
@@ -399,6 +404,7 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
     declaration["hosting"] = serde_json::to_value(manifest).unwrap();
     set_declaration(&mut declared, &declaration);
     let args = tmt_remote::deploy_cli::FirestoreArgs {
+        remote: None,
         project: "demo-remote-1".into(),
         region: "asia-east1".into(),
         sign_in: vec![tmt_remote::deploy_run::SignInProvider::Anonymous],

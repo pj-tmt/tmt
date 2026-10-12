@@ -161,11 +161,18 @@ reads an exact Spark sharing plan; sign-in selection is required, not inferred. 
 uses `google.com`. Provider reads require the owner's installed Firebase CLI and own login.
 `--authorize <plan-digest-prefix>` needs at least 12 lowercase hex characters of the whole
 envelope digest, including the fingerprint of any foreign live Rules it destructively replaces.
-One Remote home deploys to one project and region; a different target refuses before provider
-setup without resetting the deployment record. A plan-only read does not bind the target; the
-first authorized run does, before any effect. To move this home to another project or region,
-remove `deploy.json`; nothing else is deleted. The old project's Rules stay and need a newly
-authorized takeover plan from any home. Login, pairing and installation never authorize
+Each project keeps its own history on this machine; its region stays fixed after authorization.
+Use `--project` to create or plan a project, or `--remote` to select a catalog name or owned project
+id. Status layers and link also accept `--project`; when both selectors are given they must agree.
+Without explicit selection, the configured
+`default-remote` applies; local selects a sole project and asks when several exist.
+`add <name> <remote-link>`, `ls` and `rm <name>` change only public
+references, not cloud resources or deploy history. Owner-host commands ignore the targeting
+default and refuse explicit non-local administration. See the contract's
+[native selection section](../../../../contracts/remote-channel-v1.md#native-remote-selection).
+An old single-path setup is refused with one command to move it aside; no migration or conversion
+ships.
+Login, pairing and installation never authorize
 deployment. No prompt or `--yes` bypass exists. An unknown outcome requires read-back and exact-plan resume, not a
 blind repeat of an effect.
 

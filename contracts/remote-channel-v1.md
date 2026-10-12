@@ -1950,14 +1950,54 @@ Never overwrite or delete unrelated account resources; deletion/data loss requir
 authorization in that concrete plan. Preserve an existing deployment on failed upgrade or report
 its actual partial availability; never claim provider rollback restored data.
 
-A Remote home binds its deployment identity to one `{project, region}` when the first authorized
-run is atomically persisted, before any effect. An unbound home's plan-only read persists a v1 draft.
-A different bound target refuses with `REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup,
-login or inventory; no state is reset. To move this home to another project or region, the owner
-removes `deploy.json`; nothing else is deleted. The old project's Rules stay and need a newly
-authorized takeover plan from any home. Every v1 record is unbound, even if its binding names a
-project: reads neither infer a partial target nor convert it. The next authorized plan binds
-that identity to its named target.
+A Remote home retains one independent deployment identity per Firebase project under
+`remote/deployments/<project>/deploy.json`, with one shared `deploy.lock`. Plan-only reads
+persist project-local v1 drafts without binding a region. The first authorized save binds
+`{project, region}` before any effect; a different region for that project refuses with
+`REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory, without reset.
+A different project has its own identity and recovery history. Readers never migrate or
+infer a target. An old single `remote/deploy.json` refuses with `REMOTE_SELECTOR_LEGACY`,
+names that path and gives a command to move it aside; no legacy reader, conversion or move ships.
+Removing local history leaves Firebase resources untouched; any later destructive takeover
+still requires authorization of the plan's observed foreign fingerprint.
+
+### Native remote selection
+
+`add <name> <remote-link>`, `ls` and `rm <name>` manage an owner-only
+public catalog in `remotes.json`, not grants, private keys or deployment ownership. Local
+references have an absolute HTTP(S) door-root URL; Firebase references use the validated
+[remote link](#backends-and-deploy). A name cannot shadow a different owned project id. Removing a
+reference preserves cloud resources and deploy history. The catalog has no current/provider
+status observation; the browser handoff catalog and its observations are a separate slice.
+
+The single `--remote <ref>` selector accepts `local`, a catalog name or an owned project id.
+Targeting surfaces resolve explicit selection, then `settings.json`'s optional `defaultRemote`,
+then this home's local fallback. The fallback selects a sole owned project; several require
+an explicit choice, never last-used or alphabetical selection. A missing or unreadable default
+refuses rather than falling back. `settings default-remote <ref|local>` changes that default
+without changing browser active selection. `deploy firestore --project` remains the explicit
+create input and overrides a targeting default; if `--remote` is also given they must agree.
+Status layers and link also accept an owned `--project`; when both selectors are given they must
+agree. A public Firebase reference maps to an owned file
+only when its projectId, appId and authDomain agree with that file's verified publication;
+importing a link alone cannot claim ownership or trigger provider setup.
+
+Owner-host serve/stop/pair/devices/approve/cancel/settings/catalog commands and ordinary status
+always act on this home and ignore the default. An explicit other Local reference refuses
+`REMOTE_SELECTOR_LOCAL_REQUIRED`; Firebase administration refuses
+`REMOTE_SELECTOR_KIND_UNSUPPORTED`. No foreign-host administration client ships.
+`REMOTE_SELECTOR_REQUIRED`, `_INVALID`, `_NOT_FOUND`, `_NOT_OWNED`, `_STALE_DEFAULT`,
+`_UNAVAILABLE`, `_CONFLICT` and `_LEGACY` distinguish selection failures and include the repair
+command.
+Codes are JSON-only in CLI output; human errors and hints use plain words.
+
+`status --layers` reads one selected owned snapshot without provider calls or the writer lock,
+including while serve is stopped. It retains the existing layer definitions and adds
+`firestoreDeployment: {project, region, deploymentId}` only for a bound selected snapshot;
+ordinary status JSON and signed settings shapes stay unchanged. The signed settings optional
+projection uses the same home-selection policy, returning unknown on ambiguous or damaged
+state instead of merging evidence across projects. `link [--json]` derives the selected
+Complete record's public link; it never creates or repairs a project.
 
 A Firebase project has one deployer; tenants use identical composed Rules and share the project's
 quota. Colab separately grants access to its tenancy spaces (`spaceId`), not deployment ownership.

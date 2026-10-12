@@ -71,7 +71,7 @@ fn input<'a>(plan: &'a tmt_remote::deploy_plan::Plan, body: &'a [u8]) -> DeployC
 fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
@@ -107,8 +107,8 @@ fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects
             .is_none()
     );
     drop(store);
-    let bytes = std::fs::read(root.remote().join("deploy.json")).unwrap();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let bytes = std::fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let again = execute(
         &input(&plan, &body),
         &DeployCommandOptions::default(),
@@ -119,7 +119,7 @@ fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects
     .unwrap();
     assert_eq!(out.json, again.json);
     assert_eq!(
-        std::fs::read(root.remote().join("deploy.json")).unwrap(),
+        std::fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
         bytes
     );
 }
@@ -127,7 +127,7 @@ fn plan_only_matches_independent_human_and_json_goldens_without_provider_effects
 fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut port = Fake::new(ACCOUNT);
@@ -155,7 +155,7 @@ fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record()
     )
     .unwrap();
     drop(store);
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let second = execute(
         &request,
         &DeployCommandOptions::default(),
@@ -171,7 +171,7 @@ fn first_plan_creates_a_stable_local_draft_but_refused_inputs_create_no_record()
 fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
@@ -307,12 +307,12 @@ fn request_for_foreign<'a>(
 
 // A crash fails one real-file save, not the engine transition. The persisted file
 // remains authoritative and the same provider instance preserves actual effects.
-struct DeployFailingSink<'a, 'b> {
-    owner: &'a mut DeployRecordStore<'b>,
+struct DeployFailingSink<'a> {
+    owner: &'a mut DeployRecordStore,
     saves: usize,
     fail_at: usize,
 }
-impl DeploySink for DeployFailingSink<'_, '_> {
+impl DeploySink for DeployFailingSink<'_> {
     fn save(&mut self, record: &DeployRecord) -> Result<(), DeploySinkError> {
         let n = self.saves;
         self.saves += 1;
@@ -354,7 +354,7 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
     for fail_at in 0..baseline.saved.len() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout).unwrap();
+        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         let mut port = Fake::new(ACCOUNT);
         port.unrelated
@@ -383,7 +383,7 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
             reloaded.usable_binding().is_none(),
             "binding prematurely saved at {fail_at}"
         );
-        let mut store = DeployRecordStore::open(&layout).unwrap();
+        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
         let done =
             deploy_run::run(&plan, &authorization, reloaded, &mut port, &mut store, 11).unwrap();
         assert!(done.usable_binding().is_some());
@@ -400,7 +400,7 @@ fn every_interrupted_save_reloads_the_same_original_and_never_duplicates_provide
 fn lost_effect_returns_unknown_and_same_authorization_observes_before_resuming() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -428,7 +428,7 @@ fn lost_effect_returns_unknown_and_same_authorization_observes_before_resuming()
             .is_none()
     );
     drop(store);
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let done = execute(&request, &opts, &mut store, &mut port, 3).unwrap();
     assert_eq!(done.json["record"]["run"]["state"], "complete");
     assert_eq!(port.effects_of("rules"), 1);
@@ -451,7 +451,7 @@ fn every_provider_failure_keeps_real_file_partial_and_only_a_successful_resume_b
         for when in [When::BeforeEffect, When::AfterEffectUnknown] {
             let root = Root::new();
             let layout = root.layout();
-            let mut store = DeployRecordStore::open(&layout).unwrap();
+            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
             let mut port = Fake::new(ACCOUNT);
             port.unrelated.insert("other".into(), "untouched".into());
             let preview = execute(
@@ -481,7 +481,7 @@ fn every_provider_failure_keeps_real_file_partial_and_only_a_successful_resume_b
                 "unknown"
             }));
             drop(store);
-            let mut store = DeployRecordStore::open(&layout).unwrap();
+            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
             execute(&request, &opts, &mut store, &mut port, 3).unwrap();
             assert!(
                 deploy_record::read(&layout)
@@ -500,7 +500,7 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
     use std::io::Read;
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -513,7 +513,8 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
         1,
     )
     .unwrap();
-    let mut opened = layout.read_file("deploy.json").unwrap().unwrap();
+    let mut opened =
+        std::fs::File::open(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     execute(
         &request,
         &DeployCommandOptions {
@@ -540,7 +541,7 @@ fn old_open_reader_sees_the_draft_while_new_readers_see_the_verified_binding() {
 fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effect() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut port = Fake::new(ACCOUNT);
@@ -603,7 +604,7 @@ fn existing_binding_survives_pre_rules_failure_but_not_a_possible_new_rules_effe
 fn owner_action_and_building_are_reported_without_a_usable_binding() {
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     let plan = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let request = input(&plan, &body);
@@ -807,7 +808,7 @@ mod cli_composition {
     fn discovered_plan_authorizes_whole_envelope_and_recovers_without_resending() {
         let root = Root::new();
         let layout = root.layout();
-        let mut store = DeployRecordStore::open(&layout).unwrap();
+        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
@@ -849,23 +850,26 @@ mod cli_composition {
         );
         assert!(partial.human.contains(&format!(
             "cat '{}'",
-            layout.directory.join("deploy.json").display()
+            layout.directory.join("deployments/demo-remote-1/deploy.json").display()
         )));
         assert!(
             !partial
                 .human
                 .contains("Nothing changed in your Firebase project.")
         );
-        let before = fs::read(root.remote().join("deploy.json")).unwrap();
+        let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
         let calls = provider.1;
         let mut conflicting = args(&[]).unwrap();
-        conflicting.project = "demo-remote-2".into();
+        conflicting.region = "us-central1".into();
         assert!(matches!(deploy_cli::execute(
             &conflicting, &mut source, &["colab"],
             || -> Result<&mut DeployCliProvider, DeployCliError> { panic!("partial target must fence provider setup") },
             || Ok(root.layout()), || Ok(3),
         ), Err(DeployCliError::Local(e)) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT"));
-        assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), before);
+        assert_eq!(
+            fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+            before
+        );
         assert_eq!(provider.1, calls);
         let done = deploy_cli::execute(
             &opts,
@@ -895,7 +899,7 @@ mod cli_composition {
             || Ok(1),
         )
         .unwrap();
-        let path = root.remote().join("deploy.json");
+        let path = root.remote().join("deployments/demo-remote-1/deploy.json");
         let draft: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(draft["version"], 1);
         assert!(draft.get("target").is_none());
@@ -911,7 +915,7 @@ mod cli_composition {
             || Ok(2),
         )
         .unwrap();
-        assert_eq!(
+        assert_ne!(
             plan_a.json["record"]["deploymentId"],
             plan_b.json["record"]["deploymentId"]
         );
@@ -932,7 +936,10 @@ mod cli_composition {
         )
         .unwrap();
         assert_eq!(done.json["record"]["run"]["state"], "complete");
-        let bound: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let bound: serde_json::Value = serde_json::from_slice(
+            &fs::read(root.remote().join("deployments/demo-remote-2/deploy.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(bound["version"], 2);
         assert_eq!(
             bound["target"],
@@ -964,15 +971,11 @@ mod cli_composition {
             || Ok(2),
         )
         .unwrap();
-        let path = root.remote().join("deploy.json");
+        let path = root.remote().join("deployments/demo-remote-1/deploy.json");
         let before = fs::read(&path).unwrap();
-        for region in [false, true] {
+        for region in ["us-central1", "europe-west1"] {
             let mut changed = args(&[]).unwrap();
-            if region {
-                changed.region = "us-central1".into();
-            } else {
-                changed.project = "demo-remote-2".into();
-            }
+            changed.region = region.into();
             let result = deploy_cli::execute(
                 &changed,
                 &mut source,
@@ -1050,7 +1053,7 @@ mod cli_composition {
 fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_own_plan() {
     let first = Root::new();
     let first_layout = first.layout();
-    let mut first_store = DeployRecordStore::open(&first_layout).unwrap();
+    let mut first_store = DeployRecordStore::open(&first_layout, "demo-remote-1").unwrap();
     let extensions = plan();
     let body = fixture("deploy_run", "rules-body.rules");
     let mut provider = Fake::new(ACCOUNT);
@@ -1074,12 +1077,13 @@ fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_ow
     )
     .unwrap();
     assert_eq!(first_done.json["record"]["run"]["state"], "complete");
-    let first_bytes = fs::read(first.remote().join("deploy.json")).unwrap();
+    let first_bytes =
+        fs::read(first.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let live = provider.rules.clone().unwrap();
     let effects = provider.effects.clone();
     let second = Root::new();
     let second_layout = second.layout();
-    let mut second_store = DeployRecordStore::open(&second_layout).unwrap();
+    let mut second_store = DeployRecordStore::open(&second_layout, "demo-remote-1").unwrap();
     let second_request = request_for_foreign(&extensions, &body, &live);
     let takeover = execute(
         &second_request,
@@ -1136,7 +1140,7 @@ fn a_second_home_sees_the_first_homes_rules_as_foreign_and_must_authorize_its_ow
     assert_eq!(authorized.json["record"]["run"]["state"], "complete");
     assert_eq!(provider.effects_of("rules"), 2);
     assert_eq!(
-        fs::read(first.remote().join("deploy.json")).unwrap(),
+        fs::read(first.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
         first_bytes
     );
     assert_ne!(provider.rules.as_ref().unwrap(), &live);
@@ -1152,7 +1156,7 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     };
     let root = Root::new();
     let layout = root.layout();
-    let mut store = DeployRecordStore::open(&layout).unwrap();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
     store.persist(&DeployRecord::new(ID)).unwrap();
     let mut declaration: serde_json::Value =
         serde_json::from_slice(&fixture("declarations", "colab-firestore.json")).unwrap();
@@ -1254,7 +1258,7 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
     );
     assert!(preview.human.contains("To deploy this plan"));
     let prefix = &preview.json["planDigest"].as_str().unwrap()[..12];
-    let saved = fs::read(root.remote().join("deploy.json")).unwrap();
+    let saved = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     inventory.live.as_mut().unwrap().version = "version-2".into();
     let changed = hosting::deployment_view(&content, request.project, ID, &inventory).unwrap();
     assert!(matches!(
@@ -1287,7 +1291,10 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
             DeployRefusal::HostingUnavailable
         ))
     ));
-    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), saved);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        saved
+    );
     assert!(port.calls.is_empty() && port.effects.is_empty());
     // The engine boundary also refuses this future step set before any save or call.
     let prepared = deploy_run::prepare_with_hosting(
@@ -1316,6 +1323,9 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         ),
         Err(DeployError::Refused(DeployRefusal::HostingUnavailable))
     ));
-    assert_eq!(fs::read(root.remote().join("deploy.json")).unwrap(), saved);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        saved
+    );
     assert!(port.calls.is_empty() && port.effects.is_empty());
 }
