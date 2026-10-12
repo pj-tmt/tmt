@@ -79,6 +79,9 @@ export async function mount() {
     async verify() {
       throw new Error('No management command is admitted by this fixture');
     },
+    async setLabels() {
+      throw new Error('No management command is admitted by this fixture');
+    },
   };
   await mountPage({ management, attachments: true, strict: true });
   next = 200;

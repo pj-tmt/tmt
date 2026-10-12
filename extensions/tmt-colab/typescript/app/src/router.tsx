@@ -46,7 +46,6 @@ import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
-import { PageMenu as BrowserMenu } from './page-menu.js';
 import { AgentStatusPanel } from './agent-status-panel.js';
 import { AgentPresentation, useAgentPresentation } from './agent-directory.js';
 import { ChatPanel } from './chat-panel.js';
