@@ -37,19 +37,22 @@ test('drafts survive tab switches; verified answers advance and survive reload w
   await tabs.nth(0).press('2');
   await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
   const send = activeCard(page).getByRole('button', {
-    name: 'Send answer · to @Agent 1',
+    name: 'Send & next · to @Agent 1',
     exact: true,
   });
   await expect(send).toHaveText('Send & next');
+  await expect(activeCard(page).getByRole('button', { name: /^Send & next/ })).toHaveAccessibleName(
+    'Send & next · to @Agent 1',
+  );
   await send.evaluate((node) => (node as HTMLButtonElement).click());
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await send.press('Enter');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
   await expect(tabs.nth(0)).toHaveAccessibleName(/Q1.*Answered/);
   await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1/2 answered');
-  await expect(activeCard(page).getByRole('button', { name: /^Send answer/ })).toHaveText(
-    'Send answer',
-  );
+  await expect(
+    activeCard(page).getByRole('button', { name: /^Send (?:answer|& next)/ }),
+  ).toHaveText('Send answer');
   const before = await run(page, 'discussionProof');
   expect(before).toHaveLength(1);
   expect(before[0].anchor.exact).toBe('Which heading should we use?');
@@ -72,7 +75,7 @@ test('drafts survive tab switches; verified answers advance and survive reload w
   await activeCard(page).getByRole('button', { name: 'Change answer' }).click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await activeCard(page)
-    .getByRole('button', { name: /^Send answer/ })
+    .getByRole('button', { name: /^Send (?:answer|& next)/ })
     .click();
   await expect(restored.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
   const after = await run(page, 'discussionProof');
@@ -115,7 +118,7 @@ test('tab navigation and digits preserve normal typing and long-answer Enter', a
   await tabs.nth(0).press('2');
   await expect(group.getByLabel('Change it', { exact: true })).toBeChecked();
   await expect(
-    group.getByRole('button', { name: /^Send answer/, includeHidden: true }).first(),
+    group.getByRole('button', { name: /^Send (?:answer|& next)/, includeHidden: true }).first(),
   ).toBeDisabled();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await tabs.nth(0).press('End');
@@ -161,7 +164,7 @@ test('a successful local callback cannot mark or advance before the verified vie
   await expect(group).not.toHaveAttribute('data-detached');
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await activeCard(page)
-    .getByRole('button', { name: /^Send answer/ })
+    .getByRole('button', { name: /^Send (?:answer|& next)/ })
     .click();
   await expect(
     activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
@@ -184,7 +187,7 @@ test('a delayed verified answer preserves a tab the reader explicitly selected m
   await expect(group).not.toHaveAttribute('data-detached');
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await activeCard(page)
-    .getByRole('button', { name: /^Send answer/ })
+    .getByRole('button', { name: /^Send (?:answer|& next)/ })
     .click();
   await expect(
     activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
@@ -249,12 +252,11 @@ for (const width of [1440, 390])
         };
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
-        await expect(activeCard(page).getByRole('button', { name: /^Send answer/ })).toHaveCSS(
-          'background-color',
-          'rgb(0, 107, 143)',
-        );
+        await expect(
+          activeCard(page).getByRole('button', { name: /^Send (?:answer|& next)/ }),
+        ).toHaveCSS('background-color', 'rgb(0, 107, 143)');
         await activeCard(page)
-          .getByRole('button', { name: /^Send answer/ })
+          .getByRole('button', { name: /^Send (?:answer|& next)/ })
           .click();
         await expect(group.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
         await expect(
