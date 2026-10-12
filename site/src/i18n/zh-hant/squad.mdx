@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
+sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
 title: Ops：lead、成員與一個 board
 ---
 
@@ -353,7 +353,7 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-按鍵設定只來自你的設定檔，不會採用 agent 寫在 board 上的內容。`run` 直接啟動程式，不經 shell：每個 `{field}` 只填入一個參數，所以列的內容不能夾帶其他指令；填入後會讓參數以 `-` 開頭的值也會被拒絕，不能夾帶選項。`open` 只開啟網頁連結。`tmt ops sq ls` 使用相同區段，所以文字與 JSON 視圖會和 board 一致。不符合任何區段的成員會放在沒有標題的區段後面；區段的篩選條件不會默默隱藏成員。
+按鍵設定只來自你的設定檔，不會採用 agent 寫在 board 上的內容。`run` 直接啟動程式，不經 shell：每個 `{field}` 只填入一個參數，所以列的內容不能夾帶其他指令；填入後會讓參數以 `-` 開頭的值也會被拒絕，不能夾帶選項。除了 squad 自己的欄位，`{host}`、`{session}` 與 `{window}` 會指出成員的窗格所在位置；內建名稱優先於同名的 squad 欄位，而如果 host 沒有回報 session 或 window（外部 host 只回報名稱），使用它們的動作會被拒絕。`open` 只開啟網頁連結。`tmt ops sq ls` 使用相同區段，所以文字與 JSON 視圖會和 board 一致。不符合任何區段的成員會放在沒有標題的區段後面；區段的篩選條件不會默默隱藏成員。
 
 **欄位 provider** 會把 tmt 沒有的資料填入欄位，例如 pull request 狀態。provider 會依 `run` 相同的規則，為每個成員執行你指定的程式，並把輸出第一行放到同名欄位。board 不會等它：provider 在背景執行時，顯示上一次的值，再依 `every` 間隔重跑。執行失敗時顯示淡色的 `?`，不會顯示錯誤。`tmt ops sq ls --refresh-fields` 會先執行到期的 provider，再列出清單。程式可以印出 `{"value": "#412 open", "color": "review"}`，為儲存格建議一個主題 token；欄位自己的 `color` 門檻會優先於這個建議。
 
@@ -513,7 +513,7 @@ blocked = "blocked" # and of one with a blocked member
 
 **更新。** board 會依間隔重新載入：預設 5 秒；在 `[board]` 下設定 `refresh`，會套用到每個 board，在 `[squad.<name>.board]` 下則只套用到一個。使用整數秒或分鐘，範圍為 `"1s"` 到 `"60m"`；`"off"` 則只在按 **ctrl-r** 或 board 自己執行動作時重新載入。
 
-**按鍵設定。** 一項設定是 `event = "action"`。事件可以是直接輸入的可列印按鍵（`o` 與 `O` 不同）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1` 到 `f12`、`ctrl-<letter>`（不能用 `ctrl-c`，它一律結束程式），或滑鼠的 `click` 與 `double-click`。`q`、`j`、`k`、`/` 與 `?` 是保留按鍵。區段的按鍵設定優先於 `[bind]`，後者又優先於 host 的預設值。**leads** 與 **all** 頁籤各自使用 `[tabs.leads.bind]` 與 `[tabs.all.bind]`。
+**按鍵設定。** 一項設定是 `event = "action"`。事件可以是直接輸入的可列印按鍵（`o` 與 `O` 不同）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1` 到 `f12`、`ctrl-<letter>`（不能用 `ctrl-c`，它一律結束程式），或滑鼠的 `click` 與 `double-click`。`q`、`j`、`k`、`/` 與 `?` 是保留按鍵。區段的按鍵設定優先於適用於窗格位於該 host 的列的 `[bind.<host>]` 表格，該表格優先於 `[bind]`，`[bind]` 又優先於 host 的預設值。`<host>` 是 `tmux` 或外部 host 的名稱（小寫字母、數字與 `-`，以字母開頭）；表格可使用與 `[bind]` 相同的事件與動作，而沒有已知 host 的列不會符合任何一個。**leads** 與 **all** 頁籤各自使用 `[tabs.leads.bind]` 與 `[tabs.all.bind]`。
 
 | 動作                           | 用途                                                              |
 | ------------------------------ | ----------------------------------------------------------------- |

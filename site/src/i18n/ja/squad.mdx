@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: c6c57d60af2632f207899e39508b51168bf61097
+sourceRevision: 9ba671867c13e45d145e8eac9ed316ef74e283db
 title: チームを1つの board で見る
 ---
 
@@ -358,7 +358,7 @@ layout = { direction = "left-right", sizes = [60, 40], panes = [
 ] }
 `}</Code>
 
-キー割り当ては自分の設定ファイルだけから読み、agent が board に書いた内容は使いません。`run` は shell を通さずプログラムを直接起動し、各 `{field}` はちょうど1つの引数になります。そのため、行の値に余分なコマンドを紛れ込ませることはできません。引数が `-` で始まる値も拒否し、オプションの混入を防ぎます。`open` は Web リンクだけを開きます。`tmt ops sq ls` も同じ section を使うので、テキストと JSON は board と一致します。どの section にも一致しないメンバーは見出しなしの section に続き、フィルターで黙って隠れることはありません。
+キー割り当ては自分の設定ファイルだけから読み、agent が board に書いた内容は使いません。`run` は shell を通さずプログラムを直接起動し、各 `{field}` はちょうど1つの引数になります。そのため、行の値に余分なコマンドを紛れ込ませることはできません。引数が `-` で始まる値も拒否し、オプションの混入を防ぎます。squad 自身のフィールドのほかに、`{host}`、`{session}`、`{window}` でメンバーのペインがある場所を指せます。組み込みの名前は同名の squad フィールドより優先し、session や window を報告しない host（外部 host は名前だけを報告します）では、これらを使うアクションは拒否されます。`open` は Web リンクだけを開きます。`tmt ops sq ls` も同じ section を使うので、テキストと JSON は board と一致します。どの section にも一致しないメンバーは見出しなしの section に続き、フィルターで黙って隠れることはありません。
 
 **field provider** は、PR の状態など tmt が持たないデータを列に入れます。`run` と同じルールで、ユーザーのプログラムをメンバーごとに実行し、出力の先頭行を同名のフィールドとして表示します。board は処理を待たず、バックグラウンド実行中は前の値を表示し、`every` の間隔で再実行します。失敗時はエラー文ではなく淡い `?` です。`tmt ops sq ls --refresh-fields` は、実行時期を迎えた provider を動かしてから一覧を表示します。プログラムは `{"value": "#412 open", "color": "review"}` を出力し、セルのテーマ token を提案できます。列自身の `color` 閾値があれば、そちらが優先です。
 
@@ -519,7 +519,7 @@ blocked = "blocked" # and of one with a blocked member
 
 **更新。** board は既定で5秒ごとに再読み込みします。全 board は `[board]`、1つの squad は `[squad.<name>.board]` の `refresh` で変えられます。`"1s"`〜`"60m"` の整数の秒・分を指定するか、`"off"` で **ctrl-r** と board 自身の操作による再読み込みだけにします。
 
-**キー割り当て。** 書式は `event = "action"` です。イベントには入力どおりの表示可能なキー（`o` と `O` は別）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1`〜`f12`、`ctrl-<letter>`、マウスの `click` と `double-click` を使えます。`ctrl-c` は常に終了用なので使えません。`q`、`j`、`k`、`/`、`?` は予約済みです。section の割り当て、`[bind]`、host の既定値の順に優先します。**leads** と **all** タブは、それぞれ `[tabs.leads.bind]` と `[tabs.all.bind]` を使います。
+**キー割り当て。** 書式は `event = "action"` です。イベントには入力どおりの表示可能なキー（`o` と `O` は別）、`enter`、`space`、`tab`、`backspace`、`delete`、`home`、`end`、`pageup`、`pagedown`、`f1`〜`f12`、`ctrl-<letter>`、マウスの `click` と `double-click` を使えます。`ctrl-c` は常に終了用なので使えません。`q`、`j`、`k`、`/`、`?` は予約済みです。section の割り当ては、その host にペインがある行に対する `[bind.<host>]` テーブルより優先し、それが `[bind]`、さらに host の既定値より優先します。`<host>` は `tmux` か外部 host の名前（小文字の英字、数字、`-`。英字で始めます）です。テーブルには `[bind]` と同じイベントとアクションを使え、host が分からない行はどのテーブルにも一致しません。**leads** と **all** タブは、それぞれ `[tabs.leads.bind]` と `[tabs.all.bind]` を使います。
 
 | 操作                           | 動作                                                           |
 | ------------------------------ | -------------------------------------------------------------- |
