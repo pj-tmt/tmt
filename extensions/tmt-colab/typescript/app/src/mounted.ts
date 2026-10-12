@@ -9,7 +9,8 @@ import {
 } from './management.js';
 import type { PageTransport } from './transport.js';
 import { discover, mountUrl } from './bootstrap.js';
-import { register, remoteSdk } from './registration.js';
+import { AdmissionRefusedError, register, remoteSdk } from './registration.js';
+import { classify } from './connection-state.js';
 import { Live, type LiveSession, type LiveSessionOwner } from './live.js';
 import { requireValue } from '@tmt/colab-client';
 import { verifyRegistration } from './registration.js';
@@ -122,7 +123,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
     },
   };
   clearRecovery(mount);
-  const owner: LiveSessionOwner = {
+  const owner = {
     async rememberTitle(page, title, registration) {
       if (registration !== current.registration || lifetime.signal.aborted) return;
       try {
@@ -144,18 +145,23 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
           },
         }),
       ),
-    reconnect(previous) {
+    reconnect(previous, readmitSignal = lifetime.signal) {
+      if (readmitSignal.aborted) return Promise.reject(readmitSignal.reason);
       if (lifetime.signal.aborted) return Promise.reject(lifetime.signal.reason);
       if (previous !== current.registration) return Promise.resolve(current);
       if (replacement) return replacement;
       replacement = owned(async () => {
         const next = await register(mount, sdk, {
           previous: previous.remoteSession,
-          signal: lifetime.signal,
+          signal: scopedSignal(readmitSignal),
         });
+        readmitSignal.throwIfAborted();
         await verifyRegistration(next, bootstrap.space, bootstrap.owner);
+        readmitSignal.throwIfAborted();
         requireValue(next.deviceId === previous.deviceId);
-        current = await attach(next);
+        const admitted = await attach(next);
+        readmitSignal.throwIfAborted();
+        current = admitted;
         managementClient = new ManagementClient(mount, next);
         return current;
       }).finally(() => {
@@ -163,7 +169,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       });
       return replacement;
     },
-  };
+  } satisfies LiveSessionOwner;
   return {
     space: bootstrap.space,
     close: () => {
@@ -203,15 +209,33 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         });
       },
       async page(id, signal) {
-        const bound = current;
-        const boot = await owned(() =>
-          discover(
-            mount,
-            (space, owner) => verifyRegistration(bound.registration, space, owner),
-            scopedSignal(signal),
-          ),
-        );
-        lifetime.signal.throwIfAborted();
+        const pageSignal = scopedSignal(signal);
+        let bound = current;
+        const read = () =>
+          owned(() =>
+            discover(
+              mount,
+              (space, owner) => verifyRegistration(bound.registration, space, owner),
+              pageSignal,
+            ),
+          );
+        let boot;
+        try {
+          boot = await read();
+        } catch (error) {
+          if (
+            !(error instanceof AdmissionRefusedError) ||
+            (error.status !== 403 && error.status !== 503) ||
+            classify(error).recovery !== 'reopen'
+          )
+            throw error;
+          // One same-device refresh per page attempt; PageReopener owns all retry timing.
+          await owner.reconnect(bound.registration, pageSignal);
+          pageSignal.throwIfAborted();
+          bound = current;
+          boot = await read();
+        }
+        pageSignal.throwIfAborted();
         if (bound !== current) throw new Error('Remote session replaced');
         const page = boot.pages.find((page) => page.pageId === id);
         if (!page) throw new Error('Page unavailable');
@@ -220,7 +244,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
           boot,
           bound.registration,
           page,
-          scopedSignal(signal),
+          pageSignal,
           bound.remote,
           owner,
         );

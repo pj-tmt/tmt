@@ -202,8 +202,11 @@ connects or the failure is no longer recoverable. A series that gives up, or a b
 three reopens a minute), then hands the new binding over. HTTP admission refusals retain their
 bounded body and code (`AdmissionRefusedError`): named endings stay terminal; stale or
 unclassified refusals use that same finite reopen path (five attempts at 0/1/3/8/15 s), with
-the existing reconnect-failure sentence if it is exhausted. They never extend the transport
-loop. `ended` replaces
+the existing reconnect-failure sentence if it is exhausted. A recoverable 403 or 503 during
+page opening refreshes the same-device Session once through the mounted owner before
+rediscovery; its abort signal fences registration, and concurrent Live reconnects share that
+owner's pending replacement. PageReopener still owns the finite attempts and timing. Admission
+refusals never extend the transport loop. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
