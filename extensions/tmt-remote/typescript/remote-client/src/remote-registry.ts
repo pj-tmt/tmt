@@ -98,7 +98,7 @@ export async function parseCatalog(value: unknown): Promise<RemoteCatalog> {
   const catalog = { version: 1 as const, entries: Object.freeze(entries) };
   valid(
     encoder.encode(json(catalog)).length <= LIMIT,
-    'The remotes exceed this browser’s 8 KiB storage limit. Remove one before adding another.',
+    'The remote list is too large to store in this browser. Remove one before adding another.',
   );
   return Object.freeze(catalog);
 }
@@ -160,7 +160,7 @@ export async function buildHandoff(
     params.set('tmt-page', base64url(encoder.encode(JSON.stringify(hint(page)))));
   valid(
     encoder.encode(`#${params}`).length <= LIMIT,
-    'The remote list is too large to open together. Remove an entry before opening this remote.',
+    'The remote list is too large to send along when opening this remote. Remove an entry, then try again.',
   );
   return `${checked.url}#${params}`;
 }

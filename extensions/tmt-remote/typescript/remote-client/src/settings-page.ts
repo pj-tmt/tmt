@@ -1,3 +1,4 @@
+import { remoteRegistryPage } from './remote-registry-page.js';
 import { management, reopenSession, RefusalError } from 'remote-browser-sdk';
 import { renderFirestore } from './firestore-page.js';
 import { ManagementPage, type PageIntent } from './management-page.js';
@@ -17,6 +18,18 @@ const first = element<HTMLButtonElement>('first');
 const rows = new Map<string, HTMLElement>();
 let initialized = false;
 let page: ManagementPage;
+const registryState = remoteRegistryPage(() => {
+  if (!page) return '';
+  if (page.busy) return 'A request is in progress. Wait for its outcome.';
+  if (page.outcome?.state === 'unknown')
+    return 'Another change is still unconfirmed. Check its original result first.';
+  for (const device of page.devices?.devices ?? []) {
+    const name = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
+    if (name && name.value !== device.name)
+      return 'Save or restore the unsent device name before changing pages.';
+  }
+  return '';
+});
 
 /** Format fixed CLI hints as literal text, never interpret notice content as HTML. */
 function commandNotice(target: HTMLElement, text: string): void {
@@ -138,6 +151,15 @@ function renderOutcome(): void {
 }
 
 function render(): void {
+  registryState(
+    page.access === 'live'
+      ? 'Connected'
+      : page.access === 'lost'
+        ? 'Access ended'
+        : page.access === 'checking'
+          ? 'Checking'
+          : 'Unconfirmed',
+  );
   renderFirestore(element('firestore-content'), page.firestoreAccess, page.firestore);
   const capacity = capacityCopy(page.accessRefusal);
   const access =
@@ -184,6 +206,7 @@ function render(): void {
   element('controls-reason').textContent = reason;
   element('controls-reason').hidden = !reason;
   for (const button of document.querySelectorAll<HTMLButtonElement>('button')) {
+    if (button.closest('#remotes, #remote-switcher')) continue;
     if (reason) button.setAttribute('aria-describedby', 'controls-reason');
     else button.removeAttribute('aria-describedby');
     button.setAttribute('aria-busy', String(page.busy));
@@ -511,6 +534,10 @@ try {
   );
   element('access-announcement').textContent =
     capacity ?? (ended ? 'Access ended' : 'Access unconfirmed');
+  const verifiedEnded =
+    error instanceof RefusalError &&
+    ['REMOTE_DEVICE_REVOKED', 'REMOTE_GRANT_EXPIRED'].includes(error.code);
+  registryState(verifiedEnded ? 'Access ended' : 'Unconfirmed');
   refresh.disabled = true;
   element('access-notice').dataset.tone = 'blocked';
   element('controls-reason').textContent =

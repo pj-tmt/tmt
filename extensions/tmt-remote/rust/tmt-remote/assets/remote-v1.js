@@ -51,6 +51,274 @@ async function writeRegistry(expected, text) {
 	}).finally(() => transaction.db.close());
 }
 //#endregion
+//#region src/remote-state.ts
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "not checked",
+		word: "not checked",
+		mark: "",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, tone, action] = state === "Connected" ? [
+		"Connected",
+		"connected",
+		"●",
+		"working",
+		""
+	] : state === "Checking" ? [
+		"Checking",
+		"connecting",
+		"◌",
+		"waiting",
+		""
+	] : state === "Access ended" ? [
+		"Access ended",
+		"access ended",
+		"✗",
+		"blocked",
+		"Pair again"
+	] : state === "Different machine" ? [
+		"Different machine",
+		"different machine",
+		"△",
+		"waiting",
+		"Pair again"
+	] : state === "Not paired" || state === "Pairing unreadable" ? [
+		state,
+		"not paired",
+		"○",
+		"waiting",
+		"Pair again"
+	] : [
+		"Unconfirmed",
+		"unreachable",
+		"○",
+		"blocked",
+		"Retry"
+	];
+	return {
+		text: `${mark} ${text}`,
+		word,
+		mark,
+		tone,
+		action
+	};
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
+}
+//#endregion
+//#region src/remote-menu.ts
+function remoteMenu(actions) {
+	const host = document.getElementById("remote-switcher");
+	if (!host) return () => {};
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.className = "tmt-ui-menu-trigger remote-chip";
+	trigger.setAttribute("aria-haspopup", "menu");
+	trigger.setAttribute("aria-controls", "remote-menu");
+	trigger.setAttribute("aria-expanded", "false");
+	const surface = document.createElement("div");
+	surface.id = "remote-menu";
+	surface.popover = "auto";
+	surface.className = "tmt-ui-menu-surface remote-menu";
+	surface.setAttribute("role", "menu");
+	surface.setAttribute("aria-label", "Remotes");
+	const status = document.createElement("p");
+	status.className = "tmt-ui-menu-reason";
+	host.append(trigger, surface);
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	let state = "Checking";
+	let address = "";
+	let search = "";
+	let searchAt = 0;
+	const buttons = /* @__PURE__ */ new Map();
+	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
+	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
+	function close(refocus = false) {
+		if (surface.matches(":popover-open")) surface.hidePopover();
+		if (refocus) trigger.focus({ preventScroll: true });
+	}
+	function item(key, label, run) {
+		let button = buttons.get(key);
+		if (!button) {
+			button = document.createElement("button");
+			button.type = "button";
+			button.className = "tmt-ui-menu-item";
+			button.tabIndex = -1;
+			button.dataset.key = key;
+			buttons.set(key, button);
+		}
+		button.onclick = () => {
+			close();
+			run();
+		};
+		button.dataset.search = label;
+		button.textContent = label;
+		return button;
+	}
+	function paint() {
+		const view = remoteState(state);
+		const alias = selected()?.name ?? "this machine";
+		trigger.textContent = `${view.mark} ${alias} ▾`;
+		trigger.title = `Remote: ${alias}, ${view.word}`;
+		trigger.setAttribute("aria-label", trigger.title);
+		trigger.dataset.tone = view.tone;
+		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const keep = /* @__PURE__ */ new Set();
+		const reason = actions.blocked();
+		const append = (key, label, run, checked, disabled) => {
+			const button = item(key, label, run);
+			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
+			button.setAttribute("role", "menuitemradio");
+			button.setAttribute("aria-checked", String(checked));
+			if (checked) {
+				const check = document.createElement("span");
+				check.textContent = "✓";
+				check.setAttribute("aria-hidden", "true");
+				button.append(check);
+			}
+			button.disabled = disabled;
+			button.dataset.tone = checked ? view.tone : "muted";
+			button.setAttribute("aria-describedby", "remote-menu-reason");
+			keep.add(key);
+			return button;
+		};
+		const rows = [];
+		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
+		for (const entry of entries) {
+			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
+			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
+				if (!here) actions.open(entry);
+			}, here, here ? !!shown.action : !!reason));
+		}
+		if (view.action) {
+			const key = "recover";
+			keep.add(key);
+			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		for (const [key, label, run] of [[
+			"add",
+			"Add remote…",
+			actions.add
+		], [
+			"manage",
+			"Manage remotes",
+			actions.manage
+		]]) {
+			keep.add(key);
+			const button = item(key, label, run);
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		status.id = "remote-menu-reason";
+		status.textContent = reason || (view.action ? view.text : "");
+		status.hidden = !status.textContent;
+		for (const [key, button] of buttons) if (!keep.has(key)) {
+			button.remove();
+			buttons.delete(key);
+		}
+		rows.forEach((button, index) => {
+			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
+		});
+		surface.append(status);
+		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
+		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
+	}
+	function place() {
+		const anchor = trigger.getBoundingClientRect();
+		const box = surface.getBoundingClientRect();
+		const width = document.documentElement.clientWidth;
+		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
+		const below = innerHeight - anchor.bottom - 8;
+		const above = anchor.top - 8;
+		const up = box.height > below && above > below;
+		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
+	}
+	async function open(end = false) {
+		await actions.refresh();
+		if (document.activeElement !== trigger) return;
+		paint();
+		if (!surface.matches(":popover-open")) surface.showPopover();
+		place();
+		search = "";
+		(end ? enabled().at(-1) : enabled()[0])?.focus();
+	}
+	let openAtPointerdown = false;
+	trigger.addEventListener("pointerdown", () => {
+		openAtPointerdown = surface.matches(":popover-open");
+	});
+	trigger.addEventListener("click", (event) => {
+		const dismiss = event.detail > 0 && openAtPointerdown;
+		openAtPointerdown = false;
+		if (dismiss || surface.matches(":popover-open")) close();
+		else {
+			trigger.focus({ preventScroll: true });
+			open();
+		}
+	});
+	trigger.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			open(event.key === "ArrowUp");
+		}
+	});
+	surface.addEventListener("toggle", () => {
+		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
+		if (surface.matches(":popover-open")) place();
+	});
+	surface.addEventListener("focusin", () => {
+		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
+	});
+	surface.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			close(true);
+			return;
+		}
+		if (event.key === "Tab") {
+			close();
+			return;
+		}
+		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
+		let next;
+		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
+		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+		else if (event.key === "Home") next = items[0];
+		else if (event.key === "End") next = items.at(-1);
+		else if (event.key.length === 1 && event.key !== " ") {
+			const now = performance.now();
+			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
+			searchAt = now;
+			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
+		} else return;
+		event.preventDefault();
+		next?.focus();
+	});
+	window.addEventListener("resize", () => {
+		if (surface.matches(":popover-open")) place();
+	});
+	window.addEventListener("scroll", () => {
+		if (surface.matches(":popover-open")) place();
+	}, true);
+	return (next, observed, checkedAddress) => {
+		catalog = next;
+		state = observed;
+		address = checkedAddress;
+		paint();
+	};
+}
+//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
 var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -947,7 +1215,7 @@ async function parseCatalog(value) {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remotes exceed this browser’s 8 KiB storage limit. Remove one before adding another.");
+	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remote list is too large to store in this browser. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
@@ -996,7 +1264,7 @@ async function buildHandoff(destination, value, page) {
 	const catalog = await parseCatalog(value);
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to open together. Remove an entry before opening this remote.");
+	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
 	return `${checked.url}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -1123,7 +1391,7 @@ var remoteRegistry = {
 };
 //#endregion
 //#region src/remote-registry-page.ts
-/** Landing's public-reference consumer. It never probes a foreign origin or shares a key. */
+/** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 function node(tag, text = "") {
 	const result = document.createElement(tag);
 	result.textContent = text;
@@ -1151,7 +1419,7 @@ function field$1(label, value) {
 function kindLabel(entry) {
 	return entry.kind === "local" ? "Local" : "Firebase";
 }
-function landingRegistry() {
+function remoteRegistryPage(blocked = () => "") {
 	const root = document.getElementById("remotes");
 	if (!root) return () => {};
 	const fragment = location.hash;
@@ -1160,8 +1428,48 @@ function landingRegistry() {
 	const status = document.getElementById("remote-status");
 	const add = document.getElementById("remote-add");
 	let observed = "Checking";
-	let address;
+	let address = document.documentElement.dataset.tmtPage === "settings" ? new URL("./", location.href).href : void 0;
 	let currentDialog;
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	const settings = new URL("settings", new URL("./", location.href));
+	const menu = remoteMenu({
+		refresh: () => render(),
+		open: (entry) => {
+			if (blocked()) return;
+			remoteRegistry.navigation(entry).then((url) => location.assign(url)).catch((error) => showError(error, status));
+		},
+		add: () => {
+			if (document.documentElement.dataset.tmtPage === "settings") add.click();
+			else location.assign(`${settings.href}#add-remote`);
+		},
+		manage: () => {
+			if (document.documentElement.dataset.tmtPage === "settings") {
+				root.scrollIntoView();
+				add.focus({ preventScroll: true });
+			} else location.assign(`${settings.href}#remotes`);
+		},
+		recover: (action) => {
+			if (action === "Retry") {
+				const retry = document.getElementById("check") ?? document.getElementById("refresh");
+				if (retry && !retry.disabled) retry.click();
+				else location.assign(new URL("./", location.href).href);
+			} else if (document.documentElement.dataset.tmtPage === "settings") location.assign(new URL("./", location.href).href);
+			else {
+				const pair = [
+					"copy-refused-pair",
+					"copy-missing-pair",
+					"copy-unreadable-pair",
+					"copy-different-pair"
+				].map((id) => document.getElementById(id)).find((button) => button && button.getClientRects().length > 0);
+				pair?.scrollIntoView();
+				pair?.focus();
+			}
+		},
+		blocked
+	});
 	const showError = (error, slot) => {
 		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
 	};
@@ -1278,24 +1586,26 @@ function landingRegistry() {
 		}), action("Cancel", view.end));
 		view.box.showModal();
 	};
-	const current = (entry) => entry.kind === "local" && (entry.url === address || new URL(entry.url).href === `${location.origin}/`);
+	const current = (entry) => currentRemote(entry, address, location.href);
 	const render = async () => {
 		try {
-			const rows = (await remoteRegistry.list()).entries.map((entry) => {
+			catalog = await remoteRegistry.list();
+			const rows = catalog.entries.map((entry) => {
 				const row = node("li");
 				row.dataset.remote = entry.name;
 				row.dataset.url = entry.url;
 				row.dataset.kind = entry.kind;
 				row.append(node("h3", entry.name), node("p", `${kindLabel(entry)} · ${entry.url}`));
-				const state = node("p", current(entry) ? observed === "Connected" ? "● Connected" : observed : "not checked");
+				const state = node("p", remoteState(observed, current(entry)).text);
 				state.className = "remote-state";
+				state.dataset.tone = remoteState(observed, current(entry)).tone;
 				row.append(state);
 				const actions = node("div");
 				actions.className = "remote-actions";
 				const open = action("Open", () => {
 					(async () => {
 						try {
-							location.assign(await remoteRegistry.navigation(entry));
+							if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
 						} catch (error) {
 							showError(error, status);
 						}
@@ -1306,13 +1616,18 @@ function landingRegistry() {
 				const removeButton = action("Remove", () => remove(entry, removeButton));
 				renameButton.setAttribute("aria-label", `Rename ${entry.name}`);
 				removeButton.setAttribute("aria-label", `Remove ${entry.name}`);
-				if (!current(entry)) actions.append(open);
+				if (!current(entry)) {
+					open.disabled = !!blocked();
+					open.title = blocked();
+					actions.append(open);
+				}
 				actions.append(renameButton, removeButton);
 				row.append(actions);
 				return row;
 			});
 			list.replaceChildren(...rows);
 			if (!rows.length) list.append(node("li", "No remotes added in this browser."));
+			menu(catalog, observed, address ?? "");
 		} catch (error) {
 			showError(error, status);
 		}
@@ -1330,17 +1645,23 @@ function landingRegistry() {
 		}), action("Cancel", view.end));
 		view.box.showModal();
 	});
-	render();
+	render().then(() => {
+		if (fragment === "#add-remote") add.click();
+		else if (fragment === "#remotes") {
+			root.scrollIntoView();
+			add.focus({ preventScroll: true });
+		}
+	});
 	const receive = (value) => {
 		remoteRegistry.parseHandoff(value).then(async (packet) => {
 			const plan = await remoteRegistry.planImport(packet.catalog);
 			importView(plan);
 		}).catch((error) => showError(error, status));
 	};
-	if (fragment) receive(fragment);
+	if (fragment && !["#remotes", "#add-remote"].includes(fragment)) receive(fragment);
 	window.addEventListener("hashchange", () => {
 		const value = location.hash;
-		if (!value) return;
+		if (!value || ["#remotes", "#add-remote"].includes(value)) return;
 		history.replaceState(null, "", location.pathname + location.search);
 		receive(value);
 	});
@@ -1349,11 +1670,19 @@ function landingRegistry() {
 		if (checkedAddress) address = checkedAddress;
 		for (const row of list.querySelectorAll("[data-remote]")) {
 			const stateNode = row.querySelector(".remote-state");
-			const target = row.dataset.url;
-			const isCurrent = row.dataset.kind === "local" && (target === address || target === `${location.origin}/`);
-			stateNode.textContent = isCurrent ? observed === "Connected" ? "● Connected" : observed : "not checked";
+			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
+			const isCurrent = !!entry && currentRemote(entry, address, location.href);
+			const view = remoteState(observed, isCurrent);
+			stateNode.textContent = view.text;
+			stateNode.dataset.tone = view.tone;
+			const open = row.querySelector("[data-action=\"open\"]");
+			if (open) {
+				open.disabled = !!blocked();
+				open.title = blocked();
+			}
 			if (isCurrent) row.querySelector("[data-action=\"open\"]")?.remove();
 		}
+		menu(catalog, observed, address ?? "");
 	};
 }
 //#endregion
@@ -2667,7 +2996,7 @@ async function entryPairing() {
 /** Landing-page observation uses the verified Session lane; it never dispatches work. */
 async function landingPage() {
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
-	const registryState = landingRegistry();
+	const registryState = remoteRegistryPage();
 	const button = element("check");
 	let attempt = 0;
 	let departed = false;
@@ -2738,7 +3067,7 @@ async function landingPage() {
 			"different"
 		].includes(state) ? "waiting" : "blocked";
 		element("notice").dataset.state = state;
-		registryState(copy[1], element("protocol-address").textContent ?? void 0);
+		registryState(authorityEnded ? "Access ended" : copy[1], element("protocol-address").textContent ?? void 0);
 		for (const [copyState, command] of commandActions) element(`copy-feedback-${copyState}-${command}`).textContent = "";
 		element("mark").textContent = copy[0];
 		element("state-label").textContent = copy[1];

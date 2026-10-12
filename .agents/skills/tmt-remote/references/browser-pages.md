@@ -58,14 +58,19 @@ entry states, keyboard activation, storage/transport/pin errors, refusal, token 
 1440/390 light/dark captures plus a 320-pixel fit check. The SDK fixture covers complete stored-record guards
 and page replacement; actual browser/terminal fixtures remain the user-flow evidence owner.
 
-The landing page also consumes the SDK's origin-local public registry. Its list, Add,
+The landing and settings pages consume the SDK's origin-local public registry. Its list, Add,
 rename/remove and confirmed collision-aware import follow the
 [browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
 Handoff fragments are erased before admission. Registry changes touch only the public
 `remotes-v1` key; the existing device record and non-extractable handle remain unchanged.
-Current access reuses the landing observation; foreign entries remain `not checked`, without
+Current access reuses the page’s existing observation; foreign entries remain `not checked`, without
 probes or a state mark. Firebase Open preserves its validated public link and does not send
-catalog data. This page is a registry consumer, not the Colab switcher or a default selector.
+catalog data. The static Remote chip/menu reuses this controller and current-origin observation, not the
+Colab switcher or a default selector. Native popover focus/roles follow the shared BrowserMenu
+contract; foreign Open navigates without retargeting an existing client. Settings blocks foreign
+Open while a request, unknown original outcome or unsent device name remains; the existing
+reason and original recovery stay on that page. Add/Manage open settings’s Remotes section.
+No optional signed catalog/default read or client factory is shipped.
 
 ## Public short entries
 

@@ -176,7 +176,7 @@ input {
   white-space: nowrap;
 }
 
-/* Origin-local public references, without a switcher or foreign health probes. */
+/* Origin-local public references and static switcher; foreign entries are never probed. */
 .remote-registry {
   margin-top: 36px;
   padding-top: 24px;
@@ -230,3 +230,12 @@ input {
   width: auto;
   margin-right: 8px;
 }
+
+.remote-state[data-tone='working'],
+.remote-menu [data-tone='working'],
+.remote-chip[data-tone='working'] { color: var(--tmt-ui-color-working); }
+.remote-chip[data-tone='waiting'] { color: var(--tmt-ui-color-waiting); }
+.remote-chip[data-tone='blocked'] { color: var(--tmt-ui-color-blocked); }
+.remote-chip { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.remote-menu { max-width: min(420px, calc(100vw - 16px)); }
+.remote-menu .tmt-ui-menu-item { white-space: normal; overflow-wrap: anywhere; }

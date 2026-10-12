@@ -1,5 +1,5 @@
 import { deviceObjects as store, request } from './browser-store.js';
-import { landingRegistry } from './remote-registry-page.js';
+import { remoteRegistryPage } from './remote-registry-page.js';
 export { remoteRegistry, RemoteRegistryError } from './remote-registry.js';
 export type {
   RemoteReference,
@@ -339,7 +339,7 @@ export async function landingPage(): Promise<void> {
       document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
     );
   }
-  const registryState = landingRegistry();
+  const registryState = remoteRegistryPage();
   const button = element('check') as HTMLButtonElement;
   let attempt = 0;
   let departed = false;
@@ -414,7 +414,10 @@ export async function landingPage(): Promise<void> {
           ? 'waiting'
           : 'blocked';
     element('notice').dataset.state = state;
-    registryState(copy[1]!, element('protocol-address').textContent ?? undefined);
+    registryState(
+      authorityEnded ? 'Access ended' : copy[1]!,
+      element('protocol-address').textContent ?? undefined,
+    );
     for (const [copyState, command] of commandActions)
       element(`copy-feedback-${copyState}-${command}`).textContent = '';
     element('mark').textContent = copy[0]!;

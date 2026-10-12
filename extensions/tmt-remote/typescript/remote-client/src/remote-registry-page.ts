@@ -1,4 +1,6 @@
-/** Landing's public-reference consumer. It never probes a foreign origin or shares a key. */
+import { remoteMenu } from './remote-menu.js';
+import { remoteState, currentRemote } from './remote-state.js';
+/** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,
   reference,
@@ -33,7 +35,9 @@ function kindLabel(entry: RemoteReference): string {
   return entry.kind === 'local' ? 'Local' : 'Firebase';
 }
 
-export function landingRegistry(): (state: string, address?: string) => void {
+export function remoteRegistryPage(
+  blocked: () => string = () => '',
+): (state: string, address?: string) => void {
   const root = document.getElementById('remotes');
   if (!root) return () => {};
   // Remove the entire untrusted fragment synchronously, before any admission can begin.
@@ -43,8 +47,55 @@ export function landingRegistry(): (state: string, address?: string) => void {
   const status = document.getElementById('remote-status')!;
   const add = document.getElementById('remote-add') as HTMLButtonElement;
   let observed = 'Checking';
-  let address: string | undefined;
+  let address: string | undefined =
+    document.documentElement.dataset.tmtPage === 'settings'
+      ? new URL('./', location.href).href
+      : undefined;
   let currentDialog: HTMLDialogElement | undefined;
+  let catalog = { version: 1 as const, entries: [] as readonly RemoteReference[] };
+  const settings = new URL('settings', new URL('./', location.href));
+  const menu = remoteMenu({
+    refresh: () => render(),
+    open: (entry) => {
+      if (blocked()) return;
+      void remoteRegistry
+        .navigation(entry)
+        .then((url) => location.assign(url))
+        .catch((error: unknown) => showError(error, status));
+    },
+    add: () => {
+      if (document.documentElement.dataset.tmtPage === 'settings') add.click();
+      else location.assign(`${settings.href}#add-remote`);
+    },
+    manage: () => {
+      if (document.documentElement.dataset.tmtPage === 'settings') {
+        root.scrollIntoView();
+        add.focus({ preventScroll: true });
+      } else location.assign(`${settings.href}#remotes`);
+    },
+    recover: (action) => {
+      if (action === 'Retry') {
+        const retry = (document.getElementById('check') ??
+          document.getElementById('refresh')) as HTMLButtonElement | null;
+        if (retry && !retry.disabled) retry.click();
+        else location.assign(new URL('./', location.href).href);
+      } else if (document.documentElement.dataset.tmtPage === 'settings')
+        location.assign(new URL('./', location.href).href);
+      else {
+        const pair = [
+          'copy-refused-pair',
+          'copy-missing-pair',
+          'copy-unreadable-pair',
+          'copy-different-pair',
+        ]
+          .map((id) => document.getElementById(id))
+          .find((button) => button && button.getClientRects().length > 0);
+        pair?.scrollIntoView();
+        pair?.focus();
+      }
+    },
+    blocked,
+  });
 
   const showError = (error: unknown, slot: HTMLElement): void => {
     slot.textContent =
@@ -197,30 +248,26 @@ export function landingRegistry(): (state: string, address?: string) => void {
     );
     view.box.showModal();
   };
-  const current = (entry: RemoteReference): boolean =>
-    entry.kind === 'local' &&
-    (entry.url === address || new URL(entry.url).href === `${location.origin}/`);
+  const current = (entry: RemoteReference): boolean => currentRemote(entry, address, location.href);
   const render = async (): Promise<void> => {
     try {
-      const catalog = await remoteRegistry.list();
+      catalog = await remoteRegistry.list();
       const rows = catalog.entries.map((entry) => {
         const row = node('li');
         row.dataset.remote = entry.name;
         row.dataset.url = entry.url;
         row.dataset.kind = entry.kind;
         row.append(node('h3', entry.name), node('p', `${kindLabel(entry)} · ${entry.url}`));
-        const state = node(
-          'p',
-          current(entry) ? (observed === 'Connected' ? '● Connected' : observed) : 'not checked',
-        );
+        const state = node('p', remoteState(observed, current(entry)).text);
         state.className = 'remote-state';
+        state.dataset.tone = remoteState(observed, current(entry)).tone;
         row.append(state);
         const actions = node('div');
         actions.className = 'remote-actions';
         const open = action('Open', () => {
           void (async () => {
             try {
-              location.assign(await remoteRegistry.navigation(entry));
+              if (!blocked()) location.assign(await remoteRegistry.navigation(entry));
             } catch (error) {
               showError(error, status);
             }
@@ -231,13 +278,18 @@ export function landingRegistry(): (state: string, address?: string) => void {
         const removeButton = action('Remove', () => remove(entry, removeButton));
         renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
         removeButton.setAttribute('aria-label', `Remove ${entry.name}`);
-        if (!current(entry)) actions.append(open);
+        if (!current(entry)) {
+          open.disabled = !!blocked();
+          open.title = blocked();
+          actions.append(open);
+        }
         actions.append(renameButton, removeButton);
         row.append(actions);
         return row;
       });
       list.replaceChildren(...rows);
       if (!rows.length) list.append(node('li', 'No remotes added in this browser.'));
+      menu(catalog, observed, address ?? '');
     } catch (error) {
       showError(error, status);
     }
@@ -260,7 +312,13 @@ export function landingRegistry(): (state: string, address?: string) => void {
     );
     view.box.showModal();
   });
-  void render();
+  void render().then(() => {
+    if (fragment === '#add-remote') add.click();
+    else if (fragment === '#remotes') {
+      root.scrollIntoView();
+      add.focus({ preventScroll: true });
+    }
+  });
   const receive = (value: string): void => {
     void remoteRegistry
       .parseHandoff(value)
@@ -270,10 +328,10 @@ export function landingRegistry(): (state: string, address?: string) => void {
       })
       .catch((error: unknown) => showError(error, status));
   };
-  if (fragment) receive(fragment);
+  if (fragment && !['#remotes', '#add-remote'].includes(fragment)) receive(fragment);
   window.addEventListener('hashchange', () => {
     const value = location.hash;
-    if (!value) return;
+    if (!value || ['#remotes', '#add-remote'].includes(value)) return;
     history.replaceState(null, '', location.pathname + location.search);
     receive(value);
   });
@@ -282,15 +340,18 @@ export function landingRegistry(): (state: string, address?: string) => void {
     if (checkedAddress) address = checkedAddress;
     for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
       const stateNode = row.querySelector<HTMLElement>('.remote-state')!;
-      const target = row.dataset.url;
-      const isCurrent =
-        row.dataset.kind === 'local' && (target === address || target === `${location.origin}/`);
-      stateNode.textContent = isCurrent
-        ? observed === 'Connected'
-          ? '● Connected'
-          : observed
-        : 'not checked';
+      const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
+      const isCurrent = !!entry && currentRemote(entry, address, location.href);
+      const view = remoteState(observed, isCurrent);
+      stateNode.textContent = view.text;
+      stateNode.dataset.tone = view.tone;
+      const open = row.querySelector<HTMLButtonElement>('[data-action="open"]');
+      if (open) {
+        open.disabled = !!blocked();
+        open.title = blocked();
+      }
       if (isCurrent) row.querySelector('[data-action="open"]')?.remove();
     }
+    menu(catalog, observed, address ?? '');
   };
 }

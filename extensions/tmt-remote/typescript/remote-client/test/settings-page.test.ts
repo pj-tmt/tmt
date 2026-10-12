@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vite-plus/test';
 
+// These minimal DOM fixtures own management access/copy; the static registry/menu is
+// exercised against the real browser/IndexedDB in pairing.spec.ts.
+vi.mock('../src/remote-registry-page.js', () => ({ remoteRegistryPage: () => () => {} }));
+
 for (const code of [
   'REMOTE_CLOSED',
   'REMOTE_GRANT_CHANGED',

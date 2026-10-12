@@ -24,6 +24,7 @@
           /></svg
         ><span class="header-wordmark tmt-ui-wordmark">Remote</span></span
       >
+      <span id="remote-switcher" class="tmt-ui-menu"></span>
       <h1 class="header-title tmt-ui-title">Settings and devices</h1>
     </header>
     <main class="page settings-page">
@@ -173,6 +174,13 @@
             <span class="tmt-ui-action-label">Next devices</span>
           </button>
         </div>
+      </section>
+      <section id="remotes" class="remote-registry" aria-labelledby="remote-heading">
+        <h2 id="remote-heading">Remotes in this browser</h2>
+        <p class="entry-note">Names and addresses are saved here. Each remote keeps its own pairing.</p>
+        <ul id="remote-list" class="remote-list"></ul>
+        <p id="remote-status" role="status"></p>
+        <button id="remote-add" class="tmt-ui-action" type="button">Add remote</button>
       </section>
     </main>
   </body>
