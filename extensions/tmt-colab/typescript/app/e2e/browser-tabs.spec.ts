@@ -64,10 +64,18 @@ for (const theme of ['light', 'dark']) {
       ).toBe(true);
       await selected.press('Home');
       await expect(selected).toBeFocused();
+      const output = page.locator('#events');
+      const before = JSON.parse((await output.getAttribute('data-events'))!) as string[];
       await selected.press('Enter');
-      await expect(page.locator('#events')).toHaveText('1:activation:true');
+      await expect(output).toHaveAttribute(
+        'data-events',
+        JSON.stringify([...before, '1:activation:true']),
+      );
       await selected.press('Space');
-      await expect(page.locator('#events')).toHaveText('1:activation:true');
+      await expect(output).toHaveAttribute(
+        'data-events',
+        JSON.stringify([...before, '1:activation:true', '1:activation:true']),
+      );
       await selected.press('End');
       const geometry = await page.locator('.tmt-ui-tab-list').evaluate((list) => {
         const chosen = list.querySelector('[aria-selected="true"]')!;

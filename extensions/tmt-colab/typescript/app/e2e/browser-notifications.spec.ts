@@ -11,6 +11,11 @@ async function mount(page: Page) {
 }
 const cards = (page: Page) => page.locator('.tmt-ui-notification');
 const lines = (page: Page) => page.locator('.tmt-ui-notification-line');
+const hitsNotification = (page: Page, x: number, y: number) =>
+  page.evaluate(
+    ({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('.tmt-ui-notification')),
+    { x, y },
+  );
 
 for (const [width, theme] of [
   [1440, 'light'],
@@ -64,12 +69,9 @@ for (const [width, theme] of [
       .boundingBox();
     expect(box!.y).toBeGreaterThan(header!.y + header!.height);
     expect(box!.x + box!.width).toBeLessThanOrEqual(width - (width === 390 ? 4 : 8));
-    expect(
-      await page.evaluate(
-        ({ x, y }) => document.elementFromPoint(x, y)?.closest('.tmt-ui-notification') !== null,
-        { x: box!.x + 20, y: box!.y + 20 },
-      ),
-    ).toBe(true);
+    expect(await hitsNotification(page, box!.x + 20, box!.y + 20)).toBe(true);
+    // An absent hit must not count as the notification being above the page.
+    expect(await hitsNotification(page, -1, -1)).toBe(false);
     await page.screenshot({ path: info.outputPath(`three-overflow-${width}-${theme}.png`) });
     await cards(page).nth(1).getByRole('button', { name: 'Open Thread', exact: true }).focus();
     await page.screenshot({ path: info.outputPath(`focus-thread-${width}-${theme}.png`) });

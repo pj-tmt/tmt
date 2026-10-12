@@ -15,7 +15,9 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
 `BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
-lucide-react 1.52.0. Icons are caller-supplied; static serving requires neither.
+lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
+and Notifications dismissal; IconAction also accepts a caller-supplied icon.
+Static serving requires neither peer.
 
 The browser color, surface and shared metric roles live in the `browser` group
 of `../tokens/tokens.json`. Legacy terminal/soft roles remain separately owned.
