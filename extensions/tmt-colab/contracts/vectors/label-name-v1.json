@@ -1,0 +1,42 @@
+{
+  "description": "Label name grammar shared by the owner store (labels.rs valid) and the browser (labels.ts labelNameError): 1 to 32 code points, no control character (Unicode Cc), no Unicode White_Space other than single interior U+0020, no leading, trailing or doubled space. U+FEFF and U+200B are not White_Space, so they are valid.",
+  "valid": [
+    "a",
+    "Q4 plan",
+    "\u65e5\u672c\u8a9e",
+    "\ud83d\ude80 launch",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80",
+    "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+    "a\ufeffb",
+    "\ufeff",
+    "a\u200bb",
+    "a\u180eb",
+    "a\u2060b"
+  ],
+  "invalid": [
+    "",
+    " ",
+    " lead",
+    "trail ",
+    "two  spaces",
+    "tab\there",
+    "line\nbreak",
+    "cr\rx",
+    "nul\u0000",
+    "del\u007f",
+    "c1\u0080",
+    "next\u0085line",
+    "nb\u00a0sp",
+    "ogham\u1680x",
+    "en\u2002quad",
+    "thin\u2009space",
+    "ls\u2028x",
+    "ps\u2029x",
+    "nnbsp\u202fx",
+    "mmsp\u205fx",
+    "wide\u3000space",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80\ud83d\ude80"
+  ]
+}

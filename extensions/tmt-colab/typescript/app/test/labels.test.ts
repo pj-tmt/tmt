@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   applyLabelChanges,
@@ -34,6 +35,23 @@ describe('label names', () => {
     expect(labelNameError('🚀'.repeat(32))).toBeUndefined();
     for (const name of [' a', 'a ', 'a  b', 'a\tb', 'a\nb', 'a b', 'a\u0000b', '　'])
       expect(labelNameError(name), JSON.stringify(name)).toBe('form');
+  });
+  // The owner store reads the same file (labels.rs): the two grammars cannot drift. U+FEFF and
+  // U+200B are not White_Space, so a CLI label carrying one must stay editable here.
+  it('agree with the shared vector the owner store reads', () => {
+    const vector = JSON.parse(
+      readFileSync(
+        new URL('../../../contracts/vectors/label-name-v1.json', import.meta.url),
+        'utf8',
+      ),
+    ) as { valid: string[]; invalid: string[] };
+    expect(vector.valid.length).toBeGreaterThan(0);
+    expect(vector.invalid.length).toBeGreaterThan(0);
+    for (const name of vector.valid)
+      expect(labelNameError(name), JSON.stringify(name)).toBeUndefined();
+    for (const name of vector.invalid)
+      expect(labelNameError(name), JSON.stringify(name)).toBeDefined();
+    expect(labelNameError('a\ufeffb')).toBeUndefined();
   });
   it('sort by code point like the owner store, not by UTF-16 unit', () => {
     // U+FF5E sorts before U+1F680 by code point, after it by UTF-16 unit.

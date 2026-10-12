@@ -75,6 +75,23 @@ mod tests {
         }
     }
 
+    /// The browser's `labelNameError` reads the same file, so the two grammars cannot drift.
+    #[test]
+    fn the_shared_vector_agrees_with_the_grammar() {
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/vectors/label-name-v1.json"
+        ))
+        .unwrap();
+        for (key, expected) in [("valid", true), ("invalid", false)] {
+            let names = vector[key].as_array().unwrap();
+            assert!(!names.is_empty());
+            for name in names {
+                let name = name.as_str().unwrap();
+                assert_eq!(valid(name), expected, "{key}: {name:?}");
+            }
+        }
+    }
+
     #[test]
     fn the_point_limit_counts_code_points_not_bytes() {
         assert!(valid(&"é".repeat(32)));
