@@ -125,13 +125,13 @@ ask when resolution would require an undecided product or authorization choice.
   harness requires. Preserve the user's authorship and signing configuration.
 - Every PR body names its contributors with visible `Agent:` lines; see the [attribution grammar](.agents/skills/tmt-release/references/native-release.md#pr-agent-attribution).
 - Authors finish and verify their own work before asking for review: rebased,
-  every required check green on the exact head, PR body complete (Fixes and Agent
-  lines). The review request names that head. Authors own CI end to end (watch,
+  every check green on the exact head, PR body complete (Fixes and Agent lines).
+  The review request names that head. Authors own CI end to end (watch,
   rerun, fix); nobody asks a lead to watch CI. Leads gate (review, design, seams,
   merge decision) and do not babysit: no CI watching, no chasing members for status.
-- Wait on CI, a queue or a long build with one long-interval monitor, run by a
-  cheap subagent (Haiku on Claude seats, Luna on Codex seats), that reports only on
-  a state change; never loop on short intervals in the main session.
+- Wait on CI, a queue or a long build with one long-interval monitor, a script or
+  the seat's cheapest subagent, that reports only on a state change; never loop on
+  short intervals in the main session.
 - Merge only when authorized and all required CI has passed on the reviewed head.
   Never bypass protection or lower checks to deliver. Publishing, releases and
   destructive operations require their own applicable authorization.
