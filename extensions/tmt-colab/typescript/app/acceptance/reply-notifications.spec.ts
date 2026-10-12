@@ -116,8 +116,12 @@ test('an authenticated participant comment notifies the thread author and opens 
   });
 });
 
-for (const destination of ['Answer', 'Proposal'] as const)
-  test(`own admitted ${destination} follow-up reveals and focuses its block across the served Remote boundary`, async () => {
+for (const [destination, forceFallback] of [
+  ['Answer', false],
+  ['Proposal', false],
+  ['Proposal', true],
+] as const)
+  test(`own admitted ${destination} follow-up reveals and focuses its block across the served Remote boundary${forceFallback ? ' with viewport-coupled layout' : ''}`, async () => {
     await withWorld(async (world) => {
       const door = await startDoor(world, await freePort());
       const agent = await world.startAgent('block-notification-agent', { gated: true });
@@ -153,6 +157,8 @@ for (const destination of ['Answer', 'Proposal'] as const)
         destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
       );
       await expect(block).toHaveCount(1);
+      const proposalId =
+        destination === 'Proposal' ? await block.getAttribute('data-proposal-id') : undefined;
       if (destination === 'Answer') {
         await block.getByLabel('Your answer', { exact: true }).fill('Follow this direction.');
         await block.getByRole('button', { name: /^Send answer/ }).click();
@@ -168,17 +174,43 @@ for (const destination of ['Answer', 'Proposal'] as const)
         await annotationInput(block, agent.name);
         await expect(block.locator('.annotation-status-row')).toContainText(`Asks @${agent.name}.`);
         await block.getByRole('button', { name: 'Send', exact: true }).click();
-        // Dispatch receipt can precede the UI's committed Send completion.
-        // Move away only after the existing composer has closed, so its final
-        // layout/focus work cannot bring the block back into view.
-        await expect(input).toHaveCount(0);
-        await expect(block.getByRole('button', { name: 'Follow up', exact: true })).toBeEnabled();
       }
       await until(() => agent.received().length === 1, 'one admitted block follow-up Ask');
+      if (forceFallback) {
+        // Exercise the existing bounded height fallback through real layout,
+        // rather than fabricating renderer messages or notification records.
+        await page
+          .frameLocator('iframe')
+          .locator('body')
+          .evaluate((body) => {
+            body.style.minHeight = '200vh';
+          });
+        await expect(page.locator('iframe[data-scroll-mode="frame"]')).toBeVisible();
+        await expect(page.locator('.proposal-inline')).toHaveAttribute('data-detached', 'true');
+      }
+      if (destination === 'Proposal') {
+        // The bounded renderer may detach during live spacer growth. Its hidden
+        // inline DOM is not evidence that Send completed; Comments owns recovery.
+        await expect
+          .poll(async () => {
+            if (await block.evaluate((node) => !!node.closest('[data-detached]')))
+              return 'detached';
+            return (await block.getByRole('combobox', { name: 'Message', exact: true }).count()) ===
+              0 && (await block.getByRole('button', { name: 'Follow up', exact: true }).isEnabled())
+              ? 'ready'
+              : 'pending';
+          })
+          .not.toBe('pending');
+      }
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expect
-        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
-        .toBeGreaterThan(900);
+      const detached = await block.evaluate((node) => !!node.closest('[data-detached]'));
+      if (detached) {
+        await expect(block).toBeHidden();
+        await expect(page.locator('iframe[data-scroll-mode="frame"]')).toBeVisible();
+      } else
+        await expect
+          .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+          .toBeGreaterThan(900);
       const requestId = agent.received()[0].requestId as string;
       writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
       await until(
@@ -193,18 +225,24 @@ for (const destination of ['Answer', 'Proposal'] as const)
       await expect(page.locator('.reply-announcement')).toHaveCount(0);
       await captureResponsive(page, `notification-${destination.toLowerCase()}-queue`);
       await card.getByRole('button', { name: `Open ${destination}`, exact: true }).click();
-      await expect(block).toBeFocused();
-      await expect(block).toHaveAttribute('data-arrived', '');
-      await expect(block).toContainText(reply);
+      const target = destination === 'Answer' ? block : page.locator('.proposal-card:visible');
+      if (destination === 'Proposal') {
+        await expect(target).toHaveAttribute('data-proposal-id', proposalId!);
+        if (detached)
+          await expect(page.locator('dialog:modal[data-panel="comments"]')).toBeVisible();
+      }
+      await expect(target).toBeFocused();
+      await expect(target).toHaveAttribute('data-arrived', '');
+      await expect(target).toContainText(reply);
       await expect
-        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .poll(() => target.evaluate((node) => node.getBoundingClientRect().top))
         .toBeGreaterThanOrEqual(48);
       await expect
-        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .poll(() => target.evaluate((node) => node.getBoundingClientRect().top))
         .toBeLessThan(900);
       await captureResponsive(page, `notification-${destination.toLowerCase()}-target`);
       await page.keyboard.press('Tab');
-      await expect(block).not.toHaveAttribute('data-arrived', '');
+      await expect(target).not.toHaveAttribute('data-arrived', '');
       await page.reload();
       await expect(page.locator('.status.live')).toBeVisible();
       await expect(card).toHaveCount(0);
