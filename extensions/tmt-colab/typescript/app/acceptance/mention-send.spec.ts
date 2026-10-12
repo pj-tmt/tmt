@@ -66,6 +66,15 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     );
     expect(new Set(ids).size).toBe(3);
     await expect(panel.getByTestId('ask-reply')).toHaveCount(2);
+    // The Sends are dispatched one after another and only the live agents' deliveries were awaited
+    // above: wait until all three are accepted and dispatched, so the offline inbox read below
+    // asserts durable state and not whether the last dispatch had landed yet.
+    await expect(panel.locator('[data-testid=ask-entry][data-ledger-state=accepted]')).toHaveCount(
+      3,
+    );
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      3,
+    );
     const pending = JSON.parse(
       run(world, world.binaries.tmt, ['inbox', '--identity', offline.id, '--json']),
     ) as { items: { requestId: string; preview: string }[] };
@@ -74,12 +83,6 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     expect(pending.items[0].preview).toContain('[remote: mention-author]');
     for (const agent of [alpha, beta])
       expect(agent.received()[0].message).toContain('<script>Keep exact bytes.</script>');
-    await expect(panel.locator('[data-testid=ask-entry][data-ledger-state=accepted]')).toHaveCount(
-      3,
-    );
-    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
-      3,
-    );
     await page.reload();
     await openChat(page);
     await expect(page.getByTestId('ask-entry')).toHaveCount(3);
