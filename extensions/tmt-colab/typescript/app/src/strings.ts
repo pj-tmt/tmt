@@ -437,6 +437,7 @@ export const text = {
     saveFullTail: 'This page is full. Compact it, then save again.',
     saveFullBudget:
       'This page is full, and combining cannot free room. Export it and continue in a new page.',
+    saveFullReader: 'An editor must compact this page.',
     compactedSaveAgain: 'Compacted. Save again to keep your edit.',
     stateCompacted: 'Compacted',
   },

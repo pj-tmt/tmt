@@ -771,7 +771,9 @@ function Page() {
       // it now: combining changes frees room only when the changes are the limit.
       if (error instanceof SaveRefused && error.code === 'COLAB_CAPACITY') {
         const usage = await size.refresh();
-        if (usage) {
+        // A device that cannot ask the serve to combine is told who can.
+        if (!snapshot.binding.compact) problem.message = text.pageSize.saveFullReader;
+        else if (usage) {
           problem.full = compactOffered(usage) ? 'compact' : 'export';
           problem.message = compactOffered(usage)
             ? text.pageSize.saveFullTail
@@ -1536,7 +1538,8 @@ function Page() {
         onDismiss={() => setPanel(null)}
       >
         <div className="source">
-          <PageSizeNotice size={size} exportPage={() => setPanel('export')} />
+          {/* A refused Save already says the page is full and carries the way out. */}
+          {!editError?.full && <PageSizeNotice size={size} exportPage={() => setPanel('export')} />}
           <span>
             <label htmlFor="source-edit">{text.source}</label>
             {snapshot.binding && !archived && (

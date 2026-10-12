@@ -190,6 +190,8 @@ test('a save refused for a full page offers Compact, keeps the draft and never s
   const notice = editor.locator('.source-notice[role], .source-notice').last();
   await expect(editor).toContainText('Not saved');
   await expect(editor).toContainText('This page is full. Compact it, then save again.');
+  // The refusal carries the way out, so the quiet notice does not repeat it above.
+  await expect(editor.getByRole('button', { name: 'Compact page' })).toHaveCount(1);
   expect(await calls(page)).toMatchObject({ edit: 1, compact: 0 });
   await editor.getByRole('button', { name: 'Compact page' }).last().click();
   await expect(editor).toContainText('Compacted. Save again to keep your edit.');
@@ -235,6 +237,21 @@ test('a refusal that combining cannot fix offers Export, and a failed Compact ke
   expect(await calls(page)).toMatchObject({ edit: 1, compact: 1 });
 });
 
+test('a save refused for a full page tells a device that cannot compact who can', async ({
+  page,
+}) => {
+  await mount(page, { refuseSave: true, reader: true });
+  const editor = await source(page);
+  await editor.locator('textarea').fill('<p>draft</p>');
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(editor).toContainText('Not saved');
+  await expect(editor).toContainText('An editor must compact this page.');
+  await expect(editor.getByRole('button', { name: 'Compact page' })).toHaveCount(0);
+  await expect(editor.getByRole('button', { name: 'Export page' })).toHaveCount(0);
+  await expect(editor.locator('textarea')).toHaveValue('<p>draft</p>');
+  expect(await calls(page)).toMatchObject({ edit: 1, compact: 0, usage: 0 });
+});
+
 for (const [width, theme] of [
   [1440, 'light'],
   [390, 'dark'],
@@ -265,6 +282,92 @@ for (const [width, theme] of [
     drawer = await about(page);
     await shot('cannot-free');
     // No horizontal scroll at the narrow width.
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  });
+
+for (const [width, theme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const)
+  test(`captures: results and refusals ${width} ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.addInitScript((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    const shot = async (name: string) =>
+      page.screenshot({ path: capturePath(`2846-${name}-${width}-${theme}.png`) });
+    const result = async (name: string, extra: Extra) => {
+      await mount(page, extra);
+      const drawer = await about(page);
+      await section(drawer).getByRole('button', { name: 'Compact page' }).click();
+      await expect(section(drawer).getByRole('status').first()).toBeVisible();
+      await shot(name);
+    };
+    await result('result-combined', {});
+    // What a page full of text it keeps looks like: combining empties the tail, the stored size stays.
+    const stored = { limiting: 'stored-size', gzipBytes: 4_400_000, stateBytes: 9_000_000 };
+    await result('result-still-high', {
+      usage: { updates: 180, percent: 90, limiting: 'changes' },
+      report: { after: { ...stored, updates: 0, tailBytes: 0, percent: 88 } },
+    });
+    const nothing = {
+      compacted: false,
+      skipped: 'nothing-to-combine',
+      mergedObjects: 0,
+    };
+    await result('result-nothing', {
+      usage: { updates: 5 },
+      report: { ...nothing, after: { updates: 5, percent: 2 } },
+    });
+    await result('result-nothing-other-devices', {
+      usage: { otherDeviceUpdates: 2, updates: 5 },
+      report: { ...nothing, after: { otherDeviceUpdates: 2, updates: 5, percent: 2 } },
+    });
+    await result('result-failed', { report: null });
+    // The Save refusal: tail cause, budget cause, a device that cannot compact, then Compacted.
+    const refused = async (name: string, extra: Extra, draft: string) => {
+      await mount(page, { refuseSave: true, ...extra });
+      const editor = await source(page);
+      await editor.locator('textarea').fill(draft);
+      await editor.getByRole('button', { name: 'Save' }).click();
+      await expect(editor).toContainText('Not saved');
+      await shot(name);
+      return editor;
+    };
+    const tail = await refused(
+      'refusal-tail',
+      { usage: { updates: 200, percent: 100 } },
+      '<h1>My unsaved edit</h1>',
+    );
+    await tail.getByRole('button', { name: 'Compact page' }).last().click();
+    await expect(tail).toContainText('Compacted. Save again to keep your edit.');
+    await expect(tail.locator('textarea')).toHaveValue('<h1>My unsaved edit</h1>');
+    await shot('refusal-compacted');
+    await refused(
+      'refusal-budget',
+      {
+        usage: {
+          limiting: 'stored-size',
+          percent: 100,
+          gzipBytes: 5_000_000,
+          stateBytes: 9_000_000,
+        },
+      },
+      '<h1>My unsaved edit</h1>',
+    );
+    await refused('refusal-reader', { reader: true }, '<h1>My unsaved edit</h1>');
+    // The Source notice when combining cannot help.
+    await mount(page, {
+      usage: { limiting: 'stored-size', percent: 91, gzipBytes: 4_500_000, stateBytes: 9_000_000 },
+    });
+    const editor = await source(page);
+    await expect(editor.locator('.source-notice')).toContainText(
+      'Combining cannot free more room.',
+    );
+    await shot('notice-cannot-free');
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
