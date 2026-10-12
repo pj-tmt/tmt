@@ -3,15 +3,16 @@
 //! edited many times by this device keeps a short tail. Other devices' streams are never touched,
 //! and the shared document is never re-encoded: the merge is `merge_updates_v1` of this stream's
 //! updates inside the isolated decoder.
-use super::{Fault, snapshot};
+use super::{Fault, PageUsage, hex, snapshot};
 use crate::{
     Result,
     decoder::{Decoder, Namespace as DecoderNamespace},
     keyring::Keyring,
     store::{Envelope, Fault as StoreFault, Namespace, Store, StreamScope},
 };
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use tmt_colab_model::object;
+use tmt_colab_model::{crypto, object};
 
 /// A device compacts its own stream once this many updates sit after its last checkpoint.
 pub const TRIGGER_UPDATES: usize = 50;
@@ -206,4 +207,82 @@ pub fn compact(
         merged_objects,
         namespaces,
     }))
+}
+
+/// Why a requested compaction published nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Skipped {
+    /// This device has no changes after its checkpoints; nothing to combine.
+    NothingToCombine,
+    /// This device has changes to combine, but the combine could not be published (the merge
+    /// would be too large for one checkpoint, or it did not finish in time).
+    NotCombined,
+}
+
+/// What a requested compaction did, for the person who asked: whose stream was combined into
+/// which range, the page's usage before and after, and the source hash that did not change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Report {
+    pub page_id: String,
+    pub compacted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Skipped>,
+    /// The device whose stream was combined: only this device can combine it.
+    pub by: String,
+    /// The range of that stream the checkpoints now hold: 1..=through (0 when nothing was combined).
+    pub through: u64,
+    pub merged_objects: usize,
+    pub source_sha256: String,
+    pub before: PageUsage,
+    pub after: PageUsage,
+}
+
+/// Combine this device's own stream now, whatever the size of its tail, and report what changed.
+/// `compact` compares every projection of the merge with the page's own before its first
+/// checkpoint, so the folded source is the same before and after or nothing is published.
+/// Repeating it finds no tail and is a no-op. Other devices' streams are never touched; `after`
+/// shows what remains of theirs.
+pub fn request(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    until: Option<std::time::Instant>,
+) -> Result<Report> {
+    let by = key.local_writer()?.0;
+    let usage_before = snapshot(store, key, page, true)?.usage(key, page, decoder)?;
+    let done = compact(
+        store,
+        key,
+        page,
+        decoder,
+        Trigger {
+            updates: 1,
+            bytes: usize::MAX,
+            until,
+        },
+    )?;
+    let after = snapshot(store, key, page, true)?;
+    let usage_after = after.usage(key, page, decoder)?;
+    let source_sha256 = hex(&crypto::digest(
+        after.materialize(key, page, decoder)?.source.as_bytes(),
+    ));
+    let own_tail = usage_before.updates - usage_before.other_device_updates;
+    Ok(Report {
+        page_id: page.into(),
+        compacted: done.is_some(),
+        skipped: match (&done, own_tail) {
+            (Some(_), _) => None,
+            (None, 0) => Some(Skipped::NothingToCombine),
+            (None, _) => Some(Skipped::NotCombined),
+        },
+        by,
+        through: done.as_ref().map_or(0, |done| done.through),
+        merged_objects: done.as_ref().map_or(0, |done| done.merged_objects),
+        source_sha256,
+        before: usage_before,
+        after: usage_after,
+    })
 }

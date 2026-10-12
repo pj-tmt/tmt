@@ -1,4 +1,5 @@
 mod cli_attachments;
+mod cli_compact;
 mod cli_grammar;
 mod cli_labels;
 mod cli_management;
@@ -347,6 +348,7 @@ fn grammar() -> Command {
                         ),
                     )
                     .subcommand(cli_page_check::command())
+                    .subcommand(cli_compact::command())
                     .subcommand(tmt_cli_style::command(&READ).arg(cli_grammar::page()))
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
@@ -643,7 +645,7 @@ fn commit_source(
         &clock,
     )?;
     store.close()?;
-    Ok(match preparation {
+    let mut receipt = match preparation {
         page::PublicationPreparation::Noop {
             epoch,
             membership_head,
@@ -669,7 +671,15 @@ fn commit_source(
             }
             receipt
         }
-    })
+    };
+    // How full the page is now. The write is done: a page that cannot be read back right after it
+    // reports no usage rather than failing the command.
+    receipt.usage = Store::read(layout).ok().and_then(|store| {
+        let usage = page::usage(&store, key, id, decoder);
+        store.close().ok()?;
+        usage.ok()
+    });
+    Ok(receipt)
 }
 /// The result of `page write` or `page patch`: JSON, or one detail block and the warnings.
 fn print_receipt(
@@ -685,6 +695,16 @@ fn print_receipt(
         writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
+        let mut rows = vec![
+            ("page", receipt.page_id.clone()),
+            ("revision", receipt.revision.clone()),
+            ("epoch", receipt.epoch.clone()),
+            ("update", receipt.update.to_string()),
+        ];
+        // Quiet until the page is nearly full: the full numbers are in `page read --json`.
+        if let Some(usage) = receipt.usage.filter(|usage| usage.percent >= 80) {
+            rows.push(("usage", cli_compact::nearly_full(&usage, &receipt.page_id)));
+        }
         tmt_cli_style::detail::write(
             &mut output,
             terminal,
@@ -693,12 +713,7 @@ fn print_receipt(
             } else {
                 "PAGE UNCHANGED"
             },
-            &[
-                ("page", receipt.page_id),
-                ("revision", receipt.revision),
-                ("epoch", receipt.epoch),
-                ("update", receipt.update.to_string()),
-            ],
+            &rows,
         )?;
         cli_page_check::print_warnings(warnings)?;
     }
@@ -722,6 +737,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     if command == "patch" {
         return cli_patch::run(root, args);
+    }
+    if command == "compact" {
+        return cli_compact::run(root, args);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;

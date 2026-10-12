@@ -290,6 +290,10 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
         ),
         "{message}"
     );
+    assert!(
+        message.contains(&format!("tmt colab page compact {PAGE}")),
+        "a full tail offers the compaction first: {message}"
+    );
     assert!(message.contains("tmt colab export"), "{message}");
     assert!(message.contains("tmt colab page create"), "{message}");
     assert!(

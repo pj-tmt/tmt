@@ -1,5 +1,6 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
 pub mod compact;
+pub mod compact_ipc;
 pub mod ipc;
 pub mod lines;
 pub mod patch;
@@ -109,6 +110,7 @@ pub struct Page {
     pub membership_head: Head,
     pub revision: String,
     pub memory_limit: MemoryLimit,
+    pub usage: PageUsage,
 }
 /// What one whole-source write reports. A no-op publishes nothing and carries no publication.
 #[derive(Clone, Serialize)]
@@ -123,6 +125,9 @@ pub struct Receipt {
     pub memory_limit: MemoryLimit,
     pub changed: bool,
     pub update: UpdateSize,
+    /// How full the page is after this write; absent when the page could not be read back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<PageUsage>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub publication: Option<PublicationReceipt>,
 }
@@ -161,6 +166,91 @@ impl std::fmt::Display for UpdateSize {
         }
     }
 }
+/// How full a page is against what a write accepts, from the accounting the write path itself
+/// uses: the changes kept after each device's checkpoint, and the whole state a browser loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageUsage {
+    /// Changes kept after the checkpoints, over every device's stream, and the most a write accepts.
+    pub updates: usize,
+    pub update_limit: usize,
+    /// Their plaintext bytes, and the most a write accepts.
+    pub tail_bytes: usize,
+    pub tail_bytes_limit: usize,
+    /// Plaintext bytes of the checkpoints.
+    pub checkpoint_bytes: usize,
+    /// Of `updates`, the changes on other devices' streams: only those devices can combine them.
+    pub other_device_updates: usize,
+    /// The whole state, uncompressed: baseline, checkpoints and tail.
+    pub state_bytes: usize,
+    /// The whole state gzipped, the way a browser loads it, and the most a page may hold. Not
+    /// measured for a state under 256 KiB, where `state_bytes` bounds it by 5% of the limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gzip_bytes: Option<usize>,
+    pub gzip_limit: usize,
+    /// The fullest of the three limits, in whole percent; above 100 when a reader holds more than
+    /// a write would accept.
+    pub percent: usize,
+    /// Which limit `percent` is: combining changes makes room only for the first two.
+    pub limiting: Limiting,
+}
+/// The limit a page is nearest to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Limiting {
+    /// The number of changes kept after the checkpoints.
+    Changes,
+    /// The bytes of those changes.
+    RecentData,
+    /// The whole state a browser loads, gzipped.
+    StoredSize,
+}
+impl PageUsage {
+    pub fn new(counts: UsageCounts, state_bytes: usize, gzip_bytes: Option<usize>) -> Self {
+        let share = |used: usize, limit: usize| used.saturating_mul(100) / limit;
+        let gzip_limit = crate::decoder::PAGE_BUDGET_GZIP_BYTES;
+        // The first of the fullest wins a tie, so an empty page is limited by its changes.
+        let (percent, limiting) = [
+            (
+                share(counts.updates, crate::decoder::WRITE_TAIL_UPDATES),
+                Limiting::Changes,
+            ),
+            (
+                share(counts.tail_bytes, crate::decoder::WRITE_TAIL_BYTES),
+                Limiting::RecentData,
+            ),
+            (
+                share(gzip_bytes.unwrap_or(state_bytes), gzip_limit),
+                Limiting::StoredSize,
+            ),
+        ]
+        .into_iter()
+        .fold((0, Limiting::Changes), |best, next| {
+            if next.0 > best.0 { next } else { best }
+        });
+        Self {
+            updates: counts.updates,
+            update_limit: crate::decoder::WRITE_TAIL_UPDATES,
+            tail_bytes: counts.tail_bytes,
+            tail_bytes_limit: crate::decoder::WRITE_TAIL_BYTES,
+            checkpoint_bytes: counts.checkpoint_bytes,
+            other_device_updates: counts.other_device_updates,
+            state_bytes,
+            gzip_bytes,
+            gzip_limit,
+            percent,
+            limiting,
+        }
+    }
+}
+/// What a pass over the stored objects counts, before the state is measured.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UsageCounts {
+    pub updates: usize,
+    pub tail_bytes: usize,
+    pub checkpoint_bytes: usize,
+    pub other_device_updates: usize,
+}
 /// The original operation and the last envelope of an admitted batch.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -192,6 +282,7 @@ impl Receipt {
             memory_limit,
             changed: false,
             update: UpdateSize::NONE,
+            usage: None,
             publication: None,
         }
     }
@@ -333,9 +424,13 @@ pub fn revision(store: &Store, key: &Keyring, page: &str) -> Result<String> {
         current_token(tx, key, page)
     })
 }
+/// How full the page is now, from one read-only snapshot.
+pub fn usage(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<PageUsage> {
+    snapshot(store, key, page, false)?.usage(key, page, decoder)
+}
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
     let s = snapshot(store, key, page, false)?;
-    let view = s.materialize(key, page, decoder)?;
+    let view = s.materialize_measured(key, page, decoder)?;
     Ok(Page {
         space_id: key.space_id.clone(),
         page_id: page.into(),
@@ -348,6 +443,7 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         membership_head: Head::from(&s.authority.head),
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
         memory_limit: view.memory_limit,
+        usage: view.usage,
     })
 }
 /// NOOP carries no original operation or certificate; it reports the captured base.
@@ -1039,6 +1135,7 @@ pub fn publication_receipt(
                 memory_limit: evidence.memory_limit,
                 changed: true,
                 update: UpdateSize::of(manifest),
+                usage: None,
                 publication: Some(PublicationReceipt {
                     operation_id: key.operation_id.clone(),
                     stream_id: key.stream_id.clone(),

@@ -71,6 +71,16 @@ pub const PUBLISH_REPLY: Duration = ACQUISITION
     .saturating_add(PUBLISH_COMBINE)
     .saturating_add(RESPONSE);
 
+/// A requested compaction is the combine itself (`PUBLISH_DECODES` isolated decoder runs) and one
+/// more decode of the page afterwards, to report its source hash.
+pub const COMPACT_COMBINE: Duration = PUBLISH_COMBINE;
+/// Absolute wait for a compaction reply, from the moment the client finished sending: the delay
+/// before the serve reads the request, the combine window, the final decode and the response.
+pub const COMPACT_REPLY: Duration = ACQUISITION
+    .saturating_add(COMPACT_COMBINE)
+    .saturating_add(crate::decoder::DEADLINE)
+    .saturating_add(RESPONSE);
+
 /// One root-local attachment read answers with at most one whole plaintext attachment.
 pub const ATTACHMENT_READ_BYTES: usize = tmt_colab_model::attachment::PLAINTEXT_BYTES;
 /// The serve's interval to write that reply to its local reader.

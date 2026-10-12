@@ -29,12 +29,14 @@ pub enum OwnerFault {
     PageCapacity(PageCapacity),
 }
 /// A page whose size stops an operation. `detail` finishes the sentence with the measured value
-/// and the limit; `edit` is set when only a write is refused and the page still reads.
+/// and the limit; `edit` is set when only a write is refused and the page still reads, and
+/// `compactable` when the changes after the checkpoints are the cause, so combining them helps.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PageCapacity {
     pub page: String,
     pub detail: String,
     pub edit: bool,
+    pub compactable: bool,
 }
 /// A count for people: `5,001`.
 pub fn count(value: usize) -> String {
@@ -68,6 +70,7 @@ impl OwnerFault {
             page: page.to_owned(),
             detail,
             edit: false,
+            compactable: false,
         })
     }
     /// The page reads, but takes no further edit until its tail fits what the browser opens.
@@ -76,6 +79,17 @@ impl OwnerFault {
             page: page.to_owned(),
             detail,
             edit: true,
+            compactable: false,
+        })
+    }
+    /// The page reads, but the changes kept after its checkpoints fill what a write accepts:
+    /// combining them into checkpoints makes room.
+    pub fn tail_full(page: &str, detail: String) -> Self {
+        Self::PageCapacity(PageCapacity {
+            page: page.to_owned(),
+            detail,
+            edit: true,
+            compactable: true,
         })
     }
 }
@@ -84,11 +98,19 @@ impl std::fmt::Display for OwnerFault {
         match self {
             Self::PageCapacity(c) if c.edit => write!(
                 f,
-                "Page {page} is full: {detail}. Nothing was deleted. Export it with `tmt colab export \
+                "Page {page} is full: {detail}. Nothing was deleted. {export} it with `tmt colab export \
                  {page} --dir <dir>`, then create a new page from it with `tmt colab page create \
                  --title <title> --file <dir>/page.html`.",
                 page = c.page,
-                detail = c.detail
+                detail = c.detail,
+                export = if c.compactable {
+                    format!(
+                        "Combine its changes with `tmt colab page compact {}` and write again. If it is still full, export",
+                        c.page
+                    )
+                } else {
+                    "Export".to_owned()
+                }
             ),
             // Export folds the same state, so a page past a read limit cannot be exported either.
             Self::PageCapacity(c) => write!(

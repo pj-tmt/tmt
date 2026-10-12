@@ -119,8 +119,22 @@ struct MaterializationInput {
     /// Whether every original own envelope of a writer came from an owner-member device.
     owner_provenance: BTreeMap<String, bool>,
     local_writer: String,
-    tail_count: usize,
-    tail_bytes: usize,
+    tally: crate::page::UsageCounts,
+}
+impl crate::page::UsageCounts {
+    /// Count one stored object: a checkpoint holds what the tail since the last one has not yet
+    /// combined, and the write path refuses against the tail.
+    fn add(&mut self, checkpoint: bool, own_device: bool, bytes: usize) -> Result<()> {
+        let total = if checkpoint {
+            &mut self.checkpoint_bytes
+        } else {
+            self.updates = self.updates.checked_add(1).ok_or(OwnerFault::Capacity)?;
+            self.other_device_updates += usize::from(!own_device);
+            &mut self.tail_bytes
+        };
+        *total = total.checked_add(bytes).ok_or(OwnerFault::Capacity)?;
+        Ok(())
+    }
 }
 pub(crate) struct View {
     pub source: String,
@@ -131,6 +145,10 @@ pub(crate) struct View {
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
     pub memory_limit: crate::decoder::MemoryLimit,
+    /// The counts and raw state size; the gzipped size only when read through
+    /// [`Snapshot::materialize_measured`], because compressing the state costs as much as reading
+    /// it and most callers (a page list, an export) never report it.
+    pub usage: crate::page::PageUsage,
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
     /// replies), as the isolated decoder returned and validated it.
     pub own: BTreeMap<String, serde_json::Value>,
@@ -143,9 +161,8 @@ pub(crate) struct View {
     /// fresh write authority; it only lets a reader verify what the writer signed.
     pub signing_keys: BTreeMap<String, [u8; 32]>,
 }
-/// The gzipped size of the parts as one stream, the way a browser loads a page, if it is over
-/// the page budget.
-fn gzip_over_budget<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<Option<usize>> {
+/// The gzipped size of the parts as one stream, the way a browser loads a page.
+fn gzip_bytes<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<usize> {
     use std::io::Write;
     struct Count(usize);
     impl Write for Count {
@@ -161,9 +178,15 @@ fn gzip_over_budget<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<Option<
     for part in parts {
         encoder.write_all(part)?;
     }
-    let compressed = encoder.finish()?.0;
+    Ok(encoder.finish()?.0)
+}
+/// The gzipped size of the parts, if it is over the page budget.
+fn gzip_over_budget<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<Option<usize>> {
+    let compressed = gzip_bytes(parts)?;
     Ok((compressed > crate::decoder::PAGE_BUDGET_GZIP_BYTES).then_some(compressed))
 }
+/// The raw state size from which usage reports the gzipped size too.
+const GZIP_MEASURED_FROM: usize = 256 * 1024;
 pub(crate) struct OpenedObject {
     pub namespace: String,
     pub author_device: String,
@@ -179,7 +202,7 @@ impl Snapshot {
             .filter(|(_, object)| !object.checkpoint)
             .count();
         if tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
-            return Err(OwnerFault::too_large_to_edit(
+            return Err(OwnerFault::tail_full(
                 page,
                 format!(
                     "it has {} changes, the most one page can hold",
@@ -189,6 +212,31 @@ impl Snapshot {
             .into());
         }
         Ok(())
+    }
+    /// How full the page is, from the same authenticated bytes and count a write is refused
+    /// against.
+    pub fn usage(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+    ) -> Result<crate::page::PageUsage> {
+        self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?
+            .usage(true)
+    }
+    /// [`Self::materialize`] with the gzipped state measured into `usage`, for a reader that
+    /// reports it.
+    pub(crate) fn materialize_measured(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+    ) -> Result<View> {
+        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+        let usage = input.usage(true)?;
+        let mut view = input.materialize(page, decoder, None)?;
+        view.usage = usage;
+        Ok(view)
     }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
         Self::capture_epoch(store, key, page, None, true)
@@ -651,9 +699,8 @@ impl Snapshot {
         let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
         let mut owner_provenance: BTreeMap<String, bool> = BTreeMap::new();
         let mut replaced = BTreeSet::new();
-        // What a reader still has to apply one by one: updates after a device's checkpoint.
-        let mut tail_count = 0usize;
-        let mut tail_bytes = 0usize;
+        let local_writer = key.local_writer()?.0;
+        let mut tally = crate::page::UsageCounts::default();
         for (index, stored) in &self.objects {
             let opened = self.open_object(key, page, *index, stored)?;
             if opened.namespace == "own" {
@@ -672,12 +719,11 @@ impl Snapshot {
             } else {
                 opened.plaintext
             };
-            if !stored.checkpoint {
-                tail_count = tail_count.checked_add(1).ok_or(OwnerFault::Capacity)?;
-                tail_bytes = tail_bytes
-                    .checked_add(plaintext.len())
-                    .ok_or(OwnerFault::Capacity)?;
-            }
+            tally.add(
+                stored.checkpoint,
+                opened.author_device == local_writer,
+                plaintext.len(),
+            )?;
             if opened.namespace == "content" {
                 updates.push(plaintext);
             } else {
@@ -697,9 +743,8 @@ impl Snapshot {
             own_updates,
             signing_keys,
             owner_provenance,
-            local_writer: key.local_writer()?.0,
-            tail_count,
-            tail_bytes,
+            local_writer,
+            tally,
         })
     }
 }
@@ -710,15 +755,35 @@ fn checked_bytes(mut lengths: impl Iterator<Item = usize>) -> Result<usize> {
         .ok_or_else(|| OwnerFault::Capacity.into())
 }
 impl MaterializationInput {
+    /// The page's usage: the counts of the stored objects and the state a browser loads. A state
+    /// under [`GZIP_MEASURED_FROM`] is not gzipped: its raw size bounds the gzipped one by 5% of
+    /// the budget, and a small page should not pay a compression on every read. `measure` is false
+    /// for the callers that only need the counts.
+    fn usage(&self, measure: bool) -> Result<crate::page::PageUsage> {
+        let parts = || {
+            std::iter::once(self.baseline.as_slice())
+                .chain(self.updates.iter().map(Vec::as_slice))
+                .chain(self.own_updates.values().flatten().map(Vec::as_slice))
+        };
+        let state = checked_bytes(parts().map(<[u8]>::len))?;
+        let gzip = (measure && state >= GZIP_MEASURED_FROM)
+            .then(|| gzip_bytes(parts()))
+            .transpose()?;
+        Ok(crate::page::PageUsage::new(self.tally, state, gzip))
+    }
     fn admit_deltas(&self, page: &str, count: usize, bytes: usize) -> Result<()> {
         let count = self
-            .tail_count
+            .tally
+            .updates
             .checked_add(count)
             .ok_or(OwnerFault::Capacity)?;
         let bytes = self
+            .tally
             .tail_bytes
             .checked_add(bytes)
             .ok_or(OwnerFault::Capacity)?;
+        let tail_full =
+            count > crate::decoder::WRITE_TAIL_UPDATES || bytes > crate::decoder::WRITE_TAIL_BYTES;
         let detail = if count > crate::decoder::WRITE_TAIL_UPDATES {
             Some(format!(
                 "this edit would take its changes to {}, more than the {} one page can hold",
@@ -742,7 +807,12 @@ impl MaterializationInput {
             None
         };
         if let Some(detail) = detail {
-            return Err(OwnerFault::too_large_to_edit(page, detail).into());
+            return Err(if tail_full {
+                OwnerFault::tail_full(page, detail)
+            } else {
+                OwnerFault::too_large_to_edit(page, detail)
+            }
+            .into());
         }
         Ok(())
     }
@@ -892,6 +962,7 @@ impl MaterializationInput {
                 .as_str()
                 .map(str::to_owned),
             memory_limit: folded.memory_limit,
+            usage: self.usage(false)?,
             own: own_views,
             local_own_update,
             status_writers: owner_provenance

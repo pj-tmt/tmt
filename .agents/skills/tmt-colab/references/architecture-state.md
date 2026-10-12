@@ -361,8 +361,8 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 ## Admission and lock order
 
 - `socket.rs` treats registration, session, pages, management, the reserved page-publish and
-  device-events routes and the reader challenge/session routes specially. The root-local
-  management and page-publish routes deny any request carrying a forwarded
+  page-compact and device-events routes and the reader challenge/session routes specially. The root-local
+  management, page-publish and page-compact routes deny any request carrying a forwarded
   `tmt-device-context` or device-event header (`local_denied`), and Remote refuses to
   forward the reserved `/.tmt/` subtree from browsers.
 - **Lock order: the sync lock before the `Registration` mutex** (`registration.rs`).
@@ -399,6 +399,14 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   also uses, so limits, the markup check, the no-op and lost-reply replay are shared. The
   evaluated base is fenced by `PublishOptions::base_source_sha256`; a stale base or commit
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
+- `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
+  at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
+  them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the
+  report, so the two cannot disagree; `page read` returns it as `usage`.
+- `page compact` (`cli_compact.rs`) asks the serve over `page/compact_ipc.rs` (route
+  `page-compact`, `Server::compact_page` under the sync mutex) or, when stopped, runs
+  `page::compact::request` under the lifecycle lock. `request` is the automatic combine with a
+  trigger of one change plus the report; it never touches another device's stream.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:

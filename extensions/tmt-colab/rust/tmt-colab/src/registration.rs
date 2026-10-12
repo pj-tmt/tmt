@@ -390,6 +390,16 @@ impl Registration {
         .flatten();
         Ok((committed, revision))
     }
+    /// A requested combine of this device's own stream, reported to whoever asked. The caller
+    /// holds the sync mutex first, so no write moves the page between its reads and its combine.
+    pub(crate) fn compact(
+        &mut self,
+        page: &str,
+        until: std::time::Instant,
+    ) -> crate::Result<crate::page::compact::Report> {
+        let decoder = self.engine.decoder(page)?;
+        crate::page::compact::request(&mut self.store, &self.keyring, page, decoder, Some(until))
+    }
     /// What the root-local stream recorded for an operation a browser Save chose. Read-only.
     pub(crate) fn save_status(
         &self,

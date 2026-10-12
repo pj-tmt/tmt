@@ -509,6 +509,21 @@ impl Server<crate::registration::OwnerAdmission> {
         })
     }
 }
+impl Server<crate::registration::OwnerAdmission> {
+    /// Combine this device's own stream for the root-local CLI, under the sync mutex that
+    /// excludes every write. Other devices' streams are never touched.
+    pub(crate) fn compact_page(
+        &self,
+        page: &str,
+        received: std::time::Instant,
+    ) -> crate::Result<crate::page::compact::Report> {
+        use crate::page::Fault;
+        values::generated_id(page).map_err(|_| Fault::Invalid)?;
+        let state = self.0.lock().map_err(|_| Fault::Unavailable)?;
+        let mut admission = state.admission.0.lock().map_err(|_| Fault::Unavailable)?;
+        admission.compact(page, received + limits::COMPACT_COMBINE)
+    }
+}
 impl<A: Admission> Server<A> {
     pub fn new(store: Store, admission: A) -> Self {
         Self(Arc::new(Mutex::new(State {

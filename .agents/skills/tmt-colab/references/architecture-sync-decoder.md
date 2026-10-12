@@ -84,6 +84,9 @@ and `limits.rs`; do not restate them.
   then seals a checkpoint per namespace at the stream head and publishes through `Store::checkpoint`,
   which prunes the covered prefix once the namespaces are paired. Write limits count only the updates
   after checkpoints; the page budget (gzipped, `fold::gzip_over_budget`) applies to larger states.
+  `compact::request` runs it on demand for `page compact` and reports the page's `PageUsage`
+  before and after. The browser writes no checkpoints yet, so a browser device's `own` updates
+  stay in the tail (`otherDeviceUpdates`).
 - CLI create/write obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source and may carry a typed
