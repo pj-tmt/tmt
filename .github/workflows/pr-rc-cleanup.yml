@@ -51,10 +51,10 @@ jobs:
             need(pr === null || integer(pr), 'Invalid cleanup PR.');
             need(keepRun === null || (integer(keepRun) && keepRun === runId), 'Only the current producer caller may retain its new run.');
             let requests = 0;
-            const request = async (method, route, absent = false) => {
+            const request = async (method, route, absent = false, cancelConflict = false) => {
               need(++requests <= 256, 'RC cleanup request bound exceeded.');
               const result = await call(method, `${root}/${route}`);
-              need((result.status >= 200 && result.status < 300) || (absent && result.status === 404), `RC cleanup API ${method} failed (${result.status}).`);
+              need((result.status >= 200 && result.status < 300) || (absent && result.status === 404) || (cancelConflict && result.status === 409), `RC cleanup API ${method} failed (${result.status}).`);
               return result;
             };
             const workflow = (await request('GET', 'actions/workflows/pr-rc.yml')).data;
@@ -109,12 +109,13 @@ jobs:
                 // Retire discovery before cancellation/settlement; a late catalog is re-inventoried below.
                 for (const artifact of generation.artifacts.filter((item) => item.name.startsWith('tmt-pr-rc-catalog-'))) await erase(artifact);
                 if (run.status !== 'completed' && run.id !== runId) {
-                  await request('POST', `actions/runs/${run.id}/cancel`);
+                  const cancellation = await request('POST', `actions/runs/${run.id}/cancel`, false, true);
                   let settled = false;
                   for (let attempt = 0; attempt < 10; attempt++) {
                     const state = (await request('GET', `actions/runs/${run.id}`)).data;
                     need(state.id === run.id && state.workflow_id === workflow.id && state.head_branch === 'main', 'Cancelled run identity changed.');
                     if (state.status === 'completed') { settled = true; break; }
+                    need(cancellation.status !== 409, 'RC cleanup API POST failed (409).');
                     await sleep(3000);
                   }
                   need(settled, 'Cancelled RC run has not settled; retention remains the backstop.');

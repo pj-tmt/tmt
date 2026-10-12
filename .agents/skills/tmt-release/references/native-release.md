@@ -468,6 +468,7 @@ Without `keep-run`, reconciliation also leaves eligible current-head in-flight
 generations untouched; the producer handles its own post-publication retirement.
 Close, missing label, changed head or three-day expiry retires catalog discovery
 first; an owned pending run is cancelled and observed settled before payload cleanup.
+A cancel HTTP 409 is already settled only when one identity-checked readback proves completion.
 A fresh inventory catches late uploads, and each deletion requires authenticated
 absence. Unknown ownership, incomplete inventories, unsettled cancellation or late
 uploads fail visibly; retention is the backstop, not proof of physical reclamation.
