@@ -5,12 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import { LabelWriting, ManageLabelsDialog, NewLabelDialog } from './label-dialogs.js';
 import {
   applyLabelChanges,
+  authorCounts,
   filterPages,
   labelCounts,
   labelNameError,
   withLabel,
   type PageSort,
 } from './labels.js';
+import { AUTHOR_BYTES } from './bootstrap.js';
 import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
 import { pageTitle, pageUpdate } from './page-index.js';
@@ -33,6 +35,7 @@ const homeRoute = getRouteApi('/');
 export interface HomeSearch {
   q?: string;
   label?: string[];
+  by?: string[];
   sort?: 'title';
   archived?: true;
 }
@@ -48,6 +51,20 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
       ),
     ].slice(0, 8);
     if (names.length) out.label = names;
+  }
+  if (Array.isArray(search.by)) {
+    const names = [
+      ...new Set(
+        search.by.filter(
+          (name): name is string =>
+            typeof name === 'string' &&
+            name.length > 0 &&
+            new TextEncoder().encode(name).length <= AUTHOR_BYTES &&
+            !/\p{Cc}/u.test(name),
+        ),
+      ),
+    ].slice(0, 8);
+    if (names.length) out.by = names;
   }
   if (search.sort === 'title') out.sort = 'title';
   if (search.archived === true || search.archived === 'true') out.archived = true;
@@ -121,6 +138,43 @@ function PageLabelsMenu({
   );
 }
 
+/** `by <creator> · updated · N comments`: each part only when the page has it. */
+function PageMetadata({
+  author,
+  comments,
+  updated,
+}: {
+  author?: string;
+  comments?: number;
+  updated: ReturnType<typeof pageUpdate>;
+}) {
+  const parts = [
+    author ? (
+      <span key="author" className="page-author">
+        {t.byAuthor(author)}
+      </span>
+    ) : null,
+    updated.dateTime ? (
+      <time
+        key="updated"
+        dateTime={updated.dateTime}
+        title={updated.absolute}
+        aria-label={`${text.lastUpdated}: ${updated.label}`}
+      >
+        {updated.label}
+      </time>
+    ) : (
+      <span key="updated">{updated.label}</span>
+    ),
+    comments === undefined ? null : (
+      <span key="comments" className="page-comments">
+        {t.commentCount(comments)}
+      </span>
+    ),
+  ].filter((part) => part !== null);
+  return <span className="page-metadata">{parts}</span>;
+}
+
 export function Home() {
   const space = homeRoute.useLoaderData();
   const { transport } = rootRoute.useRouteContext();
@@ -130,10 +184,11 @@ export function Home() {
   const port = transport.management;
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = { labels: search.label ?? [], text: search.q ?? '' };
+  const filter = { labels: search.label ?? [], authors: search.by ?? [], text: search.q ?? '' };
   const shown = space.pages.filter((p) => Boolean(p.archived) === archived);
   const pages = filterPages(shown, filter, sort);
   const counts = labelCounts(shown);
+  const authors = authorCounts(shown);
   const allNames = labelCounts(space.pages).map((label) => label.name);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
@@ -146,22 +201,28 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
-  const applied = JSON.stringify([filter.labels, filter.text]);
+  const applied = JSON.stringify([filter.labels, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
-  const [edit, setEdit] = useState(() => editFromSearch(filter.labels, filter.text));
+  const [edit, setEdit] = useState(() =>
+    editFromSearch(filter.labels, filter.text, filter.authors),
+  );
   const [resetKey, setResetKey] = useState(0);
   useEffect(() => {
     if (applied === lastApplied.current) return;
     lastApplied.current = applied;
-    setEdit(editFromSearch(filter.labels, filter.text));
+    setEdit(editFromSearch(filter.labels, filter.text, filter.authors));
     setResetKey((key) => key + 1);
     // `applied` is the whole dependency: it is the serialized filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applied]);
   function apply(next: SearchEdit) {
-    const { labels, q } = searchFromEdit(next);
-    lastApplied.current = JSON.stringify([labels, q]);
-    setSearch({ label: labels.length ? labels : undefined, q: q || undefined });
+    const { labels, authors, q } = searchFromEdit(next);
+    lastApplied.current = JSON.stringify([labels, authors, q]);
+    setSearch({
+      label: labels.length ? labels : undefined,
+      by: authors.length ? authors : undefined,
+      q: q || undefined,
+    });
   }
   function replaceDraft(next: SearchEdit) {
     setEdit(next);
@@ -196,7 +257,7 @@ export function Home() {
     );
   }
   const sortLabel = t.sortOptions[sort];
-  const filtered = filter.labels.length > 0 || filter.text !== '';
+  const filtered = filter.labels.length > 0 || filter.authors.length > 0 || filter.text !== '';
   return (
     <section className="home">
       <p className="eyebrow">{text.pages}</p>
@@ -209,6 +270,7 @@ export function Home() {
             onChange={setEdit}
             resetKey={resetKey}
             labels={counts}
+            authors={authors}
             onApply={apply}
             onClear={() => replaceDraft(editFromSearch([], ''))}
           />
@@ -298,6 +360,11 @@ export function Home() {
                     <Link to="/pages/$pageId" params={{ pageId: p.id }} title={title}>
                       {title}
                     </Link>
+                    {p.summary?.waiting ? (
+                      <span className="page-waiting" data-waiting>
+                        <span aria-hidden="true">◆</span> {t.waitingForYou}
+                      </span>
+                    ) : null}
                     {p.labels?.length ? (
                       <ul className="page-labels" aria-label={t.labels}>
                         {p.labels.map((name) => (
@@ -319,17 +386,11 @@ export function Home() {
                   </>
                 }
                 metadata={
-                  updated.dateTime ? (
-                    <time
-                      dateTime={updated.dateTime}
-                      title={updated.absolute}
-                      aria-label={`${text.lastUpdated}: ${updated.label}`}
-                    >
-                      {updated.label}
-                    </time>
-                  ) : (
-                    updated.label
-                  )
+                  <PageMetadata
+                    author={p.summary?.author}
+                    comments={p.summary?.comments}
+                    updated={updated}
+                  />
                 }
                 state={
                   p.archived ? text.archived : p.sharing === 'private' ? text.private : text.shared

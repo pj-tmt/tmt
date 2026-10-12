@@ -79,3 +79,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.page-waiting {
+  display: block;
+  margin-top: 2px;
+  color: var(--tmt-ui-color-text);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 600;
+  line-height: var(--tmt-ui-caption-line-height);
+}
+/* Parts wrap whole, the dot trails the part before it, and a long creator may break anywhere. */
+.page-metadata {
+  display: inline-flex;
+  flex-wrap: wrap;
+  column-gap: 0.35em;
+}
+.page-metadata > * {
+  white-space: nowrap;
+}
+.page-metadata > .page-author {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.page-metadata > :not(:last-child)::after {
+  content: '·' / '';
+  margin-inline-start: 0.35em;
+}

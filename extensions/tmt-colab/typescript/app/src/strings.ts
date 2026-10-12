@@ -420,7 +420,7 @@ export const text = {
   showArchived: 'Show archived',
   pageList: {
     searchLabel: 'Search pages',
-    searchPlaceholder: 'Search pages · label:name',
+    searchPlaceholder: 'Search pages · label:name · by:author',
     sort: 'Sort',
     sortOptions: { updated: 'Recently updated', title: 'Title' },
     listOptions: 'List options',
@@ -430,6 +430,11 @@ export const text = {
     labelFilter: (name: string, count: number) =>
       `${name}, ${count} ${count === 1 ? 'page' : 'pages'}`,
     removeFilter: (name: string) => `Remove label filter ${name}`,
+    removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
+    byAuthor: (name: string) => `by ${name}`,
+    commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
+    /** The mark means a proposal awaits the owner (v1); the word is part of the mark. */
+    waitingForYou: 'Waiting for you',
     labelsFor: (title: string) => `Labels for ${title}`,
     newLabelItem: 'New label…',
     noMatch: 'No pages match.',

@@ -196,6 +196,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
                   expiresAtMs: policy.expiresAtMs,
                   warnings: policy.warnings,
                   labels: page.labels,
+                  summary: page.summary,
                 };
               }),
             ),

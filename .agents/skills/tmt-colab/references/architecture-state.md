@@ -101,7 +101,7 @@ focus, caret and selection. A caller without mentions uses
 `plainRichInputDocument`; it receives no recipient, transport or send capability.
 `rich-input-document.ts` also owns the token, caret and range helpers both callers use
 (`$richInputTokens`, `$richInputCaret`, `$selectRichInputRange`, `$replaceRichInput` with
-caller tokens), so the composer's mentions and the page list's `label:` tokens share one
+caller tokens), so the composer's mentions and the page list's `label:`/`by:` tokens share one
 document model and no second editor exists. Exact 0.52.0
 `lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
 runtime dependencies; only plaintext/history extensions are imported. The source
@@ -360,6 +360,15 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   the CLI catalog. They are never a log statement, so a label change never contends with
   sharing or member changes. `delete_page_data` removes a page's rows; an open page is one
   that still has its epoch secrets.
+- Page summaries (`summary.rs`: comment count, a proposal awaiting the owner, the creator) are
+  display-only values for the owner list that only the owner fold can read, so the serve keeps
+  them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
+  receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
+  read replies at once with the fresh entries, omits `summary` elsewhere and schedules one
+  single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
+  through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
+  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
+  waits behind pages not yet tried at its fingerprint. Nothing is persisted.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.
@@ -373,10 +382,14 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 
 `home.tsx` renders the space home from the loader's `spaceHome()` pages; `manage-page.tsx`
 holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `label[]`, `sort`, `archived`), never in component state, so a
+(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`), never in component state, so a
 reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
-rich input with a `LabelFilterNode` token) holds only a draft until Enter applies it, and a
-chip click or token removal applies at once. `labels.ts` is pure: label grammar (the owner
+rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter
+applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
+Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
+`DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
+`◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
+summary shows only what the list already knows, with no placeholder. `labels.ts` is pure: label grammar (the owner
 store's), counts, filtering and sorting, the whole-set `withLabel` change and the
 `relabel` planner that rename and delete use over every page carrying the name, archived
 included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGES`

@@ -2530,7 +2530,7 @@ no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages, pageI
 `pageIds` is sorted, at most 1,000 entries, each exactly `{pageId, deleted}`. It includes
 the existing retained deleted-page IDs solely to prevent historical prefixes rebinding;
 no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
-Browser discovery caps the complete serialized metadata response at 512 KiB.
+Browser discovery caps the complete serialized metadata response at 1 MiB.
 
 A serve running from an installed release (`<lib>/tmt-colab/releases/<id>/tmt-colab`)
 compares itself with `<lib>/tmt-colab/current` (`serve_release.rs`). When another release
@@ -3457,7 +3457,7 @@ A name is 1 to 32 code points (`LABEL_POINTS`) with no control character, no whi
 space; case is part of the name and two spellings are two labels. `vectors/label-name-v1.json`
 pins the grammar for the owner store and the browser. A page holds at most 8 names (`PAGE_LABELS`)
 and the space at most 1,000 assignments (`SPACE_LABELS`), so the discovery reply stays
-within its 512 KiB cap. The constants live in `limits.rs`; the app's `bootstrap.ts` and its
+within its 1 MiB cap. The constants live in `limits.rs`; the app's `bootstrap.ts` and its
 test hold the same numbers.
 
 The one write is the management operation `page.labels`, available to a device-signed
@@ -3483,6 +3483,42 @@ carries the name, archived pages included, one request per 64 pages; a page that
 has the new name keeps one label, and no page is deleted. A name that no page carries is
 `COLAB_LABEL_NOT_FOUND`; a name outside the grammar is `COLAB_INPUT_INVALID`;
 a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its page count.
+
+### Page summary (#2588)
+
+Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
+list shows next to its title: `{comments, waiting, author?}`. Like labels it is **not signed**,
+is never an owner-log statement and never enters a page's content or any stream, and it
+appears only in this owner list: not in a reader link's or a member's views, and not in the
+CLI's `ls`/`show`. A client treats it as untrusted text.
+
+- `comments` is the number of non-deleted comment records in the page's annotation threads,
+  open and resolved, agent replies included. An annotation thread is a thread that is not
+  deleted, carries no proposal and is anchored. Chat messages, status actions, proposal
+  decisions and question answers are not counted; a question answer is the plain-text comment
+  that starts `Answer to “`.
+- `waiting` is true when at least one proposal thread is not deleted, not resolved and has no
+  decision (a deleted decision does not decide it). In v1 it means exactly "a proposal awaits
+  you"; the owner is the only reader of this list, so there is no per-device state.
+  Unanswered questions do not count until the owner has a recorded answered state to read: the
+  renderer's selector resolution decides Answered, and a second rule here would drift from it.
+- `author` is the page's creation label, `meta.originalAuthor` (the bounded display label
+  derived from `publisherAgent` at creation; never identity proof), and is omitted when the
+  page has none. Never the last editor.
+
+The values come from the owner fold, which is too slow for a list read, so the serving process
+keeps them in memory (no schema, no table), each valid for the page's _fingerprint_: its epoch,
+the membership head and its receipt and checkpoint counts, read in the same store transaction
+as the list, so an accepted write or a membership change makes it stale. A read replies at once
+with the summaries that are fresh and omits `summary` for every other page; it never waits for the
+fold and shows no placeholder. It also schedules a refresh of at most 8 stale pages (`REFRESH_PAGES`),
+run by one background worker, one page at a time, through the same materialize path and 2 s decoder
+deadline as `threads`; a read that finds a worker running schedules nothing. A page whose fold
+fails or times out stays without a summary and is tried again on a later read after every page
+that has not failed at its fingerprint, never in a loop. A restart refills the cache lazily.
+`summary` is at most `{comments:4294967295, waiting, author:128 bytes}` per page (the author
+escapes to at most 256 bytes on the wire), so a full space of 1,000 pages with the longest
+labels stays under 800 KB, within the 1 MiB discovery cap.
 
 ## Root-local page creation
 

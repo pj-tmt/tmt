@@ -122,7 +122,7 @@ pub const PROPOSAL_LABEL_POINTS: usize = 64;
 pub const PAGE_PROPOSALS: usize = 200;
 /// Page labels (contract: Page labels): display-only names in the owner store. `LABEL_POINTS` bounds
 /// one name, `PAGE_LABELS` the names on one page and `SPACE_LABELS` every assignment in the space, so
-/// the `/api/pages` reply stays under its 512 KiB cap with 1,000 pages.
+/// the `/api/pages` reply stays under its 1 MiB cap with 1,000 pages.
 pub const LABEL_POINTS: usize = 32;
 pub const PAGE_LABELS: usize = 8;
 pub const SPACE_LABELS: usize = 1000;
