@@ -77,6 +77,40 @@ function projectOwn(doc: Y.Doc, complete: boolean) {
     }),
   );
 }
+/** JSON with every object's keys sorted: a map's entry order is not part of its value. */
+function sortedJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : item,
+  );
+}
+/** A device's checkpoint over its own stream is the state encoding of the one document that
+ * holds exactly that writer's admitted updates (never the shared content document, which would
+ * reattribute others' updates). The answer is empty, meaning "publish nothing", unless the
+ * encoding decodes back to an identical document: same state vector, same bytes when encoded
+ * again, same own projection, no unresolved dependencies, and it fits one update. */
+function encodeOwn(doc: Y.Doc | undefined) {
+  const none = new Uint8Array();
+  if (!doc || doc.store.pendingStructs || doc.store.pendingDs) return none;
+  const replay = ownDoc();
+  try {
+    const encoded = Y.encodeStateAsUpdate(doc);
+    if (encoded.length === 0 || encoded.length > UPDATE_BYTES) return none;
+    Y.applyUpdate(replay, encoded);
+    return !replay.store.pendingStructs &&
+      !replay.store.pendingDs &&
+      equal(Y.encodeStateVector(replay), Y.encodeStateVector(doc)) &&
+      equal(Y.encodeStateAsUpdate(replay), encoded) &&
+      sortedJson(projectOwn(replay, true)) === sortedJson(projectOwn(doc, true))
+      ? encoded
+      : none;
+  } catch {
+    return none;
+  } finally {
+    replay.destroy();
+  }
+}
 function declare(doc: Y.Doc) {
   doc.getText('html');
   doc.getMap('meta');
@@ -207,6 +241,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);
       for (const item of command.own ?? []) Y.applyUpdate(writerDoc(item.writer), item.update);
+    } else if (command.type === 'encode-own') {
+      update = new Uint8Array(encodeOwn(own.get(command.writer)));
     } else if (command.type === 'prepare-own') {
       if (command.records.length < 1 || command.records.length > 32)
         throw new Error('Own batch capacity');

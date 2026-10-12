@@ -93,7 +93,9 @@ public derivation, plus exact remote-owned `tmt-ext-cert-v1` bytes/signature for
 colab registration. All seeds in this fixture are public test inputs; production
 Keyring exposes only the derived public binding and admitted signing operations.
 
-`own-v1.json` freezes Yjs 13.6.32 update-v1 bytes at public test client ID 1264.
+`own-v1.json` freezes Yjs 13.6.32 update-v1 bytes at public test client ID 1264. Its
+`stateEncoding` is what a browser device publishes as its own checkpoint (the state encoding
+of the document holding its updates); native and browser decode it to the same projection.
 Both engines consume the same four-map projections, checkpoint/dependent tail,
 deletion/tombstone-shaped data, JSON normalization and UTF-8 message-boundary cases.
 The 500-thread update is reused under two authenticated writer identities to prove

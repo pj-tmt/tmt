@@ -19,7 +19,7 @@ import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
-import { Writer } from './writer.js';
+import { Writer, type OwnCompaction } from './writer.js';
 import { SaveOutcomeUnknown, SaveTooLarge, settled, type SaveResult } from './save.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
@@ -692,16 +692,56 @@ export class Live implements PageBinding {
     settled(result);
     await this.#shows(source, expected);
   }
+  /** The serve counts every device but its own as "other". This device's own changes are not
+   * other devices': it can combine them itself, so the page-size surface counts them as its own. */
+  #mine(usage: PageUsage, own: number): PageUsage {
+    return {
+      ...usage,
+      otherDeviceUpdates: Math.max(0, usage.otherDeviceUpdates - Math.min(own, usage.updates)),
+    };
+  }
   /** How full the page is now. Never retried: the next request asks again. */
   async usage(): Promise<PageUsage> {
     if (this.#closed || this.#error) throw new Error('Page usage unavailable');
-    return (await this.#current).usage();
+    const c = await this.#current;
+    const usage = await c.usage();
+    return this.#mine(usage, c.objects.tail(this.registration.deviceId));
   }
-  /** Combine the serve's own stream. The page's content is unchanged, so the editor's base is
-   * too; nothing is saved or resent by this request. */
+  /** Combine the serve's own stream, then this device's: each device combines only its own. The
+   * page's content is unchanged, so the editor's base is too; nothing is saved or resent. */
   async compact(): Promise<CompactReport> {
     if (this.#closed || this.#error) throw new Error('Page compaction unavailable');
-    return (await this.#current).compact();
+    const c = await this.#current;
+    const device = this.registration.deviceId;
+    const before = c.objects.tail(device);
+    const serve = await c.compact();
+    let own: OwnCompaction;
+    try {
+      own = await this.#writer.compact();
+    } catch {
+      own = { outcome: 'not-combined' };
+    }
+    const combined = serve.compacted || own.outcome === 'combined';
+    // After this device combined, ask again so `after` is what the serve now counts.
+    const after = own.outcome === 'combined' ? await c.usage() : serve.after;
+    return {
+      pageId: serve.pageId,
+      compacted: combined,
+      ...(combined
+        ? {}
+        : {
+            skipped:
+              serve.skipped === 'not-combined' || own.outcome === 'not-combined'
+                ? ('not-combined' as const)
+                : ('nothing-to-combine' as const),
+          }),
+      by: serve.by,
+      through: serve.through,
+      mergedObjects: serve.mergedObjects + (own.outcome === 'combined' ? own.merged : 0),
+      sourceSha256: serve.sourceSha256,
+      before: this.#mine(serve.before, before),
+      after: this.#mine(after, c.objects.tail(device)),
+    };
   }
   async #settleLost(lost: Connection, operationId: string): Promise<SaveResult> {
     try {

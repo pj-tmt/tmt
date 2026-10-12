@@ -249,3 +249,37 @@ it('rejects checkpoint prefix/namespace substitutions and replacement envelopes'
     objects.admit(f.context.authorDevice, await f.entry(replacement), 'checkpoint', 'content'),
   ).rejects.toThrow();
 });
+it("records a device's own checkpoint so its cut is what admitting it at catch-up gives", async () => {
+  const f = await fixture(),
+    me = f.context.authorDevice,
+    own = { ...f.context, namespace: 'own' as const },
+    objects = new Objects(f.admission);
+  const one = await f.seal({ ...own, streamSeq: '1' });
+  await objects.admit(me, await f.entry(one));
+  const two = await f.seal({ ...own, streamSeq: '2', prevHash: await one.hash() });
+  await objects.admit(me, await f.entry(two));
+  expect(objects.tail(me)).toBe(2);
+  const head = await two.hash();
+  const checkpoint = await f.entry(
+    await f.seal(
+      { ...own, kind: 'checkpoint', streamSeq: '2', prevHash: head },
+      new Uint8Array([9, 9]),
+    ),
+  );
+  objects.recordCheckpoint(me, checkpoint, head);
+  expect(objects.tail(me)).toBe(0);
+  const late = new Objects(f.admission);
+  await late.admit(me, checkpoint, 'checkpoint', 'own');
+  expect(objects.cursors()).toEqual(late.cursors());
+  expect(objects.head(me)).toEqual(late.head(me));
+  expect(late.tail(me)).toBe(0);
+  // The same checkpoint again changes nothing; one that is not at the head is refused.
+  objects.recordCheckpoint(me, checkpoint, head);
+  expect(objects.cursors()).toEqual(late.cursors());
+  const first = await one.hash();
+  expect(() => objects.recordCheckpoint(me, { ...checkpoint, seq: '1' }, first)).toThrow();
+  // Updates after it continue the chain, and the next combine covers only those.
+  const three = await f.seal({ ...own, streamSeq: '3', prevHash: head });
+  await objects.admit(me, await f.entry(three));
+  expect(objects.tail(me)).toBe(1);
+});

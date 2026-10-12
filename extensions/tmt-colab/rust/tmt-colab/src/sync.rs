@@ -1501,7 +1501,9 @@ impl<A: Admission> State<A> {
             || c.author_device != principal
             || stream != principal
             || c.stream_seq != seq
-            || c.kind != "update"
+            // A device seals a checkpoint over its own stream's `own` namespace only (#2846):
+            // its updates there are the ones only it may combine.
+            || !(c.kind == "update" || (c.kind == "checkpoint" && c.namespace == "own"))
             || decoded.hash()? != hash
             || object_id.as_ref().is_some_and(|id| id != &header.object_id)
         {
@@ -1513,29 +1515,38 @@ impl<A: Admission> State<A> {
         crypto::verify_signature(&key, &decoded.signature_input()?, decoded.signature())?;
         let ns = namespace(&c.namespace)?;
         let previous = c.prev_hash;
+        let scope_of_stream = StreamScope {
+            page: &scope.page,
+            epoch: values::decimal(&scope.epoch, false)?,
+            stream: principal,
+        };
         let receipt = wire::output(
             scope,
             "receipt",
             serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash}),
         )?;
+        let stored = store::Envelope {
+            scope: scope_of_stream,
+            namespace: ns,
+            seq: sequence,
+            hash,
+            previous,
+            bytes: &bytes,
+        };
+        if c.kind == "checkpoint" {
+            // Peers already hold every update a checkpoint covers, so nothing is broadcast;
+            // the store prunes the covered prefix once the checkpoint pairs.
+            self.store.checkpoint(&stored)?;
+            self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
+            return Ok(());
+        }
         let (envelope, transfer) = delivery(scope, hash, bytes.clone())?;
         let broadcast = wire::output(
             scope,
             "broadcast",
             serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash,"envelope":envelope}),
         )?;
-        let accepted = self.store.append(&store::Envelope {
-            scope: StreamScope {
-                page: &scope.page,
-                epoch: values::decimal(&scope.epoch, false)?,
-                stream: principal,
-            },
-            namespace: ns,
-            seq: sequence,
-            hash,
-            previous,
-            bytes: &bytes,
-        })?;
+        let accepted = self.store.append(&stored)?;
         self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
         if accepted == Accepted::New {
             self.fanout(scope, broadcast, transfer);

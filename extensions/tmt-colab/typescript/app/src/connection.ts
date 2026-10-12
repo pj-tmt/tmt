@@ -124,6 +124,8 @@ export class Connection {
     string,
     {
       entry: ObjectEntry;
+      /** What the device sealed: a checkpoint is recorded, never admitted again as an update. */
+      checkpoint: { head: Uint8Array } | null;
       resolve(): void;
       reject(error: Error): void;
       timer: ReturnType<typeof setTimeout>;
@@ -417,7 +419,12 @@ export class Connection {
       );
       const pending = this.#receipts.get(frame.seq);
       requireValue(pending !== undefined && pending.entry.envelopeHash === frame.envelopeHash);
-      await this.#apply(frame.streamId, pending.entry);
+      if (pending.checkpoint) {
+        // The serve holds this device's checkpoint now; the updates it covers are already in the
+        // view, so only the local cut moves.
+        this.objects.recordCheckpoint(frame.streamId, pending.entry, pending.checkpoint.head);
+        if (!this.#stopped) this.#emit(this.#projection);
+      } else await this.#apply(frame.streamId, pending.entry);
       this.#receipts.delete(frame.seq);
       clearTimeout(pending.timer);
       pending.resolve();
@@ -546,11 +553,12 @@ export class Connection {
       bytes = binary(entry.envelope, UPDATE_ENVELOPE_BYTES),
       env = Envelope.fromJson(bytes),
       h = decodeHeader(env.header());
+    const checkpoint = h.context.kind === 'checkpoint';
     requireValue(
       h.context.space === a.space &&
         h.context.page === a.page &&
         h.context.epoch === a.epoch &&
-        h.context.kind === 'update' &&
+        (h.context.kind === 'update' || (checkpoint && h.context.namespace === 'own')) &&
         (h.context.namespace === 'content' || h.context.namespace === 'own') &&
         h.context.authorDevice === a.registration.deviceId &&
         h.context.streamSeq === entry.seq &&
@@ -565,7 +573,13 @@ export class Connection {
     requireValue(!this.#receipts.has(entry.seq));
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => this.close(new Error('Append receipt timed out')), 10_000);
-      this.#receipts.set(entry.seq, { entry, resolve, reject, timer });
+      this.#receipts.set(entry.seq, {
+        entry,
+        checkpoint: checkpoint ? { head: h.context.prevHash.slice() } : null,
+        resolve,
+        reject,
+        timer,
+      });
       try {
         this.send('append', {
           streamId: a.registration.deviceId,

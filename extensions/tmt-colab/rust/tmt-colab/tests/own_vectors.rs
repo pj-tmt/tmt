@@ -10,6 +10,9 @@ fn shared_own_vectors_preserve_raw_maps_deletions_and_checkpoint_dependencies() 
         serde_json::from_str(include_str!("../../../contracts/vectors/own-v1.json")).unwrap();
     let bytes = |value: &Value| URL_SAFE_NO_PAD.decode(value.as_str().unwrap()).unwrap();
     let checkpoint = bytes(&v["checkpoint"]);
+    // What a browser device publishes as its checkpoint: the state encoding of the one document
+    // holding exactly its own updates (#2846). It must decode to what the updates decode to.
+    let state = bytes(&v["stateEncoding"]);
     let tail = bytes(&v["tail"]);
     let originals = v["updates"]
         .as_array()
@@ -21,6 +24,8 @@ fn shared_own_vectors_preserve_raw_maps_deletions_and_checkpoint_dependencies() 
     for (updates, expected) in [
         (vec![checkpoint.as_slice()], &v["expectedPrefix"]),
         (vec![checkpoint.as_slice(), tail.as_slice()], &v["expected"]),
+        (vec![state.as_slice()], &v["expectedPrefix"]),
+        (vec![state.as_slice(), tail.as_slice()], &v["expected"]),
         (
             originals
                 .iter()
