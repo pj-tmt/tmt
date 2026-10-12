@@ -1698,6 +1698,8 @@ for (const surface of ['Chat', 'annotation'] as const) {
         await container.getByRole('button', { name: copy.threadCollapse, exact: true }).focus();
         await page.keyboard.press('Tab');
         await expect(status).toBeFocused();
+        // Focus alignment varies by browser; keyboard scrolling must expose the action.
+        await status.press('End');
         await expect.poll(inside).toBe(true);
       }
       await page.screenshot({
