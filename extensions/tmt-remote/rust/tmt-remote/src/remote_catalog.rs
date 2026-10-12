@@ -110,7 +110,13 @@ pub fn add(layout: &Layout, name: &str, url: &str) -> Result<RemoteReference, Re
         url: url.into(),
         project,
     };
-    validate(&entry)?;
+    validate(&entry).map_err(|_| {
+        RemoteError::new(
+            "REMOTE_SELECTOR_INVALID",
+            "The remote name or link is invalid",
+        )
+        .with_hint("Run tmt remote add <name> <remote-link>")
+    })?;
     if crate::deploy_record::projects(layout)?
         .iter()
         .any(|project| project == name && entry.project.as_ref() != Some(project))

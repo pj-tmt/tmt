@@ -887,11 +887,15 @@ projections remain unchanged. Stopped inspection keeps the two-key stopped shape
 `objectChannels`. Unsupported optional requests preserve their original error code/message;
 malformed or silent replies are errors, never proof of stopped or healthy storage.
 
-`tmt remote status --layers [--json]` selects a third optional running-only observation, exclusive with `--machine` and
-`--objects`; unlike them it also has a human rendering, and plain `status` is unchanged. It sends exactly
-`{"op":"status","layers":true}` and returns the ordinary three members plus `firestoreLayers`. The list is empty until a
-Firestore deployment exists and has recorded evidence: status reads that recorded evidence, never contacts the provider
-and never starts anything. Otherwise it has one entry per layer, in the order `sharing` (page sharing and collaboration),
+`tmt remote status --layers [--json]` reads the selected local snapshot, including while serve is
+stopped, as defined by [native remote selection](#native-remote-selection); it is exclusive with
+`--machine` and `--objects` and also has a human rendering. When serve is reachable, the CLI obtains
+ordinary discovery with `{"op":"status"}`; it adds `firestoreLayers` from that local snapshot.
+The door still accepts `{"op":"status","layers":true}` as a separate live observation returning the
+ordinary three members plus `firestoreLayers`; its evidence uses the configured-default/sole-project
+selection policy, like the signed settings projection. The list is empty until a Firestore deployment
+has recorded evidence: neither read contacts the provider or starts anything. Otherwise it has one
+entry per layer, in the order `sharing` (page sharing and collaboration),
 `operations` (device operations) and `attachments`, each exactly `{layer,state,prerequisites}`. `state` is `enabled`,
 `not-enabled` or `unknown`, derived from the prerequisites (any `not-enabled` makes it `not-enabled`, otherwise any
 `unknown` makes it `unknown`). Each layer has its own prerequisites in a fixed order, as `{item,state}` plus, unless
@@ -902,8 +906,8 @@ Reasons per item are `project`: `not-configured`, `access-lost`; `sign-in`: `pro
 (only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked` and
 nothing is guessed. `next` is only `tmt remote deploy firestore`. Device operations are not offered on the free Firebase
 plan, so they report `paid-plan-required` there and, until a release implements them, `support: not-implemented`. Every
-word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and `--objects` projections and
-stopped inspection are unchanged.
+word comes from a fixed table: no provider text, secret or path. The ordinary, `--machine` and
+`--objects` projections are unchanged.
 
 `tmt remote status --budget [--json]` selects a fourth optional running-only observation, exclusive with `--machine`,
 `--objects` and `--layers`; it also has a human rendering, and plain `status` is unchanged. It sends exactly
@@ -1969,6 +1973,14 @@ references have an absolute HTTP(S) door-root URL; Firebase references use the v
 [remote link](#backends-and-deploy). A name cannot shadow a different owned project id. Removing a
 reference preserves cloud resources and deploy history. The catalog has no current/provider
 status observation; the browser handoff catalog and its observations are a separate slice.
+
+`ls --json` returns `{version:1,remotes:[{name,kind,project,region,default}]}` (names are strings,
+`kind` is `local` or `firestore`, project/region are strings or null, and `default` is boolean);
+`add --json` returns `{added:true}`, and `rm --json` returns
+`{removed:true,cloudResourcesChanged:false,deployHistoryChanged:false}`.
+`settings --json` retains its existing members and adds the reference string `defaultRemote`
+(`local` when unset) and `defaultRemoteSource: "default"|"settings.json"`; these CLI members do not
+change the signed settings shape.
 
 The single `--remote <ref>` selector accepts `local`, a catalog name or an owned project id.
 Targeting surfaces resolve explicit selection, then `settings.json`'s optional `defaultRemote`,

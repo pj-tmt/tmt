@@ -884,3 +884,50 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
     fs::remove_file(root.remote().join("deploy.json")).unwrap();
     assert!(!root.remote().join("deploy.json").exists());
 }
+
+#[test]
+fn invalid_remote_argument_is_distinct_from_an_unreadable_catalog() {
+    let root = Root::new();
+    available(&root);
+    let layout = root.layout();
+    tmt_remote::remote_catalog::add(&layout, "kept", "https://remote.example/r/root/").unwrap();
+    let path = root.remote().join("remotes.json");
+    let before = fs::read(&path).unwrap();
+    for invalid in ["https://demo-remote-1.web.app/pair#truncated", "not-a-link"] {
+        let reply = base(&root)
+            .args(["add", "new", invalid, "--json"])
+            .output()
+            .unwrap();
+        assert!(!reply.status.success());
+        assert!(reply.stderr.is_empty());
+        let value: serde_json::Value = serde_json::from_slice(&reply.stdout).unwrap();
+        assert_eq!(value["error"]["code"], "REMOTE_SELECTOR_INVALID");
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+    let invalid = base(&root)
+        .args(["add", "new", "not-a-link"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&invalid.stderr),
+        "error: The remote name or link is invalid\nhint: Run tmt remote add <name> <remote-link>\n"
+    );
+    export_human("remotes-add-invalid", &invalid);
+    fs::write(&path, b"damaged catalog").unwrap();
+    let unreadable = base(&root)
+        .args(["add", "valid", "https://remote.example/r/root/", "--json"])
+        .output()
+        .unwrap();
+    assert!(!unreadable.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&unreadable.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "REMOTE_SELECTOR_UNAVAILABLE");
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("The remotes could not be read")
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"damaged catalog");
+}
