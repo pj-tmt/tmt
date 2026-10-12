@@ -443,7 +443,8 @@ is the device-local record behind "opened": one IndexedDB key per space (`recent
 the newest 100 page IDs with their open times, closed-shape validated, written by the page route
 once per load under a Web Lock, never synced, exported or signed, and empty when storage is
 unavailable. `quick-switcher-source.ts` reads `spaceHome()` and that record each time a switcher
-opens, shows the last list of the same transport and space at once and refreshes it, and drops a
+opens, shows the last list of the same transport and space at once (the one a switcher read, or
+the one the space home loader remembered with `rememberPages`) and refreshes it, and drops a
 result that arrives after a close, a reopen or a change of transport or space.
 
 ## Trusted browser management

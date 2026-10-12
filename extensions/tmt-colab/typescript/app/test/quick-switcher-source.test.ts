@@ -1,7 +1,11 @@
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
-import { SwitcherSourceStore, useSwitcherSource } from '../src/quick-switcher-source.js';
+import {
+  SwitcherSourceStore,
+  rememberPages,
+  useSwitcherSource,
+} from '../src/quick-switcher-source.js';
 import type { PageSummary, PageTransport, SpaceHome } from '../src/transport.js';
 
 const SPACE = 'a'.repeat(32);
@@ -174,4 +178,35 @@ it('the hook reports idle while closed, loading without a cache and ready on the
   expect(render(true)).toContain('ready:2');
   expect(render(true, OTHER)).toContain('loading');
   expect(render(false)).toContain('idle');
+});
+
+it('a list the space home already loaded is shown at once by a switcher that never read one', async () => {
+  const { transport: t, reads } = transport();
+  const loaded = [page(1, 'From the home'), page(2, 'Also')];
+  rememberPages(t, SPACE, loaded);
+  const store = new SwitcherSourceStore(t, SPACE, opened([[loaded[0].id, 7]]));
+  expect(store.initial()).toEqual({ state: 'ready', pages: loaded, opened: new Map() });
+  expect(renderToString(createElement(Probe, { open: true, t, space: SPACE }))).toContain(
+    'ready:2',
+  );
+  expect(renderToString(createElement(Probe, { open: true, t, space: OTHER }))).toContain(
+    'loading',
+  );
+  store.open();
+  expect(store.getSnapshot()).toBe(store.initial());
+  // It still refreshes in the background, and now knows the pages this device opened.
+  reads[0].resolve(home(...loaded, page(3, 'New')));
+  await settle();
+  expect(store.getSnapshot()).toEqual({
+    state: 'ready',
+    pages: [...loaded, page(3, 'New')],
+    opened: new Map([[loaded[0].id, 7]]),
+  });
+  // A later home load replaces the pages and keeps what a switcher read of the opened pages.
+  rememberPages(t, SPACE, [page(9, 'Later')]);
+  expect(new SwitcherSourceStore(t, SPACE, opened()).initial()).toEqual({
+    state: 'ready',
+    pages: [page(9, 'Later')],
+    opened: new Map([[loaded[0].id, 7]]),
+  });
 });

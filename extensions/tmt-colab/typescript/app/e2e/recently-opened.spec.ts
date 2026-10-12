@@ -54,3 +54,15 @@ test('opening a page on this device records it, newest last opened, and nothing 
   expect(keys.filter((key) => key.startsWith('recent-pages:'))).toEqual([`recent-pages:${SPACE}`]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
 });
+
+test('a switcher opened after the space home loaded shows that list on its first render', async ({
+  page,
+}) => {
+  await mount(page);
+  const state = () =>
+    page.evaluate(async () => {
+      const path = '/test/recently-opened-browser.tsx';
+      return (await import(path)).switcherFirstRender();
+    });
+  await expect.poll(state).toEqual({ state: 'ready', pages: [first, second] });
+});

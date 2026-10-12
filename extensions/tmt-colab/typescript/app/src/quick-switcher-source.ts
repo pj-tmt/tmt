@@ -18,6 +18,22 @@ type Cached = Extract<SwitcherSource, { state: 'ready' }>;
 /** The last list read per transport and space, so the next opening shows it at once. */
 const cache = new WeakMap<PageTransport, Map<string | undefined, Cached>>();
 
+const NO_OPENED: ReadonlyMap<string, number> = new Map();
+/**
+ * A list this transport and space already loaded elsewhere (the space home), so a switcher opened
+ * before it ever read one still shows it at once. The opened pages stay what a switcher last read,
+ * or none yet.
+ */
+export function rememberPages(
+  transport: PageTransport,
+  space: string | undefined,
+  pages: readonly PageSummary[],
+) {
+  let spaces = cache.get(transport);
+  if (!spaces) cache.set(transport, (spaces = new Map()));
+  spaces.set(space, { state: 'ready', pages, opened: spaces.get(space)?.opened ?? NO_OPENED });
+}
+
 /**
  * One switcher's read of the owner list, for one transport and space. `open()` starts a read and
  * `close()` ends it: a result that arrives after a close, a reopen or a new store is dropped. A
@@ -57,14 +73,13 @@ export class SwitcherSourceStore {
       ]);
       if (generation !== this.#generation) return;
       if (list.status === 'fulfilled') {
+        rememberPages(this.transport, this.space, list.value.pages);
         const ready: Cached = {
           state: 'ready',
           pages: list.value.pages,
-          opened: opened.status === 'fulfilled' ? opened.value : new Map(),
+          opened: opened.status === 'fulfilled' ? opened.value : NO_OPENED,
         };
-        let spaces = cache.get(this.transport);
-        if (!spaces) cache.set(this.transport, (spaces = new Map()));
-        spaces.set(this.space, ready);
+        cache.get(this.transport)!.set(this.space, ready);
         this.#set(ready);
       } else if (this.#snapshot.state !== 'ready') this.#set(FAILED);
     })();
