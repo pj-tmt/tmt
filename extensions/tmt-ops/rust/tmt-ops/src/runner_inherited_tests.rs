@@ -28,6 +28,8 @@ fn inherited_context_preserves_leader_preflight_and_started_failure_abort() {
         "preflight",
         "nonleader-parent",
         "deadline",
+        "stdout-ok",
+        "stderr-ok",
         "stdout",
         "stderr",
     ] {
@@ -142,31 +144,53 @@ fn inherited_child() {
         );
         return;
     }
-    let script = if mode == "success" {
-        "cat; echo diagnostic >&2; exit 3".to_owned()
-    } else {
-        format!(
-            "echo $$ > '{}'; {}; exec sleep 30",
+    let script = match mode.as_str() {
+        "success" => "cat; echo diagnostic >&2; exit 3".to_owned(),
+        "deadline" => format!("echo $$ > '{}'; exec sleep 30", root.join("pid").display()),
+        "stdout" | "stdout-ok" | "stderr" | "stderr-ok" => format!(
+            "echo $$ > '{}'; printf 123456789{}",
             root.join("pid").display(),
-            match mode.as_str() {
-                "stdout" => "printf 123456789",
-                "stderr" => "printf 123456789 >&2",
-                _ => ":",
-            }
-        )
+            if mode.starts_with("stderr") {
+                " >&2"
+            } else {
+                ""
+            },
+        ),
+        _ => panic!("unknown inherited mode: {mode}"),
     };
+    let within_limit = mode.ends_with("-ok");
     let result = run_inherited(
         Path::new("/bin/sh"),
         &["-c".into(), script.into()],
-        b"input",
-        Instant::now() + Duration::from_millis(300),
-        if mode == "success" { 64 } else { 8 },
+        if mode == "success" { b"input" } else { b"" },
+        Instant::now()
+            + if mode == "deadline" {
+                Duration::from_millis(300)
+            } else {
+                Duration::from_secs(5)
+            },
+        if mode == "success" || within_limit {
+            64
+        } else {
+            8
+        },
         EnvironmentPolicy::Inherit,
     );
     if mode == "success" {
         let output = result.unwrap();
         assert!(!output.success);
         assert_eq!(output.stdout, b"input");
+    } else if within_limit {
+        let output = result.unwrap();
+        assert!(output.success);
+        assert_eq!(
+            output.stdout,
+            if mode == "stdout-ok" {
+                b"123456789".as_slice()
+            } else {
+                b""
+            },
+        );
     } else {
         panic!("started inherited failure must abort group: {result:?}");
     }
