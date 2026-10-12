@@ -12,6 +12,8 @@ import {
   prRCPayloadName,
   prRCCatalogName,
   createPRRCAPI,
+  PR_RC_REQUIRED_PATHS,
+  assertPRRCLayout,
   runPRRCCommand,
   RC_TARGETS,
   RC_TTL_MS,
@@ -824,6 +826,11 @@ sys.stdout.buffer.write(b.getvalue())`,
       const api = {
         metadata: (route: string) => {
           reads.push(route);
+          if (route.startsWith('git/trees/'))
+            return {
+              truncated: false,
+              tree: PR_RC_REQUIRED_PATHS.map((path) => ({ path, type: 'blob', mode: '100644' })),
+            };
           if (route.startsWith('pulls/')) return o.pull;
           if (route.startsWith('issues/')) return o.timeline;
           return o.run;
@@ -837,7 +844,17 @@ sys.stdout.buffer.write(b.getvalue())`,
         'pulls/1639',
         'issues/1639/timeline?per_page=100',
         'actions/runs/8001/attempts/1',
+        `git/trees/${head}?recursive=1`,
       ]);
+      fs.writeFileSync(output, '');
+      await expect(
+        runPRRCCommand('guard', env, {
+          ...api,
+          metadata: (route) =>
+            route.startsWith('git/trees/') ? { truncated: false, tree: [] } : api.metadata(route),
+        })
+      ).rejects.toThrow('merge main into the PR branch');
+      expect(fs.readFileSync(output, 'utf8')).toBe('');
       reads.length = 0;
       await expect(
         runPRRCCommand('guard', { ...env, GITHUB_REF: 'refs/heads/other' }, api)
@@ -846,5 +863,60 @@ sys.stdout.buffer.write(b.getvalue())`,
     } finally {
       f.cleanup();
     }
+  });
+});
+
+describe('PR RC main-tooling layout admission', () => {
+  const tree = () => ({
+    truncated: false,
+    tree: PR_RC_REQUIRED_PATHS.map((path) => ({ path, type: 'blob', mode: '100644' })),
+  });
+  it('keeps every required preparation path in the tracked checkout; moves require updating the list', () => {
+    const tracked = new Set(
+      execFileSync('git', ['ls-files', '-z'], {
+        cwd: new URL('../../../', import.meta.url),
+        encoding: 'utf8',
+      }).split('\0')
+    );
+    for (const path of PR_RC_REQUIRED_PATHS)
+      expect(
+        tracked.has(path),
+        `Main preparation path ${path} moved; update PR_RC_REQUIRED_PATHS and its layout controls.`
+      ).toBe(true);
+  });
+  it('admits complete layouts and diagnoses every missing or non-regular path', () => {
+    expect(() => assertPRRCLayout(tree())).not.toThrow();
+    for (const required of PR_RC_REQUIRED_PATHS) {
+      for (const mode of ['missing', '040000', '120000']) {
+        const value = tree();
+        value.tree = value.tree.filter((entry) => entry.path !== required);
+        if (mode !== 'missing')
+          value.tree.push({ path: required, type: mode === '040000' ? 'tree' : 'blob', mode });
+        expect(() => assertPRRCLayout(value)).toThrow(
+          `PR head lacks required preparation path ${required}; merge main into the PR branch before requesting a candidate.`
+        );
+      }
+    }
+  });
+  it('reports truncated and oversized inventories as capacity failures, never missing paths', () => {
+    expect(() => assertPRRCLayout({ ...tree(), truncated: true })).toThrow(
+      'guard capacity failure'
+    );
+    for (const execute of [
+      () => Buffer.alloc(2 * 1024 * 1024 + 1),
+      () => {
+        throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ENOBUFS' });
+      },
+    ]) {
+      const api = createPRRCAPI(execute);
+      expect(() => api.metadata(`git/trees/${head}?recursive=1`)).toThrow(
+        'PR RC guard capacity failure: Git tree exceeds the 2 MiB cap; no PR layout judgment was made.'
+      );
+    }
+    expect(() =>
+      createPRRCAPI(() => {
+        throw new Error('HTTP 403');
+      }).metadata(`git/trees/${head}?recursive=1`)
+    ).toThrow('HTTP 403');
   });
 });

@@ -15,6 +15,34 @@ import {
 
 export const RC_REPOSITORY = 'pj-tmt/tmt';
 export const RC_TARGETS = CLI_SCHEMA_TARGETS;
+export const PR_RC_REQUIRED_PATHS = Object.freeze([
+  '.github/components.json',
+  'rust/Cargo.toml',
+  'rust/Cargo.lock',
+  'drivers/herdr/rust/tmt-driver-herdr/Cargo.toml',
+  'skills/tmt/SKILL.md',
+  'skills/tmt-inbox/SKILL.md',
+  'extensions/tmt-office/skills/tmt-office/SKILL.md',
+  'scripts/native-cargo.sh',
+  'scripts/build-native-artifact.sh',
+  'scripts/run-native-verification.sh',
+]);
+export function assertPRRCLayout(tree) {
+  assert(
+    tree && tree.truncated === false && Array.isArray(tree.tree),
+    'PR RC guard capacity failure: complete Git tree unavailable; no PR layout judgment was made.'
+  );
+  for (const required of PR_RC_REQUIRED_PATHS)
+    assert(
+      tree.tree.some(
+        (entry) =>
+          entry.path === required &&
+          entry.type === 'blob' &&
+          ['100644', '100755'].includes(entry.mode)
+      ),
+      `PR head lacks required preparation path ${required}; merge main into the PR branch before requesting a candidate.`
+    );
+}
 export const RC_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const MiB = 1024 * 1024;
 const sha = (value) => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
@@ -371,7 +399,20 @@ export function createPRRCAPI(execute = execFileSync) {
       ],
       { timeout: 120_000, maxBuffer: maximum }
     );
-  const metadata = (route) => JSON.parse(read(route).toString('utf8'));
+  const metadata = (route) => {
+    const layout = /^git\/trees\/[a-f0-9]{40}\?recursive=1$/.test(route);
+    const capacity =
+      'PR RC guard capacity failure: Git tree exceeds the 2 MiB cap; no PR layout judgment was made.';
+    let bytes;
+    try {
+      bytes = read(route);
+    } catch (error) {
+      if (layout && error.code === 'ENOBUFS') throw new Error(capacity, { cause: error });
+      throw error;
+    }
+    assert(!layout || bytes.length <= 2 * MiB, capacity);
+    return JSON.parse(bytes.toString('utf8'));
+  };
   const inventory = (runId) => {
     const result = metadata(`actions/runs/${runId}/artifacts?per_page=100`);
     assert(
@@ -463,6 +504,7 @@ export async function runPRRCCommand(command, env = process.env, api = createPRR
   });
   const epoch = validatePRRCEligibility(observe(), identity, Date.now());
   if (command === 'guard') {
+    assertPRRCLayout(api.metadata(`git/trees/${identity.head}?recursive=1`));
     fs.appendFileSync(env.GITHUB_OUTPUT, `head=${identity.head}\n`);
     return;
   }

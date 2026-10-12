@@ -125,3 +125,6 @@ export function runPRRCCommand(
   env?: NodeJS.ProcessEnv,
   api?: RCAPI
 ): Promise<void>;
+
+export const PR_RC_REQUIRED_PATHS: readonly string[];
+export function assertPRRCLayout(tree: unknown): void;
