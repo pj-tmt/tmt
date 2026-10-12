@@ -1607,3 +1607,29 @@ footer {
 .drawer-recovery-state {
   color: var(--tmt-ui-color-blocked);
 }
+
+/* One hint line; its action stays outside the polite announcement. */
+.annotation-status-row > .annotation-creator-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  order: 2;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.annotation-creator-hint > .annotation-hint {
+  margin: 0;
+}
+.annotation-creator-hint > .tmt-ui-action {
+  font-size: 12px;
+  text-align: start;
+  justify-content: flex-start;
+  padding-inline: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .annotation-creator-hint > .tmt-ui-action {
+    flex-basis: 100%;
+  }
+}

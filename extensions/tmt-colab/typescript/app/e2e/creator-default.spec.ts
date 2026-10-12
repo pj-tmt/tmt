@@ -20,10 +20,12 @@ async function mount(
     creator?: boolean;
     talk?: boolean;
     initialEdit?: unknown;
+    directory?: 'park' | 'fail';
   } = {},
 ) {
   await page.goto('/');
   await run(page, 'setSurface', surface);
+  await run(page, 'setDirectory', options.directory ?? 'ok');
   await run(page, 'setTalk', options.talk ?? true);
   await run(page, 'setAgents', options.agents ?? [alpha]);
   await run(page, 'setCreator', options.creator ?? true);
@@ -32,7 +34,8 @@ async function mount(
   await run(page, 'mount', 'accepted');
   const input = page.getByRole('combobox', { name: 'Message', exact: true }).first();
   await expect(input).toBeVisible();
-  await expect(page.locator('.annotation-status-row').first()).not.toContainText('Checking');
+  if (options.directory !== 'park')
+    await expect(page.locator('.annotation-status-row').first()).not.toContainText('Checking');
   return input;
 }
 const toggle = (page: Page) => page.getByRole('button', { name: 'Send to @alpha', exact: true });
@@ -337,4 +340,125 @@ test('disabled talk or missing creation identity hides the control, with no hidd
     await input.press('Enter');
     await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0 });
   }
+});
+
+const commentOnly = 'Posts as a comment. No agent will be asked.';
+for (const surface of ['chat', 'annotation']) {
+  for (const selected of [false, true]) {
+    test(`${surface}: a suppressed creator action preserves ${selected ? 'selection' : 'caret'} and only explicit Send asks`, async ({
+      page,
+    }) => {
+      const input = await mount(page, surface, { directory: 'park' });
+      await input.fill('Typed before the directory');
+      await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
+      await expect(page.locator('.annotation-hint').first()).toHaveText('Checking for agents…');
+      expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
+      await run(page, 'releaseDirectory');
+      const action = page.getByRole('button', { name: 'Ask @alpha', exact: true });
+      await expect(action).toBeVisible();
+      await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
+      await expect(input).toHaveText('Typed before the directory');
+      await input.evaluate((node, selected) => {
+        const range = document.createRange();
+        const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT).nextNode()!;
+        range.setStart(text, 3);
+        range.setEnd(text, selected ? 9 : 3);
+        const selection = document.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }, selected);
+      // Lexical can merge the inserted space into the body node; compare logical
+      // text endpoints rather than that node's local offsets. Unit coverage pins UTF16 offsets.
+      const before = await input.evaluate(() => ({
+        anchorTail: document
+          .getSelection()
+          ?.anchorNode?.textContent?.slice(document.getSelection()!.anchorOffset),
+        focusTail: document
+          .getSelection()
+          ?.focusNode?.textContent?.slice(document.getSelection()!.focusOffset),
+        selected: document.getSelection()?.toString(),
+      }));
+      if (selected) {
+        await action.focus();
+        await action.press('Enter');
+      } else await action.click();
+      await expect(input).toBeFocused();
+      await expect(input).toHaveText('@alpha Typed before the directory', { useInnerText: true });
+      await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+      await expect(action).toHaveCount(0);
+      await expect(page.locator('.annotation-hint').first()).toHaveText(
+        surface === 'chat' ? '' : 'Asks @alpha.',
+      );
+      expect(
+        await input.evaluate(() => ({
+          anchorTail: document
+            .getSelection()
+            ?.anchorNode?.textContent?.slice(document.getSelection()!.anchorOffset),
+          focusTail: document
+            .getSelection()
+            ?.focusNode?.textContent?.slice(document.getSelection()!.focusOffset),
+          selected: document.getSelection()?.toString(),
+        })),
+      ).toEqual(before);
+      expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
+      await input.press('ControlOrMeta+z');
+      await expect(input).toHaveText('Typed before the directory', { useInnerText: true });
+      await input.press('ControlOrMeta+Shift+z');
+      await expect(input).toHaveText('@alpha Typed before the directory', { useInnerText: true });
+      await input.press('Enter');
+      await expect
+        .poll(() => run(page, 'proof'))
+        .toMatchObject({ writes: 1, preparations: 1, commits: 1 });
+      expect(
+        (await run(page, 'editingProof')).captured
+          .filter((item: { body?: string }) => item.body !== undefined)
+          .map((item: { body: string }) => item.body),
+      ).toEqual(['@alpha Typed before the directory']);
+    });
+  }
+}
+test('the comment-only hint needs exactly one creator and never replaces another mention state', async ({
+  page,
+}) => {
+  for (const agents of [[], [alpha, alpha], [{ ...alpha, agent: id(9) }]]) {
+    const input = await mount(page, 'chat', {
+      agents,
+      initialEdit: { value: 'Restored plain draft', edited: true },
+    });
+    await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
+    await expect(page.locator('.annotation-hint').first()).not.toHaveText(commentOnly);
+    await expect(input).toHaveText('Restored plain draft');
+  }
+  await mount(page, 'chat', { initialEdit: { value: '@missing draft', edited: true } });
+  await expect(page.getByRole('button', { name: 'Ask @alpha', exact: true })).toHaveCount(0);
+  await expect(page.locator('.annotation-hint').first()).toContainText('No agent named @missing');
+});
+test('a removed creator offers an explicit manual choice without changing the saved default', async ({
+  page,
+}) => {
+  const input = await mount(page);
+  await page.getByRole('button', { name: /^Remove mention: @alpha/ }).click();
+  await input.fill('A plain draft');
+  await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
+  await page.getByRole('button', { name: 'Ask @alpha', exact: true }).click();
+  await expect(input).toHaveText('@alpha A plain draft', { useInnerText: true });
+  await toggle(page).click();
+  await expect(input).toHaveText('@alpha A plain draft', { useInnerText: true });
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
+});
+
+test('creator preference off keeps the one-off manual Ask action without changing the preference', async ({
+  page,
+}) => {
+  const input = await mount(page);
+  await toggle(page).click();
+  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  await input.fill('One-off request');
+  await expect(toggle(page)).toHaveCount(0);
+  await expect(page.locator('.annotation-hint').first()).toHaveText(commentOnly);
+  await page.getByRole('button', { name: 'Ask @alpha', exact: true }).click();
+  await expect(input).toHaveText('@alpha One-off request', { useInnerText: true });
+  await expect(input).toBeFocused();
+  await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+  expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
 });

@@ -126,7 +126,9 @@ The [browser discussion contract](../../../../extensions/tmt-colab/contracts/col
 owns default-creator lookup, typed/picked binding, eight-recipient fan-out, offline
 handling and recipient failure rules. `conversationAsks` owns comment/Ask association
 and captured conversation; neither prior replies nor display names select recipients.
-The editor has no storage, ledger, notification or Remote capability. `LiveAsk` reports
+The composer consumes an explicit draft-local mention request through its existing
+editor, retaining the last selection across action focus and prepending a manual
+chip as one undoable edit. The editor has no storage, ledger, notification or Remote capability. `LiveAsk` reports
 whether Send adopted an operation. Only an authoritative failure before adoption
 starts can be shown locally without inventing a signed Ask row; missing read views
 after publication failure remain uncertain. Adopted outcomes come from the admitted stream.

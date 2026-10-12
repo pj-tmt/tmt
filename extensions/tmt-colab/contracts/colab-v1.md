@@ -2163,6 +2163,11 @@ Only one current admitted UUID match supplies a chip and name; missing/ambiguous
 admission or disabled talk hides the toggle and seeds nothing. Initialization waits
 for the first directory result; typing first suppresses the default. Removing a
 chip suppresses it for that message only, never reseeding during directory replacement.
+When that draft has no bound mention and one creator is resolved, the existing
+hint makes the comment-only outcome explicit. Its `Ask @<creator>` action inserts
+a manual bound chip plus a space at the start, preserving text and shifting the
+selection; it changes no preference and sends nothing. Chat uses the chip as its
+recipient cue; annotation/reply hints derive their audience as before.
 An explicit on adds a missing creator chip to the open draft; off removes only a
 proven default-added chip, preserving manually typed/picked mentions and surrounding
 text. The preference is a storage-safe, device-local convenience, never authority.

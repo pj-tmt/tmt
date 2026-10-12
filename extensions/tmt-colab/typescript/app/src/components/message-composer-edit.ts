@@ -14,6 +14,13 @@ export type ComposerEdit = {
 /** One parent request consumed by the mounted editor without resetting its draft. */
 export type ComposerActivation = { id: string; insertMention: boolean; consumed(): void };
 
+export type ComposerMentionRequest = {
+  id: string;
+  key: RecipientKey;
+  label: string;
+  consumed(): void;
+};
+
 export type MessageComposerProps = {
   edit: ComposerEdit;
   onChange(edit: ComposerEdit): void;
@@ -24,6 +31,8 @@ export type MessageComposerProps = {
   disabled: boolean;
   autoFocus?: boolean;
   activation?: ComposerActivation;
+  /** One explicit, draft-local recipient choice; never sends or changes the saved preference. */
+  prependMention?: ComposerMentionRequest;
   candidates?: readonly AgentDestination[];
   /** Explicit page preference transitions only; fresh defaults remain parent-owned. */
   creatorDefault?: { key: RecipientKey; label: string; enabled: boolean; revision: number };

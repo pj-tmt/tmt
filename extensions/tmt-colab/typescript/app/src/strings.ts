@@ -105,6 +105,8 @@ export const text = {
   messageWrite: 'Write a message.',
   messageSending: 'Sending…',
   messageComment: 'Posts as a comment.',
+  messageCommentOnly: 'Posts as a comment. No agent will be asked.',
+  messageAskCreator: (name: string) => `Ask @${name}`,
   messageAsks: (audience: string) => `Asks ${audience}.`,
   messageUnknown: (name: string, audience: string) =>
     `No agent named @${name}. ${audience ? `Asks ${audience}.` : 'This posts as a comment.'}`,

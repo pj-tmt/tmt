@@ -2,6 +2,9 @@ import { expect, it } from 'vite-plus/test';
 import { createEditor } from 'lexical';
 import {
   $messageText,
+  $messageSelection,
+  $prependMessageMention,
+  $selectMessageRange,
   $messageMentions,
   $replaceMessage,
   $setDefaultCreator,
@@ -107,4 +110,37 @@ it('default provenance follows node/history serialization and off never removes 
     expect($messageText()).toBe('@creator Body');
     expect($messageMentions()).toEqual([{ key, range: { start: 0, end: 8 } }]);
   });
+});
+
+it('an explicit recipient prepends one manual chip, preserving text and shifted caret or selection', () => {
+  const key = { machine: 'machine', agent: 'agent' };
+  for (const [anchor, focus] of [
+    [0, 0],
+    [3, 3],
+    [1, 5],
+    [5, 1],
+  ]) {
+    const editor = createEditor({ namespace: 'fixture', nodes: [MessageMentionNode] });
+    editor.update(
+      () => {
+        $replaceMessage('😀 Body\nsecond');
+        $selectMessageRange(anchor, focus);
+        $prependMessageMention(key, 'creator');
+      },
+      { discrete: true },
+    );
+    editor.getEditorState().read(() => {
+      expect($messageText()).toBe('@creator 😀 Body\nsecond');
+      expect($messageSelection()).toEqual({ anchor: anchor + 9, focus: focus + 9 });
+      expect($messageMentions()).toEqual([{ key, range: { start: 0, end: 8 } }]);
+    });
+    editor.update(
+      () => {
+        $prependMessageMention(key, 'creator');
+        $setDefaultCreator(key, 'creator', false);
+      },
+      { discrete: true },
+    );
+    expect(editor.getEditorState().read($messageText)).toBe('@creator 😀 Body\nsecond');
+  }
 });

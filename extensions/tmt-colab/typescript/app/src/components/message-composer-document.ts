@@ -4,6 +4,7 @@ import {
   $richInputTokens,
   $selectRichInputRange as $selectMessageRange,
   $richInputCaret as $messageCaret,
+  $richInputSelection as $messageSelection,
 } from './rich-input-document.js';
 import {
   $createParagraphNode,
@@ -136,16 +137,7 @@ export function $setDefaultCreator(key: RecipientKey, label: string, enabled: bo
   }
   visit(root);
   if (enabled && !nodes.length) {
-    const first = root.getFirstChild();
-    const paragraph = $isElementNode(first) ? first : $createParagraphNode();
-    if (!first) root.append(paragraph);
-    const mention = new MessageMentionNode(`@${label}`, key, undefined, true);
-    const space = $createTextNode(' ');
-    const head = paragraph.getFirstChild();
-    if (head) {
-      head.insertBefore(mention);
-      head.insertBefore(space);
-    } else paragraph.append(mention, space);
+    prependMention(key, label, true);
   } else if (!enabled) {
     for (const node of nodes) if (node.__defaultCreator) node.remove();
   }
@@ -155,6 +147,34 @@ export function $setDefaultCreator(key: RecipientKey, label: string, enabled: bo
     $getNodeByKey(selection.focus.key)?.isAttached()
   )
     $setSelection(selection);
+}
+
+function prependMention(key: RecipientKey, label: string, defaultCreator = false) {
+  const root = $getRoot();
+  const first = root.getFirstChild();
+  const paragraph = $isElementNode(first) ? first : $createParagraphNode();
+  if (!first) root.append(paragraph);
+  const mention = new MessageMentionNode(`@${label}`, key, undefined, defaultCreator);
+  const space = $createTextNode(' ');
+  const head = paragraph.getFirstChild();
+  if (head) {
+    head.insertBefore(mention);
+    head.insertBefore(space);
+  } else paragraph.append(mention, space);
+}
+
+/** An explicit recipient choice inserts a manual token without replacing text or selection. */
+export function $prependMessageMention(key: RecipientKey, label: string) {
+  if (
+    $messageMentions().some(
+      (mention) => mention.key.machine === key.machine && mention.key.agent === key.agent,
+    )
+  )
+    return;
+  const selection = $messageSelection();
+  prependMention(key, label);
+  const length = label.length + 2;
+  $selectMessageRange((selection?.anchor ?? 0) + length, (selection?.focus ?? 0) + length);
 }
 
 /** Replace only newly completed tokens, keeping the caret, surrounding nodes and history. */
@@ -213,5 +233,6 @@ export function fuzzyMessageCandidates<T extends { agentName: string; machineNam
 
 export {
   $richInputCaret as $messageCaret,
+  $richInputSelection as $messageSelection,
   $selectRichInputRange as $selectMessageRange,
 } from './rich-input-document.js';

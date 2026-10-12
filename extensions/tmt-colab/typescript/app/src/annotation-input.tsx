@@ -18,7 +18,11 @@ import { AttachmentStaleError } from './attachment-service.js';
 import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
 import { MessageComposer } from './components/message-composer.js';
-import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
+import type {
+  ComposerActivation,
+  ComposerEdit,
+  ComposerMentionRequest,
+} from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { messageRecipient } from './message-recipient.js';
 import { text } from './strings.js';
@@ -84,6 +88,7 @@ export function AnnotationInput({
   const chat = useContext(ConversationPresentation) === 'chat';
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
+  const [prependMention, setPrependMention] = useState<ComposerMentionRequest>();
   const creatorPreference = useCreatorDefault();
   const statusId = useId();
   const initialized = useRef(initialEdit !== undefined || !!initialValue);
@@ -198,6 +203,17 @@ export function AnnotationInput({
                 ? text.messageComment
                 : text.messageAgentsEmpty
               : text.messageComment;
+  const showCreatorHint =
+    !!creator &&
+    directory.state === 'ready' &&
+    !!(edit.edited || value.trim()) &&
+    !decision.mentions.length &&
+    status === text.messageComment &&
+    !connectionPresentation &&
+    !busy &&
+    !blocked &&
+    !recoveryRequired &&
+    !recorded;
   const nextDraft = useRef(freshEdit);
   nextDraft.current = freshEdit;
   function clearDraft() {
@@ -278,6 +294,44 @@ export function AnnotationInput({
     void files.add([...list]);
     return true;
   };
+  const recipientHint = (
+    <div
+      id={statusId}
+      role="status"
+      className="annotation-hint"
+      tabIndex={connectionPresentation?.phase === 'ended' ? 0 : undefined}
+    >
+      {connectionPresentation
+        ? connectionPresentation.body
+        : busy
+          ? text.messageSending
+          : recoveryRequired
+            ? text.sendOnHold
+            : binding && directory.state === 'loading'
+              ? text.messageAgentsChecking
+              : binding && directory.state === 'failed'
+                ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
+                : showCreatorHint
+                  ? text.messageCommentOnly
+                  : status}
+      {!busy &&
+        !recoveryRequired &&
+        !connectionPresentation &&
+        binding &&
+        directory.state === 'failed' &&
+        directory.code && (
+          <>
+            {' '}
+            <small className="failure-reference">
+              {text.failureCodeLabel}{' '}
+              <code className="tmt-ui-code" data-failure-reference>
+                {directory.code}
+              </code>
+            </small>
+          </>
+        )}
+    </div>
+  );
   if (archived)
     return (
       <section className="annotation-compose" data-testid="annotation-compose">
@@ -307,6 +361,7 @@ export function AnnotationInput({
     >
       <MessageComposer
         activation={activation}
+        prependMention={prependMention}
         edit={edit}
         onChange={(next) => {
           initialized.current = true;
@@ -381,40 +436,28 @@ export function AnnotationInput({
         {!chat && discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} labeled label={text.messageAttach} />
         )}
-        <div
-          id={statusId}
-          role="status"
-          className="annotation-hint"
-          tabIndex={connectionPresentation?.phase === 'ended' ? 0 : undefined}
-        >
-          {connectionPresentation
-            ? connectionPresentation.body
-            : busy
-              ? text.messageSending
-              : recoveryRequired
-                ? text.sendOnHold
-                : binding && directory.state === 'loading'
-                  ? text.messageAgentsChecking
-                  : binding && directory.state === 'failed'
-                    ? `${text.messageAgentsUnavailable} ${text.messageCommentAvailable}`
-                    : status}
-          {!busy &&
-            !recoveryRequired &&
-            !connectionPresentation &&
-            binding &&
-            directory.state === 'failed' &&
-            directory.code && (
-              <>
-                {' '}
-                <small className="failure-reference">
-                  {text.failureCodeLabel}{' '}
-                  <code className="tmt-ui-code" data-failure-reference>
-                    {directory.code}
-                  </code>
-                </small>
-              </>
-            )}
-        </div>
+        {showCreatorHint && creator ? (
+          <div className="annotation-creator-hint">
+            {recipientHint}
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.messageAskCreator(creator.agentName)}
+              onActivate={(event) => {
+                if (!event.isTrusted || sending.current || blocked || recorded) return;
+                setPrependMention({
+                  id: crypto.randomUUID(),
+                  key: { machine: creator.machine, agent: creator.agent },
+                  label: creator.agentName,
+                  consumed: () => setPrependMention(undefined),
+                });
+              }}
+            />
+          </div>
+        ) : (
+          recipientHint
+        )}
+
         {binding &&
           !busy &&
           !recoveryRequired &&

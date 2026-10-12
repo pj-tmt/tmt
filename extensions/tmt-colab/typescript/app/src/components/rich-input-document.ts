@@ -9,6 +9,7 @@ import {
   $isTextNode,
   $setSelection,
   type LexicalNode,
+  type RangeSelection,
 } from 'lexical';
 
 /** A token's span in the input text: UTF-16 offsets, one LF between paragraphs. */
@@ -72,7 +73,18 @@ export function $richInputTokens<Node extends LexicalNode>(
 export function $richInputCaret() {
   const selection = $getSelection();
   if (!$isRangeSelection(selection) || !selection.isCollapsed()) return undefined;
-  const anchor = selection.anchor;
+  return pointOffset(selection.anchor);
+}
+
+export function $richInputSelection() {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return undefined;
+  const anchor = pointOffset(selection.anchor),
+    focus = pointOffset(selection.focus);
+  return anchor === undefined || focus === undefined ? undefined : { anchor, focus };
+}
+
+function pointOffset(anchor: RangeSelection['anchor']) {
   let offset = 0;
   let caret: number | undefined;
   function visit(node: LexicalNode) {
