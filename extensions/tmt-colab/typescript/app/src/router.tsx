@@ -27,6 +27,7 @@ import {
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
+import { noteOpened } from './recently-opened.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
@@ -665,6 +666,10 @@ function Page() {
       document.title = text.product;
     };
   }, [view.title, snapshot.title]);
+  // This device remembers which pages it opened, for a quick switcher to offer first; local only.
+  useEffect(() => {
+    void noteOpened(space, snapshot.id);
+  }, [space, snapshot.id]);
   const latest = useRef(view),
     dirty = useRef(false),
     base = useRef(snapshot.source);

@@ -435,6 +435,17 @@ changed scope, a second stale head and unknown outcomes never rebuild (colab-v1 
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).
 
+The quick switcher's data (#2599) is React-free except one hook. `quick-switcher.ts` ranks the
+list's own `PageSummary` rows for the list's own `PageFilter` (no second index or parser): match
+strength of the free text, then a page waiting for you, then `max(opened, updated)`, ties by title
+and ID, archived pages and an `exclude` page left out before the result `limit`. `recently-opened.ts`
+is the device-local record behind "opened": one IndexedDB key per space (`recent-pages:<space>`),
+the newest 100 page IDs with their open times, closed-shape validated, written by the page route
+once per load under a Web Lock, never synced, exported or signed, and empty when storage is
+unavailable. `quick-switcher-source.ts` reads `spaceHome()` and that record each time a switcher
+opens, shows the last list of the same transport and space at once and refreshes it, and drops a
+result that arrives after a close, a reopen or a change of transport or space.
+
 ## Trusted browser management
 
 - `management.ts` owns frozen device-signed selections, transient link seeds and
