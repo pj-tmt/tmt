@@ -7099,3 +7099,227 @@ fn renaming_or_deleting_a_label_changes_every_page_that_carries_it_in_one_step()
         }
     }
 }
+
+fn ranged_read_page(pilot: &Pilot, source: &str) -> String {
+    let input = pilot.root.join("read-source.html");
+    fs::write(&input, source).unwrap();
+    pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Ranged source",
+        "--file",
+        input.to_str().unwrap(),
+        "--no-open",
+        "--json",
+    ])["pageId"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+fn read_hash(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+#[test]
+fn page_read_ranges_search_and_source_files_share_exact_bytes_and_revision() {
+    let pilot = Pilot::new(None);
+    let source = "head\r\nélan\nmiddle\nélan\ntail\n";
+    let id = ranged_read_page(&pilot, source);
+    let whole = pilot.call(&["page", "read", &id, "--json"]);
+    assert_eq!(whole["source"], source);
+    let selected = pilot.call(&["page", "read", &id, "--lines", "2:4", "--json"]);
+    assert_eq!(selected["source"], "élan\nmiddle\nélan\n");
+    assert_eq!(
+        selected["rangeSha256"],
+        read_hash("élan\nmiddle\nélan\n".as_bytes())
+    );
+    assert_eq!(selected["lineStart"], 2);
+    assert_eq!(selected["lineEnd"], 4);
+    assert_eq!(selected["revision"], whole["revision"]);
+    let search = pilot.call(&[
+        "page",
+        "read",
+        &id,
+        "--grep",
+        "élan",
+        "--context",
+        "1",
+        "--json",
+    ]);
+    assert_eq!(search["revision"], whole["revision"]);
+    assert_eq!(search["matches"], 2);
+    assert!(search.get("source").is_none());
+    assert_eq!(search["blocks"].as_array().unwrap().len(), 1);
+    assert_eq!(search["blocks"][0]["source"], source);
+    assert_eq!(
+        search["blocks"][0]["rangeSha256"],
+        read_hash(source.as_bytes())
+    );
+    let none = pilot.call(&["page", "read", &id, "--grep", ".*", "--json"]);
+    assert_eq!(none["matches"], 0);
+    assert_eq!(none["blocks"], json!([]));
+    for (name, range, expected) in [
+        ("whole.html", None, source),
+        ("range.html", Some("2:4"), "élan\nmiddle\nélan\n"),
+    ] {
+        let file = pilot.root.join(name);
+        let mut args = vec![
+            "page",
+            "read",
+            &id,
+            "--out",
+            file.to_str().unwrap(),
+            "--json",
+        ];
+        if let Some(range) = range {
+            args.extend(["--lines", range]);
+        }
+        let receipt = pilot.call(&args);
+        assert_eq!(receipt["revision"], whole["revision"]);
+        assert_eq!(receipt["bytes"], expected.len());
+        assert_eq!(receipt["sha256"], read_hash(expected.as_bytes()));
+        assert!(receipt.get("source").is_none());
+        assert_eq!(fs::read(&file).unwrap(), expected.as_bytes());
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            PathBuf::from(receipt["path"].as_str().unwrap()),
+            file.canonicalize().unwrap()
+        );
+        let again = pilot.command().args(&args).output().unwrap();
+        assert!(!again.status.success());
+        assert_eq!(fs::read(&file).unwrap(), expected.as_bytes());
+    }
+    let plain = pilot
+        .command()
+        .args(["page", "read", &id])
+        .output()
+        .unwrap();
+    assert!(plain.status.success());
+    assert_eq!(plain.stdout, source.as_bytes());
+    let numbered = pilot
+        .command()
+        .args(["page", "read", &id, "--lines", "2:2"])
+        .output()
+        .unwrap();
+    assert!(numbered.status.success());
+    assert!(
+        String::from_utf8(numbered.stdout)
+            .unwrap()
+            .ends_with("2\télan\n")
+    );
+}
+#[test]
+fn page_read_refusals_publish_no_file_and_preserve_the_page() {
+    use std::os::unix::ffi::OsStringExt;
+    let pilot = Pilot::new(None);
+    let id = ranged_read_page(&pilot, &"x".repeat(1001));
+    let before = pilot.call(&["page", "read", &id, "--json"]);
+    failure(
+        &pilot,
+        &["page", "read", &id, "--grep", "x", "--json"],
+        "COLAB_READ_TOO_LARGE",
+    );
+    let out = pilot.root.join("never-created.html");
+    failure(
+        &pilot,
+        &[
+            "page",
+            "read",
+            &id,
+            "--lines",
+            "1:2",
+            "--out",
+            out.to_str().unwrap(),
+            "--json",
+        ],
+        "COLAB_READ_RANGE",
+    );
+    assert!(!out.exists());
+    let target = pilot.root.join("existing");
+    fs::write(&target, b"keep").unwrap();
+    let alias = pilot.root.join("alias");
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    let output = pilot
+        .command()
+        .args([
+            "page",
+            "read",
+            &id,
+            "--out",
+            alias.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(fs::read(&target).unwrap(), b"keep");
+    // A UTF-8 alias can resolve to a Unix directory containing invalid UTF-8.
+    // Refuse before publishing a file whose JSON path could not be represented.
+    let invalid = pilot
+        .root
+        .join(std::ffi::OsString::from_vec(b"invalid-\xff".to_vec()));
+    fs::create_dir(&invalid).unwrap();
+    let directory_alias = pilot.root.join("non-utf8-parent");
+    std::os::unix::fs::symlink(&invalid, &directory_alias).unwrap();
+    let destination = directory_alias.join("source.html");
+    let output = pilot
+        .command()
+        .args(["page", "read", &id, "--out"])
+        .arg(&destination)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        serde_json::from_slice::<Value>(&output.stdout)
+            .unwrap()
+            .get("error")
+            .is_some()
+    );
+    assert!(!invalid.join("source.html").exists());
+    for directory_path in ["missing-dir/", "missing-dir/."] {
+        let output = pilot
+            .command()
+            .args(["page", "read", &id, "--out", directory_path, "--json"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!pilot.root.join("missing-dir").exists());
+    }
+    let output = pilot
+        .command()
+        .args(["page", "read", &id, "--out", "../outside.html", "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(pilot.call(&["page", "read", &id, "--json"]), before);
+    assert!(!fs::read_dir(&pilot.root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".tmt-colab-source-")
+    }));
+}
+#[test]
+fn page_read_empty_and_huge_single_line_sources_have_exact_anchors() {
+    let pilot = Pilot::new(None);
+    for source in [String::new(), "x".repeat(1024 * 1024)] {
+        let id = ranged_read_page(&pilot, &source);
+        let selected = pilot.call(&["page", "read", &id, "--lines", "1:1", "--json"]);
+        assert_eq!(selected["source"], source);
+        assert_eq!(selected["rangeSha256"], read_hash(source.as_bytes()));
+        failure(
+            &pilot,
+            &["page", "read", &id, "--lines", "2:2", "--json"],
+            "COLAB_READ_RANGE",
+        );
+    }
+}

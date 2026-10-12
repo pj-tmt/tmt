@@ -6,6 +6,7 @@ mod cli_management;
 mod cli_page_check;
 mod cli_patch;
 mod cli_proposal;
+mod cli_read;
 mod cli_threads;
 mod door;
 mod open;
@@ -225,16 +226,6 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the page opens in the owner's browser even without a terminal or with --json, unless --no-open, the open setting or the environment says not to. JSON includes opened and the shortLink fallback; without a door the relative path and the reason are printed. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is created.",
     };
-    const READ: CommandSpec = CommandSpec {
-        name: "read",
-        summary: "Read exact admitted UTF-8 source",
-        examples: &[Example {
-            command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
-            note: "Read source, title and verified revision",
-        }],
-        outputs: OutputModes::HumanAndJson,
-        details: "Writes source bytes unchanged to stdout, with revision/head/epoch on stderr. JSON contains both. Does not create or migrate state.",
-    };
     const WRITE: CommandSpec = CommandSpec {
         name: "write",
         summary: "Write page source against a verified base",
@@ -349,7 +340,7 @@ fn grammar() -> Command {
                     )
                     .subcommand(cli_page_check::command())
                     .subcommand(cli_compact::command())
-                    .subcommand(tmt_cli_style::command(&READ).arg(cli_grammar::page()))
+                    .subcommand(cli_read::command())
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
                             .arg(cli_grammar::page())
@@ -720,10 +711,7 @@ fn print_receipt(
     Ok(())
 }
 fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
-    use tmt_colab::{
-        decoder::Decoder,
-        page::{self, Fault},
-    };
+    use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
     if command == "create" {
         let source = args
@@ -740,6 +728,9 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     if command == "compact" {
         return cli_compact::run(root, args);
+    }
+    if command == "read" {
+        return cli_read::run(root, args);
     }
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
@@ -781,45 +772,19 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         None => Vec::new(),
     };
     let json_output = args.get_flag("json");
-    let mut output = tmt_cli_style::stream::stdout(json_output);
-    if let Some(source) = source {
-        let receipt = commit_source(
-            &layout,
-            &key,
-            store,
-            &id,
-            &source,
-            args.get_one::<String>("expected-revision")
-                .map(String::as_str),
-            None,
-            &mut decoder,
-        )?;
-        print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;
-    } else {
-        let value = page::read(&store, &key, &id, &mut decoder);
-        let closed = store.close();
-        let value = value?;
-        closed?;
-        if json_output {
-            writeln!(output, "{}", serde_json::to_string(&value)?)?;
-        } else {
-            let mut metadata = tmt_cli_style::stream::stderr();
-            let terminal = metadata.terminal();
-            tmt_cli_style::detail::write(
-                &mut metadata,
-                terminal,
-                "PAGE SOURCE",
-                &[
-                    ("page", value.page_id),
-                    ("revision", value.revision),
-                    ("membership", value.membership_head.revision),
-                    ("head", value.membership_head.statement_hash),
-                    ("epoch", value.epoch),
-                ],
-            )?;
-            output.write_all(value.source.as_bytes())?;
-        }
-    }
+    let source = source.expect("write is the remaining page command");
+    let receipt = commit_source(
+        &layout,
+        &key,
+        store,
+        &id,
+        &source,
+        args.get_one::<String>("expected-revision")
+            .map(String::as_str),
+        None,
+        &mut decoder,
+    )?;
+    print_receipt(receipt, &warnings, json_output, "PAGE WRITTEN")?;
     Ok(())
 }
 /// One frozen publication reaches exactly one writer: the serve process when it holds the

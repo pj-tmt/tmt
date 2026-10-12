@@ -393,6 +393,11 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 - `page/lines.rs` is the one definition of a page's numbered lines (LF records that keep their
   LF, a CR is content, an empty page is one empty line) and of a range's hash; the anchored patch
   and the ranged read both use it.
+- `cli_read.rs` captures one existing `page::read` snapshot for whole source, exact line
+  ranges and bounded literal grep/context blocks; revision and range hashes refer to that
+  same snapshot. `--out` uses `export::publish_source` to publish exact bytes through the
+  existing owned staging/exclusive-file owner, without overwriting a destination or
+  changing full-fidelity export. Read projection carries no write or transport authority.
 - `page patch` (`cli_patch.rs`, `page/patch.rs`) evaluates an anchored change (exact find,
   hash-fenced line range or unified diff) as a pure function of the source `page::read` folds
   to, then goes through `commit_source` (`main.rs`), the one whole-source path `page write`
