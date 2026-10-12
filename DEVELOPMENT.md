@@ -169,12 +169,10 @@ nextest. Driver, runtime, completion and request-ID checks are in
 JavaScript suites live under `typescript/test/{native,e2e,tooling,support}/`; Rust
 tests stay beside their owner in `rust/crates/*`.
 
-**Isolation.** Fixtures clear the parent environment. HOME, XDG config/data/state/
-cache, `CODEX_HOME`, temporary files and the tmux socket directory stay under the
-fixture's owned root, and state uses the canonical XDG `tmt` directory. They
-inherit no caller/provider markers, recursion flags or color settings.
-`tmt-cli/tests/support` owns this for Rust process tests. Native TypeScript
-`runCli` also isolates CLI ancestry through
+**Isolation.** Fixtures clear the environment. HOME, XDG config/data/state/cache, `CODEX_HOME`,
+temp files and tmux sockets stay under the fixture's root, and state is the canonical XDG `tmt`
+directory. They inherit no caller, provider, recursion or color state. `tmt-cli/tests/support` owns this
+for Rust process tests and `typescript/scripts/private-world.mjs` for any other command. Native `runCli` isolates CLI ancestry through
 `rust/crates/tmt-adapters/examples/runtime-caller-fixture.rs`
 ([testing boundaries](ARCHITECTURE.md#testing-and-evidence-boundaries)); build it
 before tooling or native tests, as CI does:

@@ -4,6 +4,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  symlinkSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -994,8 +995,11 @@ describe('remote Rust retains full CI coverage', () => {
     const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-remote-ci-'));
     try {
-      // Exercise the committed shell, including errexit; the real workspace test run is
-      // integration evidence, while this injected Cargo proves empty/failure paths.
+      // Exercise the committed shell, including errexit, from a stand-in `rust` directory
+      // beside the real runner; the real workspace test run is integration evidence, while
+      // this injected Cargo proves empty/failure paths.
+      mkdirSync(path.join(root, 'rust'));
+      symlinkSync(fileURLToPath(new URL('../..', import.meta.url)), path.join(root, 'typescript'));
       writeExecutable(
         path.join(root, 'cargo'),
         `#!/bin/sh
@@ -1008,7 +1012,7 @@ esac
         0o755
       );
       runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
-        cwd: root,
+        cwd: path.join(root, 'rust'),
         env: {
           ...process.env,
           PATH: `${root}:${process.env.PATH}`,
