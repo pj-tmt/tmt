@@ -348,7 +348,7 @@ Enter/Space or Up/Down on Add opens a native top-layer surface with a combobox/l
 not a menu. Focus
 stays in its search field while Up/Down moves the active enabled option. Enter
 adds one, closes and returns focus; Escape closes without adding; Tab closes and
-continues normal focus order. Empty-field Backspace removes the last enabled chip;
+continues normal focus order. Empty-field Backspace removes the last chip, when enabled;
 text deletion and composition keep normal input behavior. Selected IDs are excluded,
 disabled options cannot be added, and modified/default-prevented keys do not act.
 A remove action focuses the next/previous surviving remove control, then Add or

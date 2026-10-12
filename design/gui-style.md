@@ -257,7 +257,7 @@ centered one-line label and an explicit remove control. Wrap the list at narrow
 widths; keep the full accessible name when a long label ellipsizes. A trailing
 `＋` opens a search combobox/listbox. Arrow keys move, Enter adds, Escape returns
 focus, Tab closes, and Backspace in an empty non-composing field removes the last
-chip. Recipients use `Remove @name` and `Add recipient`; selected agents are not
+chip, when enabled. Recipients use `Remove @name` and `Add recipient`; selected agents are not
 offered again. The host owns values, filtering, limits, status and trusted effects.
 At its cap Add is disabled with a visible reason; empty/loading/error copy stays
 host-owned. Page-list label tokens use the same item inside their existing editor.

@@ -376,11 +376,6 @@ function SearchField(props: PageListSearchProps) {
             className="page-list-search-field"
             trigger={trigger}
             onKeyDownCapture={(event) => {
-              if ((event.target as HTMLElement).closest('[data-label-filter],[data-by-filter]')) {
-                // Native remove-button activation must not become an editor Enter/Space command.
-                if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
-                return;
-              }
               if (trigger['aria-expanded'] === true) {
                 trigger.onKeyDown?.(event);
                 if (event.defaultPrevented) return;
