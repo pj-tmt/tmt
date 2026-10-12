@@ -1,5 +1,5 @@
 import { remoteMenu } from './remote-menu.js';
-import { remoteState } from './remote-state.js';
+import { remoteState, currentRemote } from './remote-state.js';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
 import {
   remoteRegistry,
@@ -248,9 +248,7 @@ export function remoteRegistryPage(
     );
     view.box.showModal();
   };
-  const current = (entry: RemoteReference): boolean =>
-    entry.kind === 'local' &&
-    (entry.url === address || new URL(entry.url).href === `${location.origin}/`);
+  const current = (entry: RemoteReference): boolean => currentRemote(entry, address, location.href);
   const render = async (): Promise<void> => {
     try {
       catalog = await remoteRegistry.list();
@@ -342,9 +340,8 @@ export function remoteRegistryPage(
     if (checkedAddress) address = checkedAddress;
     for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
       const stateNode = row.querySelector<HTMLElement>('.remote-state')!;
-      const target = row.dataset.url;
-      const isCurrent =
-        row.dataset.kind === 'local' && (target === address || target === `${location.origin}/`);
+      const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
+      const isCurrent = !!entry && currentRemote(entry, address, location.href);
       const view = remoteState(observed, isCurrent);
       stateNode.textContent = view.text;
       stateNode.dataset.tone = view.tone;

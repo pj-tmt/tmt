@@ -54,6 +54,10 @@ function remoteState(state, current = true) {
 		action
 	};
 }
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
+}
 //#endregion
 //#region src/remote-menu.ts
 function remoteMenu(actions) {
@@ -83,8 +87,7 @@ function remoteMenu(actions) {
 	let search = "";
 	let searchAt = 0;
 	const buttons = /* @__PURE__ */ new Map();
-	const current = (entry) => entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", location.href).href);
-	const selected = () => catalog.entries.find(current);
+	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
 	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
 	function close(refocus = false) {
 		if (surface.matches(":popover-open")) surface.hidePopover();
@@ -138,7 +141,7 @@ function remoteMenu(actions) {
 		const rows = [];
 		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
 		for (const entry of entries) {
-			const here = current(entry), shown = remoteState(state, here);
+			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
 			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
 				if (!here) actions.open(entry);
 			}, here, here ? !!shown.action : !!reason));
@@ -200,7 +203,10 @@ function remoteMenu(actions) {
 	}
 	trigger.addEventListener("click", () => {
 		if (surface.matches(":popover-open")) close();
-		else open();
+		else {
+			trigger.focus({ preventScroll: true });
+			open();
+		}
 	});
 	trigger.addEventListener("keydown", (event) => {
 		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -843,7 +849,7 @@ function remoteRegistryPage(blocked = () => "") {
 		}), action("Cancel", view.end));
 		view.box.showModal();
 	};
-	const current = (entry) => entry.kind === "local" && (entry.url === address || new URL(entry.url).href === `${location.origin}/`);
+	const current = (entry) => currentRemote(entry, address, location.href);
 	const render = async () => {
 		try {
 			catalog = await remoteRegistry.list();
@@ -927,8 +933,8 @@ function remoteRegistryPage(blocked = () => "") {
 		if (checkedAddress) address = checkedAddress;
 		for (const row of list.querySelectorAll("[data-remote]")) {
 			const stateNode = row.querySelector(".remote-state");
-			const target = row.dataset.url;
-			const isCurrent = row.dataset.kind === "local" && (target === address || target === `${location.origin}/`);
+			const entry = catalog.entries.find((entry) => entry.name === row.dataset.remote);
+			const isCurrent = !!entry && currentRemote(entry, address, location.href);
 			const view = remoteState(observed, isCurrent);
 			stateNode.textContent = view.text;
 			stateNode.dataset.tone = view.tone;

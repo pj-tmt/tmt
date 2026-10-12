@@ -3780,7 +3780,11 @@ test('static remote switcher preserves menu focus and settings drafts across two
     await page.reload();
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const chip = page.getByRole('button', { name: 'Remote: studio, connected', exact: true });
-    await chip.click();
+    // Safari/iOS and Firefox-mac clicks do not focus buttons. Reproduce that deterministically.
+    await chip.evaluate((button) => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
     const menu = page.getByRole('menu', { name: 'Remotes', exact: true });
     await expect(menu).toBeVisible();
     await expect(menu).toHaveAttribute('popover', 'auto');

@@ -1,6 +1,6 @@
 /** Remote's static BrowserMenu adapter; navigation and observations remain page-owned. */
 import type { RemoteCatalog, RemoteReference } from './remote-registry.js';
-import { remoteState } from './remote-state.js';
+import { remoteState, currentRemote } from './remote-state.js';
 
 interface Actions {
   refresh(): Promise<void>;
@@ -34,10 +34,8 @@ export function remoteMenu(actions: Actions) {
   let search = '';
   let searchAt = 0;
   const buttons = new Map<string, HTMLButtonElement>();
-  const current = (entry: RemoteReference) =>
-    entry.kind === 'local' &&
-    (entry.url === address || new URL(entry.url).href === new URL('./', location.href).href);
-  const selected = () => catalog.entries.find(current);
+  const selected = () =>
+    catalog.entries.find((entry) => currentRemote(entry, address, location.href));
   const enabled = () => [...surface.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
   function close(refocus = false) {
     if (surface.matches(':popover-open')) surface.hidePopover();
@@ -109,7 +107,7 @@ export function remoteMenu(actions: Actions) {
         ),
       );
     for (const entry of entries) {
-      const here = current(entry),
+      const here = currentRemote(entry, address, location.href),
         shown = remoteState(state, here);
       rows.push(
         append(
@@ -180,7 +178,10 @@ export function remoteMenu(actions: Actions) {
   }
   trigger.addEventListener('click', () => {
     if (surface.matches(':popover-open')) close();
-    else void open();
+    else {
+      trigger.focus({ preventScroll: true });
+      void open();
+    }
   });
   trigger.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
