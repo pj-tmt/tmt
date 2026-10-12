@@ -105,8 +105,8 @@ export function landingRegistry(): (state: string, address?: string) => void {
       });
     }
   };
-  const importView = (plan: ImportPlan, host: string): void => {
-    const view = dialog(`Add ${plan.rows.length} remotes from ${host}?`, add);
+  const importView = (plan: ImportPlan): void => {
+    const view = dialog('Add these remotes to this browser?', add);
     view.body.append(
       node('p', 'Only names and addresses are copied. No keys, pairings or drafts.'),
     );
@@ -133,19 +133,23 @@ export function landingRegistry(): (state: string, address?: string) => void {
       } else choices.push(() => row.entry.name);
       view.body.append(item);
     }
-    view.buttons.append(
-      action('Add', () => {
-        void save(
-          () =>
-            remoteRegistry.confirmImport(
-              plan,
-              choices.map((choice) => choice()),
-            ),
-          view,
-        );
-      }),
-      action('Cancel', view.end),
-    );
+    const submit = action('Add', () => {
+      void save(
+        () =>
+          remoteRegistry.confirmImport(
+            plan,
+            choices.map((choice) => choice()),
+          ),
+        view,
+      );
+    });
+    const update = (): void => {
+      submit.disabled = choices.every((choice) => choice() === null);
+      view.message.textContent = submit.disabled ? 'Nothing new to add.' : '';
+    };
+    view.body.addEventListener('change', update);
+    update();
+    view.buttons.append(submit, action('Cancel', view.end));
     view.box.showModal();
   };
   const confirmAdd = (entry: RemoteReference, opener: HTMLElement): void => {
@@ -205,7 +209,10 @@ export function landingRegistry(): (state: string, address?: string) => void {
         row.dataset.url = entry.url;
         row.dataset.kind = entry.kind;
         row.append(node('h3', entry.name), node('p', `${kindLabel(entry)} · ${entry.url}`));
-        const state = node('p', current(entry) ? observed : 'not checked');
+        const state = node(
+          'p',
+          current(entry) ? (observed === 'Connected' ? '● Connected' : observed) : 'not checked',
+        );
         state.className = 'remote-state';
         row.append(state);
         const actions = node('div');
@@ -213,19 +220,19 @@ export function landingRegistry(): (state: string, address?: string) => void {
         const open = action('Open', () => {
           void (async () => {
             try {
-              location.assign(
-                entry.kind === 'firestore'
-                  ? entry.url
-                  : await remoteRegistry.navigation(entry, location.host),
-              );
+              location.assign(await remoteRegistry.navigation(entry));
             } catch (error) {
               showError(error, status);
             }
           })();
         });
-        const renameButton = action(`Rename ${entry.name}`, () => rename(entry, renameButton));
-        const removeButton = action(`Remove ${entry.name}`, () => remove(entry, removeButton));
-        actions.append(open, renameButton, removeButton);
+        open.dataset.action = 'open';
+        const renameButton = action('Rename', () => rename(entry, renameButton));
+        const removeButton = action('Remove', () => remove(entry, removeButton));
+        renameButton.setAttribute('aria-label', `Rename ${entry.name}`);
+        removeButton.setAttribute('aria-label', `Remove ${entry.name}`);
+        if (!current(entry)) actions.append(open);
+        actions.append(renameButton, removeButton);
         row.append(actions);
         return row;
       });
@@ -259,7 +266,7 @@ export function landingRegistry(): (state: string, address?: string) => void {
       .parseHandoff(value)
       .then(async (packet) => {
         const plan = await remoteRegistry.planImport(packet.catalog);
-        importView(plan, packet.sourceHost);
+        importView(plan);
       })
       .catch((error: unknown) => showError(error, status));
   };
@@ -276,10 +283,14 @@ export function landingRegistry(): (state: string, address?: string) => void {
     for (const row of list.querySelectorAll<HTMLElement>('[data-remote]')) {
       const stateNode = row.querySelector<HTMLElement>('.remote-state')!;
       const target = row.dataset.url;
-      stateNode.textContent =
-        row.dataset.kind === 'local' && (target === address || target === `${location.origin}/`)
-          ? observed
-          : 'not checked';
+      const isCurrent =
+        row.dataset.kind === 'local' && (target === address || target === `${location.origin}/`);
+      stateNode.textContent = isCurrent
+        ? observed === 'Connected'
+          ? '● Connected'
+          : observed
+        : 'not checked';
+      if (isCurrent) row.querySelector('[data-action="open"]')?.remove();
     }
   };
 }

@@ -1978,17 +1978,13 @@ references. Registry validation, storage and concurrent-edit failures use the ex
 `REMOTE_SELECTOR_INVALID`, `_UNAVAILABLE` and `_CONFLICT` family, not signed access evidence.
 
 Local Open validates the destination and the whole public handoff before navigation.
-The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above),
-required `tmt-source` (lowercase `host[:port]`, at most 255 characters, no scheme/userinfo/path
-or whitespace), and
-optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
+The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above)
+and optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
 grammar). All values count within the 8 KiB encoded-fragment bound. Unknown, duplicate or
-invalid members refuse the
-whole packet; no truncation or partial import occurs. The receiver strips the entire fragment
-before admission and confirms imports before storing anything. The source is an untrusted
-import-confirmation label only, never persisted or used for identity, authority, deduplication
-or destination selection. The page hint grants no access and is not consumed by this landing
-page; Colab resolves navigation after its own admission. No keys, grants, sessions, credentials,
+invalid members refuse the whole packet; no truncation or partial import occurs. The receiver
+strips the entire fragment before admission and confirms imports before storing anything. The
+page hint grants no access and is not consumed by this landing page; Colab resolves navigation
+after its own admission. No keys, grants, sessions, credentials,
 drafts, original operation IDs or reader seeds are carried.
 
 A duplicate canonical target is already added; a colliding name offers a new name or Skip,

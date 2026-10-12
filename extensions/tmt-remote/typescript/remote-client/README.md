@@ -392,8 +392,8 @@ atomically refuses a concurrent catalog edit rather than overwriting it. The nat
 limits, fragment grammar and privacy rules have one owner in the
 [browser registry contract](../../../../contracts/remote-channel-v1.md#browser-remote-registry).
 
-`navigation(reference, location.host, {spaceId, pageId}?)` validates a Local destination
-and produces its public handoff. The source host is untrusted display text only. The landing
+`navigation(reference, {spaceId, pageId}?)` validates a Local destination
+and produces its public handoff. The landing
 page erases the fragment before admission and asks before importing. No pairing key or draft
 crosses origins, and registry operations never read or replace the stored device identity.
 Local Open performs no foreign health probe; each origin uses its own pairing. The landing

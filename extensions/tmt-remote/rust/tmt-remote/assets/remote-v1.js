@@ -928,7 +928,8 @@ async function reference(alias, address) {
 }
 async function parseCatalog(value) {
 	const row = fields(value, ["version", "entries"]);
-	valid$1(row.version === 1 && Array.isArray(row.entries) && row.entries.length <= 16);
+	valid$1(row.version === 1 && Array.isArray(row.entries));
+	valid$1(row.entries.length <= 16, "This browser can store at most 16 remotes. Remove one before adding another.");
 	const entries = [];
 	for (const raw of row.entries) {
 		const r = fields(raw, [
@@ -946,7 +947,7 @@ async function parseCatalog(value) {
 		version: 1,
 		entries: Object.freeze(entries)
 	};
-	valid$1(encoder.encode(json(catalog)).length <= LIMIT);
+	valid$1(encoder.encode(json(catalog)).length <= LIMIT, "The remotes exceed this browser’s 8 KiB storage limit. Remove one before adding another.");
 	return Object.freeze(catalog);
 }
 function json(catalog) {
@@ -971,23 +972,11 @@ function hint(value) {
 		pageId: r.pageId
 	};
 }
-function source(value) {
-	valid$1(value.length > 0 && value.length <= 255 && /^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(value));
-	const [host, port] = value.split(":");
-	valid$1(host.split(".").every((part) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(part)) && (port === void 0 || Number(port) > 0 && Number(port) <= 65535));
-}
 async function parseHandoff(fragment) {
 	valid$1(fragment.startsWith("#") && encoder.encode(fragment).length <= LIMIT);
 	const params = new URLSearchParams(fragment.slice(1));
 	const keys = [...params.keys()];
-	valid$1(keys.length === new Set(keys).size && keys.every((key) => [
-		"tmt-remotes",
-		"tmt-source",
-		"tmt-page"
-	].includes(key)));
-	const host = params.get("tmt-source");
-	valid$1(host !== null);
-	source(host);
+	valid$1(keys.length === new Set(keys).size && keys.every((key) => ["tmt-remotes", "tmt-page"].includes(key)));
 	const raw = params.get("tmt-remotes");
 	valid$1(raw !== null);
 	const catalog = await parseCatalog(decode$1(raw));
@@ -997,22 +986,17 @@ async function parseHandoff(fragment) {
 	if (checkedHint) valid$1(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
 	return {
 		catalog,
-		sourceHost: host,
 		...checkedHint ? { hint: checkedHint } : {}
 	};
 }
-async function buildHandoff(destination, value, host, page) {
+async function buildHandoff(destination, value, page) {
 	const checked = await reference(destination.name, destination.url);
 	valid$1(checked.kind === destination.kind && checked.project === destination.project);
 	if (checked.kind === "firestore") return checked.url;
 	const catalog = await parseCatalog(value);
-	source(host);
-	const params = new URLSearchParams({
-		"tmt-remotes": base64url(encoder.encode(json(catalog))),
-		"tmt-source": host
-	});
+	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
-	valid$1(encoder.encode(`#${params}`).length <= LIMIT);
+	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to open together. Remove an entry before opening this remote.");
 	return `${checked.url}#${params}`;
 }
 async function planImport(incoming, current) {
@@ -1115,6 +1099,7 @@ var remoteRegistry = {
 		name$1(alias);
 		const latest = await snapshot();
 		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
+		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
 		const next = await parseCatalog({
 			version: 1,
 			entries: latest.catalog.entries.map((entry) => entry.name === previous ? {
@@ -1132,8 +1117,8 @@ var remoteRegistry = {
 			entries: latest.catalog.entries.filter((entry) => entry.name !== alias)
 		});
 	},
-	async navigation(entry, sourceHost, page) {
-		return buildHandoff(entry, await remoteRegistry.list(), sourceHost, page);
+	async navigation(entry, page) {
+		return buildHandoff(entry, await remoteRegistry.list(), page);
 	}
 };
 //#endregion
@@ -1228,8 +1213,8 @@ function landingRegistry() {
 			});
 		}
 	};
-	const importView = (plan, host) => {
-		const view = dialog(`Add ${plan.rows.length} remotes from ${host}?`, add);
+	const importView = (plan) => {
+		const view = dialog("Add these remotes to this browser?", add);
 		view.body.append(node("p", "Only names and addresses are copied. No keys, pairings or drafts."));
 		const choices = [];
 		for (const row of plan.rows) {
@@ -1251,9 +1236,16 @@ function landingRegistry() {
 			} else choices.push(() => row.entry.name);
 			view.body.append(item);
 		}
-		view.buttons.append(action("Add", () => {
+		const submit = action("Add", () => {
 			save(() => remoteRegistry.confirmImport(plan, choices.map((choice) => choice())), view);
-		}), action("Cancel", view.end));
+		});
+		const update = () => {
+			submit.disabled = choices.every((choice) => choice() === null);
+			view.message.textContent = submit.disabled ? "Nothing new to add." : "";
+		};
+		view.body.addEventListener("change", update);
+		update();
+		view.buttons.append(submit, action("Cancel", view.end));
 		view.box.showModal();
 	};
 	const confirmAdd = (entry, opener) => {
@@ -1295,7 +1287,7 @@ function landingRegistry() {
 				row.dataset.url = entry.url;
 				row.dataset.kind = entry.kind;
 				row.append(node("h3", entry.name), node("p", `${kindLabel(entry)} · ${entry.url}`));
-				const state = node("p", current(entry) ? observed : "not checked");
+				const state = node("p", current(entry) ? observed === "Connected" ? "● Connected" : observed : "not checked");
 				state.className = "remote-state";
 				row.append(state);
 				const actions = node("div");
@@ -1303,15 +1295,19 @@ function landingRegistry() {
 				const open = action("Open", () => {
 					(async () => {
 						try {
-							location.assign(entry.kind === "firestore" ? entry.url : await remoteRegistry.navigation(entry, location.host));
+							location.assign(await remoteRegistry.navigation(entry));
 						} catch (error) {
 							showError(error, status);
 						}
 					})();
 				});
-				const renameButton = action(`Rename ${entry.name}`, () => rename(entry, renameButton));
-				const removeButton = action(`Remove ${entry.name}`, () => remove(entry, removeButton));
-				actions.append(open, renameButton, removeButton);
+				open.dataset.action = "open";
+				const renameButton = action("Rename", () => rename(entry, renameButton));
+				const removeButton = action("Remove", () => remove(entry, removeButton));
+				renameButton.setAttribute("aria-label", `Rename ${entry.name}`);
+				removeButton.setAttribute("aria-label", `Remove ${entry.name}`);
+				if (!current(entry)) actions.append(open);
+				actions.append(renameButton, removeButton);
 				row.append(actions);
 				return row;
 			});
@@ -1338,7 +1334,7 @@ function landingRegistry() {
 	const receive = (value) => {
 		remoteRegistry.parseHandoff(value).then(async (packet) => {
 			const plan = await remoteRegistry.planImport(packet.catalog);
-			importView(plan, packet.sourceHost);
+			importView(plan);
 		}).catch((error) => showError(error, status));
 	};
 	if (fragment) receive(fragment);
@@ -1354,7 +1350,9 @@ function landingRegistry() {
 		for (const row of list.querySelectorAll("[data-remote]")) {
 			const stateNode = row.querySelector(".remote-state");
 			const target = row.dataset.url;
-			stateNode.textContent = row.dataset.kind === "local" && (target === address || target === `${location.origin}/`) ? observed : "not checked";
+			const isCurrent = row.dataset.kind === "local" && (target === address || target === `${location.origin}/`);
+			stateNode.textContent = isCurrent ? observed === "Connected" ? "● Connected" : observed : "not checked";
+			if (isCurrent) row.querySelector("[data-action=\"open\"]")?.remove();
 		}
 	};
 }

@@ -3510,7 +3510,13 @@ test('landing registry keeps two origins independent and confirms public-only ha
     await sdk('add', ['desk', `${secondOrigin}/`]);
     await page.reload();
     await expect(page.locator('#state-label')).toHaveText('Connected');
-    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('Connected');
+    await expect(page.locator('[data-remote="studio"] .remote-state')).toHaveText('● Connected');
+    await expect(
+      page.locator('[data-remote="studio"]').getByRole('button', { name: 'Open' }),
+    ).toHaveCount(0);
+    await expect(
+      page.locator('[data-remote="studio"]').getByRole('button', { name: 'Rename studio' }),
+    ).toHaveText('Rename');
     await expect(page.locator('[data-remote="desk"] .remote-state')).toHaveText('not checked');
     await expect(page.locator('[data-remote="desk"] .state-mark')).toHaveCount(0);
     expect(network.filter((url) => url.startsWith(secondOrigin))).toEqual([]);
@@ -3536,7 +3542,6 @@ test('landing registry keeps two origins independent and confirms public-only ha
     await sdk('remove', ['spare']);
     const openB = await sdk<string>('navigation', [
       { name: 'desk', kind: 'local', url: `${secondOrigin}/`, project: null },
-      new URL(origin).host,
     ]);
     expect(openB).not.toContain('clientId');
     expect(openB).not.toContain('machinePublicKey');
@@ -3552,7 +3557,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       'remote-dialog-heading',
     );
     await expect(
-      page.getByRole('heading', { name: `Add 2 remotes from ${new URL(origin).host}?` }),
+      page.getByRole('heading', { name: 'Add these remotes to this browser?' }),
     ).toBeVisible();
     expect(new URL(page.url()).hash).toBe('');
     await expect(
@@ -3560,10 +3565,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
     ).toBeVisible();
     await expect(page.getByLabel('Remote name')).toHaveValue('studio-2');
     await expect(page.getByText('Already added as studio', { exact: true })).toBeVisible();
-    await capture(
-      'import-collision',
-      'The source label is untrusted; collision is renamed and the same target is skipped.',
-    );
+    await capture('import-collision', 'Collision is renamed and the same target is skipped.');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await sdk('list')).toEqual({
       version: 1,
@@ -3574,7 +3576,16 @@ test('landing registry keeps two origins independent and confirms public-only ha
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await identity()).toEqual(second);
+    await page.goto(openB);
+    await expect(page.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+    await expect(page.getByText('Nothing new to add.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('button', { name: 'Rename studio-2', exact: true }).click();
+    await page.getByLabel('Remote name').fill('studio');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('dialog').getByRole('status')).toHaveText(
+      'You already have a remote named studio',
+    );
     await page.getByLabel('Remote name').fill('first');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Remove first', exact: true })).toBeVisible();
@@ -3599,7 +3610,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
     expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
     // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
     const beforeInvalid = await sdk('list');
-    await page.goto(`${origin}/#tmt-remotes=bad&tmt-source=host/path`);
+    await page.goto(`${origin}/#tmt-remotes=bad`);
     await expect(page.locator('#remote-status')).toHaveText('The remote name or link is invalid');
     expect(new URL(page.url()).hash).toBe('');
     expect(await sdk('list')).toEqual(beforeInvalid);

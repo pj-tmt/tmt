@@ -19,7 +19,6 @@ export interface NavigationHint {
 }
 export interface RegistryHandoff {
   readonly catalog: RemoteCatalog;
-  readonly sourceHost: string;
   readonly hint?: NavigationHint;
 }
 export class RemoteRegistryError extends Error {
@@ -83,7 +82,11 @@ export async function reference(alias: string, address: string): Promise<RemoteR
 }
 export async function parseCatalog(value: unknown): Promise<RemoteCatalog> {
   const row = fields(value, ['version', 'entries']);
-  valid(row.version === 1 && Array.isArray(row.entries) && row.entries.length <= 16);
+  valid(row.version === 1 && Array.isArray(row.entries));
+  valid(
+    row.entries.length <= 16,
+    'This browser can store at most 16 remotes. Remove one before adding another.',
+  );
   const entries: RemoteReference[] = [];
   for (const raw of row.entries as unknown[]) {
     const r = fields(raw, ['name', 'kind', 'url', 'project']);
@@ -93,7 +96,10 @@ export async function parseCatalog(value: unknown): Promise<RemoteCatalog> {
     entries.push(Object.freeze(entry));
   }
   const catalog = { version: 1 as const, entries: Object.freeze(entries) };
-  valid(encoder.encode(json(catalog)).length <= LIMIT);
+  valid(
+    encoder.encode(json(catalog)).length <= LIMIT,
+    'The remotes exceed this browser’s 8 KiB storage limit. Remove one before adding another.',
+  );
   return Object.freeze(catalog);
 }
 function json(catalog: RemoteCatalog): string {
@@ -120,25 +126,14 @@ function hint(value: unknown): NavigationHint {
   );
   return { spaceId: r.spaceId, pageId: r.pageId };
 }
-function source(value: string): void {
-  valid(value.length > 0 && value.length <= 255 && /^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(value));
-  const [host, port] = value.split(':');
-  valid(
-    host!.split('.').every((part) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(part)) &&
-      (port === undefined || (Number(port) > 0 && Number(port) <= 65535)),
-  );
-}
 export async function parseHandoff(fragment: string): Promise<RegistryHandoff> {
   valid(fragment.startsWith('#') && encoder.encode(fragment).length <= LIMIT);
   const params = new URLSearchParams(fragment.slice(1));
   const keys = [...params.keys()];
   valid(
     keys.length === new Set(keys).size &&
-      keys.every((key) => ['tmt-remotes', 'tmt-source', 'tmt-page'].includes(key)),
+      keys.every((key) => ['tmt-remotes', 'tmt-page'].includes(key)),
   );
-  const host = params.get('tmt-source');
-  valid(host !== null);
-  source(host);
   const raw = params.get('tmt-remotes');
   valid(raw !== null);
   const value = decode(raw);
@@ -147,26 +142,26 @@ export async function parseHandoff(fragment: string): Promise<RegistryHandoff> {
   const page = params.get('tmt-page');
   const checkedHint = page === null ? undefined : hint(decode(page));
   if (checkedHint) valid(base64url(encoder.encode(JSON.stringify(checkedHint))) === page);
-  return { catalog, sourceHost: host, ...(checkedHint ? { hint: checkedHint } : {}) };
+  return { catalog, ...(checkedHint ? { hint: checkedHint } : {}) };
 }
 export async function buildHandoff(
   destination: RemoteReference,
   value: unknown,
-  host: string,
   page?: unknown,
 ): Promise<string> {
   const checked = await reference(destination.name, destination.url);
   valid(checked.kind === destination.kind && checked.project === destination.project);
   if (checked.kind === 'firestore') return checked.url; // B1 has no hosted catalog receiver.
   const catalog = await parseCatalog(value);
-  source(host);
   const params = new URLSearchParams({
     'tmt-remotes': base64url(encoder.encode(json(catalog))),
-    'tmt-source': host,
   });
   if (page !== undefined)
     params.set('tmt-page', base64url(encoder.encode(JSON.stringify(hint(page)))));
-  valid(encoder.encode(`#${params}`).length <= LIMIT);
+  valid(
+    encoder.encode(`#${params}`).length <= LIMIT,
+    'The remote list is too large to open together. Remove an entry before opening this remote.',
+  );
   return `${checked.url}#${params}`;
 }
 export interface ImportRow {
@@ -276,6 +271,10 @@ export const remoteRegistry = {
     name(alias);
     const latest = await snapshot();
     valid(latest.catalog.entries.some((entry) => entry.name === previous));
+    valid(
+      !latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous),
+      `You already have a remote named ${alias}`,
+    );
     const next = await parseCatalog({
       version: 1,
       entries: latest.catalog.entries.map((entry) =>
@@ -292,11 +291,7 @@ export const remoteRegistry = {
       entries: latest.catalog.entries.filter((entry) => entry.name !== alias),
     });
   },
-  async navigation(
-    entry: RemoteReference,
-    sourceHost: string,
-    page?: NavigationHint,
-  ): Promise<string> {
-    return buildHandoff(entry, await remoteRegistry.list(), sourceHost, page);
+  async navigation(entry: RemoteReference, page?: NavigationHint): Promise<string> {
+    return buildHandoff(entry, await remoteRegistry.list(), page);
   },
 };
