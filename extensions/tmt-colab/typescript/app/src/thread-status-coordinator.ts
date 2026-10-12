@@ -2,7 +2,7 @@ import { requireValue } from '@tmt/colab-client';
 import type { PageAsk } from './ask-panel.js';
 import type { AgentDestination } from './live-ask.js';
 import type { ThreadView } from './thread-records.js';
-import type { ThreadBinding, StatusChange } from './thread-store.js';
+import { asksAbout, type ThreadBinding, type StatusChange } from './thread-store.js';
 import {
   discussionRefKey,
   type ThreadRecipient,
@@ -45,8 +45,7 @@ export function freezeThreadRecipients(
   for (const comment of thread.comments.filter((value) => !value.deleted)) {
     const pinned: typeof current = new Map();
     for (const ask of asks) {
-      if (ask.thread === thread.threadId && ask.messageIds?.includes(comment.messageId))
-        put(pinned, ask.agentName, ask);
+      if (asksAbout(ask, thread, comment.messageId)) put(pinned, ask.agentName, ask);
     }
     const names = [...new Set([...current.keys(), ...pinned.keys()])]
       .filter(Boolean)

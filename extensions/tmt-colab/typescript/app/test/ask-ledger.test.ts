@@ -1194,6 +1194,79 @@ it('an older multi-message intent cannot select one original comment for replace
   expect(f.own[id(4)].intents[retry.view.operationId]).toBeUndefined();
 });
 
+const batch = () => ({ ...selection(), messageIds: [id(3), id(7)] });
+const pairMarker = (messageIds: readonly string[]) =>
+  `ask-recipient:${selection().space}:${id(1)}:${id(4)}:${selection().thread}:${messageIds.join(':')}:${destination().machine}:${destination().agent}`;
+
+it('a refused batch Ask is retried as the same batch: the same sorted message IDs, one reservation', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(batch(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const retry = FrozenAsk.capture(batch(), destination());
+  await expect(
+    f.store.adopt(await retry.signed(f.key), retry.view, original.view.operationId),
+  ).resolves.toBe('created');
+  // The reservation is keyed by the whole set; a single-comment key is not involved.
+  expect(draft.get(pairMarker([id(3), id(7)]))).toBe(retry.view.operationId);
+  expect([...draft.keys()].filter((key) => key.startsWith('ask-recipient:'))).toEqual([
+    pairMarker([id(3), id(7)]),
+  ]);
+  // The replacement is itself unresolved, so another replacement of the original is refused.
+  const again = FrozenAsk.capture(batch(), destination());
+  await expect(
+    f.store.adopt(await again.signed(f.key), again.view, original.view.operationId),
+  ).rejects.toThrow();
+  expect(f.own[id(4)].intents[again.view.operationId]).toBeUndefined();
+});
+
+it('a batch retry never splits, widens or reorders the original comments', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(batch(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  for (const messageIds of [[id(3)], [id(7)], [id(3), id(7), id(9)], [id(3), id(8)]]) {
+    const retry = FrozenAsk.capture({ ...selection(), messageIds }, destination());
+    await expect(
+      f.store.adopt(await retry.signed(f.key), retry.view, original.view.operationId),
+    ).rejects.toThrow();
+    expect(f.own[id(4)].intents[retry.view.operationId]).toBeUndefined();
+  }
+  // Message IDs are signed sorted and unique; an unsorted or repeated list is never captured.
+  for (const messageIds of [
+    [id(7), id(3)],
+    [id(3), id(3)],
+  ])
+    expect(() => FrozenAsk.capture({ ...selection(), messageIds }, destination())).toThrow();
+  expect(f.remote.sends).toHaveLength(0);
+});
+
+it('a single-answer reservation keeps the key it had before batches', async () => {
+  const f = await setup();
+  const original = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await original.signed(f.key), original.view);
+  await f.store.state(original.view.operationId, 'refused', null, 'REMOTE_RATE_LIMITED');
+  const retry = FrozenAsk.capture(selection(), destination());
+  await f.store.adopt(await retry.signed(f.key), retry.view, original.view.operationId);
+  expect(pairMarker([id(3)])).toBe(
+    `ask-recipient:${selection().space}:${id(1)}:${id(4)}:${selection().thread}:${id(3)}:${destination().machine}:${destination().agent}`,
+  );
+  expect(draft.get(pairMarker([id(3)]))).toBe(retry.view.operationId);
+});
+
+it('releasing a batch retry clears only its own set reservation', async () => {
+  const f = await setup();
+  const retry = FrozenAsk.capture(batch(), destination());
+  const view = { ...retry.view, thread: selection().thread, messageIds: batch().messageIds };
+  draft.set(pairMarker([id(3), id(7)]), retry.view.operationId);
+  draft.set(pairMarker([id(3)]), id(92));
+  await f.store.releaseRetry({ ...view, operationId: id(91) });
+  expect(draft.get(pairMarker([id(3), id(7)]))).toBe(retry.view.operationId);
+  await f.store.releaseRetry(view);
+  expect(draft.has(pairMarker([id(3), id(7)]))).toBe(false);
+  expect(draft.get(pairMarker([id(3)]))).toBe(id(92));
+});
+
 /** Crypto completion uses real worker turns even while the observer clock is fake. */
 async function observationSleep() {
   for (let turn = 0; turn < 100; turn++) {

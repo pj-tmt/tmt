@@ -316,7 +316,13 @@ jobs:
         working-directory: typescript
         shell: bash
         run: |
-          read -r -a files <<< "$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"
+          set -euo pipefail
+          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 2)"
+          read -r -a files <<< "$shard_files"
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "Shard ${{ matrix.shard }} of 2 has no spec files; refusing to run the whole suite." >&2
+            exit 1
+          fi
           pnpm --filter @tmt/colab-app --fail-if-no-match test:acceptance --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-acceptance-private/traces" "${files[@]}"
       - name: Retain only test outcomes without credentials or trace payloads
         if: always()

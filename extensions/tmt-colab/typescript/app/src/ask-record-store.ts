@@ -7,6 +7,7 @@ import {
   canTransition,
   readAskRecords,
   recordKey,
+  sameMessageIds,
   validateRecord,
   verifyAsk,
   type AskLedgerView,
@@ -16,6 +17,7 @@ import {
 } from './ask-records.js';
 
 export type StoredAskDraft = Pick<SignedAsk, 'input' | 'signature'>;
+
 /** Only signed metadata is reserved locally. A stored reservation never
  * authorizes another effect after failed publication or browser restart. */
 export async function storeAskDraft(intent: SignedAsk): Promise<'created' | 'existing'> {
@@ -73,9 +75,13 @@ export class AskRecordStore {
     if (!found) throw new Error('ASK_NOT_FOUND');
     return found;
   }
-  #pairKey(thread: string, messageId: string, machine: string, agent: string) {
-    [thread, messageId, machine, agent].forEach(generatedId);
-    return `ask-recipient:${this.scope.space}:${this.scope.page}:${this.scope.deviceId}:${thread}:${messageId}:${machine}:${agent}`;
+  /** One reservation per recipient and sorted message-ID set. The set of one comment is that
+   * comment's ID, so a single-answer key is the same as before batches (#2875). */
+  #pairKey(thread: string, messageIds: readonly string[], machine: string, agent: string) {
+    requireValue(messageIds.length > 0);
+    [thread, ...messageIds, machine, agent].forEach(generatedId);
+    requireValue(messageIds.every((id, index) => index === 0 || messageIds[index - 1] < id));
+    return `ask-recipient:${this.scope.space}:${this.scope.page}:${this.scope.deviceId}:${thread}:${messageIds.join(':')}:${machine}:${agent}`;
   }
   /** Called only for an authoritative adopted:false outcome, never an absent read. */
   async releaseRetry(view: {
@@ -85,16 +91,15 @@ export class AskRecordStore {
     agent: string;
     operationId: string;
   }) {
-    requireValue(view.messageIds.length === 1);
     generatedId(view.operationId);
-    const key = this.#pairKey(view.thread, view.messageIds[0], view.machine, view.agent);
+    const key = this.#pairKey(view.thread, view.messageIds, view.machine, view.agent);
     await navigator.locks.request(key, async () => {
       if ((await record<string>(key)) === view.operationId) await deleteRecord(key);
     });
   }
   async checkRetry(
     thread: string,
-    messageId: string,
+    messageIds: readonly string[],
     machine: string,
     agent: string,
     retryOf: string | null,
@@ -102,12 +107,12 @@ export class AskRecordStore {
     const related = (await this.views()).filter(
       (view) =>
         view.intent.thread === thread &&
-        view.intent.messageIds.includes(messageId) &&
+        messageIds.some((id) => view.intent.messageIds.includes(id)) &&
         view.intent.machine === machine &&
         view.intent.agent === agent,
     );
     requireValue(related.every(provablyUnsent));
-    const pending = await record<string>(this.#pairKey(thread, messageId, machine, agent));
+    const pending = await record<string>(this.#pairKey(thread, messageIds, machine, agent));
     if (pending !== undefined) {
       generatedId(pending);
       // Absence in this tab's admitted view cannot prove that another tab was unsent.
@@ -119,7 +124,9 @@ export class AskRecordStore {
       generatedId(retryOf);
       requireValue(
         related.some(
-          (view) => view.intent.operationId === retryOf && view.intent.messageIds.length === 1,
+          (view) =>
+            view.intent.operationId === retryOf &&
+            sameMessageIds(view.intent.messageIds, messageIds),
         ),
       );
     }
@@ -144,24 +151,19 @@ export class AskRecordStore {
     if (retryOf !== undefined) {
       const intent = await verifyAsk(signed, this.#publicKey);
       requireValue(
-        intent.messageIds.length === 1 &&
+        intent.messageIds.length > 0 &&
           intent.space === this.scope.space &&
           intent.page === this.scope.page &&
           intent.senderDevice === this.scope.deviceId,
       );
-      const pairKey = this.#pairKey(
-        intent.thread,
-        intent.messageIds[0],
-        intent.machine,
-        intent.agent,
-      );
+      const pairKey = this.#pairKey(intent.thread, intent.messageIds, intent.machine, intent.agent);
       // The single shared UUID fences tabs whose admitted views still lag.
       // Storage read/write errors reject before any adoption or Remote effect.
       return navigator.locks.request(pairKey, async () => {
         requireValue(retryOf !== intent.operationId);
         await this.checkRetry(
           intent.thread,
-          intent.messageIds[0],
+          intent.messageIds,
           intent.machine,
           intent.agent,
           retryOf,

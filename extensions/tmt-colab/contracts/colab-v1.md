@@ -2240,6 +2240,28 @@ A transient observation read failure shows the existing warning in the anchored
 window. Subsequent permitted observation continues through the same bounded
 observer; a successful cycle clears the warning without another dispatch.
 
+Answer batches (#2875). One trusted Send of an answered question group publishes one answer
+comment per answered question, each in its own question thread, then asks each recipient
+once. That Ask is the ordinary signed send input: `thread` is the canonical thread, the
+thread of the first recorded answer in tab order, and `messageIds` are the sorted, unique
+IDs of every recorded answer comment of that Send. No signed field, record kind, stored
+record or Remote path changes. Before capture the parent rechecks that each comment is this
+device's own undeleted answer comment (`Answer to “<question>”: …`) to a question of the one
+`tmt-questions` group the admitted page source names, in an anchored non-proposal thread at
+its recorded revisions, and that the answers follow the group's tab order with no question
+twice; otherwise nothing is asked. The frozen message is the ordinary frame (page, link,
+`Quote:` the canonical thread's anchor text) whose `Comment:` is `Answers to <N> questions:`
+and one `<question>: <answer>` line per answer in tab order, without each answer's page and
+recipient lines, and with no earlier conversation. A message over the 64 KiB cap is refused
+before any comment is published. A question whose comment was not recorded is not in the
+Ask and goes in a later Send; one recorded answer is the single-comment Ask above. The
+reservation key and the `retryOf` check use the sorted message-ID set (the single-comment
+key is its one-element case, unchanged), so a failed or uncertain batch Ask is retried as
+the same batch for that recipient, never split and never per question. `conversationAsks`
+returns a batch Ask for every question thread holding one of its comments; its reply, reply
+notification and captured earlier conversation belong to the canonical thread alone. `Change
+answer` is a new comment and an ordinary single-comment Ask; the batch is untouched.
+
 The Comments overlay lists every annotation and page-level thread, with a quote
 snippet, participants, display time and open/resolved status. Selecting a row scrolls
 the window to its anchor and expands that thread inside the overlay; a margin marker

@@ -125,7 +125,11 @@ and distinct UUID pairs for presentation only; LiveAsk re-admits each frozen Ask
 The [browser discussion contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#inline-annotation-conversations-1587)
 owns default-creator lookup, typed/picked binding, eight-recipient fan-out, offline
 handling and recipient failure rules. `conversationAsks` owns comment/Ask association
-and captured conversation; neither prior replies nor display names select recipients.
+and captured conversation (a batch Ask is associated with every question thread it covers,
+its reply with the canonical one); neither prior replies nor display names select recipients.
+`answer-batch.ts` owns an answered group's delivery: the origin validator, the Ask text and
+`sendAnswers`, which publishes the comments and asks each recipient once. A card calls it and
+never publishes comments, composes Ask text or keys retries itself.
 The composer consumes an explicit draft-local mention request through its existing
 editor, retaining the last selection across action focus and prepending a manual
 chip as one undoable edit. The editor has no storage, ledger, notification or Remote capability. `LiveAsk` reports
