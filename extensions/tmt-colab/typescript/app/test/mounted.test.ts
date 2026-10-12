@@ -1,9 +1,11 @@
-import { expect, it, vi } from 'vite-plus/test';
+import { beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { LiveSessionOwner } from '../src/live.js';
 import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
+import { AdmissionRefusedError } from '../src/registration.js';
+import { reopenWithBackoff, retryableReopen } from '../src/readmit.js';
 const setup = vi.hoisted(() => {
   const first = { deviceId: 'device', remoteSession: { id: 'first' } };
   const second = { deviceId: 'device', remoteSession: { id: 'second' } };
@@ -20,6 +22,8 @@ const setup = vi.hoisted(() => {
       archived?: boolean;
     }[],
     register: vi.fn(),
+    discover: vi.fn(),
+    registrations: [] as unknown[],
     verify: vi.fn(async () => {}),
     remote: vi.fn(),
     owner: null as LiveSessionOwner | null,
@@ -33,12 +37,14 @@ const setup = vi.hoisted(() => {
 vi.mock('../src/bootstrap.js', () => ({
   mountUrl: () => new URL('https://example.test/colab/'),
   discover: async (_mount: URL, verify: (space: string, owner: Uint8Array) => Promise<void>) => {
+    await setup.discover();
     const owner = new Uint8Array(32);
     await verify('space', owner);
     return { space: 'space', owner, pageIds: [], pages: setup.pages };
   },
 }));
-vi.mock('../src/registration.js', () => ({
+vi.mock('../src/registration.js', async (original) => ({
+  ...(await original<typeof import('../src/registration.js')>()),
   remoteSdk: async () => setup.sdk,
   register: setup.register,
   verifyRegistration: setup.verify,
@@ -81,6 +87,7 @@ vi.mock('../src/live.js', () => ({
       owner: LiveSessionOwner,
     ) {
       setup.events.push('connection');
+      setup.registrations.push(_registration);
       setup.signals.push(signal);
       setup.ports.push(remote);
       setup.owner = owner;
@@ -404,4 +411,125 @@ it('title hints from a replaced registration or closed tab cannot reach the cach
   mounted.close();
   await owner.rememberTitle!('page', 'Late view', setup.second as never);
   expect(setup.titleRemember).toHaveBeenCalledOnce();
+});
+
+beforeEach(() => {
+  setup.discover.mockReset();
+  setup.registrations.length = 0;
+});
+
+async function mountedPage() {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValue(setup.second);
+  setup.remote.mockReset().mockResolvedValue({});
+  const mounted = await mountedTransport();
+  await mounted.transport.page('page');
+  setup.discover.mockClear();
+  return mounted;
+}
+
+it.each([403, 503])(
+  'an HTTP %s page refusal refreshes the mounted session before rediscovery',
+  async (status) => {
+    const mounted = await mountedPage();
+    setup.discover.mockRejectedValueOnce(new AdmissionRefusedError(status, '{}', 'DENIED'));
+    const signal = new AbortController().signal;
+    try {
+      await mounted.transport.page('page', signal);
+      expect(setup.register).toHaveBeenCalledTimes(2);
+      expect(setup.discover).toHaveBeenCalledTimes(2);
+      expect(setup.register).toHaveBeenLastCalledWith(expect.any(URL), expect.anything(), {
+        previous: setup.first.remoteSession,
+        signal: expect.any(AbortSignal),
+      });
+      expect(setup.registrations).toEqual([setup.first, setup.second]);
+      expect(setup.verify).toHaveBeenLastCalledWith(setup.second, 'space', expect.any(Uint8Array));
+    } finally {
+      mounted.close();
+    }
+  },
+);
+
+it('a named terminal page refusal never refreshes the session', async () => {
+  const mounted = await mountedPage();
+  const failure = new AdmissionRefusedError(403, '{}', 'REMOTE_DEVICE_REVOKED');
+  setup.discover.mockRejectedValueOnce(failure);
+  try {
+    await expect(mounted.transport.page('page')).rejects.toBe(failure);
+    expect(setup.register).toHaveBeenCalledOnce();
+    expect(setup.discover).toHaveBeenCalledOnce();
+    expect(setup.registrations).toEqual([setup.first]);
+  } finally {
+    mounted.close();
+  }
+});
+
+it.each(['discovery', 'refresh'])(
+  'persistent HTTP refusal in %s stays inside five page attempts',
+  async (stage) => {
+    const mounted = await mountedPage();
+    const failure = new AdmissionRefusedError(403, '{}', 'DENIED');
+    setup.discover.mockRejectedValue(failure);
+    if (stage === 'refresh') setup.register.mockRejectedValue(failure);
+    try {
+      const result = await reopenWithBackoff(() => mounted.transport.page('page'), {
+        signal: new AbortController().signal,
+        retryable: retryableReopen,
+        wait: async () => {},
+      });
+      expect(result).toEqual({ error: failure });
+      expect(setup.register).toHaveBeenCalledTimes(6);
+      expect(setup.discover).toHaveBeenCalledTimes(stage === 'discovery' ? 10 : 5);
+      expect(setup.registrations).toEqual([setup.first]);
+    } finally {
+      mounted.close();
+    }
+  },
+);
+
+it('aborting a page refresh refuses a late registration and keeps the prior mounted session', async () => {
+  const mounted = await mountedPage();
+  setup.discover.mockRejectedValueOnce(new AdmissionRefusedError(403, '{}', 'DENIED'));
+  let release!: (value: typeof setup.second) => void;
+  setup.register.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const controller = new AbortController();
+  const opening = mounted.transport.page('page', controller.signal);
+  const failure = opening.catch((error: unknown) => error);
+  await vi.waitFor(() => expect(setup.register).toHaveBeenCalledTimes(2));
+  const refreshSignal = setup.register.mock.lastCall![2].signal as AbortSignal;
+  controller.abort();
+  expect(refreshSignal.aborted).toBe(true);
+  release(setup.second);
+  expect(await failure).toMatchObject({ name: 'AbortError' });
+  expect(setup.remote).toHaveBeenCalledOnce();
+  await mounted.transport.page('page');
+  expect(setup.registrations).toEqual([setup.first, setup.first]);
+  mounted.close();
+});
+
+it('a page refresh and concurrent Live reconnect share one verified replacement', async () => {
+  const mounted = await mountedPage();
+  setup.discover.mockRejectedValueOnce(new AdmissionRefusedError(403, '{}', 'DENIED'));
+  let release!: (value: typeof setup.second) => void;
+  setup.register.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const opening = mounted.transport
+    .page('page', new AbortController().signal)
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(setup.register).toHaveBeenCalledTimes(2));
+  const reconnecting = setup.owner!.reconnect(setup.first as never);
+  release(setup.second);
+  expect(await opening).toMatchObject({ id: 'page' });
+  expect((await reconnecting).registration).toBe(setup.second);
+  expect(setup.register).toHaveBeenCalledTimes(2);
+  expect(setup.registrations).toEqual([setup.first, setup.second]);
+  mounted.close();
 });

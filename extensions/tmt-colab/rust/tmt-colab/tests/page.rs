@@ -762,6 +762,10 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
 
 const THREAD: &str = "40000000-0000-4000-8000-000000000001";
 fn seed_member_thread(f: &mut Fixture) {
+    seed_member_thread_with(f, &[]);
+}
+/// The member thread, plus `comments` as (message id, revision, deleted, body) records on it.
+fn seed_member_thread_with(f: &mut Fixture, comments: &[(&str, &str, bool, &str)]) {
     let record = json!({"version":1,"kind":"thread","spaceId":f.key.space_id,
         "pageId":PAGE,"epoch":"1","senderDevice":DEVICE,"revision":"1",
         "deleted":false,"deviceName":"Page author","at":NOW.to_string(),
@@ -787,6 +791,17 @@ fn seed_member_thread(f: &mut Fixture) {
         "50000000-0000-4000-8000-000000000001:thread-status",
         yrs::Any::from_json(&unauthorized.to_string()).unwrap(),
     );
+    for (id, revision, deleted, body) in comments {
+        let comment = json!({"version":1,"kind":"comment","spaceId":f.key.space_id,
+            "pageId":PAGE,"epoch":"1","senderDevice":DEVICE,"revision":revision,
+            "deleted":deleted,"deviceName":"Page author","at":NOW.to_string(),
+            "messageId":id,"thread":{"writer":DEVICE,"id":THREAD},"body":body});
+        doc.get_or_insert_map("messages").insert(
+            &mut doc.transact_mut(),
+            format!("{id}:{revision}"),
+            yrs::Any::from_json(&comment.to_string()).unwrap(),
+        );
+    }
     let update = doc
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
@@ -4314,6 +4329,205 @@ fn proposals_are_complete_before_placement_and_recover_by_id_without_notificatio
             "ambiguous/missing prefix never publishes"
         );
     }
+}
+
+#[test]
+fn the_owner_summary_comes_from_the_real_fold_and_follows_each_proposal_state() {
+    use tmt_colab::{
+        discussion,
+        summary::summarize,
+        threads::{Proposal, Proposer},
+    };
+    let mut f = Fixture::with_author(Some("Studio agent"));
+    let root = f.root.clone();
+    let summarize_now = || {
+        let mut source = tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+        .unwrap();
+        summarize(&mut source, PAGE).unwrap()
+    };
+    // A page with no discussion: nothing counted, nothing waiting, the creation label named.
+    let empty = summarize_now();
+    assert_eq!((empty.comments, empty.waiting), (0, false));
+    assert_eq!(empty.author.as_deref(), Some("Studio agent"));
+    let proposal = Proposal {
+        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
+        title: "Review".into(),
+        body: "Review body".into(),
+        proposer: Proposer {
+            machine_id: "40000000-0000-4000-8000-000000000001".into(),
+            agent_id: "50000000-0000-1000-8000-000000000001".into(),
+            label: "Proposer".into(),
+        },
+    };
+    let frozen =
+        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
+            .unwrap()
+            .unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    // An undecided proposal awaits the owner.
+    assert!(summarize_now().waiting);
+    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let reference = tmt_colab::threads::status::Reference {
+        writer: view.conversations.threads[0].writer.clone(),
+        id: proposal.proposal_id.clone(),
+    };
+    // Resolving the proposal thread clears the mark, reopening it brings it back.
+    for (resolved, waiting) in [(true, false), (false, true)] {
+        let (frozen, _) = discussion::prepare_status(
+            &f.store,
+            &f.key,
+            PAGE,
+            discussion::StatusEdit {
+                thread: &proposal.proposal_id,
+                resolved,
+                agent_name: None,
+            },
+            &mut f.decoder(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
+        f.commit(&frozen, NOW).unwrap();
+        assert_eq!(summarize_now().waiting, waiting, "resolved: {resolved}");
+    }
+    // A final decision clears it for good.
+    let frozen = discussion::prepare_decision(
+        &f.store,
+        &f.key,
+        PAGE,
+        discussion::DecisionEdit {
+            thread: &reference,
+            decision: "approved",
+        },
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    let decided = summarize_now();
+    assert!(!decided.waiting);
+    // A proposal thread is not an annotation thread: it adds no comment to the count.
+    assert_eq!(decided.comments, 0);
+    // A page without a creation label has no author.
+    let bare = Fixture::new();
+    let mut source = tmt_colab::page::save::open_source(
+        &bare.root,
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )
+    .unwrap();
+    assert_eq!(summarize(&mut source, PAGE).unwrap().author, None);
+}
+
+#[test]
+fn the_owner_summary_counts_live_comments_of_annotation_threads_from_the_real_fold() {
+    let mut f = Fixture::new();
+    seed_member_thread_with(
+        &mut f,
+        &[
+            ("60000000-0000-4000-8000-000000000001", "1", false, "first"),
+            ("60000000-0000-4000-8000-000000000002", "1", false, "second"),
+            // A deleted comment, and a question answer, are not comments about the page.
+            ("60000000-0000-4000-8000-000000000003", "1", true, ""),
+            (
+                "60000000-0000-4000-8000-000000000004",
+                "1",
+                false,
+                "Answer to \u{201c}Which?\u{201d}: this one",
+            ),
+        ],
+    );
+    let mut source = tmt_colab::page::save::open_source(
+        &f.root,
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )
+    .unwrap();
+    let summary = tmt_colab::summary::summarize(&mut source, PAGE).unwrap();
+    assert_eq!(summary.comments, 2);
+    assert!(!summary.waiting);
+}
+
+#[test]
+fn the_owner_list_serves_fresh_summaries_only_and_refreshes_a_changed_page_in_the_background() {
+    use tmt_colab::{
+        discussion,
+        registration::Registration,
+        threads::{Proposal, Proposer},
+    };
+    let mut f = Fixture::with_author(Some("Studio agent"));
+    let root = f.root.clone();
+    let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
+        "publicKey":values::encode_binary(SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes()),
+        "owner":true,"grantRevision":1})
+    .to_string();
+    let registration = Registration::with_decoder_config(
+        Store::open(&f.layout).unwrap(),
+        Keyring::read(&f.layout).unwrap(),
+        support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+    )
+    .unwrap()
+    .with_summary_source(std::sync::Arc::new(move || {
+        tmt_colab::page::save::open_source(
+            &root,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+    }));
+    let entry = || -> Value {
+        let list: Value =
+            serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
+        list["pages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|page| page["pageId"] == PAGE)
+            .unwrap()
+            .clone()
+    };
+    let settled = |expected_waiting: bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let page = entry();
+            if page["summary"]["waiting"] == expected_waiting && page.get("summary").is_some() {
+                return page;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no fresh summary: {page}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    };
+    // The first read replies at once without a summary and schedules the refresh.
+    assert!(entry().get("summary").is_none());
+    let fresh = settled(false);
+    assert_eq!(
+        fresh["summary"],
+        json!({"comments":0,"waiting":false,"author":"Studio agent"})
+    );
+    // An accepted write changes the page's fingerprint: the old summary is stale, so it is no
+    // longer served, and the next refresh brings the new state.
+    let proposal = Proposal {
+        proposal_id: "90000000-0000-4000-8000-000000000001".into(),
+        title: "Review".into(),
+        body: "Review body".into(),
+        proposer: Proposer {
+            machine_id: "40000000-0000-4000-8000-000000000001".into(),
+            agent_id: "50000000-0000-1000-8000-000000000001".into(),
+            label: "Proposer".into(),
+        },
+    };
+    let frozen =
+        discussion::prepare_proposal(&f.store, &f.key, PAGE, &proposal, &mut f.decoder(), NOW)
+            .unwrap()
+            .unwrap();
+    f.commit(&frozen, NOW).unwrap();
+    assert!(
+        entry().get("summary").is_none(),
+        "a page changed since its summary was computed must not serve it"
+    );
+    assert_eq!(settled(true)["summary"]["waiting"], true);
 }
 
 #[test]

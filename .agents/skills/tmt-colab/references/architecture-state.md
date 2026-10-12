@@ -101,7 +101,7 @@ focus, caret and selection. A caller without mentions uses
 `plainRichInputDocument`; it receives no recipient, transport or send capability.
 `rich-input-document.ts` also owns the token, caret and range helpers both callers use
 (`$richInputTokens`, `$richInputCaret`, `$selectRichInputRange`, `$replaceRichInput` with
-caller tokens), so the composer's mentions and the page list's `label:` tokens share one
+caller tokens), so the composer's mentions and the page list's `label:`/`by:` tokens share one
 document model and no second editor exists. Exact 0.52.0
 `lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
 runtime dependencies; only plaintext/history extensions are imported. The source
@@ -203,7 +203,14 @@ then every 15 s with 20% jitter, paused while the tab is hidden (`ConnectionOwne
 connects or the failure is no longer recoverable. A series that gives up, or a binding with no
 `reconnect`, ends the connection with the failure it stopped on: nothing else drives
 `reconnecting`. An epoch advance stops that loop and reopens the page (`PageReopener`, at most
-three reopens a minute), then hands the new binding over. `ended` replaces
+three reopens a minute), then hands the new binding over. HTTP admission refusals retain their
+bounded body and code (`AdmissionRefusedError`): named endings stay terminal; stale or
+unclassified refusals use that same finite reopen path (five attempts at 0/1/3/8/15 s), with
+the existing reconnect-failure sentence if it is exhausted. A recoverable 403 or 503 during
+page opening refreshes the same-device Session once through the mounted owner before
+rediscovery; its abort signal fences registration, and concurrent Live reconnects share that
+owner's pending replacement. PageReopener still owns the finite attempts and timing. Admission
+refusals never extend the transport loop. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
@@ -213,14 +220,14 @@ action scroll- and keyboard-reachable within the existing composer overflow. `Li
 the transport owner: it keeps its bounded resync
 and publishes failures, and no longer decides terminal or recoverable for the page.
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
-codes, Remote refusal codes, a few short messages, each `ReopenFailedError` reason): what recovers
+codes, Remote refusal codes, HTTP admission refusals, a few short messages, each `ReopenFailedError` reason): what recovers
 it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
 `retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).
 A terminal failure card shows one of seven `strings.ts` sentences (access ended, not paired, page
-gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown token is not
+gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown non-admission token is not
 recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
 `Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
@@ -364,6 +371,15 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   the CLI catalog. They are never a log statement, so a label change never contends with
   sharing or member changes. `delete_page_data` removes a page's rows; an open page is one
   that still has its epoch secrets.
+- Page summaries (`summary.rs`: comment count, a proposal awaiting the owner, the creator) are
+  display-only values for the owner list that only the owner fold can read, so the serve keeps
+  them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
+  receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
+  read replies at once with the fresh entries, omits `summary` elsewhere and schedules one
+  single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
+  through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
+  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
+  waits behind pages not yet tried at its fingerprint. Nothing is persisted.
 - Revocation arrives as a revision-ordered device event: known devices use the owner
   transition, unknown IDs a local tombstone. Equal or older events and already-revoked
   devices write nothing and close no tunnel.
@@ -377,10 +393,14 @@ original-ID observation, no resend and fresh explicit Send after recovery.
 
 `home.tsx` renders the space home from the loader's `spaceHome()` pages; `manage-page.tsx`
 holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `label[]`, `sort`, `archived`), never in component state, so a
+(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`), never in component state, so a
 reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
-rich input with a `LabelFilterNode` token) holds only a draft until Enter applies it, and a
-chip click or token removal applies at once. `labels.ts` is pure: label grammar (the owner
+rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter
+applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
+Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
+`DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
+`◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
+summary shows only what the list already knows, with no placeholder. `labels.ts` is pure: label grammar (the owner
 store's), counts, filtering and sorting, the whole-set `withLabel` change and the
 `relabel` planner that rename and delete use over every page carrying the name, archived
 included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGES`

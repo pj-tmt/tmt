@@ -77,7 +77,7 @@ export class E2EFixture {
 
   constructor(options: Pick<E2EFixtureOptions, 'globalDir' | 'executableEnv'> = {}) {
     this.executables = resolveCliExecutables(options.executableEnv);
-    this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-e2e-')));
+    this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-e2e-')));
     try {
       this.socketRoot = fs.realpathSync(
         fs.mkdtempSync(

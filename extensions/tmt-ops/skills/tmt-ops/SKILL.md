@@ -1290,8 +1290,8 @@ notification queue. Board reminder-setting controls are a separate slice.
 ## Offline markup authoring
 
 `tmt ops sq layout validate board.xml` checks an authoring file only; add `--json`
-for a structured result. Success exits 0, invalid/unreadable files exit 1, and
-invalid command syntax exits 2. It does not discover core, read Squad config, run
+for a structured result. Success exits 0, and invalid/unreadable files and invalid
+command syntax exit 1. It does not discover core, read Squad config, run
 providers or open a terminal. **The board does not load these files.** Board rows
 and pane composition still come from the existing Squad settings.
 

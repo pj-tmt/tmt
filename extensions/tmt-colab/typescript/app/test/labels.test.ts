@@ -4,6 +4,7 @@ import {
   applyLabelChanges,
   compareLabels,
   filterPages,
+  authorCounts,
   labelCounts,
   labelNameError,
   labelRequests,
@@ -78,7 +79,7 @@ describe('the page list', () => {
   });
   it('requires every label token and every word in the title or a label', () => {
     const ids = (labels: string[], text: string) =>
-      filterPages(pages, { labels, text }, 'updated').map((p) => p.id);
+      filterPages(pages, { labels, authors: [], text }, 'updated').map((p) => p.id);
     expect(ids([], '')).toEqual([id(1), id(2), id(3), id(4)]);
     expect(ids(['design'], '')).toEqual([id(1), id(2)]);
     expect(ids(['design', 'q4 plan'], '')).toEqual([id(1)]);
@@ -87,6 +88,35 @@ describe('the page list', () => {
     expect(ids([], 'q4 page')).toEqual([id(1)]);
     expect(ids(['missing'], '')).toEqual([]);
   });
+  describe('by creator', () => {
+    const authored = [
+      page(1, ['design'], { summary: { comments: 3, waiting: true, author: 'Studio agent' } }),
+      page(2, [], { summary: { comments: 0, waiting: false, author: 'Review agent' } }),
+      page(3, ['design'], { summary: { comments: 1, waiting: false } }),
+      page(4, [], {}),
+    ];
+    const ids = (authors: string[], labels: string[] = [], text = '') =>
+      filterPages(authored, { labels, authors, text }, 'updated').map((p) => p.id);
+    it('counts creators, leaving out pages whose creator is unknown', () => {
+      expect(authorCounts(authored)).toEqual([
+        { name: 'Review agent', count: 1 },
+        { name: 'Studio agent', count: 1 },
+      ]);
+    });
+    it('keeps the pages of any named creator, and none without one', () => {
+      expect(ids(['Studio agent'])).toEqual([id(1)]);
+      expect(ids(['Studio agent', 'Review agent'])).toEqual([id(1), id(2)]);
+      expect(ids(['Nobody'])).toEqual([]);
+      // A page with no known creator never matches a creator filter.
+      expect(ids(['Studio agent']).includes(id(4))).toBe(false);
+    });
+    it('combines with a label and matches free text against the creator', () => {
+      expect(ids(['Studio agent'], ['design'])).toEqual([id(1)]);
+      expect(ids(['Review agent'], ['design'])).toEqual([]);
+      expect(ids([], [], 'review agent')).toEqual([id(2)]);
+      expect(ids([], [], 'studio q4')).toEqual([]);
+    });
+  });
   it('sorts by update time or title with the page ID as the tie-break', () => {
     const named = [
       page(1, [], { title: 'b' }),
@@ -94,7 +124,7 @@ describe('the page list', () => {
       page(3, [], { title: 'a' }),
     ];
     const order = (sort: 'updated' | 'title') =>
-      filterPages(named, { labels: [], text: '' }, sort).map((p) => p.id);
+      filterPages(named, { labels: [], authors: [], text: '' }, sort).map((p) => p.id);
     expect(order('updated')).toEqual([id(1), id(2), id(3)]);
     expect(order('title')).toEqual([id(2), id(3), id(1)]);
   });

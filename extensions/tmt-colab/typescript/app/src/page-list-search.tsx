@@ -44,26 +44,45 @@ import {
 import { text } from './strings.js';
 import './page-list-search.css';
 
-/** The search draft: the editor's text and its label tokens, each token's text being `label:<name>`. */
+/** The two filters the search takes as tokens: a label the page carries, a creator it has. */
+export type FilterKind = 'label' | 'by';
+const TRIGGERS: Record<FilterKind, string> = { label: 'label:', by: 'by:' };
+
+/** The search draft: the editor's text and its tokens, each token's text being `label:<name>` or `by:<name>`. */
 export interface SearchEdit {
   value: string;
-  tokens: { name: string; range: RichInputRange }[];
+  tokens: { kind: FilterKind; name: string; range: RichInputRange }[];
 }
-const TRIGGER = 'label:';
 
-/** Label tokens first, then the free text; the same shape the editor reads back. */
-export function editFromSearch(labels: readonly string[], q: string): SearchEdit {
+/** Label tokens, then creator tokens, then the free text; the same shape the editor reads back. */
+export function editFromSearch(
+  labels: readonly string[],
+  q: string,
+  authors: readonly string[] = [],
+): SearchEdit {
   let value = '';
   const tokens: SearchEdit['tokens'] = [];
-  for (const name of new Set(labels)) {
-    const token = `${TRIGGER}${name}`;
-    tokens.push({ name, range: { start: value.length, end: value.length + token.length } });
-    value += `${token} `;
-  }
+  for (const [kind, names] of [
+    ['label', labels],
+    ['by', authors],
+  ] as const)
+    for (const name of new Set(names)) {
+      const token = `${TRIGGERS[kind]}${name}`;
+      tokens.push({
+        kind,
+        name,
+        range: { start: value.length, end: value.length + token.length },
+      });
+      value += `${token} `;
+    }
   return { value: value + q, tokens };
 }
 /** What the draft asks for: its tokens' names and the text outside them, whitespace collapsed. */
-export function searchFromEdit(edit: SearchEdit): { labels: string[]; q: string } {
+export function searchFromEdit(edit: SearchEdit): {
+  labels: string[];
+  authors: string[];
+  q: string;
+} {
   let free = '';
   let at = 0;
   for (const token of edit.tokens) {
@@ -71,39 +90,46 @@ export function searchFromEdit(edit: SearchEdit): { labels: string[]; q: string 
     at = token.range.end;
   }
   free += edit.value.slice(at);
+  const names = (kind: FilterKind) => [
+    ...new Set(edit.tokens.filter((token) => token.kind === kind).map((token) => token.name)),
+  ];
   return {
-    labels: [...new Set(edit.tokens.map((token) => token.name))],
+    labels: names('label'),
+    authors: names('by'),
     q: free.split(/\s+/).filter(Boolean).join(' '),
   };
 }
-/** Add the label as a token, or drop it when the draft already holds it; the free text stays. */
+/** Add the label as a token, or drop it when the draft already holds it; the rest stays. */
 export function toggleLabel(edit: SearchEdit, name: string): SearchEdit {
-  const { labels, q } = searchFromEdit(edit);
+  const { labels, authors, q } = searchFromEdit(edit);
   return editFromSearch(
     labels.includes(name) ? labels.filter((label) => label !== name) : [...labels, name],
     q,
+    authors,
   );
 }
 
-type SerializedLabelFilter = Spread<{ name: string }, SerializedLexicalNode>;
+type SerializedFilterToken = Spread<{ kind: FilterKind; name: string }, SerializedLexicalNode>;
 /** An editing token only: the route search holds the applied names, so a stale one just matches nothing. */
-export class LabelFilterNode extends DecoratorNode<ReactNode> {
+export class FilterTokenNode extends DecoratorNode<ReactNode> {
+  __kind: FilterKind;
   __name: string;
   static getType() {
-    return 'label-filter';
+    return 'filter-token';
   }
-  static clone(node: LabelFilterNode) {
-    return new LabelFilterNode(node.__name, node.__key);
+  static clone(node: FilterTokenNode) {
+    return new FilterTokenNode(node.__kind, node.__name, node.__key);
   }
-  constructor(name: string, key?: NodeKey) {
+  constructor(kind: FilterKind, name: string, key?: NodeKey) {
     super(key);
+    this.__kind = kind;
     this.__name = name;
   }
-  static importJSON(serialized: SerializedLabelFilter) {
-    return new LabelFilterNode(serialized.name).updateFromJSON(serialized);
+  static importJSON(serialized: SerializedFilterToken) {
+    return new FilterTokenNode(serialized.kind, serialized.name).updateFromJSON(serialized);
   }
-  exportJSON(): SerializedLabelFilter {
-    return { ...super.exportJSON(), type: 'label-filter', name: this.__name };
+  exportJSON(): SerializedFilterToken {
+    return { ...super.exportJSON(), type: 'filter-token', kind: this.__kind, name: this.__name };
   }
   createDOM() {
     const node = document.createElement('span');
@@ -120,31 +146,50 @@ export class LabelFilterNode extends DecoratorNode<ReactNode> {
     return true;
   }
   getTextContent() {
-    return `${TRIGGER}${this.__name}`;
+    return `${TRIGGERS[this.__kind]}${this.__name}`;
   }
   decorate() {
-    return createElement(LabelFilterChip, { nodeKey: this.getKey(), name: this.__name });
+    return createElement(FilterTokenChip, {
+      nodeKey: this.getKey(),
+      kind: this.__kind,
+      name: this.__name,
+    });
   }
 }
-const isLabelFilter = (node: LexicalNode): node is LabelFilterNode =>
-  node instanceof LabelFilterNode;
+const isFilterToken = (node: LexicalNode): node is FilterTokenNode =>
+  node instanceof FilterTokenNode;
 
 /** Removing a token is a discrete choice, so it applies at once instead of waiting for Enter. */
 const RemovedToken = createContext<(edit: SearchEdit) => void>(() => {});
 
-function LabelFilterChip({ nodeKey, name }: { nodeKey: NodeKey; name: string }) {
+function FilterTokenChip({
+  nodeKey,
+  kind,
+  name,
+}: {
+  nodeKey: NodeKey;
+  kind: FilterKind;
+  name: string;
+}) {
   const [editor] = useLexicalComposerContext();
   const removed = useContext(RemovedToken);
   return (
-    <span className="label-filter-chip" data-label-filter={name}>
+    <span
+      className="label-filter-chip"
+      {...(kind === 'label' ? { 'data-label-filter': name } : { 'data-by-filter': name })}
+    >
       <span className="label-filter-name">
-        {TRIGGER}
+        {TRIGGERS[kind]}
         {name}
       </span>
       <BrowserIconAction
         type="button"
         variant="text"
-        label={text.pageList.removeFilter(name)}
+        label={
+          kind === 'label'
+            ? text.pageList.removeFilter(name)
+            : text.pageList.removeAuthorFilter(name)
+        }
         icon={<X />}
         onActivate={(event) => {
           if (!event.isTrusted || !editor.isEditable()) return;
@@ -170,7 +215,7 @@ function LabelFilterChip({ nodeKey, name }: { nodeKey: NodeKey; name: string }) 
 const extension = defineExtension({
   name: 'Colab/PageListSearch',
   namespace: 'ColabPageListSearch',
-  nodes: [LabelFilterNode],
+  nodes: [FilterTokenNode],
   dependencies: [richInputExtension],
   $initialEditorState: () => $replaceRichInput(''),
   onError: (error: Error) => {
@@ -180,7 +225,8 @@ const extension = defineExtension({
 const searchDocument: RichInputDocument<SearchEdit> = {
   read: () => ({
     value: $richInputText(),
-    tokens: $richInputTokens(isLabelFilter).map(({ node, range }) => ({
+    tokens: $richInputTokens(isFilterToken).map(({ node, range }) => ({
+      kind: node.__kind,
       name: node.__name,
       range,
     })),
@@ -190,21 +236,26 @@ const searchDocument: RichInputDocument<SearchEdit> = {
       edit.value,
       edit.tokens.map((token) => ({
         range: token.range,
-        create: () => new LabelFilterNode(token.name),
+        create: () => new FilterTokenNode(token.kind, token.name),
       })),
     ),
   equal: (a, b) => a.value === b.value && JSON.stringify(a.tokens) === JSON.stringify(b.tokens),
 };
 
-/** The `label:` text before the caret in the text run it sits in; tokens are never queries. */
-export function labelQuery(run: string, caret: number) {
-  const match = /(?:^|\s)label:([^\n]*)$/i.exec(run);
-  return match
-    ? { start: caret - match[1].length - TRIGGER.length, end: caret, query: match[1] }
-    : undefined;
+/** The `label:` or `by:` text before the caret in the text run it sits in; tokens are never queries. */
+export function filterQuery(run: string, caret: number) {
+  const match = /(?:^|\s)(label|by):([^\n]*)$/i.exec(run);
+  if (!match) return undefined;
+  const kind = match[1].toLowerCase() as FilterKind;
+  return {
+    kind,
+    start: caret - match[2].length - TRIGGERS[kind].length,
+    end: caret,
+    query: match[2],
+  };
 }
 /** Names holding every word of the query, ignoring case, that the draft has not already taken. */
-export function labelCandidates(
+export function nameCandidates(
   labels: readonly { name: string; count: number }[],
   query: string,
   taken: readonly string[],
@@ -222,13 +273,15 @@ export interface PageListSearchProps {
   /** An intentional replacement from outside the editor (chip click, Back, clear). */
   resetKey: number;
   labels: readonly { name: string; count: number }[];
+  /** Creators of the pages the list could show, for `by:`. */
+  authors: readonly { name: string; count: number }[];
   /** Enter with no suggestion list open. */
   onApply(edit: SearchEdit): void;
   /** Escape with no suggestion list open. */
   onClear(): void;
 }
 
-/** The shared rich input with a `label:` token; the page list owns what the draft means. */
+/** The shared rich input with `label:` and `by:` tokens; the page list owns what the draft means. */
 export function PageListSearch(props: PageListSearchProps) {
   return (
     <RemovedToken value={props.onApply}>
@@ -252,7 +305,7 @@ function SearchField(props: PageListSearchProps) {
   const current = useRef(props);
   current.current = props;
   const [{ query, open }, setSuggestions] = useState<{
-    query?: ReturnType<typeof labelQuery>;
+    query?: ReturnType<typeof filterQuery>;
     open: boolean;
   }>({ open: false });
   const setOpen = useCallback((open: boolean) => {
@@ -265,7 +318,7 @@ function SearchField(props: PageListSearchProps) {
         editorState.read(() => {
           const selection = $getSelection();
           const caret = $richInputCaret();
-          let next: ReturnType<typeof labelQuery>;
+          let next: ReturnType<typeof filterQuery>;
           if (
             caret !== undefined &&
             $isRangeSelection(selection) &&
@@ -273,7 +326,7 @@ function SearchField(props: PageListSearchProps) {
           ) {
             const node = selection.anchor.getNode();
             if ($isTextNode(node))
-              next = labelQuery(node.getTextContent().slice(0, selection.anchor.offset), caret);
+              next = filterQuery(node.getTextContent().slice(0, selection.anchor.offset), caret);
           }
           const changed = !!(dirtyElements.size || dirtyLeaves.size);
           setSuggestions((previous) => {
@@ -292,8 +345,13 @@ function SearchField(props: PageListSearchProps) {
       }),
     [editor],
   );
-  const taken = props.edit.tokens.map((token) => token.name);
-  const candidates = labelCandidates(props.labels, query?.query ?? '', taken);
+  const kind = query?.kind ?? 'label';
+  const taken = props.edit.tokens.filter((token) => token.kind === kind).map((token) => token.name);
+  const candidates = nameCandidates(
+    kind === 'label' ? props.labels : props.authors,
+    query?.query ?? '',
+    taken,
+  );
   const options = candidates.map(({ name, count }) => ({
     value: name,
     label: `${name} (${count})`,
@@ -303,7 +361,7 @@ function SearchField(props: PageListSearchProps) {
     editor.update(
       () => {
         const selection = $selectRichInputRange(query.start, query.end);
-        selection.insertNodes([new LabelFilterNode(name), $createTextNode(' ')]);
+        selection.insertNodes([new FilterTokenNode(query.kind, name), $createTextNode(' ')]);
         const active = $getSelection();
         if ($isRangeSelection(active)) active.format = 0;
       },

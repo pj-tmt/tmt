@@ -2,11 +2,36 @@ import { describe, expect, it } from 'vite-plus/test';
 import { REMOTE_REFUSAL_CODES, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { SYNC_ERROR_CODES } from '../src/connection.js';
 import { classify, CONNECTION_CODES, SYNC_DISCONNECTED } from '../src/connection-state.js';
-import { ReopenFailedError, SessionLimitError } from '../src/registration.js';
+import { ReopenFailedError, SessionLimitError, jsonResponse } from '../src/registration.js';
 
 const of = (code: string) => classify(new Error(code));
 
 describe('connection classifier', () => {
+  it.each(['DENIED', 'UNAVAILABLE', 'NEW_ADMISSION_CODE', undefined])(
+    'keeps an HTTP admission refusal %s recoverable',
+    async (code) => {
+      const refusal = await jsonResponse(
+        new Response(JSON.stringify(code === undefined ? {} : { code }), { status: 403 }),
+        8192,
+      ).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(Error);
+      expect(classify(refusal as Error)).toEqual({ recovery: 'reopen', cause: 'generic' });
+    },
+  );
+
+  it.each([
+    ['REMOTE_DEVICE_REVOKED', 'access'],
+    ['REMOTE_DEVICE_NOT_FOUND', 'access'],
+    ['REMOTE_CLOSED', 'access'],
+    ['REMOTE_SESSION_ENDED', 'session'],
+  ])('ends a named HTTP refusal %s with its reason', async (code, cause) => {
+    const refusal = await jsonResponse(
+      new Response(JSON.stringify({ code }), { status: 403 }),
+      8192,
+    ).catch((error: unknown) => error);
+    expect(classify(refusal as Error)).toEqual({ recovery: 'none', cause });
+  });
+
   // Behavior-equality table: each row is what live.ts, readmit.ts and
   // terminal-failure.ts decided separately before one table owned them.
   it.each([

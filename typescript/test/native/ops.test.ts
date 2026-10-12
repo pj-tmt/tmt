@@ -229,7 +229,7 @@ describe('squad extension', () => {
         JSON.parse((await runCli(offline, ['squad', 'layout', 'validate', file, '--json'])).stdout)
           .error.code
       ).toBe('LAYOUT_IO');
-      expect((await runCli(offline, ['squad', 'layout', 'validate', '--json'])).status).toBe(2);
+      expect((await runCli(offline, ['squad', 'layout', 'validate', '--json'])).status).toBe(1);
       expect(existsSync(sandbox.database)).toBe(before);
       expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml'), 'utf8')).toBe('invalid [');
     });
@@ -1047,7 +1047,7 @@ o = "run touch ${marker}"
         ['ops', 'ls'],
         ['ops', 'sq', 'board'],
       ]) {
-        expect((await runCli(sandbox, args)).status).toBe(2);
+        expect((await runCli(sandbox, args)).status).toBe(1);
       }
       for (const name of ['squad', 'sq']) {
         for (const args of [[name], [name, 'ls']]) {
@@ -1139,7 +1139,7 @@ o = "run touch ${marker}"
       expect(routed.stdout).toContain('Usage: tmt ops hotkeys install [OPTIONS]');
       expect(routed.stdout).toContain('\nExamples:\n  # See the bindings and the line');
       const unknown = await runCli(sandbox, ['ops', 'squad', 'help', 'bogus']);
-      expect(unknown.status).toBe(2);
+      expect(unknown.status).toBe(1);
       expect(unknown.stderr).toContain("unrecognized subcommand 'bogus'");
       // Without --squad the shape never depends on how many squads exist.
       const none = await squad(sandbox, ['status']);
@@ -1168,6 +1168,63 @@ o = "run touch ${marker}"
           'utf8'
         )
       );
+    });
+  });
+
+  it('has no JSON form for help or version, answering like Core', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const args of [
+        ['ops', '--help'],
+        ['ops', '-h'],
+        ['ops', 'help', 'squad', 'ls'],
+        ['ops', 'squad', 'ls', '--help'],
+        ['ops', 'sq', 'help', 'ls'],
+        ['ops', '--version'],
+        ['ops', '-V'],
+        ['ops'],
+      ]) {
+        const result = await runCli(sandbox, [...args, '--json']);
+        const label = args.join(' ');
+        expect(result.status, label).toBe(1);
+        expect(result.stderr, label).toBe('');
+        expect(JSON.parse(result.stdout), label).toEqual({
+          error: { code: 'JSON_UNSUPPORTED', message: 'This command does not support --json.' },
+        });
+      }
+      // Human help and version are unchanged.
+      expect((await runCli(sandbox, ['ops', '-V'])).stdout).toMatch(/^ops \d/);
+      expect((await runCli(sandbox, ['ops', 'sq', 'ls', '--help'])).status).toBe(0);
+    });
+  });
+
+  it('keeps the offending argument in a JSON usage error and exits 1 like Core', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const args of [
+        ['ops', 'squad', 'ls', '--bogus', '--json'],
+        ['ops', '--json', 'squad', 'ls', '--bogus'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toBe('');
+        const body = JSON.parse(result.stdout);
+        expect(body.error.code).toBe('USAGE_ERROR');
+        expect(body.error.message).toContain("unexpected argument '--bogus' found");
+        expect(body.error.message).toContain('Usage: tmt ops squad ls');
+        expect(Object.keys(body)).toEqual(['error']);
+      }
+      const unknown = await runCli(sandbox, ['ops', 'squad', 'nosuch', '--json']);
+      expect(unknown.status).toBe(1);
+      expect(JSON.parse(unknown.stdout).error.message).toContain(
+        "unrecognized subcommand 'nosuch'"
+      );
+      // The human form keeps clap's text and its pointer to help, with the same exit code.
+      const human = await runCli(sandbox, ['ops', 'squad', 'ls', '--bogus']);
+      expect(human.status).toBe(1);
+      expect(human.stdout).toBe('');
+      expect(human.stderr).toContain("unexpected argument '--bogus' found");
+      expect(human.stderr).toContain("For more information, try '--help'.");
     });
   });
 
@@ -1407,7 +1464,7 @@ o = "run touch ${marker}"
       const repeat = await runCli(sandbox, ['ops', 'sq', 'me', '--clear']);
       expect(repeat.stdout).toBe('No identity was recorded; nothing changed.\n');
       const both = await runCli(sandbox, ['ops', 'sq', 'me', 'Ben', '--clear']);
-      expect(both.status).toBe(2);
+      expect(both.status).toBe(1);
     });
   });
 
@@ -1428,9 +1485,9 @@ o = "run touch ${marker}"
       // command, none is advertised, and none sends anything.
       for (const command of ['talk', 'reply', 'replies', 'annotate']) {
         const json = await squad(sandbox, [command, 'auth-fix', 'hello']);
-        expect(json.status, command).toBe(2);
+        expect(json.status, command).toBe(1);
         const human = await runCli(sandbox, ['ops', 'sq', command, 'auth-fix', 'hello']);
-        expect(human.status, command).toBe(2);
+        expect(human.status, command).toBe(1);
         expect(human.stdout, command).toBe('');
         expect(human.stderr, command).toContain(`unrecognized subcommand '${command}'`);
         expect(help.stdout, command).not.toMatch(new RegExp(`^  ${command} `, 'm'));
@@ -1918,7 +1975,7 @@ o = "run touch ${marker}"
       await squad(sandbox, ['set', 'Sol', 'role=lead', 'task=Review']);
       const before = observe(sandbox);
       for (const args of [['lead'], ['lead', 'Sol', '--none']]) {
-        expect((await squad(sandbox, args)).status).toBe(2);
+        expect((await squad(sandbox, args)).status).toBe(1);
         expect(observe(sandbox)).toEqual(before);
       }
       const cleared = await squad(sandbox, ['lead', '--none']);
@@ -3622,7 +3679,7 @@ describe('Squad checklist native commands', () => {
     });
   }, 60_000);
 
-  it('rejects operation inputs with exit1 and grammar inputs with exit2 without changing bytes', async () => {
+  it('rejects operation inputs and grammar inputs alike with exit 1 without changing bytes', async () => {
     await withSandbox(async (sandbox) => {
       const f = await fixture(sandbox);
       const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
@@ -3709,9 +3766,9 @@ describe('Squad checklist native commands', () => {
       ];
       for (const words of usage) {
         expect(await cli(words), JSON.stringify(words)).toMatchObject({
-          status: 2,
+          status: 1,
           stderr: '',
-          body: { error: { code: 'USAGE_ERROR' } },
+          body: { error: { code: 'USAGE_ERROR', message: expect.stringMatching(/^error: /) } },
         });
         expect(readFileSync(file)).toEqual(bytes);
       }

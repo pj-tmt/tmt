@@ -167,6 +167,10 @@ pub struct Registration {
     readers: crate::readers::Sessions,
     reader_clock: std::sync::Arc<dyn Fn() -> std::result::Result<u64, Code> + Send + Sync>,
     save_source: Option<crate::page::save::SourceOpener>,
+    /// The owner list's display-only page summaries; filled in the background, never signed.
+    summaries: std::sync::Arc<crate::summary::SummaryCache>,
+    /// How the background refresh opens its own read-only source; without it no summary is made.
+    summary_source: Option<crate::page::save::SourceOpener>,
 }
 impl Registration {
     pub fn new(
@@ -188,6 +192,8 @@ impl Registration {
             readers: Default::default(),
             reader_clock: std::sync::Arc::new(now_ms),
             save_source: None,
+            summaries: Default::default(),
+            summary_source: None,
         })
     }
     /// Server-owned reader clock, injected for deterministic expiry verification.
@@ -234,14 +240,46 @@ impl Registration {
         )
         .map_err(|_| Code::Unavailable)
     }
+    /// The owner's page list. Each page carries the summary the cache holds for its current
+    /// fingerprint, and pages without one are scheduled for a bounded background refresh: this
+    /// read replies at once with whatever is fresh and never waits for the fold.
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
-        serde_json::to_vec(&self.page_catalog(context)?).map_err(|_| Code::Unavailable)
+        let (mut catalog, fingerprints) = self.page_catalog_fingerprinted(context)?;
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let fresh = page["pageId"]
+                .as_str()
+                .and_then(|id| Some(id).zip(fingerprints.get(id)))
+                .and_then(|(id, fingerprint)| self.summaries.get(id, fingerprint));
+            if let Some(summary) = fresh {
+                page["summary"] = summary.json();
+            }
+        }
+        if let Some(open) = &self.summary_source {
+            let stale = self
+                .summaries
+                .stale(&fingerprints, crate::summary::REFRESH_PAGES);
+            crate::summary::refresh(&self.summaries, open, stale);
+        }
+        serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
     }
     fn page_catalog(&self, context: Option<&str>) -> std::result::Result<serde_json::Value, Code> {
+        self.page_catalog_fingerprinted(context)
+            .map(|(catalog, _)| catalog)
+    }
+    fn page_catalog_fingerprinted(
+        &self,
+        context: Option<&str>,
+    ) -> std::result::Result<
+        (
+            serde_json::Value,
+            std::collections::BTreeMap<String, String>,
+        ),
+        Code,
+    > {
         Context::parse(context)?;
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
-                tx.page_list()
+                Ok((tx.page_list()?, tx.page_fingerprints()?))
             })
             .map_err(map_error)
     }
@@ -374,6 +412,12 @@ impl Registration {
     }
     /// The serve supplies how to open a fresh read-only store, keyring and decoder, so that a
     /// large preparation never holds the writer or the sync mutex.
+    /// The source the page summary refresh reads through; the serve supplies it, so a registration
+    /// built without one (a test, an offline tool) lists pages without summaries.
+    pub fn with_summary_source(mut self, open: crate::page::save::SourceOpener) -> Self {
+        self.summary_source = Some(open);
+        self
+    }
     pub fn with_save_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.save_source = Some(open);
         self

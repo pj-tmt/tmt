@@ -1,5 +1,6 @@
 import { classify, type FailureCause } from './connection-state.js';
 import { text } from './strings.js';
+import { AdmissionRefusedError } from './registration.js';
 
 const SENTENCES: Record<FailureCause, string> = {
   access: text.failureAccessEnded,
@@ -17,5 +18,7 @@ const SENTENCE_MESSAGES: readonly string[] = [text.noWraps, text.reconnectFailed
 /** The sentence a reader sees for a terminal failure, plus the raw token to keep as a reference. */
 export function terminalFailure(error: Error): { sentence: string; reference?: string } {
   if (SENTENCE_MESSAGES.includes(error.message)) return { sentence: error.message };
+  if (error instanceof AdmissionRefusedError && classify(error).recovery === 'reopen')
+    return { sentence: text.reconnectFailed, reference: error.message.slice(0, 120) };
   return { sentence: SENTENCES[classify(error).cause], reference: error.message.slice(0, 120) };
 }
