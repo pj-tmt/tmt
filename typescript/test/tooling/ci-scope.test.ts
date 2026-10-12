@@ -2893,6 +2893,13 @@ describe('required CI gate', () => {
     expect(acceptance.match(/cargo build /g)).toHaveLength(1);
     expect(acceptance).toContain('-p tmt-cli -p tmt-remote -p tmt-colab --bins');
     expect(acceptance).toContain('test:acceptance --workers=1 --reporter=list,json');
+    // Two shards run the one single-worker suite (#2827): each builds its own binaries and world,
+    // keeps its own concurrency group and evidence, and neither cancels the other.
+    expect(acceptance).toContain('fail-fast: false');
+    expect(acceptance).toContain('shard: [1, 2]');
+    expect(acceptance).toContain('--shard=${{ matrix.shard }}/2 --output');
+    expect(acceptance).toContain('-${{ matrix.shard }}\n      # A label edit must never cancel');
+    expect(acceptance).toContain('name: colab-acceptance-results-${{ matrix.shard }}');
     expect(acceptance).not.toContain('continue-on-error');
     expect(acceptance).not.toContain('|| true');
     const upload = acceptance.slice(
