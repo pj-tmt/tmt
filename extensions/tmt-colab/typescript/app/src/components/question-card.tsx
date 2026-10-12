@@ -1,12 +1,7 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { useAgentDirectory } from '../agent-directory.js';
-import { CommentSendFailures } from '../comment-send-failures.js';
-import { sendCommentAsks, type MessageSendFailure } from '../comment-send.js';
-import { messageRecipient } from '../message-recipient.js';
 import {
-  answerComment,
   canonicalQuestionThread,
   currentAnswer,
   QUESTION_SHORT_POINTS,
@@ -14,23 +9,26 @@ import {
   type Question,
 } from '../questions.js';
 import { CommentExchange } from '../thread-panel.js';
-import { captureConversation } from '../thread-store.js';
-import type { CommentContext } from '../thread-store.js';
-import type { PageAsk, AskBinding } from '../ask-panel.js';
+import type { PageAsk, AskBinding, AskRetryInput } from '../ask-panel.js';
 import type { ThreadBinding } from '../thread-store.js';
-import type { QuoteSelector, ThreadView } from '../thread-records.js';
+import type { ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
-import { MessageComposer } from './message-composer.js';
-import type { ComposerEdit } from './message-composer-edit.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
-import { text } from '../strings.js';
 import { compactRelativeTime } from '../display-time.js';
 
-/** All controls and answer state live in the parent. Markup names never grant routing authority. */
+export interface QuestionDraft {
+  choices: string[];
+  other: boolean;
+  value: string;
+  changing: boolean;
+}
+
+/** Controlled answer/conversation presentation. The admitted group owns drafts and all effects. */
 export function QuestionCard({
   question,
-  selector,
+  draft,
+  onDraft,
   threads,
   discussion,
   ask,
@@ -40,11 +38,19 @@ export function QuestionCard({
   connectionPresentation,
   readOnly = false,
   descriptionHeight = 0,
-  sendNext = false,
-  onVerified,
+  busy = false,
+  recorded = false,
+  error,
+  body,
+  sharedAsk,
+  replyLabel,
+  onOpenReply,
+  onSend,
+  retryInput,
 }: {
   question: Question;
-  selector?: QuoteSelector;
+  draft: QuestionDraft;
+  onDraft(patch: Partial<QuestionDraft>): void;
   threads: readonly ThreadView[];
   discussion?: ThreadBinding;
   ask?: AskBinding;
@@ -54,117 +60,27 @@ export function QuestionCard({
   connectionPresentation?: ComposerConnectionPresentation;
   readOnly?: boolean;
   descriptionHeight?: number;
-  sendNext?: boolean;
-  onVerified?(): void;
+  busy?: boolean;
+  recorded?: boolean;
+  error?: string;
+  body?: string;
+  sharedAsk?: string;
+  replyLabel?: string;
+  onOpenReply?(): void;
+  onSend?(): void;
+  retryInput?: AskRetryInput;
 }) {
   const heading = useId();
-  const [choices, setChoices] = useState<string[]>([]);
-  const [other, setOther] = useState(false);
-  const [value, setValue] = useState('');
-  const [recipient, setRecipient] = useState<ComposerEdit>({ value: '' });
-  const editedRecipient = useRef(false);
-  const [busy, setBusy] = useState(false);
-  const sending = useRef(false);
-  const [error, setError] = useState<string>();
-  const [failures, setFailures] = useState<MessageSendFailure[]>([]);
-  const [changing, setChanging] = useState(false);
-  const [recorded, setRecorded] = useState<CommentContext>();
+  const { choices, other, value, changing } = draft;
   const section = useRef<HTMLElement>(null);
   useNotificationBlock(answerNotificationDestination(question.id), section, true);
-  const { directory, retry } = useAgentDirectory(ask);
-  const agents = directory.state === 'ready' ? directory.agents : undefined;
-  useEffect(() => {
-    if (editedRecipient.current || !agents) return;
-    editedRecipient.current = true;
-    const matches = agents.filter((agent) => agent.agentName === question.agent);
-    if (matches.length !== 1) return;
-    const agent = matches[0];
-    const token = `@${agent.agentName}`;
-    setRecipient({
-      value: token,
-      mentions: [
-        {
-          key: { machine: agent.machine, agent: agent.agent },
-          range: { start: 0, end: token.length },
-        },
-      ],
-    });
-  }, [agents, question.agent]);
   const thread = canonicalQuestionThread(question, threads);
   const answer = currentAnswer(question, thread?.comments ?? []);
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [answer]);
-  useEffect(() => {
-    if (
-      !recorded ||
-      !answer ||
-      answer.ref.writer !== recorded.message.writer ||
-      answer.ref.id !== recorded.message.id
-    )
-      return;
-    setRecorded(undefined);
-    onVerified?.();
-  }, [recorded, answer, onVerified]);
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
-  const decision = messageRecipient({
-    writable: !readOnly && !blocked && !!discussion,
-    edit: recipient,
-    destinations: agents,
-  });
-  const audience = decision.agents.map((agent) => `@${agent.agentName}`).join(', ');
-  const sendLabel = sendNext ? 'Send & next' : 'Send answer';
-  const body = answerComment(question, choices, value, other, title, recipient.value);
-  async function send() {
-    if (
-      sending.current ||
-      recorded ||
-      readOnly ||
-      blocked ||
-      !discussion ||
-      !selector ||
-      !body ||
-      !decision.allowed
-    )
-      return;
-    // Freeze recipients from their visible field only: question/choice @text cannot add recipients.
-    const captured = {
-      body,
-      selector: structuredClone(selector),
-      thread,
-      destinations: structuredClone(decision.agents),
-      conversation: captureConversation(thread, asks),
-      title,
-      url: location.href,
-    };
-    sending.current = true;
-    setBusy(true);
-    setError(undefined);
-    let origin: CommentContext | undefined;
-    try {
-      origin = captured.thread
-        ? await discussion.reply(captured.thread.ref, captured.body, captured.thread.revision)
-        : await discussion.create(captured.body, captured.selector);
-      setRecorded(origin);
-      const failed = await sendCommentAsks(ask, origin, captured.destinations, {
-        quote: captured.selector.exact,
-        comment: captured.body,
-        title: captured.title,
-        url: captured.url,
-        conversation: captured.conversation,
-      });
-      setFailures((previous) => [...previous, ...failed]);
-      setChanging(false);
-      // The committed view owns Answered. A local callback/iframe claim cannot supply it.
-      section.current?.focus({ preventScroll: true });
-    } catch {
-      setError(origin ? text.messageRecordedUncertain : text.messageRecordFailed);
-    } finally {
-      sending.current = false;
-      setBusy(false);
-    }
-  }
-  const disabled = blocked || busy || !!recorded || !discussion;
+  const disabled = blocked || busy || recorded || !discussion;
   const compose = !answer || changing;
   return (
     <section
@@ -184,12 +100,14 @@ export function QuestionCard({
           return;
         const target = event.target as HTMLElement;
         if (
+          onSend &&
+          !event.nativeEvent.isComposing &&
           event.key === 'Enter' &&
           question.kind === 'short' &&
           target.id === `${heading}-answer`
         ) {
           event.preventDefault();
-          void send();
+          onSend();
         }
       }}
     >
@@ -228,7 +146,7 @@ export function QuestionCard({
                 disabled={disabled}
                 onActivate={(event) => {
                   if (event.isTrusted) {
-                    setChanging(true);
+                    onDraft({ changing: true });
                     queueMicrotask(() =>
                       section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
                     );
@@ -263,14 +181,13 @@ export function QuestionCard({
                       checked={choices.includes(choice)}
                       onChange={(event) => {
                         if (question.kind === 'single') {
-                          setChoices([choice]);
-                          setOther(false);
+                          onDraft({ choices: [choice], other: false });
                         } else
-                          setChoices((previous) =>
-                            event.target.checked
-                              ? [...previous, choice]
-                              : previous.filter((item) => item !== choice),
-                          );
+                          onDraft({
+                            choices: event.target.checked
+                              ? [...choices, choice]
+                              : choices.filter((item) => item !== choice),
+                          });
                       }}
                     />
                     {choice}
@@ -291,8 +208,10 @@ export function QuestionCard({
                       aria-label="Other"
                       checked={other}
                       onChange={(event) => {
-                        setOther(event.target.checked);
-                        if (question.kind === 'single') setChoices([]);
+                        onDraft({
+                          other: event.target.checked,
+                          ...(question.kind === 'single' ? { choices: [] } : {}),
+                        });
                       }}
                     />
                     Other
@@ -310,7 +229,7 @@ export function QuestionCard({
                     id={`${heading}-answer`}
                     value={value}
                     disabled={disabled}
-                    onChange={(event) => setValue(event.target.value)}
+                    onChange={(event) => onDraft({ value: event.target.value })}
                     maxLength={QUESTION_SHORT_POINTS * 2}
                   />
                 ) : (
@@ -318,99 +237,28 @@ export function QuestionCard({
                     id={`${heading}-answer`}
                     value={value}
                     disabled={disabled}
-                    onChange={(event) => setValue(event.target.value)}
+                    onChange={(event) => onDraft({ value: event.target.value })}
                     maxLength={QUESTION_LONG_BYTES}
                     rows={question.kind === 'long' ? 4 : 2}
                   />
                 )}
               </div>
             )}
-            <MessageComposer
-              edit={recipient}
-              onChange={(edit) => {
-                editedRecipient.current = true;
-                setRecipient(edit);
-              }}
-              label="Answer recipient"
-              placeholder="Choose an @agent (optional)"
-              candidates={agents}
-              disabled={disabled}
-            />
-            {connectionPresentation ? (
-              <div className="annotation-hint" role="status">
-                {connectionPresentation.body}
-              </div>
-            ) : !audience ||
-              directory.state !== 'ready' ||
-              decision.ambiguous.length ||
-              decision.unavailable.length ||
-              decision.unknown.length ? (
-              <p className="annotation-hint" role="status">
-                {directory.state === 'failed'
-                  ? text.messageAgentsUnavailable
-                  : directory.state === 'loading' && ask
-                    ? text.messageAgentsChecking
-                    : decision.ambiguous.length
-                      ? text.messageAmbiguous(decision.ambiguous[0])
-                      : decision.unavailable.length
-                        ? text.messageRecipientUnavailable(decision.unavailable[0])
-                        : decision.unknown.length
-                          ? text.messageUnknown(decision.unknown[0], audience)
-                          : audience
-                            ? text.messageAsks(audience)
-                            : text.messageComment}
-              </p>
-            ) : null}
-            {!connectionPresentation && directory.state === 'failed' && (
-              <BrowserAction
-                label={text.messageAgentsRetry}
-                variant="text"
-                type="button"
-                disabled={busy}
-                onActivate={(event) => {
-                  if (event.isTrusted) retry();
-                }}
-              />
-            )}
-            <BrowserAction
-              label={`${sendLabel} · to ${audience || 'thread only'}`}
-              visibleLabel={sendLabel}
-              type="button"
-              variant="primary"
-              busy={busy}
-              disabled={disabled || !selector || !body || !decision.allowed}
-              onActivate={(event) => {
-                if (event.isTrusted) void send();
-              }}
-            />
           </>
         )}
-        {recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
+        {busy && <p role="status">Sending…</p>}
+        {!busy && recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
         {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
-        {!readOnly && (
-          <CommentSendFailures
-            failures={failures.filter(
-              (failure) =>
-                !asks.some(
-                  (record) =>
-                    record.messageIds?.includes(failure.message) &&
-                    record.agent === failure.recipient.agent &&
-                    record.machine === failure.recipient.machine,
-                ),
-            )}
-            binding={ask}
-            blocked={blocked || busy}
-            settled={(failure, outcome) =>
-              setFailures((previous) =>
-                outcome.adopted === true
-                  ? previous.filter((item) => item !== failure)
-                  : outcome.adopted === false
-                    ? previous
-                    : previous.map((item) =>
-                        item === failure ? { ...item, uncertain: true } : item,
-                      ),
-              )
-            }
+        {sharedAsk && <p className="question-shared-ask">{sharedAsk}</p>}
+        {onOpenReply && (
+          <BrowserAction
+            label={`Open reply · ${replyLabel}`}
+            visibleLabel="Open reply"
+            type="button"
+            variant="text"
+            onActivate={(event) => {
+              if (event.isTrusted) onOpenReply();
+            }}
           />
         )}
         {threads.some((thread) => thread.comments.length) && (
@@ -437,6 +285,7 @@ export function QuestionCard({
                     asks={asks}
                     blocked={blocked}
                     title={title}
+                    retryInput={retryInput}
                   />
                 ))}
               </div>

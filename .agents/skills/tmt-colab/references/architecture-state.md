@@ -85,8 +85,10 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 ## Message editing boundary
 
 The answer-block path uses parent `questions.ts` admission, `question-layer.tsx`
-group selection and verified-thread projection, and `components/question-card.tsx`
-controls. It reuses the shared BrowserTabs leaf. `inline-slots.ts` owns the one
+group selection and verified-thread projection. `components/question-group-card.tsx`
+owns in-tab drafts, visible recipients and the shared footer; `question-card.tsx`
+is controlled answer/conversation presentation. BrowserTabs and BrowserChips remain
+presentation leaves. `inline-slots.ts` owns the one
 measurement batch for proposal and answer cards; renderer-managed visual collapse
 keeps inactive authored questions in the canonical quote text map. The render-bound
 group/slot shapes and publication rules live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).

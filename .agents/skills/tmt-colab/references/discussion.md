@@ -73,8 +73,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   Actor labels and clocks remain display assertions.
 - Answer blocks: `questions.ts` validates inert authored structure and fixed plain-text
   answers; `question-layer.tsx` associates verified ordinary annotations by the
-  renderer's existing normal quote resolver. `components/question-card.tsx` owns
-  trusted controls, visible recipient selection and explicit comment-first Send.
+  renderer's existing normal quote resolver. `components/question-group-card.tsx`
+  owns drafts and visible recipient chips, delegates explicit Send to `sendAnswers`,
+  and supplies controlled `QuestionCard` panels. Shared replies/retries resolve from
+  verified comments and Ask records, with the canonical thread rendering the reply.
   Latest device provenance is projected by `readThreads`, never stored in a record;
   edits read admitted records rather than copying projection metadata. Agent replies
   cannot supply Answered. The canonical thread prefers a verified device answer,

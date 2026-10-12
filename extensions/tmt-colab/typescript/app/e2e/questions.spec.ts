@@ -13,14 +13,14 @@ async function mount(page: Page, question = {}, options = {}) {
   await run(page, 'mount', options);
   await run(page, 'question', question);
   await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
-  const card = page.locator('.question-card');
+  const card = page.locator('.question-group-card');
   await expect(
     card.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
   ).toBeVisible();
   return card;
 }
 async function send(page: Page) {
-  const card = page.locator('.question-card');
+  const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
   await expect(card.locator('.question-state')).toContainText('answered');
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
@@ -80,13 +80,13 @@ test('question/choice mentions never add destinations; unknown asking agent uses
   await run(page, 'mount');
   await run(page, 'question', { agent: 'Missing agent' });
   await expect(
-    page.locator('.question-card').getByRole('combobox', { name: 'Answer recipient' }),
-  ).toBeEmpty();
+    page.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
-  await page.locator('.question-card').getByLabel('Keep it', { exact: true }).check();
+  await page.locator('.question-group-card').getByLabel('Keep it', { exact: true }).check();
   await send(page);
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -109,7 +109,7 @@ test('near-limit text admits while an over-limit answer and malformed markup ref
     { choices: Array.from({ length: 21 }, (_, i) => `Choice ${i}`) },
   ]) {
     await run(page, 'question', options);
-    await expect(page.locator('.question-card')).toHaveCount(0);
+    await expect(page.locator('.question-group-card')).toHaveCount(0);
   }
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
@@ -192,7 +192,7 @@ test('removed markup leaves a normal annotation accessible in Comments', async (
   await card.getByLabel('Keep it', { exact: true }).check();
   await send(page);
   await run(page, 'change', '<p>The question was removed.</p>');
-  await expect(page.locator('.question-card')).toHaveCount(0);
+  await expect(page.locator('.question-group-card')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   await expect(page.getByTestId('annotation-row')).toContainText('Which heading should we use?');
   expect((await run(page, 'proof')).sends).toHaveLength(1);

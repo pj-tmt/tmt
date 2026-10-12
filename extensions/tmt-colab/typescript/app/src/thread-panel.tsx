@@ -13,7 +13,7 @@ import { MessageText } from './components/message-text.js';
 import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { useEffect, useState, type ReactNode } from 'react';
-import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
@@ -269,6 +269,7 @@ export function CommentExchange({
   allowEdit = true,
   readOnly = false,
   title,
+  retryInput,
 }: {
   comment: CommentView;
   thread: ThreadView;
@@ -279,10 +280,35 @@ export function CommentExchange({
   allowEdit?: boolean;
   readOnly?: boolean;
   title: string;
+  retryInput?: AskRetryInput;
 }) {
   const records = conversationAsks(thread, asks, true).filter((record) =>
     record.messageIds?.includes(comment.messageId),
   );
+  const ordinaryRetryInput =
+    !thread.deleted &&
+    !comment.deleted &&
+    isOwnDiscussionWriter(comment.ref.writer, binding?.deviceId)
+      ? {
+          quote: thread.anchor?.exact ?? '',
+          comment: comment.body,
+          title,
+          url: location.href,
+          context: {
+            thread: thread.ref,
+            message: comment.ref,
+            threadRevision: thread.revision,
+            messageRevision: comment.revision,
+            conversation: captureConversation(
+              {
+                ...thread,
+                comments: thread.comments.slice(0, thread.comments.indexOf(comment)),
+              },
+              asks,
+            ),
+          },
+        }
+      : undefined;
   const user = (status?: ReactNode, delivery?: ReactNode) => (
     <DiscussionComment
       readOnly={readOnly}
@@ -304,29 +330,11 @@ export function CommentExchange({
       blocked={blocked}
       renderUser={(_record, status, delivery) => user(status, delivery)}
       retryInput={
-        !thread.deleted &&
-        !comment.deleted &&
-        isOwnDiscussionWriter(comment.ref.writer, binding?.deviceId)
-          ? {
-              quote: thread.anchor?.exact ?? '',
-              comment: comment.body,
-              title,
-              url: location.href,
-              context: {
-                thread: thread.ref,
-                message: comment.ref,
-                threadRevision: thread.revision,
-                messageRevision: comment.revision,
-                conversation: captureConversation(
-                  {
-                    ...thread,
-                    comments: thread.comments.slice(0, thread.comments.indexOf(comment)),
-                  },
-                  asks,
-                ),
-              },
-            }
-          : undefined
+        typeof retryInput === 'function'
+          ? (record) =>
+              retryInput(record) ??
+              ((record.messageIds?.length ?? 0) < 2 ? ordinaryRetryInput : undefined)
+          : (retryInput ?? ordinaryRetryInput)
       }
     />
   ) : (

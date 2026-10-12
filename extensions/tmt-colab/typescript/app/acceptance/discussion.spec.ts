@@ -875,7 +875,7 @@ test('answer blocks publish verified normal annotations and keep changes and age
       agent.pane,
     );
     const page = await openPage(door, browser, created);
-    const card = page.locator('.question-card');
+    const card = page.locator('.question-group-card');
     await expect(
       card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
     ).toBeVisible();
@@ -979,18 +979,21 @@ test('answer Send names start with visible text through the served question grou
     const page = await openPage(door, browser, created);
     const group = page.locator('[data-question-group]');
     const first = group.locator('.question-card:visible');
-    const next = first.getByRole('button', { name: /^Send & next/ });
-    await expect(next).toHaveText('Send & next');
-    await expect(
-      first.getByRole('button', { name: 'Send & next · to thread only', exact: true }),
-    ).toBeVisible();
     await first.getByLabel('Yes', { exact: true }).check();
-    await next.click();
-    await expect(group.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
-    const last = group.locator('.question-card:visible');
-    await expect(last.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
+    const send = group.getByRole('button', { name: /^Send 1 answer/ });
+    await expect(send).toHaveText('Send 1 answer');
     await expect(
-      last.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
+      group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
+    ).toBeVisible();
+    await send.click();
+    await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(first.locator('.question-answer')).toHaveText('Yes');
+    await group.getByRole('tab').nth(1).click();
+    const last = group.locator('.question-card:visible');
+    await last.getByLabel('Your answer', { exact: true }).fill('One detail');
+    await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toHaveText('Send 1 answer');
+    await expect(
+      group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
     ).toBeVisible();
     const threads = JSON.parse(
       run(world, world.binaries.colab, ['threads', created.pageId, '--json']),
@@ -998,5 +1001,106 @@ test('answer Send names start with visible text through the served question grou
     expect(threads).toHaveLength(1);
     expect(threads[0].anchor.exact).toBe('Keep the heading?');
     expect(threads[0].comments[0].body).toContain('Answer to “Keep the heading?”: Yes');
+  });
+});
+
+test('a served question group records three answers and asks each recipient once, with one canonical reply and ordinary Change answer', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const alpha = await world.startAgent('batch-alpha', { gated: true });
+    const beta = await world.startAgent('batch-beta', { gated: true });
+    const browser = await pairBrowser(world, 'batch-reader', { talk: true });
+    const created = createPage(
+      world,
+      'Batch review',
+      '<h1>Batch review</h1><tmt-questions data-id="10000000-0000-4000-8000-000000000110"><p data-title>Review choices</p><tmt-question data-id="10000000-0000-4000-8000-000000000111" data-kind="single" data-agent="batch-alpha"><p data-question>Keep the heading?</p><span data-choice>Yes</span><span data-choice>No</span></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000112" data-kind="short" data-agent="batch-beta"><p data-question>Any details?</p></tmt-question><tmt-question data-id="10000000-0000-4000-8000-000000000113" data-kind="long" data-agent="batch-alpha"><p data-question>Any tradeoffs?</p></tmt-question></tmt-questions>',
+      alpha.pane,
+    );
+    const page = await openPage(door, browser, created);
+    const group = page.locator('[data-question-group]');
+    const current = () => group.locator('.question-card:visible');
+    await expect(
+      group.getByRole('button', { name: 'Remove @batch-alpha', exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      group.getByRole('button', { name: 'Remove @batch-beta', exact: true }),
+    ).toHaveCount(1);
+    await current().getByLabel('Yes', { exact: true }).check();
+    await group.getByRole('tab').nth(1).click();
+    await current().getByLabel('Your answer', { exact: true }).fill('Keep the introduction brief');
+    await group.getByRole('tab').nth(2).click();
+    await current().getByLabel('Your answer', { exact: true }).fill('Explain the tradeoffs');
+    expect(alpha.received()).toHaveLength(0);
+    expect(beta.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    await group
+      .getByRole('button', { name: 'Send 3 answers · to @batch-alpha, @batch-beta', exact: true })
+      .click();
+    await until(
+      () => alpha.received().length === 1 && beta.received().length === 1,
+      'one batch Ask per recipient',
+    );
+    await expect(group.getByRole('tab').nth(2)).toHaveAttribute('aria-selected', 'true');
+    for (const agent of [alpha, beta]) {
+      const receipt = agent.received()[0];
+      expect(receipt.identityId).toBe(agent.id);
+      expect(receipt.message).toContain('Quote:\nKeep the heading?');
+      expect(receipt.message).toContain(
+        'Answers to 3 questions:\nKeep the heading?: Yes\nAny details?: Keep the introduction brief\nAny tradeoffs?: Explain the tradeoffs',
+      );
+      writeFileSync(path.join(agent.gate, `${receipt.requestId}.release`), '');
+    }
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      2,
+    );
+    const threads = () =>
+      JSON.parse(run(world, world.binaries.colab, ['threads', created.pageId, '--json'])).threads;
+    const before: { id: string; anchor: { exact: string }; comments: { body: string }[] }[] =
+      threads();
+    expect(before).toHaveLength(3);
+    expect(new Set(before.map((thread) => thread.id)).size).toBe(3);
+    expect(before.map((thread) => thread.anchor.exact).sort()).toEqual([
+      'Any details?',
+      'Any tradeoffs?',
+      'Keep the heading?',
+    ]);
+    for (const thread of before) expect(thread.comments).toHaveLength(1);
+    await expect(group.getByTestId('ask-reply')).toHaveCount(2);
+    await expect(current().getByTestId('ask-reply')).toHaveCount(0);
+    // Admitted Ask projection does not promise recipient ordering. Pin both identities
+    // and the shared count without treating their arrival order as a UI contract.
+    await expect(current().locator('.question-shared-ask')).toHaveText(
+      /^Asked @(?:batch-alpha, @batch-beta|batch-beta, @batch-alpha) with 3 answers\.$/,
+    );
+    await current().getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
+    await expect(current().getByTestId('ask-entry').first()).toBeFocused();
+    await expect(current().getByTestId('ask-reply')).toHaveCount(2);
+    await page.reload();
+    await expect(group.getByTestId('ask-reply')).toHaveCount(2);
+    expect(alpha.received()).toHaveLength(1);
+    expect(beta.received()).toHaveLength(1);
+    await group.getByRole('tab').nth(1).click();
+    await current().getByRole('button', { name: 'Change answer', exact: true }).click();
+    await current().getByLabel('Your answer', { exact: true }).fill('One revised detail');
+    await group.getByRole('button', { name: /^Send 1 answer/ }).click();
+    await until(
+      () => alpha.received().length === 2 && beta.received().length === 2,
+      'one-question follow-up per recipient',
+    );
+    for (const agent of [alpha, beta]) {
+      expect(agent.received()[1].message).toContain('Answer to “Any details?”: One revised detail');
+      expect(agent.received()[1].message).not.toContain('Answers to 3 questions:');
+    }
+    const after: typeof before = threads();
+    expect(after).toHaveLength(3);
+    for (const original of before) {
+      const updated = after.find((thread) => thread.id === original.id);
+      expect(updated?.comments).toHaveLength(original.anchor.exact === 'Any details?' ? 2 : 1);
+    }
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      4,
+    );
   });
 });

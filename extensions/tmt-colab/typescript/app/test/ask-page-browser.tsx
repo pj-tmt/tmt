@@ -24,6 +24,8 @@ import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
 import type { ManagementPort } from '../src/management.js';
+import { commentsForAnswerBatch } from '../src/answer-batch.js';
+import { inspectQuestions } from '../src/questions.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { ThreadStatusCoordinator } from '../src/thread-status-coordinator.js';
 import { projectThreadPresentation } from '../src/thread-status-presentation.js';
@@ -34,6 +36,11 @@ let root: Root | undefined;
 let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
+let answerAttempts: {
+  input: Parameters<AskBinding['prepare']>[0];
+  selection: ReturnType<typeof selection>;
+  operationId: string;
+}[];
 let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
 let records: PageAsk[];
@@ -103,9 +110,12 @@ export async function mount(
     commentOnly?: boolean;
     /** A bounded preparation fault before any intent exists. */
     prepareFailures?: number;
+    /** Real fixture ledger refusals, so reload retries exercise the same admission as production. */
+    refuseAsks?: number;
     checking?: boolean;
     /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
     agents?: AgentDestination[];
+    agentsUnavailable?: boolean;
     drafts?: 'session' | 'failing';
     /** Hold the existing draft-store read to test shortcut lifetime fences. */
     holdDraftRead?: boolean;
@@ -117,6 +127,9 @@ export async function mount(
     pastReplies?: boolean;
     /** Retain the committed answer until the test releases the verified projection. */
     holdQuestionView?: boolean;
+    /** One answer publication fails, before commit or after a deliberately lost acknowledgement. */
+    failAnswerAt?: number;
+    recordBeforeFail?: boolean;
     /** Presentation-only test port for the real Manage dialog. */
     management?: ManagementPort;
     strict?: boolean;
@@ -134,6 +147,7 @@ export async function mount(
   sends = new RemoteDouble();
   dispatched = [];
   actions = [];
+  answerAttempts = [];
   readRefusal = undefined;
   records = options.pastReplies
     ? [
@@ -165,6 +179,7 @@ export async function mount(
       : {}),
   };
   let preparationFailures = options.prepareFailures ?? 0;
+  let askRefusals = options.refuseAsks ?? 0;
   presentationAgents = [];
   presentationGate = undefined;
   releasePresentation = undefined;
@@ -178,6 +193,7 @@ export async function mount(
       return { kind: 'ready', checkedAt: Date.now(), destinations: agents };
     },
     async destinations() {
+      if (options.agentsUnavailable) throw new Error('Fixture directory unavailable');
       if (options.checking)
         await new Promise<void>((resolve) => {
           finishDirectory = resolve;
@@ -198,21 +214,35 @@ export async function mount(
         throw new Error('Fixture preparation unavailable');
       }
       // The fixture routes by hash, so location.href is not the mounted page URL a real app has.
-      const fixture = fixtureAttempt(
-        {
-          ...selection(),
-          ...input,
-          url: pageLink(),
-          ...(input.context
+      const captured = {
+        ...selection(),
+        ...input,
+        url: pageLink(),
+        ...(input.batch
+          ? commentsForAnswerBatch(
+              [...(current.threads ?? [])],
+              input.batch,
+              inspectQuestions(current.source),
+              id(4),
+            )
+          : input.context
             ? { thread: input.context.thread.id, messageIds: [input.context.message.id] }
             : {}),
-        },
-        input.destination,
-      );
+      };
+      const fixture = fixtureAttempt(captured, input.destination, {
+        retryOf: input.retryOf,
+        mode: askRefusals-- > 0 ? 'refused' : 'accepted',
+      });
       if (preparing) await preparing;
       const result = await fixture;
       sends = result.remote;
       dispatched.push(sends);
+      if (input.context && input.comment.startsWith('Answer to “'))
+        answerAttempts.push({
+          input: structuredClone(input),
+          selection: structuredClone(captured),
+          operationId: result.attempt.preview.view.operationId,
+        });
       return result.attempt;
     },
     async recheck(operationId) {
@@ -326,6 +356,14 @@ export async function mount(
       emit();
     },
   };
+  let answerPublications = 0;
+  function publishAnswer<T>(body: string, commit: () => T): T {
+    if (body.startsWith('Answer to “') && ++answerPublications === options.failAnswerAt) {
+      if (options.recordBeforeFail) commit();
+      throw new Error('Fixture answer publication was not confirmed');
+    }
+    return commit();
+  }
   function addTurn(body: string, thread: ThreadView, attach?: MessageAttachments) {
     if (attach?.stored.some((s: StoredAttachment) => s.filename.includes('stale')) && staleOnce) {
       staleOnce = false;
@@ -449,14 +487,16 @@ export async function mount(
       return createThread(body, null, id(4), attach);
     },
     async reply(ref, body, _expected, attach) {
-      return addTurn(
-        body,
-        current.threads!.find((thread) => thread.ref.id === ref.id)!,
-        attach,
+      return publishAnswer(body, () =>
+        addTurn(
+          body,
+          current.threads!.find((thread) => thread.ref.id === ref.id)!,
+          attach,
+        ),
       );
     },
     async create(body, anchor, attach) {
-      return createThread(body, anchor, crypto.randomUUID(), attach);
+      return publishAnswer(body, () => createThread(body, anchor, crypto.randomUUID(), attach));
     },
     async edit() {
       throw new Error('Not used');
@@ -707,6 +747,9 @@ export function seenProof() {
 }
 export function proof() {
   return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+export function answerBatchProof() {
+  return structuredClone(answerAttempts);
 }
 export function discussionProof() {
   return structuredClone(current.threads);
@@ -1242,7 +1285,13 @@ export function question(
 
 /** Grouped authored markup uses the same parent parser and real quote/thread owners. */
 export function questionGroup(
-  options: { count?: number; darkPage?: boolean; longLabels?: boolean; lone?: boolean } = {},
+  options: {
+    count?: number;
+    darkPage?: boolean;
+    longLabels?: boolean;
+    lone?: boolean;
+    agents?: string[];
+  } = {},
 ) {
   const count = options.count ?? 2;
   const questions = Array.from({ length: count }, (_, index) => {
@@ -1250,7 +1299,7 @@ export function questionGroup(
     const label = options.longLabels
       ? `Question ${String(index + 1).padStart(2, '0')}: page review`
       : `Q${index + 1}`;
-    return `<tmt-question data-id="${id(100 + index)}" data-kind="${kind}" data-agent="Agent 1" data-label="${label}"><p data-question>${index === 0 ? 'Which heading should we use?' : index === 1 ? 'What should the introduction say?' : `What should section ${index + 1} explain?`}</p><p>Consider clarity and the intended reader.</p>${index === 0 ? '<span data-choice>Keep it</span><span data-choice>Change it</span>' : ''}</tmt-question>`;
+    return `<tmt-question data-id="${id(100 + index)}" data-kind="${kind}" data-agent="${options.agents?.[index] ?? 'Agent 1'}" data-label="${label}"><p data-question>${index === 0 ? 'Which heading should we use?' : index === 1 ? 'What should the introduction say?' : `What should section ${index + 1} explain?`}</p><p>Consider clarity and the intended reader.</p>${index === 0 ? '<span data-choice>Keep it</span><span data-choice>Change it</span>' : ''}</tmt-question>`;
   });
   current = {
     ...current,
@@ -1301,6 +1350,32 @@ export function questionAsk(state: PageAsk['state'] | 'replied') {
         ...(state === 'replied' ? { reply: 'I read your answer in this thread.' } : {}),
       },
     ],
+  };
+  emit();
+}
+
+/** Admitted batch records for display/reload cases. The captured Ask uses the real validator. */
+export function questionBatchAsk(state: PageAsk['state'] | 'replied') {
+  current = {
+    ...current,
+    asks: answerAttempts.map(({ input, selection, operationId }) => ({
+      thread: selection.thread,
+      messageIds: selection.messageIds,
+      operationId,
+      writer: id(4),
+      message: selection.comment,
+      agent: input.destination.agent,
+      agentName: input.destination.agentName,
+      deviceName: 'You',
+      machine: input.destination.machine,
+      issuedAt: Date.now(),
+      canTrack: true,
+      state: state === 'replied' ? 'accepted' : state,
+      ...(state === 'refused' ? { requestId: null, reason: 'REMOTE_SCOPE_DENIED' } : {}),
+      ...(state === 'replied'
+        ? { reply: `I read the answers: ${input.destination.agentName}.` }
+        : {}),
+    })),
   };
   emit();
 }
