@@ -101,6 +101,7 @@ async function main() {
       '--tag',
       image,
       ...(cargoJobs === '' ? [] : ['--build-arg', `CARGO_BUILD_JOBS=${cargoJobs}`]),
+      ...(adapterTests === '' ? [] : ['--build-arg', `TMT_E2E_ADAPTER_TESTS=${adapterTests}`]),
       '--file',
       buildFile,
       repoRoot,
