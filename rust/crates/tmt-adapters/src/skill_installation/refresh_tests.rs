@@ -131,7 +131,10 @@ fn retired_bundled_guidance_is_skipped_without_changing_links_or_sources() {
         let report = refresh(&global).unwrap();
         assert!(report.refreshed.is_empty());
         assert!(report.conflicts.is_empty());
-        assert_eq!(report.skipped, [office_target.clone()]);
+        assert_eq!(
+            report.skipped.as_slice(),
+            std::slice::from_ref(&office_target)
+        );
         assert_eq!(fs::read_link(&office_target).unwrap(), office_source);
         assert_eq!(
             fs::read(office_target.join("SKILL.md")).unwrap(),

@@ -201,13 +201,13 @@
     {
       "id": "browser-ui",
       "consumers": ["native"],
-      "why": "The private presentation leaf retains conservative full native verification. Colab guidance and Remote pages embed the checked CSS; Office web jobs do not consume this isolated leaf.",
+      "why": "The private presentation leaf retains conservative full native verification. Colab guidance and Remote pages embed the checked CSS.",
       "paths": ["design/browser-ui/**"]
     },
     {
       "id": "design-tokens",
       "consumers": ["native"],
-      "why": "Shared tokens project checked CSS embedded by native Colab guidance and Remote pages, and are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+      "why": "Shared tokens project checked CSS embedded by native Colab guidance and Remote pages, and are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path.",
       "paths": ["design/tokens/**"]
     },
     {
@@ -245,7 +245,7 @@
     {
       "id": "site",
       "consumers": [],
-      "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native or Office job reads it.",
+      "why": "The handbook website has its own workflow (.github/workflows/site.yml); no native job reads it.",
       "paths": ["site/**", ".github/workflows/site.yml"]
     },
     {
@@ -272,7 +272,7 @@
     {
       "id": "native-source",
       "consumers": ["native"],
-      "why": "Rust workspace, embedded skills and the Ops extension: checked by the native jobs; the Office web checks read none of it.",
+      "why": "Rust workspace, embedded skills and the Ops extension: checked by the native jobs.",
       "paths": ["rust/**", "skills/**", "extensions/tmt-ops/**"]
     },
     {

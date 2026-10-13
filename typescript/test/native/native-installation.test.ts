@@ -643,7 +643,7 @@ describe('native installation process contract', () => {
         expect(completion.status).toBe(0);
         expect(completion.stdout).not.toContain('__native-install');
         expect(completion.stdout).not.toContain('--product');
-        // Offline Office installation is public; only the internal publisher is hidden.
+        // Offline extension installation is public; only the internal publisher is hidden.
         expect(completion.stdout).toContain('--archive');
       }
       expect(existsSync(sandbox.database)).toBe(false);

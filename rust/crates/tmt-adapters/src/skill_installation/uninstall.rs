@@ -64,11 +64,7 @@ fn retained_targets(env: &ProviderEnvironment, global: &Path) -> io::Result<BTre
             }
         }
     }
-    targets.extend(
-        owned::owned_by(None, global, "office")?
-            .into_values()
-            .flatten(),
-    );
+    targets.extend(owned::owned_by(global, "office")?.into_values().flatten());
     Ok(targets)
 }
 
@@ -136,8 +132,7 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
         .into_iter()
         .filter(|owner| owner != "office")
     {
-        let report =
-            owned::remove_owned(None, &global, &owner, None).map_err(|failure| failure.cause)?;
+        let report = owned::remove_owned(&global, &owner, None).map_err(|failure| failure.cause)?;
         removal.removed.extend(report.removed);
         removal.kept.extend(report.kept);
     }

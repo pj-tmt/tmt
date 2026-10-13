@@ -846,7 +846,6 @@ fn validate_selection(only: &[String]) -> Result<(), Refusal> {
 /// hold (including one held by another owner) is nothing to remove, like a
 /// repeated removal. Unrecorded historical bundle links remain untouched.
 pub fn remove_owned(
-    _environment: Option<&ProviderEnvironment>,
     global: &Path,
     owner: &str,
     only: Option<&[String]>,
@@ -953,11 +952,7 @@ pub fn owned_roots(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<P
 }
 
 /// The skills an owner holds and each one's recorded targets.
-pub fn owned_by(
-    _environment: Option<&ProviderEnvironment>,
-    global: &Path,
-    owner: &str,
-) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
+pub fn owned_by(global: &Path, owner: &str) -> io::Result<BTreeMap<String, Vec<PathBuf>>> {
     let global = files::resolved(global)?;
     let mut targets = BTreeMap::<String, Vec<PathBuf>>::new();
     for (name, entry) in read_owners(&global)?.skills {

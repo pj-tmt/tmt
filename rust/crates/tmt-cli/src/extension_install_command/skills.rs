@@ -139,7 +139,7 @@ fn settle_publication(
     let global = &paths.global_dir;
     skill_installation::migrate_former_owned(global, product, &skills)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
-    let owned = skill_installation::owned_by(None, global, name)
+    let owned = skill_installation::owned_by(global, name)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let dropped: Vec<String> = previous
         .iter()
@@ -153,7 +153,7 @@ fn settle_publication(
         document["skills"]["published"] = published_document(&report);
     }
     if !dropped.is_empty() {
-        let removal = skill_installation::remove_owned(None, global, name, Some(&dropped));
+        let removal = skill_installation::remove_owned(global, name, Some(&dropped));
         let report = match &removal {
             Ok(report) => report,
             Err(error) => &error.report,

@@ -1296,7 +1296,7 @@ describe('tmt extension install surface', () => {
 
 describe('aggregate official upgrades', () => {
   it(
-    'keeps independent CLI/Squad/Remote/Colab pins and skips frozen Office even with invalid state',
+    'keeps independent CLI/Ops/Remote/Colab pins and leaves retired Office bytes untouched',
     { timeout: 60000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
@@ -1366,7 +1366,8 @@ describe('aggregate official upgrades', () => {
             hint: 'tmt extension upgrade colab --unpin',
           },
         ]);
-        writeFileSync(path.join(prefix, 'bin/tmt-office'), 'not a managed installation');
+        const retiredOffice = path.join(prefix, 'bin/tmt-office');
+        writeFileSync(retiredOffice, 'not a managed installation');
         const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
@@ -1377,6 +1378,7 @@ describe('aggregate official upgrades', () => {
           { product: 'remote', status: 'skippedPinned' },
           { product: 'colab', status: 'skippedPinned' },
         ]);
+        expect(readFileSync(retiredOffice, 'utf8')).toBe('not a managed installation');
         for (const [receipt, before] of extensionReceipts) {
           expect(readFileSync(receipt).equals(before)).toBe(true);
         }
