@@ -17,6 +17,19 @@ describe('retired extension guidance preservation', () => {
     async (dangling) => {
       await withSandbox(async (sandbox) => {
         const targets = oldLayout(sandbox, dangling);
+        const prefix = path.join(sandbox.root, 'prefix');
+        const retiredProgram = path.join(prefix, 'bin', 'tmt-office');
+        const retiredData = path.join(sandbox.globalDir, 'office', 'office.db');
+        const retiredNamespace = path.join(prefix, 'lib', 'tmt-office');
+        const retiredRelease = path.join(retiredNamespace, 'releases', '0.1.0-alpha.1');
+        mkdirSync(path.dirname(retiredProgram), { recursive: true });
+        mkdirSync(retiredRelease, { recursive: true });
+        mkdirSync(path.dirname(retiredData), { recursive: true });
+        writeFileSync(path.join(retiredRelease, 'tmt-office'), 'opaque installed Office program');
+        writeFileSync(path.join(retiredRelease, 'receipt.json'), 'opaque retained receipt');
+        symlinkSync('releases/0.1.0-alpha.1', path.join(retiredNamespace, 'current'));
+        symlinkSync('../lib/tmt-office/current/tmt-office', retiredProgram);
+        writeFileSync(retiredData, 'opaque retained Office data');
         const prior = targets.map((target) => ({
           target,
           source: readlinkSync(target),
@@ -37,14 +50,15 @@ describe('retired extension guidance preservation', () => {
           conflicts: [],
           skipped: expect.arrayContaining(targets),
         });
-        const removed = await runCli(sandbox, [
-          'uninstall',
-          '--yes',
-          '--prefix',
-          path.join(sandbox.root, 'prefix'),
-          '--json',
-        ]);
+        const removed = await runCli(sandbox, ['uninstall', '--yes', '--prefix', prefix, '--json']);
         expect(removed.status, removed.stdout + removed.stderr).toBe(0);
+        expect(readlinkSync(retiredProgram)).toBe('../lib/tmt-office/current/tmt-office');
+        expect(readlinkSync(path.join(retiredNamespace, 'current'))).toBe('releases/0.1.0-alpha.1');
+        expect(readFileSync(retiredProgram, 'utf8')).toBe('opaque installed Office program');
+        expect(readFileSync(path.join(retiredRelease, 'receipt.json'), 'utf8')).toBe(
+          'opaque retained receipt'
+        );
+        expect(readFileSync(retiredData, 'utf8')).toBe('opaque retained Office data');
         expect(parseWholeStdout(removed)).toMatchObject({
           data: { deleted: false },
           kept: expect.arrayContaining(

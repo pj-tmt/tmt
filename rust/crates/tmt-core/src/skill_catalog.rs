@@ -34,7 +34,8 @@ pub static BUNDLED: [BundledName; 2] = [
 ];
 
 /// Fixed historical bundle inventory, used only to verify older source generations.
-/// Retired names are not bundled, selectable, publishable or adoption candidates.
+/// Retired names are absent from the bundled catalog; this metadata never
+/// authorizes publication or adoption through the generic owner-supplied API.
 pub const HISTORICAL_BUNDLE_NAMES: [&str; 5] = [
     MAIN,
     INBOX,
