@@ -21,7 +21,11 @@ panic and TERM/HUP. Worker shutdown follows terminal restoration.
 regions once. `view::panes` dispatches workspace snapshots to `workspace::render`
 before independent row/pane painters. `board/mod.rs` receives input, snapshots
 and deferred events on one channel; snapshots wake painting directly. Redraws
-follow state/input/resize changes and changed clock text/spinner frames.
+follow state/input/resize changes and changed clock text/spinner frames. Each
+paint registers only visible dynamic label budgets and Overview quota rows;
+clock checks reuse those projections without roster traversal or source reads.
+Clipped countdown suffixes and hidden members do not wake the frame. Geometry
+invalidation clears this registry, and painting sets the next comparison base.
 
 Workspace tree/detail uses shared Outline/Strip/Scrolls. Conversation and inline
 input retain their WP1 owner and opaque covered-hit mask. Review/Result uses a

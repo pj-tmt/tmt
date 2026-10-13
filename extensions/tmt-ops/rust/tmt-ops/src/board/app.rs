@@ -679,6 +679,8 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    /// Clock text belongs to painted surfaces and is invalidated with frame geometry.
+    pub(in crate::board) frame_clocks: RefCell<Vec<super::view::ClockSurface>>,
     /// Where a row's choice chip was last drawn, with its row.
     pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     /// Each record's first visual line in the last rows draw, for paging.
@@ -3062,6 +3064,7 @@ impl App {
         self.input_viewport.set(None);
         self.input_band.set(None);
         self.hits.borrow_mut().clear();
+        self.frame_clocks.borrow_mut().clear();
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();

@@ -203,6 +203,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 .enumerate()
             {
                 let text = tree_line(app, tree, inside.width);
+                let target = crate::board::app::RowTarget::Workspace(tree.target.clone());
+                if let Some(raw) = app.target_row(&target)
+                    && crate::board::row_chips::clock(&app.labels, raw, crate::status::now_ms())
+                        .is_some()
+                {
+                    // The dynamic chips are the final spans after the fixed tree text.
+                    let fixed = text.spans.first().map_or(0, Span::width);
+                    let budget = usize::from(inside.width).saturating_sub(fixed + 1);
+                    if text.spans.len() > 1 {
+                        app.frame_clocks.borrow_mut().push(
+                            crate::board::view::ClockSurface::Labels {
+                                target,
+                                width: budget,
+                            },
+                        );
+                    }
+                }
                 let row = Rect::new(viewport.x, viewport.y + line as u16, viewport.width, 1);
                 if Some(&tree.target) == app.workspace.selected.as_ref() {
                     frame.buffer_mut().set_style(row, look.selection());

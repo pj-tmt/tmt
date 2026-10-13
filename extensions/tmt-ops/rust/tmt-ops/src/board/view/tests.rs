@@ -2044,22 +2044,98 @@ fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
 }
 
 #[test]
-fn only_visible_reply_age_text_invalidates_the_clock() {
-    let mut app = board(json!([]));
-    let view = app.view.as_mut().unwrap();
-    view.board = crate::config::Board::simple(
-        BoardMode::Tabs,
-        Direction::LeftRight,
-        vec![Pane::Rows, Pane::Replies],
-        &[],
-    );
-    view.replies = vec![json!({ "submittedAtMs": 1_000 })];
-    assert!(time_marks(&app, 61_000).is_empty());
-    app.focus = 1;
-    let first = time_marks(&app, 61_000);
-    assert!(!first.is_empty());
-    assert_eq!(first, time_marks(&app, 61_200));
-    assert_ne!(first, time_marks(&app, 121_000));
+fn only_visible_label_text_invalidates_the_clock() {
+    crate::status::with_now_ms(1_000, || {
+        let mut app = workspace_board();
+        app.view.as_mut().unwrap().replies = vec![json!({
+            "recipientId": crate::board::app::workspace::tests::MEMBER,
+            "requestId":"response", "submittedAtMs":1_000, "response":"quiet response"
+        })];
+        draw(&app, 160, 24);
+        assert!(
+            time_marks(&app, 1_000).is_empty(),
+            "a timestamp without displayed age cannot invalidate"
+        );
+        workspace_row(&mut app)["digest"] =
+            json!({"active":true, "digestUntilMs":121_000, "heldCount":2});
+        draw(&app, 160, 24);
+        let first = time_marks(&app, 1_000);
+        assert!(!first.is_empty());
+        assert_eq!(first, time_marks(&app, 1_200));
+        assert_ne!(first, time_marks(&app, 61_000));
+        assert_ne!(
+            first,
+            time_marks(&app, 121_000),
+            "expiration removes the displayed label"
+        );
+        app.invalidate_frame_geometry();
+        assert!(
+            time_marks(&app, 61_000).is_empty(),
+            "old geometry has no clock authority"
+        );
+        app.workspace.expanded.clear();
+        let room = crate::board::workspace::OpsTarget::Squad(
+            crate::board::app::workspace::tests::ROOM.into(),
+        );
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| row.target == room)
+            .unwrap();
+        app.select(index);
+        draw(&app, 80, 24);
+        assert!(
+            time_marks(&app, 61_000).is_empty(),
+            "collapsed members have no visible labels"
+        );
+    });
+}
+
+#[test]
+fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
+    crate::status::with_now_ms(1_000, || {
+        let mut app = workspace_board();
+        workspace_row(&mut app)["digest"] =
+            json!({"active":true, "digestUntilMs":121_000, "heldCount":2});
+        let mut terminal = Terminal::new(TestBackend::new(6, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::conversation::render(frame, &app, frame.area()))
+            .unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|cell| cell.symbol() == "d")
+        );
+        let first = time_marks(&app, 1_000);
+        assert_eq!(first, vec!["digest"]);
+        assert_eq!(first, time_marks(&app, 61_000));
+        assert_ne!(first, time_marks(&app, 121_000));
+    });
+}
+
+#[test]
+fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() {
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
+        draw(&app, 160, 36);
+        let initial = time_marks(&app, NOW);
+        assert!(!initial.is_empty());
+        let later = time_marks(&app, NOW + 3_600_000);
+        assert_ne!(
+            initial, later,
+            "reset/observation text advances without a new source read"
+        );
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
+        draw(&app, 160, 36);
+        assert!(
+            time_marks(&app, NOW).is_empty(),
+            "quota clock belongs to Overview"
+        );
+    });
 }
 
 #[test]

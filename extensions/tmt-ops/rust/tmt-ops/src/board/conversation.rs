@@ -375,6 +375,14 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .enumerate()
     {
         if retained_chip && index == 3 {
+            if super::row_chips::clock(&app.labels, row, crate::status::now_ms()).is_some() {
+                app.frame_clocks
+                    .borrow_mut()
+                    .push(super::view::ClockSurface::Labels {
+                        target: target.clone(),
+                        width: usize::from(area.width),
+                    });
+            }
             let mut x = 0;
             for span in &line.spans {
                 let width = span.width();

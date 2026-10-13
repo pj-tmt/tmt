@@ -223,6 +223,25 @@ fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     Value::Array(rows)
 }
 
+/// The same admitted pieces as the provider strip, including role changes;
+/// clipped or hidden provider rows cannot invalidate the frame.
+pub(in crate::board) fn clock_marks(
+    standings: Option<&[Standing]>,
+    now_ms: u64,
+    width: u16,
+    count: usize,
+) -> String {
+    serde_json::to_string(
+        &rows(standings, now_ms, width)
+            .as_array()
+            .unwrap()
+            .iter()
+            .take(count)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap()
+}
+
 /// Hidden values use the same projection/budget as the meter, so detail never
 /// repeats a rate/window/label that already survives in the current strip.
 pub(in crate::board) fn hidden_limits(

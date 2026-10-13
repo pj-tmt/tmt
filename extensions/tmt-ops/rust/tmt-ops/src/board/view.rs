@@ -16,6 +16,7 @@ use ratatui::{
 use tmt_cli_style::grid::Align;
 use tmt_tui::components::strip;
 
+pub(in crate::board) use header::ClockSurface;
 #[cfg(test)]
 pub(super) use header::SPINNER_DELAY;
 pub(super) use header::{spinner_frame, spinner_wait, time_marks};
@@ -98,6 +99,7 @@ pub(in crate::board) fn render_frame(
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
     app.hits.borrow_mut().clear();
+    app.frame_clocks.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
@@ -157,6 +159,12 @@ pub(in crate::board) fn render_frame(
     if let Some(line) = usage {
         app.home_counters.borrow_mut().place_header(meter_status);
         strip::paint_left(frame.buffer_mut(), meter_status, line);
+    }
+    if !home_limits.is_empty() && limits.height > 0 {
+        app.frame_clocks.borrow_mut().push(ClockSurface::Limits {
+            width: limits.width,
+            rows: usize::from(limits.height),
+        });
     }
     for (offset, line) in home_limits
         .into_iter()

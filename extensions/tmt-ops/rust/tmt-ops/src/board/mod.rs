@@ -369,6 +369,10 @@ fn session(
         marks = next_marks;
         if dirty {
             draw(app)?;
+            // Painting may admit/drop clock surfaces. Set the comparison base
+            // from that frame, so initial paint or clipping does not cause a
+            // second unchanged frame on the next loop tick.
+            marks = view::time_marks(app, crate::status::now_ms());
             if app.timing.is_some() {
                 let usable = app.view.is_some() && !app.loading();
                 if let Some(timing) = &mut app.timing {
