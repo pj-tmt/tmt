@@ -799,7 +799,10 @@
                 // Inactive questions stay resolved in canonical text, without an origin marker.
                 if (!box.width || !box.height) continue;
                 const top = Math.max(0, box.top + scrollY);
-                if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
+                if (Number.isFinite(top) && top <= 1000000) {
+                  const tail = [...range.getClientRects()].filter((rect) => rect.width && rect.height).at(-1);
+                  if (tail) positions.push({ id: item.id, top, rect: { x: tail.left + scrollX, y: tail.top + scrollY, width: tail.width, height: tail.height } });
+                }
               }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));

@@ -207,7 +207,7 @@ device.` once per failure and keeps the in-tab draft. Resolve/Reopen is the pare
   no source truth or application capability. Known-thread marker messages open
   only parent views. Highlight messages contain only IDs, quote selectors and paint-only ordinals, never
   comment bodies or display labels; marker tooltips use quoted text and comment
-  first-line labels stay in parent chrome. Selection rectangles and anchor offsets are bounded cosmetic
+  first-line labels stay in parent chrome. Selection rectangles, final-text anchor rectangles and navigation offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Highlight hover geometry uses the latest
   trusted pointer position once per animation frame; gesture movement stays synchronous.
   Clearing a target cancels pending hover work. Ports/observers clear on teardown.

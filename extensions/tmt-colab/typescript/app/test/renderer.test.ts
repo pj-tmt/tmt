@@ -1,10 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'vite-plus/test';
-import { MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
+import { isRenderRectangle, MAX_RENDER_SOURCE_BYTES } from '../src/renderer.js';
 
 const html = readFileSync(new URL('../public/renderer.html', import.meta.url), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+test('selection and saved-anchor rectangles share exact bounded cosmetic admission', () => {
+  const rect = { x: 12, y: 40, width: 200, height: 24 };
+  expect(isRenderRectangle(rect)).toBe(true);
+  for (const invalid of [
+    null,
+    [],
+    { ...rect, extra: true },
+    { ...rect, width: -1 },
+    { ...rect, x: 1_000_001 },
+    { ...rect, y: NaN },
+    { ...rect, height: Infinity },
+    { ...rect, x: '12' },
+    { x: 12, y: 40, width: 200 },
+  ])
+    expect(isRenderRectangle(invalid)).toBe(false);
+});
 test('paint ordinals reject malformed, duplicate and out-of-count batches', () => {
   const owner = script.slice(script.indexOf('const validQuote ='), script.indexOf('let batch ='));
   const admit = runInNewContext(`${owner}; validHighlightAnchors`, {

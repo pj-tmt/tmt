@@ -2439,7 +2439,12 @@ reply timeout; it keeps its accepted ledger state and read-only recheck action. 
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters
 the author-code renderer; highlights carry only anchor IDs, quote selectors and bounded paint-only ordinals.
 The internal highlight message separates an optional unsaved quote from numbered anchors;
-its admitted thread count bounds unique positive safe-integer ordinals. Invalid anchor
+its admitted thread count bounds unique positive safe-integer ordinals.
+Saved-anchor positions are exact `{id,top,rect}` entries with one known unique ID,
+a finite bounded navigation top and a final-text rect using the existing selection
+rectangle keys/bounds. The parent keeps one position map and clamps cosmetic window
+placement to the canvas below trusted chrome. Rectangles remain untrusted display
+claims and grant no open, send, focus or routing authority. Invalid anchor
 keys, duplicate IDs/ordinals or out-of-count ordinals reject the whole message.
 Numbers derive from revision-1 author-clock creation time over non-deleted threads,
 with writer/thread UUID ties; deletion renumbers and resolved threads keep their

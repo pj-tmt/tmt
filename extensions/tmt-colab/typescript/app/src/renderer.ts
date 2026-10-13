@@ -22,6 +22,22 @@ export interface SelectionRect {
   width: number;
   height: number;
 }
+/** Cosmetic geometry only, shared by selection and saved-anchor reports. */
+export function isRenderRectangle(value: unknown): value is SelectionRect {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const rect = value as Record<string, unknown>;
+  return (
+    Object.keys(rect).length === 4 &&
+    ['x', 'y', 'width', 'height'].every(
+      (key) =>
+        typeof rect[key] === 'number' &&
+        Number.isFinite(rect[key]) &&
+        Math.abs(rect[key]) <= MAX_RENDER_HEIGHT,
+    ) &&
+    (rect.width as number) >= 0 &&
+    (rect.height as number) >= 0
+  );
+}
 export interface AnchorPosition {
   id: string;
   top: number;
@@ -151,7 +167,7 @@ export async function mountRenderer(
   const stopTheme = subscribeTheme(sendTheme);
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
-  const positions = new Map<string, number>();
+  const positions = new Map<string, { top: number; rect: SelectionRect }>();
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
   let questionThreads: { id: string; selector: QuoteSelector }[] = [];
@@ -371,29 +387,8 @@ export async function mountRenderer(
       }
       let rect: SelectionRect | null = null;
       if (value.rect !== undefined && value.rect !== null) {
-        const candidate = value.rect as Record<string, unknown>;
-        if (
-          !candidate ||
-          typeof candidate !== 'object' ||
-          Array.isArray(candidate) ||
-          Object.keys(candidate).length !== 4 ||
-          !['x', 'y', 'width', 'height'].every(
-            (key) =>
-              typeof candidate[key] === 'number' &&
-              Number.isFinite(candidate[key]) &&
-              Math.abs(candidate[key] as number) <= MAX_RENDER_HEIGHT,
-          ) ||
-          (candidate.width as number) < 0 ||
-          (candidate.height as number) < 0
-        )
-          return;
-        if (selector)
-          rect = {
-            x: candidate.x as number,
-            y: candidate.y as number,
-            width: candidate.width as number,
-            height: candidate.height as number,
-          };
+        if (!isRenderRectangle(value.rect)) return;
+        if (selector) rect = structuredClone(value.rect);
       }
       options.onSelection?.(value.text, selector, rect);
       return;
@@ -597,7 +592,8 @@ export async function mountRenderer(
           !position ||
           typeof position !== 'object' ||
           Array.isArray(position) ||
-          Object.keys(position).length !== 2 ||
+          Object.keys(position).length !== 3 ||
+          !isRenderRectangle(position.rect) ||
           typeof position.id !== 'string' ||
           !value.resolved.includes(position.id) ||
           positions.has(position.id) ||
@@ -609,7 +605,7 @@ export async function mountRenderer(
           positions.clear();
           return;
         }
-        positions.set(position.id, position.top);
+        positions.set(position.id, { top: position.top, rect: structuredClone(position.rect) });
       }
     }
     options.onAnchors?.([...value.resolved] as string[], true);
@@ -822,7 +818,7 @@ export async function mountRenderer(
   host.replaceChildren(frame);
   if (scroll) window.scrollTo({ ...scroll, behavior: 'instant' });
   const scrollAnchor = (id: string) => {
-    const top = positions.get(id);
+    const top = positions.get(id)?.top;
     if (stopped || top === undefined) return;
     if (innerScroll)
       channel.port1.postMessage({
@@ -840,14 +836,9 @@ export async function mountRenderer(
     });
   };
   const anchorRectangle = (id: string): SelectionRect | undefined => {
-    const top = positions.get(id);
-    if (stopped || top === undefined) return;
-    return {
-      x: Math.max(0, frame.clientWidth - 28),
-      y: innerScroll ? inset() : top,
-      width: 20,
-      height: 20,
-    };
+    const position = positions.get(id);
+    if (stopped || !position) return;
+    return { ...position.rect, ...(innerScroll ? { y: inset() } : {}) };
   };
   const selectionMode = (enabled: boolean) => {
     if (stopped || !ready) return;
