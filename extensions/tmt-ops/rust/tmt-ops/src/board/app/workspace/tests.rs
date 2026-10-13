@@ -445,6 +445,30 @@ fn workspace_authored_labels_use_registered_glyphs_at_each_width() {
 }
 
 #[test]
+fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
+    let mut app = board();
+    for state in ["waiting", "partial", "stale"] {
+        let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+        home.summary.waiting = 13;
+        home.summary.blocked = 3;
+        home.incomplete = state == "partial";
+        app.error = (state == "stale").then(|| "Roster unavailable".into());
+        app.tab_hits.borrow_mut().clear();
+        let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
+        assert_eq!(
+            line.to_string(),
+            "OPS / UI  1 Overview  2 Agents  3 Digest  "
+        );
+        assert_eq!(app.tab_hits.borrow().len(), 3);
+    }
+    app.tab_hits.borrow_mut().clear();
+    crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 25, 1));
+    let hits = app.tab_hits.borrow();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].tab, 0);
+}
+
+#[test]
 fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
     let app = App::new(Some(crate::board::ALL.into()));
     let help = crate::board::help::model(&app);

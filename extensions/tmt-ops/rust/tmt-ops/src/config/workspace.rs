@@ -341,6 +341,10 @@ impl Config {
             configured.extend(section.clone());
         }
         for (key, action) in configured {
+            if scope == OpsKeyScope::Reader && matches!(key.as_str(), "1" | "2" | "3") {
+                notices.push(format!("`bind.{key}` is not active in Reader focus: readers own shell digits. Its authored value and list-scope binding are preserved."));
+                continue;
+            }
             if key == "w" && scope != OpsKeyScope::Reader {
                 notices.push("`bind.w`: w is reserved for Workspace snapshots in list scopes; move this binding to another key explicitly.".into());
                 continue;
@@ -438,6 +442,29 @@ mod tests {
                 .verb,
             Verb::Run
         );
+    }
+    #[test]
+    fn reader_digit_guards_are_reported_instead_of_advertised_as_active_bindings() {
+        let config = config("[bind]\n1='copy $name'\n2='agents'\n3='digest-dashboard'\n");
+        let original = config.document.to_string();
+        let reader = config
+            .workspace_keys(OpsKeyScope::Reader, None, None)
+            .unwrap();
+        let list = config
+            .workspace_keys(OpsKeyScope::Member, None, None)
+            .unwrap();
+        for key in ["1", "2", "3"] {
+            assert!(!reader.bindings.contains_key(key));
+            assert!(
+                reader
+                    .notices
+                    .iter()
+                    .any(|notice| notice.contains(&format!("`bind.{key}`"))
+                        && notice.contains("Reader focus"))
+            );
+            assert!(list.bindings.contains_key(key));
+        }
+        assert_eq!(config.document.to_string(), original);
     }
     #[test]
     fn every_approved_scope_has_its_real_keys_without_legacy_fallbacks() {

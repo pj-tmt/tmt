@@ -29,26 +29,12 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
         .enumerate()
     {
         let mut label = tab.label().to_owned();
-        if tab == OpsTab::Overview
-            && let Some(home) = app.view.as_ref().and_then(|view| view.home.as_ref())
-        {
-            if app.error.is_some() {
-                label.push_str(" stale");
-            } else if home.incomplete || !home.workspace.roster.membership_complete {
-                label.push_str(" ?");
-            } else if home.summary.waiting + home.summary.blocked > 0 {
-                label.push_str(&format!(
-                    " !{}",
-                    home.summary.waiting + home.summary.blocked
-                ));
-            }
-        }
         label.push_str("  ");
         let line = Line::from(label.clone());
         let width = (line
             .width()
             .min(usize::from(area.right().saturating_sub(x)))) as u16;
-        if width > 0 && area.height > 0 {
+        if width > 0 && usize::from(width) == line.width() && area.height > 0 {
             app.tab_hits.borrow_mut().push(TabHit {
                 x,
                 y: area.y,
