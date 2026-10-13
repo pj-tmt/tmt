@@ -61,6 +61,12 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     if app.loading() {
         return Line::styled("Loading workspace…", app.look().role(Role::Muted));
     }
+    if app.shell.tab == OpsTab::Digest {
+        return Line::styled(
+            crate::board::digest_dashboard::summary(&app.labels),
+            app.look().role(Role::Text),
+        );
+    }
     if !snapshot.notices.is_empty() {
         return Line::styled(
             "Configuration needs migration · ? help shows located settings; file preserved",

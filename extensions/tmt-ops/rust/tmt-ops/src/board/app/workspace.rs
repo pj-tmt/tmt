@@ -33,7 +33,13 @@ impl App {
             return Rc::clone(rows);
         }
         self.workspace_snapshot()
-            .map(|snapshot| self.workspace.rows(&snapshot.roster, &snapshot.preferences))
+            .map(|snapshot| {
+                if self.shell.tab == OpsTab::Digest {
+                    crate::board::digest_dashboard::rows(snapshot, &self.workspace.query)
+                } else {
+                    self.workspace.rows(&snapshot.roster, &snapshot.preferences)
+                }
+            })
             .unwrap_or_default()
             .into()
     }
@@ -181,6 +187,18 @@ impl App {
             }
         }
         let rows = self.workspace_rows();
+        if self.shell.tab == OpsTab::Digest {
+            if let Some(OpsTarget::Member { identity_id, .. }) = &self.workspace.selected {
+                if let Some(row) = rows.iter().find(|row| {
+                    matches!(&row.target,
+                    OpsTarget::Member { identity_id: id, .. } if id == identity_id)
+                }) {
+                    self.workspace.selected = Some(row.target.clone());
+                }
+            } else if self.workspace.selected.is_some() {
+                self.workspace.selected = rows.first().map(|row| row.target.clone());
+            }
+        }
         if self.workspace.selected.is_none() {
             self.workspace.selected = rows.first().map(|row| row.target.clone());
         }
@@ -230,6 +248,8 @@ impl App {
                 if !self.shell.select_digit(digit, self.workspace_input_owner()) {
                     return Effect::None;
                 }
+                self.workspace_reconcile();
+                self.jobs_focus = false;
                 self.focus = 0;
                 self.invalidate_frame_geometry();
                 return Effect::None;
@@ -271,7 +291,9 @@ impl App {
                 };
                 if matches!(target, OpsTarget::Member { .. }) {
                     if action == Inspect {
-                        self.shell.tab = OpsTab::Agents;
+                        if self.shell.tab != OpsTab::Digest {
+                            self.shell.tab = OpsTab::Agents;
+                        }
                         self.focus = 1;
                     }
                 } else {

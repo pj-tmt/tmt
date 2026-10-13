@@ -59,6 +59,15 @@ impl Snapshot {
 
 impl Supplied {
     #[cfg(test)]
+    pub fn from_document(source: &str, document: &Value, stale: bool) -> Self {
+        let Some(mut snapshot) = Snapshot::parse(source, document) else {
+            return Self::default();
+        };
+        snapshot.stale = stale;
+        Self(vec![(source.into(), snapshot)])
+    }
+
+    #[cfg(test)]
     pub fn from_rows(sources: Vec<(String, Rows)>) -> Self {
         Self(
             sources
