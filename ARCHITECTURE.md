@@ -422,8 +422,9 @@ own module/drawing boundaries and verification.
   New API methods require tmt-lead review.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
-  (`storage.root`), bounded `cache/board` display snapshots and disposable
-  `$XDG_CACHE_HOME/tmt-ops` caches. `ops.toml` is user-owned: agents never write it;
+  (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
+  neither reads nor writes the retired internal `cache/board` display format;
+  existing files are left untouched. `ops.toml` is user-owned: agents never write it;
   Ops uses CAS. `migration` owns locked byte-preserving legacy cutover and
   `board_switch` the consented former-board switch; startup runs neither. No Ops
   data enters `config.json` or Core's database.

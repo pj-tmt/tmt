@@ -8,7 +8,7 @@ use super::{
     app::{Notes, Snapshot, View},
     changes::{Changes, Stamp},
     notes::sanitize,
-    snapshot_cache, tabs, timing,
+    tabs, timing,
 };
 use crate::{
     attention::Attention,
@@ -114,49 +114,20 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
-            // Root discovery and all cache work stay off the UI thread. The store
-            // resolves once, on the first read or after the first publication.
-            let cache = std::cell::RefCell::new(None);
-            // Each tab's stored display is offered once; later loads are fresh.
-            let mut offered = std::collections::BTreeSet::new();
             serve(
                 &pending,
-                |snapshot, rooms, generation| {
+                |snapshot, generation| {
                     let cancellation = read_generation.cancellation(generation);
                     let trace = snapshot.timing.clone();
-                    let display = snapshot_cache::Display::project(
-                        &snapshot,
-                        &rooms,
-                        crate::status::now_ms(),
-                    );
-                    let sent = timing::measure(trace.as_ref(), "snapshot_publish", || {
+                    timing::measure(trace.as_ref(), "snapshot_publish", || {
                         events
                             .send(super::BoardEvent::Snapshot {
-                                cancellation: cancellation.clone(),
+                                cancellation,
                                 snapshot: Box::new(snapshot),
                             })
                             .map_err(|_| ())
                     })
-                    .is_ok();
-                    if sent
-                        && !cancellation.cancelled()
-                        && let Some(display) = display
-                    {
-                        // A failure cannot change the published board's result.
-                        let _ = timing::measure(trace.as_ref(), "snapshot_cache", || {
-                            if !core.paths.is_current() {
-                                return Ok(());
-                            }
-                            let store =
-                                snapshot_store(&cache, &core.cancellable(cancellation.clone()))
-                                    .ok_or_else(|| {
-                                        std::io::Error::other("snapshot root unavailable")
-                                    })?;
-                            store.write(&display, || !cancellation.cancelled())?;
-                            Ok::<_, std::io::Error>(())
-                        });
-                    }
-                    sent
+                    .is_ok()
                 },
                 CHECK_EVERY,
                 &read_generation.number,
@@ -179,19 +150,6 @@ impl Worker {
                         .map(|trace| trace.load(wanted.as_deref(), generation));
                     let started = trace.as_ref().map(|_| Instant::now());
                     let reader = core.cancellable(read_generation.cancellation(generation));
-                    let mut adopt = |tab: &str, rooms: &snapshot_cache::Rooms| {
-                        if !offered.insert(tab.to_owned()) {
-                            return;
-                        }
-                        let display = snapshot_store(&cache, &reader)
-                            .and_then(|store| store.load(tab, rooms));
-                        if let Some(display) = display {
-                            let _ = events.send(super::BoardEvent::Cached {
-                                cancellation: read_generation.cancellation(generation),
-                                display: Box::new(display),
-                            });
-                        }
-                    };
                     let mut loaded = load(
                         &reader,
                         tmux,
@@ -201,7 +159,6 @@ impl Worker {
                         opening,
                         &mut kept,
                         trace.as_ref(),
-                        &mut adopt,
                     );
                     if let (Some(trace), Some(started)) = (&mut trace, started) {
                         trace.completed(
@@ -365,7 +322,6 @@ struct Reload {
 }
 
 struct Loaded {
-    rooms: snapshot_cache::Rooms,
     snapshot: Snapshot,
     enrich: Option<EnrichJob>,
     attention: Option<AttentionJob>,
@@ -378,7 +334,6 @@ struct Loaded {
 impl Loaded {
     fn only(snapshot: Snapshot) -> Self {
         Self {
-            rooms: Default::default(),
             snapshot,
             enrich: None,
             attention: None,
@@ -651,7 +606,7 @@ fn fetcher() -> Sender<Fetch> {
 /// interval reloads are requests like any other and never wait on this.
 fn serve(
     pending: &Receiver<Work>,
-    mut publish: impl FnMut(Snapshot, snapshot_cache::Rooms, u64) -> bool,
+    mut publish: impl FnMut(Snapshot, u64) -> bool,
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64, bool) -> Stamp,
@@ -734,7 +689,6 @@ fn serve(
             continue;
         }
         let Loaded {
-            rooms,
             snapshot,
             enrich,
             attention: job,
@@ -800,7 +754,7 @@ fn serve(
                 .map_or_else(|| Instant::now() + every, |(_, _, due)| *due);
             (read, every, due)
         });
-        if !publish(snapshot, rooms, wanted.generation) {
+        if !publish(snapshot, wanted.generation) {
             break;
         }
         // The shown rows' own reads come before any other tab's or history work.
@@ -842,25 +796,7 @@ fn serve(
     }
 }
 
-/// Resolves the display store once per worker, off the UI thread. Legacy
-/// layouts and an unavailable root have no store.
-fn snapshot_store<'a>(
-    cache: &'a std::cell::RefCell<Option<snapshot_cache::Store>>,
-    core: &Core,
-) -> Option<std::cell::Ref<'a, snapshot_cache::Store>> {
-    if !core.paths.is_current() {
-        return None;
-    }
-    if cache.borrow().is_none() {
-        let store = crate::migration::data_root(core)
-            .ok()
-            .and_then(|root| snapshot_cache::Store::new(&root));
-        *cache.borrow_mut() = store;
-    }
-    std::cell::Ref::filter_map(cache.borrow(), Option::as_ref).ok()
-}
-
-#[allow(clippy::too_many_arguments)] // Acquisition inputs, the cache hook and diagnostics.
+#[allow(clippy::too_many_arguments)] // Acquisition inputs and diagnostics.
 fn load(
     core: &Core,
     tmux: bool,
@@ -870,7 +806,6 @@ fn load(
     opening: bool,
     kept: &mut Kept,
     trace: Option<&timing::Load>,
-    adopt: &mut dyn FnMut(&str, &snapshot_cache::Rooms),
 ) -> Loaded {
     let squads = match timing::measure(trace, "Squad::list", || Squad::list(core)) {
         Ok(squads) => squads,
@@ -889,10 +824,6 @@ fn load(
         }
     };
     let names: Vec<String> = squads.iter().map(|squad| squad.name.clone()).collect();
-    let rooms: snapshot_cache::Rooms = squads
-        .iter()
-        .map(|squad| (squad.name.clone(), squad.room_id.clone()))
-        .collect();
     let config = timing::measure(trace, "Config::load", || Config::load(core));
     // An invalid [tabs] still shows every squad; the view reports the error.
     let settings = config
@@ -947,11 +878,6 @@ fn load(
             squad: wanted,
         });
     };
-    // The stored display needs only the inventory fence; it never waits on the views.
-    let _ = timing::measure(trace, "snapshot_cache_read", || {
-        adopt(&key, &rooms);
-        Ok::<_, ()>(())
-    });
     let listed = timing::measure(trace, "identity_references", || core.json(&["ls"]));
     let references = super::inventory::Inventory::from_listed(&squads, &listed);
     let mut attention = BTreeMap::new();
@@ -1025,7 +951,6 @@ fn load(
         view.history_pending = history.is_some();
     }
     Loaded {
-        rooms,
         snapshot: Snapshot {
             references,
             timing: None,
@@ -1375,7 +1300,7 @@ mod tests {
         std::thread::spawn(move || {
             serve(
                 &pending,
-                |snapshot, _, _| sender.send(snapshot).is_ok(),
+                |snapshot, _| sender.send(snapshot).is_ok(),
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| Stamp::cursor(read.load(Ordering::SeqCst)),
@@ -1425,7 +1350,7 @@ mod tests {
         let mut completed = Vec::new();
         serve(
             &pending,
-            |_, _, _| panic!("no reload"),
+            |_, _| panic!("no reload"),
             Duration::from_secs(1),
             &AtomicU64::new(2),
             |_, _| Stamp::cursor(0),
@@ -1714,7 +1639,7 @@ printf '%s\n' '{{}}'
         let steps = std::cell::RefCell::new(Vec::new());
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 steps.borrow_mut().push("snapshot".to_owned());
                 queue(Some("stale"), 2, 0);
                 queue(Some("old"), 3, 1);
@@ -1754,7 +1679,7 @@ printf '%s\n' '{{}}'
         drop(sender);
         serve(
             &pending,
-            |_, _, _| panic!("no snapshot"),
+            |_, _| panic!("no snapshot"),
             CHECK_EVERY,
             &generation,
             |_, _| Stamp::cursor(0),
@@ -2067,7 +1992,6 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 false,
                 &mut kept,
                 None,
-                &mut |_, _| {},
             );
             let mut view = loaded
                 .snapshot
@@ -2124,7 +2048,6 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
             false,
             &mut kept,
             None,
-            &mut |_, _| {},
         );
         assert!(!calls.exists());
         assert!(
@@ -2219,13 +2142,13 @@ esac
     }
 
     #[test]
-    fn fresh_publication_precedes_cache_io_and_cache_failure_preserves_the_view() {
-        use std::{
-            fs,
-            os::unix::fs::{PermissionsExt, symlink},
-        };
+    fn workspace_publication_ignores_and_preserves_retired_display_files() {
+        use std::{fs, os::unix::fs::symlink};
         const ROOM: &str = "11111111-1111-4111-8111-111111111111";
-        let root = std::env::temp_dir().join(format!("ops-worker-snapshot-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "ops-worker-snapshot-{}",
+            crate::id::new_v4().unwrap()
+        ));
         fs::create_dir(&root).unwrap();
         // A completed migration owns Ops; the cache must not supply it.
         fs::create_dir(root.join("ops")).unwrap();
@@ -2261,95 +2184,55 @@ printf '%s\n' '{{}}'
                 root = root.display()
             ),
         );
-        let path = root.join("ops/cache/board/squad-product.json");
-        for unsafe_path in [false, true] {
-            if unsafe_path {
-                let victim = root.join("untouched");
-                fs::write(&victim, b"preserve").unwrap();
-                fs::remove_file(&path).unwrap();
-                symlink(&victim, &path).unwrap();
-            }
-            let (trace, records) = timing::Trace::buffer();
-            let (events, input) = mpsc::channel();
-            let worker = Worker::spawn(Core::at(fake.clone()), false, events, Some(trace));
-            worker.request(Some("product".into()), false, false);
-            let super::super::BoardEvent::Snapshot {
-                snapshot,
-                cancellation,
-            } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-            else {
-                panic!("fresh snapshot");
-            };
-            assert!(!cancellation.cancelled());
-            assert_eq!(
-                snapshot.view.as_ref().unwrap().document["sections"][0]["rows"][0]["name"],
-                "alice"
-            );
-            // Attention is deferred behind cache publication and enrichment.
-            assert!(
-                (0..4).any(|_| matches!(
-                    input.recv_timeout(Duration::from_secs(30)).unwrap(),
-                    super::super::BoardEvent::Attention { .. }
-                )),
-                "deferred attention follows conversation, cron and cache work"
-            );
-            drop(worker);
-            let records = records.lock().unwrap();
-            let stages = std::str::from_utf8(&records)
+        let cache = root.join("ops/cache/board");
+        fs::create_dir_all(&cache).unwrap();
+        let legacy = cache.join("home.json");
+        let victim = root.join("untouched");
+        fs::write(&victim, b"not a display document").unwrap();
+        symlink(&victim, &legacy).unwrap();
+        let squad_cache = cache.join("squad-product.json");
+        fs::write(&squad_cache, b"legacy bytes").unwrap();
+        let (trace, records) = timing::Trace::buffer();
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events, Some(trace));
+        worker.request(Some(ALL.into()), false, false);
+        let super::super::BoardEvent::Snapshot {
+            snapshot,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("fresh workspace is the first event");
+        };
+        assert!(!cancellation.cancelled());
+        assert_eq!(snapshot.squad.as_deref(), Some(ALL));
+        assert!(snapshot.view.as_ref().unwrap().home.is_some());
+        drop(worker);
+        assert!(
+            fs::symlink_metadata(&legacy)
                 .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
-                .collect::<Vec<_>>();
-            let published = stages
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&victim).unwrap(), b"not a display document");
+        assert_eq!(fs::read(&squad_cache).unwrap(), b"legacy bytes");
+        assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+        let records = records.lock().unwrap();
+        let stages = std::str::from_utf8(&records)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(
+            stages
                 .iter()
-                .position(|record| record["stage"] == "snapshot_publish")
-                .unwrap();
-            let cached = stages
+                .any(|record| record["stage"] == "snapshot_publish" && record["status"] == "ok")
+        );
+        assert!(
+            !stages
                 .iter()
-                .position(|record| record["stage"] == "snapshot_cache")
-                .unwrap();
-            assert!(published < cached, "fresh event is sent before cache IO");
-            assert_eq!(stages[published]["status"], "ok");
-            assert_eq!(
-                stages[cached]["status"],
-                if unsafe_path { "error" } else { "ok" }
-            );
-            if unsafe_path {
-                assert_eq!(fs::read(root.join("untouched")).unwrap(), b"preserve");
-            } else {
-                let cached: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-                assert_eq!(cached["rooms"]["product"], ROOM);
-                assert_eq!(cached["view"]["sections"][0]["rows"][0]["name"], "alice");
-                assert_eq!(
-                    fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-                    0o600
-                );
-                // The next board offers the stored display once, before any fresh view.
-                let (events, input) = mpsc::channel();
-                let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
-                worker.request(Some("product".into()), false, false);
-                let super::super::BoardEvent::Cached { display, .. } =
-                    input.recv_timeout(Duration::from_secs(30)).unwrap()
-                else {
-                    panic!("stored display first");
-                };
-                assert_eq!(display.tab(), "product");
-                assert_eq!(display.0["view"]["sections"][0]["rows"][0]["name"], "alice");
-                let fresh = |input: &mpsc::Receiver<super::super::BoardEvent>| {
-                    (0..4).any(
-                        |_| match input.recv_timeout(Duration::from_secs(30)).unwrap() {
-                            super::super::BoardEvent::Cached { .. } => panic!("offered twice"),
-                            super::super::BoardEvent::Snapshot { .. } => true,
-                            _ => false,
-                        },
-                    )
-                };
-                assert!(fresh(&input));
-                worker.request(Some("product".into()), true, false);
-                assert!(fresh(&input));
-                drop(worker);
-            }
-        }
+                .any(|record| record["stage"] == "snapshot_cache"
+                    || record["stage"] == "snapshot_cache_read")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2434,7 +2317,7 @@ printf '%s\n' '{{}}'
         let worker = std::thread::spawn(move || {
             serve(
                 &pending,
-                |_, _, _| true,
+                |_, _| true,
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_, _| {
@@ -2622,32 +2505,41 @@ printf '%s\n' '{{}}'
         assert_eq!(rows[0]["fields"]["waiting"], "1");
         assert_eq!(rows[2]["fields"]["lead"], Value::Null);
 
-        let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-        let view = snapshot.view.as_mut().unwrap();
-        view.document = all;
-        view.rows = crate::rows::Rows::overview();
-        let mut app = crate::board::app::App::new(Some(ALL.into()));
-        app.apply(snapshot);
+        // Public named-tab projections remain independent. The interactive
+        // leadless-squad assertion uses the actual UUID workspace frame.
+        use crate::board::{app::workspace::tests::ROOM, workspace::OpsTarget};
+        let mut app = crate::board::app::workspace::tests::board();
+        let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        workspace.roster.members.clear();
+        let squad = &mut workspace.roster.squads[0];
+        squad.name = "quiet".into();
+        squad.members.clear();
+        squad.member_states.clear();
+        workspace
+            .rows
+            .retain(|target, _| !matches!(target, OpsTarget::Member { .. }));
+        let target = OpsTarget::Squad(ROOM.into());
+        workspace.rows.get_mut(&target).unwrap()["name"] = json!("quiet");
+        workspace.rows.get_mut(&target).unwrap()["memberIds"] = json!([]);
+        app.workspace.selected = Some(target);
         let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(64, 10)).unwrap();
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 24)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
-        let screen: Vec<String> = terminal
+        let screen = terminal
             .backend()
             .buffer()
             .content()
-            .chunks(64)
-            .map(|line| line.iter().map(|cell| cell.symbol()).collect())
-            .collect();
-        let quiet = screen
-            .iter()
-            .find(|line| line.trim_start().starts_with("quiet"))
-            .expect("the leadless squad is visible on the all tab");
-        assert_eq!(
-            quiet.split_whitespace().collect::<Vec<_>>(),
-            ["quiet", "–", "0", "0", "0"],
-            "the view renders the missing lead as a display placeholder"
+            .chunks(160)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            screen.contains("quiet")
+                && screen.contains("Lead: not set")
+                && screen.contains("Members: 0"),
+            "{screen}"
         );
 
         assert_eq!(attention["quiet"], Attention::default());
@@ -2677,7 +2569,7 @@ printf '%s\n' '{{}}'
         let mut published = Vec::new();
         serve(
             &pending,
-            |snapshot, _, _| {
+            |snapshot, _| {
                 published.push(snapshot.squad);
                 true
             },
@@ -2729,7 +2621,7 @@ printf '%s\n' '{{}}'
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |_, _, _| {
+                |_, _| {
                     steps.borrow_mut().push("shown");
                     if cancel {
                         generation.store(1, Ordering::Release);
@@ -2794,7 +2686,7 @@ printf '%s\n' '{{}}'
         let mut config = Some(config);
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 steps.borrow_mut().push("shown");
                 true
             },
@@ -2802,7 +2694,6 @@ printf '%s\n' '{{}}'
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
             |_, _, _, _| Loaded {
-                rooms: Default::default(),
                 enrich: None,
                 history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
@@ -2878,7 +2769,7 @@ printf '%s\n' '{{}}'
         let stages = RefCell::new(Vec::new());
         serve(
             &pending,
-            |snapshot, _, current| {
+            |snapshot, current| {
                 let mut app = app.borrow_mut();
                 app.apply(snapshot);
                 assert!(!app.loading());
@@ -3003,7 +2894,7 @@ printf '%s\n' '{{}}'
             let steps = std::cell::RefCell::new(Vec::new());
             serve(
                 &pending,
-                |snapshot, _, _| {
+                |snapshot, _| {
                     assert!(snapshot.view.is_ok());
                     steps.borrow_mut().push("usable");
                     if cancel {
@@ -3101,7 +2992,7 @@ printf '%s\n' '{{}}'
         let mut samples = 0;
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 let count = published.get() + 1;
                 published.set(count);
                 match count {
@@ -3163,7 +3054,7 @@ printf '%s\n' '{{}}'
             let mut samples = 0;
             serve(
                 &pending,
-                |_, _, _| {
+                |_, _| {
                     loads.set(loads.get() + 1);
                     loads.get() < 60
                 },
@@ -3227,7 +3118,7 @@ printf '%s\n' '{{}}'
         let mut samples = 0;
         serve(
             &pending,
-            |_, _, _| true,
+            |_, _| true,
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_, _| Stamp::cursor(1),
@@ -3278,7 +3169,7 @@ printf '%s\n' '{{}}'
         let mut openings = Vec::new();
         serve(
             &pending,
-            |_, _, _| {
+            |_, _| {
                 if let Some(next) = names.next() {
                     sender.send(reload(next)).unwrap();
                     true

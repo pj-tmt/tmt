@@ -217,7 +217,6 @@ fn measured<T, E>(
 pub(super) struct Ui {
     trace: Trace,
     first: bool,
-    cached: bool,
     fresh: bool,
     pending: Option<Load>,
 }
@@ -227,7 +226,6 @@ impl Ui {
         Self {
             trace,
             first: false,
-            cached: false,
             fresh: false,
             pending: None,
         }
@@ -239,20 +237,13 @@ impl Ui {
         }
     }
 
-    /// Called only after a successful draw, never on acquisition or cache adoption.
-    /// `cached`: a stored display is on screen; its first draw is `cached_board`.
-    pub fn drawn(&mut self, tab: Option<&str>, usable: bool, cached: bool) {
+    /// Called only after a successful draw, never on acquisition.
+    pub fn drawn(&mut self, tab: Option<&str>, usable: bool) {
         if !self.first {
             let mut first = self.trace.startup();
             first.tab = tab.map(str::to_owned);
             first.emit("first_frame", "draw", self.trace.0.started.elapsed(), true);
             self.first = true;
-        }
-        if !self.cached && !self.fresh && cached {
-            let mut stored = self.trace.startup();
-            stored.tab = tab.map(str::to_owned);
-            stored.emit("cached_board", "draw", self.trace.0.started.elapsed(), true);
-            self.cached = true;
         }
         if !self.fresh
             && let Some(load) = self.pending.take()

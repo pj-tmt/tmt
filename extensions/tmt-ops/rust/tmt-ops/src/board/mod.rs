@@ -32,7 +32,6 @@ mod row_chips;
 mod row_detail;
 mod scroll;
 mod settings;
-mod snapshot_cache;
 mod status_update;
 pub(crate) use crate::tabs;
 mod shell;
@@ -99,11 +98,6 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         squad: String,
         enrichment: refresh::Enrichment,
-    },
-    /// The tab's last stored display, always stale, offered before its fresh load.
-    Cached {
-        cancellation: crate::runner::Cancellation,
-        display: Box<snapshot_cache::Display>,
     },
     History {
         cancellation: crate::runner::Cancellation,
@@ -398,9 +392,8 @@ fn session(
             draw(app)?;
             if app.timing.is_some() {
                 let usable = app.view.is_some() && !app.loading();
-                let cached = app.cached_display().is_some();
                 if let Some(timing) = &mut app.timing {
-                    timing.drawn(app.current.as_deref(), usable, cached);
+                    timing.drawn(app.current.as_deref(), usable);
                 }
             }
             dirty = false;
@@ -457,15 +450,6 @@ fn session(
                 } else {
                     Effect::None
                 }
-            }
-            Ok(BoardEvent::Cached {
-                cancellation,
-                display,
-            }) => {
-                if !cancellation.cancelled() && app.adopt_cached(*display) {
-                    dirty = true;
-                }
-                Effect::None
             }
             Ok(BoardEvent::Enriched {
                 cancellation,

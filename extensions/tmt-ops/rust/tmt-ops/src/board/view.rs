@@ -1,6 +1,5 @@
 //! Frame orchestration; surface painters retain their existing owners.
 
-mod cached;
 pub(super) mod footer;
 mod header;
 mod overlays;
@@ -158,10 +157,7 @@ pub(in crate::board) fn render_frame(
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
             ..summary
         });
-    match app.cached_display() {
-        Some(display) => cached::status(frame, app, display, summary_area),
-        None => strip::paint_left(frame.buffer_mut(), summary_area, summary_text),
-    }
+    strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
     let usage = if home_history_pending {
@@ -209,10 +205,7 @@ pub(in crate::board) fn render_frame(
             line,
         );
     }
-    match app.cached_display() {
-        Some(display) => cached::body(frame, app, display, body),
-        None => panes::render_body(frame, app, body),
-    }
+    panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);

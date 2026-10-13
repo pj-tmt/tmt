@@ -717,9 +717,6 @@ pub struct App {
     cache: BTreeMap<String, View>,
     /// Set from a squad switch until that squad's data arrives.
     pub loading_since: Option<Instant>,
-    /// The current tab's stored display, painted until its fresh view lands.
-    /// It is never a View, so no action resolves against it.
-    pub(super) disk: Option<super::snapshot_cache::Display>,
     /// The squad `view` belongs to.
     shown: Option<String>,
     last_click: Option<(usize, Instant)>,
@@ -1333,20 +1330,6 @@ impl App {
         self.view.is_some() && self.shown != self.current
     }
 
-    /// Keeps a stored display only for the tab still waiting on its first fresh view.
-    pub(super) fn adopt_cached(&mut self, display: super::snapshot_cache::Display) -> bool {
-        // Version-1 HOME display snapshots carry the retired section layout.
-        // Keep their inert bytes for the cache owner, but never paint that shell.
-        if display.tab() == super::ALL
-            || self.current.as_deref() != Some(display.tab())
-            || (self.view.is_some() && !self.loading())
-        {
-            return false;
-        }
-        self.disk = Some(display);
-        true
-    }
-
     /// Completes the shown squad's view with its deferred reads. Focus follows the
     /// read exactly; bodies fill only replies still without one, matched by request.
     pub(super) fn apply_enriched(
@@ -1376,14 +1359,6 @@ impl App {
         }
         *view.derived.borrow_mut() = Default::default();
         true
-    }
-
-    /// The stored display on screen instead of a view, if any.
-    pub(super) fn cached_display(&self) -> Option<&super::snapshot_cache::Display> {
-        self.disk.as_ref().filter(|display| {
-            self.current.as_deref() == Some(display.tab())
-                && (self.view.is_none() || self.loading())
-        })
     }
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
@@ -1475,7 +1450,6 @@ impl App {
             }
             self.current = shown;
             self.loading_since = None;
-            self.disk = None;
             self.notice = None;
             self.error = Some(error.clone());
             self.project_usage(now);
@@ -1505,8 +1479,6 @@ impl App {
         }
         self.current = snapshot.squad;
         self.loading_since = None;
-        // Any result for this tab, fresh or failed, ends the stored display.
-        self.disk = None;
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
@@ -1735,7 +1707,6 @@ impl App {
             self.home_left = self.home_target.clone();
         }
         self.current = Some(next.clone());
-        self.disk = None;
         self.error = None;
         self.menu = None;
         self.loading_since = Some(Instant::now());
@@ -1989,9 +1960,7 @@ impl App {
         if action.verb == Verb::Menu {
             return self.context_menu();
         }
-        if (self.loading() || self.cached_display().is_some())
-            && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes)
-        {
+        if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }

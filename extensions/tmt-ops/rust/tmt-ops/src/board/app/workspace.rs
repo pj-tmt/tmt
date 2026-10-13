@@ -221,7 +221,7 @@ impl App {
             }
             _ => {}
         }
-        if self.loading() || self.cached_display().is_some() {
+        if self.loading() {
             return self.say("Loading the workspace…");
         }
         match action {
