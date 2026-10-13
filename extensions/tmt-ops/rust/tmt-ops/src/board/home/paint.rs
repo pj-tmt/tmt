@@ -56,11 +56,17 @@ pub(crate) fn usage_of(
 
 /// The provider-limits strip at every width, only while the usage meter is
 /// on, since that switch also drives the sampling that feeds it.
+pub(in crate::board) fn limits_enabled(app: &App) -> bool {
+    app.view.as_ref().is_some_and(|view| {
+        view.home.is_some() && view.home_rate.values().any(|rate| rate.settings.enabled)
+    })
+}
+
 pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>> {
     let Some(view) = app.view.as_ref() else {
         return Vec::new();
     };
-    if view.home.is_none() || !view.home_rate.values().any(|rate| rate.settings.enabled) {
+    if !limits_enabled(app) {
         return Vec::new();
     }
     super::limits::limits_in(

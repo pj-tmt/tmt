@@ -873,33 +873,30 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
 }
 
 #[test]
-fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
-    let mut app = board(json!([]));
-    app.view.as_mut().unwrap().bindings =
-        crate::action::with_action_keys(crate::action::preset(true, &[]));
+fn help_lists_effective_theme_keys_and_reports_retired_implicit_lead_and_layout_actions() {
+    let mut app = workspace_board();
+    workspace_keys(
+        &mut app,
+        r#"[bind]
+T = "theme"
+l = "view"
+L = "jump lead"
+"#,
+    );
     let help = help_lines(&app);
-    assert!(help.iter().all(|line| !line.contains("lead's pane")));
+    assert!(help.iter().any(|line| line == "T  pick a theme"));
+    assert!(help.iter().any(|line| line == "j  go to the member's pane"));
+    assert!(!app.bindings().contains_key("L"));
+    assert!(!app.bindings().contains_key("l"));
     assert!(
-        help.iter()
-            .any(|line| line == "double-click  go to the member's pane")
-    );
-    let at = help
-        .iter()
-        .position(|line| line == "l  pick a pane layout")
-        .unwrap();
-    assert_eq!(
-        &help[at..at + 2],
-        ["l  pick a pane layout", "T  pick a theme",]
-    );
-    // A user who binds it still sees it described.
-    app.view.as_mut().unwrap().bindings.insert(
-        "L".into(),
-        crate::action::Action::parse("jump lead").unwrap(),
-    );
-    assert!(
-        help_lines(&app)
+        !help
             .iter()
             .any(|line| line == "L  go to the squad lead's pane")
+    );
+    let notices = help.join("\n");
+    assert!(notices.contains("bind.L") && notices.contains("implicit lead targeting is retired"));
+    assert!(
+        notices.contains("bind.l") && notices.contains("retired squad-tab/HOME/notebook layout")
     );
 }
 

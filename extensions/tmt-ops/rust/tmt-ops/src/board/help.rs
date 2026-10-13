@@ -156,6 +156,16 @@ pub(super) fn model(app: &App) -> KeyHelp {
             ],
         ),
     ];
+    if app.shell.tab == super::shell::OpsTab::Overview
+        && super::home::limits_enabled(app)
+        && app.limits.as_ref().is_none_or(|values| !values.is_empty())
+    {
+        sections.push(section("provider-limits", "provider limits", &[
+            ("balance", "weekly remaining share inside the bar; (7d) is the provider quota window, separate from token usage windows"),
+            ("freshness", "missing or invalid readings, or readings older than 2 hours, remain unknown; they are never zero"),
+            ("warning", "a depletion estimate is shown only from measured weekly use; reset countdown, pace and trend fit only when reported and space permits"),
+        ]));
+    }
     if let Some(snapshot) = app
         .workspace_snapshot()
         .filter(|snapshot| !snapshot.notices.is_empty())
