@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "planDigest": "38d5f1d4a54470ced8015ee5ffd56e618ee7efecb339ea9b71ee0b8fb10c0332",
-  "declarationDigest": "76d566a7425b295462f645d6cb666ce7cee1a675ab3b1ef68e78917de994fd3b",
-  "artifactDigest": "d404c137cdae7c924dafd03d3b3128354502c1eceafdd78087117d43c4b9aa18",
+  "planDigest": "bf55a42063be3a197d3ce1ff0f21b3df10a70ecaba3e8e2ac7c1f9e6ec9a9d95",
+  "declarationDigest": "ee995261c5258470041ffa4861074156839c7507aafc58e1e35ea36636cc98b8",
+  "artifactDigest": "9ab5b2f4409f5e1b6f7d62c8dad51a2838d39dcda8ef8a49b2293ae8150e5b87",
   "plan": {
     "version": 1,
     "profile": "sharing",
@@ -13,12 +13,25 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "76d566a7425b295462f645d6cb666ce7cee1a675ab3b1ef68e78917de994fd3b",
+        "declarationDigest": "ee995261c5258470041ffa4861074156839c7507aafc58e1e35ea36636cc98b8",
         "admission": {
-          "artifactDigest": "d404c137cdae7c924dafd03d3b3128354502c1eceafdd78087117d43c4b9aa18",
+          "artifactDigest": "9ab5b2f4409f5e1b6f7d62c8dad51a2838d39dcda8ef8a49b2293ae8150e5b87",
           "entryPoint": "colabAdmitted"
         },
         "resources": [
+          {
+            "name": "authority",
+            "kind": "checkpoint",
+            "path": "x/colab/authority",
+            "limits": {
+              "maxObjectBytes": 65536,
+              "maxNamespaceBytes": 67108864,
+              "maxEntries": 1024
+            },
+            "ttlField": "expiresAt",
+            "ttl": "not-provisioned",
+            "indexes": []
+          },
           {
             "name": "checkpoints",
             "kind": "checkpoint",

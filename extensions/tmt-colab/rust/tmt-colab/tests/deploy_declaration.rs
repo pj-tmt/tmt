@@ -197,7 +197,9 @@ fn the_declaration_follows_the_contract_grammar() {
         let keys: BTreeSet<&str> = resource.keys().map(String::as_str).collect();
         assert_eq!(
             keys,
-            BTreeSet::from(["name", "kind", "path", "limits", "ttlField", "indexes"])
+            BTreeSet::from([
+                "name", "kind", "path", "limits", "ttlField", "indexes", "sync"
+            ])
         );
         let name = resource["name"].as_str().unwrap();
         assert!(
@@ -233,7 +235,18 @@ fn the_declaration_follows_the_contract_grammar() {
         paths.push(segments);
 
         let limits = resource["limits"].as_object().unwrap();
-        assert_eq!(limits.len(), 3);
+        assert_eq!(
+            limits.len(),
+            if ["checkpoints", "authority"].contains(&name) {
+                4
+            } else {
+                3
+            }
+        );
+        if let Some(chunk) = limits.get("chunkBytes") {
+            assert_eq!(chunk, 32768);
+            assert!(chunk.as_u64().unwrap() <= limits["maxObjectBytes"].as_u64().unwrap());
+        }
         let bound = |key: &str| limits[key].as_u64().unwrap();
         assert!(bound("maxObjectBytes") > 0 && bound("maxEntries") > 0);
         assert!(
@@ -344,4 +357,81 @@ fn the_vector_ships_its_complete_composed_golden_trio() {
         let path: &Path = &vectors().join(format!("deploy-declaration-v1.{name}"));
         assert!(path.is_file(), "{}", path.display());
     }
+}
+
+/// Pin Colab's actual mutation modes and page discovery, rather than deriving a
+/// second provider schema from the mutable admission rows.
+#[test]
+fn the_sync_mapping_keeps_discovery_separate_from_stream_catchup_and_write_authority() {
+    let d = declaration();
+    let resources = d["resources"].as_array().unwrap();
+    assert_eq!(resources.len(), 7);
+    let resource = |name: &str| resources.iter().find(|r| r["name"] == name).unwrap();
+    for (name, modes) in [
+        ("spaces", vec!["create"]),
+        ("pages", vec!["create", "put", "delete"]),
+        ("links", vec!["create", "delete"]),
+        ("members", vec!["create", "put", "delete"]),
+        ("log", vec!["create", "delete"]),
+        ("checkpoints", vec!["create", "put", "delete"]),
+        ("authority", vec!["create", "delete"]),
+    ] {
+        let sync = &resource(name)["sync"];
+        assert_eq!(sync["writeModes"], serde_json::json!(modes), "{name}");
+        assert_eq!(sync["spaceField"], "space");
+        let fields = sync["fields"].as_array().unwrap();
+        assert!(fields.contains(&serde_json::json!("space")));
+        assert_eq!(
+            fields.len(),
+            fields
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<BTreeSet<_>>()
+                .len()
+        );
+        if name != "spaces" {
+            assert!(
+                sync["uidField"].is_null(),
+                "Rules admit owner maintenance, not a blanket writer uid check"
+            );
+        }
+    }
+    assert_eq!(
+        resource("members")["sync"]["fields"],
+        serde_json::json!(["space", "page", "uid", "role", "link", "token"])
+    );
+    for (name, stream, scopes, shape) in [
+        ("log", "stream", vec!["space", "page", "epoch"], "writers"),
+        (
+            "checkpoints",
+            "object",
+            vec!["space", "page", "epoch"],
+            "objects",
+        ),
+        (
+            "authority",
+            "subject",
+            vec!["space", "page", "epoch", "kind", "recipient"],
+            "records",
+        ),
+    ] {
+        let query = &resource(name)["sync"]["query"];
+        let mut ordinary = scopes.clone();
+        ordinary.push(stream);
+        assert_eq!(query["scopeFields"], serde_json::json!(ordinary));
+        assert_eq!(query["streamField"], stream);
+        assert_eq!(query["seqField"], "seq");
+        assert_eq!(query["order"], "asc");
+        assert_eq!(query["discovery"]["name"], shape);
+        assert_eq!(query["discovery"]["scopeFields"], serde_json::json!(scopes));
+        assert!(
+            query["discovery"]["seqEquals"].is_null(),
+            "not dependent on first-record retention"
+        );
+    }
+    for name in ["spaces", "pages", "links", "members"] {
+        assert!(resource(name)["sync"]["query"].is_null());
+    }
+    assert_eq!(resource("checkpoints")["limits"]["chunkBytes"], 32768);
+    assert_eq!(resource("authority")["limits"]["chunkBytes"], 32768);
 }

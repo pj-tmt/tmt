@@ -3073,18 +3073,76 @@ of that same space and page. The Rules text is identical for every tenant. An em
 that owner A can neither read, list nor write owner B's space, and the reverse, including crafted
 IDs, a missing `space` field and queries that omit a filter.
 
-| Resource (path) | Kind       | Document ID                     | Holds                                                                                                                                              |
-| --------------- | ---------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces`        | checkpoint | `space`                         | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                        |
-| `pages`         | checkpoint | `space_page`                    | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page |
-| `links`         | checkpoint | `space_page_link`               | an owner-written enrollment secret and role for a share link; holders cannot read it                                                               |
-| `members`       | checkpoint | `space_page_uid`                | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
-| `log`           | log        | `space_page_epoch_stream_seq`   | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                              |
-| `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                            |
+| Resource (path) | Kind       | Document ID                         | Holds                                                                                                                                              |
+| --------------- | ---------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces`        | checkpoint | `space`                             | the owner uid: first writer of a space ID owns it; never updated or deleted                                                                        |
+| `pages`         | checkpoint | `space_page`                        | the owner-written admission row: current `epoch`, `state` (`open` or `archived`), `expiresAt`; deleting it denies every read and write of the page |
+| `links`         | checkpoint | `space_page_link`                   | an owner-written enrollment secret and role for a share link; holders cannot read it                                                               |
+| `members`       | checkpoint | `space_page_uid`                    | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
+| `log`           | log        | `space_page_epoch_stream_seq`       | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                              |
+| `checkpoints`   | checkpoint | `space_page_epoch_object_index`     | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                            |
+| `authority`     | checkpoint | `space_page_epoch_kind_subject_seq` | owner-written exact signed membership statements, key wraps and certificate chains, in immutable chunks                                            |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
 owner-approved plan shows everything the Rules read.
+
+**Sealed-document mapping.** Each resource declares `sync.fields` as the exact canonical REST
+`Document.fields` key set, with the restricted string/integer/boolean/null/timestamp/bytes Value
+codec, `spaceField`, `uidField`, `writeModes` and optional `query`. These are provider routing and
+codec facts, not a signature or role grant. Rules still admit each mutation. `spaces` declares
+create; `pages` and `members` create/put/delete; `links`, `log` and `authority` create/delete;
+`checkpoints` create/put/delete. Put is whole-fields and unconditional; create is create-only.
+Only `spaces` binds the publisher through `uidField:owner`; the other resources use null so a
+blanket creator-uid equality cannot deny owner maintenance of someone else's admitted record.
+
+Members have one six-field shape: `space,page,uid,role,link,token`. Owner-written rows carry
+`link:null,token:null`; self-enrollment carries the exact non-null strings checked against the
+link secret and role. Four-field rows are refused; nothing has been deployed and no migration
+is introduced. All other resource field sets are pinned by the declaration.
+
+The `log` regular shape binds `space,page,epoch,stream`, orders the integer `seq` ascending and
+uses the same stream's logical cursor. Its `writers` discovery binds only `space,page,epoch`,
+with no stream/cursor or first-sequence restriction. It returns real documents in a complete
+bounded run; an opaque within-run continuation is not a stream cursor. Late writers are found
+by repeated runs, even when another writer is far ahead. Checkpoints map `object` as their
+stream field and **`seq = index + 1`** as the positive chunk sequence; the existing index-based
+ID and first-chunk writer ownership do not change. Their `objects` discovery drops only object.
+Checkpoint and authority limits declare `chunkBytes:32768`; all previous planning bounds remain.
+
+Authority has exactly three kinds: `membership` (the original signed statement), `wrap` (the
+original signed key-wrap envelope), and `chain` (the original certificate-chain JSON).
+A baseline descriptor is represented only inside its signed EpochAdvance statement, never a
+new standalone signature. Object envelopes name an author device but do not contain its chain.
+Chain subjects therefore use the digest of the exact original chain bytes, not a device ID that
+can acquire a replacement chain. The chain's issuerStatement and version are transport selectors;
+the existing verifier resolves them against the signed membership statement before admitting
+the issuer signature. Cloud bytes and unsigned routing fields are never authority on their own.
+
+For every authority record, `subject` is lowercase SHA-256 of its complete exact original bytes.
+Split those bytes in order into at most eleven 32 KiB pieces for membership, one for chain or
+wrap; encode each as canonical unpadded base64url `bytes`. `seq` is the 1-based piece position,
+`count` is the original piece count, and `uid` is the owner writer. Reassemble within the existing
+kind-specific verifier caps, check count/order/digest and then signatures; do not reserialize,
+truncate or infer authority from a partial record. IDs bind the page as well as space/epoch/kind/
+subject/seq. Every field is immutable; even the owner cannot put or refresh an authority record.
+Owner deletion cleans only expired records or records of an expired/deleted page. Physical TTL
+is not provisioned.
+
+Authority's regular query scope is `space,page,epoch,kind,recipient,subject`, ordered by `seq`;
+its `records` discovery removes only subject. Membership/chain require `recipient:""` and are
+readable to current page members. Wraps carry an owner-written authenticated-uid recipient
+projection and are readable only to that uid **and** current page membership, with no owner
+exception. A wrap discovery includes the caller's uid; omitting recipient or naming another uid
+is refused. The existing wrap verifier still checks the cryptographic recipient/context;
+this uid projection supplies no key authority. An owner's second machine reads its own wrap
+as recipient. Queries do not disclose another recipient's wraps.
+
+The mapping enables future native carrier consumption; this declaration does not implement the
+serve sync loop, native activation, signing bootstrap or cloud attachments. V1 cloud sync does
+not refresh log expiry: the existing Rules permit an owner expiry-only refresh, but the log
+mapping deliberately exposes no put, so entries age out at their `expiresAt`. A long-lived
+page needing log refresh requires a Remote follow-up, not a hidden compatibility path.
 
 **What the Rules do.** Rules have no hash function and cannot verify Ed25519, so they admit
 ciphertext, never authority; clients still verify every statement, chain and envelope.
