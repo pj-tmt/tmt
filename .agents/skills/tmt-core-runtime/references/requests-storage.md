@@ -243,6 +243,12 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
+Schema 53 records claim opportunity/sealed count and first settlement time/order in
+the existing checklist owner. Settlement order uses the durable change cursor in
+the same transaction, never timestamps. The content-free history read shares one
+observation snapshot, bounds inline inputs and preserves canonical expiry/pruning;
+legacy facts remain unknown. The local API contract owns pagination and coverage.
+
 The ordinary request wake and existing reply-frame/joined-fallback writer claims
 admit Digest before granting new external input. Owner UUID and urgent bypass only
 this gate. Existing explicit inbox publication remains pull-only. A provider owns

@@ -116,7 +116,14 @@ and `limits.rs`; do not restate them.
   owns the complete-pair grammar and strict-reader compatibility rules; the future
   #1817 UI default is not integrated by this native/non-UI boundary.
 - `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
-  lock, uses `Store::write_existing` and `commit_publication`; when `serve` holds the lock,
+  lock from preparation through commit, using `Store::write_existing` and `commit_publication`.
+  On a tail-capacity refusal, it makes one bounded combine attempt only if existing
+  `owner_operations` and the matching content receipt prove an own-stream committed write
+  after its last paired checkpoint (`compact::deferred_write`). Cold creation, general oversize,
+  stale bases and no-ops retain their behavior. Only a committed checkpoint permits fresh
+  preparation under the same lock, with the checkpoint-inclusive revision; a failed or
+  insufficient combine returns the original refusal. Committed maintenance remains durable
+  even when the new write is refused. When `serve` holds the lock,
   `page/ipc.rs` posts one `LocalWrite` v2 to `/.tmt/colab/local/page-publish` and never
   retries, re-signs or falls back. `ipc::send` and `ipc::receive` are split so a failure
   before the body is fully written is a plain refusal (an answer already waiting then is an

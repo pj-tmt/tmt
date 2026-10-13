@@ -3557,6 +3557,75 @@ mod native_preparation {
         }
         doc
     }
+
+    #[test]
+    fn an_insufficient_deferred_combine_keeps_the_original_capacity_refusal() {
+        let mut f = Fixture::new();
+        let first = "a".repeat(1_536 * 1024);
+        f.write(&first);
+        // Another valid writer retains three MiB of history without changing the final
+        // source. The local writer may reclaim its own tail, never this foreign tail.
+        let doc = content(&f);
+        let html = doc.get_or_insert_text("html");
+        let block = "x".repeat(64 * 1024);
+        for _ in 0..48 {
+            let delta = {
+                let mut tx = doc.transact_mut();
+                html.insert(&mut tx, 0, &block);
+                tx.encode_update_v1()
+            };
+            append(&mut f, false, Namespace::Content, &delta);
+            let delta = {
+                let mut tx = doc.transact_mut();
+                html.remove_range(&mut tx, 0, block.len() as u32);
+                tx.encode_update_v1()
+            };
+            append(&mut f, false, Namespace::Content, &delta);
+        }
+        assert_eq!(f.read().source, first);
+        let replacement = "b".repeat(first.len());
+        let original = f.prepare(&replacement, None).err().unwrap();
+        assert!(
+            matches!(original.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),
+            Some(tmt_colab::store::owner::OwnerFault::PageCapacity(capacity)) if capacity.compactable)
+        );
+        let file = f.root.join("replace.html");
+        fs::write(&file, &replacement).unwrap();
+        let output = f
+            .command()
+            .args([
+                "page",
+                "write",
+                PAGE,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(failure["error"]["code"], "COLAB_CAPACITY");
+        assert_eq!(failure["error"]["message"], original.to_string());
+        let after = f.read();
+        assert_eq!(after.source, first);
+        assert!(
+            after.usage.checkpoint_bytes > 0,
+            "the own combine did not commit"
+        );
+        assert_eq!(after.usage.updates, after.usage.other_device_updates);
+        assert!(after.usage.tail_bytes > 3 * 1024 * 1024);
+        // Failed replacement cannot record a new publication, despite legitimate maintenance.
+        let publications: i64 = f
+            .sql()
+            .query_row(
+                "SELECT count(*) FROM owner_operations WHERE publication_kind IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(publications, 1);
+    }
     fn own(f: &mut Fixture, local: bool, value: &str) {
         if local {
             put_chain(f, chain(f, NOW), false);

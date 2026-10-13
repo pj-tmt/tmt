@@ -917,6 +917,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
                   .all(identity.id)
               ) as { state: string }[];
             const before = batch().length;
+            const historyCheckpoint = api('digest.checklist.history', {
+              identityId: identity.id,
+            }).throughSequence;
             await step('stale', { session: 'stale-session' });
             await step('recursive', { active: true });
             await step('subagent', { hookEvent: 'SubagentStop' });
@@ -966,6 +969,39 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
             expect(reason).toContain('First ordered decision');
             expect(reason).toContain('Second ordered review');
             expect(batch().slice(before)).toEqual([{ state: 'delivered' }]);
+            const history = api('digest.checklist.history', {
+              identityId: identity.id,
+              after: historyCheckpoint,
+            });
+            expect(history.checklists).toHaveLength(1);
+            expect(history.checklists[0]).toMatchObject({
+              settlementSequence: expect.any(Number),
+              claimedAtMs: expect.any(Number),
+              settledAtMs: expect.any(Number),
+              outcome: 'delivered',
+              opportunity: 'turn_boundary',
+              sealedCount: 2,
+              retainedCount: 2,
+              membershipComplete: true,
+              nextItemAfter: null,
+            });
+            expect(history.checklists[0].settlementSequence).toBeGreaterThan(historyCheckpoint);
+            expect(history.checklists[0].items).toHaveLength(2);
+            for (const item of history.checklists[0].items) {
+              expect(Object.keys(item).sort()).toEqual([
+                'contextObservedAtMs',
+                'contextTokensAtArrival',
+                'createdAtMs',
+                'sequence',
+              ]);
+            }
+            expect(
+              api('digest.checklist.history', {
+                identityId: identity.id,
+                after: history.throughSequence,
+              }).checklists
+            ).toEqual([]);
+
             expect(
               sql(f, (db) =>
                 db
