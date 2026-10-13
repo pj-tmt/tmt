@@ -13,6 +13,7 @@ mod completion_command;
 mod config_command;
 mod consent;
 mod context_command;
+mod discovery_command;
 mod focus_command;
 mod resume_command;
 use tmt_adapters::delivery;
@@ -111,6 +112,12 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     if workspace_snapshot_command::eligible(&parsed.invocation) {
         tmt_adapters::host::external::register_approved();
         return workspace_snapshot_command::execute(&parsed.invocation, parsed.mode);
+    }
+    if let Invocation::Discover { host, socket } = &parsed.invocation {
+        return discovery_command::execute(host.as_deref(), socket.as_deref(), parsed.mode);
+    }
+    if matches!(parsed.invocation, Invocation::GuardedBind { .. }) {
+        return binding_command::execute_guarded(parsed.invocation, parsed.mode);
     }
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
@@ -217,6 +224,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::CompletionScript(shell) => {
             write_exact(|stdout| grammar::completion::generate(&shell, stdout))?;
+        }
+        Invocation::Discover { host, socket } => {
+            return discovery_command::execute(host.as_deref(), socket.as_deref(), parsed.mode);
+        }
+        request @ Invocation::GuardedBind { .. } => {
+            return binding_command::execute_guarded(request, parsed.mode);
         }
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);

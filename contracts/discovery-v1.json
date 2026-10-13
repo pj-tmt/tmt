@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "bounds": { "candidates": 256, "observationMs": 2000, "resultBytes": 1048576 },
+  "states": [
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "unknown",
+      "native": "verified",
+      "ownership": "unmarked",
+      "adoptable": true
+    },
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "known",
+      "native": "verified",
+      "ownership": "matching_uuid_binding",
+      "adoptable": true
+    },
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "hook_only",
+      "native": "verified",
+      "ownership": "marker_without_matching_record",
+      "adoptable": false
+    },
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "unknown",
+      "native": "unknown",
+      "ownership": "unmarked",
+      "adoptable": false
+    },
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "duplicate",
+      "native": "verified",
+      "ownership": "conflicting_records",
+      "adoptable": false
+    },
+    {
+      "host": "tmux",
+      "source": "ok",
+      "candidate": "stale",
+      "native": "reused_pid",
+      "ownership": "old_binding",
+      "adoptable": false
+    },
+    { "host": "tmux", "source": "permission_denied", "candidate": null, "adoptable": false },
+    { "host": "tmux", "source": "offline", "candidate": null, "adoptable": false },
+    {
+      "host": "herdr",
+      "source": "unsupported",
+      "reason": "inventory_deferred_to_host_epics",
+      "candidate": null,
+      "adoptable": false
+    }
+  ],
+  "literalDisplay": "#{run-shell:never} $(never)\nnew row\tstill one title"
+}

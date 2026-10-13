@@ -442,6 +442,18 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 tmt_core::room::MembershipChange::Leave
             },
         }),
+        ["discover"]=>Invocation::Discover {host:text(m,"host"),socket:text(m,"socket")},
+        ["add"] if text(m,"expect").is_some()=>{
+            let expect=required(m,"expect");
+            if !tmt_core::content_digest::is_sha256(&expect) {return Err("--expect requires a lowercase SHA-256 digest.".into());}
+            let pane=required(m,"pane-target");
+            if !tmt_core::host::HostKind::Tmux.is_pane_id(&pane) {return Err("Guarded add requires an exact tmux pane ID.".into());}
+            let identity=text(m,"identity");
+            if identity.as_ref().is_some_and(|id|!tmt_core::endpoint::valid_server_id(id) || *id!=id.to_ascii_lowercase()) {return Err("--identity requires a canonical UUID.".into());}
+            let name=text(m,"name");
+            if let Some(name)=&name {tmt_core::names::validate_name(name).map_err(|e|e.to_string())?;}
+            Invocation::GuardedBind {pane,name,identity,expect,socket:text(m,"socket"),save:flag(m,"save")}
+        },
         ["name"] | ["add"] => Invocation::Bind {
             pane: text(m, "pane-target"),
             name: required(m, "name"),

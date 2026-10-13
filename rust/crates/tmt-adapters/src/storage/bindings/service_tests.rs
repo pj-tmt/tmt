@@ -1,3 +1,4 @@
+mod discovery;
 mod endpoint;
 mod hook_wait;
 mod presence;

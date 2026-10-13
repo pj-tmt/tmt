@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
-import { calibrateTmuxTripwire } from './tmux-tripwire.js';
+import { calibrateTmuxTripwire, installTmuxTripwire } from './tmux-tripwire.js';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 
 type Identity = {
@@ -351,5 +351,68 @@ describe('native identity binding process contract', () => {
         response: { body: 'retained exchange', body_bytes: 17 },
       });
     });
+  });
+});
+
+describe('bounded discovery process admission', () => {
+  it('reports unsupported hosts as data without invoking host drivers or creating storage', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = installTmuxTripwire(sandbox);
+      const result = await runCli(sandbox, ['discover', '--host', 'herdr', '--json']);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(parseWholeStdout(result)).toMatchObject({
+        version: 1,
+        sources: [{ host: 'herdr', status: 'unsupported' }],
+        candidates: [],
+        truncated: false,
+      });
+      expect(existsSync(log)).toBe(false);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('rejects malformed guarded selectors in the parser before probing or initialization', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = installTmuxTripwire(sandbox);
+      for (const args of [
+        ['add', '%1', 'worker', '--expect', 'bad'],
+        ['add', '%1', '--identity', 'worker', '--expect', 'a'.repeat(64)],
+        ['add', '%1', 'worker', '--socket', '/tmp/not-used'],
+      ]) {
+        const result = await runCli(sandbox, [...args, '--json']);
+        expect(result.status).not.toBe(0);
+        expectError(result, 'USAGE_ERROR');
+      }
+      expect(existsSync(log)).toBe(false);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+});
+
+it('represents an unavailable explicit source as data without creating identities', async () => {
+  await withSandbox(async (sandbox) => {
+    const log = installTmuxTripwire(sandbox);
+    const result = await runCli(sandbox, [
+      'discover',
+      '--socket',
+      `${sandbox.root}/absent.sock`,
+      '--json',
+    ]);
+    expect(result.status).toBe(0);
+    const fixture = JSON.parse(
+      readFileSync(new URL('../../../contracts/discovery-v1.json', import.meta.url), 'utf8')
+    ) as { states: Array<{ host: string; source: string }> };
+    const offline = fixture.states.find(
+      (state) => state.host === 'tmux' && state.source === 'offline'
+    )!;
+    expect(parseWholeStdout(result)).toMatchObject({
+      version: 1,
+      sources: [{ host: offline.host, status: offline.source }],
+      candidates: [],
+      truncated: true,
+    });
+    expect(existsSync(log)).toBe(true);
+    expect(existsSync(sandbox.database)).toBe(false);
   });
 });

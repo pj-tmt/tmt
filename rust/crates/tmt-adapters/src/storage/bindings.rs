@@ -99,6 +99,19 @@ impl IdentityReader for BindingRows<'_> {
 }
 
 impl BindingRecords for BindingRows<'_> {
+    fn insert_identity(
+        &mut self,
+        name: &ValidatedName,
+        lifetime: tmt_core::identity::Lifetime,
+    ) -> Result<Identity, Self::Error> {
+        tmt_core::identity::IdentityWriter::insert_identity(
+            &mut super::identities::IdentityRecords(self.0),
+            name,
+            lifetime,
+            false,
+        )
+    }
+
     fn is_auto_named(&self, identity_id: &str) -> Result<bool, Self::Error> {
         self.0
             .query_row(

@@ -13,6 +13,7 @@ pub struct BindingSession<'a, R> {
     deadline: Instant,
     enter_delay: Duration,
     invoker: Option<super::Invoker>,
+    discovery: Option<tmt_core::discovery::DiscoveryTarget>,
 }
 
 impl<R: CommandRunner> BindingSession<'_, R> {
@@ -29,7 +30,26 @@ impl<'a, R: CommandRunner> BindingSession<'a, R> {
             deadline: Instant::now(),
             enter_delay: Duration::ZERO,
             invoker: None,
+            discovery: None,
         }
+    }
+
+    pub fn with_discovery_target(mut self, target: tmt_core::discovery::DiscoveryTarget) -> Self {
+        self.discovery = Some(target);
+        self
+    }
+
+    pub fn discovery_target(
+        &self,
+        pane: &str,
+    ) -> Result<Option<tmt_core::discovery::DiscoveryTarget>, TmuxError> {
+        let socket = self.discovery.as_ref().map(|t| t.socket.as_str());
+        let observation = self.tmux.discover(socket, Some(pane), self.deadline)?;
+        Ok(observation
+            .candidates
+            .into_iter()
+            .find(|c| c.pane == pane && c.adoptable())
+            .and_then(|c| c.fence))
     }
 
     /// The user's own tmux client location, required only by `focus`.
@@ -70,7 +90,24 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {
-        self.tmux.snapshot(self.options(Some(panes)))
+        let socket = self.discovery.as_ref().map(|t| t.socket.as_str());
+        let mut snapshot = self.tmux.snapshot_on(socket, self.options(Some(panes)))?;
+        if let Some(fence) = &self.discovery {
+            let mut pids = vec![snapshot.server.server_pid];
+            pids.extend(snapshot.panes.iter().map(|p| p.pane_pid));
+            let starts =
+                crate::process::runtime::observe_starts(&self.tmux.runner, &pids, self.deadline)
+                    .map_err(|error| TmuxError::command(TmuxFailure::Evidence, error))?;
+            if starts.get(&snapshot.server.server_pid) != Some(&fence.server) {
+                return Err(TmuxError::evidence("discovery server incarnation changed"));
+            }
+            for pane in &mut snapshot.panes {
+                pane.pane_incarnation = starts
+                    .get(&pane.pane_pid)
+                    .map(|p| p.start_identity().into());
+            }
+        }
+        Ok(snapshot)
     }
 
     fn probe_binding(
