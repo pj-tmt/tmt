@@ -1,82 +1,68 @@
-//! Section boundaries on the squad tab: one rule between neighbours, never two.
+//! Workspace boundaries use actual tree/conversation placement, not authored
+//! factory panes. Frozen captures retain their previous provenance until review.
 use super::*;
-use crate::board::cronboard::{TEST_NOW, test_cron, test_view};
-use crate::config::{Board, Direction, Pane};
-use crate::test_support::stacked_rules;
-use tmt_ops::cron::ClockStatus;
+use crate::{
+    board::{
+        app::workspace::tests::{MEMBER, ROOM},
+        shell::OpsTab,
+        workspace::OpsTarget,
+    },
+    config::OpsLayout,
+    test_support::stacked_rules,
+};
 
-const WIDTHS: [u16; 3] = [160, 100, 80];
-/// Bodies from the smallest that carries every section up to a tall one, odd and even.
-const HEIGHTS: [u16; 5] = [12, 13, 16, 24, 31];
+const WIDTHS: [u16; 5] = [160, 140, 100, 80, 60];
+const HEIGHTS: [u16; 7] = [8, 12, 13, 16, 18, 24, 31];
 
-fn squad_app(board: Board, notes: Notes, cron: bool) -> App {
-    let mut app = paned(board, notes);
-    if cron {
-        app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
-        let mut job = test_view("someone", "job", Some(TEST_NOW + 3_600_000));
-        job.job.squad = "product".into();
-        job.job.room_id = "room".into();
-        app.cron
-            .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
-    }
+fn workspace(layout: OpsLayout, member: bool, tab: OpsTab) -> App {
+    let mut app = workspace_board();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .preferences
+        .layout = layout;
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":MEMBER,"requestId":"observed-response","submittedAtMs":1_000,
+        "response":"First response line\nSecond response line\nThird response line"
+    })];
+    let target = if member {
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        }
+    } else {
+        OpsTarget::Squad(ROOM.into())
+    };
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    app.select(index);
+    app.shell.tab = tab;
     app
 }
 
-/// What the notes pane can hold: a notebook, or nothing yet.
-fn notebooks() -> [Notes; 2] {
-    [Notes::Text("a note".into()), Notes::Missing]
-}
-
-fn assert_single_rules(app: &mut App, what: &str) {
-    for width in WIDTHS {
-        app.set_body_width(width);
-        for height in HEIGHTS {
-            let lines = draw(app, width, height);
-            if let Some(at) = stacked_rules(&lines) {
-                panic!(
-                    "two rules in a row at line {at}: {what} at {width}x{height}\n{}",
-                    lines.join("\n")
-                );
-            }
-        }
-    }
-}
-
 #[test]
-fn no_pane_order_stacks_two_rules_at_a_boundary() {
-    let others = [Pane::Rows, Pane::Notes, Pane::Detail, Pane::Replies];
-    let mut orders: Vec<Vec<Pane>> = Vec::new();
-    for first in others {
-        for second in others.into_iter().filter(|pane| *pane != first) {
-            orders.push(vec![first, second]);
-            for third in others
-                .into_iter()
-                .filter(|pane| *pane != first && *pane != second)
-            {
-                orders.push(vec![first, second, third]);
-            }
-        }
-    }
-    orders.retain(|panes| panes.contains(&Pane::Rows));
-    for panes in orders {
-        for direction in [Direction::TopBottom, Direction::LeftRight] {
-            for members in [true, false] {
-                for cron in [true, false] {
-                    let notes = if panes.contains(&Pane::Notes) {
-                        notebooks().to_vec()
-                    } else {
-                        vec![Notes::NotShown]
-                    };
-                    for notes in notes {
-                        let sizes = vec![100 / panes.len() as u16; panes.len()];
-                        let mut board = split(direction, panes.clone(), sizes);
-                        board.members = members;
-                        let mut app = squad_app(board, notes, cron);
-                        let what = format!(
-                            "{panes:?} {direction:?} members={members} cron={cron} notes={:?}",
-                            app.view.as_ref().unwrap().notes
-                        );
-                        assert_single_rules(&mut app, &what);
+fn workspace_layouts_never_stack_boundary_rules_at_supported_sizes() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for layout in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
+            for member in [false, true] {
+                let mut app = workspace(layout, member, tab);
+                for width in WIDTHS {
+                    app.set_body_width(width);
+                    for height in HEIGHTS {
+                        let lines = draw(&app, width, height);
+                        if let Some(at) = stacked_rules(&lines) {
+                            panic!(
+                                "stacked rules at row {at}: {tab:?}/{layout:?} member={member} {width}x{height}\n{}",
+                                lines.join("\n")
+                            );
+                        }
                     }
                 }
             }
@@ -84,81 +70,25 @@ fn no_pane_order_stacks_two_rules_at_a_boundary() {
     }
 }
 
-#[test]
-fn no_factory_view_stacks_two_rules_at_a_boundary() {
-    let path = std::env::temp_dir().join(format!("squad-rules-{}.toml", std::process::id()));
-    for workflow in ["crew", "team"] {
-        for name in crate::view::ViewName::ALL {
-            std::fs::write(
-                &path,
-                format!(
-                    "[squad.product]\nlayout = '{workflow}'\n[squad.product.board]\nview = '{}'\n",
-                    name.name()
-                ),
-            )
-            .unwrap();
-            let board = crate::config::Config::read(path.clone())
-                .unwrap()
-                .board("product")
-                .unwrap();
-            for cron in [true, false] {
-                for notes in notebooks() {
-                    let mut app = squad_app(board.clone(), notes, cron);
-                    let what = format!(
-                        "{} / {workflow} cron={cron} notes={:?}",
-                        name.name(),
-                        app.view.as_ref().unwrap().notes
-                    );
-                    assert_single_rules(&mut app, &what);
-                }
-            }
-        }
-    }
-    std::fs::remove_file(path).unwrap();
-}
-
-/// The default board and the member list, with the lead's notes present and absent,
-/// beside the jobs half.
 fn snapshots() -> Value {
-    let path = std::env::temp_dir().join(format!(
-        "squad-rules-shots-{}-{:?}.toml",
-        std::process::id(),
-        std::thread::current().id()
-    ));
     let mut frames = Vec::new();
-    for name in [crate::view::ViewName::Team, crate::view::ViewName::Members] {
-        std::fs::write(
-            &path,
-            format!(
-                "[squad.product]\nlayout = 'team'\n[squad.product.board]\nview = '{}'\n",
-                name.name()
-            ),
-        )
-        .unwrap();
-        let board = crate::config::Config::read(path.clone())
-            .unwrap()
-            .board("product")
-            .unwrap();
-        for (notes, present) in [
-            (Notes::Text("a note".into()), true),
-            (Notes::Missing, false),
-        ] {
-            for width in WIDTHS {
-                let mut app = squad_app(board.clone(), notes.clone(), true);
+    for layout in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
+        for member in [false, true] {
+            for width in [160, 100, 80] {
+                let mut app = workspace(layout, member, OpsTab::Agents);
                 app.set_body_width(width);
                 frames.push(json!({
-                    "view": name.name(), "notes": present, "width": width, "height": 24,
-                    "lines": draw(&app, width, 24),
+                    "layout":format!("{layout:?}"),"selection":if member {"member"} else {"squad"},
+                    "width":width,"height":24,"lines":draw(&app,width,24),
                 }));
             }
         }
     }
-    std::fs::remove_file(path).unwrap();
     json!(frames)
 }
 
 #[test]
-fn squad_tab_boundaries_snapshots_with_and_without_notes() {
+fn workspace_boundaries_snapshots_for_selected_squad_and_member() {
     assert_eq!(
         snapshots(),
         serde_json::from_str::<Value>(include_str!("rules_snapshots.json")).unwrap()
@@ -166,8 +96,8 @@ fn squad_tab_boundaries_snapshots_with_and_without_notes() {
 }
 
 #[test]
-#[ignore = "explicit captures of the squad tab's section boundaries"]
-fn record_squad_tab_boundaries_snapshots() {
+#[ignore = "explicit regeneration after decoded workspace-boundary approval"]
+fn record_workspace_boundaries_snapshots() {
     std::fs::write(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -179,10 +109,9 @@ fn record_squad_tab_boundaries_snapshots() {
 }
 
 /// Task-owned evidence only; frozen fixtures are never written by this capture.
-
 #[test]
-#[ignore = "read-only squad-rule snapshot inspection before fixture approval"]
-fn dump_squad_rule_snapshots() {
+#[ignore = "read-only workspace-boundary inspection before fixture approval"]
+fn dump_workspace_rule_snapshots() {
     let path = std::env::var("SQUAD_RULES_SNAPSHOTS_OUT").expect("task-owned output path");
     std::fs::write(
         path,
