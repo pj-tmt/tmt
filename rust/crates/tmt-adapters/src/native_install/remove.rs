@@ -48,6 +48,10 @@ fn former_product_removal(
         .ok_or_else(|| invalid("Former product has no verified activation."))?;
     let mut report = ProductRemoval::default();
     for name in former.links {
+        // A command the new product keeps is the new product's to remove.
+        if product.links().contains(name) {
+            continue;
+        }
         let link = old.prefix.join("bin").join(name);
         match fs::symlink_metadata(&link) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -149,8 +153,13 @@ fn plan_current_product_removal(prefix: &Path, product: Product) -> io::Result<P
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
             Ok(metadata)
-                if metadata.file_type().is_symlink()
-                    && fs::read_link(&link)? == Path::new(&product.link_target()) =>
+                if metadata.file_type().is_symlink() && {
+                    let target = fs::read_link(&link)?;
+                    target == Path::new(&product.link_target())
+                        || product
+                            .former_link_target(name)
+                            .is_some_and(|former| target == Path::new(&former))
+                } =>
             {
                 plan.removed.push(link)
             }

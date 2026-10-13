@@ -278,15 +278,13 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
     assert_eq!(provenance.manifest_sha256, sha256(&new_manifest));
     assert_eq!(receipt.target, target);
     assert_eq!(receipt.state.version, new_artifact.version);
-    assert!(
-        fs::read_dir(prefix.join("lib/tmux-team"))
+    assert!(fs::read_dir(prefix.join("lib/tmt")).unwrap().all(|entry| {
+        !entry
             .unwrap()
-            .all(|entry| !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".download-"))
-    );
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".download-")
+    }));
     assert!(!task.join("tmux-team.db").exists());
 
     let new_skill = run(

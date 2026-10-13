@@ -199,10 +199,11 @@ impl Receipt {
         )
         .map_err(io::Error::other)?;
         let receipt = Self::parse_metadata_identity(product, &bytes, prefix, id, Some(former))?;
-        if receipt
-            .provenance
-            .as_ref()
-            .is_some_and(|source| matches!(source, Provenance::Pr(_)))
+        if !former.pr_channel
+            && receipt
+                .provenance
+                .as_ref()
+                .is_some_and(|source| matches!(source, Provenance::Pr(_)))
         {
             return Err(invalid("Former product cannot carry PR provenance."));
         }

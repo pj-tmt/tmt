@@ -398,6 +398,7 @@ fn upgrade_product_with_options(
         )?;
         activate(
             ActivationRequest {
+                caller: super::Caller::Current,
                 product,
                 prefix: &current.prefix,
                 channel,

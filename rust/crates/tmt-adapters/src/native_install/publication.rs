@@ -40,6 +40,24 @@ struct ActivationCheck<F> {
     validate: F,
 }
 
+/// A namespace directory that already exists may hold only what the publisher
+/// writes there; anything else is not ours to publish into.
+pub(super) fn require_installation_entries(root: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let name = entry?.file_name();
+        let known = matches!(name.to_str(), Some("releases" | "current" | "install.lock"))
+            || name
+                .to_str()
+                .is_some_and(|name| name.starts_with(".current-"));
+        if !known {
+            return Err(invalid(
+                "Native installation directory holds files that TMT did not write; refusing to use it.",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn directory(path: &Path, create: bool) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
@@ -103,6 +121,26 @@ impl Layout {
         })
     }
 
+    /// A layout under the former namespace, as an installer from before the
+    /// move left it.
+    #[cfg(test)]
+    pub fn open_former(prefix: &Path) -> io::Result<Self> {
+        let former = Product::Cli.former().expect("the CLI has a former prefix");
+        directory(prefix, true)?;
+        let prefix = fs::canonicalize(prefix)?;
+        directory(&prefix.join("lib"), true)?;
+        directory(&prefix.join("bin"), true)?;
+        let root = prefix.join(former.namespace);
+        directory(&root, true)?;
+        directory(&root.join("releases"), true)?;
+        Ok(Self {
+            prefix,
+            root,
+            product: Product::Cli,
+            former: true,
+        })
+    }
+
     #[cfg(test)]
     pub fn open(prefix: &Path) -> io::Result<Self> {
         Self::open_product(prefix, Product::Cli)
@@ -125,6 +163,10 @@ impl Layout {
         directory(&prefix.join("bin"), true)?;
         let root = prefix.join(product.namespace());
         directory(&root, true)?;
+        // A directory that is not yet an installation must hold nothing foreign.
+        if fs::symlink_metadata(root.join("releases")).is_err() {
+            require_installation_entries(&root)?;
+        }
         directory(&root.join("releases"), true)?;
         Ok(Self {
             prefix,
@@ -165,6 +207,30 @@ impl Layout {
         Ok(Some((release, id)))
     }
 
+    fn namespace(&self) -> &'static str {
+        match self.product.former() {
+            Some(former) if self.former => former.namespace,
+            _ => self.product.namespace(),
+        }
+    }
+
+    /// Where this layout's command links point.
+    pub fn link_target(&self) -> String {
+        let executable = match self.product.former() {
+            Some(former) if self.former => former.executable,
+            _ => self.product.executable(),
+        };
+        format!("../{}/current/{executable}", self.namespace())
+    }
+
+    /// Where the former installation pointed the command link `name`, when
+    /// this layout replaces that installation and keeps the command.
+    fn former_link_target(&self, name: &str) -> Option<String> {
+        self.product
+            .former_link_target(name)
+            .filter(|_| !self.former)
+    }
+
     pub fn check_links(&self, has_current: bool) -> io::Result<()> {
         for name in self.product.links() {
             let path = self.prefix.join("bin").join(name);
@@ -172,9 +238,13 @@ impl Layout {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
                 Ok(metadata)
-                    if has_current
-                        && metadata.file_type().is_symlink()
-                        && fs::read_link(&path)? == Path::new(&self.product.link_target()) => {}
+                    if metadata.file_type().is_symlink() && {
+                        let target = fs::read_link(&path)?;
+                        (has_current && target == Path::new(&self.link_target()))
+                            || self
+                                .former_link_target(name)
+                                .is_some_and(|former| target == Path::new(&former))
+                    } => {}
                 Ok(_) => {
                     return Err(io::Error::new(
                         io::ErrorKind::AlreadyExists,
@@ -189,19 +259,38 @@ impl Layout {
         Ok(())
     }
 
+    /// Creates missing command links and moves a link that still points into
+    /// the former installation. Anything else was refused by `check_links`.
     pub fn ensure_links(&self) -> io::Result<()> {
         self.check_links(true)?;
         for name in self.product.links() {
             let path = self.prefix.join("bin").join(name);
-            match symlink(self.product.link_target(), &path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    self.check_links(true)?
+            match fs::read_link(&path) {
+                Ok(target) if target == Path::new(&self.link_target()) => {}
+                Ok(_) => self.retarget_link(name)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    match symlink(self.link_target(), &path) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                            self.check_links(true)?
+                        }
+                        Err(error) => return Err(error),
+                    }
                 }
                 Err(error) => return Err(error),
             }
         }
         File::open(self.prefix.join("bin"))?.sync_all()
+    }
+
+    /// Atomic replacement: a reader sees the former or the new target, never none.
+    fn retarget_link(&self, name: &str) -> io::Result<()> {
+        let bin = self.prefix.join("bin");
+        let temporary = bin.join(format!(".{name}.{}", Uuid::new_v4()));
+        symlink(self.link_target(), &temporary)?;
+        fs::rename(&temporary, bin.join(name)).inspect_err(|_| {
+            let _ = fs::remove_file(&temporary);
+        })
     }
 
     pub fn publish(
