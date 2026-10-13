@@ -31,8 +31,7 @@ fn snapshot_upgrade_preserves_saved_scene_and_rolls_back_schema_with_history() {
       "y": 100,
       "width": 320,
       "height": 200,
-      "text": "What should we build next?
-Leave a sketch or a note.",
+      "text": "What should we build next?\nLeave a sketch or a note.",
       "color": "#263d33",
       "fill": "#ffeaa3",
       "fontSize": 24
@@ -95,6 +94,10 @@ Leave a sketch or a note.",
   ]
 }
 "###;
+    assert_eq!(
+        tmt_core::content_digest::sha256(original.as_bytes()),
+        "6b7344cc4d57cac194ae3c7c4436b94318283e9758083fa27da4fc005e1b5458"
+    );
     old.execute("INSERT INTO office_whiteboards (document_id,world_id,revision,scene,updated_at_ms) VALUES ('lobby',?,1,?,100)", params![world_id, original]).unwrap();
     old.execute_batch("CREATE TRIGGER reject_snapshot_upgrade BEFORE INSERT ON _migrations WHEN NEW.version=22 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
     old.close().unwrap();

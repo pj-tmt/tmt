@@ -87,6 +87,10 @@ const PROP_COUNT: i64 = 4;
 
 #[test]
 fn prop_bound_upgrade_preserves_content_and_rolls_back_on_history_failure() {
+    assert_eq!(
+        tmt_core::content_digest::sha256(PACK),
+        "a63b9c1b1c375c125b3a8508c75441634cea489e4d17cc01dd77c6403a6a3314"
+    );
     let directory = TestDirectory::new();
     let path = directory.path.join("schema17.db");
     let mut old = Connection::open(&path).unwrap();
