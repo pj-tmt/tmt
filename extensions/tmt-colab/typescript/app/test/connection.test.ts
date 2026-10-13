@@ -43,6 +43,9 @@ vi.mock('../src/objects.js', async (original) => ({
       calls.push('admit');
       return { namespace: 'content', writer: author, update: new Uint8Array([1]) };
     }
+    noteCut(stream: string, namespace: string, entry: { seq: string; envelopeHash: string }) {
+      calls.push(`notice ${stream} ${namespace} ${entry.seq}`);
+    }
   },
 }));
 class Socket {
@@ -115,6 +118,53 @@ function broadcast(chains = true) {
     ...(chains ? { chains: [{ deviceId: author, chain: 'fixture' }] } : {}),
   };
 }
+function notice(change: Record<string, unknown> = {}) {
+  return {
+    ...scope,
+    type: 'checkpoint',
+    streamId: author,
+    namespace: 'content',
+    seq: '3',
+    envelopeHash: encodeBinary(new Uint8Array(32).fill(5)),
+    ...change,
+  };
+}
+it('takes a checkpoint notice as an unseen cut: nothing is admitted, folded or published', async () => {
+  const { connection, socket, publish, failed } = await open();
+  publish.mockClear();
+  socket.send.mockClear();
+  try {
+    socket.receive(notice());
+    socket.receive(notice({ namespace: 'own', seq: '4' }));
+    await connection.run(async () => {});
+    expect(calls).toEqual([`notice ${author} content 3`, `notice ${author} own 4`]);
+    expect(publish).not.toHaveBeenCalled();
+    expect(failed).not.toHaveBeenCalled();
+    // Each frame is acknowledged as a frame, with no position the notice would have advanced.
+    expect(socket.send.mock.calls.filter(([raw]) => JSON.parse(raw).type === 'ack')).toHaveLength(
+      2,
+    );
+  } finally {
+    connection.close();
+  }
+});
+it('closes on a checkpoint notice that is not exactly a notice', async () => {
+  for (const bad of [
+    notice({ namespace: 'other' }),
+    notice({ seq: '03' }),
+    notice({ streamId: 'not-an-id' }),
+    notice({ envelopeHash: 'AA' }),
+    notice({ envelope: 'AA' }),
+  ]) {
+    const { connection, socket, publish, failed } = await open();
+    publish.mockClear();
+    socket.receive(bad);
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+    expect(calls.some((call) => call.startsWith('notice'))).toBe(false);
+    expect(publish).not.toHaveBeenCalled();
+    connection.close();
+  }
+});
 it('verifies live author chains before envelope admission and Worker publication', async () => {
   const { connection, socket, publish, failed } = await open();
   try {

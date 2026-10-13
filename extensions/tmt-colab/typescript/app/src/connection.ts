@@ -407,6 +407,27 @@ export class Connection {
         envelopeHash: pos.envelopeHash,
         envelope: frame.envelope,
       });
+    } else if (frame.type === 'checkpoint') {
+      // The serve stored a checkpoint. The notice names it and grants nothing: no cut moves, no
+      // cursor advances and nothing is decoded. A read that needs the page revision settles it.
+      exactKeys(frame, [
+        'version',
+        'type',
+        'space',
+        'page',
+        'epoch',
+        'streamId',
+        'namespace',
+        'seq',
+        'envelopeHash',
+      ]);
+      const namespace = frame.namespace;
+      requireValue(
+        typeof frame.streamId === 'string' && (namespace === 'content' || namespace === 'own'),
+      );
+      const pos = { streamId: frame.streamId, seq: frame.seq, envelopeHash: frame.envelopeHash };
+      position(pos);
+      this.objects.noteCut(frame.streamId, namespace, pos);
     } else if (frame.type === 'receipt') {
       exactKeys(frame, [
         'version',

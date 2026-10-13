@@ -1484,13 +1484,8 @@ describe('CI diff and command integration', () => {
       "      remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}"
     );
     expect(
-      steps.match(
-        /if: needs\.changes\.outputs\.remote_firestore == 'true' \|\| needs\.changes\.outputs\.colab_firestore == 'true'/g
-      )
-    ).toHaveLength(2);
-    expect(
       steps.match(/^        if: needs\.changes\.outputs\.remote_firestore == 'true'$/gm)
-    ).toHaveLength(1);
+    ).toHaveLength(3);
     expect(
       steps.match(/^        if: needs\.changes\.outputs\.colab_firestore == 'true'$/gm)
     ).toHaveLength(1);
@@ -1574,16 +1569,81 @@ describe('CI diff and command integration', () => {
     expect(colab).toContain('timeout-minutes: 8');
     expect(colab).toContain('firebase emulators:exec --only firestore --project demo-tmt-colab');
     expect(colab).toContain(
-      '--config extensions/tmt-colab/rust/tmt-colab/tests/emulator/firebase.json --non-interactive'
+      '--config /c/rust/tmt-colab/tests/emulator/firebase.json --non-interactive'
     );
+    expect(colab).toContain("'node --test /c/rust/tmt-colab/tests/emulator/suite.mjs'");
     expect(colab).toContain(
-      "'node --test extensions/tmt-colab/rust/tmt-colab/tests/emulator/suite.mjs'"
+      'docker build --tag "$image" extensions/tmt-colab/rust/tmt-colab/tests/emulator'
     );
-    expect(steps).not.toMatch(/continue-on-error|\|\| true|docker |secrets\./);
+    expect(colab).toContain('docker run --rm --init --network none');
+    expect(colab).toContain('--volume "$GITHUB_WORKSPACE/extensions/tmt-colab:/c:ro" "$image"');
+    expect(colab).toContain('trap cleanup EXIT');
+    expect(colab).toContain('docker image rm "$image"');
+    expect(colab.match(/--volume /g)).toHaveLength(1);
+    expect(colab).not.toMatch(/--env|--mount|--network host|--privileged|secrets\./);
+    expect(steps).not.toMatch(/continue-on-error|\|\| true|secrets\./);
     expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
     expect(read('extensions/tmt-colab/rust/tmt-colab/tests/emulator/Dockerfile')).toContain(
       'node:22.23.2-'
     );
+  });
+
+  it.each([
+    { build: 0, suite: 0, cleanup: 0, status: 0 },
+    { build: 23, suite: 0, cleanup: 0, status: 23 },
+    { build: 0, suite: 7, cleanup: 0, status: 7 },
+    { build: 0, suite: 0, cleanup: 9, status: 1 },
+  ])('propagates Colab Docker build/suite/cleanup status $status', (fixture) => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const step = ci
+      .split('      - name: Run the Colab Firestore Rules emulator suite\n')[1]
+      .split('      - name: Run retained developer tooling tests')[0];
+    const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-colab-rules-ci-'));
+    try {
+      writeExecutable(
+        path.join(root, 'docker'),
+        `#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+case "$1" in
+  build) exit "$BUILD_STATUS" ;;
+  run) exit "$SUITE_STATUS" ;;
+  image) exit "$CLEANUP_STATUS" ;;
+  *) exit 99 ;;
+esac
+`
+      );
+      runPackedCommand('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+        cwd: root,
+        env: {
+          ...process.env,
+          PATH: `${root}:${process.env.PATH}`,
+          GITHUB_RUN_ID: '123',
+          GITHUB_RUN_ATTEMPT: '1',
+          GITHUB_WORKSPACE: root,
+          CALLS: path.join(root, 'calls'),
+          BUILD_STATUS: String(fixture.build),
+          SUITE_STATUS: String(fixture.suite),
+          CLEANUP_STATUS: String(fixture.cleanup),
+        },
+        expectedStatus: fixture.status,
+      });
+      const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
+      expect(calls[0]).toBe(
+        'build --tag tmt-colab-rules:123-1 extensions/tmt-colab/rust/tmt-colab/tests/emulator'
+      );
+      if (fixture.build !== 0) {
+        expect(calls).toHaveLength(1);
+      } else {
+        expect(calls).toHaveLength(3);
+        expect(calls[1]).toContain(
+          `run --rm --init --network none --volume ${root}/extensions/tmt-colab:/c:ro tmt-colab-rules:123-1 firebase emulators:exec`
+        );
+        expect(calls[2]).toBe('image rm tmt-colab-rules:123-1');
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('requires mapped Colab ownership and does not expand empty advisory scope', () => {

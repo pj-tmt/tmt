@@ -215,6 +215,62 @@ it('paired checkpoints bind one prefix and preserve the cross-namespace tail cha
   ]);
   objects.finish();
 });
+it('a notice of a stored checkpoint is unseen until catch-up admits that checkpoint', async () => {
+  const f = await fixture(),
+    stream = f.context.authorDevice,
+    objects = new Objects(f.admission),
+    prefix = new Uint8Array(32).fill(4),
+    cp = await f.seal({ ...f.context, kind: 'checkpoint', streamSeq: '4', prevHash: prefix }),
+    notice = { seq: '4', envelopeHash: c.encodeBinary(await cp.hash()) };
+  expect(objects.hasUnseenCut()).toBe(false);
+  // The notice grants nothing: no cursor moves, no head and no cut.
+  objects.noteCut(stream, 'content', notice);
+  expect(objects.hasUnseenCut()).toBe(true);
+  expect(objects.cursors()).toEqual([]);
+  expect(objects.head(stream).seq).toBe(0n);
+  // The same notice again is still the one unseen cut.
+  objects.noteCut(stream, 'content', notice);
+  expect(objects.hasUnseenCut()).toBe(true);
+  // A catch-up admits the checkpoint, which verifies it, and the notice is settled.
+  await objects.admit(stream, await f.entry(cp), 'checkpoint', 'content');
+  expect(objects.hasUnseenCut()).toBe(false);
+  // A notice of a checkpoint already held changes nothing.
+  objects.noteCut(stream, 'content', notice);
+  expect(objects.hasUnseenCut()).toBe(false);
+});
+it('a stale or forged notice changes nothing', async () => {
+  const f = await fixture(),
+    stream = f.context.authorDevice,
+    objects = new Objects(f.admission),
+    cp = await f.seal({
+      ...f.context,
+      kind: 'checkpoint',
+      streamSeq: '4',
+      prevHash: new Uint8Array(32).fill(4),
+    });
+  await objects.admit(stream, await f.entry(cp), 'checkpoint', 'content');
+  // Behind the cut this view holds: stale.
+  objects.noteCut(stream, 'content', {
+    seq: '3',
+    envelopeHash: c.encodeBinary(new Uint8Array(32).fill(7)),
+  });
+  expect(objects.hasUnseenCut()).toBe(false);
+  // Not a notice at all: nothing is recorded, and the connection would be closed.
+  for (const [id, bad] of [
+    [stream, { seq: '0', envelopeHash: c.encodeBinary(new Uint8Array(32)) }],
+    [stream, { seq: '05', envelopeHash: c.encodeBinary(new Uint8Array(32)) }],
+    [stream, { seq: '5', envelopeHash: c.encodeBinary(new Uint8Array(31)) }],
+    ['not-an-id', { seq: '5', envelopeHash: c.encodeBinary(new Uint8Array(32)) }],
+  ] as const)
+    expect(() => objects.noteCut(id, 'content', bad)).toThrow();
+  expect(objects.hasUnseenCut()).toBe(false);
+  // At the cut but another checkpoint than the one held: unseen, and a catch-up settles it.
+  objects.noteCut(stream, 'content', {
+    seq: '4',
+    envelopeHash: c.encodeBinary(new Uint8Array(32).fill(7)),
+  });
+  expect(objects.hasUnseenCut()).toBe(true);
+});
 it('rejects checkpoint prefix/namespace substitutions and replacement envelopes', async () => {
   const f = await fixture();
   for (const change of [{ streamSeq: '3' }, { prevHash: new Uint8Array(32).fill(9) }]) {

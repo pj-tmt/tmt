@@ -35,6 +35,7 @@ async function source(page: Page): Promise<Locator> {
   return page.locator('#page-size-fixture .tmt-ui-drawer[data-panel=source]');
 }
 const section = (drawer: Locator) => drawer.locator('.page-size');
+const captureStates = process.env.COLAB_PAGE_SIZE_CAPTURE_STATES?.split(',');
 
 test('the About drawer shows Page size with its numbers and combines on request', async ({
   page,
@@ -117,6 +118,28 @@ test('at 80% the Source panel shows one quiet notice that cannot be dismissed', 
   await expect(quiet.locator('.source-notice')).toHaveCount(0);
 });
 
+test('the quiet notice and Save refusal use one slot below the Source toolbar', async ({
+  page,
+}) => {
+  await mount(page, { refuseSave: true, usage: { updates: 172, percent: 86 } });
+  const editor = await source(page);
+  const notice = editor.locator('.source-notice');
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toContainText('Nearly full');
+  const toolbar = editor.locator('label[for="source-edit"]').locator('..');
+  const initial = await notice.boundingBox();
+  const toolbarBox = await toolbar.boundingBox();
+  expect(initial!.y).toBeGreaterThanOrEqual(toolbarBox!.y + toolbarBox!.height);
+  await editor.locator('textarea').fill('<p>Keep this draft</p>');
+  await editor.getByRole('button', { name: 'Save source', exact: true }).click();
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toContainText('Not saved');
+  const refused = await notice.boundingBox();
+  expect(Math.abs(refused!.y - initial!.y)).toBeLessThanOrEqual(1);
+  await expect(editor.locator('textarea')).toHaveValue('<p>Keep this draft</p>');
+  expect(await calls(page)).toMatchObject({ edit: 1, compact: 0 });
+});
+
 test('when combining cannot free room the notice says so and offers Export instead', async ({
   page,
 }) => {
@@ -194,7 +217,9 @@ test('a save refused for a full page offers Compact, keeps the draft and never s
   await expect(editor.getByRole('button', { name: 'Compact page' })).toHaveCount(1);
   expect(await calls(page)).toMatchObject({ edit: 1, compact: 0 });
   await editor.getByRole('button', { name: 'Compact page' }).last().click();
-  await expect(editor).toContainText('Compacted. Save again to keep your edit.');
+  await expect(notice).toContainText('Save again to keep your edit.');
+  await expect(notice.getByText('Compacted', { exact: true })).toHaveCount(1);
+  await expect(notice).not.toContainText('Compacted.');
   await expect(box).toHaveValue('<h1>My unsaved edit</h1>');
   // Compacting did not save, and nothing saves until the person presses Save.
   await page.waitForTimeout(300);
@@ -262,8 +287,10 @@ for (const [width, theme] of [
     await page.addInitScript((value) => {
       document.documentElement.dataset.theme = value;
     }, theme);
-    const shot = async (name: string) =>
-      page.screenshot({ path: capturePath(`2846-${name}-${width}-${theme}.png`) });
+    const shot = async (name: string) => {
+      if (!captureStates || captureStates.includes(name))
+        await page.screenshot({ path: capturePath(`2846-${name}-${width}-${theme}.png`) });
+    };
     await mount(page);
     let drawer = await about(page);
     await expect(section(drawer)).toBeVisible();
@@ -297,8 +324,10 @@ for (const [width, theme] of [
     await page.addInitScript((value) => {
       document.documentElement.dataset.theme = value;
     }, theme);
-    const shot = async (name: string) =>
-      page.screenshot({ path: capturePath(`2846-${name}-${width}-${theme}.png`) });
+    const shot = async (name: string) => {
+      if (!captureStates || captureStates.includes(name))
+        await page.screenshot({ path: capturePath(`2846-${name}-${width}-${theme}.png`) });
+    };
     const result = async (name: string, extra: Extra) => {
       await mount(page, extra);
       const drawer = await about(page);
@@ -343,7 +372,10 @@ for (const [width, theme] of [
       '<h1>My unsaved edit</h1>',
     );
     await tail.getByRole('button', { name: 'Compact page' }).last().click();
-    await expect(tail).toContainText('Compacted. Save again to keep your edit.');
+    await expect(tail.locator('.source-notice')).toContainText('Save again to keep your edit.');
+    await expect(
+      tail.locator('.source-notice').getByText('Compacted', { exact: true }),
+    ).toHaveCount(1);
     await expect(tail.locator('textarea')).toHaveValue('<h1>My unsaved edit</h1>');
     await shot('refusal-compacted');
     await refused(

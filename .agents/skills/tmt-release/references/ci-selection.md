@@ -38,11 +38,12 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
   is retired for every event, independently of its parked release attribution.
 
 The Remote and Colab Firestore Rules emulator suites run as selected steps inside `Unit tests` (no new
-required context, no Docker). `remote_firestore` selects Remote's suite, fixtures, `rules.rs` or `ci.yml`;
+required context). `remote_firestore` selects Remote's suite, fixtures, `rules.rs` or `ci.yml`;
 `colab_firestore` selects Colab's `firestore/`, `deploy-declaration-*` vectors, emulator suite or `ci.yml`.
-All selected inputs require full native scope so the job runs. Shared setup uses hosted Temurin 21
-(`JAVA_HOME_21_X64`), Node 22.23.2 and firebase-tools 15.29.0 once; selected suites run sequentially in
-localhost demo projects, fail closed and retain their step bounds without retry or cache.
+All selected inputs require full native scope so the job runs. Remote uses hosted Temurin 21
+(`JAVA_HOME_21_X64`), Node 22.23.2 and firebase-tools 15.29.0. Colab builds its digest-pinned emulator
+Dockerfile with the same pins, then runs `--rm --init --network none` with only its extension mounted
+read-only and no credentials. Both suites fail closed within their step bounds, without retry or cache.
 
 ## Worker gates
 

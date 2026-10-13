@@ -23,6 +23,9 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type HTMLAttributes,
+  type Ref,
+  type KeyboardEvent,
 } from 'react';
 import { Listbox } from './components/listbox.js';
 import {
@@ -269,6 +272,14 @@ export interface PageListSearchProps {
   onApply(edit: SearchEdit): void;
   /** Escape with no suggestion list open. */
   onClear(): void;
+  /** A host result list takes over only while filter suggestions are closed. */
+  resultTrigger?: Pick<
+    HTMLAttributes<HTMLElement>,
+    'aria-controls' | 'aria-expanded' | 'aria-activedescendant' | 'aria-haspopup'
+  > & { ref: Ref<HTMLElement> };
+  /** Suggestions retain first refusal; consuming this original event skips list defaults. */
+  onUnhandledKeyDown?(event: KeyboardEvent<HTMLDivElement>): void;
+  placeholder?: string;
 }
 
 /** The shared rich input with `label:` and `by:` tokens; the page list owns what the draft means. */
@@ -369,17 +380,20 @@ function SearchField(props: PageListSearchProps) {
         open: open && options.length > 0,
         onOpenChange: setOpen,
         render: (trigger) => (
-          <RichInputControl
+          <SearchControl
             label={text.pageList.searchLabel}
-            placeholder={text.pageList.searchPlaceholder}
+            placeholder={props.placeholder ?? text.pageList.searchPlaceholder}
             disabled={false}
             className="page-list-search-field"
             trigger={trigger}
+            resultTrigger={props.resultTrigger}
             onKeyDownCapture={(event) => {
               if (trigger['aria-expanded'] === true) {
                 trigger.onKeyDown?.(event);
                 if (event.defaultPrevented) return;
               }
+              current.current.onUnhandledKeyDown?.(event);
+              if (event.defaultPrevented) return;
               if (event.key === 'Enter') {
                 // One line: Enter applies the draft, never breaks it.
                 event.preventDefault();
@@ -397,4 +411,28 @@ function SearchField(props: PageListSearchProps) {
       }}
     />
   );
+}
+
+/** Both list owners observe one mounted editable; only the visible suggestion level owns ARIA. */
+function SearchControl({
+  resultTrigger,
+  trigger,
+  ...props
+}: Parameters<typeof RichInputControl>[0] & {
+  resultTrigger?: PageListSearchProps['resultTrigger'];
+}) {
+  const suggestionRef = trigger?.ref;
+  const resultRef = resultTrigger?.ref;
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      for (const owner of [suggestionRef, resultRef]) {
+        if (typeof owner === 'function') owner(node);
+        else if (owner) owner.current = node;
+      }
+    },
+    [suggestionRef, resultRef],
+  );
+  const attributes =
+    trigger?.['aria-expanded'] === true ? trigger : { ...trigger, ...resultTrigger };
+  return <RichInputControl {...props} trigger={{ ...attributes, ref }} />;
 }

@@ -1,14 +1,7 @@
-import {
-  useLayoutEffect,
-  useId,
-  useRef,
-  type ComponentPropsWithoutRef,
-  type ReactNode,
-  type SyntheticEvent,
-} from 'react';
+import { useId, type ComponentPropsWithoutRef, type ReactNode, type SyntheticEvent } from 'react';
 import { X } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
-import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
+import { useModalDialog } from './modal-dialog.js';
 
 export type BrowserDrawerDismissReason = 'escape' | 'backdrop' | 'close';
 export interface BrowserDrawerProps extends Omit<
@@ -48,62 +41,16 @@ export function BrowserDrawer({
   ...attributes
 }: BrowserDrawerProps) {
   const label = useId();
-  const dialog = useRef<HTMLDialogElement>(null);
-  const currentOpen = useRef(open);
-  currentOpen.current = open;
-  const fallback = useRef(focusFallback);
-  fallback.current = focusFallback;
-  useLayoutEffect(() => {
-    const node = dialog.current;
-    if (!open || !node) return;
-    const origin = node.ownerDocument.activeElement;
-    node.showModal();
-    return () => {
-      node.close();
-      restoreOverlayFocus(origin, fallback.current);
-    };
-  }, [open]);
+  const modal = useModalDialog({ open, onDismiss, focusFallback });
   if (!open && !keepMounted) return null;
   return (
     <dialog
       {...attributes}
-      ref={dialog}
+      {...modal}
       className={`tmt-ui-drawer ${className}`}
       data-panel={panel}
       data-width={width}
       aria-labelledby={label}
-      onClose={(event) => {
-        event.stopPropagation();
-        if (currentOpen.current && !event.currentTarget.open) onDismiss('close', event);
-      }}
-      onCancel={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.isTrusted) onDismiss('escape', event);
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (admitsOverlayEscape(event)) onDismiss('escape', event);
-      }}
-      onPointerDown={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          outsideOverlay(event.currentTarget, event.clientX, event.clientY)
-        )
-          event.preventDefault();
-      }}
-      onClick={(event) => {
-        if (
-          event.target === event.currentTarget &&
-          outsideOverlay(event.currentTarget, event.clientX, event.clientY)
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (event.isTrusted) onDismiss('backdrop', event);
-        }
-      }}
     >
       <header className="tmt-ui-drawer-header">
         <div className="tmt-ui-drawer-heading">

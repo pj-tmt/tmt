@@ -1063,7 +1063,8 @@ removed or moved spacers and inner-scroll fallback detach cards into Comments.
 The parent leaves a transparent description gap between its trusted bands; authored text
 stays in the frame. Parent ResizeObserver measurement coalesces to one update per animation frame and
 only sends changed integer heights. Height requests retain admitted positions and
-composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
+composer focus until a valid reply detaches a slot. Changed normalized parent-owned slot dimensions restart the viewport-growth baseline; identical requests and frame reports do not.
+Cosmetic top convergence stops after three
 changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
@@ -1372,6 +1373,10 @@ reload, keeping drafts and the open panel.
 - A refusal that ends access (a revoked device, `Access ended`, a deleted page, a closed or
   ended session) stops the reopen at once. Readmittable and unclassified refusals retry; after
   the last attempt or an exhausted budget the page shows its terminal card.
+- A bare 404, 502, 503 or 504 from the door's mount is the extension restarting or upgrading
+  (#2929), not a refusal of the device: the open page waits and retries silently, with no limit
+  while the tab is visible, and does not spend a reopen. Every retry opens a fresh Remote
+  Session first, so a device revoked or unpaired meanwhile still ends the page.
 - A route reload that delivers a newer binding ends the reopen in flight and the binding an
   earlier reopen produced, so one page keeps one sync socket.
 - A read-only link reader is never reopened: the same codes end its access ("Access ended").
@@ -1559,7 +1564,9 @@ decoder child merges only that stream's updates with `merge_updates_v1` (a devic
 depend on structs another device wrote, so the merge does not build or project the page), the
 device seals a checkpoint per namespace at its stream head, and the store prunes the covered
 prefix when both namespaces are paired. Other devices' streams are never touched. Combining is
-best effort and repeatable. Before publishing either checkpoint, the owner decodes the page with
+best effort and repeatable. The serve tells live subscribers which checkpoints it
+stored (`checkpoint` notice, see the sync frames); an open browser settles that
+before a read fenced by the page revision. Before publishing either checkpoint, the owner decodes the page with
 the candidate merged streams and requires its HTML, complete metadata and every writer's own
 projection to equal the current page. A mismatch or decoder failure publishes nothing and leaves
 the write durable and every update in place.
@@ -1983,7 +1990,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. Author requests cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -2057,26 +2064,47 @@ admitted author choice children are hidden while the trusted parent draws contro
 and current answer, with conversation history and agent replies expanded. Groups use
 the shared controlled BrowserTabs leaf: Arrow keys wrap, Home/End select endpoints,
 and native Enter/Space activates a tab. Inactive trusted panels remain mounted to retain
-drafts. Answered/waiting marks include state words, with an answered/total count.
-The group heading inherits authored ink; its `Q:` prefix uses currentColor at 45%.
-The card, tabs and controls retain the pinned light palette; selected controls and
-primary actions use the existing link color role. It resolves the untrusted
-agent name through the existing mention directory. A unique match preselects its
-bound identity; absent or ambiguous names use the normal recipient field. Send
-has visible text `Send & next` when another question is unanswered and `Send answer`
-otherwise. Its accessible name starts with that visible text, followed by
-` · to <recipient>` or ` · to thread only` when there is no recipient. Question/choice
-text cannot add recipients. Only trusted explicit Send,
-or Enter in a short-answer field, publishes
-one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
-and the visible recipient text, then attempts the existing Ask. Multiple choices
-retain authored order; Other uses `Other: <text>`. Delivery failure retains the
-comment and uses existing unadopted/uncertain retry rules; render, reload and sync
-never send. Enter in a long-answer field inserts a newline. Digits select choice tiles
-only from a tablist, panel or tile, never while typing in a text or recipient control.
-The next unanswered question is selected only after the recorded message appears as
-the current verified device answer; a local send callback or frame claim cannot advance.
-An explicit tab choice made while verification is pending is retained.
+in-tab drafts. Answered/waiting marks include state words. `N of M answered` counts
+complete unsent drafts plus questions with a verified device answer; only completed
+unsent drafts enter Send. A local callback or frame claim cannot provide a verified
+current answer. The group heading inherits authored ink; its `Q:` prefix uses
+currentColor at 45%. The card, tabs and controls retain the pinned light palette;
+selected controls and primary actions use the existing link color role.
+
+The group owns one footer and visible recipient chips using BrowserChips. Asking
+agent names resolve through the existing directory: one default chip for each
+uniquely resolved identity, in tab order, deduplicated within the cap of eight.
+Removing a default is intentional and directory refresh never restores it. The
+same directory/UUID recipient policy rechecks explicit chips; absent or ambiguous
+asking names add no recipient. Empty chips allow comment-only Send and show
+`Stays on the page, no one is asked`; at eight, Add is disabled with `At most 8`.
+Question/choice text cannot add recipients. The primary label is `Send <N> answers`,
+singular `Send 1 answer` when one is eligible in a multi-question group, or
+`Send answer` for a group of one in every state. For groups of several, with no
+eligible answers and no batch in flight, the disabled action reads `Send answers`.
+Its accessible name starts with that visible text, followed by ` · to <recipients>`
+or ` · to thread only`.
+
+Only trusted explicit Send publishes complete unsent drafts, in tab order, through
+`sendAnswers`; one-question short-answer Enter uses the same one-answer path.
+Choosing answers, changing tabs, render, reload and sync publish nothing. Each
+answer is one plain-text comment, `Answer to “<question>”: <answer>`, followed by page
+title and the visible recipient text. Multiple choices retain authored order;
+Other uses `Other: <text>`. Partial Sends retain untouched and failed drafts.
+Sending freezes the answer/selector/thread/recipient snapshot, holds its controls
+and keeps the selected tab; tabs remain available for reading. Long-answer Enter
+inserts a newline. Digits select choice tiles only from a tablist, panel or tile,
+never while typing in a text or recipient control. A composed-cap refusal shows
+`These answers are too long to send together. Send fewer answers.` with no effects.
+
+An admitted multi-answer Ask shows `Asked <recipients> with <N> answers.` on its
+participating questions; a single answer keeps `Asked <recipients>`. Replies render
+once in the canonical first-recorded question's conversation. Other participating
+questions with a reply show `Open reply`, named `Open reply · <canonical question
+label>`, which selects that tab and focuses its reply after current placement is
+admitted. Recipient retries retain the same recorded batch, per recipient, using
+the existing AskAgainAction; they never republish its comments or appear under
+every participating question. Change answer is an ordinary one-question follow-up.
 
 The renderer's existing text-map owner produces a normal QuoteSelector for the
 rendered question text and its surrounding context. The UUID never appears as a
@@ -2096,7 +2124,6 @@ Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
 one proposal/question measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
-The tab count summarizes verified answers within each admitted group.
 
 The existing `colab.render.questions` parent request is a closed
 `{type,renderId,requestId,blocks,threads,groups}` object, at most 256 KiB.
@@ -2259,8 +2286,12 @@ twice; otherwise nothing is asked. The frozen message is the ordinary frame (pag
 `Quote:` the canonical thread's anchor text) whose `Comment:` is `Answers to <N> questions:`
 and one `<question>: <answer>` line per answer in tab order, without each answer's page and
 recipient lines, and with no earlier conversation. A message over the 64 KiB cap is refused
-before any comment is published. A question whose comment was not recorded is not in the
-Ask and goes in a later Send; one recorded answer is the single-comment Ask above. The
+before any comment is published. A failed comment means not confirmed recorded, including
+an error before publication or a lost acknowledgement; it is excluded from this Ask and
+its draft remains for a later explicit Send, which publishes it again. A late first
+comment may leave an extra record superseded by `currentAnswer`, but no agent is asked
+about that failed outcome. There is no same-ID recovery handle. One recorded answer is
+the single-comment Ask above. The
 reservation key and the `retryOf` check use the sorted message-ID set (the single-comment
 key is its one-element case, unchanged), so a failed or uncertain batch Ask is retried as
 the same batch for that recipient, never split and never per question. `conversationAsks`
@@ -2443,6 +2474,7 @@ operations are:
 | `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                      |
 | `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                          |
 | `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                 |
+| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                    |
 | `ack`           | `cursors`; scoped delivery positions only                                                                                                       |
 | `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                        |
 | `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                  |
@@ -2459,18 +2491,18 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type  | Exact additional fields                                                 | Implemented behavior                                                                                                                                                                                                                                                                          |
-| ------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`                                   | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.                                                                                                                                                                               |
-| `subscribe`  | `cursors`                                                               | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                                                                                                                                                                                       |
-| `append`     | `streamId, seq, envelopeHash, envelope`                                 | Inline update or object reference; verify complete exact bytes and durably append before receipt. Kind `checkpoint` is accepted only for the sender's own stream, namespace `own`, at its head (`streamSeq` the head, `prevHash` the head hash); it is stored and receipted, never broadcast. |
-| `chunk`      | `objectId, envelopeHash, index, count, bytes`                           | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                          |
-| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                         |
-| `savestatus` | `operationId`                                                           | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                      |
-| `usage`      | none                                                                    | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                         |
-| `compact`    | none                                                                    | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                             |
-| `ack`        | `cursors`                                                               | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                    |
-| `awareness`  | `device, data`                                                          | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                                                                                                                                                                                                 |
+| Client type  | Exact additional fields                                                 | Implemented behavior                                                                                                                                                                                                                                                                                                                         |
+| ------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`                                   | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.                                                                                                                                                                                                                              |
+| `subscribe`  | `cursors`                                                               | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                                                                                                                                                                                                                                      |
+| `append`     | `streamId, seq, envelopeHash, envelope`                                 | Inline update or object reference; verify complete exact bytes and durably append before receipt. Kind `checkpoint` is accepted only for the sender's own stream, namespace `own`, at its head (`streamSeq` the head, `prevHash` the head hash); it is stored and receipted, then announced to subscribers as a `checkpoint` notice (below). |
+| `chunk`      | `objectId, envelopeHash, index, count, bytes`                           | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                                                                         |
+| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                                                                        |
+| `savestatus` | `operationId`                                                           | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                                                                     |
+| `usage`      | none                                                                    | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                                                                        |
+| `compact`    | none                                                                    | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                                                                            |
+| `ack`        | `cursors`                                                               | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                                                                   |
+| `awareness`  | `device, data`                                                          | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                                                                                                                                                                                                                                                |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -2498,6 +2530,22 @@ Server `receipt` has `streamId, seq, envelopeHash`; `broadcast` additionally has
 `envelope` in the same inline/reference shape. Both use the common fields.
 New appends broadcast to admitted subscribers, including the subscribed sender;
 exact retries return the original receipt without a second broadcast. Server
+`checkpoint` has `streamId, namespace` (`content` or `own`), `seq` and
+`envelopeHash`, and nothing else: it names a checkpoint and carries none of it.
+The serve sends it to admitted subscribers only after the checkpoint is stored and
+paired, right after the receipt or result of whatever stored it: a browser's
+checkpoint `append`, a `save`, a `compact`, `tmt colab page compact` or the combine
+after a native write. An exact retry of a stored checkpoint sends nothing. A notice
+grants nothing. A subscriber records it as an unseen cut, unless it already holds
+that cut or a later one (a stale notice changes nothing); editing, rendering and
+Save continue unchanged, and no cursor, cut or revision moves. The page revision
+counts every checkpoint the serve holds, so a read fenced by that revision (a
+document file, the export) first settles an unseen cut: the subscriber reopens its
+connection once, and catch-up admits the checkpoint, verifying everything it
+verifies today. A cut still unseen after that one reopen fails the read as
+`changed`; nothing reopens a second time or on a timer. An ordinary reload or
+reconnect admits checkpoints through catch-up as always. A notice that is not
+exactly this shape closes the connection. Server
 awareness has `device, data`. Scoped errors have `code` from the table above.
 Malformed, oversized, binary or inbound server-only frames close with code 1008
 and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
@@ -3030,8 +3078,6 @@ IDs, a missing `space` field and queries that omit a filter.
 | `members`       | checkpoint | `space_page_uid`                | who may read or write and in which role (`viewer`, `commenter`, `editor`, `bridge`)                                                                |
 | `log`           | log        | `space_page_epoch_stream_seq`   | one immutable encrypted envelope: `uid` (the writer), `hash`, `envelope`, `expiresAt`                                                              |
 | `checkpoints`   | checkpoint | `space_page_epoch_object_index` | one immutable 32 KiB chunk of an encrypted object: `uid` (the writer), `index` of `count` (at most 513)                                            |
-| `uid-budgets`   | checkpoint | `space_uid`                     | allocation and mutation counters for one authenticated uid in one space                                                                            |
-| `space-budgets` | checkpoint | `space`                         | aggregate allocation and mutation counters for one space                                                                                           |
 
 There is no `blob` resource and no presence resource: Awareness stores nothing on Firestore, and
 cloud attachments are #2165's. The admission collections are declared ordinary resources so the
@@ -3049,7 +3095,8 @@ ciphertext, never authority; clients still verify every statement, chain and env
   built from; the entry's `uid` is the writer's own; `seq` is at most 2^53−1 and the previous
   `seq` of that stream exists and carries the same `uid` (`getAfter`; a gap or another writer's stream is refused); a checkpoint chunk after index 0 requires
   chunk 0 of its object to carry the same `uid`; the field set and sizes are exactly those
-  declared; `expiresAt` is in the future and at most 365 days from the request, independent of the
+  declared; payload strings are ASCII, so their size bounds count bytes exactly; `expiresAt` is
+  in the future and at most 365 days from the request, independent of the
   page deadline. Sequence zero and
   ciphertext updates are refused. The owner may refresh only `expiresAt` within its own 365-day
   ceiling, preserving every other field. Owner cleanup may delete an expired entry or an entry
@@ -3075,57 +3122,16 @@ ciphertext, never authority; clients still verify every statement, chain and env
   own `expiresAt` while its page is live. Clients drop it. Physical TTL is not provisioned
   (Remote records `not-provisioned`); expiry is enforced in Rules, and removal is cleanup.
 - Remote's current backend ceilings (12 MiB per object, 64 MiB and 1,024 entries per resource)
-  bound the declared limits; they are the owner-approved plan's numbers, not enforcement. The accounting counters below enforce separate uid and space caps, not per-resource limits. Page expiry is finite and at most
+  bound the declared limits; they are the owner-approved plan's numbers, not enforcement. Page expiry is finite and at most
   `request.time + duration.value(365, 'd')` on create and update; entry create and owner expiry refresh enforce the same ceiling independently of
   the page deadline. The declaration digest covers these Rules without adding a declaration field.
 
-**Atomic accounting.** Every data row freezes `quotaUid` and `quotaBytes` at creation.
-The allocation belongs to the authenticated creator, including owner writes. The charge is the
-ASCII-only stored `envelope.size() + 256` for log entries, `bytes.size() + 256` for checkpoint chunks, and
-256 for admission rows without a payload. Payload admission enforces ASCII with a bounded character-class regex, so string character counts equal encoded bytes, including on expiry refresh. This preserves existing base64/encoded-ciphertext strings; clients still verify their cryptographic grammar. These are Colab accounting bytes, not Firebase physical
-storage or billing figures. The fixed 256 is an application overhead allowance.
-
-One commit contains exactly one charged data mutation plus its `uid-budgets/{space_uid}` and
-`space-budgets/{space}` writes. Their exact fields are `space`, `chargedBytes`, `entries`,
-`windowStart`, `mutations`, `targetKind`, `targetId`, `action`, `actor`; the uid row also has `uid`.
-Scope is immutable. The binding names the current authenticated actor and one declared target
-path. Each counter checks that target's actual before/after transition; the data rule requires
-the same binding and changed actor/space rate fields. Detached allocation, a substituted target,
-reused charges across multiple paths, unchanged-data updates and counter-only refunds refuse.
-#2452 coalesces compatible pending updates before sealing, then writes one sealed entry per commit;
-there is no multi-target accounting or shipped browser transport in this foundation.
-
-Caps are Rules constants: per `(space, uid)` 25 MiB, 2,000 resident documents and 120 mutations
-per 60 s; per space 250 MiB, 20,000 resident documents and 600 mutations per 60 s. Counter rows
-also occupy 256 accounting bytes and one document: a new uid row is charged to that uid and the
-space; the space counter is charged to the initial owner. Creating a space therefore allocates
-three rows and 768 bytes. New counters can arise only with an admitted data create, not from
-arbitrary signed-in uid allocation. The counters are non-TTL rows. Their fields cannot reset
-storage counts by time or accept writer-provided limits.
-
-Create adds the recorded charge and one document; immutable-size update/expiry refresh preserves
-resident counts but charges the actor's rate. Delete credits exactly the deleted path's original
-allocation uid and recorded charge, requiring that path to disappear in the same commit. An owner
-cleaning another uid's entry uses four writes: deletion, original uid storage credit (rate
-unchanged), owner rate charge and space counters. Ordinary mutations use three. All existing
-owner, expiry, epoch, role, stream and ciphertext immutability admission remains required.
-Repeated deletion and refund replay refuse. An empty uid counter can be retired only by the space
-owner, only at 256 bytes/one document and after its stored rate window expires; this credits
-only its own overhead to the space and charges the owner's and space's rates.
-
-Active windows preserve `windowStart` and increment `mutations` exactly once. Only after
-`request.time >= windowStart + duration.value(60, 's')` may a new window start at `request.time`
-with one mutation; bytes and documents do not reset. Atomic counter checks serialize competing
-writers, so two stale candidates cannot spend one remaining uid or space slot. A uid can read
-its own budget; the owner can read its space's budgets. Other uid budgets, aggregate counters
-and unscoped queries are not disclosed to members. The emulator's administrative fixture reads
-are not a production transaction API; #2452 owns the eventual write/refusal integration.
-
-These caps bound one uid and one space, not Sybil identities or a shared Firebase project's free
-quota. Creating fresh uids bypasses a uid cap but still consumes the same space cap, including
-counter overhead; creating fresh spaces bypasses that aggregate bound. Several spaces share the
-project's storage and daily-write quota, which these counters do not protect. Remote's declared
-resource planning bounds and client-side free-plan estimates are separate and unchanged.
+**What Rules do not bound.** Rules enforce admission and per-document size bounds, not per-uid,
+per-space or project-wide usage counters. Remote's resource limits remain planning bounds,
+not enforced aggregate limits. Anonymous uids permit Sybil abuse, and a shared project's free
+storage and daily-write quota are not protected. Rows leave only when the owner deletes them;
+expiry denies access but does not remove stored rows. There is no free-plan TTL setting
+(#2467 is on hold), so no automatic aging out is promised.
 
 The Rules emulator suite (`tests/emulator/suite.mjs`, Docker image of the pinned firebase-tools,
 Java 21, no network inside) loads the composed golden, not the bare fragment. It has no skip path
@@ -3199,9 +3205,8 @@ implemented subset. No public
 mode is allowed in cloud v1. Checkpoints are chunked Firestore documents,
 without Cloud Storage or Functions; attachments over Firestore are not in the
 first declaration (#2165), so a page's attachments stay local-only. A Function may be introduced only for a
-specifically justified check Rules cannot express. F1 MUST prove concurrent
-budget counters in emulators; per-uid limits remain best effort and anonymous
-UIDs permit Sybil abuse. Owners can disable links/remove devices; App Check is
+specifically justified check Rules cannot express. F1 MUST prove admission, epoch
+fences and deletion refusals in emulators; anonymous UIDs permit Sybil abuse. Owners can disable links/remove devices; App Check is
 optional and not a general authority guarantee.
 
 Cloudflare uses a static-asset Worker and one hibernating WebSocket PageRoom DO

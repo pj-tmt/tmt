@@ -33,6 +33,7 @@ const fragments = await Promise.all(
     'list',
     'command',
     'drawer',
+    'dialog',
     'menu',
     'tabs',
     'notifications',

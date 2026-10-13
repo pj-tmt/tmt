@@ -21,6 +21,14 @@ and `limits.rs`; do not restate them.
 - ACK resolves exact scoped receipt/checkpoint identities even after compaction prunes their
   payloads, releasing only the existing frame credit. Catchup cursors still require payloads;
   a known identity alone cannot resume a pruned tail.
+- Whatever stores a paired checkpoint (a browser's checkpoint `append`, `save`, `compact`, `page compact`,
+  the combine after a native write) sends subscribed peers a `checkpoint` notice after the receipt or
+  result, never on an exact retry: stream, namespace, sequence and hash, no envelope
+  (`State::announce_checkpoint`; the sites that combine report a `Combined` through `Commit`). The
+  browser records it as an unseen cut (`Objects.noteCut`) and nothing else. A read fenced by the page
+  revision (a document file, the export) settles that first: `Live.#settled` reopens the connection
+  once, so catch-up admits and verifies the checkpoint; a cut still unseen then fails the read as
+  changed (`AttachmentService.#fenced`).
 - Catchup pins the retained owner head (`Store::owner_head`), pages membership statements,
   then scoped baseline, wraps and the latest paired checkpoints before the merged
   namespace tails. The final page and the live subscription commit under the server lock
@@ -85,8 +93,8 @@ and `limits.rs`; do not restate them.
   which prunes the covered prefix once the namespaces are paired. Write limits count only the updates
   after checkpoints; the page budget (gzipped, `fold::gzip_over_budget`) applies to larger states.
   `compact::request` runs it on demand for `page compact` and reports the page's `PageUsage`
-  before and after. The browser writes no checkpoints yet, so a browser device's `own` updates
-  stay in the tail (`otherDeviceUpdates`).
+  before and after. A browser device combines only its own stream (`writer.ts` `OwnCompaction`);
+  its updates on other devices' streams stay in the tail (`otherDeviceUpdates`).
 - CLI create/write obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source and may carry a typed

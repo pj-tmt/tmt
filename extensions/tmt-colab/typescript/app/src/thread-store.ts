@@ -97,6 +97,8 @@ export interface ThreadStoreOptions extends DiscussionScope {
   deviceName(): string;
   own(): OwnState;
   connection(): Promise<Connection>;
+  /** See `AttachmentServiceOptions.settled`. */
+  settled?(): Promise<Connection>;
   publish(records: OwnRecord[]): Promise<void>;
   available(): boolean;
   sharing: string;

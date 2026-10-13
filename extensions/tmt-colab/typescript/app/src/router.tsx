@@ -31,12 +31,15 @@ import {
   redirect,
   Outlet,
   useRouterState,
+  useRouter,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
 import { rememberPages } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
+import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
+import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
@@ -614,11 +617,19 @@ function ThemeButton() {
   );
 }
 function Shell() {
-  const { transport } = root.useRouteContext();
+  const { transport, space } = root.useRouteContext();
+  const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   return (
-    <>
+    <QuickSwitcherHost
+      transport={transport}
+      space={space}
+      pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
+      routeKey={pathname}
+      allowed={isPage || pathname === '/'}
+      navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
+    >
       {!isPage && (
         <AppHeader
           remote={pathname === '/' ? { deviceName: transport.backendName } : undefined}
@@ -637,10 +648,13 @@ function Shell() {
       {!isPage && (
         <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
       )}
-    </>
+    </QuickSwitcherHost>
   );
 }
 function Page() {
+  const quickSwitcher = useQuickSwitcher();
+  const quickSwitcherOwner = useRef(quickSwitcher);
+  quickSwitcherOwner.current = quickSwitcher;
   const { transport, space } = root.useRouteContext();
   const loaded = page.useLoaderData();
   // A reopened binding replaces the loaded snapshot until the route loads a newer one.
@@ -1106,6 +1120,7 @@ function Page() {
         (target.isContentEditable || !!target.closest('input,textarea,select,[role="textbox"]'));
       if (
         !event.isTrusted ||
+        quickSwitcherOwner.current?.open ||
         event.defaultPrevented ||
         editing ||
         event.repeat ||
@@ -1203,8 +1218,10 @@ function Page() {
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
       onKey: (key) => {
+        if (quickSwitcherOwner.current?.open) return;
         if (key === 'Escape') escapeAnnotation.current();
-        else activateChat.current();
+        else if (key === '@') activateChat.current();
+        else quickSwitcherOwner.current?.activate();
       },
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
@@ -1314,7 +1331,8 @@ function Page() {
           panel !== null ||
           !!annotation?.thread ||
           notifications.modalCount > 0 ||
-          recoveryRequired
+          recoveryRequired ||
+          quickSwitcher?.open === true
         }
         isEligible={notifications.isEligible}
       />
@@ -1595,8 +1613,6 @@ function Page() {
         onDismiss={() => setPanel(null)}
       >
         <div className="source">
-          {/* A refused Save already says the page is full and carries the way out. */}
-          {!editError?.full && <PageSizeNotice size={size} exportPage={() => setPanel('export')} />}
           <span>
             <label htmlFor="source-edit">{text.source}</label>
             {snapshot.binding && !archived && (
@@ -1608,7 +1624,8 @@ function Page() {
               </button>
             )}
           </span>
-          {editError && (
+          {/* Save problems take priority over routine usage in this one notice slot. */}
+          {editError ? (
             <SaveNotice
               problem={editError}
               actions={
@@ -1646,6 +1663,8 @@ function Page() {
                 ) : undefined
               }
             />
+          ) : (
+            <PageSizeNotice size={size} exportPage={() => setPanel('export')} />
           )}
           {merged && !editError && (
             <div className="source-notice">
@@ -1803,7 +1822,10 @@ function Page() {
         value={{
           ...notifications.context,
           blockSurface:
-            notifications.modalCount || annotation?.thread || recoveryRequired
+            notifications.modalCount ||
+            annotation?.thread ||
+            recoveryRequired ||
+            quickSwitcher?.open
               ? 'covered'
               : panel === 'comments'
                 ? 'comments'
@@ -1812,6 +1834,7 @@ function Page() {
                   : 'page',
         }}
       >
+        <QuickSwitcherModalPresence />
         <AgentPresentation value={agents}>{content}</AgentPresentation>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>

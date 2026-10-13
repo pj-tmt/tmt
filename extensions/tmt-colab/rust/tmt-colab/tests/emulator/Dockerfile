@@ -1,4 +1,4 @@
-# Local runner for the Colab Rules emulator suite (suite.mjs). CI does not use Docker.
+# Local and CI runner for the Colab Rules emulator suite (suite.mjs).
 # Pins mirror extensions/tmt-office/typescript/services/office/Dockerfile: temurin 21 JRE,
 # node 22, firebase-tools 15.29.0. Emulators only; never mount host Firebase credentials.
 FROM eclipse-temurin:21-jre-jammy@sha256:54b382c9d790d3201004d4e3921f4eff7dc7d67e1ce21a2da8d8faaaf63c85fc AS java

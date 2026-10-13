@@ -19,7 +19,7 @@ pub enum Namespace {
     Own,
 }
 impl Namespace {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Content => "content",
             Self::Own => "own",

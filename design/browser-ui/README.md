@@ -14,7 +14,7 @@ There is no root entry. `@tmt/browser-ui/static.css` exports checked
 `generated/static.css`; `@tmt/browser-ui/static` exports the frozen
 `browserUiClasses` and presentation types without React; `@tmt/browser-ui/react`
 exports `BrowserHeader`, `BrowserNotice`, `BrowserField`, `BrowserAction`, `BrowserIconAction`,
-`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
+`BrowserToggle`, `BrowserList`, `BrowserListRow`, `BrowserCommand`, `BrowserDrawer`, `BrowserDialog`, `BrowserMenu`, `BrowserTabs`, `BrowserNotifications`, `BrowserChips`, `BrowserChip` and their prop types. The static entry also exports `BrowserTab` and `BrowserTabSelectReason` types. The optional peers are React 19.2.8 and
 lucide-react 1.52.0. React components use built-in icons for controls such as Drawer
 and Notifications dismissal; IconAction also accepts a caller-supplied icon.
 Static serving requires neither peer.
@@ -247,6 +247,26 @@ Package-local verification after owning workspace integration:
 pnpm --filter @tmt/browser-ui --fail-if-no-match check
 pnpm --filter @tmt/browser-ui --fail-if-no-match test
 ```
+
+## Dialog
+
+`BrowserDialog` is a controlled, content-fitting native modal at every width.
+It shares its private show/close/dismiss/focus-return lifetime with Drawer and
+renders in place, without a portal or body scroll lock. The opaque square surface
+has one 1px edge and no shadow or animation. Its width is at most 600px, with
+16px viewport/safe-area margins, reduced to 4px through 480px; its height is
+capped by the available viewport. The body scrolls with contained overscroll.
+
+The host supplies `open`, title, children and `onDismiss(reason, event)`.
+Children may consume Escape for a suggestion level before the dialog sees it.
+Unconsumed, unmodified, non-repeated Escape, native close, the Close action and a
+backdrop press synchronize the host's controlled open state. The scrim catches
+header/iframe presses without click-through. Optional `initialFocus` selects a
+control inside the dialog; the connected opener or `focusFallback` receives focus
+on dismissal. Navigation may set `restoreFocus={false}` and explicitly focus its
+new destination instead. `keepMounted` retains host content while closed; it is
+false by default. Values, admission, loading, listbox semantics and navigation
+remain host-owned.
 
 ## Drawer and Menu
 

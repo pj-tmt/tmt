@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import type { ThreadView } from '../src/thread-records.js';
 import { pageAction } from '../test/page-actions.js';
 
 const fixture = '/test/ask-page-browser.tsx';
@@ -19,46 +20,40 @@ async function mount(page: Page, options = {}) {
 }
 const activeCard = (page: Page) => page.locator('.question-card:visible').first();
 
-test('drafts survive tab switches; verified answers advance and survive reload with the same quote', async ({
+test('drafts survive tabs; one group Send keeps its tab and verified answers survive reload', async ({
   page,
 }) => {
   const group = await mount(page);
   const tabs = group.getByRole('tab');
-  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('0/2 answered');
+  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('0 of 2 answered');
   await tabs.nth(1).click();
   await activeCard(page).getByLabel('Your answer', { exact: true }).fill('Keep this draft 3');
   await tabs.nth(0).click();
-  await tabs.nth(1).click();
-  await expect(activeCard(page).getByLabel('Your answer', { exact: true })).toHaveValue(
-    'Keep this draft 3',
-  );
-  await tabs.nth(0).click();
   await tabs.nth(0).press('2');
   await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
-  const send = activeCard(page).getByRole('button', {
-    name: 'Send & next · to @Agent 1',
-    exact: true,
-  });
-  await expect(send).toHaveText('Send & next');
-  await expect(activeCard(page).getByRole('button', { name: /^Send & next/ })).toHaveAccessibleName(
-    'Send & next · to @Agent 1',
-  );
+  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('2 of 2 answered');
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  const send = group.getByRole('button', { name: 'Send 2 answers · to @Agent 1', exact: true });
+  await expect(send).toHaveText('Send 2 answers');
   await send.evaluate((node) => (node as HTMLButtonElement).click());
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await send.press('Enter');
-  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
-  await expect(tabs.nth(0)).toHaveAccessibleName(/Q1.*Answered/);
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1/2 answered');
-  await expect(
-    activeCard(page).getByRole('button', { name: /^Send (?:answer|& next)/ }),
-  ).toHaveText('Send answer');
-  const before = await run(page, 'discussionProof');
-  expect(before).toHaveLength(1);
-  expect(before[0].anchor.exact).toBe('Which heading should we use?');
-  // The hidden authored question remains in canonical context; its UUID is never quote text.
-  expect(before[0].anchor.suffix).toContain('Consider clarity');
-  const inactive = page.frameLocator('#ask-page-fixture iframe').locator('tmt-question').first();
+  await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(activeCard(page).locator('.question-answer')).toHaveText('Change it');
+  const before: readonly ThreadView[] = await run(page, 'discussionProof');
+  expect(before).toHaveLength(2);
+  expect(before.every((thread) => thread.comments.length === 1)).toBe(true);
+  expect(before[0].anchor?.exact).toBe('Which heading should we use?');
+  expect(before[0].anchor?.suffix).toContain('Consider clarity');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  const attempts = await run(page, 'answerBatchProof');
+  expect(attempts).toHaveLength(1);
+  expect(attempts[0].selection.messageIds).toHaveLength(2);
+  expect(attempts[0].selection.comment).toContain('Answers to 2 questions:');
+  expect(attempts[0].selection.comment).toContain(
+    'What should the introduction say?: Keep this draft 3',
+  );
+  const inactive = page.frameLocator('#ask-page-fixture iframe').locator('tmt-question').nth(1);
   await expect(inactive).not.toHaveAttribute('hidden');
   await expect(inactive).toHaveAttribute('data-colab-question-active', 'false');
   await run(page, 'saveQuestionPage');
@@ -67,22 +62,19 @@ test('drafts survive tab switches; verified answers advance and survive reload w
   await run(page, 'restoreQuestionPage');
   const restored = page.locator('[data-question-group]').first();
   await expect(restored).not.toHaveAttribute('data-detached');
-  await expect(restored.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
-  await expect(restored.locator('.tmt-ui-tabs-status')).toHaveText('1/2 answered');
-  await restored.getByRole('tab').nth(0).click();
-  await expect(activeCard(page).locator('.question-answer')).toHaveText('Change it');
-  expect((await run(page, 'discussionProof'))[0].anchor).toEqual(before[0].anchor);
+  await expect(restored.locator('.tmt-ui-tabs-status')).toHaveText('2 of 2 answered');
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
   await activeCard(page).getByRole('button', { name: 'Change answer' }).click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
-  await activeCard(page)
-    .getByRole('button', { name: /^Send (?:answer|& next)/ })
-    .click();
-  await expect(restored.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
-  const after = await run(page, 'discussionProof');
-  expect(after).toHaveLength(1);
-  expect(after[0].ref).toEqual(before[0].ref);
-  expect(after[0].comments).toHaveLength(2);
-  expect(after[0].anchor).toEqual(before[0].anchor);
+  await restored.getByRole('button', { name: /^Send 1 answer/ }).click();
+  await expect(restored.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(activeCard(page).locator('.question-answer')).toHaveText('Keep it');
+  const after: readonly ThreadView[] = await run(page, 'discussionProof');
+  expect(after).toHaveLength(2);
+  expect(after.find((thread) => thread.ref.id === before[0].ref.id)?.comments).toHaveLength(2);
+  const changed = await run(page, 'answerBatchProof');
+  expect(changed).toHaveLength(1);
+  expect(changed[0].input.batch).toBeUndefined();
 });
 
 test('tab navigation and digits preserve normal typing and long-answer Enter', async ({ page }) => {
@@ -118,7 +110,9 @@ test('tab navigation and digits preserve normal typing and long-answer Enter', a
   await tabs.nth(0).press('2');
   await expect(group.getByLabel('Change it', { exact: true })).toBeChecked();
   await expect(
-    group.getByRole('button', { name: /^Send (?:answer|& next)/, includeHidden: true }).first(),
+    group
+      .getByRole('button', { name: /^Send (?:answer|\d+ answers?)/, includeHidden: true })
+      .first(),
   ).toBeDisabled();
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   await tabs.nth(0).press('End');
@@ -139,10 +133,11 @@ test('tab navigation and digits preserve normal typing and long-answer Enter', a
   await expect(input).toBeFocused();
   await input.press('3');
   await expect(input).toHaveValue('Text 3');
-  const recipient = activeCard(page).getByRole('combobox', { name: 'Answer recipient' });
-  await recipient.press('End');
+  await group.getByRole('button', { name: 'Add recipient', exact: true }).click();
+  const recipient = page.getByRole('combobox', { name: 'Find an agent' });
   await recipient.press('3');
-  await expect(recipient).toContainText('3');
+  await expect(recipient).toHaveValue('3');
+  await recipient.press('Escape');
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
   expect(await run(page, 'discussionProof')).toHaveLength(0);
 });
@@ -154,7 +149,7 @@ test('a single-member group and a lone question have no tab strip', async ({ pag
   await expect(page.locator('[data-question-group][data-detached]')).toHaveCount(0);
 });
 
-test('a successful local callback cannot mark or advance before the verified view', async ({
+test('a successful local callback cannot supply a verified answer or change the tab', async ({
   page,
 }) => {
   await page.goto('/');
@@ -163,18 +158,17 @@ test('a successful local callback cannot mark or advance before the verified vie
   const group = page.locator('[data-question-group]');
   await expect(group).not.toHaveAttribute('data-detached');
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
-  await activeCard(page)
-    .getByRole('button', { name: /^Send (?:answer|& next)/ })
-    .click();
+  await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   await expect(
     activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
   ).toBeVisible();
   await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('0/2 answered');
+  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1 of 2 answered');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
+  await expect(activeCard(page).locator('.question-answer')).toHaveCount(0);
   await run(page, 'releaseQuestionView');
-  await expect(group.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1/2 answered');
+  await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1 of 2 answered');
 });
 
 test('a delayed verified answer preserves a tab the reader explicitly selected meanwhile', async ({
@@ -186,15 +180,13 @@ test('a delayed verified answer preserves a tab the reader explicitly selected m
   const group = page.locator('[data-question-group]');
   await expect(group).not.toHaveAttribute('data-detached');
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
-  await activeCard(page)
-    .getByRole('button', { name: /^Send (?:answer|& next)/ })
-    .click();
+  await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   await expect(
     activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
   ).toBeVisible();
   await group.getByRole('tab').nth(2).click();
   await run(page, 'releaseQuestionView');
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1/3 answered');
+  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1 of 3 answered');
   await expect(group.getByRole('tab').nth(2)).toHaveAttribute('aria-selected', 'true');
   expect(await run(page, 'discussionProof')).toHaveLength(1);
 });
@@ -231,7 +223,7 @@ for (const width of [1440, 390])
               const gap = await activeCard(page)
                 .locator('.question-description-space')
                 .boundingBox();
-              const shell = await group.locator('.tmt-ui-tabs,.question-group-card').boundingBox();
+              const shell = await group.locator('.question-group-card').boundingBox();
               return (
                 !!source &&
                 !!gap &&
@@ -243,9 +235,11 @@ for (const width of [1440, 390])
               );
             })
             .toBe(true);
-          if (captures) {
+          const captureStates = process.env.COLAB_GROUP_CAPTURE_STATES?.split(',');
+          if (captures && (!captureStates || captureStates.includes(state))) {
             mkdirSync(captures, { recursive: true });
             await page.screenshot({
+              fullPage: true,
               path: `${captures}/groups-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
             });
           }
@@ -253,15 +247,13 @@ for (const width of [1440, 390])
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
         await expect(
-          activeCard(page).getByRole('button', { name: /^Send (?:answer|& next)/ }),
+          group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }),
         ).toHaveCSS('background-color', 'rgb(0, 107, 143)');
-        await activeCard(page)
-          .getByRole('button', { name: /^Send (?:answer|& next)/ })
-          .click();
-        await expect(group.getByRole('tab').nth(1)).toHaveAttribute('aria-selected', 'true');
+        await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
+        await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
         await expect(
           page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
-        ).toHaveCount(0);
+        ).toHaveCount(1);
         await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
         await run(page, 'questionAsk', 'replied');
         await group.getByRole('tab').nth(0).click();

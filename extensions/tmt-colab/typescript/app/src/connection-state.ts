@@ -78,6 +78,9 @@ export const CONNECTION_CODES: Readonly<Record<string, Classification>> = {
   REMOTE_CORE_UNAVAILABLE: generic,
 };
 
+/** HTTP statuses with which the door's mount reports that the extension behind it is not serving. */
+const UNREACHABLE_STATUSES: readonly number[] = [404, 502, 503, 504];
+
 /** The decision for each reason Remote gives when a fresh open fails (R2). */
 const REOPEN_REASONS: Readonly<Record<ReopenFailedError['reason'], Classification>> = {
   unreachable: recover('retry'),
@@ -105,9 +108,12 @@ export function classify(error: Error): Classification {
       error.code && Object.hasOwn(CONNECTION_CODES, error.code)
         ? CONNECTION_CODES[error.code]
         : undefined;
-    // A named ending keeps its reason. A stale or unclassified HTTP admission uses the
-    // existing finite reopen owner, never the indefinitely recoverable transport loop.
+    // A named ending keeps its reason.
     if (named?.recovery === 'none' && named.cause !== 'generic') return named;
+    // The mount answering for an extension that is not there (restarting or upgrading) says
+    // nothing about the device, so it waits in the silent transport loop.
+    if (!named && UNREACHABLE_STATUSES.includes(error.status)) return recover('retry');
+    // A stale or unclassified HTTP admission uses the existing finite reopen owner.
     return recover('reopen');
   }
   const known = Object.hasOwn(CONNECTION_CODES, error.message)

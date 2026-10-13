@@ -401,20 +401,33 @@ fn a_device_checkpoints_its_own_stream_and_the_store_prunes_what_it_covers() {
         previous = hash;
         bytes.push(update);
     }
-    // A checkpoint at the head: a receipt for the sender, nothing for the peers, and the covered
-    // updates leave the store because `own` is the only namespace with updates in the prefix.
+    // A checkpoint at the head: a receipt for the sender, one notice for the peers once it
+    // is stored, and the covered updates leave the store because `own` is the only namespace with
+    // updates in the prefix.
     let (frame, hash, checkpoint) = f.checkpoint(BOB, 3, previous, "own", 4);
     send(&mut bob, frame.clone());
     let receipt = receive(&mut bob);
     assert_eq!(receipt["type"], "receipt");
     assert_eq!(receipt["envelopeHash"], values::encode_binary(&hash));
-    assert_eq!(alice.1.poll(), Progress::Pending);
+    assert_eq!(alice.1.poll(), Progress::Advanced);
+    let announced = receive(&mut alice);
+    assert_eq!(announced["type"], "checkpoint");
+    assert_eq!(announced["streamId"], BOB);
+    assert_eq!(announced["namespace"], "own");
+    assert_eq!(announced["seq"], "3");
+    assert_eq!(announced["envelopeHash"], values::encode_binary(&hash));
+    assert!(
+        announced.get("envelope").is_none(),
+        "a notice names the checkpoint and carries nothing of it: {announced}"
+    );
     for seq in 1..=3 {
         assert_eq!(f.payload(BOB, seq), None);
     }
-    // The same checkpoint again answers with the same receipt and changes nothing.
+    // The same checkpoint again answers with the same receipt, changes nothing and is not
+    // announced a second time.
     send(&mut bob, frame);
     assert_eq!(receive(&mut bob), receipt);
+    assert_eq!(alice.1.poll(), Progress::Pending);
     // The updates after it continue the chain from the same head.
     let (next, _, _) = f.append(BOB, 4, previous, "own", 8);
     send(&mut bob, next);

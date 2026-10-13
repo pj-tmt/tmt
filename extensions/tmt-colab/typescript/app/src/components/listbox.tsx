@@ -34,6 +34,7 @@ export function Listbox<Value extends string>({
   renderOption,
   disabled = false,
   inputTrigger,
+  presentation = 'popup',
 }: {
   label: string;
   options: readonly ListboxOption<Value>[];
@@ -41,6 +42,8 @@ export function Listbox<Value extends string>({
   onChange(value: Value): void;
   renderOption?(option: ListboxOption<Value>): ReactNode;
   disabled?: boolean;
+  /** Results share the input's active-option owner without a floating popup. */
+  presentation?: 'popup' | 'results';
   /** Text input owns its value; this same listbox owns option navigation. */
   inputTrigger: {
     open: boolean;
@@ -73,12 +76,15 @@ export function Listbox<Value extends string>({
     activeIndex >= 0 ? activeIndex : selectedIndex >= 0 ? selectedIndex : firstIndex;
   const labelId = `${id}-label`;
   const listId = `${id}-list`;
+  const optionId = (index: number) =>
+    `${id}-option-${presentation === 'results' ? encodeURIComponent(options[index].value) : index}`;
 
   useEffect(() => {
     if (!open) setActiveValue(null);
   }, [open]);
 
   useEffect(() => {
+    if (presentation === 'results') return;
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
       if (
@@ -90,9 +96,10 @@ export function Listbox<Value extends string>({
     };
     document.addEventListener('pointerdown', closeOutside);
     return () => document.removeEventListener('pointerdown', closeOutside);
-  }, [open, setOpen]);
+  }, [open, setOpen, presentation]);
 
   useEffect(() => {
+    if (presentation === 'results') return;
     if (!list.current) return;
     const node = list.current;
     if (open && trigger.current?.getClientRects().length) node.showPopover();
@@ -100,7 +107,7 @@ export function Listbox<Value extends string>({
     return () => {
       if (node.matches(':popover-open')) node.hidePopover();
     };
-  }, [open]);
+  }, [open, presentation]);
 
   useEffect(() => {
     if (!open || focusIndex < 0) return;
@@ -108,6 +115,7 @@ export function Listbox<Value extends string>({
   }, [open, focusIndex]);
 
   useEffect(() => {
+    if (presentation === 'results') return;
     if (!open) return;
     const place = () => {
       const box = trigger.current?.getBoundingClientRect();
@@ -161,7 +169,7 @@ export function Listbox<Value extends string>({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [open, options.length]);
+  }, [open, options.length, presentation]);
 
   function openList(index = selectedIndex >= 0 ? selectedIndex : firstIndex) {
     if (disabled || index < 0) return;
@@ -170,6 +178,15 @@ export function Listbox<Value extends string>({
   }
 
   function move(step: -1 | 1) {
+    if (presentation === 'results') {
+      for (let index = focusIndex + step; index >= 0 && index < options.length; index += step) {
+        if (!options[index].disabled) {
+          setActiveValue(options[index].value);
+          return;
+        }
+      }
+      return;
+    }
     for (let offset = 1; offset <= options.length; offset++) {
       const index = (focusIndex + step * offset + options.length) % options.length;
       if (!options[index].disabled) {
@@ -187,6 +204,21 @@ export function Listbox<Value extends string>({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (
+      presentation === 'results' &&
+      (!event.isTrusted ||
+        event.defaultPrevented ||
+        event.nativeEvent.isComposing ||
+        event.keyCode === 229 ||
+        event.altKey ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.key === 'Escape' ||
+        event.key === 'Tab' ||
+        (event.key === 'Enter' && event.repeat))
+    )
+      return;
     if (
       (!open && (!['ArrowDown', 'ArrowUp'].includes(event.key) || firstIndex < 0)) ||
       event.key === ' ' ||
@@ -233,9 +265,13 @@ export function Listbox<Value extends string>({
   const optionList = (
     <div
       ref={list}
-      popover="manual"
-      className="tmt-listbox-options tmt-listbox-input-list"
-      style={{ ...placement, visibility: placement ? 'visible' : 'hidden' }}
+      popover={presentation === 'popup' ? 'manual' : undefined}
+      className={`tmt-listbox-options ${presentation === 'popup' ? 'tmt-listbox-input-list' : 'tmt-listbox-results-list'}`}
+      style={
+        presentation === 'popup'
+          ? { ...placement, visibility: placement ? 'visible' : 'hidden' }
+          : undefined
+      }
       role="listbox"
       id={listId}
       aria-labelledby={labelId}
@@ -247,8 +283,8 @@ export function Listbox<Value extends string>({
           role="option"
           className="tmt-listbox-option"
           key={option.value}
-          id={`${id}-option-${index}`}
-          aria-selected={option.value === value}
+          id={optionId(index)}
+          aria-selected={presentation === 'results' ? focusIndex === index : option.value === value}
           data-active={focusIndex === index}
           disabled={option.disabled}
           tabIndex={-1}
@@ -267,7 +303,10 @@ export function Listbox<Value extends string>({
   );
 
   return (
-    <div className="tmt-listbox tmt-listbox-input" ref={root}>
+    <div
+      className={`tmt-listbox tmt-listbox-input ${presentation === 'results' ? 'tmt-listbox-results' : ''}`}
+      ref={root}
+    >
       <span className="tmt-listbox-label" id={labelId}>
         {label}
       </span>
@@ -279,10 +318,12 @@ export function Listbox<Value extends string>({
         'aria-haspopup': 'listbox',
         'aria-controls': listId,
         'aria-expanded': open,
-        'aria-activedescendant': open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined,
+        'aria-activedescendant': open && focusIndex >= 0 ? optionId(focusIndex) : undefined,
         onKeyDown,
       })}
-      {createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)}
+      {presentation === 'popup'
+        ? createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)
+        : optionList}
     </div>
   );
 }

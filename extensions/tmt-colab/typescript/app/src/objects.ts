@@ -112,6 +112,41 @@ export class Objects {
       envelopeHash: entry.envelopeHash,
     });
   }
+  /** Checkpoints the serve says it holds that this view has not recorded: the latest notice per
+   * stream and namespace. A notice grants nothing; it only says the revision computed here may
+   * not be the serve's until a catch-up admits that checkpoint. */
+  #unseen = new Map<
+    string,
+    { stream: string; namespace: Namespace; seq: bigint; hash: Uint8Array }
+  >();
+  /** The serve announced a stored checkpoint of `stream`. It is recorded as unseen unless this
+   * view already holds that cut or a later one; nothing else changes. */
+  noteCut(stream: string, namespace: Namespace, entry: Position) {
+    generatedId(stream);
+    const seq = decimal(entry.seq),
+      hash = binary(entry.envelopeHash, 32, 32),
+      key = `${stream}:${namespace}`,
+      held = this.#unseen.get(key);
+    requireValue(seq > 0n);
+    if (this.#holds(stream, namespace, seq, hash) || (held && held.seq >= seq)) return;
+    requireValue(held !== undefined || this.#unseen.size < 256);
+    this.#unseen.set(key, { stream, namespace, seq, hash });
+  }
+  /** Whether the serve holds a checkpoint this view has not recorded. Notices that a catch-up
+   * has since admitted, or a later cut has passed, no longer count. */
+  hasUnseenCut(): boolean {
+    for (const [key, cut] of this.#unseen)
+      if (this.#holds(cut.stream, cut.namespace, cut.seq, cut.hash)) this.#unseen.delete(key);
+    return this.#unseen.size > 0;
+  }
+  #holds(stream: string, namespace: Namespace, seq: bigint, hash: Uint8Array) {
+    const cut = this.#prefixes.get(stream);
+    return (
+      cut !== undefined &&
+      (cut.head.seq > seq ||
+        (cut.head.seq === seq && equal(cut.checkpoints.get(namespace) ?? new Uint8Array(), hash)))
+    );
+  }
   cursors() {
     return [...this.#positions]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

@@ -5,6 +5,7 @@ import { rasterDataUrl } from './attachment-raster.js';
 import type { AttachmentBinding, AttachmentReference } from './attachment-service.js';
 import { readFailure, type ReadFailure } from './attachments.js';
 import { BlobDownloads } from './export.js';
+import { sortedJson } from './sorted-json.js';
 
 export const isRaster = (d: attachment.AttachmentDescriptor) =>
   (RASTER_TYPES as readonly string[]).includes(d.mediaType);
@@ -17,7 +18,9 @@ export function useAttachmentOpener(
   reference: AttachmentReference,
   descriptors: readonly attachment.AttachmentDescriptor[],
 ) {
-  const referenceKey = JSON.stringify([reference, descriptors]);
+  // A list read again after a combine lists the same descriptors with their keys in another
+  // order: the key is the value, not the order a map happens to hold it in.
+  const referenceKey = sortedJson([reference, descriptors]);
   const inputs = useRef({ binding, reference, descriptors, referenceKey });
   inputs.current = { binding, reference, descriptors, referenceKey };
   const scope = binding?.scope?.() ?? '';
@@ -114,6 +117,17 @@ export function useAttachmentOpener(
       // Automatic thumbnails belong to the original display lifetime. A trusted click
       // instead selects the current listed ID once, before its admitted read starts.
       const explicit = visible === undefined;
+      // A document file is fenced by the page revision. When a combine another device made is
+      // still unseen here, the connection reopens first, which changes the scope and would end a
+      // read that was under way; the owner is taken after.
+      if (explicit && inputs.current.reference.kind === 'document') {
+        try {
+          await inputs.current.binding?.settle?.();
+        } catch (error) {
+          failure(d.attachmentId, readFailure(error));
+          return;
+        }
+      }
       const active = explicit ? resolveOwner() : owner;
       const latest = inputs.current;
       const selected = explicit

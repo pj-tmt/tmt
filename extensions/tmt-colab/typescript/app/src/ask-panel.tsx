@@ -65,6 +65,9 @@ export interface PageAsk {
   resultUnavailable?: boolean;
 }
 
+/** Presentation chooses a verified retry context for each operation; the binding rechecks it. */
+export type AskRetryInput = AskAgainInput | ((record: PageAsk) => AskAgainInput | undefined);
+
 const refusals: Record<string, string> = {
   REMOTE_SCOPE_DENIED: text.askScopeDenied,
   REMOTE_INPUT_INVALID: text.askInputInvalid,
@@ -87,7 +90,7 @@ export function AskPanel({
   inline = false,
   dayHeadings,
   renderUser,
-  retryInput,
+  retryInput: suppliedRetryInput,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
@@ -96,7 +99,7 @@ export function AskPanel({
   inline?: boolean;
   dayHeadings?: readonly ReactNode[];
   renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
-  retryInput?: AskAgainInput;
+  retryInput?: AskRetryInput;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
   const agents = useContext(AgentPresentation);
@@ -172,6 +175,8 @@ export function AskPanel({
   };
 
   const turns = records.map((record) => {
+    const retryInput =
+      typeof suppliedRetryInput === 'function' ? suppliedRetryInput(record) : suppliedRetryInput;
     const timedOut =
       record.state === 'accepted' &&
       !record.resultUnavailable &&

@@ -85,8 +85,10 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 ## Message editing boundary
 
 The answer-block path uses parent `questions.ts` admission, `question-layer.tsx`
-group selection and verified-thread projection, and `components/question-card.tsx`
-controls. It reuses the shared BrowserTabs leaf. `inline-slots.ts` owns the one
+group selection and verified-thread projection. `components/question-group-card.tsx`
+owns in-tab drafts, visible recipients and the shared footer; `question-card.tsx`
+is controlled answer/conversation presentation. BrowserTabs and BrowserChips remain
+presentation leaves. `inline-slots.ts` owns the one
 measurement batch for proposal and answer cards; renderer-managed visual collapse
 keeps inactive authored questions in the canonical quote text map. The render-bound
 group/slot shapes and publication rules live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
@@ -204,13 +206,17 @@ connects or the failure is no longer recoverable. A series that gives up, or a b
 `reconnect`, ends the connection with the failure it stopped on: nothing else drives
 `reconnecting`. An epoch advance stops that loop and reopens the page (`PageReopener`, at most
 three reopens a minute), then hands the new binding over. HTTP admission refusals retain their
-bounded body and code (`AdmissionRefusedError`): named endings stay terminal; stale or
-unclassified refusals use that same finite reopen path (five attempts at 0/1/3/8/15 s), with
-the existing reconnect-failure sentence if it is exhausted. A recoverable 403 or 503 during
+bounded body and code (`AdmissionRefusedError`): named endings stay terminal; a bare 404,
+502, 503 or 504 is the door's mount answering for an extension that is restarting or upgrading
+(#2929), which says nothing about the device, so it is `retry` and `Live` waits in the silent
+transport loop above, as it does for a network failure; other stale or unclassified refusals
+use the finite reopen path (five attempts at 0/1/3/8/15 s), with the existing reconnect-failure
+sentence if it is exhausted. A revoked or unpaired device still ends there, because every retry
+opens a fresh Remote Session first and Remote refuses it. A recoverable 403 or 503 during
 page opening refreshes the same-device Session once through the mounted owner before
 rediscovery; its abort signal fences registration, and concurrent Live reconnects share that
-owner's pending replacement. PageReopener still owns the finite attempts and timing. Admission
-refusals never extend the transport loop. `ended` replaces
+owner's pending replacement. PageReopener still owns the finite attempts and timing. Other
+admission refusals never extend the transport loop. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat

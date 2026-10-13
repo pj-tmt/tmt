@@ -26,6 +26,17 @@ function where(excerpt: string, line: number): string {
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
+  quickSwitcher: {
+    title: 'Search pages',
+    placeholder: 'Search pages, labels or authors…',
+    results: 'Pages',
+    loading: 'Loading pages…',
+    empty: 'No pages yet.',
+    noOtherPages: 'No other pages in this space.',
+    noMatch: 'No matching pages.',
+    failed: "Couldn't load pages. Close and try again.",
+    shortcut: (command: boolean) => `Search pages · ${command ? '⌘K' : 'Ctrl+K'}`,
+  },
   archiveReadOnly: 'Archived · Read only',
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',
   archivePosting: 'Archived page: read only. Nothing can be posted.',
@@ -451,7 +462,7 @@ export const text = {
     saveFullBudget:
       'This page is full, and combining cannot free room. Export it and continue in a new page.',
     saveFullReader: 'An editor must compact this page.',
-    compactedSaveAgain: 'Compacted. Save again to keep your edit.',
+    compactedSaveAgain: 'Save again to keep your edit.',
     stateCompacted: 'Compacted',
   },
   saveUnknown: (operationId: string) =>
