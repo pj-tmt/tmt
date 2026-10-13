@@ -482,6 +482,7 @@ for (const [width, theme] of [
         if (directory && (!states || states.includes(state))) {
           mkdirSync(directory, { recursive: true });
           await page.screenshot({
+            fullPage: true,
             path: `${directory}/batch-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
         }

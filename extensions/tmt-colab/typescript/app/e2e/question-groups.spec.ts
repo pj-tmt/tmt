@@ -238,6 +238,7 @@ for (const width of [1440, 390])
           if (captures) {
             mkdirSync(captures, { recursive: true });
             await page.screenshot({
+              fullPage: true,
               path: `${captures}/groups-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
             });
           }
