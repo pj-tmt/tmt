@@ -173,10 +173,6 @@ pub enum Request {
         program: Option<Vec<String>>,
     },
     Run(Vec<String>),
-    RevealFile {
-        path: String,
-        opener: Option<Vec<String>>,
-    },
     Talk {
         me: String,
         squad: String,
@@ -221,7 +217,7 @@ impl Request {
     pub fn progress(&self) -> &'static str {
         match self {
             Self::Jump(_) | Self::Back => "Jumping…",
-            Self::Open { .. } | Self::RevealFile { .. } | Self::Run(_) => "Opening…",
+            Self::Open { .. } | Self::Run(_) => "Opening…",
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
             Self::Copy { .. } => "Copying…",

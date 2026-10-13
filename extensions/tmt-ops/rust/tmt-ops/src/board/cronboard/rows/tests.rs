@@ -17,7 +17,9 @@ fn paint(rows: Vec<Value>, columns: Columns, width: u16, height: u16) -> Vec<Str
         r#"<tmt-view version="1"><tmt-list id="jobs" bind="$.rows" empty="(no jobs)">{}</tmt-list></tmt-view>"#,
         columns.markup()
     );
-    let table = crate::board::picker_surface::collection(file, &markup, schema);
+    let parsed = tmt_tui::parse(file, &markup).unwrap();
+    let table =
+        collection::compile(file, &parsed, &schema, &crate::board::picker_surface::Data).unwrap();
     let scene = table
         .materialize(
             file,
