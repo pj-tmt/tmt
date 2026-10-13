@@ -8,31 +8,7 @@ use std::{
 
 #[test]
 fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural_typography() {
-    use crate::board::home::tiles::{self, TileItem};
     for width in [80, 100, 113, 160, 200] {
-        let counts = Counts {
-            members: 6,
-            waiting: 1,
-            blocked: 1,
-            review: 1,
-            working: 1,
-            idle: 1,
-        };
-        let squad = SquadLine {
-            squad: "squad".into(),
-            lead: Some(json!({"name":"lead"})),
-            counts: Counts::default(),
-            members: counts,
-        };
-        let item = TileItem {
-            squad: &squad,
-            members: &squad.members,
-            lead_model: Some("claude-opus-4-7"),
-            usage: None,
-        };
-        for line in tiles::paint(&[item], width, crate::look::Look::default(), None).lines {
-            assert_eq!(glyph_error(&line.to_string()), None);
-        }
         let mut app = interaction::board(&[(
             "squad",
             document(

@@ -1211,6 +1211,33 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     assert_eq!(app.workspace.selected, selected);
 }
 
+#[test]
+fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for width in [160, 100, 80, 60] {
+            let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
+            app.shell.tab = OpsTab::Agents;
+            app.view.as_mut().unwrap().home.as_mut().unwrap().squads[0]
+                .lead
+                .as_mut()
+                .unwrap()["fields"] = json!({"task":"private lead task", "pr_link":"private PR"});
+            let index = app
+                .workspace_rows()
+                .iter()
+                .position(|row| row.target == OpsTarget::Squad(ROOM.into()))
+                .unwrap();
+            app.select(index);
+            paint(&app, width, 36);
+            key(&mut app, KeyCode::Tab);
+            let text = paint(&app, width, 36).join("\n");
+            assert!(text.contains("Lead usage:"), "{width}: {text}");
+            assert!(text.contains("~21 tok"), "{width}: {text}");
+            assert!(text.contains("Lead share: ~100%"), "{width}: {text}");
+            assert!(!text.contains("private lead task") && !text.contains("private PR"));
+        }
+    });
+}
+
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {

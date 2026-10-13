@@ -45,13 +45,19 @@ scroll keys into list/Host actions. Logical placement survives clearing pointer
 rectangles. With fewer than three content rows, the tree omits its outline and
 keeps usable target rows.
 
-The retired HOME attention/audience/cron body painters and their caches are
+The retired HOME attention/audience/cron/tile body painters and their caches are
 removed. `home::paint` retains the shared summary, usage and quota strips; fitted
 hidden-value projections retain their data owners. Cache equality tests render
 actual workspace frames, including pointer hits and composer geometry, rather
 than maintaining a second HOME renderer. The single decoded HOME oracle and
 private workspace capture packet share literal fixtures and the actual frame
 entry point; source changes do not authorize frozen regeneration.
+
+Selected-squad detail formats supplied usage windows, lead readings/share and
+independent model observations without the old tile width rules. Missing totals
+do not hide independently supplied lead readings or share; absent observations
+remain not reported, measured zero stays zero, and partial evidence keeps its
+marker. Squad summary does not expose private lead task or link fields.
 
 Config projects one effective table per list/Reader scope for dispatch, help and
 footer. Reader defaults scroll responses with `j/k`; compatible explicit

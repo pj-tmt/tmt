@@ -147,29 +147,6 @@ impl App {
         if matches!(target, RowTarget::Home(target) if target.section == super::home::USAGE) {
             return self.overview_detail(self.body_width());
         }
-        if let RowTarget::Home(target) = target
-            && target.section == "squads"
-        {
-            let squad = self
-                .view
-                .as_ref()?
-                .home
-                .as_ref()?
-                .squads
-                .iter()
-                .find(|squad| squad.squad == target.squad)?;
-            let item = super::home::TileItem {
-                squad,
-                members: &squad.members,
-                lead_model: self.home_lead_model(&squad.squad),
-                usage: self.home_usage(&squad.squad, std::time::Instant::now()),
-            };
-            let mut detail = Detail::default();
-            for (label, text) in super::home::hidden_squad(&item, self.body_width()) {
-                detail.add(label, Some(&text), Role::Muted);
-            }
-            return Some(detail);
-        }
         let row = match target {
             RowTarget::Workspace(_) => self.target_row(target)?,
             RowTarget::Home(target) if target.section == super::home::LEADS => {

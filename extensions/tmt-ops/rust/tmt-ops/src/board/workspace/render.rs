@@ -316,6 +316,58 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
     }
     line
 }
+/// Format only supplied observations, independently of scroll and width.
+/// Model observation survives disabled sampling; missing readings/share never
+/// become zero and each reading retains its configured window.
+fn squad_usage(
+    usage: Option<&crate::board::app::HomeUsage<'_>>,
+    model: Option<&str>,
+) -> Vec<String> {
+    let reading = |value: Option<crate::board::rate::Reading>| {
+        value.map_or_else(
+            || "not reported".into(),
+            |value| {
+                format!(
+                    "{}{} tok",
+                    if value.partial { "~" } else { "" },
+                    crate::source::tokens(value.tokens as f64)
+                )
+            },
+        )
+    };
+    let mut text = Vec::new();
+    if let Some(model) = usage.and_then(|usage| usage.lead_model).or(model) {
+        text.push(format!(
+            "Lead model: {}",
+            safe(crate::source::model_name(model))
+        ));
+    }
+    if let Some(usage) = usage {
+        for (label, values) in [("Usage", usage.squad), ("Lead usage", usage.lead)] {
+            let pieces: Vec<_> = values
+                .iter()
+                .zip(usage.windows)
+                .map(|(value, window)| format!("{} {}", window.label(), reading(*value)))
+                .collect();
+            text.push(format!("{label}: {}", pieces.join(" · ")));
+        }
+        text.push(format!(
+            "Lead share: {}",
+            usage.share.as_ref().map_or_else(
+                || "not reported".into(),
+                |share| format!(
+                    "{}{:.0}%",
+                    if share.partial { "~" } else { "" },
+                    share.fraction * 100.0
+                ),
+            )
+        ));
+    } else {
+        text.push("Usage: not reported".into());
+    }
+    text
+}
+
 fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(snapshot) = app.workspace_snapshot() else {
@@ -397,10 +449,8 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
                     let count = states.values().filter(|member|member.state.as_deref()==Some(state)).count();
                     text.push(if squad.observation == OpsObservation::Complete && states.len() == squad.members.len() { format!("{state}: {count}") } else { format!("{state}: {count} observed; total unknown") });
                 }
-                if let Some(usage) = app.home_usage(&squad.name, std::time::Instant::now()) {
-                    let pieces: Vec<_> = usage.squad.iter().zip(usage.windows).map(|(reading,window)| format!("{} {}", window.label(), reading.map_or_else(|| "not reported".into(), |reading| format!("{}{}", if reading.partial { "~" } else { "" }, crate::source::tokens(reading.tokens as f64))))).collect();
-                    text.push(format!("Usage: {}", pieces.join(" · ")));
-                } else { text.push("Usage: not reported".into()); }
+                let usage = app.home_usage(&squad.name, std::time::Instant::now());
+                text.extend(squad_usage(usage.as_ref(), app.home_lead_model(&squad.name)));
                 let jobs=app.cron.cron.as_ref().filter(|_| app.cron.failure.is_none()).map(|cron|cron.jobs.iter().filter(|job|job.job.room_id==*id).count());
                 text.push(format!("Timers: {}",jobs.map_or("not reported".into(),|count|count.to_string())));
 
@@ -597,5 +647,102 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             remaining,
             Line::styled(hint, look.role(Role::Muted)),
         );
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+    use crate::{
+        board::{
+            app::{HomeUsage, UsageShare},
+            rate::Reading,
+        },
+        config::TokenWindow,
+    };
+    #[test]
+    fn missing_zero_partial_and_supplied_share_keep_distinct_meanings() {
+        let usage = HomeUsage {
+            lead_model: Some("unfamiliar-model-123"),
+            windows: TokenWindow::DEFAULTS,
+            lead: [
+                Some(Reading {
+                    tokens: 0,
+                    partial: false,
+                    span: 60_000,
+                }),
+                None,
+                Some(Reading {
+                    tokens: 7_500,
+                    partial: true,
+                    span: 60_000,
+                }),
+            ],
+            squad: [None; 3],
+            share: Some(UsageShare {
+                fraction: 0.375,
+                partial: true,
+            }),
+        };
+        let text = squad_usage(Some(&usage), None).join("\n");
+        assert!(text.contains("Lead model: unfamiliar-model-123"));
+        assert!(text.contains("1m 0 tok"));
+        assert!(text.contains("5m not reported"));
+        assert!(text.contains("1h ~8k tok"));
+        assert!(
+            text.contains("Lead share: ~38%"),
+            "share is supplied independently of absent totals: {text}"
+        );
+        assert!(text.contains("Usage: 1m not reported"));
+    }
+    #[test]
+    fn disabled_sampling_keeps_independent_model_without_inventing_usage() {
+        assert_eq!(
+            squad_usage(None, Some("off-model")),
+            ["Lead model: off-model", "Usage: not reported"]
+        );
+        assert_eq!(squad_usage(None, None), ["Usage: not reported"]);
+    }
+    #[test]
+    fn large_values_and_mixed_windows_cannot_hide_an_independent_observation() {
+        let usage = HomeUsage {
+            lead_model: None,
+            windows: [
+                TokenWindow::FIVE_MINUTES,
+                TokenWindow::HOUR,
+                TokenWindow::parse("24h").unwrap(),
+            ],
+            lead: [
+                Some(Reading {
+                    tokens: 3_700_000,
+                    partial: true,
+                    span: 60_000,
+                }),
+                Some(Reading {
+                    tokens: u128::MAX,
+                    partial: false,
+                    span: 60_000,
+                }),
+                Some(Reading {
+                    tokens: 12_400_000,
+                    partial: true,
+                    span: 60_000,
+                }),
+            ],
+            squad: [None; 3],
+            share: None,
+        };
+        let text = squad_usage(Some(&usage), None).join("\n");
+        assert!(text.contains("5m ~3.7M tok"));
+        let lead = text
+            .lines()
+            .find(|line| line.starts_with("Lead usage:"))
+            .unwrap();
+        assert!(
+            lead.contains("1h ") && !lead.contains("1h not reported"),
+            "{lead}"
+        );
+        assert!(text.contains("24h ~12.4M tok"));
+        assert!(text.contains("Lead share: not reported"));
     }
 }

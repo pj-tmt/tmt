@@ -289,7 +289,6 @@ pub(super) use bar::{hidden_needs, hidden_usage};
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target, USAGE};
 pub(super) use limits::hidden_limits;
 pub(super) use paint::{age_label, limits_of, summary_of, usage_of};
-pub(super) use tiles::{TileItem, hidden_squad};
 
 /// Held header strips of one immutable view, keyed by data, width and look.
 /// Workspace owns body geometry; a new snapshot starts with empty derivations.
@@ -313,6 +312,5 @@ mod bar;
 mod leads;
 mod limits;
 use super::view::scene;
-mod tiles;
 
 pub(super) use leads::hidden_metadata as hidden_lead_metadata;

@@ -215,7 +215,7 @@ fn looks() -> [(&'static str, crate::look::Look); 4] {
 
 /// Existing runtime history and provider-limit fixture observations. The reader
 /// is not called, and no savings, forecast or missing reading is synthesized.
-fn metered(look: crate::look::Look) -> App {
+pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     use crate::board::{
         app::RateView,
         limits::{Provider, Reading, Standing, Trend, Window},
