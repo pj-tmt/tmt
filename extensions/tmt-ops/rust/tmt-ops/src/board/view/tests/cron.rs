@@ -35,6 +35,85 @@ fn open_timers(app: &mut App) {
     draw(app, 100, 24);
 }
 
+const OTHER_ROOM: &str = "44444444-4444-4444-8444-444444444444";
+
+fn renamed_room_and_reused_name() -> App {
+    let mut app = squad_tab();
+    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+    let mut reused = home.workspace.roster.squads[0].clone();
+    reused.room_id = OTHER_ROOM.into();
+    reused.members.clear();
+    reused.member_states.clear();
+    home.workspace.roster.squads[0].name = "renamed-product".into();
+    home.workspace
+        .rows
+        .get_mut(&OpsTarget::Squad(ROOM.into()))
+        .unwrap()["name"] = json!("renamed-product");
+    home.workspace.rows.insert(
+        OpsTarget::Squad(OTHER_ROOM.into()),
+        json!({"roomId":OTHER_ROOM,"name":"product","revision":2,"memberIds":[]}),
+    );
+    home.workspace.roster.squads.push(reused);
+    let mut owned = app.cron.cron.as_ref().unwrap().jobs[0].clone();
+    owned.job.message = "included-room-message".into();
+    // Same stored squad name and c-id, different room UUID. Display names
+    // cannot become routing or picker-selection authority.
+    let mut other = owned.clone();
+    other.job.room_id = OTHER_ROOM.into();
+    other.job.message = "excluded-room-message".into();
+    app.cron
+        .replace(Ok(test_cron(vec![other, owned], ClockStatus::NoClock)));
+    app
+}
+
+#[test]
+fn scoped_timers_exclude_other_rooms_and_open_the_uuid_after_name_reuse() {
+    let mut app = renamed_room_and_reused_name();
+    open_timers(&mut app);
+    let selected = app.cron_list.as_ref().unwrap().selected().unwrap();
+    assert!(selected.starts_with(&format!("{ROOM}/")));
+    let text = draw(&app, 160, 24).join("\n");
+    assert!(text.contains("included-room-message"), "{text}");
+    assert!(!text.contains("excluded-room-message"));
+    app.cron.cron.as_mut().unwrap().jobs.reverse();
+    app.invalidate_frame_geometry();
+    draw(&app, 160, 24);
+    assert_eq!(app.cron_list.as_ref().unwrap().selected(), Some(selected));
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert!(app.cron_list.is_none());
+    assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
+    assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Agents);
+    assert_eq!(app.current.as_deref(), Some(crate::board::ALL));
+}
+
+#[test]
+fn timers_cannot_open_a_reused_name_when_the_observed_room_is_removed() {
+    let mut app = renamed_room_and_reused_name();
+    open_timers(&mut app);
+    let selected = app.workspace.selected.clone();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads
+        .retain(|squad| squad.room_id != ROOM);
+    app.invalidate_frame_geometry();
+    draw(&app, 160, 24);
+    assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(app.workspace.selected, selected);
+    assert!(app.cron_list.is_some());
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|text| text.contains("no longer observed"))
+    );
+    assert_eq!(app.current.as_deref(), Some(crate::board::ALL));
+}
+
 fn press(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
 }

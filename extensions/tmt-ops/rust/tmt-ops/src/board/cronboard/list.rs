@@ -1,6 +1,6 @@
-//! The `c` list: every squad's jobs in one modal list. The overlay owns only its
-//! caller-side component state; opening a squad and every job effect belong to
-//! the board controller.
+//! The `c` list: a selected room's jobs, or all jobs from Common pool. The
+//! overlay owns component state; UUID squad navigation and job effects belong
+//! to the board controller.
 
 use super::{
     State,
@@ -53,9 +53,6 @@ fn list_rows(state: &State, scope: Option<&str>) -> Vec<ListRow> {
 }
 
 impl List {
-    pub fn open(state: &State, selected: Option<&str>) -> Self {
-        Self::open_scoped(state, None, selected)
-    }
     pub fn open_scoped(state: &State, scope: Option<String>, selected: Option<&str>) -> Self {
         Self {
             surface: RefCell::new(picker_surface::State::new(

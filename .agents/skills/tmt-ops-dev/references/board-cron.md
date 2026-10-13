@@ -22,8 +22,10 @@ filters by room UUID rather than a mutable name, preserves `<room UUID>/<c-id>`
 selection across refresh and uses the shared FocusStack/picker surface. Opening
 forms or delete confirmation closes the list; pause/resume/send retains it.
 
-Cron keys belong to the focused list, not the workspace tree. Enter opens the
-selected job's squad; `n` creates, `e`
+Cron keys belong to the focused list, not the workspace tree. Enter selects the
+selected job's observed room UUID in Agents without a named-tab reload. A room
+hidden by filtering or no longer observed refuses navigation and keeps the list;
+a reused squad name cannot redirect it. `n` creates, `e`
 expands, `E` edits, `p` pauses/resumes, `x` sends, `o` reassigns and `d` deletes after
 confirmation. The workspace entry uses effective user bindings; the modal owns
 its scoped keys. `cronboard::hints::KEYS` supplies its footer and hides edit without a

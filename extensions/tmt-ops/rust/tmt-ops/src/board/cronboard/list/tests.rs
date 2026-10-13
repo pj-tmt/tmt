@@ -47,7 +47,7 @@ fn key(code: KeyCode) -> Event {
 #[test]
 fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
     let state = jobs();
-    let list = List::open(&state, None);
+    let list = List::open_scoped(&state, None, None);
     for width in [160, 100, 80] {
         let screen = paint(&list, &state, width, 12);
         let text = screen.join("\n");
@@ -81,7 +81,7 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
 #[test]
 fn the_box_grows_with_the_jobs_and_never_passes_the_body() {
     let few = jobs();
-    let list = List::open(&few, None);
+    let list = List::open_scoped(&few, None, None);
     let height = |state: &State, rows: u16| {
         paint(&list, state, 100, rows)
             .iter()
@@ -104,7 +104,7 @@ fn the_box_grows_with_the_jobs_and_never_passes_the_body() {
 #[test]
 fn selection_follows_job_identity_across_refresh_and_reorder() {
     let state = jobs();
-    let list = List::open(&state, None);
+    let list = List::open_scoped(&state, None, None);
     paint(&list, &state, 120, 12);
     assert!(matches!(list.input(&key(KeyCode::Down)), Some(Input::None)));
     let second = list.selected().unwrap();
@@ -125,7 +125,7 @@ fn selection_follows_job_identity_across_refresh_and_reorder() {
 #[test]
 fn enter_opens_the_selected_job_and_a_stale_frame_never_activates_a_click() {
     let state = jobs();
-    let list = List::open(&state, None);
+    let list = List::open_scoped(&state, None, None);
     paint(&list, &state, 120, 12);
     let Some(Input::Open(id)) = list.input(&key(KeyCode::Enter)) else {
         panic!("Enter opens the selected job");
@@ -150,7 +150,7 @@ fn an_empty_or_failed_read_says_so() {
         failure: Some("storage unreachable".into()),
         reads: 2,
     };
-    let list = List::open(&empty, None);
+    let list = List::open_scoped(&empty, None, None);
     let text = paint(&list, &empty, 120, 8).join("\n");
     assert!(text.contains("(no jobs · n new)"), "{text}");
     assert!(
@@ -177,7 +177,7 @@ fn snapshots() -> serde_json::Value {
         ),
     ] {
         for width in [160u16, 100, 80] {
-            let list = List::open(&state, None);
+            let list = List::open_scoped(&state, None, None);
             frames.push(serde_json::json!({
                 "scenario": scenario, "width": width, "lines": paint(&list, &state, width, 9),
             }));
@@ -227,7 +227,7 @@ fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
             (KeyCode::Down, KeyCode::Up),
             (KeyCode::Char('j'), KeyCode::Char('k')),
         ] {
-            let list = List::open(&state, None);
+            let list = List::open_scoped(&state, None, None);
             paint(&list, &state, 100, height);
             assert_eq!(list.selected().as_deref(), Some(order[0].as_str()));
             let walk = |code: KeyCode, expected: &str| {
@@ -265,7 +265,7 @@ fn cursor_uses_the_mark_id_gap_and_tracks_refresh_survivors_without_state_change
     let original = state.cron.as_ref().unwrap().jobs.clone();
     for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
         for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
-            let list = List::open(&state, None);
+            let list = List::open_scoped(&state, None, None);
             for moved in [false, true] {
                 if moved {
                     list.input(&key(KeyCode::Down));

@@ -1,7 +1,7 @@
 //! Cron's board controller: opening the list and routing its events. Presentation
 //! and projections stay in their modules; this is where input becomes an effect.
 
-use super::{List, ListInput, rows::key_of, rows::row_id};
+use super::{ListInput, rows::key_of, rows::row_id};
 use crate::board::app::{App, Effect};
 use ratatui::crossterm::event::Event;
 
@@ -15,17 +15,9 @@ pub(super) fn projected_room(app: &App) -> Option<&str> {
 }
 
 impl App {
-    /// The home cron line and `c` need a read, or at least its failure to show.
+    /// Timers needs a read, or at least its failure to show.
     pub(in crate::board) fn cron_shown(&self) -> bool {
         self.cron.cron.is_some() || self.cron.failure.is_some()
-    }
-
-    pub(in crate::board) fn open_cron_list(&mut self, selected: Option<&str>) -> Effect {
-        if !self.cron_shown() {
-            return self.say("Cron jobs have not been read yet.");
-        }
-        self.cron_list = Some(List::open(&self.cron, selected));
-        Effect::None
     }
 
     pub(in crate::board) fn cron_list_event(&mut self, event: &Event) -> Option<Effect> {
@@ -47,16 +39,29 @@ impl App {
                 Some(self.cron_key(job, id.as_deref()))
             }
             ListInput::Open(id) => {
-                let squad = self
+                let room = self
                     .cron
                     .cron
                     .iter()
                     .flat_map(|cron| &cron.jobs)
                     .map(key_of)
                     .find(|key| row_id(key) == id)
-                    .map(|key| key.squad)?;
+                    .map(|key| key.room_id)?;
+                let target = crate::board::workspace::OpsTarget::Squad(room);
+                let Some(index) = self
+                    .workspace_rows()
+                    .iter()
+                    .position(|row| row.target == target)
+                else {
+                    return Some(self.say(
+                        "Timer squad is not visible or no longer observed. Refresh or clear the filter before opening it.",
+                    ));
+                };
                 self.cron_list = None;
-                Some(self.go(squad))
+                self.shell.tab = crate::board::shell::OpsTab::Agents;
+                self.focus = 0;
+                self.select(index);
+                Some(Effect::None)
             }
         }
     }
