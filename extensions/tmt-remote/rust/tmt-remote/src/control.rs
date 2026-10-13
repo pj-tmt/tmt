@@ -39,6 +39,18 @@ pub const SOCKET: &str = "control.sock";
 const LINE_BYTES: usize = 4096;
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
+#[cfg(test)]
+mod restart_budget_tests {
+    #[test]
+    fn named_restart_phases_match_the_adapter_bound() {
+        use crate::limits::{CORE_CALL, SERVE_STARTUP, STOP_WAIT};
+        // serve::handshake sets startup cleanup_wait to the named STOP_WAIT.
+        // Keep the independent pin beside adapters' POST_UPGRADE_RESTART_BOUND.
+        let sum = STOP_WAIT + SERVE_STARTUP + STOP_WAIT + 2 * CORE_CALL + 2 * super::REQUEST_WAIT;
+        assert_eq!(sum, std::time::Duration::from_secs(155));
+    }
+}
+
 /// The door address and route prefix a pairing link names.
 pub struct Door {
     pub origin: String,

@@ -122,6 +122,9 @@ fn observe(
                 Err(_) => Some(UNKNOWN),
             };
             if hint == Some(UNKNOWN) {
+                // Uncertainty requires one read-only status observation. Its
+                // evidence cannot prove restart completion or replace the typed
+                // outcome, so keep UNKNOWN and never authorize another mutation.
                 let _ = invoke(
                     &report.active_executable,
                     core,

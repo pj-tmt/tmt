@@ -15,12 +15,19 @@ pub(super) fn upgrade(
         |plan| upgrade_all::ask(plan, yes, mode),
         |remote_pending| {
             let mut stderr = tmt_cli_style::stream::stderr();
-            if remote_pending && !mode.json && tmt_cli_style::Interaction::detect(mode.json).stderr
-            {
+            if remote_progress(
+                remote_pending,
+                mode.json,
+                tmt_cli_style::Interaction::detect(mode.json).stderr,
+            ) {
                 let _ = writeln!(stderr, "Upgrading Remote…");
             }
         },
     )
+}
+
+fn remote_progress(remote_pending: bool, json: bool, stderr_terminal: bool) -> bool {
+    remote_pending && !json && stderr_terminal
 }
 
 #[cfg(test)]

@@ -260,7 +260,11 @@ fn fixed_restart_outcomes_preserve_success_quiet_and_fallbacks() {
 #[test]
 fn lost_or_malformed_restart_reply_is_observed_without_retry() {
     let runner = remote(LIVE, "not a reply");
-    assert_eq!(hint(&runner), Some(UNKNOWN));
+    assert_eq!(
+        hint(&runner),
+        Some(UNKNOWN),
+        "a valid running status after uncertainty cannot prove restart completion"
+    );
     assert_eq!(*runner.calls.borrow(), ["status", "restart", "status"]);
     for kind in [
         CommandFailure::Spawn,
@@ -304,8 +308,9 @@ fn legacy_requires_clean_observed_exit_and_other_failures_are_unknown() {
     assert_eq!(hint(&runner), Some(UNKNOWN));
 }
 #[test]
-fn restart_bound_covers_existing_remote_phase_sum() {
-    assert!(POST_UPGRADE_RESTART_BOUND >= Duration::from_secs(40 + 35 + 40 + 2 * 15 + 2 * 5));
+fn restart_bound_matches_the_remote_phase_contract() {
+    // Remote independently pins its named phase sum in control's owner test.
+    assert_eq!(POST_UPGRADE_RESTART_BOUND, Duration::from_secs(155));
 }
 
 #[test]

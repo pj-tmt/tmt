@@ -86,6 +86,22 @@ fn plan() -> Value {
 }
 
 #[test]
+fn remote_progress_requires_pending_human_terminal_output() {
+    for (pending, json, tty, expected) in [
+        (false, false, false, false),
+        (false, false, true, false),
+        (false, true, false, false),
+        (false, true, true, false),
+        (true, false, false, false),
+        (true, false, true, true),
+        (true, true, false, false),
+        (true, true, true, false),
+    ] {
+        assert_eq!(remote_progress(pending, json, tty), expected);
+    }
+}
+
+#[test]
 fn remote_pending_apply_gets_restart_budget_and_timeout_never_becomes_success() {
     struct Deadline(RefCell<usize>);
     impl CommandRunner for Deadline {
@@ -113,9 +129,14 @@ fn remote_pending_apply_gets_restart_budget_and_timeout_never_becomes_success() 
         }
     }
     let runner = Deadline(RefCell::new(0));
-    let rows = upgrade_with(Path::new("/managed/releases/new/tmt"), &runner, |_| {
-        Ok(true)
-    });
+    let progress = RefCell::new(Vec::new());
+    let rows = upgrade_with_progress(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |_| Ok(true),
+        |remote_pending| progress.borrow_mut().push(remote_pending),
+    );
+    assert_eq!(*progress.borrow(), [true]);
     assert_eq!(*runner.0.borrow(), 2);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["status"], "failed");
@@ -140,11 +161,18 @@ fn new_executable_plans_and_applies_exact_consented_versions_with_partial_failur
             1,
         ),
     ]);
-    let rows = upgrade_with(Path::new("/managed/releases/new/tmt"), &runner, |plan| {
-        assert_eq!(plan.pending.len(), 2);
-        assert_eq!(plan.pending[0].1, "1.0.0");
-        Ok(true)
-    });
+    let progress = RefCell::new(Vec::new());
+    let rows = upgrade_with_progress(
+        Path::new("/managed/releases/new/tmt"),
+        &runner,
+        |plan| {
+            assert_eq!(plan.pending.len(), 2);
+            assert_eq!(plan.pending[0].1, "1.0.0");
+            Ok(true)
+        },
+        |remote_pending| progress.borrow_mut().push(remote_pending),
+    );
+    assert_eq!(*progress.borrow(), [false]);
     assert_eq!(runner.inputs.borrow().len(), 2);
     assert_eq!(rows[0]["error"]["message"], "new verifier refused");
     assert_eq!(rows[1]["status"], "changed");
