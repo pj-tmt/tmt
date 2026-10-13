@@ -204,6 +204,97 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
+    /// Storage-only evidence; a page contains at most 128 member inputs in total.
+    pub fn digest_checklist_history(
+        &mut self,
+        identity: &str,
+        checklist: Option<&str>,
+        after: u64,
+        limit: u64,
+    ) -> Result<digest::DigestHistoryRead, RequestError<R::Error>> {
+        if after > MAX_JS_SAFE_INTEGER || !(1..=128).contains(&limit) {
+            return Err(digest_error(DigestRejection::Invalid));
+        }
+        let clock = &self.clock;
+        self.repository.with_request_observation(|records| {
+            let now = positive(clock())?;
+            digest_identity(records, identity)?;
+            if let Some(id) = checklist {
+                let batch = records
+                    .digest_checklist(id)?
+                    .ok_or_else(|| digest_error(DigestRejection::StateInvalid))?;
+                if batch.identity_id != identity {
+                    return Err(digest_error(DigestRejection::AttemptMismatch));
+                }
+            }
+            let page = records.digest_history(
+                identity,
+                checklist,
+                after,
+                if checklist.is_some() { 1 } else { limit + 1 },
+            )?;
+            let mut checklists = Vec::new();
+            let mut budget = if checklist.is_some() { limit } else { 128 };
+            let mut next_after = None;
+            for evidence in page.checklists {
+                let item_after = if checklist.is_some() { after } else { 0 };
+                let retained_count = records
+                    .digest_inventory(identity, Some(&evidence.checklist.id), 0, now)?
+                    .0;
+                let remaining = if item_after == 0 {
+                    retained_count
+                } else {
+                    records
+                        .digest_inventory(identity, Some(&evidence.checklist.id), item_after, now)?
+                        .0
+                };
+                // Keep ordinary batches inline and move the next batch to another page.
+                // A batch larger than the entire input budget uses exact-checklist continuation.
+                if checklist.is_none()
+                    && !checklists.is_empty()
+                    && (checklists.len() >= limit as usize || remaining > budget)
+                {
+                    next_after = checklists
+                        .last()
+                        .map(|r: &digest::DigestHistoryRecord| r.evidence.settlement_sequence);
+                    break;
+                }
+                let items = if budget == 0 {
+                    Vec::new()
+                } else {
+                    records.digest_items(
+                        identity,
+                        Some(&evidence.checklist.id),
+                        item_after,
+                        budget,
+                        now,
+                    )?
+                };
+                let next_item_after = if remaining > items.len() as u64 {
+                    items.last().map(|item| item.sequence)
+                } else {
+                    None
+                };
+                budget -= items.len() as u64;
+                checklists.push(digest::DigestHistoryRecord {
+                    evidence,
+                    retained_count,
+                    items,
+                    next_item_after,
+                });
+            }
+            Ok(digest::DigestHistoryRead {
+                observed_at_ms: now,
+                through_sequence: page.through_sequence,
+                retained_from_sequence: page.retained_from_sequence,
+                legacy_settled_count: page.legacy_settled_count,
+                delivered_digests: records.digest_counters(identity)?.delivered_digests,
+                checklists,
+                next_after,
+            })
+        })
+    }
+
     /// The caller admits an opportunity; policy and sealed membership are rechecked
     /// in the writer transaction. A claimed record is never a replay lease.
     pub fn claim_digest_checklist(
@@ -252,7 +343,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 state: DigestState::Claimed,
                 created_at_ms: now,
             };
-            records.create_digest_checklist(&checklist, now)?;
+            records.create_digest_checklist(&checklist, now, opportunity, count)?;
             Ok(Some(checklist))
         })
     }
@@ -267,7 +358,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         if state == DigestState::Claimed {
             return Err(digest_error(DigestRejection::Invalid));
         }
+        let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
             digest_identity(records, identity)?;
             let batch = records
                 .digest_checklist(id)?
@@ -286,7 +379,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             {
                 return Err(RequestError::RevisionExhausted);
             }
-            records.settle_digest_checklist(&batch, state)?;
+            records.settle_digest_checklist(&batch, state, now)?;
             Ok(true)
         })
     }

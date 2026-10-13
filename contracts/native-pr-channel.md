@@ -133,7 +133,10 @@ github-release carries release ID and manifest digest. The candidate verifies
 the manifest schema against its own compiled export and uses the existing
 inventory, publisher, rollback, skills and finalization owners. Protocol-1
 requests, responses and normal release receipts remain unchanged. Unsupported
-candidates refuse safely; no old-process installer fallback is used.
+candidates refuse safely; no old-process installer fallback is used. Protocol 4
+is protocol 2 for an updater that validates the CLI prefix `lib/tmt`; its inner
+`transfer.protocol` is `3` and the
+[handoff contract](native-install-handoff-v1.md) defines the difference.
 
 The native protocol fixture archives its actual development executable under
 its unchanged version on a PR channel. It tests the child, receipt and read-only

@@ -172,6 +172,50 @@ retention and explicit `--purge` policy still apply.
 
 A parent CLI released before Ops registration parses the candidate's upgrade plan with its own product table and rejects `ops` (`EXTENSION_UPGRADE_FAILED`, "invalid extension upgrade report") after the CLI itself is updated; rerunning `tmt upgrade` on the new CLI completes the replacement, and candidates emit no former-name wire compatibility.
 
+## CLI prefix move
+
+The CLI's prefix is `lib/tmt`. `lib/tmux-team` is its former layout through the same
+`Product::Cli.former()` mechanism as above: same product and commands, `pr_channel` true so a
+PR-channel installation moves with its provenance. Links stay `tmt` and `tmux-team` for fresh and
+moved installations until the separate alias decision.
+
+- **Move.** A current caller (bootstrap, offline `__native-install`, handoff protocol 3 or 4) on an
+  installation whose only activation is in `lib/tmux-team` publishes under `lib/tmt`, locking new
+  then former, and retargets `bin/tmt` and `bin/tmux-team` with a temporary symlink and rename, only
+  when a link equals exactly the former target. `lib/tmux-team` is not touched; it stays the rollback
+  source. An interruption after activation leaves `lib/tmt/current` with the former links; the next
+  installation completes the link move. Once `lib/tmt` has an activation it is authoritative and a
+  caller that observed the former current is refused with "changed while downloading". The first
+  activation in `lib/tmt` publishes even when its release equals the former one (a bootstrap of the
+  installed version), so the links never point into an empty prefix.
+- **Refusals** happen before any write and leave the installation usable: a `lib/tmt` that holds
+  entries the publisher did not write, a foreign command at a link name, an activation in either
+  layout that fails receipt verification.
+- **Rollback** has no command. The previous release stays current in `lib/tmux-team`, verified
+  through the former-layout read path and runnable by its own path; the next installer run moves forward again.
+- **Retirement.** The first activation by a current caller that finds `lib/tmt` already active (not the
+  move itself) removes `lib/tmux-team` when the new release is receipt-verified, no `bin/` symlink and
+  no provider hook settings file names the former prefix, and the former directory holds only what the
+  publisher writes. Otherwise it stays and `tmt upgrade` that ran from `lib/tmt` prints one hint
+  (`formerPrefixHint` in JSON). A refusal never fails the upgrade; there is no timer.
+- **Persisted paths.** Command links and `tmt setup` hook settings (launcher resolved from `PATH`, so
+  `bin/tmt`) are the places that can name the prefix; the audit reads both. Receipts record only the
+  installation prefix, skills are published as copies and extension records name extension paths.
+  Processes a CLI release started keep that release's path in `TMT_EXECUTABLE` for their lifetime, as
+  before the move.
+- **Handoff protocols** (frozen; wire details in the [handoff contract](../../../../contracts/native-install-handoff-v1.md)):
+
+| Protocol | Request                                 | Updater validates | Candidate publishes                            |
+| -------- | --------------------------------------- | ----------------- | ---------------------------------------------- |
+| 1        | release transfer (transfer protocol 1)  | `lib/tmux-team`   | `lib/tmux-team` while the CLI is active there  |
+| 2        | PR wrapper around transfer protocol 1   | `lib/tmux-team`   | same as 1                                      |
+| 3        | release transfer (transfer protocol 3)  | `lib/tmt`         | `lib/tmt`, moving the installation when needed |
+| 4        | PR wrapper 4 around transfer protocol 3 | `lib/tmt`         | `lib/tmt`, moving the installation when needed |
+
+Updaters of this generation speak 3 and 4 only; the candidate serves all four. A candidate older than
+protocol 3 fails the probe with the existing "needs a newer installer" message, so a downgrade across
+the move is a bootstrap reinstall.
+
 ## Companions and skills trees
 
 - A release may carry a companion beside its executable (`Product::companions()`; the CLI carries

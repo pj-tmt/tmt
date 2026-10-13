@@ -168,7 +168,7 @@ pub fn active_companion(executable: &Path, name: &str) -> io::Result<Option<Comp
     }
     let executable = fs::canonicalize(executable)?;
     let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
-    let layout = Layout::existing_product(prefix, Product::Cli).map_err(|_| unmanaged())?;
+    let layout = installed_layout(prefix, Product::Cli).map_err(|_| unmanaged())?;
     let (release, id) = layout.current_directory()?.ok_or_else(unmanaged)?;
     if executable != release.join(Product::Cli.executable()) {
         return Err(invalid(

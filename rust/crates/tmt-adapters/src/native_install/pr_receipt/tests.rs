@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     native_install::{
-        ActivationRequest, activate_with_local_schema, artifact, inspect, pr_resolver,
+        ActivationRequest, Caller, activate_with_local_schema, artifact, inspect, pr_resolver,
         publication::Layout, receipt::Provenance,
     },
     test_support::TestDirectory,
@@ -37,6 +37,7 @@ fn publish(
 ) -> io::Result<crate::native_install::InstallReport> {
     activate_with_local_schema(
         ActivationRequest {
+            caller: Caller::Current,
             product: Product::Cli,
             prefix,
             channel: Channel::parse("pr234").unwrap(),
@@ -165,7 +166,7 @@ fn local_schema_advancing_after_admission_refuses_before_publish_and_preserves_a
     let (artifact, source) = fixture();
     let first = publish(&prefix, &artifact, source.clone(), None, true, 48).unwrap();
     let installation = inspect(&first.active_executable).unwrap();
-    let before = fs::read_dir(prefix.join("lib/tmux-team/releases"))
+    let before = fs::read_dir(prefix.join("lib/tmt/releases"))
         .unwrap()
         .count();
     let error = publish(
@@ -182,7 +183,7 @@ fn local_schema_advancing_after_admission_refuses_before_publish_and_preserves_a
         Some(&SchemaError::DataDowngrade)
     );
     assert_eq!(
-        fs::read_dir(prefix.join("lib/tmux-team/releases"))
+        fs::read_dir(prefix.join("lib/tmt/releases"))
             .unwrap()
             .count(),
         before
@@ -216,6 +217,7 @@ fn explicit_alpha_return_requires_known_schema_and_never_downgrades_data() {
         assert!(
             activate_with_local_schema(
                 ActivationRequest {
+                    caller: Caller::Current,
                     product: Product::Cli,
                     prefix: &prefix,
                     channel: Channel::Alpha,
@@ -236,6 +238,7 @@ fn explicit_alpha_return_requires_known_schema_and_never_downgrades_data() {
     }
     let returned = activate_with_local_schema(
         ActivationRequest {
+            caller: Caller::Current,
             product: Product::Cli,
             prefix: &prefix,
             channel: Channel::Alpha,
@@ -312,6 +315,7 @@ fn synthetic_pr_returns_to_lower_published_versions_without_bypassing_admission(
             assert!(
                 activate_with_local_schema(
                     ActivationRequest {
+                        caller: Caller::Current,
                         product: Product::Cli,
                         prefix: &prefix,
                         channel,
@@ -332,6 +336,7 @@ fn synthetic_pr_returns_to_lower_published_versions_without_bypassing_admission(
         }
         let returned = activate_with_local_schema(
             ActivationRequest {
+                caller: Caller::Current,
                 product: Product::Cli,
                 prefix: &prefix,
                 channel,
@@ -362,6 +367,7 @@ fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
     let (mut artifact, source) = fixture();
     let first = activate_with_local_schema(
         ActivationRequest {
+            caller: Caller::Current,
             product: Product::Cli,
             prefix: &prefix,
             channel: Channel::parse("pr234").unwrap(),
@@ -384,6 +390,7 @@ fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
     artifact.version = "5.0.0-alpha.91".parse().unwrap();
     let error = activate_with_local_schema(
         ActivationRequest {
+            caller: Caller::Current,
             product: Product::Cli,
             prefix: &prefix,
             channel: Channel::Alpha,
@@ -407,4 +414,66 @@ fn pinned_pr_return_to_published_channel_preserves_the_active_receipt() {
         Some(&tmt_core::native_install::VersionError::Pinned)
     );
     assert_eq!(inspect(&first.active_executable).unwrap().id, installed.id);
+}
+
+#[test]
+fn a_pr_channel_installation_moves_to_the_new_prefix_with_its_provenance() {
+    let directory = TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (artifact, source) = fixture();
+    publish(&prefix, &artifact, source.clone(), None, true, 48).unwrap();
+    // Lay the installation out as the previous generation did.
+    let prefix = prefix.canonicalize().unwrap();
+    fs::rename(prefix.join("lib/tmt"), prefix.join("lib/tmux-team")).unwrap();
+    for name in ["tmt", "tmux-team"] {
+        fs::remove_file(prefix.join("bin").join(name)).unwrap();
+        std::os::unix::fs::symlink(
+            "../lib/tmux-team/current/tmt",
+            prefix.join("bin").join(name),
+        )
+        .unwrap();
+    }
+    let installed = inspect(&prefix.join("bin/tmt")).unwrap();
+    assert!(
+        installed
+            .provenance
+            .is_some_and(|source| matches!(source, Provenance::Pr(_)))
+    );
+    let Provenance::Pr(pr) = source else {
+        panic!("PR proof missing");
+    };
+
+    let returned = activate_with_local_schema(
+        ActivationRequest {
+            caller: Caller::Current,
+            product: Product::Cli,
+            prefix: &prefix,
+            channel: Channel::Alpha,
+            pin: PinAction::Preserve,
+            expected: Some(installed.id),
+            provenance: None,
+            verifier: None,
+            explicit_channel: true,
+            schema: Some(pr.candidate.application_schema),
+        },
+        &artifact,
+        || Ok(()),
+        || Ok(local(48)),
+    )
+    .unwrap();
+
+    assert!(
+        returned
+            .active_executable
+            .starts_with(prefix.join("lib/tmt/releases"))
+    );
+    assert_eq!(
+        inspect(&returned.active_executable).unwrap().state.channel,
+        Channel::Alpha
+    );
+    assert_eq!(
+        fs::read_link(prefix.join("bin/tmt")).unwrap(),
+        std::path::PathBuf::from("../lib/tmt/current/tmt")
+    );
+    assert!(prefix.join("lib/tmux-team").exists());
 }

@@ -55,6 +55,41 @@ pub struct Compacted {
     pub namespaces: usize,
 }
 
+/// Finish a deferred native content write's combine, never a cold creation or another
+/// writer's tail. The offline caller holds its lifecycle lock through the next preparation.
+pub fn deferred_write(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<Option<Compacted>> {
+    let (stream, ..) = key.local_writer()?;
+    let epoch = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.current_epoch(page)
+    })?;
+    // Reuse bootstrap's paired-prefix selection; a lone namespace checkpoint is
+    // not evidence that a previous write's combine finished.
+    let checkpoint = store
+        .namespace_next(
+            StreamScope {
+                page,
+                epoch,
+                stream: &stream,
+            },
+            crate::store::Namespace::Content,
+            crate::store::NamespaceCursor::default(),
+        )?
+        .filter(|object| object.checkpoint)
+        .map_or(0, |object| object.cursor.seq);
+    let pending = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.uncombined_content_write(page, epoch, &stream, checkpoint)
+    })?;
+    if !pending {
+        return Ok(None);
+    }
+    compact(store, key, page, decoder, Trigger::default())
+}
+
 /// Combine the local writer's own stream if its tail passed `trigger`. Safe to repeat: a
 /// checkpoint that already exists at the head is kept, and a crash between the two namespaces
 /// leaves data intact (an unpaired checkpoint prunes nothing) and is completed by the next call.

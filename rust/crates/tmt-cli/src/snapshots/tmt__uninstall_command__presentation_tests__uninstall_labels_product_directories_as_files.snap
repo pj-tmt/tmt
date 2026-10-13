@@ -16,4 +16,4 @@ REMOVE 13
   files    /prefix/lib/tmt-digest
   command  /prefix/bin/tmt
   command  /prefix/bin/tmux-team
-  files    /prefix/lib/tmux-team
+  files    /prefix/lib/tmt

@@ -154,6 +154,7 @@ fn aggregate_report_keeps_cli_and_extension_outcomes_independent() {
             None,
             Some(Failure::new("NATIVE_UPGRADE_FAILED", "CLI failed", 7)),
             true,
+            false,
             mode
         )
         .unwrap(),

@@ -119,6 +119,7 @@ function expectNativeSchema(
       name: 'retain digest due ranges, arrival context and successful delivery counters',
     },
     { version: 52, name: 'retain content-free exchange flow aggregates' },
+    { version: 53, name: 'retain checklist settlement order and delivery inputs' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(

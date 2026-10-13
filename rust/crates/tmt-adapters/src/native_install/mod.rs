@@ -1,9 +1,11 @@
 //! Verified native release acquisition and managed publication, without app state.
 
 mod artifact;
+mod former_prefix;
 pub mod handoff;
 mod online;
 mod post_upgrade;
+pub use former_prefix::{in_moved_prefix, retained_former_hint};
 pub use post_upgrade::post_upgrade_hint;
 mod remove;
 pub use online::{
@@ -24,6 +26,8 @@ pub use managed::{
 mod artifact_tests;
 #[cfg(test)]
 mod interrupt_tests;
+#[cfg(test)]
+mod layout_move_tests;
 mod pr_catalog;
 mod pr_json;
 mod pr_receipt;
@@ -202,6 +206,7 @@ fn install_product_observed(
         artifact::acquire_product(product, request.manifest, request.archive, request.target)?;
     activate(
         ActivationRequest {
+            caller: Caller::Current,
             product,
             prefix: request.prefix,
             channel: request.channel,
@@ -217,7 +222,17 @@ fn install_product_observed(
     )
 }
 
+/// Which installation namespace the process that asked for an activation
+/// validates afterwards. Handoff protocols 1 and 2 come from updaters that
+/// still check the former CLI prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Caller {
+    Current,
+    Legacy,
+}
+
 struct ActivationRequest<'a> {
+    caller: Caller,
     product: Product,
     prefix: &'a Path,
     channel: tmt_core::native_install::Channel,
@@ -280,13 +295,18 @@ fn activate_with_local_schema(
         )?;
     }
     checkpoint()?;
-    let layout = publication::Layout::open_product(request.prefix, request.product)?;
+    let layout = match legacy_target(&request)? {
+        Some(former) => former,
+        None => publication::Layout::open_product(request.prefix, request.product)?,
+    };
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let published = layout.current()?;
     let published_id = published.as_ref().map(|receipt| receipt.id);
     // Lock order is new installation, then former installation, then skills.
     // Old writers remain fenced until the new release is durably activated.
-    let former_layout = if let Some(former) = request.product.former() {
+    let former_layout = if layout.is_former() {
+        None
+    } else if let Some(former) = request.product.former() {
         match std::fs::symlink_metadata(layout.prefix.join(former.namespace)) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(error),
@@ -298,7 +318,7 @@ fn activate_with_local_schema(
     } else {
         None
     };
-    let _former_lock = former_layout
+    let former_lock = former_layout
         .as_ref()
         .map(|former| crate::file_lock::exclusive(&former.root.join("install.lock")))
         .transpose()?;
@@ -365,7 +385,11 @@ fn activate_with_local_schema(
         let local = local_schema()?;
         pr_receipt::admit_databases(request.product, schema, schema, &local, false)?;
     }
-    let active_id = if plan.changed {
+    // The first activation in a layout always publishes. The move to a new prefix
+    // can install the release the former prefix already holds, and links into an
+    // empty prefix would dangle.
+    let changed = plan.changed || published_id.is_none();
+    let active_id = if changed {
         let mut receipt = receipt::Receipt::new(artifact, plan.state);
         receipt.provenance = request.provenance;
         if let Err(error) = layout.publish(
@@ -406,12 +430,52 @@ fn activate_with_local_schema(
             .expect("unchanged installation has a current receipt")
             .id
     };
+    // The move kept the former prefix as the rollback source. The first
+    // upgrade after it retires that prefix, best effort and only when nothing
+    // managed points into it; a refusal never fails the upgrade.
+    if changed
+        && published_id.is_some()
+        && former_layout.is_some()
+        && request.caller == Caller::Current
+        && former_prefix::is_move(request.product)
+    {
+        drop(former_lock);
+        let _ = former_prefix::retire(&layout);
+    }
     Ok(installed_report(
         &layout,
         &artifact.version.to_string(),
         active_id,
-        plan.changed,
+        changed,
     ))
+}
+
+/// An updater from before the CLI moved to `lib/tmt` validates a report under
+/// `lib/tmux-team`, so while that is where the CLI is active its next release is
+/// published there too. A current caller (a bootstrap, an offline install or an
+/// updater of this generation) moves the installation instead.
+fn legacy_target(request: &ActivationRequest<'_>) -> io::Result<Option<publication::Layout>> {
+    if request.caller != Caller::Legacy {
+        return Ok(None);
+    }
+    let Some(former) = request.product.former() else {
+        return Ok(None);
+    };
+    let exists = |path: std::path::PathBuf| match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    };
+    let moved = exists(
+        request
+            .prefix
+            .join(request.product.namespace())
+            .join("current"),
+    )?;
+    if moved || !exists(request.prefix.join(former.namespace))? {
+        return Ok(None);
+    }
+    publication::Layout::existing_former(request.prefix, request.product).map(Some)
 }
 
 fn local_application_schema(product: Product) -> io::Result<Vec<pr_catalog::DatabaseSchema>> {

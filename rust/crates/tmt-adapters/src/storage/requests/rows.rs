@@ -52,7 +52,7 @@ pub(super) fn u64_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<u64> {
     checked_u64(row.get(offset)?)
 }
 
-fn optional_u64_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<Option<u64>> {
+pub(super) fn optional_u64_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<Option<u64>> {
     row.get::<_, Option<i64>>(offset)?
         .map(checked_u64)
         .transpose()
