@@ -367,7 +367,7 @@ fn admission(value: &Value) -> Result<Admission> {
     })
 }
 
-/// An object holding exactly `keys`: a missing or extra member is a shape error.
+/// An object holding every required key and only the listed required/optional keys.
 fn optional_members<'a>(
     value: &'a Value,
     keys: &[&str],
@@ -386,6 +386,7 @@ fn optional_members<'a>(
     }
     Ok(top)
 }
+/// An object holding exactly `keys`: a missing or extra member is a shape error.
 fn members<'a>(value: &'a Value, keys: &[&str]) -> Result<&'a Map<String, Value>> {
     match value.as_object() {
         Some(object)

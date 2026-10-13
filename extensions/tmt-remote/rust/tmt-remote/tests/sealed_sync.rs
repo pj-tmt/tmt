@@ -276,14 +276,18 @@ fn codec_mapping_and_exact_scope_are_shared_frozen_data() {
 }
 
 #[test]
-fn budget_refusal_keeps_existing_code_and_reset_fields() {
+fn budget_refusal_variant_preserves_the_existing_code_and_values() {
     let refusal = tmt_remote::firestore_budget::Refusal {
         reset_at_ms: 123,
         retry_after_ms: 45,
     };
     let error = SyncError::BudgetExhausted(refusal);
     assert_eq!(error.code(), "REMOTE_BUDGET_EXHAUSTED");
-    assert_eq!(error, SyncError::BudgetExhausted(refusal));
+    let SyncError::BudgetExhausted(carried) = error else {
+        panic!("lost typed budget refusal")
+    };
+    assert_eq!(carried.reset_at_ms, 123);
+    assert_eq!(carried.retry_after_ms, 45);
 }
 
 #[test]
@@ -297,4 +301,101 @@ fn finite_query_gap_has_a_distinct_state_without_a_new_refusal_code() {
         Some("catch-up-required")
     );
     assert_eq!(SyncError::Unavailable.state(), None);
+}
+
+#[test]
+fn shared_operation_corpus_pins_exact_refusal_code_and_state() {
+    use sha2::Digest;
+    use std::collections::BTreeMap;
+    let source: Value =
+        serde_json::from_str(include_str!("fixtures/sealed_sync/codec-v1.json")).unwrap();
+    for case in source["operations"].as_array().unwrap() {
+        let mut declaration: Value =
+            serde_json::from_str(source["declaration"].as_str().unwrap()).unwrap();
+        match case["context"].as_str().unwrap() {
+            "nosync" => {
+                declaration["resources"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("sync");
+            }
+            "no-query" => declaration["resources"][0]["sync"]["query"] = Value::Null,
+            "no-discovery" => {
+                declaration["resources"][0]["sync"]["query"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("discovery");
+            }
+            "small" => {
+                declaration["resources"][0]["limits"]["maxObjectBytes"] = serde_json::json!(16)
+            }
+            "normal" => {}
+            _ => panic!("unknown corpus context"),
+        }
+        let bytes = serde_json::to_vec(&declaration).unwrap();
+        let digest = sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let context = SyncContext::bind(serde_json::json!({"apiKey":"public","appId":"1:123:web:fixture","projectId":"demo-remote-1","authDomain":"demo-remote-1.firebaseapp.com"}),&bytes,&digest,"fixture-space",Arc::new(Auth{project:"demo-remote-1".into()})).unwrap();
+        let resource = case["resource"].as_str().unwrap().to_owned();
+        let scope =
+            || serde_json::from_value::<BTreeMap<String, Value>>(case["scope"].clone()).unwrap();
+        let result = match case["op"].as_str().unwrap() {
+            "read" | "publish" => validate_document(
+                &context,
+                &Document {
+                    target: Target {
+                        resource,
+                        id: case["id"].as_str().unwrap().into(),
+                    },
+                    bytes: case["bytes"].as_str().unwrap().as_bytes().to_vec(),
+                    digest: case["digest"].as_str().unwrap().into(),
+                },
+                if case["op"] == "read" {
+                    DocumentAccess::Read
+                } else {
+                    DocumentAccess::Publish
+                },
+            ),
+            "discovery" => validate_discovery(
+                &context,
+                &DiscoveryQuery {
+                    resource,
+                    shape: case["shape"].as_str().unwrap().into(),
+                    continuation: None,
+                    scope: scope(),
+                },
+            ),
+            "query" => validate_query(
+                &context,
+                &Query {
+                    resource,
+                    scope: scope(),
+                    stream: "writer-stream".into(),
+                    cursor: None,
+                },
+            ),
+            "mutation" => validate_mutation(
+                &context,
+                &Mutation::Delete(Target {
+                    resource,
+                    id: case["id"].as_str().unwrap().into(),
+                }),
+            ),
+            "interest" => validate_interest(
+                &context,
+                &SyncInterest {
+                    resource,
+                    scope: scope(),
+                },
+            ),
+            _ => panic!("unknown corpus operation"),
+        };
+        let actual = match result {
+            Ok(()) => serde_json::json!({"code":null,"state":null}),
+            Err(e) => serde_json::json!({"code":e.code(),"state":e.state()}),
+        };
+        assert_eq!(actual, case["expected"], "{}", case["name"]);
+    }
 }

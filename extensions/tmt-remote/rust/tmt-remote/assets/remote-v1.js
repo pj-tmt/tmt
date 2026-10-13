@@ -1073,7 +1073,9 @@ async function validateSyncDocument(context, document, access) {
 	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 function validateSyncQuery(context, query) {
-	const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+	const resource = context.resources.find((r) => r.name === query.resource);
+	valid$3(resource !== void 0);
+	const mapping = resource.sync;
 	const spec = mapping?.query;
 	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
 	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
@@ -1081,18 +1083,34 @@ function validateSyncQuery(context, query) {
 	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
 }
 function validateSyncDiscovery(context, query) {
-	const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+	const resource = context.resources.find((r) => r.name === query.resource);
+	valid$3(resource !== void 0);
+	const mapping = resource.sync;
 	const discovery = mapping?.query?.discovery;
-	if (!mapping || !discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
+	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	if (!discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
 	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 async function validateSyncMutation(context, mutation) {
 	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
 	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
-	const mapping = context.resources.find((r) => r.name === target.resource)?.sync;
+	const resource = context.resources.find((r) => r.name === target.resource);
+	valid$3(resource !== void 0);
+	const mapping = resource.sync;
 	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
 	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
+}
+/** Page-scope registration, not a stream query or mandatory discovery shape. */
+function validateSyncInterest(context, interest) {
+	const resource = context.resources.find((r) => r.name === interest.resource);
+	valid$3(resource !== void 0);
+	const mapping = resource.sync;
+	const query = mapping?.query;
+	if (!mapping || !query) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	const fields = query.scopeFields.filter((key) => key !== query.streamField);
+	valid$3(Object.keys(interest.scope).length === fields.length && fields.every((key) => Object.hasOwn(interest.scope, key) && field$1(interest.scope[key])));
+	if (!textIs(interest.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
 }
 //#endregion
 //#region src/sealed-sync.ts
@@ -3554,4 +3572,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncMutation, validateSyncQuery, verifySealedObject };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncInterest, validateSyncMutation, validateSyncQuery, verifySealedObject };

@@ -71,6 +71,11 @@ export interface SyncQuery {
   readonly stream: string;
   readonly cursor?: SyncCursor;
 }
+/** Page-level interest with no seed stream or delivery cursor. */
+export interface SyncInterest {
+  readonly resource: string;
+  readonly scope: Readonly<Record<string, SyncValue>>;
+}
 export interface SyncDiscovery {
   readonly resource: string;
   readonly shape: string;
@@ -127,7 +132,7 @@ export interface SealedSyncPort {
   readonly context: SyncContext;
   read(target: SyncTarget, call: SyncCall): Promise<SealedDocument | undefined>;
   query(query: SyncQueryRequest, call: SyncCall): Promise<SyncQueryPage>;
-  subscribe(query: SyncQuery, call: SyncCall): Promise<SyncSubscription>;
+  subscribe(interest: SyncInterest, call: SyncCall): Promise<SyncSubscription>;
   /** Only pre-effect refusal rejects; a possibly applied write is unknown, including cancellation. */
   publish(mutation: SyncMutation, call: SyncCall): Promise<SyncPublish>;
   close(): void;
@@ -246,6 +251,7 @@ export {
   validateSyncDocument,
   validateSyncFields,
   validateSyncQuery,
+  validateSyncInterest,
   validateSyncDiscovery,
   validateSyncMutation,
 } from './sealed-sync-codec.js';

@@ -10,7 +10,8 @@
     "{\"value\":{\"integerValue\":\"9007199254740991\"}}",
     "{\"value\":{\"integerValue\":\"-9007199254740991\"}}",
     "{\"value\":{\"bytesValue\":\"\"}}",
-    "{\"value\":{\"stringValue\":\"Unicode \u96ea\"}}"
+    "{\"value\":{\"stringValue\":\"Unicode 雪\"}}",
+    "{\"text\":{\"stringValue\":\"\\\"\\\\\\u0001 🙂\"}}"
   ],
   "invalid": [
     "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123456789Z\"}}",
@@ -103,6 +104,285 @@
         "name": "arrivals",
         "scopeFields": ["tenant"],
         "seqEquals": "9007199254740992"
+      }
+    }
+  ],
+  "operations": [
+    {
+      "name": "foreign-space-read",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_SCOPE_DENIED",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"foreign-space\"}}",
+      "digest": "bc665f29c3a288c8c020f9d12d162697cbbb66dc49e03cc0d0825d382c3866a8",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "foreign-space-publish",
+      "op": "publish",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_SCOPE_DENIED",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"foreign-space\"}}",
+      "digest": "bc665f29c3a288c8c020f9d12d162697cbbb66dc49e03cc0d0825d382c3866a8",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "foreign-publisher-read",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": null,
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"another-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "61fd6c734a9b3e5de88a50da641e07a6ebbcb8db5d89cf80f41fa3adf195089a",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "foreign-publisher-publish",
+      "op": "publish",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_SCOPE_DENIED",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"another-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "61fd6c734a9b3e5de88a50da641e07a6ebbcb8db5d89cf80f41fa3adf195089a",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "missing-field",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "ebaea92770037151ccc9529d297e9aaf8f8dceacd2d725c4c522944124532407",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "extra-field",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"extra\":{\"nullValue\":null},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "5f569719085890d6895569e45458157a1e76f7f3f1223184d0c906080518154e",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "zero-seq",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"0\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "de2ccc4e04a1eb655d16c9c0781fd40fc5af5445ef9dfccdf45bf9090ba42ee3",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "invalid-stream",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"../escape\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "d12c9d83ef2dab903c1973ff616f2f24f6fc731462aa4cabf4f26a1ec46cd776",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "oversize",
+      "op": "read",
+      "resource": "rows",
+      "context": "small",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "aac92e8581c7caed69561d072112202ad9df6a7cd5d23c7bdbb272655ae68d41",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "digest-mismatch",
+      "op": "read",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "bytes": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "discovery-without-sync",
+      "op": "discovery",
+      "resource": "rows",
+      "context": "nosync",
+      "expected": {
+        "code": "REMOTE_STATE_UNAVAILABLE",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
+      },
+      "shape": "arrivals"
+    },
+    {
+      "name": "missing-discovery-shape",
+      "op": "discovery",
+      "resource": "rows",
+      "context": "no-discovery",
+      "expected": {
+        "code": "REMOTE_STATE_UNAVAILABLE",
+        "state": "unsupported"
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
+      },
+      "shape": "arrivals"
+    },
+    {
+      "name": "mutation-unknown-resource",
+      "op": "mutation",
+      "resource": "missing",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "mutation-without-sync",
+      "op": "mutation",
+      "resource": "rows",
+      "context": "nosync",
+      "expected": {
+        "code": "REMOTE_STATE_UNAVAILABLE",
+        "state": "unsupported"
+      },
+      "id": "writer-stream+1"
+    },
+    {
+      "name": "query-unknown-resource",
+      "op": "query",
+      "resource": "missing",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
+      }
+    },
+    {
+      "name": "empty-page-interest-no-discovery",
+      "op": "interest",
+      "resource": "rows",
+      "context": "no-discovery",
+      "expected": {
+        "code": null,
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
+      }
+    },
+    {
+      "name": "interest-extra-stream",
+      "op": "interest",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_INPUT_INVALID",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        },
+        "streamKey": {
+          "stringValue": "writer-stream"
+        }
+      }
+    },
+    {
+      "name": "interest-foreign-space",
+      "op": "interest",
+      "resource": "rows",
+      "context": "normal",
+      "expected": {
+        "code": "REMOTE_SCOPE_DENIED",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "foreign-space"
+        }
+      }
+    },
+    {
+      "name": "interest-without-sync",
+      "op": "interest",
+      "resource": "rows",
+      "context": "nosync",
+      "expected": {
+        "code": "REMOTE_STATE_UNAVAILABLE",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
+      }
+    },
+    {
+      "name": "interest-without-query",
+      "op": "interest",
+      "resource": "rows",
+      "context": "no-query",
+      "expected": {
+        "code": "REMOTE_STATE_UNAVAILABLE",
+        "state": null
+      },
+      "scope": {
+        "tenant": {
+          "stringValue": "fixture-space"
+        }
       }
     }
   ]

@@ -3,6 +3,7 @@ import type {
   SealedDocument,
   SyncContext,
   SyncQuery,
+  SyncInterest,
   SyncDiscovery,
   SyncMutation,
 } from './sealed-sync.js';
@@ -134,7 +135,9 @@ export async function validateSyncDocument(
     throw new RefusalError('REMOTE_SCOPE_DENIED');
 }
 export function validateSyncQuery(context: SyncContext, query: SyncQuery): void {
-  const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+  const resource = context.resources.find((r) => r.name === query.resource);
+  valid(resource !== undefined);
+  const mapping = resource.sync;
   const spec = mapping?.query;
   if (!mapping || !spec) throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
   valid(
@@ -156,9 +159,12 @@ export function validateSyncQuery(context: SyncContext, query: SyncQuery): void 
 }
 
 export function validateSyncDiscovery(context: SyncContext, query: SyncDiscovery): void {
-  const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+  const resource = context.resources.find((r) => r.name === query.resource);
+  valid(resource !== undefined);
+  const mapping = resource.sync;
   const discovery = mapping?.query?.discovery;
-  if (!mapping || !discovery)
+  if (!mapping) throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
+  if (!discovery)
     throw Object.assign(new RefusalError('REMOTE_STATE_UNAVAILABLE'), { state: 'unsupported' });
   valid(
     query.shape === discovery.name &&
@@ -177,8 +183,26 @@ export async function validateSyncMutation(
 ): Promise<void> {
   const target = mutation.mode === 'delete' ? mutation.target : mutation.document.target;
   valid(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
-  const mapping = context.resources.find((r) => r.name === target.resource)?.sync;
+  const resource = context.resources.find((r) => r.name === target.resource);
+  valid(resource !== undefined);
+  const mapping = resource.sync;
   if (!mapping || !(mapping.writeModes ?? ['create']).includes(mutation.mode))
     throw Object.assign(new RefusalError('REMOTE_STATE_UNAVAILABLE'), { state: 'unsupported' });
   if (mutation.mode !== 'delete') await validateSyncDocument(context, mutation.document, 'publish');
+}
+
+/** Page-scope registration, not a stream query or mandatory discovery shape. */
+export function validateSyncInterest(context: SyncContext, interest: SyncInterest): void {
+  const resource = context.resources.find((r) => r.name === interest.resource);
+  valid(resource !== undefined);
+  const mapping = resource.sync;
+  const query = mapping?.query;
+  if (!mapping || !query) throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
+  const fields = query.scopeFields.filter((key) => key !== query.streamField);
+  valid(
+    Object.keys(interest.scope).length === fields.length &&
+      fields.every((key) => Object.hasOwn(interest.scope, key) && field(interest.scope[key])),
+  );
+  if (!textIs(interest.scope[mapping.spaceField], context.space))
+    throw new RefusalError('REMOTE_SCOPE_DENIED');
 }

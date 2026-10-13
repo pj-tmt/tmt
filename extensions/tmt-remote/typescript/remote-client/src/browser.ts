@@ -5,6 +5,7 @@ export {
   validateSyncDocument,
   validateSyncFields,
   validateSyncQuery,
+  validateSyncInterest,
   validateSyncDiscovery,
   validateSyncMutation,
 } from './sealed-sync.js';
@@ -21,6 +22,7 @@ export type {
   SealedDocument,
   SyncCursor,
   SyncQuery,
+  SyncInterest,
   SyncDiscovery,
   SyncQueryRequest,
   SyncQueryPage,

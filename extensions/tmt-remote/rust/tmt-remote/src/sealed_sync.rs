@@ -214,6 +214,11 @@ pub struct Query {
     pub stream: String,
     pub cursor: Option<SyncCursor>,
 }
+/// Page-level interest, including an initially empty page; no delivery cursor.
+pub struct SyncInterest {
+    pub resource: String,
+    pub scope: std::collections::BTreeMap<String, Value>,
+}
 pub struct DiscoveryQuery {
     pub resource: String,
     pub shape: String,
@@ -273,7 +278,7 @@ pub trait SealedSyncPort: Send + Sync {
     ) -> Pending<'a, SyncQueryPage>;
     fn subscribe<'a>(
         &'a self,
-        query: &'a Query,
+        interest: &'a SyncInterest,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Box<dyn Subscription>>;
     /// Only pre-effect refusal is Err; a possibly applied write returns Unknown, even on cancellation.
@@ -332,8 +337,8 @@ pub fn verify_object(
 
 mod codec;
 pub use codec::{
-    DocumentAccess, validate_discovery, validate_document, validate_fields, validate_mutation,
-    validate_query,
+    DocumentAccess, validate_discovery, validate_document, validate_fields, validate_interest,
+    validate_mutation, validate_query,
 };
 
 /// Shared validator ceiling; each resource/descriptor still supplies its lower bound.

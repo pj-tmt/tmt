@@ -260,3 +260,33 @@ pub fn validate_mutation(
         super::Mutation::Delete(_) => Ok(()),
     }
 }
+
+/// Exact page scope without the stream predicate; discovery declaration is not required.
+pub fn validate_interest(
+    context: &SyncContext,
+    interest: &super::SyncInterest,
+) -> Result<(), SyncError> {
+    let resource = context
+        .resources
+        .iter()
+        .find(|r| r.name == interest.resource)
+        .ok_or(SyncError::Invalid)?;
+    let mapping = resource.sync.as_ref().ok_or(SyncError::Unavailable)?;
+    let query = mapping.query.as_ref().ok_or(SyncError::Unavailable)?;
+    let fields: Vec<_> = query
+        .scope_fields
+        .iter()
+        .filter(|key| **key != query.stream_field)
+        .collect();
+    if interest.scope.len() != fields.len()
+        || !fields
+            .iter()
+            .all(|key| interest.scope.get(*key).is_some_and(field))
+    {
+        return invalid();
+    }
+    if !text_is(interest.scope.get(&mapping.space_field), &context.space) {
+        return Err(SyncError::Denied);
+    }
+    Ok(())
+}

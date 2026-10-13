@@ -670,6 +670,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'validateSyncDiscovery',
     'validateSyncDocument',
     'validateSyncFields',
+    'validateSyncInterest',
     'validateSyncMutation',
     'validateSyncQuery',
     'verifySealedObject',

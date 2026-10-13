@@ -2003,7 +2003,13 @@ generation and deadline. A mismatched token or continuation after close/deadline
 before I/O. No continuation means the run is complete; otherwise it is incomplete. There is no
 run ledger. Repeated runs discover arrivals missed by a prior run; pruning requires rebootstrap.
 Native poll interval/read costs are defined by the native transport, not this type boundary.
-Subscribe registers interest and produces only coalesced Changed wake hints or CatchUpRequired;
+Subscribe takes a page-level `SyncInterest {resource,scope}`: exact query-mapping scope minus
+the stream field, without requiring discovery. It has no seed stream, cursor, continuation or
+provider-held delivery progress; one page interest counts once toward the listener caps.
+It produces only coalesced Changed wake hints or CatchUpRequired. Changed is level-triggered:
+it may be spurious but never lost; suppressing a wake requires positively observed absence
+from a successful bounded probe. Browser listeners/native polling cover later writes, not only
+first-sequence documents;
 terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
 and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.

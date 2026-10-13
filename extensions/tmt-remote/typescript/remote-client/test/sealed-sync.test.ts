@@ -1,3 +1,4 @@
+import { RefusalError } from '../src/operations.js';
 import { expect, test } from 'vite-plus/test';
 import { verifyHostedDeclaration } from '../src/firebase-declaration.js';
 
@@ -121,6 +122,7 @@ import {
   validateSyncFields,
   validateSyncDocument,
   validateSyncQuery,
+  validateSyncInterest,
   validateSyncMutation,
   validateSyncDiscovery,
 } from '../src/sealed-sync.js';
@@ -259,4 +261,79 @@ test('codec, declaration mapping, and scope use one cross-language corpus', asyn
   await expect(verifyHostedDeclaration({ bytes, digest })).rejects.toMatchObject({
     code: 'REMOTE_INPUT_INVALID',
   });
+});
+
+test('shared operation corpus pins exact refusal code and state', async () => {
+  const source = JSON.parse(
+    readFileSync(
+      new URL('../../../rust/tmt-remote/tests/fixtures/sealed_sync/codec-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  type Case = {
+    name: string;
+    op: string;
+    context: string;
+    resource: string;
+    id: string;
+    bytes: string;
+    digest: string;
+    shape: string;
+    scope: Record<string, import('../src/sealed-sync.js').SyncValue>;
+    expected: { code: string | null; state: string | null };
+  };
+  for (const c of source.operations as Case[]) {
+    const d = JSON.parse(source.declaration);
+    if (c.context === 'nosync') delete d.resources[0].sync;
+    if (c.context === 'no-query') d.resources[0].sync.query = null;
+    if (c.context === 'no-discovery') delete d.resources[0].sync.query.discovery;
+    if (c.context === 'small') d.resources[0].limits.maxObjectBytes = 16;
+    const bytes = JSON.stringify(d);
+    const digest = Array.from(
+      new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(bytes))),
+      (b) => b.toString(16).padStart(2, '0'),
+    ).join('');
+    const context = await bindSyncContext(
+      {
+        apiKey: 'public',
+        appId: '1:123:web:fixture',
+        projectId: 'demo-remote-1',
+        authDomain: 'demo-remote-1.firebaseapp.com',
+      },
+      { bytes, digest },
+      'fixture-space',
+      {
+        identity: { projectId: 'demo-remote-1', uid: 'fixture-user' },
+        token() {
+          throw Error('no token call');
+        },
+      },
+    );
+    let actual: { code: unknown; state: unknown } = { code: null, state: null };
+    try {
+      const target = { resource: c.resource, id: c.id };
+      if (c.op === 'read' || c.op === 'publish')
+        await validateSyncDocument(
+          context,
+          { target, bytes: new TextEncoder().encode(c.bytes), digest: c.digest },
+          c.op,
+        );
+      else if (c.op === 'discovery')
+        validateSyncDiscovery(context, { resource: c.resource, shape: c.shape, scope: c.scope });
+      else if (c.op === 'query')
+        validateSyncQuery(context, {
+          resource: c.resource,
+          scope: c.scope,
+          stream: 'writer-stream',
+        });
+      else if (c.op === 'mutation') await validateSyncMutation(context, { mode: 'delete', target });
+      else if (c.op === 'interest')
+        validateSyncInterest(context, { resource: c.resource, scope: c.scope });
+      else throw Error('unknown corpus operation');
+    } catch (e) {
+      if (!(e instanceof RefusalError)) throw e;
+      actual = { code: e.code, state: 'state' in e ? e.state : null };
+    }
+    expect(actual, c.name).toEqual(c.expected);
+  }
 });
