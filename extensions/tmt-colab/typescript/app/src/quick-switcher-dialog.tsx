@@ -88,7 +88,7 @@ export function QuickSwitcherHost({
     setResetKey((value) => value + 1);
     setOpen(true);
     return true;
-  }, []);
+  }, [setEdit]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (admitsSwitcherShortcut(event) && activate()) event.preventDefault();
