@@ -72,7 +72,8 @@ impl Budget {
     pub fn contract() -> Self {
         Self::new(32, 32)
     }
-    /// Observe outstanding work without changing admission or channel state.
+    /// Observe request/callback slots without changing admission or channel state.
+    /// Registered subscriptions are long-lived interests, not outstanding calls.
     pub fn is_idle(&self) -> bool {
         self.requests.0.load(Ordering::Acquire) == 0
             && self.callbacks.0.load(Ordering::Acquire) == 0

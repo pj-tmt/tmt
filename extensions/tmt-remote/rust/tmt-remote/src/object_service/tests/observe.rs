@@ -307,6 +307,44 @@ fn observations_never_cache_an_allow_or_disclose_after_a_refusal() {
 }
 
 #[test]
+fn restart_registered_page_interest_does_not_defer_or_cancel_it() {
+    let env = Env::new();
+    let service = env.service(&super::native::NOTES, bounds()).unwrap();
+    let peer = Peer::start(&env, "notes", Answer::Expect);
+    let fake = Arc::new(super::super::sync::tests::Fake::new());
+    service
+        .register_native(
+            "notes",
+            super::native::registration(fake.clone(), Arc::new(AtomicUsize::new(0))),
+        )
+        .unwrap();
+    service
+        .activate_native_until(
+            &env.mounts(&super::native::NOTES),
+            "notes",
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+    peer.ready.recv_timeout(Duration::from_secs(5)).unwrap();
+    super::native::subscribe(&peer, super::native::bind(&peer, &fake));
+    assert!(matches!(
+        super::native::outcome(&peer),
+        tmt_extension_objects::sync::Outcome::Subscribed { .. }
+    ));
+    let stopped = AtomicBool::new(false);
+    assert!(
+        service
+            .readiness()
+            .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .unwrap()
+    );
+    assert!(stopped.load(Ordering::Acquire));
+    assert_eq!(fake.subscription.closed.load(Ordering::SeqCst), 0);
+    service.shutdown();
+    assert_eq!(fake.subscription.closed.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn restart_read_awaiting_disclosure_defers_and_the_request_can_complete() {
     let env = Env::new();
     let (service, peer) = running(&env, bounds());

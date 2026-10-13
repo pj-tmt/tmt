@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
-/// Control may observe existing upload accounting while the serve lease is held.
+/// Control observes existing object work while the serve lease is held.
 /// Shutdown releases the reader and joins every Running; retained views open nothing.
 #[derive(Clone, Default)]
 pub struct ObjectReadiness {
