@@ -35,6 +35,41 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
+fn workspace_board() -> App {
+    crate::board::app::workspace::tests::board()
+}
+
+fn workspace_keys(app: &mut App, text: &str) {
+    let path =
+        std::env::temp_dir().join(format!("ops-footer-{}.toml", crate::id::new_v4().unwrap()));
+    std::fs::write(&path, text).unwrap();
+    let config = crate::config::Config::read(path.clone()).unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .configure(&config)
+        .unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+fn workspace_row(app: &mut App) -> &mut Value {
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()
+}
+
 /// Exercise the shared typed field renderer, not the retired notebook/detail pane.
 fn entity_detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     let value = app
@@ -107,25 +142,18 @@ fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint()
 #[test]
 fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
-        let mut app = board(json!([]));
-        let view = app.view.as_mut().unwrap();
-        view.home = Some(crate::board::home::Home {
-            workspace: Default::default(),
-            summary: Default::default(),
-            window: crate::config::TokenWindow::MINUTE,
-            windows: crate::config::TokenRate::default().windows,
-            sections: Vec::new(),
-            squads: Vec::new(),
-            failures: Vec::new(),
-            incomplete: false,
-        });
-        view.history_pending = true;
+        let mut app = workspace_board();
+        app.shell.tab = crate::board::shell::OpsTab::Overview;
+        let summary = draw(&app, width, 24)[2].clone();
+        app.view.as_mut().unwrap().history_pending = true;
         let pending = draw(&app, width, 24);
-        assert!(pending.iter().any(|line| line.contains("Updating usage…")));
         assert!(
-            pending
-                .iter()
-                .any(|line| line.contains("Nothing needs you"))
+            pending.iter().any(|line| line.contains("Updating usage…")),
+            "{pending:?}"
+        );
+        assert_eq!(
+            pending[2], summary,
+            "usage loading cannot rewrite the observed aggregate"
         );
         app.view.as_mut().unwrap().history_pending = false;
         assert!(
@@ -133,33 +161,15 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
                 .iter()
                 .all(|line| !line.contains("Updating usage"))
         );
+        app.view.as_mut().unwrap().history_pending = true;
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
+        assert!(
+            draw(&app, width, 24)
+                .iter()
+                .all(|line| !line.contains("Updating usage")),
+            "hidden Overview status cannot appear in Agents"
+        );
     }
-}
-
-#[test]
-fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
-    let now = crate::status::now_ms();
-    let mut app = board(
-        json!([{"title": null, "rows": [row("auth-fix", "working", "", json!({"pending": "approve", "waitingOnYou": [{"preparedAtMs": now - 720000, "preview": "fallback"}]}))]}]),
-    );
-    app.view.as_mut().unwrap().bindings.remove("A");
-    app.view.as_mut().unwrap().bindings.insert(
-        "z".into(),
-        crate::action::Action::parse("ask-lead").unwrap(),
-    );
-    assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
-    assert!(!hints(&app, 120).contains("z ask lead"));
-    assert!(help_lines(&app).iter().any(|line| line.starts_with("z  ")));
-    assert!(!hints(&app, 100).contains("z ask lead"));
-    assert!(!hints(&app, 50).contains("oldest"));
-    assert!(!hints(&app, 80).contains("oldest"));
-    assert!(hints(&app, 100).contains("r reply"));
-    assert!(hints(&app, 100).ends_with("? more  q quit"));
-    assert!(!hints(&app, 50).contains("A ask lead"));
-    assert_eq!(
-        super::waiting::text(app.selected_row().unwrap()),
-        Some("approve")
-    );
 }
 
 #[test]
@@ -173,8 +183,16 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
         (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
         (tmt_cli_style::Base::Mono, tmt_cli_style::Depth::None),
     ] {
-        let mut app =
-            board(json!([{"title":null,"rows":[row("worker","working","task",json!({}))]}]));
+        let mut app = workspace_board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
         app.view.as_mut().unwrap().look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(base),
             depth,
@@ -184,8 +202,8 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
             !text.contains("a write") && !text.contains("A ask lead") && !text.contains("Focus:")
         );
         let help = help_lines(&app);
-        assert!(help.iter().any(|line| line.starts_with("a  ")));
-        assert!(help.iter().any(|line| line.starts_with("A  ")));
+        assert!(help.iter().any(|line| line.starts_with("t  ")));
+        assert!(help.iter().any(|line| line.starts_with("j  ")));
         for list in [text] {
             let line = super::footer::hint_line(&list, app.look());
             let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 1));
@@ -221,7 +239,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
 
 #[test]
 fn a_due_reload_is_named_beside_the_open_prompt_and_only_then() {
-    let mut app = board(json!([{"title": null, "rows": [row("a", "working", "", json!({}))]}]));
+    let mut app = workspace_board();
     let footer = |app: &App| draw(app, 100, 24).last().unwrap().trim_end().to_owned();
     app.searching = true;
     assert_eq!(footer(&app), "/▏");
@@ -240,151 +258,107 @@ fn a_due_reload_is_named_beside_the_open_prompt_and_only_then() {
 
 #[test]
 fn footer_omits_whole_hints_instead_of_clipping_words() {
-    let mut app = App::new(Some("product".into()));
-    app.apply(crate::board::app::tests::snapshot("product", json!([])));
+    let mut app = workspace_board();
     let full = hints(&app, usize::MAX);
-    assert!(full.starts_with("↑↓ move  / search"), "{full}");
-    for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
+    assert!(
+        full.contains("t talk") && full.ends_with("? help  q quit"),
+        "{full}"
+    );
+    for width in [0, 1, 5, 6, 13, 14, 20, 40, 80, 100, 160] {
         let shown = hints(&app, width);
-        assert!(shown.width() <= width);
-        if width >= "? more".width() {
-            assert!(shown.contains("? more"), "help stays discoverable: {width}");
+        assert!(shown.width() <= width, "{width}: {shown}");
+        if width >= 6 {
+            assert!(shown.contains("? help"), "{width}: {shown}");
         }
         assert!(
             shown
                 .split("  ")
-                .filter(|hint| !hint.is_empty())
-                .all(|hint| full.split("  ").any(|whole| whole == hint)),
+                .filter(|part| !part.is_empty())
+                .all(|part| full.split("  ").any(|whole| whole == part)),
             "partial hint at {width}: {shown}"
         );
     }
-    assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+    workspace_keys(
+        &mut app,
+        "[bind]\n'?' = \"copy {name}\"\nh = \"help\"\nq = \"copy {name}\"\n",
+    );
+    assert_eq!(hints(&app, 6), "h help");
+    let configured = hints(&app, usize::MAX);
+    assert!(configured.ends_with("h help  Ctrl-C quit"), "{configured}");
+    assert!(!configured.contains("? help") && !configured.contains("q quit"));
 }
 
 /// The shown hints without the reserved tail.
 fn shown_hints(text: &str) -> Vec<&str> {
     text.split("  ")
-        .filter(|hint| !hint.is_empty() && !["q quit", "? more", "Focus: rows"].contains(hint))
+        .filter(|hint| !hint.is_empty() && !["q quit", "? help"].contains(hint))
         .collect()
 }
 
 #[test]
 fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
-    let mut app = paned(
-        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
-        Notes::NotShown,
-    );
-    app.select(1);
-    assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
+    let mut app = workspace_board();
+    workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
-    let order = ["↑↓ move", "⏎ open", "t talk", "r reply", "/ search"];
+    let order = ["t talk", "j host", "o open", "down next", "up previous"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
         "{full}"
     );
-    assert!(!full.contains("next-pane"), "{full}");
-    assert!(full.ends_with("? more  q quit"));
     let whole = shown_hints(&full);
     for width in 0..=full.width() {
         let shown = hints(&app, width);
-        assert!(shown.width() <= width, "{width}: {shown}");
+        assert!(shown.width() <= width);
         match width {
-            0..=5 => assert_eq!(shown, ""),
-            6..=13 => assert_eq!(shown, "? more", "{width}"),
-            _ => assert!(shown.ends_with("? more  q quit"), "{width}: {shown}"),
+            0..=5 => assert!(shown.is_empty()),
+            6..=13 => assert_eq!(shown, "? help"),
+            _ => assert!(shown.ends_with("? help  q quit"), "{width}: {shown}"),
         }
-        // Whole hints only, always a prefix of the priority order.
         let kept = shown_hints(&shown);
         assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
     }
-    // The other keys are help-only, never in the footer.
-    for hint in [
-        "⌫ back",
-        "o open",
-        "y copy",
-        "tab pane",
-        "ctrl-r refresh",
-        "T theme",
-    ] {
-        assert!(!full.contains(hint), "{hint}: {full}");
-    }
-    // Mandatory hints remain while optional actions fit whole.
-    let narrow = hints(&app, 100);
-    assert!(narrow.contains("⏎ open  t talk  r reply"), "{narrow}");
 }
 
 #[test]
 fn footer_shows_only_the_row_actions_the_selected_row_allows() {
-    let mut app = paned(
-        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
-        Notes::NotShown,
+    let mut app = workspace_board();
+    workspace_keys(&mut app, "[bind]\nr = \"reply\"\n");
+    let plain = hints(&app, usize::MAX);
+    assert!(plain.contains("t talk") && plain.contains("j host"));
+    assert!(!plain.contains("r reply") && !plain.contains("o open"));
+    workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
+    workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
+    let ready = hints(&app, usize::MAX);
+    assert!(
+        ready.contains("r reply") && ready.contains("o open"),
+        "{ready}"
     );
-    // The lead row waits on nothing and has no link: no reply, no open.
-    app.select(0);
-    assert_eq!(app.selected_row().unwrap()["name"], "sol");
-    let lead = hints(&app, usize::MAX);
-    for hint in ["⏎ open", "t talk"] {
-        assert!(lead.contains(hint), "{lead}");
-    }
-    assert!(!lead.contains("r reply"), "{lead}");
-    // Only a decision (pending text or an open request) enables reply.
-    app.select(1);
-    assert!(hints(&app, usize::MAX).contains("r reply"));
-    let set = |app: &mut App, key: &str, value: Value| {
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0][key] = value;
-    };
-    set(&mut app, "pending", Value::Null);
+    workspace_row(&mut app)["waitingOnYou"] = Value::Null;
     assert!(!hints(&app, usize::MAX).contains("r reply"));
-    set(
-        &mut app,
-        "waitingOnYou",
-        json!([{"requestId": "q-1", "preview": "approve?"}]),
+    app.select(0);
+    let pool = hints(&app, usize::MAX);
+    assert!(
+        !pool.contains("t talk") && !pool.contains("j host") && !pool.contains("o open"),
+        "{pool}"
     );
-    assert!(hints(&app, usize::MAX).contains("r reply"));
-    // No row: board keys only, and the reserved tail.
-    let mut empty = App::new(Some("product".into()));
-    empty.apply(crate::board::app::tests::snapshot("product", json!([])));
-    let text = hints(&empty, usize::MAX);
-    for hint in ["⏎", "t talk", "r reply", "a write"] {
-        assert!(!text.contains(hint), "{text}");
-    }
-    assert!(text.contains("/ search") && text.ends_with("? more  q quit"));
-    // The plain host's Enter is the row menu; rebinding changes the word.
-    let view = app.view.as_mut().unwrap();
-    view.bindings =
-        crate::action::with_action_keys(crate::action::preset(false, &view.board.panes));
-    assert!(hints(&app, usize::MAX).contains("⏎ open"));
+    assert!(pool.contains("/ search") && pool.ends_with("? help  q quit"));
 }
 
 #[test]
 fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
     use crate::board::glyph_guard::glyph_error;
-    for panes in [
-        vec![Pane::Rows],
-        vec![Pane::Rows, Pane::Detail],
-        vec![Pane::Rows, Pane::Replies],
-        vec![Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes],
+    for tab in [
+        crate::board::shell::OpsTab::Overview,
+        crate::board::shell::OpsTab::Agents,
     ] {
-        for tmux in [true, false] {
-            let mut app = paned(
-                split(Direction::LeftRight, panes.clone(), vec![]),
-                Notes::NotShown,
-            );
-            let view = app.view.as_mut().unwrap();
-            view.bindings =
-                crate::action::with_action_keys(crate::action::preset(tmux, &view.board.panes));
-            for folded in [false, true] {
-                if folded && panes.len() > 1 {
-                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-                }
-                for selected in [0, 1] {
-                    app.select(selected);
-                    for width in [usize::MAX, 160, 100, 80, 48] {
-                        let shown = hints(&app, width);
-                        assert_eq!(glyph_error(&shown), None, "{width}: {shown}");
-                    }
-                }
+        for reader in [false, true] {
+            let mut app = workspace_board();
+            app.shell.tab = tab;
+            app.focus = usize::from(reader);
+            for width in [usize::MAX, 160, 100, 80, 48, 13, 6] {
+                let shown = hints(&app, width);
+                assert_eq!(glyph_error(&shown), None, "{width}: {shown}");
             }
         }
     }
@@ -392,44 +366,33 @@ fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
 
 #[test]
 fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
-    use crate::action::Action;
-    let mut app = paned(
-        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
-        Notes::NotShown,
+    let mut app = workspace_board();
+    workspace_keys(
+        &mut app,
+        "[bind]\nt = \"copy {name}\"\nz = \"talk\"\nZ = \"talk\"\n",
     );
-    app.select(1);
-    let default = hints(&app, usize::MAX);
-    let view = app.view.as_mut().unwrap();
-    // Rebinding talk moves its hint to the new key and keeps its rank.
-    view.bindings.remove("t");
-    view.bindings
-        .insert("m".into(), Action::parse("talk").unwrap());
-    let rebound = hints(&app, usize::MAX);
-    assert_eq!(rebound, default.replace("t talk", "m talk"), "{rebound}");
-    // An unbound action has no hint.
-    let view = app.view.as_mut().unwrap();
-    view.bindings.remove("m");
-    let unbound = hints(&app, usize::MAX);
-    assert_eq!(unbound, default.replace("t talk  ", ""), "{unbound}");
-    // A second key for one action adds no hint, and Enter stays the shown key.
-    let view = app.view.as_mut().unwrap();
-    view.bindings
-        .insert("J".into(), Action::parse("jump").unwrap());
-    view.bindings
-        .insert("x".into(), Action::parse("copy {name}").unwrap());
     let text = hints(&app, usize::MAX);
-    let shown = shown_hints(&text);
+    assert!(!text.contains("t talk"));
     assert_eq!(
-        shown.iter().filter(|hint| hint.ends_with(" open")).count(),
-        1
+        text.split("  ")
+            .filter(|hint| hint.ends_with(" talk"))
+            .count(),
+        1,
+        "{text}"
     );
-    assert!(shown.contains(&"⏎ open"), "{shown:?}");
-    // Help-only verbs (`copy`, `run`, `notes`) never reach the footer.
-    assert!(!shown.iter().any(|hint| hint.ends_with(" copy")));
-    let view = app.view.as_mut().unwrap();
-    view.bindings
-        .insert("R".into(), Action::parse("run true").unwrap());
-    assert!(!hints(&app, usize::MAX).contains("R run"));
+    assert!(
+        text.contains("Z talk"),
+        "stable first effective key represents duplicate action"
+    );
+    assert!(text.contains("t copy"));
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(
+        app.input.is_some(),
+        "advertised compatible override is executable"
+    );
 }
 
 /// Rows read from a squad config snippet, as `ops.toml` would give them.
@@ -968,9 +931,9 @@ fn fit_truncates_by_display_width_and_selection_scrolls_into_view() {
 
 #[test]
 fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
-    let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
+    let mut app = workspace_board();
     let screen = draw(&app, 160, 12);
-    assert!(!screen[11].contains("refresh"), "{:?}", screen[11]);
+    assert!(hints(&app, usize::MAX).contains("ctrl-r refresh"));
     assert!(!screen[11].contains("f5") && !screen[11].contains("F5"));
     app.help = true;
     let screen = help_lines(&app);
@@ -1618,9 +1581,7 @@ fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scrol
 
 #[test]
 fn the_footer_shows_no_board_key_hints_while_an_overlay_owns_input() {
-    let mut app = board(
-        json!([{"rows":[row("worker", "working", "ship", json!({"id":"W", "lifetime":"saved"}))]}]),
-    );
+    let mut app = workspace_board();
     let footer = |app: &App| draw(app, 100, 20).pop().unwrap();
     assert!(footer(&app).contains("q quit"), "{}", footer(&app));
     app.help = true;

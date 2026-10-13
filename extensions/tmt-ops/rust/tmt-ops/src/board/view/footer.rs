@@ -88,8 +88,8 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
 }
 
 /// The footer names what the most used keys do for the selected row, highest
-/// priority first. Whole hints drop from the end; `q quit` and `? more` always
-/// stay (`? more` alone when only it fits), as the guideline requires.
+/// priority first. Whole hints drop from the end; `q quit` and the effective Help hint always
+/// stay (Help alone when only it fits), as the guideline requires.
 pub(super) fn hints(app: &App, width: usize) -> String {
     workspace_hints(app, width)
 }
@@ -124,6 +124,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
     let mut seen = std::collections::BTreeSet::new();
     let mut hints = Vec::new();
     let mut tail = Vec::new();
+    let mut help_hint = None;
     for (key, action) in entries {
         if !seen.insert(action.text.as_str()) {
             continue;
@@ -131,6 +132,9 @@ fn workspace_hints(app: &App, width: usize) -> String {
         let word = hint_word(action);
         let hint = format!("{} {word}", key_label(key));
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
+            if action.verb == Verb::Ui(OpsUiAction::Help) {
+                help_hint = Some(hint.clone());
+            }
             tail.push(hint);
         } else {
             hints.push(hint);
@@ -144,7 +148,9 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     let mut shown = tail.join("  ");
     if shown.width() > width {
-        return String::new();
+        return help_hint
+            .filter(|hint| hint.width() <= width)
+            .unwrap_or_default();
     }
     let mut chosen: Vec<String> = Vec::new();
     for hint in hints {
@@ -157,6 +163,8 @@ fn workspace_hints(app: &App, width: usize) -> String {
             .join("  ");
         if next.width() <= width {
             chosen.push(hint);
+        } else {
+            break;
         }
     }
     if !chosen.is_empty() {

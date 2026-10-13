@@ -103,7 +103,9 @@ state only, no squad data or durable preference policy.
   mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
   Workspace dispatch, help and footer resolve the same Config key table. Text,
   search, completion, overlays and the conversation own input before shell keys.
-  The footer fits whole ranked hints and hides its base hints under opaque modals;
+  The footer keeps a whole prefix of ranked hints and the effective Help/quit tail;
+  when that tail cannot fit, the effective Help hint remains if it fits alone.
+  Opaque modals hide the base hints;
   notices/error precedence remains with the existing frame owner. Theme and Token
   window actions reuse their existing Config writers, while Auto/Side/Stack writes
   only workspace preferences. Reading, preview or cancelling sends nothing.
