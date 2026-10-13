@@ -28,6 +28,7 @@ describe('native Digest held delivery and checklist seam', () => {
         'policy.clear',
         'policy.show',
         'checklist.read',
+        'checklist.history',
         'checklist.claim',
         'checklist.settle',
         'checklist.dueNow',

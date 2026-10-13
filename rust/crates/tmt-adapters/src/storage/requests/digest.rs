@@ -231,9 +231,15 @@ pub(super) fn create_checklist(
     db: &Connection,
     b: &DigestChecklist,
     now: u64,
+    opportunity: tmt_core::request::digest::DigestOpportunity,
+    sealed_count: u64,
 ) -> Result<(), StorageError> {
-    db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms) VALUES(?1,?2,?3,?4,'claimed',?5)",
-        params![b.id,b.identity_id,b.attempt_token,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(b.created_at_ms,"Digest claim clock")?])
+    let opportunity = match opportunity {
+        tmt_core::request::digest::DigestOpportunity::Idle => "idle",
+        tmt_core::request::digest::DigestOpportunity::TurnBoundary => "turn_boundary",
+    };
+    db.execute("INSERT INTO focus_checklists(id,identity_id,attempt_token,through_sequence,state,created_at_ms,opportunity,sealed_count) VALUES(?1,?2,?3,?4,'claimed',?5,?6,?7)",
+        params![b.id,b.identity_id,b.attempt_token,checked_i64(b.through_sequence,"Digest snapshot sequence")?,checked_now(b.created_at_ms,"Digest claim clock")?,opportunity,checked_i64(sealed_count,"Digest sealed count")?])
         .map_err(|e|classify(e,"Claim digest checklist"))?;
     db.execute("UPDATE focus_items SET checklist_id=?1 WHERE identity_id=?2 AND checklist_id IS NULL AND sequence<=?3
         AND EXISTS(SELECT 1 FROM request_attempts a WHERE a.request_id=focus_items.request_id AND a.retention_expires_at_ms>?4)",
@@ -245,9 +251,11 @@ pub(super) fn settle(
     db: &Connection,
     b: &DigestChecklist,
     state: DigestState,
+    now: u64,
 ) -> Result<(), StorageError> {
-    let changed=db.execute("UPDATE focus_checklists SET state=?1 WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
-        params![state.as_str(),b.id,b.identity_id,b.attempt_token]).map_err(|e|classify(e,"Settle digest checklist"))?;
+    // The existing writer transaction serializes allocation with every Core change.
+    let changed=db.execute("UPDATE focus_checklists SET state=?1,settled_at_ms=?5,settlement_sequence=(SELECT value+1 FROM change_cursor WHERE id=1) WHERE id=?2 AND identity_id=?3 AND attempt_token=?4 AND state='claimed'",
+        params![state.as_str(),b.id,b.identity_id,b.attempt_token,checked_now(now,"Digest settlement clock")?]).map_err(|e|classify(e,"Settle digest checklist"))?;
     if changed != 1 {
         return Err(StorageError::new(
             StorageErrorCode::Unknown,
@@ -296,4 +304,63 @@ pub(super) fn prune_settled(db: &Connection, cutoff: u64, limit: u64) -> Result<
     )
     .map_err(|error| classify(error, "Prune settled Digest checklists"))?;
     Ok(())
+}
+
+pub(super) fn history(
+    db: &Connection,
+    identity: &str,
+    checklist: Option<&str>,
+    after: u64,
+    limit: u64,
+) -> Result<tmt_core::request::digest::DigestHistoryPage, StorageError> {
+    use tmt_core::request::digest::{DigestHistoryChecklist, DigestHistoryPage, DigestOpportunity};
+    let through_sequence = db
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |r| {
+            rows::u64_at(r, 0)
+        })
+        .map_err(|e| classify(e, "Read checklist history watermark"))?;
+    let (retained_from_sequence, legacy_settled_count) = db.query_row(
+        "SELECT MIN(settlement_sequence),COUNT(CASE WHEN settlement_sequence IS NULL AND state!='claimed' THEN 1 END)
+         FROM focus_checklists WHERE identity_id=?", [identity], |r| Ok((rows::optional_u64_at(r, 0)?, rows::u64_at(r, 1)?)))
+        .map_err(|e| classify(e, "Read retained checklist history evidence"))?;
+    let mut query = db
+        .prepare(&format!(
+            "SELECT {CHECKLIST_COLUMNS},settlement_sequence,settled_at_ms,opportunity,sealed_count
+         FROM focus_checklists WHERE identity_id=?1 AND settlement_sequence IS NOT NULL
+         AND ((?2 IS NULL AND settlement_sequence>?3) OR id=?2)
+         ORDER BY settlement_sequence LIMIT ?4"
+        ))
+        .map_err(|e| classify(e, "Prepare checklist history"))?;
+    let checklists = query
+        .query_map(
+            params![
+                identity,
+                checklist,
+                checked_i64(after, "History cursor")?,
+                checked_limit(limit)?
+            ],
+            |r| {
+                let opportunity = match r.get::<_, Option<String>>(8)?.as_deref() {
+                    None => None,
+                    Some("idle") => Some(DigestOpportunity::Idle),
+                    Some("turn_boundary") => Some(DigestOpportunity::TurnBoundary),
+                    _ => return Err(rusqlite::Error::InvalidQuery),
+                };
+                Ok(DigestHistoryChecklist {
+                    checklist: checklist_row(r)?,
+                    settlement_sequence: rows::u64_at(r, 6)?,
+                    settled_at_ms: rows::optional_u64_at(r, 7)?,
+                    opportunity,
+                    sealed_count: rows::optional_u64_at(r, 9)?,
+                })
+            },
+        )
+        .and_then(|rows| rows.collect())
+        .map_err(|e| classify(e, "Read checklist history"))?;
+    Ok(DigestHistoryPage {
+        checklists,
+        through_sequence,
+        retained_from_sequence,
+        legacy_settled_count,
+    })
 }

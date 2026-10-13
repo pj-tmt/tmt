@@ -1,0 +1,370 @@
+{
+  "contract": "extension-api.md#digest-checklist-history",
+  "cases": [
+    {
+      "name": "inline-unknown-context",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 2,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 2,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ],
+            "membershipComplete": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "expired-member",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 1,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 1,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              }
+            ],
+            "membershipComplete": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "definitely-unsent-released",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "definitely_unsent",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 0,
+            "nextItemAfter": null,
+            "items": []
+          }
+        ]
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "definitely_unsent",
+            "opportunity": "turn_boundary",
+            "sealedCount": 2,
+            "retainedCount": 0,
+            "nextItemAfter": null,
+            "items": [],
+            "membershipComplete": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-claim-settled-after-upgrade",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": null,
+            "sealedCount": null,
+            "retainedCount": 2,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": null,
+            "sealedCount": null,
+            "retainedCount": 2,
+            "nextItemAfter": null,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ],
+            "membershipComplete": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "oversized-continuation",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 200,
+            "retainedCount": 200,
+            "nextItemAfter": 2,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": 42,
+        "legacySettledCount": 0,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": [
+          {
+            "checklistId": "20000000-0000-4000-8000-000000000001",
+            "settlementSequence": 42,
+            "claimedAtMs": 2000,
+            "settledAtMs": 3000,
+            "outcome": "delivered",
+            "opportunity": "turn_boundary",
+            "sealedCount": 200,
+            "retainedCount": 200,
+            "nextItemAfter": 2,
+            "items": [
+              {
+                "sequence": 1,
+                "createdAtMs": 1000,
+                "contextTokensAtArrival": 1000,
+                "contextObservedAtMs": 900
+              },
+              {
+                "sequence": 2,
+                "createdAtMs": 1200,
+                "contextTokensAtArrival": null,
+                "contextObservedAtMs": null
+              }
+            ],
+            "membershipComplete": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-settlements-without-order",
+      "given": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": null,
+        "legacySettledCount": 2,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": []
+      },
+      "expected": {
+        "identityId": "10000000-0000-4000-8000-000000000001",
+        "observedAtMs": 10000,
+        "throughSequence": 50,
+        "retainedFromSequence": null,
+        "legacySettledCount": 2,
+        "deliveredDigests": 1,
+        "nextAfter": null,
+        "checklists": []
+      }
+    }
+  ]
+}

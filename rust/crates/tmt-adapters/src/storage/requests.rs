@@ -282,15 +282,27 @@ impl RequestRecords for RequestRows<'_> {
         &mut self,
         b: &tmt_core::request::digest::DigestChecklist,
         now: u64,
+        opportunity: tmt_core::request::digest::DigestOpportunity,
+        sealed_count: u64,
     ) -> Result<(), Self::Error> {
-        digest::create_checklist(self.0, b, now)
+        digest::create_checklist(self.0, b, now, opportunity, sealed_count)
     }
     fn settle_digest_checklist(
         &mut self,
         b: &tmt_core::request::digest::DigestChecklist,
         state: tmt_core::request::digest::DigestState,
+        now: u64,
     ) -> Result<(), Self::Error> {
-        digest::settle(self.0, b, state)
+        digest::settle(self.0, b, state, now)
+    }
+    fn digest_history(
+        &self,
+        identity: &str,
+        checklist: Option<&str>,
+        after: u64,
+        limit: u64,
+    ) -> Result<tmt_core::request::digest::DigestHistoryPage, Self::Error> {
+        digest::history(self.0, identity, checklist, after, limit)
     }
 
     fn notification(

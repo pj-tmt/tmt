@@ -379,12 +379,22 @@ pub trait RequestRecords {
         &mut self,
         checklist: &digest::DigestChecklist,
         now_ms: u64,
+        opportunity: digest::DigestOpportunity,
+        sealed_count: u64,
     ) -> Result<(), Self::Error>;
     fn settle_digest_checklist(
         &mut self,
         checklist: &digest::DigestChecklist,
         state: digest::DigestState,
+        now_ms: u64,
     ) -> Result<(), Self::Error>;
+    fn digest_history(
+        &self,
+        identity: &str,
+        checklist: Option<&str>,
+        after: u64,
+        limit: u64,
+    ) -> Result<digest::DigestHistoryPage, Self::Error>;
     fn notification(
         &self,
         request_id: &str,

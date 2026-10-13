@@ -45,6 +45,90 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('collects content-free settled checklist evidence with an immutable monotonic cursor', async () => {
+    await withSandbox(async (sandbox) => {
+      const receiver = await identity(sandbox, 'History receiver');
+      const sender = await identity(sandbox, 'History sender');
+      const database = new Database(sandbox.database);
+      const checklistId = randomUUID();
+      const token = randomUUID();
+      try {
+        // Independent fixture: a claim made by a pre-history Core, with unknown claim inputs.
+        database
+          .prepare(`INSERT INTO focus_checklists
+          (id,identity_id,attempt_token,through_sequence,state,created_at_ms)
+          VALUES (?,?,?,1,'claimed',1000)`)
+          .run(checklistId, receiver, token);
+      } finally {
+        database.close();
+      }
+      const empty = await api(sandbox, 'digest.checklist.history', { identityId: receiver });
+      expect(empty.status).toBe(0);
+      expect(empty.body.checklists).toEqual([]);
+      const settled = await api(sandbox, 'digest.checklist.settle', {
+        identityId: receiver,
+        checklistId,
+        attemptToken: token,
+        outcome: 'delivered',
+      });
+      expect(settled.status).toBe(0);
+      const before = everyTable(sandbox);
+      const page = await api(sandbox, 'digest.checklist.history', {
+        identityId: receiver,
+        after: empty.body.throughSequence,
+        limit: 1,
+      });
+      expect(page.status).toBe(0);
+      expect(page.body.checklists).toHaveLength(1);
+      const row = page.body.checklists[0];
+      expect(row).toEqual({
+        checklistId,
+        settlementSequence: expect.any(Number),
+        claimedAtMs: 1000,
+        settledAtMs: expect.any(Number),
+        outcome: 'delivered',
+        opportunity: null,
+        sealedCount: null,
+        retainedCount: 0,
+        membershipComplete: false,
+        items: [],
+        nextItemAfter: null,
+      });
+      expect(row.settlementSequence).toBeGreaterThan(empty.body.throughSequence);
+      expect(page.body.deliveredDigests).toBe(1);
+      expect(page.body.nextAfter).toBeNull();
+      expect(everyTable(sandbox)).toEqual(before);
+      const repeated = await api(sandbox, 'digest.checklist.settle', {
+        identityId: receiver,
+        checklistId,
+        attemptToken: token,
+        outcome: 'delivered',
+      });
+      expect(repeated.body.changed).toBe(false);
+      expect(everyTable(sandbox)).toEqual(before);
+      const detail = await api(sandbox, 'digest.checklist.history', {
+        identityId: receiver,
+        checklistId,
+      });
+      expect(detail.body.checklists).toEqual([row]);
+      const next = await api(sandbox, 'digest.checklist.history', {
+        identityId: receiver,
+        after: page.body.throughSequence,
+      });
+      expect(next.body.checklists).toEqual([]);
+      const wrong = await api(sandbox, 'digest.checklist.history', {
+        identityId: sender,
+        checklistId,
+      });
+      expect(wrong.status).toBe(1);
+      const invalid = await api(sandbox, 'digest.checklist.history', {
+        identityId: receiver,
+        limit: 129,
+      });
+      expect(invalid.body.error.code).toBe('API_INPUT_INVALID');
+    });
+  });
+
   it('rejects read attribution before creating state and preserves existing records', async () => {
     await withSandbox(async (sandbox) => {
       const reads = ['capabilities', 'storage.root', 'changes.cursor'];

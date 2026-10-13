@@ -182,6 +182,43 @@ pub struct DigestChecklist {
     pub created_at_ms: u64,
 }
 
+/// Content-free evidence over existing retained checklist records, not an archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestHistoryChecklist {
+    pub checklist: DigestChecklist,
+    pub settlement_sequence: u64,
+    pub settled_at_ms: Option<u64>,
+    pub opportunity: Option<DigestOpportunity>,
+    pub sealed_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestHistoryPage {
+    pub checklists: Vec<DigestHistoryChecklist>,
+    pub through_sequence: u64,
+    pub retained_from_sequence: Option<u64>,
+    pub legacy_settled_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestHistoryRecord {
+    pub evidence: DigestHistoryChecklist,
+    pub retained_count: u64,
+    pub items: Vec<DigestItem>,
+    pub next_item_after: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DigestHistoryRead {
+    pub observed_at_ms: u64,
+    pub through_sequence: u64,
+    pub retained_from_sequence: Option<u64>,
+    pub legacy_settled_count: u64,
+    pub delivered_digests: u64,
+    pub checklists: Vec<DigestHistoryRecord>,
+    pub next_after: Option<u64>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigestOpportunity {
     /// The provider adapter has admitted this exact launch's turn boundary.

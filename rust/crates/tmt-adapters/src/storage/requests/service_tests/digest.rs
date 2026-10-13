@@ -1350,3 +1350,6 @@ fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() 
         );
     }
 }
+
+#[path = "digest_history.rs"]
+mod history;
