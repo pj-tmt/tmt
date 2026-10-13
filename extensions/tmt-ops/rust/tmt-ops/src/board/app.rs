@@ -279,9 +279,6 @@ pub enum Effect {
     CancelSettings,
     PickTheme,
     SaveTheme,
-    PickView,
-    SaveView,
-    CancelView,
     Act(Request),
     Checklist(super::checklist::load::Task),
 }
@@ -562,7 +559,6 @@ pub(super) enum Overlay {
     Workspace,
     Help,
     Settings,
-    View,
     Theme,
     Switcher,
     CronList,
@@ -576,7 +572,6 @@ impl Overlay {
                 Self::Workspace => "workspace-form",
                 Self::Help => "help",
                 Self::Settings => "settings",
-                Self::View => "view-picker",
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
@@ -736,7 +731,6 @@ pub struct App {
     pub(super) help_state: RefCell<super::help::Help>,
     pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
     pub menu: Option<Menu>,
-    pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
@@ -1978,8 +1972,7 @@ impl App {
     }
 
     fn remember_folds(&mut self, key: String, board: &Board) {
-        if self.view_picker.is_some() || (!self.tabs.contains(&key) && !self.hidden.contains(&key))
-        {
+        if !self.tabs.contains(&key) && !self.hidden.contains(&key) {
             return;
         }
         if self
@@ -2100,46 +2093,9 @@ impl App {
         self.restore_focus();
     }
 
-    /// All geometry consumers see the in-memory draft while the picker is open.
+    /// Authored board values belong to the independent CLI/config projection.
     pub fn effective_board(&self) -> Option<&Board> {
-        self.view_picker
-            .as_ref()
-            .map(|picker| picker.board())
-            .or_else(|| self.view.as_ref().map(|view| &view.board))
-    }
-
-    pub fn open_view_picker(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
-        let Some(board) = self.effective_board().cloned() else {
-            return Ok(());
-        };
-        let squad = self
-            .current
-            .clone()
-            .filter(|name| !super::tabs::aggregate(name));
-        self.view_picker = Some(super::view_picker::Picker::open(
-            config, squad, board, self.focus,
-        )?);
-        self.help = false;
-        Ok(())
-    }
-
-    pub fn close_view_picker(&mut self, saved: bool) {
-        if let Some(picker) = self.view_picker.take() {
-            let board = if saved {
-                picker.board().clone()
-            } else {
-                picker.opening.clone()
-            };
-            if let Some(view) = &mut self.view {
-                view.board = board;
-            }
-            if saved {
-                self.reconcile_folds();
-            } else {
-                self.focus = picker.opening_focus;
-                self.restore_focus();
-            }
-        }
+        self.view.as_ref().map(|view| &view.board)
     }
 
     /// Resolve immutable defaults and user overrides for the board body width.
@@ -2438,7 +2394,6 @@ impl App {
                 };
             }
             Verb::Theme => return Effect::PickTheme,
-            Verb::View => return Effect::PickView,
             Verb::NextPane => {
                 self.next_pane();
                 return Effect::None;
@@ -3551,7 +3506,6 @@ impl App {
                     vec!["switcher".into(), "choices".into()],
                 ],
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
-                Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 _ => vec![],
@@ -3590,8 +3544,6 @@ impl App {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
-        } else if self.view_picker.is_some() {
-            Some(Overlay::View)
         } else if self.theme_picker.is_some() {
             Some(Overlay::Theme)
         } else if self.switcher.is_some() {
@@ -3654,7 +3606,7 @@ impl App {
                             if id == "theme" {
                                 Effect::PickTheme
                             } else {
-                                Effect::PickView
+                                self.say("Factory views are retired; choose workspace Auto, Side or Stack.")
                             }
                         }
                     })
@@ -3665,17 +3617,6 @@ impl App {
                 }
                 _ => None,
             },
-            Overlay::View => Some(match self.view_picker.as_mut()?.input(event)? {
-                super::view_picker::Input::Preview => {
-                    self.restore_focus();
-                    Effect::None
-                }
-                super::view_picker::Input::Save => Effect::SaveView,
-                super::view_picker::Input::Cancel => {
-                    self.close_view_picker(false);
-                    Effect::CancelView
-                }
-            }),
             Overlay::Theme => Some(match self.theme_picker.as_mut()?.input(event)? {
                 super::theme_picker::Input::Preview => Effect::None,
                 super::theme_picker::Input::Save => Effect::SaveTheme,
@@ -3863,9 +3804,6 @@ impl App {
             settings.surface.borrow_mut().invalidate();
         }
         if let Some(picker) = &self.theme_picker {
-            picker.surface.borrow_mut().invalidate();
-        }
-        if let Some(picker) = &self.view_picker {
             picker.surface.borrow_mut().invalidate();
         }
         if let Some(switcher) = &self.switcher {

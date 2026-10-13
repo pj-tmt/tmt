@@ -41,7 +41,6 @@ mod terminal;
 mod theme_picker;
 mod timing;
 mod view;
-mod view_picker;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};
@@ -607,11 +606,7 @@ fn session(
                 if sends {
                     revision += 1;
                     requested = None;
-                    request(
-                        app.current.clone(),
-                        false,
-                        app.view_picker.is_some() || app.settings.is_some(),
-                    );
+                    request(app.current.clone(), false, app.settings.is_some());
                     refreshed = Instant::now();
                 }
                 Effect::None
@@ -622,10 +617,6 @@ fn session(
                 app.notice = None;
                 let opened = match (opening, config) {
                     (_, Err(error)) => Err(error),
-                    (lane::Opening::ViewPicker, Ok(config)) => app
-                        .open_view_picker(config)
-                        .map_err(|error| error.message)
-                        .map(|()| true),
                     (lane::Opening::Settings, Ok(config)) => app
                         .open_settings(config)
                         .map_err(|error| error.message)
@@ -646,11 +637,7 @@ fn session(
                         if reload {
                             revision += 1;
                             requested = None;
-                            request(
-                                app.current.clone(),
-                                true,
-                                app.view_picker.is_some() || app.settings.is_some(),
-                            );
+                            request(app.current.clone(), true, app.settings.is_some());
                             refreshed = Instant::now();
                         }
                     }
@@ -712,35 +699,8 @@ fn session(
             Effect::Refresh => {
                 revision += 1;
                 requested = None;
-                request(
-                    app.current.clone(),
-                    false,
-                    app.view_picker.is_some() || app.settings.is_some(),
-                );
+                request(app.current.clone(), false, app.settings.is_some());
                 refreshed = Instant::now();
-            }
-            Effect::PickView => submit(app, lane::Job::Open(lane::Opening::ViewPicker)),
-            Effect::CancelView => {
-                revision += 1;
-                requested = None;
-                request(app.current.clone(), true, false);
-                refreshed = Instant::now();
-            }
-            Effect::SaveView => {
-                if let Some(picker) = &mut app.view_picker {
-                    match picker.save() {
-                        Ok(changed) => {
-                            let message = picker.saved_message(changed);
-                            app.close_view_picker(true);
-                            app.finished(Ok(message));
-                            revision += 1;
-                            requested = None;
-                            request(app.current.clone(), true, false);
-                            refreshed = Instant::now();
-                        }
-                        Err(error) => picker.notice = Some(error.message),
-                    }
-                }
             }
             Effect::Checklist(task) => checklist(task),
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
@@ -817,11 +777,7 @@ fn session(
                             app.finished(Ok(message));
                             revision += 1;
                             requested = None;
-                            request(
-                                app.current.clone(),
-                                false,
-                                app.view_picker.is_some() || app.settings.is_some(),
-                            );
+                            request(app.current.clone(), false, app.settings.is_some());
                             refreshed = Instant::now();
                         }
                         Err(error) => picker.notice = Some(error.message),
@@ -835,11 +791,7 @@ fn session(
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
             revision += 1;
             requested = None;
-            request(
-                app.current.clone(),
-                false,
-                app.view_picker.is_some() || app.settings.is_some(),
-            );
+            request(app.current.clone(), false, app.settings.is_some());
             refreshed = Instant::now();
         }
     }
@@ -1315,7 +1267,7 @@ mod tests {
                 .layout,
             crate::config::OpsLayout::Side
         );
-        assert!(app.menu.is_none() && app.view_picker.is_none());
+        assert!(app.menu.is_none());
         std::fs::remove_dir_all(directory).unwrap();
     }
 

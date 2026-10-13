@@ -1306,6 +1306,38 @@ fn member_footer_names_the_default_host_action_without_an_open_alias() {
 }
 
 #[test]
+fn workspace_settings_cancel_returns_to_the_exact_reader_without_factory_actions() {
+    for width in [160, 100, 80, 60] {
+        let mut app = board();
+        paint(&app, width, 36);
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        let selected = app.workspace.selected.clone();
+        key(&mut app, KeyCode::Char(','));
+        let menu = app.menu.as_ref().unwrap();
+        assert!(menu.entries.iter().all(|entry| match &entry.choice {
+            Choice::Action(action) => action.verb != Verb::View,
+            _ => true,
+        }));
+        assert!(menu.entries.iter().any(|entry| matches!(
+            entry.choice,
+            Choice::WorkspaceLayout(crate::config::OpsLayout::Auto)
+        )));
+        paint(&app, width, 36);
+        key(&mut app, KeyCode::Esc);
+        assert!(app.menu.is_none());
+        assert_eq!(app.workspace.selected, selected);
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        assert_eq!(
+            key(&mut app, KeyCode::Char('j')),
+            Effect::None,
+            "the restored Reader must scroll rather than jump to host"
+        );
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
+
+#[test]
 fn retired_source_actions_cannot_open_legacy_ui_or_redirect_the_selected_target() {
     for text in [
         "pick-tab",
@@ -1333,10 +1365,7 @@ fn retired_source_actions_cannot_open_legacy_ui_or_redirect_the_selected_target(
         );
         assert_eq!(app.workspace.selected, selected, "{text}");
         assert!(
-            app.input.is_none()
-                && app.menu.is_none()
-                && app.switcher.is_none()
-                && app.view_picker.is_none(),
+            app.input.is_none() && app.menu.is_none() && app.switcher.is_none(),
             "{text}"
         );
     }

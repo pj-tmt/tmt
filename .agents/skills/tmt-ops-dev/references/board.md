@@ -136,6 +136,10 @@ carry cache and duplicated renderer timing harness are removed; workspace
 performance measurements use the actual App/render/buffer-diff path.
 The former factory-pane composition/cache is removed with its frame route;
 CLI factory-value tests do not invoke interactive geometry.
+The factory-view picker, worker opening/save effects and overlay state are also
+removed. Workspace Settings offers Auto/Side/Stack, Theme and Token window;
+closing its menu restores the same selected target and Reader focus. Independent
+Config setting admission/save/reset does not expose a factory-view picker.
 
 `board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
 pointer areas. Tree starts, reveal and clipped hits share that viewport. Following

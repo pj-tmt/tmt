@@ -16,7 +16,6 @@ impl App {
         if self.input.is_some()
             || self.settings.is_some()
             || self.help
-            || self.view_picker.is_some()
             || self.theme_picker.is_some()
             || self.switcher.is_some()
             || self.cron_list.is_some()

@@ -40,9 +40,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
             body,
         );
     }
-    if let Some(picker) = &app.view_picker {
-        crate::board::view_picker::render(frame, picker, look, body);
-    }
     if let Some(picker) = &app.theme_picker {
         crate::board::theme_picker::render(frame, picker, look, body);
     }

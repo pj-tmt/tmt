@@ -36,10 +36,7 @@ pub(super) struct Pick {
     pub hint: &'static str,
 }
 
-fn config_picks(
-    config: &Config,
-    settings: &BoardSettings,
-) -> Result<Vec<Pick>, crate::core::SquadError> {
+fn config_picks(settings: &BoardSettings) -> Vec<Pick> {
     let theme = settings
         .entries
         .iter()
@@ -48,17 +45,7 @@ fn config_picks(
             || "auto".into(),
             |entry| crate::settings::display(&entry.value),
         );
-    let squad = settings
-        .context
-        .as_deref()
-        .filter(|key| !crate::tabs::aggregate(key))
-        .unwrap_or("");
-    let view = match config.view_source(squad)? {
-        (Some(view), _) => view.name().to_owned(),
-        (None, "custom") => "custom".into(),
-        (None, _) => "default".into(),
-    };
-    Ok(vec![
+    vec![
         Pick {
             id: "actions",
             name: "Actions…",
@@ -71,13 +58,7 @@ fn config_picks(
             value: theme,
             hint: "Enter pick",
         },
-        Pick {
-            id: "view",
-            name: "View",
-            value: view,
-            hint: "Enter pick",
-        },
-    ])
+    ]
 }
 
 const PICK_GROUP: &str = "choose";
@@ -208,7 +189,7 @@ impl Overlay {
             crate::effects::tmux_socket().is_some(),
             section,
         )?);
-        overlay.picks = config_picks(&config, &overlay.settings)?;
+        overlay.picks = config_picks(&overlay.settings);
         overlay.picks.extend(window.map(|value| Pick {
             id: "window",
             name: "Token window",
@@ -305,7 +286,7 @@ impl Overlay {
                     .collect()
             })
             .unwrap_or_default();
-        let picks = config_picks(config, &self.settings).expect("validated settings write");
+        let picks = config_picks(&self.settings);
         for pick in picks {
             self.set_pick(pick.id, pick.value);
         }
@@ -1400,7 +1381,10 @@ mod tests {
                 "board.sizes" => assert_ne!(view.board, baseline_board),
                 "board.panes" => {
                     assert_eq!(view.board.panes, [Pane::Rows, Pane::Detail]);
-                    assert_eq!(f.app.bindings()["d"].text, "toggle detail");
+                    assert!(
+                        !f.app.bindings().contains_key("d"),
+                        "authored panes must not restore a retired fold binding"
+                    );
                 }
                 "board.refresh" => assert!(view.refresh.is_none()),
                 "notes.render" => assert_eq!(view.render, crate::config::NotesRender::Plain),
@@ -1426,7 +1410,7 @@ mod tests {
         }
     }
     #[test]
-    fn preview_refresh_and_cancel_retain_latest_rows_and_restore_focus() {
+    fn config_preview_keeps_latest_data_without_reviving_notes_focus() {
         let mut f = fixture("refresh", "");
         f.app.focus = 1;
         edit(&mut f.app, "board.panes", "[\"rows\",\"detail\"]");
@@ -1447,7 +1431,11 @@ mod tests {
             f.app.view.as_ref().unwrap().board.panes,
             [Pane::Rows, Pane::Notes]
         );
-        assert_eq!(f.app.focus, 1);
+        assert_eq!(
+            f.app.focused_pane(),
+            Some(Pane::Rows),
+            "old Notes placement cannot restore workspace Reader focus without a visible response pane"
+        );
         assert_eq!(
             f.app.view.as_ref().unwrap().document["sections"][0]["rows"][0]["name"],
             "newest"
@@ -1718,11 +1706,7 @@ mod tests {
         // No meter: no token window row.
         assert_eq!(
             names(&f),
-            [
-                ("Actions…", String::new()),
-                ("Theme", "auto".to_owned()),
-                ("View", "custom".to_owned())
-            ]
+            [("Actions…", String::new()), ("Theme", "auto".to_owned())]
         );
         assert_eq!(
             f.app
@@ -1754,9 +1738,10 @@ mod tests {
         assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::PickTheme);
         assert!(f.app.settings.is_none(), "the picker replaces the menu");
         f.app.open_settings(config()).unwrap();
-        select(&mut f, "pick:view");
-        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::PickView);
-        assert!(f.app.settings.is_none());
+        assert!(
+            !names(&f).iter().any(|(name, _)| *name == "View"),
+            "retired factory views must not reopen through Settings"
+        );
         // A sampling squad adds the window, which cycles without closing.
         f.app.meter = Some(crate::board::meter::Meter::new(
             crate::config::TokenRate {
@@ -1768,12 +1753,12 @@ mod tests {
         ));
         f.app.open_settings(config()).unwrap();
         let before = f.app.token_window.label().to_owned();
-        assert_eq!(names(&f)[3], ("Token window", before.clone()));
+        assert_eq!(names(&f)[2], ("Token window", before.clone()));
         select(&mut f, "pick:window");
         cycle_window(&mut f);
         let after = f.app.token_window.label().to_owned();
         assert_ne!(before, after);
-        assert_eq!(names(&f)[3], ("Token window", after));
+        assert_eq!(names(&f)[2], ("Token window", after));
         assert!(f.app.settings.is_some(), "cycling keeps the menu open");
         // The window is durable; opening another edit does not publish its draft.
         let saved_window = std::fs::read_to_string(&f.path).unwrap();
@@ -1838,7 +1823,7 @@ mod tests {
                 theme: tmt_cli_style::Theme::default(),
                 depth,
             };
-            for (id, name) in [("pick:view", "View"), ("board.view", "view")] {
+            for (id, name) in [("board.view", "view")] {
                 for selected in [false, true] {
                     overlay
                         .surface
@@ -1917,13 +1902,13 @@ mod tests {
         assert!(overlay.reset());
         assert_eq!(overlay.overrides.len(), 1);
         assert!(text(&overlay).contains("1 setting differs from all boards"));
-        overlay.surface.borrow_mut().select("pick:view");
+        overlay.surface.borrow_mut().select("board.view");
         assert!(overlay.reset());
         assert!(!text(&overlay).contains("from all boards"));
     }
 
     #[test]
-    fn saved_view_and_quick_row_agree_without_resetting_selection_or_live_window() {
+    fn authored_cli_view_saves_keep_selection_and_the_live_token_window() {
         use crate::board::app::Effect;
         let mut f = factory_fixture("saved-quick-view");
         f.app.meter = Some(crate::board::meter::Meter::new(
@@ -1948,7 +1933,6 @@ mod tests {
         let live_window = f.app.token_window;
         assert_ne!(live_window.label(), "1m");
         assert!(quick_row(&f, "Token window").contains(&live_window.label()));
-        assert!(quick_row(&f, "View").contains("members"));
         edit(&mut f.app, "board.view", "team");
         assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::SaveSetting);
         assert!(f.app.settings.as_mut().unwrap().save());
@@ -1975,24 +1959,21 @@ mod tests {
             f.app.view.as_ref().unwrap().board,
             saved.board("product").unwrap()
         );
-        f.app
-            .settings
-            .as_ref()
-            .unwrap()
-            .surface
-            .borrow_mut()
-            .select("pick:view");
-        let row = quick_row(&f, "View");
         assert!(
-            row.contains('≠') && row.contains("members") && row.contains("this squad"),
-            "{row}"
+            !f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .picks
+                .iter()
+                .any(|pick| pick.id == "view")
         );
         assert_eq!(f.app.token_window, live_window);
         assert!(quick_row(&f, "Token window").contains(&live_window.label()));
     }
 
     #[test]
-    fn failed_view_saves_do_not_publish_a_new_quick_row_value() {
+    fn failed_authored_cli_view_saves_preserve_durable_configuration() {
         for (name, value, stale) in [
             ("invalid-quick-view", "not-a-view", false),
             ("stale-quick-view", "team", true),
@@ -2018,17 +1999,14 @@ mod tests {
                 "members"
             );
             press(&mut f.app, KeyCode::Esc);
-            f.app
-                .settings
-                .as_ref()
-                .unwrap()
-                .surface
-                .borrow_mut()
-                .select("pick:view");
-            let row = quick_row(&f, "View");
             assert!(
-                row.contains('≠') && row.contains("members") && !row.contains("team"),
-                "{row}"
+                !f.app
+                    .settings
+                    .as_ref()
+                    .unwrap()
+                    .picks
+                    .iter()
+                    .any(|pick| pick.id == "view")
             );
         }
     }
