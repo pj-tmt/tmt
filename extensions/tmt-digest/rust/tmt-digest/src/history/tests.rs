@@ -34,12 +34,19 @@ impl Drop for Fixture {
 fn event(seq: u64, time: u64, contexts: &[Option<u64>]) -> model::ChecklistSettlement {
     serde_json::from_value(json!({"checklistId":format!("20000000-0000-4000-8000-{seq:012}"),"settlementSequence":seq,"claimedAtMs":time-1,"settledAtMs":time,"outcome":"delivered","opportunity":"idle","sealedCount":contexts.len(),"retainedCount":contexts.len(),"membershipComplete":true,"nextItemAfter":null,"items":contexts.iter().enumerate().map(|(index,context)|json!({"sequence":index+1,"createdAtMs":time-2,"contextTokensAtArrival":context,"contextObservedAtMs":context.map(|_|time-3)})).collect::<Vec<_>>()})).unwrap()
 }
+fn vectors() -> Value {
+    serde_json::from_str(
+        &fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/vectors/savings-v1.json"
+        ))
+        .expect("the supplier's frozen savings vectors"),
+    )
+    .unwrap()
+}
 #[test]
 fn accepted_counterfactual_and_unknowns_have_independent_expected_values() {
-    let vectors: Value = serde_json::from_str(include_str!(
-        "../../../../contracts/vectors/savings-v1.json"
-    ))
-    .unwrap();
+    let vectors: Value = vectors();
     for vector in vectors["events"].as_array().unwrap() {
         let event: model::ChecklistSettlement =
             serde_json::from_value(vector["input"].clone()).unwrap();
@@ -344,10 +351,7 @@ fn public_history_overflow_collection_is_idempotent_and_never_delivers() {
 
 #[test]
 fn normative_status_vectors_cover_selected_windows_and_unknowns() {
-    let vectors: Value = serde_json::from_str(include_str!(
-        "../../../../contracts/vectors/savings-v1.json"
-    ))
-    .unwrap();
+    let vectors: Value = vectors();
     for vector in vectors["status"].as_array().unwrap() {
         let fixture = Fixture::new();
         let mut store = fixture.store();
