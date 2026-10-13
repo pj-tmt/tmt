@@ -204,3 +204,119 @@ fn default_uninstall_preserves_historical_bundle_sources_even_without_intents() 
     );
     assert!(!home.join(".agents/skills/tmt").exists());
 }
+
+#[test]
+fn default_uninstall_preserves_historical_names_under_a_distinct_owner() {
+    use super::{OwnedSkill, ProviderEnvironment, install, install_owned, owned_by, remove_owned};
+    use std::collections::BTreeSet;
+    let temp = TestDirectory::new();
+    let global = temp.path.join("global");
+    let home = temp.path.join("home");
+    let custom = temp.path.join("custom-skills");
+    let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
+    install(&env, &global, None, None, false).unwrap();
+    install(&env, &global, None, Some(&custom), false).unwrap();
+    let skill = |name: &str| OwnedSkill {
+        name: name.into(),
+        files: vec![("SKILL.md".into(), format!("Preserved {name}").into_bytes())],
+    };
+    install_owned(
+        &env,
+        &global,
+        "custom",
+        &[skill("tmt-office"), skill("custom-guide")],
+        false,
+    )
+    .unwrap();
+    let owned = owned_by(&global, "custom").unwrap();
+    let historical = owned["tmt-office"].clone();
+    let unrelated = owned["custom-guide"].clone();
+    assert!(historical.contains(&custom.join("tmt-office")));
+    assert!(historical.contains(&home.join(".agents/skills/tmt-office")));
+    let sources: Vec<_> = historical
+        .iter()
+        .map(|target| fs::read_link(target).unwrap())
+        .collect();
+    let records = || -> serde_json::Value {
+        serde_json::from_slice(&fs::read(global.join("skill-owners.json")).unwrap()).unwrap()
+    };
+    let original_record = records()["skills"]["tmt-office"].clone();
+    assert_eq!(original_record["owner"], "custom");
+    for _ in 0..2 {
+        let plan = super::plan_uninstall(&env, &global).unwrap();
+        for target in &historical {
+            assert!(plan.kept.contains(target));
+            assert!(!plan.removed.contains(target));
+        }
+        let report = super::uninstall(&env, &global).unwrap();
+        assert_eq!(
+            plan.removed.into_iter().collect::<BTreeSet<_>>(),
+            report.removed.into_iter().collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            plan.kept.into_iter().collect::<BTreeSet<_>>(),
+            report.kept.into_iter().collect::<BTreeSet<_>>()
+        );
+        for (target, source) in historical.iter().zip(&sources) {
+            assert_eq!(fs::read_link(target).unwrap(), *source);
+            assert_eq!(
+                fs::read(source.join("SKILL.md")).unwrap(),
+                b"Preserved tmt-office"
+            );
+        }
+        for target in &unrelated {
+            assert!(target.symlink_metadata().is_err());
+        }
+        assert_eq!(records()["skills"]["tmt-office"], original_record);
+        assert!(records()["skills"].get("custom-guide").is_none());
+        assert_eq!(
+            owned_by(&global, "custom").unwrap()["tmt-office"],
+            historical
+        );
+    }
+    // Explicit generic owner removal retains its original authority.
+    let explicit = remove_owned(&global, "custom", None).unwrap();
+    assert_eq!(
+        explicit.removed.into_iter().collect::<BTreeSet<_>>(),
+        historical.into_iter().collect()
+    );
+    assert!(owned_by(&global, "custom").unwrap().is_empty());
+}
+
+#[test]
+fn default_uninstall_preserves_a_historical_owner_record_without_targets() {
+    use super::{OwnedSkill, ProviderEnvironment, install_owned};
+    let temp = TestDirectory::new();
+    let global = temp.path.join("global");
+    let home = temp.path.join("home");
+    let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
+    let skill = OwnedSkill {
+        name: "tmt-office".into(),
+        files: vec![("SKILL.md".into(), b"Retained backing".to_vec())],
+    };
+    install_owned(&env, &global, "custom", &[skill], false).unwrap();
+    let target = home.join(".agents/skills/tmt-office");
+    let source = fs::read_link(&target).unwrap();
+    fs::remove_file(&target).unwrap();
+    let record = global.join("skill-owners.json");
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+    document["skills"]["tmt-office"]["targets"] = serde_json::json!([]);
+    let bytes = serde_json::to_vec(&document).unwrap();
+    fs::write(&record, &bytes).unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            super::plan_uninstall(&env, &global).unwrap(),
+            super::SkillsRemoval::default()
+        );
+        assert_eq!(
+            super::uninstall(&env, &global).unwrap(),
+            super::SkillsRemoval::default()
+        );
+        assert_eq!(fs::read(&record).unwrap(), bytes);
+        assert_eq!(
+            fs::read(source.join("SKILL.md")).unwrap(),
+            b"Retained backing"
+        );
+    }
+}

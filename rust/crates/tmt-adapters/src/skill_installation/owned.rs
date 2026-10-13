@@ -850,6 +850,25 @@ pub fn remove_owned(
     owner: &str,
     only: Option<&[String]>,
 ) -> Result<OwnedReport, OwnedFailure> {
+    remove_owned_selected(global, owner, only, &[])
+}
+
+/// Default Core uninstall retains historical names under every recorded owner.
+/// Explicit generic owner removal deliberately uses no such exclusions.
+pub(super) fn remove_owned_retaining(
+    global: &Path,
+    owner: &str,
+    retained_names: &[&str],
+) -> Result<OwnedReport, OwnedFailure> {
+    remove_owned_selected(global, owner, None, retained_names)
+}
+
+fn remove_owned_selected(
+    global: &Path,
+    owner: &str,
+    only: Option<&[String]>,
+    retained_names: &[&str],
+) -> Result<OwnedReport, OwnedFailure> {
     let mut report = OwnedReport::default();
     let pending = (|| {
         if !valid_owner(owner) {
@@ -876,7 +895,10 @@ pub fn remove_owned(
                     targets.remove(name);
                 }
             }
-            targets.retain(|name, _| only.is_none_or(|only| only.contains(name)));
+            targets.retain(|name, _| {
+                !retained_names.contains(&name.as_str())
+                    && only.is_none_or(|only| only.contains(name))
+            });
             let mut retired = Vec::new();
             for (name, entries) in targets {
                 let mut seen = std::collections::BTreeSet::new();

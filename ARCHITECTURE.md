@@ -347,7 +347,8 @@ architecture test fails on a skill-name list anywhere else. Core install exposes
 only `tmt` and `tmt-inbox`. Retired bundle names are verification metadata only: full
 historical inventories and framed digests still prove old Core-name replacement.
 Refresh and default uninstall preserve retired skill links, owner records and backing
-generations; explicit `--purge` retains its existing semantics. No retired product
+generations regardless of the recorded owner; explicit generic owner removal retains
+its existing authority, and explicit `--purge` retains its existing semantics. No retired product
 catalog, embedded source, installation or service cleanup remains. Skill installation never opens configuration,
 SQLite or tmux. Core bundled and verified official release publication replaces
 any existing leaf at a catalog skill name in selected roots, without prompt, flag, backup or prior target

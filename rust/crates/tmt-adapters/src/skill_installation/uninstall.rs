@@ -64,17 +64,26 @@ fn retained_targets(env: &ProviderEnvironment, global: &Path) -> io::Result<BTre
             }
         }
     }
+    for (name, owned_targets) in owned::owned_targets(global)? {
+        if names.contains(&name.as_str()) {
+            targets.extend(owned_targets);
+        }
+    }
     targets.extend(owned::owned_by(global, "office")?.into_values().flatten());
     Ok(targets)
 }
 
 /// A retained historical generation must not lose its backing tree even when
 /// targets were removed or their intent record was lost. This grants no ownership.
-fn retained_sources(assets: &SkillAssets) -> io::Result<bool> {
+fn retained_sources(global: &Path, assets: &SkillAssets) -> io::Result<bool> {
     if !files::exists(assets.root())? {
         return Ok(false);
     }
-    if files::exists(&assets.root().join("owners/office"))? {
+    if owned::owned_names(global)?
+        .iter()
+        .any(|name| tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..].contains(&name.as_str()))
+        || files::exists(&assets.root().join("owners/office"))?
+    {
         return Ok(true);
     }
     for generation in fs::read_dir(assets.root())? {
@@ -132,7 +141,12 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
         .into_iter()
         .filter(|owner| owner != "office")
     {
-        let report = owned::remove_owned(&global, &owner, None).map_err(|failure| failure.cause)?;
+        let report = owned::remove_owned_retaining(
+            &global,
+            &owner,
+            &tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..],
+        )
+        .map_err(|failure| failure.cause)?;
         removal.removed.extend(report.removed);
         removal.kept.extend(report.kept);
     }
@@ -151,7 +165,7 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
     })?;
     // Removed current intents are forgotten; historical intents and sources remain.
     // Retention requires no digest admission because it authorizes no deletion.
-    if !retained.is_empty() || retained_sources(&assets)? {
+    if !retained.is_empty() || retained_sources(&global, &assets)? {
         files::with_lock(&global, || registry::forget(&global, &removal.removed))?;
         return Ok(removal);
     }
