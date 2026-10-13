@@ -1,7 +1,7 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { compile } from 'tailwindcss';
 import { format } from 'vite-plus/fmt';
-import { uiCandidates } from './ui-source-policy.mjs';
+import { assertUiUtilities, uiCandidates } from './ui-source-policy.mjs';
 
 const home = new URL('../', import.meta.url);
 const tokens = JSON.parse(
@@ -43,7 +43,7 @@ const fixed = [
   ...Object.entries(tokens.browser.ui).map(
     ([key, value]) => `  --tmt-foundation-${key}: ${value};`,
   ),
-  ...['radius', 'rule-width', 'focus-width'].map(
+  ...['radius', 'rule-width', 'focus-width', 'command-size', 'caption-size', 'eyebrow-weight'].map(
     (key) => `  --tmt-foundation-${key}: ${tokens.browser.metric[key]};`,
   ),
   ...Object.entries(tokens.font).map(
@@ -91,8 +91,7 @@ if (fallback !== -1) utilities = utilities.slice(0, fallback);
 utilities = utilities
   .replace('@layer properties;\n', '')
   .replaceAll('--tw-', '--tmt-foundation-tw-');
-if (/@(?:property|import|theme|tailwind|layer)\b|:root|\b(?:html|body)\s*\{/.test(utilities))
-  throw new Error('Unexpected global output from Tailwind; review generator before publishing');
+assertUiUtilities(utilities);
 const reset = defaults.length
   ? `  &, & *, &::before, &::after, & *::before, & *::after, & *::backdrop {\n${defaults.join('\n').replaceAll('--tw-', '--tmt-foundation-tw-')}\n  }\n`
   : '';

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { cn, UiTheme, useUiPortalContainer } from '../src/ui/index.js';
+import { assertUiUtilities } from '../scripts/ui-source-policy.mjs';
 import hashes from './fixtures/ui/legacy-hashes.json';
 
 it('retains exact existing Browser sources and checked static CSS from the accepted base', () => {
@@ -35,12 +36,14 @@ it('does not invent a body portal before its own island container is mounted', (
 });
 it('publishes only a separate scoped namespace, without preflight, global variables or global registrations', () => {
   const css = readFileSync(new URL('../generated/ui.css', import.meta.url), 'utf8');
-  expect(css).not.toMatch(
-    /:root|@property|@import|@theme|@tailwind|@layer|--tw-|--tmt-ui-|\b(?:html|body)\s*\{/,
-  );
+  expect(css).not.toMatch(/:root|@property|@import|@theme|@tailwind|@layer|--tw-|--tmt-ui-/);
+  expect(() => assertUiUtilities(css)).not.toThrow();
   expect(css).toContain(':where([data-tmt-ui]) {');
   expect(css).toContain('.tmt\\:bg-background');
-  expect(css).not.toMatch(/border-radius:|box-shadow:/);
+  expect(css).not.toMatch(/box-shadow:/);
+  const radiusValues = [...css.matchAll(/border-radius:\s*([^;]+);/g)].map((match) => match[1]);
+  expect(radiusValues.length).toBeGreaterThan(0);
+  expect(radiusValues.every((value) => value === 'var(--tmt-foundation-radius)')).toBe(true);
   const tokens = JSON.parse(
     readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
   );

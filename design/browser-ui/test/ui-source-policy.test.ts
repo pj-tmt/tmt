@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { uiCandidates } from '../scripts/ui-source-policy.mjs';
+import { assertUiUtilities, uiCandidates } from '../scripts/ui-source-policy.mjs';
 
 it('requires literal prefixed, square, token-backed utilities instead of stock styling', () => {
   expect(uiCandidates('className="tmt:bg-background tmt:p-2"')).toEqual([
@@ -19,4 +19,37 @@ it('requires literal prefixed, square, token-backed utilities instead of stock s
     'className="tmt:[border-radius:12px]"',
   ])
     expect(() => uiCandidates(source), source).toThrow();
+});
+
+it('allows namespaced font-body identifiers but rejects real global output and element selectors', () => {
+  for (const css of [
+    '.tmt\\:font-body { font-family: var(--tmt-foundation-font-body); }',
+    '.body { color: inherit; }',
+    '.tmt\\:body { color: inherit; }',
+  ])
+    expect(() => assertUiUtilities(css), css).not.toThrow();
+  for (const css of [
+    'body { margin: 0; }',
+    'html { color: red; }',
+    'body:hover { color: red; }',
+    'html[data-theme] { color: red; }',
+    'html, body { color: red; }',
+    '.tmt\\:parent { & body { color: red; } }',
+    ':root { --host: red; }',
+    '@property --host { syntax: "*"; inherits: true; }',
+    '@import "host.css";',
+    '@layer theme { * { color: red; } }',
+  ])
+    expect(() => assertUiUtilities(css), css).toThrow('Unexpected global output');
+});
+
+it('retains quotes inside stock attribute variants without truncating the utility', () => {
+  const candidate = "tmt:[&_svg:not([class*='size-'])]:size-4";
+  expect(uiCandidates(`className="${candidate} tmt:p-2"`)).toEqual([candidate, 'tmt:p-2']);
+  for (const source of [
+    'className="tmt:[data-state=ready"',
+    'className={"tmt:" + value}',
+    'className={`tmt:p-${size}`}',
+  ])
+    expect(() => uiCandidates(source)).toThrow('complete literal');
 });
