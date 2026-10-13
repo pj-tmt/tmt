@@ -1,5 +1,11 @@
 /** Restricted REST fields bytes; provider encoding is not an extra application envelope. */
-import type { SealedDocument, SyncContext, SyncQuery } from './sealed-sync.js';
+import type {
+  SealedDocument,
+  SyncContext,
+  SyncQuery,
+  SyncDiscovery,
+  SyncMutation,
+} from './sealed-sync.js';
 import { syncFieldName } from './sealed-sync-mapping.js';
 import { RefusalError } from './operations.js';
 function valid(condition: boolean): asserts condition {
@@ -147,4 +153,32 @@ export function validateSyncQuery(context: SyncContext, query: SyncQuery): void 
         Number.isSafeInteger(query.cursor.seq) &&
         query.cursor.seq >= 0),
   );
+}
+
+export function validateSyncDiscovery(context: SyncContext, query: SyncDiscovery): void {
+  const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+  const discovery = mapping?.query?.discovery;
+  if (!mapping || !discovery)
+    throw Object.assign(new RefusalError('REMOTE_STATE_UNAVAILABLE'), { state: 'unsupported' });
+  valid(
+    query.shape === discovery.name &&
+      (query.continuation === undefined || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) &&
+      Object.keys(query.scope).length === discovery.scopeFields.length &&
+      discovery.scopeFields.every(
+        (key) => Object.hasOwn(query.scope, key) && field(query.scope[key]),
+      ),
+  );
+  if (!textIs(query.scope[mapping.spaceField], context.space))
+    throw new RefusalError('REMOTE_SCOPE_DENIED');
+}
+export async function validateSyncMutation(
+  context: SyncContext,
+  mutation: SyncMutation,
+): Promise<void> {
+  const target = mutation.mode === 'delete' ? mutation.target : mutation.document.target;
+  valid(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+  const mapping = context.resources.find((r) => r.name === target.resource)?.sync;
+  if (!mapping || !(mapping.writeModes ?? ['create']).includes(mutation.mode))
+    throw Object.assign(new RefusalError('REMOTE_STATE_UNAVAILABLE'), { state: 'unsupported' });
+  if (mutation.mode !== 'delete') await validateSyncDocument(context, mutation.document, 'publish');
 }

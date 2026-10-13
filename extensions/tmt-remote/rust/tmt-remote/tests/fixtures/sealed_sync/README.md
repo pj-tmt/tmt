@@ -18,3 +18,10 @@ covered; extra precision and unsupported nested/provider values are refused.
 The object manifest vectors are logical object data, not an alternate wire codec.
 An adapter adds declared admission metadata and encodes those fields through the
 restricted REST codec; no extra envelope or production manifest producer ships here.
+
+`codec-v1.json` also pins create-only defaults, rejected write modes, the optional
+`arrivals` discovery name (synthetic release data), exact no-stream equality scope
+and the 1 KiB continuation syntax boundary. Pure checks validate token syntax only;
+provider implementations must validate its scope/shape/generation/deadline binding
+before I/O. The 513-piece checkpoint vector has 16,779,264 serialized bytes;
+attachment callers retain their lower 12 MiB bound. No vector is Colab provenance.

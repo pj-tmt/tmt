@@ -20,11 +20,15 @@ pub enum SyncError {
     BudgetExhausted(crate::firestore_budget::Refusal),
     RateLimited,
     CatchUpRequired,
+    Conflict,
+    Unsupported,
 }
 impl SyncError {
     pub fn state(self) -> Option<&'static str> {
         match self {
             Self::CatchUpRequired => Some("catch-up-required"),
+            Self::Conflict => Some("conflict"),
+            Self::Unsupported => Some("unsupported"),
             _ => None,
         }
     }
@@ -34,9 +38,12 @@ impl SyncError {
             Self::Denied => "REMOTE_SCOPE_DENIED",
             Self::BudgetExhausted(_) => "REMOTE_BUDGET_EXHAUSTED",
             Self::RateLimited => "REMOTE_RATE_LIMITED",
-            Self::Unavailable | Self::Cancelled | Self::Deadline | Self::CatchUpRequired => {
-                "REMOTE_STATE_UNAVAILABLE"
-            }
+            Self::Unavailable
+            | Self::Cancelled
+            | Self::Deadline
+            | Self::CatchUpRequired
+            | Self::Conflict
+            | Self::Unsupported => "REMOTE_STATE_UNAVAILABLE",
         }
     }
 }
@@ -207,16 +214,44 @@ pub struct Query {
     pub stream: String,
     pub cursor: Option<SyncCursor>,
 }
+pub struct DiscoveryQuery {
+    pub resource: String,
+    pub shape: String,
+    pub continuation: Option<DiscoveryContinuation>,
+    pub scope: std::collections::BTreeMap<String, Value>,
+}
+/// Opaque stateless run position; provider binds scope/shape/generation/deadline before I/O.
+pub struct DiscoveryContinuation(pub String);
+pub enum SyncQueryRequest {
+    Stream(Query),
+    Discovery(DiscoveryQuery),
+}
+pub enum Mutation {
+    Create(Document),
+    Put(Document),
+    Delete(Target),
+}
 pub struct Page {
     pub documents: Vec<Document>,
     pub cursor: Option<SyncCursor>,
 }
+pub struct DiscoveryPage {
+    pub documents: Vec<Document>,
+    /// None means this run completed; Some is an incomplete run, never a stream cursor.
+    pub continuation: Option<DiscoveryContinuation>,
+}
+pub enum SyncQueryPage {
+    Stream(Page),
+    Discovery(DiscoveryPage),
+}
 pub enum Change {
-    Document(Document),
+    /// Coalesced wake hint only; the consumer queries and advances its own cursor.
+    Changed,
     CatchUpRequired,
 }
 pub enum Published {
     Confirmed,
+    AlreadyPresent,
     Unknown,
 }
 pub trait Subscription: Send {
@@ -231,7 +266,11 @@ pub trait SealedSyncPort: Send + Sync {
         target: &'a Target,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Option<Document>>;
-    fn query<'a>(&'a self, query: &'a Query, io: &'a IoBudget<'a>) -> Pending<'a, Page>;
+    fn query<'a>(
+        &'a self,
+        query: &'a SyncQueryRequest,
+        io: &'a IoBudget<'a>,
+    ) -> Pending<'a, SyncQueryPage>;
     fn subscribe<'a>(
         &'a self,
         query: &'a Query,
@@ -240,7 +279,7 @@ pub trait SealedSyncPort: Send + Sync {
     /// Only pre-effect refusal is Err; a possibly applied write returns Unknown, even on cancellation.
     fn publish<'a>(
         &'a self,
-        document: &'a Document,
+        mutation: &'a Mutation,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Published>;
     fn close(&self);
@@ -265,7 +304,7 @@ pub fn verify_object(
     if !id(original, 256)
         || manifest.original != original
         || max_object_bytes == 0
-        || max_object_bytes > crate::limits::OBJECT_PAYLOAD_BYTES
+        || max_object_bytes > MAX_PROFILE_OBJECT_BYTES
         || manifest.chunk_bytes == 0
         || manifest.chunk_bytes > max_object_bytes
         || manifest.bytes > max_object_bytes
@@ -292,4 +331,10 @@ pub fn verify_object(
 }
 
 mod codec;
-pub use codec::{DocumentAccess, validate_document, validate_fields, validate_query};
+pub use codec::{
+    DocumentAccess, validate_discovery, validate_document, validate_fields, validate_mutation,
+    validate_query,
+};
+
+/// Shared validator ceiling; each resource/descriptor still supplies its lower bound.
+pub const MAX_PROFILE_OBJECT_BYTES: u64 = 16_779_264;

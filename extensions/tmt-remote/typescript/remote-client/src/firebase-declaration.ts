@@ -56,7 +56,8 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
         'indexes',
         ...(Object.hasOwn(value, 'sync') ? ['sync'] : []),
       ]);
-      if (r.sync !== undefined) parseSyncMapping(r.sync);
+      const sync = r.sync === undefined ? undefined : parseSyncMapping(r.sync);
+      require(!['log', 'blob'].includes(String(r.kind)) || !sync?.writeModes?.includes('put'));
       require(typeof r.name === 'string' && name.test(r.name) && !names.has(r.name));
       names.add(r.name);
       require(

@@ -1779,7 +1779,11 @@ string-valued publisher uid binding or null. Query is null or
 `{scopeFields,streamField,seqField,order}`: 1..8 unique exact-match scope fields,
 including spaceField and streamField; seqField is distinct and excluded from scope,
 all names are declared in fields, and order is `asc`. Stream is string-valued and seq
-is integer-valued. No nested selector, expression or runtime mapping is accepted.
+is integer-valued. Optional `sync.writeModes` is a nonempty unique list of `create`, `put`,
+`delete`; absence allows only create. Log/blob resources cannot declare put. Optional
+`query.discovery` is `{name,scopeFields,seqEquals}`: name uses the field grammar and is not
+`stream`; scopeFields are exactly the regular scope without streamField, and seqEquals is null
+or a canonical nonnegative decimal string below 2^53. No other filters or runtime mapping are accepted.
 Missing sync means document transport is unavailable for that resource, not an inferred mapping.
 TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
 contain at most 64 distinct `{field,direction}` entries, where direction is `asc` or `desc` and field uses the same
@@ -1971,36 +1975,52 @@ are valid RFC 3339 UTC with Z and the shortest exact 0/3/6-digit fraction: other
 is refused, never rounded. Firestore stores only microseconds; the SDK adapter must preserve
 these bytes through native SDK types while native REST uses the same fields map. Keys are
 sorted, whitespace omitted and every field is declared by sync.fields. Remote checks the
-space binding on reads and writes, publisher uid on writes, exact scope filters and SHA-256;
+space binding on field-bearing reads/create/put, publisher uid on create/put, exact scope filters and SHA-256;
 it never decrypts the sealed envelope field. Payload fields are otherwise extension-owned.
-Ports capture frozen document bytes before asynchronous token acquisition. A publish creates exactly one immutable data target; no preparation read or
-accounting companion is required. Changed bytes under an existing original ID are refused, never
-an overwrite. An acknowledged write is confirmed; a possibly applied write is unknown. Recovery
-reads the SAME immutable ID and compares its exact frozen bytes before an explicit same-create
-retry; it never generates a replacement ID, reseals or resends an uncertain effect automatically.
-Admission refusal uses `REMOTE_SCOPE_DENIED`, unavailable state uses `REMOTE_STATE_UNAVAILABLE`;
-provider exhaustion follows the [budget guard](#free-plan-budget-guard), including unknown writes.
+Ports capture frozen document bytes before asynchronous token acquisition. One publish targets one
+declared document: create uses exists=false, put replaces the whole field object unconditionally,
+and delete is unconditional. Declared writeModes do not grant admission; ordinary Auth and Rules,
+including extension-owned version fields, remain decisive. There is no Admin authority, updateTime
+precondition, preparation read or accounting companion. Create of identical frozen bytes returns
+already-present; conflicting bytes refuse with `REMOTE_STATE_UNAVAILABLE`, state `conflict`.
+Undeclared modes refuse with that code and state `unsupported`. An acknowledged effect is confirmed;
+a possibly applied effect is unknown, including cancellation. Recovery reads the SAME target: create
+and put compare frozen desired fields, delete checks absence, without claiming which writer applied
+it. No hidden retry, replacement ID or resealing is permitted. Admission refusal uses
+`REMOTE_SCOPE_DENIED`; provider exhaustion follows the [budget guard](#free-plan-budget-guard),
+including unknown writes.
 
 Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
 identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer
 below 2^53. Colab Rules enforce contiguous seq within a stream owned by its initial uid. Neither a global clock nor lexical document
 ID orders catch-up. A finite query gap/compaction refuses with `REMOTE_STATE_UNAVAILABLE` and
-state `catch-up-required` (native SyncError::CatchUpRequired); a subscription emits the matching
-catch-up-required change. Neither exposes a partial finite page. A gap, compaction or listener overflow is never a
-silent drop or a false complete page. Cursor use cannot change the bound resource/space/identity.
+state `catch-up-required` (native SyncError::CatchUpRequired); no partial finite page is exposed.
+Ordinary queries require the exact stream filter. The optional declaration-named discovery shape
+has no stream filter or logical cursor, only its exact equality scope and declared seq equality.
+A bounded run returns actual documents, paged by an opaque stateless continuation (at most 1 KiB,
+printable ASCII without spaces), containing the last document name and bound to scope, shape,
+generation and deadline. A mismatched token or continuation after close/deadline refuses typed
+before I/O. No continuation means the run is complete; otherwise it is incomplete. There is no
+run ledger. Repeated runs discover arrivals missed by a prior run; pruning requires rebootstrap.
+Native poll interval/read costs are defined by the native transport, not this type boundary.
+Subscribe registers interest and produces only coalesced Changed wake hints or CatchUpRequired;
+terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
+and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.
-There is no offline mutation queue. The transport must accommodate the accepted encoded envelope
-and checkpoint bounds (354,304 and 43,692 respectively), at most 256 documents and 16 MiB per query
-page, 3 listeners per open page and 12 per tab, one in-flight write per stream and 4 per tab.
-A subscription queue is bounded to 64 changes and 16 MiB; reaching either bound requires catch-up.
-These are transport bounds, not a new per-user or per-space project quota. The implementation
-slices will pin deadline/backoff behavior against these ports without adding operations authority.
+There is no offline mutation queue. Envelope/checkpoint bounds are 354,304/43,692 encoded bytes.
+Provider pages hold at most 256 documents and fit one 397,312-byte carrier result, including
+metadata; never retain a larger page for later draining. Listener caps remain 3 per open page and
+12 per tab, one in-flight write per stream and 4 per tab. These are transport bounds, not a new
+per-user or per-space project quota; implementation slices pin deadlines/backoff without adding
+operations authority.
 
 #### Proposed cloud object profile
 
 A thin ObjectBackend adapter uses this same client; no second Firebase stack or direct attachment
 provider exists. Chunked resources explicitly declare decoded `chunkBytes`: attachments use
-262,144, checkpoints 32,768, with at most 513 chunks and the existing 12 MiB serialized-object cap.
+262,144, checkpoints 32,768, with at most 513 chunks. Attachment serialized bytes stay capped at
+12 MiB; checkpoint serialized bytes can reach 16,779,264 (513 chunks). Each admitted resource
+provides its own lower object bound; the shared validator ceiling is 16,779,264.
 The object-channel's existing 32 KiB framing is unchanged; the later adapter assembles transport
 parts into declared cloud chunks. Immutable chunk IDs are `<original>+<index>` (zero-based decimal)
 and the last-written create-only manifest is `<original>+manifest`. The logical manifest data is exactly

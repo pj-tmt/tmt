@@ -48,14 +48,14 @@ pessimistic figure; the optimistic column assumes dependents are cached.
 The model covers one page and its appends only; the pool is project-wide, so several active pages, attachment chunks (#2165) and deletes are not in the guard, and the provider's `resource-exhausted` answer is the backstop for their sum. A page the free plan cannot host (its share is too small to allow one append, about 8,333 members with one writer, or 91 when every member writes) is refused when the model is built. Reads bind long before the 20,000 writes. Colab's 10 appends per second per device is only an
 upper bound: one device could spend the whole day in minutes, so the extension coalesces local
 updates into one sealed update per flush interval. A reconnect after 30 minutes re-reads the checkpoint and the retained tail, at most 200 updates after the checkpoints that a write accepts (`colab-v1.md`, default limits). Presence is off in layer 1 (Colab, v1). Attachments are
-chunk documents: a 12 MiB payload is 24 documents at about 512 KiB (384 at 32 KiB); the chunk size
-is a #2165 parameter. Colab's page budget is 5,000,000 bytes gzipped and its write tail 4 MiB (`colab-v1.md`, default limits); storage per page follows from those, and attachments count fully.
+chunk documents with a [declared per-resource size](../../../../contracts/remote-channel-v1.md#proposed-cloud-object-profile); the payload-only examples below exclude project-wide traffic. Colab's page budget is 5,000,000 bytes gzipped and its write tail 4 MiB (`colab-v1.md`, default limits); storage per page follows from those, and attachments count fully.
 
 ## Storage without physical TTL
 
 Expiry by Rules only denies reads of expired data; it frees nothing. Removal is a client delete:
-compaction by a writer (folded updates), and the owner's clients or bridge deleting expired pages
-and attachments, all inside the 20,000-delete pool. Remote owns the arithmetic and the refusal;
+compaction by an authorized writer (folded updates), or owner deletion of pages and
+attachments, all inside the 20,000-delete pool. No Remote cleanup runner or physical TTL
+setting ships on Spark; Rules expiry does not free storage. Remote owns the arithmetic and the refusal;
 the extension owns the policy (when to compact, what to delete first). Data of a page whose owner
 never returns stays until storage fills; Blaze TTL is optional and never required.
 

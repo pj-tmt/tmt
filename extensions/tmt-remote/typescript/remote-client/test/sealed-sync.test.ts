@@ -61,6 +61,7 @@ const vectors = JSON.parse(
   count: number;
   lastBytes: number;
   manifestBytes: string;
+  maxObjectBytes?: number;
   ids: string[];
 }[];
 test('independent vectors pin complete-or-absent objects and both chunk sizes', async () => {
@@ -70,7 +71,7 @@ test('independent vectors pin complete-or-absent objects and both chunk sizes', 
     const chunks: Uint8Array[] = [];
     for (let offset = 0; offset < data.length; offset += m.chunkBytes)
       chunks.push(data.slice(offset, offset + m.chunkBytes));
-    await verifySealedObject('fixture-original', m, chunks, 12582912);
+    await verifySealedObject('fixture-original', m, chunks, v.maxObjectBytes ?? 12582912);
     expect(chunks.length).toBe(v.count);
     expect(chunks.at(-1)?.length ?? 0).toBe(v.lastBytes);
     expect(
@@ -116,7 +117,13 @@ test('pure context binding and declared targets perform no token or provider cal
   ).rejects.toMatchObject({ code: 'REMOTE_SCOPE_DENIED' });
 });
 
-import { validateSyncFields, validateSyncDocument, validateSyncQuery } from '../src/sealed-sync.js';
+import {
+  validateSyncFields,
+  validateSyncDocument,
+  validateSyncQuery,
+  validateSyncMutation,
+  validateSyncDiscovery,
+} from '../src/sealed-sync.js';
 const codec = JSON.parse(
   readFileSync(
     new URL('../../../rust/tmt-remote/tests/fixtures/sealed_sync/codec-v1.json', import.meta.url),
@@ -127,6 +134,8 @@ const codec = JSON.parse(
   declarationDigest: string;
   document: string;
   documentDigest: string;
+  discoveryCases: { shape: string; continuation: string | null; valid: boolean }[];
+  invalidMappings: Record<string, unknown>[];
   valid: string[];
   invalid: string[];
 };
@@ -161,6 +170,69 @@ test('codec, declaration mapping, and scope use one cross-language corpus', asyn
     },
     'publish',
   );
+  const document = {
+    target: { resource: 'rows', id: 'writer-stream+1' },
+    bytes: encode(codec.document),
+    digest: codec.documentDigest,
+  };
+  await validateSyncMutation(context, { mode: 'create', document });
+  await expect(validateSyncMutation(context, { mode: 'put', document })).rejects.toMatchObject({
+    code: 'REMOTE_STATE_UNAVAILABLE',
+    state: 'unsupported',
+  });
+  await expect(
+    validateSyncMutation(context, { mode: 'delete', target: document.target }),
+  ).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'unsupported' });
+  validateSyncDiscovery(context, {
+    shape: 'arrivals',
+    resource: 'rows',
+    scope: { tenant: { stringValue: 'fixture-space' } },
+  });
+  expect(() =>
+    validateSyncDiscovery(context, {
+      shape: 'arrivals',
+      resource: 'rows',
+      scope: {
+        tenant: { stringValue: 'fixture-space' },
+        streamKey: { stringValue: 'writer-stream' },
+      },
+    }),
+  ).toThrow();
+  for (const c of codec.discoveryCases) {
+    const run = {
+      resource: 'rows',
+      shape: c.shape,
+      scope: { tenant: { stringValue: 'fixture-space' } },
+      ...(c.continuation === null ? {} : { continuation: c.continuation }),
+    };
+    if (c.valid) validateSyncDiscovery(context, run);
+    else expect(() => validateSyncDiscovery(context, run)).toThrow();
+  }
+  const hash = async (bytes: string) =>
+    Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encode(bytes))), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('');
+  for (const patch of codec.invalidMappings) {
+    const d = JSON.parse(codec.declaration);
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'discovery') d.resources[0].sync.query[key] = value;
+      else d.resources[0].sync[key] = value;
+    }
+    const bytes = JSON.stringify(d);
+    await expect(verifyHostedDeclaration({ bytes, digest: await hash(bytes) })).rejects.toThrow();
+  }
+  const mutable = JSON.parse(codec.declaration);
+  mutable.resources[0].kind = 'checkpoint';
+  mutable.resources[0].sync.writeModes = ['create', 'put', 'delete'];
+  const mutableBytes = JSON.stringify(mutable);
+  const mutableContext = await bindSyncContext(
+    config,
+    { bytes: mutableBytes, digest: await hash(mutableBytes) },
+    'fixture-space',
+    auth,
+  );
+  await validateSyncMutation(mutableContext, { mode: 'put', document });
+  await validateSyncMutation(mutableContext, { mode: 'delete', target: document.target });
   const query = {
     resource: 'rows',
     scope: {

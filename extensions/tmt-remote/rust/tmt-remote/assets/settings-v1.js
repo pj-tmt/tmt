@@ -318,7 +318,7 @@ function object(value, keys) {
 	valid$1(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
-function config(value) {
+function parsePublicWebConfig(value) {
 	const r = object(value, [
 		"apiKey",
 		"appId",
@@ -351,7 +351,7 @@ async function verifyHostedLink(link, origin) {
 			"checksum"
 		]);
 		valid$1(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
-		const publicConfig = config(r.publicWebConfig);
+		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
 		valid$1(origin === `https://${publicConfig.projectId}.web.app`);
 		const body = {
 			kind: r.kind,

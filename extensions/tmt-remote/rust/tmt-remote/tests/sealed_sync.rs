@@ -30,7 +30,8 @@ fn frozen_objects_are_complete_or_absent_in_both_chunk_profiles() {
             .chunks(manifest.chunk_bytes as usize)
             .map(<[u8]>::to_vec)
             .collect();
-        verify_object("fixture-original", &manifest, &chunks, 12_582_912).unwrap();
+        let cap = v["maxObjectBytes"].as_u64().unwrap_or(12_582_912);
+        verify_object("fixture-original", &manifest, &chunks, cap).unwrap();
         assert_eq!(manifest.count, v["count"].as_u64().unwrap());
         assert_eq!(
             chunks.last().map_or(0, Vec::len) as u64,
@@ -150,6 +151,101 @@ fn codec_mapping_and_exact_scope_are_shared_frozen_data() {
         digest: v["documentDigest"].as_str().unwrap().into(),
     };
     validate_document(&context, &document, DocumentAccess::Publish).unwrap();
+    validate_mutation(&context, &Mutation::Create(document.clone())).unwrap();
+    assert_eq!(
+        validate_mutation(&context, &Mutation::Put(document.clone())),
+        Err(SyncError::Unsupported)
+    );
+    assert_eq!(
+        validate_mutation(&context, &Mutation::Delete(document.target.clone())),
+        Err(SyncError::Unsupported)
+    );
+    validate_discovery(
+        &context,
+        &DiscoveryQuery {
+            shape: "arrivals".into(),
+            continuation: None,
+            resource: "rows".into(),
+            scope: BTreeMap::from([(
+                "tenant".into(),
+                serde_json::json!({"stringValue":"fixture-space"}),
+            )]),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        validate_discovery(
+            &context,
+            &DiscoveryQuery {
+                shape: "arrivals".into(),
+                continuation: None,
+                resource: "rows".into(),
+                scope: BTreeMap::from([
+                    (
+                        "tenant".into(),
+                        serde_json::json!({"stringValue":"fixture-space"})
+                    ),
+                    (
+                        "streamKey".into(),
+                        serde_json::json!({"stringValue":"writer-stream"})
+                    )
+                ])
+            }
+        ),
+        Err(SyncError::Invalid)
+    );
+    for case in v["discoveryCases"].as_array().unwrap() {
+        let query = DiscoveryQuery {
+            resource: "rows".into(),
+            shape: case["shape"].as_str().unwrap().into(),
+            continuation: case["continuation"]
+                .as_str()
+                .map(|s| DiscoveryContinuation(s.into())),
+            scope: BTreeMap::from([(
+                "tenant".into(),
+                serde_json::json!({"stringValue":"fixture-space"}),
+            )]),
+        };
+        assert_eq!(
+            validate_discovery(&context, &query).is_ok(),
+            case["valid"].as_bool().unwrap()
+        );
+    }
+    for patch in v["invalidMappings"].as_array().unwrap() {
+        let mut declaration: Value =
+            serde_json::from_str(v["declaration"].as_str().unwrap()).unwrap();
+        for (key, value) in patch.as_object().unwrap() {
+            if key == "discovery" {
+                declaration["resources"][0]["sync"]["query"][key] = value.clone();
+            } else {
+                declaration["resources"][0]["sync"][key] = value.clone();
+            }
+        }
+        assert!(
+            tmt_remote::declaration::parse(&serde_json::to_vec(&declaration).unwrap()).is_err()
+        );
+    }
+    let mut mutable: Value = serde_json::from_str(v["declaration"].as_str().unwrap()).unwrap();
+    mutable["resources"][0]["kind"] = serde_json::json!("checkpoint");
+    mutable["resources"][0]["sync"]["writeModes"] = serde_json::json!(["create", "put", "delete"]);
+    let bytes = serde_json::to_vec(&mutable).unwrap();
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let mutable_context = SyncContext::bind(
+        context.config().clone(),
+        &bytes,
+        &digest,
+        "fixture-space",
+        Arc::new(Auth {
+            project: "demo-remote-1".into(),
+        }),
+    )
+    .unwrap();
+    validate_mutation(&mutable_context, &Mutation::Put(document.clone())).unwrap();
+    validate_mutation(&mutable_context, &Mutation::Delete(document.target.clone())).unwrap();
     let mut query = Query {
         resource: "rows".into(),
         scope: BTreeMap::from([

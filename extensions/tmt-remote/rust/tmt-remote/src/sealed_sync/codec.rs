@@ -128,7 +128,7 @@ pub fn validate_document(
             .get("integerValue")
             .and_then(Value::as_str)
             .and_then(|s| s.parse::<u64>().ok());
-        if !stream.is_some_and(|s| super::id(s, 128)) || !seq.is_some_and(|n| n > 0) {
+        if !stream.is_some_and(|s| super::id(s, 128)) || seq.is_none_or(|n| n == 0) {
             return invalid();
         }
     }
@@ -193,4 +193,70 @@ pub fn validate_fields(bytes: &[u8]) -> Result<Map<String, Value>, SyncError> {
         return invalid();
     }
     Ok(row.clone())
+}
+
+/// One declared page-scope discovery shape; no logical cursor or stream wildcard on normal queries.
+pub fn validate_discovery(
+    context: &SyncContext,
+    query: &super::DiscoveryQuery,
+) -> Result<(), SyncError> {
+    let resource = context
+        .resources
+        .iter()
+        .find(|r| r.name == query.resource)
+        .ok_or(SyncError::Invalid)?;
+    let mapping = resource.sync.as_ref().ok_or(SyncError::Unavailable)?;
+    let discovery = mapping
+        .query
+        .as_ref()
+        .and_then(|q| q.discovery.as_ref())
+        .ok_or(SyncError::Unsupported)?;
+    if query.shape != discovery.name
+        || query.continuation.as_ref().is_some_and(|c| {
+            c.0.is_empty() || c.0.len() > 1024 || !c.0.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        })
+        || query.scope.len() != discovery.scope_fields.len()
+        || !discovery
+            .scope_fields
+            .iter()
+            .all(|key| query.scope.get(key).is_some_and(field))
+    {
+        return invalid();
+    }
+    if !text_is(query.scope.get(&mapping.space_field), &context.space) {
+        return Err(SyncError::Denied);
+    }
+    // The transport adds only the declaration's optional seq equality, never caller-supplied filters.
+    Ok(())
+}
+/// Declared modes never grant authority; ordinary Auth and Colab Rules remain decisive.
+pub fn validate_mutation(
+    context: &SyncContext,
+    mutation: &super::Mutation,
+) -> Result<(), SyncError> {
+    let (mode, target) = match mutation {
+        super::Mutation::Create(doc) => ("create", &doc.target),
+        super::Mutation::Put(doc) => ("put", &doc.target),
+        super::Mutation::Delete(target) => ("delete", target),
+    };
+    context.document_path(target)?;
+    let mapping = context
+        .resources
+        .iter()
+        .find(|r| r.name == target.resource)
+        .and_then(|r| r.sync.as_ref())
+        .ok_or(SyncError::Unsupported)?;
+    if !mapping
+        .write_modes
+        .as_ref()
+        .map_or(mode == "create", |modes| modes.iter().any(|m| m == mode))
+    {
+        return Err(SyncError::Unsupported);
+    }
+    match mutation {
+        super::Mutation::Create(doc) | super::Mutation::Put(doc) => {
+            validate_document(context, doc, DocumentAccess::Publish)
+        }
+        super::Mutation::Delete(_) => Ok(()),
+    }
 }

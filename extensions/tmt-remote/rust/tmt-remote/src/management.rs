@@ -496,11 +496,11 @@ pub(crate) fn append(
             return permit.response(&value);
         }
         "remote.devices.list" => {
-            if !permit
+            if permit
                 .message
                 .input
                 .as_object()
-                .is_some_and(|value| value.len() == 2)
+                .is_none_or(|value| value.len() != 2)
             {
                 return Err(invalid());
             }

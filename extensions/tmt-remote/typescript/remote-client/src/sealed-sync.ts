@@ -2,7 +2,7 @@
 import { parsePublicWebConfig, type PublicWebConfig } from './firebase-bootstrap.js';
 import { verifyHostedDeclaration, type HostedDeclaration } from './firebase-declaration.js';
 import { parseSyncMapping, type SyncMapping } from './sealed-sync-mapping.js';
-export type { SyncMapping, SyncQueryMapping } from './sealed-sync-mapping.js';
+export type { SyncMapping, SyncQueryMapping, SyncDiscoveryMapping } from './sealed-sync-mapping.js';
 import { RefusalError } from './operations.js';
 
 export interface SyncIdentity {
@@ -71,19 +71,40 @@ export interface SyncQuery {
   readonly stream: string;
   readonly cursor?: SyncCursor;
 }
+export interface SyncDiscovery {
+  readonly resource: string;
+  readonly shape: string;
+  readonly continuation?: string;
+  readonly scope: Readonly<Record<string, SyncValue>>;
+}
+export type SyncQueryRequest =
+  | { readonly shape: 'stream'; readonly query: SyncQuery }
+  | { readonly shape: 'discovery'; readonly query: SyncDiscovery };
+export type SyncMutation =
+  | { readonly mode: 'create' | 'put'; readonly document: SealedDocument }
+  | { readonly mode: 'delete'; readonly target: SyncTarget };
 export interface SyncPage {
   readonly documents: readonly SealedDocument[];
   readonly cursor?: SyncCursor;
 }
-export type SyncChange =
-  | { readonly kind: 'document'; readonly document: SealedDocument }
-  | { readonly kind: 'catch-up-required' };
+export interface SyncDiscoveryPage {
+  readonly documents: readonly SealedDocument[];
+  /** Absent means a complete run; otherwise an opaque stateless token, never a stream cursor. */
+  readonly continuation?: string;
+}
+export type SyncQueryPage =
+  | { readonly shape: 'stream'; readonly page: SyncPage }
+  | { readonly shape: 'discovery'; readonly page: SyncDiscoveryPage };
+export type SyncChange = { readonly kind: 'changed' } | { readonly kind: 'catch-up-required' };
 export interface SyncSubscription {
   next(call: SyncCall): Promise<SyncChange>;
   close(): void;
 }
 export type SyncFailure =
-  | { readonly code: 'REMOTE_STATE_UNAVAILABLE'; readonly state: 'catch-up-required' }
+  | {
+      readonly code: 'REMOTE_STATE_UNAVAILABLE';
+      readonly state: 'catch-up-required' | 'conflict' | 'unsupported';
+    }
   | {
       readonly code:
         | 'REMOTE_INPUT_INVALID'
@@ -97,15 +118,18 @@ export type SyncFailure =
       readonly retryAfterMs: number;
     };
 /** Rejections use SyncFailure codes; they are not machine-signed device proofs. */
-export type SyncPublish = { readonly kind: 'confirmed' } | { readonly kind: 'unknown' };
+export type SyncPublish =
+  | { readonly kind: 'confirmed' }
+  | { readonly kind: 'already-present' }
+  | { readonly kind: 'unknown' };
 /** Later browser/native transports implement this bound port; no operations authority. */
 export interface SealedSyncPort {
   readonly context: SyncContext;
   read(target: SyncTarget, call: SyncCall): Promise<SealedDocument | undefined>;
-  query(query: SyncQuery, call: SyncCall): Promise<SyncPage>;
+  query(query: SyncQueryRequest, call: SyncCall): Promise<SyncQueryPage>;
   subscribe(query: SyncQuery, call: SyncCall): Promise<SyncSubscription>;
   /** Only pre-effect refusal rejects; a possibly applied write is unknown, including cancellation. */
-  publish(document: SealedDocument, call: SyncCall): Promise<SyncPublish>;
+  publish(mutation: SyncMutation, call: SyncCall): Promise<SyncPublish>;
   close(): void;
 }
 const identity = /^[A-Za-z0-9_+-]{1,128}$/;
@@ -188,11 +212,7 @@ export async function verifySealedObject(
   maxObjectBytes: number,
 ): Promise<void> {
   valid(documentId.test(original) && manifest.original === original);
-  valid(
-    Number.isSafeInteger(maxObjectBytes) &&
-      maxObjectBytes > 0 &&
-      maxObjectBytes <= 12 * 1024 * 1024,
-  );
+  valid(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16_779_264);
   valid(
     Number.isSafeInteger(manifest.chunkBytes) &&
       manifest.chunkBytes > 0 &&
@@ -226,4 +246,6 @@ export {
   validateSyncDocument,
   validateSyncFields,
   validateSyncQuery,
+  validateSyncDiscovery,
+  validateSyncMutation,
 } from './sealed-sync-codec.js';

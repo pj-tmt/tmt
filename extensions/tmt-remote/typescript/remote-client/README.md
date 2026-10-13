@@ -411,7 +411,7 @@ bound-client factory are not part of this static consumer.
 ## Sealed-document ports (transport not implemented)
 
 `SyncContext`, `SyncAuthPort` and `SealedSyncPort` describe extension-scoped reads,
-subscriptions and a single immutable-target publish. `bindSyncContext`,
+subscriptions as coalesced wake hints and one declared-target create/put/delete publication. `bindSyncContext`,
 `syncDocumentPath` and `verifySealedObject` perform pure validation only; they do
 not create a Firebase client or enable cloud attachments. Caller-supplied public
 configuration must already be bootstrap-verified. Injected Auth never changes uid

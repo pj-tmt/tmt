@@ -10,315 +10,6 @@ var __exportAll = (all, no_symbols) => {
 	return target;
 };
 //#endregion
-//#region src/browser-store.ts
-/** Private origin-local opener. Public registry APIs never expose the device record. */
-function request(open) {
-	return new Promise((resolve, reject) => {
-		const pending = open();
-		pending.onsuccess = () => resolve(pending.result);
-		pending.onerror = () => reject(pending.error ?? /* @__PURE__ */ new Error("Device storage failed."));
-	});
-}
-async function deviceObjects(mode) {
-	const opening = indexedDB.open("tmt-remote", 1);
-	opening.onupgradeneeded = () => opening.result.createObjectStore("device");
-	return (await request(() => opening)).transaction("device", mode).objectStore("device");
-}
-var REGISTRY = "remotes-v1";
-async function readRegistry() {
-	const objects = await deviceObjects("readonly");
-	try {
-		return await request(() => objects.get(REGISTRY));
-	} finally {
-		objects.transaction.db.close();
-	}
-}
-/** Compare and replace one public key atomically; no retry, clear or device access. */
-async function writeRegistry(expected, text) {
-	const objects = await deviceObjects("readwrite");
-	const transaction = objects.transaction;
-	await new Promise((resolve, reject) => {
-		let conflict = false;
-		transaction.oncomplete = () => resolve();
-		transaction.onabort = transaction.onerror = () => reject(/* @__PURE__ */ new Error(conflict ? "Registry changed" : "Registry unavailable"));
-		const read = objects.get(REGISTRY);
-		read.onsuccess = () => {
-			if (read.result !== expected) {
-				conflict = true;
-				transaction.abort();
-			} else objects.put(text, REGISTRY);
-		};
-	}).finally(() => transaction.db.close());
-}
-//#endregion
-//#region src/remote-state.ts
-/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
-function remoteState(state, current = true) {
-	if (!current) return {
-		text: "not checked",
-		word: "not checked",
-		mark: "",
-		tone: "muted",
-		action: ""
-	};
-	const [text, word, mark, tone, action] = state === "Connected" ? [
-		"Connected",
-		"connected",
-		"●",
-		"working",
-		""
-	] : state === "Checking" ? [
-		"Checking",
-		"connecting",
-		"◌",
-		"waiting",
-		""
-	] : state === "Access ended" ? [
-		"Access ended",
-		"access ended",
-		"✗",
-		"blocked",
-		"Pair again"
-	] : state === "Different machine" ? [
-		"Different machine",
-		"different machine",
-		"△",
-		"waiting",
-		"Pair again"
-	] : state === "Not paired" || state === "Pairing unreadable" ? [
-		state,
-		"not paired",
-		"○",
-		"waiting",
-		"Pair again"
-	] : [
-		"Unconfirmed",
-		"unreachable",
-		"○",
-		"blocked",
-		"Retry"
-	];
-	return {
-		text: `${mark} ${text}`,
-		word,
-		mark,
-		tone,
-		action
-	};
-}
-/** Both page owners and the menu identify the current Local row by the same door root. */
-function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
-}
-//#endregion
-//#region src/remote-menu.ts
-function remoteMenu(actions) {
-	const host = document.getElementById("remote-switcher");
-	if (!host) return () => {};
-	const trigger = document.createElement("button");
-	trigger.type = "button";
-	trigger.className = "tmt-ui-menu-trigger remote-chip";
-	trigger.setAttribute("aria-haspopup", "menu");
-	trigger.setAttribute("aria-controls", "remote-menu");
-	trigger.setAttribute("aria-expanded", "false");
-	const surface = document.createElement("div");
-	surface.id = "remote-menu";
-	surface.popover = "auto";
-	surface.className = "tmt-ui-menu-surface remote-menu";
-	surface.setAttribute("role", "menu");
-	surface.setAttribute("aria-label", "Remotes");
-	const status = document.createElement("p");
-	status.className = "tmt-ui-menu-reason";
-	host.append(trigger, surface);
-	let catalog = {
-		version: 1,
-		entries: []
-	};
-	let state = "Checking";
-	let address = "";
-	let search = "";
-	let searchAt = 0;
-	const buttons = /* @__PURE__ */ new Map();
-	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
-	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
-	function close(refocus = false) {
-		if (surface.matches(":popover-open")) surface.hidePopover();
-		if (refocus) trigger.focus({ preventScroll: true });
-	}
-	function item(key, label, run) {
-		let button = buttons.get(key);
-		if (!button) {
-			button = document.createElement("button");
-			button.type = "button";
-			button.className = "tmt-ui-menu-item";
-			button.tabIndex = -1;
-			button.dataset.key = key;
-			buttons.set(key, button);
-		}
-		button.onclick = () => {
-			close();
-			run();
-		};
-		button.dataset.search = label;
-		button.textContent = label;
-		return button;
-	}
-	function paint() {
-		const view = remoteState(state);
-		const alias = selected()?.name ?? "this machine";
-		trigger.textContent = `${view.mark} ${alias} ▾`;
-		trigger.title = `Remote: ${alias}, ${view.word}`;
-		trigger.setAttribute("aria-label", trigger.title);
-		trigger.dataset.tone = view.tone;
-		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
-		const keep = /* @__PURE__ */ new Set();
-		const reason = actions.blocked();
-		const append = (key, label, run, checked, disabled) => {
-			const button = item(key, label, run);
-			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
-			button.setAttribute("role", "menuitemradio");
-			button.setAttribute("aria-checked", String(checked));
-			if (checked) {
-				const check = document.createElement("span");
-				check.textContent = "✓";
-				check.setAttribute("aria-hidden", "true");
-				button.append(check);
-			}
-			button.disabled = disabled;
-			button.dataset.tone = checked ? view.tone : "muted";
-			button.setAttribute("aria-describedby", "remote-menu-reason");
-			keep.add(key);
-			return button;
-		};
-		const rows = [];
-		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
-		for (const entry of entries) {
-			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
-			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
-				if (!here) actions.open(entry);
-			}, here, here ? !!shown.action : !!reason));
-		}
-		if (view.action) {
-			const key = "recover";
-			keep.add(key);
-			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
-		}
-		for (const [key, label, run] of [[
-			"add",
-			"Add remote…",
-			actions.add
-		], [
-			"manage",
-			"Manage remotes",
-			actions.manage
-		]]) {
-			keep.add(key);
-			const button = item(key, label, run);
-			button.setAttribute("role", "menuitem");
-			rows.push(button);
-		}
-		status.id = "remote-menu-reason";
-		status.textContent = reason || (view.action ? view.text : "");
-		status.hidden = !status.textContent;
-		for (const [key, button] of buttons) if (!keep.has(key)) {
-			button.remove();
-			buttons.delete(key);
-		}
-		rows.forEach((button, index) => {
-			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
-		});
-		surface.append(status);
-		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
-		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
-	}
-	function place() {
-		const anchor = trigger.getBoundingClientRect();
-		const box = surface.getBoundingClientRect();
-		const width = document.documentElement.clientWidth;
-		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
-		const below = innerHeight - anchor.bottom - 8;
-		const above = anchor.top - 8;
-		const up = box.height > below && above > below;
-		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
-		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
-	}
-	async function open(end = false) {
-		await actions.refresh();
-		if (document.activeElement !== trigger) return;
-		paint();
-		if (!surface.matches(":popover-open")) surface.showPopover();
-		place();
-		search = "";
-		(end ? enabled().at(-1) : enabled()[0])?.focus();
-	}
-	let openAtPointerdown = false;
-	trigger.addEventListener("pointerdown", () => {
-		openAtPointerdown = surface.matches(":popover-open");
-	});
-	trigger.addEventListener("click", (event) => {
-		const dismiss = event.detail > 0 && openAtPointerdown;
-		openAtPointerdown = false;
-		if (dismiss || surface.matches(":popover-open")) close();
-		else {
-			trigger.focus({ preventScroll: true });
-			open();
-		}
-	});
-	trigger.addEventListener("keydown", (event) => {
-		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-			event.preventDefault();
-			open(event.key === "ArrowUp");
-		}
-	});
-	surface.addEventListener("toggle", () => {
-		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
-		if (surface.matches(":popover-open")) place();
-	});
-	surface.addEventListener("focusin", () => {
-		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
-	});
-	surface.addEventListener("keydown", (event) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			close(true);
-			return;
-		}
-		if (event.key === "Tab") {
-			close();
-			return;
-		}
-		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
-		let next;
-		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
-		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
-		else if (event.key === "Home") next = items[0];
-		else if (event.key === "End") next = items.at(-1);
-		else if (event.key.length === 1 && event.key !== " ") {
-			const now = performance.now();
-			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
-			searchAt = now;
-			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
-		} else return;
-		event.preventDefault();
-		next?.focus();
-	});
-	window.addEventListener("resize", () => {
-		if (surface.matches(":popover-open")) place();
-	});
-	window.addEventListener("scroll", () => {
-		if (surface.matches(":popover-open")) place();
-	}, true);
-	return (next, observed, checkedAddress) => {
-		catalog = next;
-		state = observed;
-		address = checkedAddress;
-		paint();
-	};
-}
-//#endregion
 //#region src/canonical-bytes.ts
 var encoder$2 = new TextEncoder();
 var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -695,38 +386,38 @@ var requestId = (value) => typeof value === "string" && value.startsWith("req_")
 var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid$3(condition) {
+function valid$6(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
 function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid$3(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$6(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid$3(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$6(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 function sendState(value, id) {
 	const state = record(value);
-	valid$3(state.operationId === id);
+	valid$6(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid$3(requestId(state.requestId));
+			valid$6(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid$3(state.requestId === void 0 || requestId(state.requestId));
+			valid$6(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -743,14 +434,14 @@ function sendState(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid$3(state.requestId === id);
+	valid$6(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
 			requestId: id
 		};
 		case "replied":
-			valid$3(typeof state.message === "string");
+			valid$6(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -766,10 +457,10 @@ function resultState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid$3(Array.isArray(rows));
+	valid$6(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid$3(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		return {
 			id: row.id,
 			name: row.name,
@@ -782,24 +473,24 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid$3(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$6(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const scope = error.scope;
-	valid$3(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
+	valid$6(scope === void 0 || error.code === "REMOTE_SCOPE_DENIED" && scope === "talk");
 	const limit = error.limit;
-	valid$3(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid$3(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
+	valid$6(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$6(!["REMOTE_SESSION_EVICTED", "REMOTE_SESSION_LIMIT"].includes(error.code) || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid$3(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$6(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid$3(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$6(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid$3(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$6(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid$3(PRE_EFFECT.has(error.code) || [
+	valid$6(PRE_EFFECT.has(error.code) || [
 		"REMOTE_GRANT_CHANGED",
 		"REMOTE_SERVE_STOPPED",
 		"REMOTE_SESSION_LIMIT",
@@ -921,8 +612,8 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 }
 function parseCapabilities(value) {
 	const reply = record(value);
-	valid$3(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-	valid$3(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+	valid$6(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+	valid$6(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 	record(reply.limits);
 }
 /** Scope-free reads synchronize the lane; the caller's operation is never a probe. */
@@ -1044,39 +735,39 @@ var encoder$1 = new TextEncoder();
 var decoder$1 = new TextDecoder("utf-8", { fatal: true });
 var LINK_BYTES = 8192;
 var HOSTED_BOOTSTRAP_MS = 1e4;
-function valid$2(condition) {
+function valid$5(condition) {
 	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
 }
 function object$2(value, keys) {
-	valid$2(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$5(typeof value === "object" && value !== null && !Array.isArray(value));
 	const record = value;
-	valid$2(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
+	valid$5(Object.keys(record).sort().join(",") === [...keys].sort().join(","));
 	return record;
 }
-function config(value) {
+function parsePublicWebConfig(value) {
 	const r = object$2(value, [
 		"apiKey",
 		"appId",
 		"authDomain",
 		"projectId"
 	]);
-	valid$2(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
-	valid$2(r.authDomain === `${r.projectId}.firebaseapp.com`);
-	for (const key of ["apiKey", "appId"]) valid$2(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
+	valid$5(typeof r.projectId === "string" && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
+	valid$5(r.authDomain === `${r.projectId}.firebaseapp.com`);
+	for (const key of ["apiKey", "appId"]) valid$5(typeof r[key] === "string" && /^[\x20-\x7e]{1,256}$/.test(r[key]));
 	return Object.freeze(r);
 }
-function canonical(value) {
+function canonical$1(value) {
 	if (typeof value !== "object" || value === null) return JSON.stringify(value);
 	const r = value;
-	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical(r[k])}`).join(",")}}`;
+	return `{${Object.keys(r).sort().map((k) => `${JSON.stringify(k)}:${canonical$1(r[k])}`).join(",")}}`;
 }
 async function verifyHostedLink(link, origin) {
 	try {
-		valid$2(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
+		valid$5(typeof link === "string" && encoder$1.encode(link).length <= LINK_BYTES);
 		const url = new URL(link);
-		valid$2(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
+		valid$5(url.origin === origin && url.protocol === "https:" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "");
 		const fragment = url.hash.slice(1);
-		valid$2(/^[A-Za-z0-9_-]+$/.test(fragment));
+		valid$5(/^[A-Za-z0-9_-]+$/.test(fragment));
 		const bytes = Uint8Array.from(atob(fragment.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 		const text = decoder$1.decode(bytes);
 		const r = object$2(JSON.parse(text), [
@@ -1085,16 +776,16 @@ async function verifyHostedLink(link, origin) {
 			"publicWebConfig",
 			"checksum"
 		]);
-		valid$2(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
-		const publicConfig = config(r.publicWebConfig);
-		valid$2(origin === `https://${publicConfig.projectId}.web.app`);
+		valid$5(r.version === 1 && r.kind === "firestore" && typeof r.checksum === "string" && /^[a-f0-9]{64}$/.test(r.checksum));
+		const publicConfig = parsePublicWebConfig(r.publicWebConfig);
+		valid$5(origin === `https://${publicConfig.projectId}.web.app`);
 		const body = {
 			kind: r.kind,
 			publicWebConfig: publicConfig,
 			version: r.version
 		};
-		valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical(r));
-		valid$2(link === `${origin}/pair#${base64url(bytes)}`);
+		valid$5(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder$1.encode(canonical$1(body)))), (b) => b.toString(16).padStart(2, "0")).join("") === r.checksum && text === canonical$1(r));
+		valid$5(link === `${origin}/pair#${base64url(bytes)}`);
 		return publicConfig;
 	} catch {
 		throw new RefusalError("REMOTE_INPUT_INVALID");
@@ -1138,6 +829,642 @@ async function confirmHostedConfig(expected, origin, fetcher, signal) {
 	}
 }
 //#endregion
+//#region src/sealed-sync-mapping.ts
+/** Frozen resource field/query mapping. Names are release data, never a Colab-specific list. */
+var syncFieldName = (value) => /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value);
+function valid$4(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+function row(value, keys) {
+	valid$4(typeof value === "object" && value !== null && !Array.isArray(value));
+	const r = value;
+	valid$4(Object.keys(r).sort().join(",") === keys.sort().join(","));
+	return r;
+}
+function parseSyncMapping(value) {
+	valid$4(typeof value === "object" && value !== null);
+	const r = row(value, [
+		"fields",
+		"spaceField",
+		"uidField",
+		"query",
+		...Object.hasOwn(value, "writeModes") ? ["writeModes"] : []
+	]);
+	if (r.writeModes !== void 0) valid$4(Array.isArray(r.writeModes) && r.writeModes.length > 0 && new Set(r.writeModes).size === r.writeModes.length && r.writeModes.every((m) => [
+		"create",
+		"put",
+		"delete"
+	].includes(m)));
+	valid$4(Array.isArray(r.fields) && r.fields.length > 0 && r.fields.length <= 64 && r.fields.every((f) => typeof f === "string" && syncFieldName(f)));
+	const fields = new Set(r.fields);
+	valid$4(fields.size === r.fields.length);
+	const declared = (v) => typeof v === "string" && fields.has(v);
+	valid$4(declared(r.spaceField) && (r.uidField === null || declared(r.uidField) && r.uidField !== r.spaceField));
+	let query = null;
+	if (r.query !== null) {
+		valid$4(typeof r.query === "object" && r.query !== null);
+		const q = row(r.query, [
+			"scopeFields",
+			"streamField",
+			"seqField",
+			"order",
+			...Object.hasOwn(r.query, "discovery") ? ["discovery"] : []
+		]);
+		valid$4(Array.isArray(q.scopeFields) && q.scopeFields.length > 0 && q.scopeFields.length <= 8 && q.scopeFields.every(declared));
+		const scope = new Set(q.scopeFields);
+		valid$4(scope.size === q.scopeFields.length);
+		valid$4(declared(q.streamField) && declared(q.seqField) && q.streamField !== q.seqField && q.streamField !== r.spaceField && q.streamField !== r.uidField && q.seqField !== r.uidField && q.order === "asc" && scope.has(r.spaceField) && scope.has(q.streamField) && !scope.has(q.seqField));
+		let discovery;
+		if (q.discovery !== void 0) {
+			const d = row(q.discovery, [
+				"name",
+				"scopeFields",
+				"seqEquals"
+			]);
+			valid$4(typeof d.name === "string" && syncFieldName(d.name) && d.name !== "stream" && Array.isArray(d.scopeFields) && d.scopeFields.every(declared) && new Set(d.scopeFields).size === d.scopeFields.length);
+			valid$4([...scope].filter((n) => n !== q.streamField).sort().join(",") === [...d.scopeFields].sort().join(","));
+			valid$4(d.seqEquals === null || typeof d.seqEquals === "string" && Number.isSafeInteger(Number(d.seqEquals)) && Number(d.seqEquals) >= 0 && String(Number(d.seqEquals)) === d.seqEquals);
+			discovery = Object.freeze({
+				name: d.name,
+				scopeFields: Object.freeze([...d.scopeFields]),
+				seqEquals: d.seqEquals
+			});
+		}
+		query = Object.freeze({
+			scopeFields: Object.freeze([...q.scopeFields]),
+			streamField: q.streamField,
+			seqField: q.seqField,
+			order: "asc",
+			...discovery ? { discovery } : {}
+		});
+	}
+	return Object.freeze({
+		fields: Object.freeze([...fields]),
+		...r.writeModes === void 0 ? {} : { writeModes: Object.freeze([...r.writeModes]) },
+		spaceField: r.spaceField,
+		uidField: r.uidField,
+		query
+	});
+}
+//#endregion
+//#region src/firebase-declaration.ts
+/** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
+var name$1 = /^[a-z][a-z0-9-]{0,31}$/;
+var field$2 = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+function require$1(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+function members(value, keys) {
+	require$1(typeof value === "object" && value !== null && !Array.isArray(value));
+	const row = value;
+	require$1(Object.keys(row).sort().join(",") === keys.sort().join(","));
+	return row;
+}
+async function verifyHostedDeclaration(input) {
+	try {
+		require$1(typeof input.bytes === "string" && typeof input.digest === "string");
+		const bytes = new TextEncoder().encode(input.bytes);
+		require$1(bytes.length <= 65536 && /^[a-f0-9]{64}$/.test(input.digest));
+		require$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === input.digest);
+		const value = JSON.parse(input.bytes);
+		require$1(typeof value === "object" && value !== null && !Array.isArray(value));
+		const row = value;
+		members(row, [
+			"version",
+			"extension",
+			"backend",
+			"resources",
+			"admission",
+			...Object.hasOwn(row, "hosting") ? ["hosting"] : []
+		]);
+		require$1(row.version === 1 && row.backend === "firestore" && typeof row.extension === "string" && name$1.test(row.extension));
+		require$1(Array.isArray(row.resources) && row.resources.length <= 64);
+		const names = /* @__PURE__ */ new Set();
+		for (const value of row.resources) {
+			require$1(typeof value === "object" && value !== null);
+			const r = members(value, [
+				"name",
+				"kind",
+				"path",
+				"limits",
+				"ttlField",
+				"indexes",
+				...Object.hasOwn(value, "sync") ? ["sync"] : []
+			]);
+			const sync = r.sync === void 0 ? void 0 : parseSyncMapping(r.sync);
+			require$1(!["log", "blob"].includes(String(r.kind)) || !sync?.writeModes?.includes("put"));
+			require$1(typeof r.name === "string" && name$1.test(r.name) && !names.has(r.name));
+			names.add(r.name);
+			require$1(typeof r.kind === "string" && [
+				"log",
+				"checkpoint",
+				"blob",
+				"awareness"
+			].includes(r.kind));
+			require$1(typeof r.path === "string");
+			const segments = r.path.split("/");
+			require$1(segments.length <= 8 && segments.every((s) => /^[a-z0-9_-]{1,64}$/.test(s)));
+			require$1(![
+				"x",
+				"append",
+				"subscribe",
+				"ack",
+				"pair"
+			].includes(segments[0]));
+			require$1(typeof r.limits === "object" && r.limits !== null);
+			const limits = members(r.limits, [
+				"maxObjectBytes",
+				"maxNamespaceBytes",
+				"maxEntries",
+				...Object.hasOwn(r.limits, "chunkBytes") ? ["chunkBytes"] : []
+			]);
+			require$1(Object.values(limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0));
+			require$1(Number(limits.maxObjectBytes) <= Number(limits.maxNamespaceBytes));
+			require$1(limits.chunkBytes === void 0 || Number(limits.chunkBytes) <= Number(limits.maxObjectBytes));
+			require$1(r.ttlField === null || typeof r.ttlField === "string" && field$2.test(r.ttlField));
+			require$1(Array.isArray(r.indexes) && r.indexes.length <= 64);
+			const indexes = /* @__PURE__ */ new Set();
+			for (const value of r.indexes) {
+				const index = members(value, ["field", "direction"]);
+				require$1(typeof index.field === "string" && field$2.test(index.field) && typeof index.direction === "string" && ["asc", "desc"].includes(index.direction));
+				const key = `${index.field}:${index.direction}`;
+				require$1(!indexes.has(key));
+				indexes.add(key);
+			}
+			require$1(r.kind !== "awareness" || r.ttlField === null && r.indexes.length === 0 && r.sync === void 0);
+		}
+		const admission = members(row.admission, [
+			"artifact",
+			"digest",
+			"entryPoint"
+		]);
+		require$1(typeof admission.artifact === "string" && admission.artifact.split("/").length <= 8 && admission.artifact.split("/").every((s) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(s)));
+		require$1(typeof admission.digest === "string" && /^[a-f0-9]{64}$/.test(admission.digest));
+		require$1(typeof admission.entryPoint === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(admission.entryPoint));
+	} catch {
+		throw new RefusalError("REMOTE_INPUT_INVALID");
+	}
+}
+//#endregion
+//#region src/sealed-sync-codec.ts
+function valid$3(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+function timestamp(s) {
+	if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3}(?:\d{3})?)?Z$/.test(s) || s.startsWith("0000") || s.endsWith("000Z")) return false;
+	const base = s.slice(0, 19);
+	const date = /* @__PURE__ */ new Date(`${base}Z`);
+	return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 19) === base;
+}
+function field$1(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value) || Object.keys(value).length !== 1) return false;
+	const [kind, v] = Object.entries(value)[0];
+	switch (kind) {
+		case "stringValue": return typeof v === "string" && ![...v].some((c) => {
+			const n = c.codePointAt(0);
+			return n >= 55296 && n <= 57343;
+		});
+		case "integerValue": return typeof v === "string" && Number.isSafeInteger(Number(v)) && String(Number(v)) === v;
+		case "booleanValue": return typeof v === "boolean";
+		case "nullValue": return v === null;
+		case "timestampValue": return typeof v === "string" && timestamp(v);
+		case "bytesValue": try {
+			return typeof v === "string" && btoa(atob(v)) === v;
+		} catch {
+			return false;
+		}
+		default: return false;
+	}
+}
+function canonical(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return JSON.stringify(value);
+	return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, v]) => `${JSON.stringify(key)}:${canonical(v)}`).join(",")}}`;
+}
+function validateSyncFields(bytes) {
+	try {
+		const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		const row = JSON.parse(text);
+		valid$3(typeof row === "object" && row !== null && !Array.isArray(row) && canonical(row) === text);
+		const fields = row;
+		valid$3(Object.keys(fields).length <= 64 && Object.entries(fields).every(([key, v]) => syncFieldName(key) && field$1(v)));
+		return fields;
+	} catch {
+		throw new RefusalError("REMOTE_INPUT_INVALID");
+	}
+}
+function textIs(value, expected) {
+	return typeof value === "object" && value !== null && Object.keys(value).length === 1 && value.stringValue === expected;
+}
+async function validateSyncDocument(context, document, access) {
+	const resource = context.resources.find((r) => r.name === document.target.resource);
+	valid$3(resource !== void 0 && /^[A-Za-z0-9_+-]{1,256}$/.test(document.target.id) && document.bytes.length <= resource.maxObjectBytes);
+	const mapping = resource.sync;
+	if (!mapping) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	const bytes = new Uint8Array(document.bytes);
+	const expectedDigest = document.digest;
+	const row = validateSyncFields(bytes);
+	valid$3(Object.keys(row).length === mapping.fields.length && mapping.fields.every((key) => Object.hasOwn(row, key)));
+	if (mapping.query) {
+		const stream = row[mapping.query.streamField];
+		const sequence = row[mapping.query.seqField];
+		valid$3(typeof stream.stringValue === "string" && /^[A-Za-z0-9_+-]{1,128}$/.test(stream.stringValue) && typeof sequence.integerValue === "string" && Number(sequence.integerValue) > 0);
+	}
+	valid$3(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === expectedDigest);
+	if (!textIs(row[mapping.spaceField], context.space) || access === "publish" && mapping.uidField !== null && !textIs(row[mapping.uidField], context.uid)) throw new RefusalError("REMOTE_SCOPE_DENIED");
+}
+function validateSyncQuery(context, query) {
+	const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+	const spec = mapping?.query;
+	if (!mapping || !spec) throw new RefusalError("REMOTE_STATE_UNAVAILABLE");
+	valid$3(Object.keys(query.scope).length === spec.scopeFields.length && spec.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])) && /^[A-Za-z0-9_+-]{1,128}$/.test(query.stream));
+	if (!textIs(query.scope[mapping.spaceField], context.space) || !textIs(query.scope[spec.streamField], query.stream)) throw new RefusalError("REMOTE_SCOPE_DENIED");
+	valid$3(!query.cursor || query.cursor.stream === query.stream && Number.isSafeInteger(query.cursor.seq) && query.cursor.seq >= 0);
+}
+function validateSyncDiscovery(context, query) {
+	const mapping = context.resources.find((r) => r.name === query.resource)?.sync;
+	const discovery = mapping?.query?.discovery;
+	if (!mapping || !discovery) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
+	valid$3(query.shape === discovery.name && (query.continuation === void 0 || /^[\x21-\x7e]{1,1024}$/.test(query.continuation)) && Object.keys(query.scope).length === discovery.scopeFields.length && discovery.scopeFields.every((key) => Object.hasOwn(query.scope, key) && field$1(query.scope[key])));
+	if (!textIs(query.scope[mapping.spaceField], context.space)) throw new RefusalError("REMOTE_SCOPE_DENIED");
+}
+async function validateSyncMutation(context, mutation) {
+	const target = mutation.mode === "delete" ? mutation.target : mutation.document.target;
+	valid$3(/^[A-Za-z0-9_+-]{1,256}$/.test(target.id));
+	const mapping = context.resources.find((r) => r.name === target.resource)?.sync;
+	if (!mapping || !(mapping.writeModes ?? ["create"]).includes(mutation.mode)) throw Object.assign(new RefusalError("REMOTE_STATE_UNAVAILABLE"), { state: "unsupported" });
+	if (mutation.mode !== "delete") await validateSyncDocument(context, mutation.document, "publish");
+}
+//#endregion
+//#region src/sealed-sync.ts
+/** Proposed extension-scoped sealed-document ports. No provider, credentials or factory. */
+var identity = /^[A-Za-z0-9_+-]{1,128}$/;
+var documentId = /^[A-Za-z0-9_+-]{1,256}$/;
+function valid$2(condition) {
+	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
+}
+/** Caller supplies bootstrap-verified public config. This pure binding does not attest an origin. */
+async function bindSyncContext(config, declaration, space, auth) {
+	config = parsePublicWebConfig(config);
+	await verifyHostedDeclaration(declaration);
+	valid$2(identity.test(space) && identity.test(auth.identity.uid));
+	if (config.projectId !== auth.identity.projectId) throw new RefusalError("REMOTE_SCOPE_DENIED");
+	const row = JSON.parse(declaration.bytes);
+	for (const [i, resource] of row.resources.entries()) {
+		const segments = resource.path.split("/").length;
+		valid$2(segments <= 7 && segments % 2 === 1);
+		valid$2(!row.resources.slice(0, i).some((other) => resource.path === other.path || resource.path.startsWith(`${other.path}/`) || other.path.startsWith(`${resource.path}/`)));
+	}
+	const resources = row.resources.map((r) => Object.freeze({
+		name: r.name,
+		path: r.path,
+		maxObjectBytes: r.limits.maxObjectBytes,
+		...r.sync === void 0 ? {} : { sync: parseSyncMapping(r.sync) },
+		...r.limits.chunkBytes === void 0 ? {} : { chunkBytes: r.limits.chunkBytes }
+	}));
+	return Object.freeze({
+		config: Object.freeze({ ...config }),
+		extension: row.extension,
+		declarationDigest: declaration.digest,
+		space,
+		uid: auth.identity.uid,
+		resources: Object.freeze(resources),
+		auth
+	});
+}
+/** A document target cannot escape its declared collection or select an operations route. */
+function syncDocumentPath(context, target) {
+	const resource = context.resources.find((r) => r.name === target.resource);
+	valid$2(resource !== void 0 && documentId.test(target.id));
+	return `x/${context.extension}/${resource.path}/${target.id}`;
+}
+/** Pure complete-or-absent validation; never returns a truncated object. */
+async function verifySealedObject(original, manifest, chunks, maxObjectBytes) {
+	valid$2(documentId.test(original) && manifest.original === original);
+	valid$2(Number.isSafeInteger(maxObjectBytes) && maxObjectBytes > 0 && maxObjectBytes <= 16779264);
+	valid$2(Number.isSafeInteger(manifest.chunkBytes) && manifest.chunkBytes > 0 && manifest.chunkBytes <= maxObjectBytes);
+	valid$2(Number.isSafeInteger(manifest.bytes) && manifest.bytes >= 0 && manifest.bytes <= maxObjectBytes);
+	valid$2(Number.isSafeInteger(manifest.count) && manifest.count >= 0 && manifest.count <= 513 && manifest.count === Math.ceil(manifest.bytes / manifest.chunkBytes));
+	valid$2(chunks.length === manifest.count && /^[a-f0-9]{64}$/.test(manifest.digest));
+	const bytes = new Uint8Array(manifest.bytes);
+	let offset = 0;
+	for (let i = 0; i < chunks.length; i++) {
+		const chunk = chunks[i];
+		valid$2(chunk.byteLength === Math.min(manifest.chunkBytes, manifest.bytes - offset));
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	valid$2(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === manifest.digest);
+}
+//#endregion
+//#region src/browser-store.ts
+/** Private origin-local opener. Public registry APIs never expose the device record. */
+function request(open) {
+	return new Promise((resolve, reject) => {
+		const pending = open();
+		pending.onsuccess = () => resolve(pending.result);
+		pending.onerror = () => reject(pending.error ?? /* @__PURE__ */ new Error("Device storage failed."));
+	});
+}
+async function deviceObjects(mode) {
+	const opening = indexedDB.open("tmt-remote", 1);
+	opening.onupgradeneeded = () => opening.result.createObjectStore("device");
+	return (await request(() => opening)).transaction("device", mode).objectStore("device");
+}
+var REGISTRY = "remotes-v1";
+async function readRegistry() {
+	const objects = await deviceObjects("readonly");
+	try {
+		return await request(() => objects.get(REGISTRY));
+	} finally {
+		objects.transaction.db.close();
+	}
+}
+/** Compare and replace one public key atomically; no retry, clear or device access. */
+async function writeRegistry(expected, text) {
+	const objects = await deviceObjects("readwrite");
+	const transaction = objects.transaction;
+	await new Promise((resolve, reject) => {
+		let conflict = false;
+		transaction.oncomplete = () => resolve();
+		transaction.onabort = transaction.onerror = () => reject(/* @__PURE__ */ new Error(conflict ? "Registry changed" : "Registry unavailable"));
+		const read = objects.get(REGISTRY);
+		read.onsuccess = () => {
+			if (read.result !== expected) {
+				conflict = true;
+				transaction.abort();
+			} else objects.put(text, REGISTRY);
+		};
+	}).finally(() => transaction.db.close());
+}
+//#endregion
+//#region src/remote-state.ts
+/** Current-origin observation only. A foreign entry has no mark or live-access claim. */
+function remoteState(state, current = true) {
+	if (!current) return {
+		text: "not checked",
+		word: "not checked",
+		mark: "",
+		tone: "muted",
+		action: ""
+	};
+	const [text, word, mark, tone, action] = state === "Connected" ? [
+		"Connected",
+		"connected",
+		"●",
+		"working",
+		""
+	] : state === "Checking" ? [
+		"Checking",
+		"connecting",
+		"◌",
+		"waiting",
+		""
+	] : state === "Access ended" ? [
+		"Access ended",
+		"access ended",
+		"✗",
+		"blocked",
+		"Pair again"
+	] : state === "Different machine" ? [
+		"Different machine",
+		"different machine",
+		"△",
+		"waiting",
+		"Pair again"
+	] : state === "Not paired" || state === "Pairing unreadable" ? [
+		state,
+		"not paired",
+		"○",
+		"waiting",
+		"Pair again"
+	] : [
+		"Unconfirmed",
+		"unreachable",
+		"○",
+		"blocked",
+		"Retry"
+	];
+	return {
+		text: `${mark} ${text}`,
+		word,
+		mark,
+		tone,
+		action
+	};
+}
+/** Both page owners and the menu identify the current Local row by the same door root. */
+function currentRemote(entry, address, pageUrl) {
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
+}
+//#endregion
+//#region src/remote-menu.ts
+function remoteMenu(actions) {
+	const host = document.getElementById("remote-switcher");
+	if (!host) return () => {};
+	const trigger = document.createElement("button");
+	trigger.type = "button";
+	trigger.className = "tmt-ui-menu-trigger remote-chip";
+	trigger.setAttribute("aria-haspopup", "menu");
+	trigger.setAttribute("aria-controls", "remote-menu");
+	trigger.setAttribute("aria-expanded", "false");
+	const surface = document.createElement("div");
+	surface.id = "remote-menu";
+	surface.popover = "auto";
+	surface.className = "tmt-ui-menu-surface remote-menu";
+	surface.setAttribute("role", "menu");
+	surface.setAttribute("aria-label", "Remotes");
+	const status = document.createElement("p");
+	status.className = "tmt-ui-menu-reason";
+	host.append(trigger, surface);
+	let catalog = {
+		version: 1,
+		entries: []
+	};
+	let state = "Checking";
+	let address = "";
+	let search = "";
+	let searchAt = 0;
+	const buttons = /* @__PURE__ */ new Map();
+	const selected = () => catalog.entries.find((entry) => currentRemote(entry, address, location.href));
+	const enabled = () => [...surface.querySelectorAll("button:not(:disabled)")];
+	function close(refocus = false) {
+		if (surface.matches(":popover-open")) surface.hidePopover();
+		if (refocus) trigger.focus({ preventScroll: true });
+	}
+	function item(key, label, run) {
+		let button = buttons.get(key);
+		if (!button) {
+			button = document.createElement("button");
+			button.type = "button";
+			button.className = "tmt-ui-menu-item";
+			button.tabIndex = -1;
+			button.dataset.key = key;
+			buttons.set(key, button);
+		}
+		button.onclick = () => {
+			close();
+			run();
+		};
+		button.dataset.search = label;
+		button.textContent = label;
+		return button;
+	}
+	function paint() {
+		const view = remoteState(state);
+		const alias = selected()?.name ?? "this machine";
+		trigger.textContent = `${view.mark} ${alias} ▾`;
+		trigger.title = `Remote: ${alias}, ${view.word}`;
+		trigger.setAttribute("aria-label", trigger.title);
+		trigger.dataset.tone = view.tone;
+		const entries = [...catalog.entries].sort((a, b) => Number(a.kind === "firestore") - Number(b.kind === "firestore"));
+		const keep = /* @__PURE__ */ new Set();
+		const reason = actions.blocked();
+		const append = (key, label, run, checked, disabled) => {
+			const button = item(key, label, run);
+			button.dataset.search = key.startsWith("remote:") ? key.slice(7) : "this machine";
+			button.setAttribute("role", "menuitemradio");
+			button.setAttribute("aria-checked", String(checked));
+			if (checked) {
+				const check = document.createElement("span");
+				check.textContent = "✓";
+				check.setAttribute("aria-hidden", "true");
+				button.append(check);
+			}
+			button.disabled = disabled;
+			button.dataset.tone = checked ? view.tone : "muted";
+			button.setAttribute("aria-describedby", "remote-menu-reason");
+			keep.add(key);
+			return button;
+		};
+		const rows = [];
+		if (!selected()) rows.push(append("current", `${view.mark} this machine · ${view.word}`, () => {}, true, !!view.action));
+		for (const entry of entries) {
+			const here = currentRemote(entry, address, location.href), shown = remoteState(state, here);
+			rows.push(append(`remote:${entry.name}`, here ? `${shown.mark} ${entry.name} · ${shown.word}` : `Open ${entry.name} · ${entry.kind === "local" ? "Local" : `Firebase · ${entry.project}`} · not checked`, () => {
+				if (!here) actions.open(entry);
+			}, here, here ? !!shown.action : !!reason));
+		}
+		if (view.action) {
+			const key = "recover";
+			keep.add(key);
+			const button = item(key, view.action, () => actions.recover(remoteState(state).action));
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		for (const [key, label, run] of [[
+			"add",
+			"Add remote…",
+			actions.add
+		], [
+			"manage",
+			"Manage remotes",
+			actions.manage
+		]]) {
+			keep.add(key);
+			const button = item(key, label, run);
+			button.setAttribute("role", "menuitem");
+			rows.push(button);
+		}
+		status.id = "remote-menu-reason";
+		status.textContent = reason || (view.action ? view.text : "");
+		status.hidden = !status.textContent;
+		for (const [key, button] of buttons) if (!keep.has(key)) {
+			button.remove();
+			buttons.delete(key);
+		}
+		rows.forEach((button, index) => {
+			if (surface.children[index] !== button) surface.insertBefore(button, surface.children[index] ?? null);
+		});
+		surface.append(status);
+		const focused = enabled().find((button) => button === document.activeElement) ?? enabled()[0];
+		for (const button of buttons.values()) button.tabIndex = button === focused ? 0 : -1;
+	}
+	function place() {
+		const anchor = trigger.getBoundingClientRect();
+		const box = surface.getBoundingClientRect();
+		const width = document.documentElement.clientWidth;
+		surface.style.left = `${Math.max(8, Math.min(anchor.left, width - box.width - 8))}px`;
+		const below = innerHeight - anchor.bottom - 8;
+		const above = anchor.top - 8;
+		const up = box.height > below && above > below;
+		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+		surface.style.top = `${up ? Math.max(8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
+	}
+	async function open(end = false) {
+		await actions.refresh();
+		if (document.activeElement !== trigger) return;
+		paint();
+		if (!surface.matches(":popover-open")) surface.showPopover();
+		place();
+		search = "";
+		(end ? enabled().at(-1) : enabled()[0])?.focus();
+	}
+	let openAtPointerdown = false;
+	trigger.addEventListener("pointerdown", () => {
+		openAtPointerdown = surface.matches(":popover-open");
+	});
+	trigger.addEventListener("click", (event) => {
+		const dismiss = event.detail > 0 && openAtPointerdown;
+		openAtPointerdown = false;
+		if (dismiss || surface.matches(":popover-open")) close();
+		else {
+			trigger.focus({ preventScroll: true });
+			open();
+		}
+	});
+	trigger.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			open(event.key === "ArrowUp");
+		}
+	});
+	surface.addEventListener("toggle", () => {
+		trigger.setAttribute("aria-expanded", String(surface.matches(":popover-open")));
+		if (surface.matches(":popover-open")) place();
+	});
+	surface.addEventListener("focusin", () => {
+		for (const button of buttons.values()) button.tabIndex = button === document.activeElement ? 0 : -1;
+	});
+	surface.addEventListener("keydown", (event) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			close(true);
+			return;
+		}
+		if (event.key === "Tab") {
+			close();
+			return;
+		}
+		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+		const items = enabled(), at = items.findIndex((item) => item === document.activeElement);
+		let next;
+		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
+		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+		else if (event.key === "Home") next = items[0];
+		else if (event.key === "End") next = items.at(-1);
+		else if (event.key.length === 1 && event.key !== " ") {
+			const now = performance.now();
+			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
+			searchAt = now;
+			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((item) => (item.dataset.search ?? "").toLowerCase().startsWith(search));
+		} else return;
+		event.preventDefault();
+		next?.focus();
+	});
+	window.addEventListener("resize", () => {
+		if (surface.matches(":popover-open")) place();
+	});
+	window.addEventListener("scroll", () => {
+		if (surface.matches(":popover-open")) place();
+	}, true);
+	return (next, observed, checkedAddress) => {
+		catalog = next;
+		state = observed;
+		address = checkedAddress;
+		paint();
+	};
+}
+//#endregion
 //#region src/remote-registry.ts
 /** Public references only; keys, pairings, credentials, drafts and intents never enter a catalog. */
 var RemoteRegistryError = class extends Error {
@@ -1163,14 +1490,14 @@ function fields(value, keys) {
 	valid$1(Object.keys(object).sort().join(",") === [...keys].sort().join(","));
 	return object;
 }
-function name$1(value) {
+function name(value) {
 	valid$1(typeof value === "string" && /^[a-z0-9-]{1,63}$/.test(value) && value !== "local");
 }
 function target(entry) {
 	return new URL(entry.url).href;
 }
 async function reference(alias, address) {
-	name$1(alias);
+	name(alias);
 	valid$1(typeof address === "string" && address.length <= LIMIT);
 	let url;
 	try {
@@ -1308,7 +1635,7 @@ async function mergeImport(plan, choices) {
 	for (const [index, row] of checked.rows.entries()) {
 		const alias = choices[index];
 		if (alias === null || row.status === "duplicate") continue;
-		name$1(alias);
+		name(alias);
 		if (entries.some((old) => old.name === alias)) throw new RemoteRegistryError("REMOTE_SELECTOR_CONFLICT", `You already have a remote named ${alias}`);
 		entries.push({
 			...row.entry,
@@ -1364,7 +1691,7 @@ var remoteRegistry = {
 		await remoteRegistry.confirmImport(plan, [alias]);
 	},
 	async rename(previous, alias) {
-		name$1(alias);
+		name(alias);
 		const latest = await snapshot();
 		valid$1(latest.catalog.entries.some((entry) => entry.name === previous));
 		valid$1(!latest.catalog.entries.some((entry) => entry.name === alias && entry.name !== previous), `You already have a remote named ${alias}`);
@@ -1404,7 +1731,7 @@ function action(text, run) {
 	button.addEventListener("click", run);
 	return button;
 }
-function field$1(label, value) {
+function field(label, value) {
 	const wrapper = node("label", label);
 	wrapper.className = "tmt-ui-field-label";
 	const input = node("input");
@@ -1534,7 +1861,7 @@ function remoteRegistryPage(blocked = () => "") {
 				choices.push(() => null);
 			} else if (row.status === "collision") {
 				item.append(node("p", `You already have a remote named ${row.entry.name}`));
-				const alias = field$1("Remote name", row.suggestedName);
+				const alias = field("Remote name", row.suggestedName);
 				const skip = node("input");
 				skip.type = "checkbox";
 				const skipLabel = node("label", "Skip");
@@ -1566,7 +1893,7 @@ function remoteRegistryPage(blocked = () => "") {
 	};
 	const rename = (entry, opener) => {
 		const view = dialog(`Rename ${entry.name}`, opener);
-		const alias = field$1("Remote name", entry.name);
+		const alias = field("Remote name", entry.name);
 		view.body.append(alias.label);
 		const submit = action("Save", () => {
 			save(() => remoteRegistry.rename(entry.name, alias.input.value), view);
@@ -1634,8 +1961,8 @@ function remoteRegistryPage(blocked = () => "") {
 	};
 	add.addEventListener("click", () => {
 		const view = dialog("Add remote", add);
-		const alias = field$1("Remote name", "");
-		const url = field$1("Door address or remote link", "");
+		const alias = field("Remote name", "");
+		const url = field("Door address or remote link", "");
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
@@ -1684,98 +2011,6 @@ function remoteRegistryPage(blocked = () => "") {
 		}
 		menu(catalog, observed, address ?? "");
 	};
-}
-//#endregion
-//#region src/firebase-declaration.ts
-/** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
-var name = /^[a-z][a-z0-9-]{0,31}$/;
-var field = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
-function require$1(condition) {
-	if (!condition) throw new RefusalError("REMOTE_INPUT_INVALID");
-}
-function members(value, keys) {
-	require$1(typeof value === "object" && value !== null && !Array.isArray(value));
-	const row = value;
-	require$1(Object.keys(row).sort().join(",") === keys.sort().join(","));
-	return row;
-}
-async function verifyHostedDeclaration(input) {
-	try {
-		require$1(typeof input.bytes === "string" && typeof input.digest === "string");
-		const bytes = new TextEncoder().encode(input.bytes);
-		require$1(bytes.length <= 65536 && /^[a-f0-9]{64}$/.test(input.digest));
-		require$1(Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (b) => b.toString(16).padStart(2, "0")).join("") === input.digest);
-		const value = JSON.parse(input.bytes);
-		require$1(typeof value === "object" && value !== null && !Array.isArray(value));
-		const row = value;
-		members(row, [
-			"version",
-			"extension",
-			"backend",
-			"resources",
-			"admission",
-			...Object.hasOwn(row, "hosting") ? ["hosting"] : []
-		]);
-		require$1(row.version === 1 && row.backend === "firestore" && typeof row.extension === "string" && name.test(row.extension));
-		require$1(Array.isArray(row.resources) && row.resources.length <= 64);
-		const names = /* @__PURE__ */ new Set();
-		for (const value of row.resources) {
-			const r = members(value, [
-				"name",
-				"kind",
-				"path",
-				"limits",
-				"ttlField",
-				"indexes"
-			]);
-			require$1(typeof r.name === "string" && name.test(r.name) && !names.has(r.name));
-			names.add(r.name);
-			require$1(typeof r.kind === "string" && [
-				"log",
-				"checkpoint",
-				"blob",
-				"awareness"
-			].includes(r.kind));
-			require$1(typeof r.path === "string");
-			const segments = r.path.split("/");
-			require$1(segments.length <= 8 && segments.every((s) => /^[a-z0-9_-]{1,64}$/.test(s)));
-			require$1(![
-				"x",
-				"append",
-				"subscribe",
-				"ack",
-				"pair"
-			].includes(segments[0]));
-			const limits = members(r.limits, [
-				"maxObjectBytes",
-				"maxNamespaceBytes",
-				"maxEntries"
-			]);
-			require$1(Object.values(limits).every((n) => typeof n === "number" && Number.isSafeInteger(n) && n > 0));
-			require$1(Number(limits.maxObjectBytes) <= Number(limits.maxNamespaceBytes));
-			require$1(r.ttlField === null || typeof r.ttlField === "string" && field.test(r.ttlField));
-			require$1(Array.isArray(r.indexes) && r.indexes.length <= 64);
-			const indexes = /* @__PURE__ */ new Set();
-			for (const value of r.indexes) {
-				const index = members(value, ["field", "direction"]);
-				require$1(typeof index.field === "string" && field.test(index.field) && typeof index.direction === "string" && ["asc", "desc"].includes(index.direction));
-				const key = `${index.field}:${index.direction}`;
-				require$1(!indexes.has(key));
-				indexes.add(key);
-			}
-			require$1(r.kind !== "awareness" || r.ttlField === null && r.indexes.length === 0);
-		}
-		const admission = members(row.admission, [
-			"artifact",
-			"digest",
-			"entryPoint"
-		]);
-		require$1(typeof admission.artifact === "string" && admission.artifact.split("/").length <= 8 && admission.artifact.split("/").every((s) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(s)));
-		require$1(typeof admission.digest === "string" && /^[a-f0-9]{64}$/.test(admission.digest));
-		require$1(typeof admission.entryPoint === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(admission.entryPoint));
-	} catch {
-		throw new RefusalError("REMOTE_INPUT_INVALID");
-	}
 }
 //#endregion
 //#region src/firebase-auth.ts
@@ -3319,4 +3554,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, transportUrl };
+export { ClientError, RefusalError, RemoteRegistryError, ReopenSessionError, bindSyncContext, budget_exports as budget, certifyKey, firebaseRemote, landingPage, management, operations, pairingPage, remoteRegistry, reopenSession, syncDocumentPath, transportUrl, validateSyncDiscovery, validateSyncDocument, validateSyncFields, validateSyncMutation, validateSyncQuery, verifySealedObject };

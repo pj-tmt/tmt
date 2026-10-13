@@ -10,7 +10,7 @@ use crate::{
 use serde_json::{Map, Value};
 mod sync;
 use std::collections::BTreeSet;
-pub use sync::{SyncMapping, SyncQueryMapping};
+pub use sync::{SyncDiscoveryMapping, SyncMapping, SyncQueryMapping};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
@@ -245,6 +245,14 @@ fn resource_inner(value: &Value) -> Result<Resource> {
     };
     if kind == Kind::Awareness && sync.is_some() {
         return refuse(Reason::AwarenessStores);
+    }
+    if matches!(kind, Kind::Log | Kind::Blob)
+        && sync
+            .as_ref()
+            .and_then(|m| m.write_modes.as_ref())
+            .is_some_and(|modes| modes.iter().any(|mode| mode == "put"))
+    {
+        return refuse(Reason::SyncMapping);
     }
     let path = namespace_path(text(&top["path"], Reason::Path)?)?;
     let bounds = bounds(&top["limits"])?;

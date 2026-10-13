@@ -1,6 +1,6 @@
 {
-  "declaration": "{\"admission\":{\"artifact\":\"admission.rules\",\"digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entryPoint\":\"admitted\"},\"backend\":\"firestore\",\"extension\":\"notes\",\"resources\":[{\"indexes\":[],\"kind\":\"log\",\"limits\":{\"maxEntries\":513,\"maxNamespaceBytes\":12582912,\"maxObjectBytes\":393216},\"name\":\"rows\",\"path\":\"rows\",\"sync\":{\"fields\":[\"actor\",\"counter\",\"deadline\",\"envelope\",\"flag\",\"nothing\",\"streamKey\",\"tenant\"],\"query\":{\"order\":\"asc\",\"scopeFields\":[\"tenant\",\"streamKey\"],\"seqField\":\"counter\",\"streamField\":\"streamKey\"},\"spaceField\":\"tenant\",\"uidField\":\"actor\"},\"ttlField\":null}],\"version\":1}",
-  "declarationDigest": "3b34cd78bdf5529309414fb327f869a3aaf9bdf7f109be8e75b0d2dc3381cce1",
+  "declaration": "{\"admission\":{\"artifact\":\"admission.rules\",\"digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entryPoint\":\"admitted\"},\"backend\":\"firestore\",\"extension\":\"notes\",\"resources\":[{\"indexes\":[],\"kind\":\"log\",\"limits\":{\"maxEntries\":513,\"maxNamespaceBytes\":12582912,\"maxObjectBytes\":393216},\"name\":\"rows\",\"path\":\"rows\",\"sync\":{\"fields\":[\"actor\",\"counter\",\"deadline\",\"envelope\",\"flag\",\"nothing\",\"streamKey\",\"tenant\"],\"query\":{\"discovery\":{\"name\":\"arrivals\",\"scopeFields\":[\"tenant\"],\"seqEquals\":\"1\"},\"order\":\"asc\",\"scopeFields\":[\"tenant\",\"streamKey\"],\"seqField\":\"counter\",\"streamField\":\"streamKey\"},\"spaceField\":\"tenant\",\"uidField\":\"actor\"},\"ttlField\":null}],\"version\":1}",
+  "declarationDigest": "82da91bdfa86ec13f910f1ac9a9377045aff9ec978b5d3fd5d75929165e3a9f3",
   "document": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
   "documentDigest": "aac92e8581c7caed69561d072112202ad9df6a7cd5d23c7bdbb272655ae68d41",
   "valid": [
@@ -10,7 +10,7 @@
     "{\"value\":{\"integerValue\":\"9007199254740991\"}}",
     "{\"value\":{\"integerValue\":\"-9007199254740991\"}}",
     "{\"value\":{\"bytesValue\":\"\"}}",
-    "{\"value\":{\"stringValue\":\"Unicode 雪\"}}"
+    "{\"value\":{\"stringValue\":\"Unicode \u96ea\"}}"
   ],
   "invalid": [
     "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123456789Z\"}}",
@@ -31,5 +31,79 @@
     "{\"value\":{\"integerValue\":\"1\"},\"value\":{\"integerValue\":\"2\"}}",
     " {\"value\":{\"integerValue\":\"1\"}}",
     "{\"value\":{\"stringValue\":\"\\ud800\"}}"
+  ],
+  "discoveryCases": [
+    {
+      "shape": "arrivals",
+      "continuation": null,
+      "valid": true
+    },
+    {
+      "shape": "wrong",
+      "continuation": null,
+      "valid": false
+    },
+    {
+      "shape": "arrivals",
+      "continuation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "shape": "arrivals",
+      "continuation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "shape": "arrivals",
+      "continuation": "",
+      "valid": false
+    },
+    {
+      "shape": "arrivals",
+      "continuation": "bad token",
+      "valid": false
+    }
+  ],
+  "invalidMappings": [
+    {
+      "writeModes": []
+    },
+    {
+      "writeModes": ["create", "create"]
+    },
+    {
+      "writeModes": ["update"]
+    },
+    {
+      "writeModes": ["put"]
+    },
+    {
+      "discovery": {
+        "name": "stream",
+        "scopeFields": ["tenant"],
+        "seqEquals": "1"
+      }
+    },
+    {
+      "discovery": {
+        "name": "arrivals",
+        "scopeFields": ["tenant", "streamKey"],
+        "seqEquals": "1"
+      }
+    },
+    {
+      "discovery": {
+        "name": "arrivals",
+        "scopeFields": ["tenant"],
+        "seqEquals": "01"
+      }
+    },
+    {
+      "discovery": {
+        "name": "arrivals",
+        "scopeFields": ["tenant"],
+        "seqEquals": "9007199254740992"
+      }
+    }
   ]
 }

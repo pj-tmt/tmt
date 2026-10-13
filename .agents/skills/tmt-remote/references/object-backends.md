@@ -213,12 +213,15 @@ bytes, and the tests prove its response, not that such bytes occur.
 
 ## Adding an adapter
 
-Implement `ObjectBackend` for one extension scope, sharing one accounting across all
-handles of the adapter, and run the shared suite from `tests/objects/conformance.rs`:
+Implement `ObjectBackend` for one extension scope. An adapter claiming the implemented
+LocalFs profile shares one accounting across its handles and runs the full shared suite
+from `tests/objects/conformance.rs`:
 implement `Adapter` and `Session` (backend handle, clock advance, restart, installation
-usage) and invoke `conformance!`. `tests/objects/memory.rs` is the minimal example. An
-adapter that needs a different limit changes `Quotas`, not the scenarios. Consumers
-must use only the trait; do not add provider branches.
+usage) and invoke `conformance!`. `tests/objects/memory.rs` is the minimal example. A
+local-profile adapter that needs a different limit changes `Quotas`, not the scenarios.
+The proposed cloud profile below retains the every-backend identity/integrity cases and
+labels reservations, durable fences and exact accounting local-only; it does not weaken
+existing LocalFs scenarios. Consumers use only the trait, without provider branches.
 
 ## Verify
 
@@ -240,8 +243,8 @@ infer an effect. After changing a guard, perturb it once and confirm a test fail
 The [cloud profile](../../../../contracts/remote-channel-v1.md#proposed-cloud-object-profile)
 defines the future thin adapter over `sealed_sync::SealedSyncPort`, sharing Auth and
 declared resources with the document client. No cloud backend is enabled today.
-Original-ID recovery, create-only chunk/manifest publication and complete-or-absent
-reads apply to every backend. The current LocalFs suite additionally proves its
+Original-ID/digest idempotency and complete-or-absent reads apply to every profile.
+Create-only chunks and a final manifest are the cloud representation. LocalFs additionally proves its
 durable quota reservations, namespace fences and exact accounting; the smaller
 cloud profile does not claim these. Split that matrix explicitly when adding the
 adapter. Preserve original-only observational status and report cleanup honestly.
