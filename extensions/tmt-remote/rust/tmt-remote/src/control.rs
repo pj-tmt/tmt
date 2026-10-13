@@ -48,12 +48,15 @@ pub struct Door {
 pub struct StatusViews {
     pub objects: ObjectReadiness,
     pub layers: Arc<dyn FirestoreEvidenceSource>,
+    /// Explicit internal native-carrier activation, separate from observations.
+    pub native: Option<Arc<dyn crate::object_service::NativeActivation>>,
 }
 impl Default for StatusViews {
     fn default() -> Self {
         Self {
             objects: ObjectReadiness::default(),
             layers: Arc::new(NotConfigured),
+            native: None,
         }
     }
 }
@@ -253,6 +256,34 @@ fn session(
         return;
     }
     let answer = match request.get("op").and_then(Value::as_str) {
+        Some("sync.activate") => Some((|| {
+            let row = request.as_object().ok_or_else(crate::operations::invalid)?;
+            if row.len() != 3
+                || !row
+                    .keys()
+                    .all(|key| ["op", "extension", "version"].contains(&key.as_str()))
+            {
+                return Err(crate::operations::invalid());
+            }
+            let name = request["extension"]
+                .as_str()
+                .filter(|name| crate::canonical::extension_name(name))
+                .ok_or_else(crate::operations::invalid)?;
+            if request["version"] != json!(3) {
+                return Err(RemoteError::new(
+                    "REMOTE_CONTROL_UNSUPPORTED",
+                    "Unsupported native carrier version.",
+                ));
+            }
+            let native = door.views.native.as_ref().ok_or_else(|| {
+                RemoteError::new(
+                    "REMOTE_STATE_UNAVAILABLE",
+                    "Native sync activation is unavailable.",
+                )
+            })?;
+            let generation = native.activate_native(name, Instant::now() + REQUEST_WAIT)?;
+            Ok(json!({"activated":true,"version":3,"generation":generation}))
+        })()),
         Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
             "running":true, "origin":door.door.origin, "path":door.door.prefix,
         }))),
@@ -464,11 +495,16 @@ fn poll_line(stream: &mut UnixStream, buffer: &mut Vec<u8>) -> io::Result<Option
     Ok(None)
 }
 fn write_line(stream: &mut UnixStream, value: &Value) -> io::Result<()> {
+    write_line_until(stream, value, Instant::now() + REQUEST_WAIT)
+}
+fn write_line_until(stream: &mut UnixStream, value: &Value, deadline: Instant) -> io::Result<()> {
     let mut bytes = value.to_string().into_bytes();
     bytes.push(b'\n');
-    let deadline = Instant::now() + REQUEST_WAIT;
     let mut rest = bytes.as_slice();
     while !rest.is_empty() {
+        if Instant::now() >= deadline {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
         match stream.write(rest) {
             Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
             Ok(n) => rest = &rest[n..],
@@ -650,6 +686,13 @@ fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>,
     })
 }
 fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, RemoteError> {
+    request_with_deadline(remote_directory, value, None)
+}
+fn request_with_deadline(
+    remote_directory: &Path,
+    value: &Value,
+    until: Option<Instant>,
+) -> Result<Option<Value>, RemoteError> {
     use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
     let path = match socket_path(remote_directory) {
         Ok(path) => path,
@@ -675,7 +718,12 @@ fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, Remo
         Ok(()) => {}
         Err(nix::errno::Errno::EINPROGRESS) => {
             let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLOUT)];
-            if poll(&mut events, REQUEST_WAIT.as_millis() as u16).map_err(io_error)? == 0 {
+            let left = until
+                .map(|until| until.saturating_duration_since(Instant::now()))
+                .unwrap_or(REQUEST_WAIT)
+                .min(REQUEST_WAIT);
+            if left.is_zero() || poll(&mut events, left.as_millis() as u16).map_err(io_error)? == 0
+            {
                 return Err(io_error("control connection timed out"));
             }
             if let Some(error) = stream.take_error().map_err(io_error)? {
@@ -684,12 +732,17 @@ fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, Remo
         }
         Err(error) => return request_connect_error(error.into()),
     }
-    write_line(&mut stream, value).map_err(io_error)?;
+    write_line_until(
+        &mut stream,
+        value,
+        until.unwrap_or_else(|| Instant::now() + REQUEST_WAIT),
+    )
+    .map_err(io_error)?;
     let answer = read_line(
         &mut stream,
         &mut Vec::new(),
         &AtomicBool::new(false),
-        Instant::now() + REQUEST_WAIT,
+        until.unwrap_or_else(|| Instant::now() + REQUEST_WAIT),
     )
     .ok_or_else(|| io_error("missing or invalid control reply; request may have been submitted"))?;
     if let Some(error) = answer.get("error") {
@@ -703,6 +756,53 @@ fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, Remo
         return Err(io_error("invalid control error document"));
     }
     Ok(Some(answer))
+}
+
+/// Remote-internal invocation only; Colab reaches this owner through __activate,
+/// never by importing this type or deriving the private control address.
+pub enum ActivationFailure {
+    Deadline,
+    Refused(RemoteError),
+}
+pub fn activate_native_until(
+    remote_directory: &Path,
+    extension: &str,
+    deadline: Instant,
+) -> Result<String, ActivationFailure> {
+    if Instant::now() >= deadline {
+        return Err(ActivationFailure::Deadline);
+    }
+    let until = deadline.min(Instant::now() + REQUEST_WAIT);
+    let answer = request_with_deadline(
+        remote_directory,
+        &json!({"op":"sync.activate","extension":extension,"version":3}),
+        Some(until),
+    )
+    .map_err(|error| {
+        if error.code == "REMOTE_IO" && Instant::now() >= until {
+            ActivationFailure::Deadline
+        } else if error.code == UNSUPPORTED
+            || error.code == "REMOTE_INPUT_INVALID" && error.message == LEGACY_UNSUPPORTED_MESSAGE
+        {
+            ActivationFailure::Refused(outdated_serve())
+        } else {
+            ActivationFailure::Refused(error)
+        }
+    })?
+    .ok_or_else(|| ActivationFailure::Refused(not_running()))?;
+    if answer.as_object().is_none_or(|row| row.len() != 3)
+        || answer["activated"] != json!(true)
+        || answer["version"] != json!(3)
+    {
+        return Err(ActivationFailure::Refused(io_error(
+            "invalid native activation reply",
+        )));
+    }
+    answer["generation"]
+        .as_str()
+        .filter(|value| canonical::uuid(value).is_ok())
+        .map(str::to_owned)
+        .ok_or_else(|| ActivationFailure::Refused(io_error("invalid native activation generation")))
 }
 
 /// Absence is a transport observation, distinct from a connected peer's

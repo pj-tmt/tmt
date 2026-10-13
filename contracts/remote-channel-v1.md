@@ -1338,7 +1338,7 @@ identifiers are correlation only. An admit `context` states the owner device and
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
 digest or origin grants authority or proves who may use a value.
 
-**Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
+**Legacy object framing.** A version-1 or version-2 frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
 without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting
 deeper than 8, or any number that is not an unsigned integer of at most 2^53-1 without sign, fraction or exponent.
 Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase version 4. Bytes are unpadded base64url
@@ -1347,7 +1347,7 @@ re-encodes to the same text. Structure faults (unknown or missing member, wrong 
 origin kind, context kind, disclosure class or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
 classes. Encoding applies the same checks, in the canonical member order shown.
 
-**Carrier handshake.** Remote opens the channel on an extension's owner-only `door.sock` with one HTTP/1.1 request and the
+**Legacy carrier handshake.** Remote opens the channel on an extension's owner-only `door.sock` with one HTTP/1.1 request and the
 extension answers with one reply; nothing else is sent before the reply. This is not RFC 6455 and not the extension's
 browser routes.
 
@@ -1395,7 +1395,7 @@ callback and its request; a result must repeat the request's method and transfer
 ledger refuses, is returned to the caller with nothing written and the channel stays usable. A received frame the ledger
 refuses ends the channel, so a duplicate, stale, mismatched or out-of-order frame never satisfies a successor.
 
-**Bus.** One thread reads while callers wait, and no frame spawns a thread. Received frames wait in a queue of at most 8
+**Bus.** One thread reads while callers wait, and reading a frame spawns no thread. Received frames wait in a queue of at most 8
 frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
 Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
 it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
@@ -1942,6 +1942,181 @@ Colab owns the hosted shell policy; these are requirements, not its current head
 The local door's pairing and session path never implicitly loads Firebase.
 Firestore document transport, cloud agent operations and a machine connector are not shipped
 by this bootstrap.
+
+### Native sealed-document carrier
+
+**Status:** the neutral `tmt-extension-objects::sync` DTOs and Remote's injected adapter
+extend the existing object channel. Serve does not register a production provider factory
+in this slice. No factory means typed `REMOTE_STATE_UNAVAILABLE`, with no provider I/O.
+The native provider and project owner are a separate dependency (#2953); production
+registration follows its merge. Colab's accepting adapter (PR-B) must ship before Remote
+enables version 3 by default. This carrier does not implement the cloud ObjectBackend
+adapter or change LocalFs startup: accounting still opens fail-closed.
+
+**Activation and compatibility.** A capable installed Colab invokes the hidden host protocol
+`tmt remote __activate --extension <name> --deadline-ms <absolute Unix milliseconds> --json`
+through its existing supervisor subprocess owner and its own timeout. It is absent from help,
+completions and the handbook. Success is exactly `{"generation":"<lowercase UUIDv4>"}`;
+failures exit nonzero with `{"error":{"code":"<code>","message":"<message>","state":"deadline"}}`
+(the state member appears only for deadline). Codes reuse `REMOTE_NOT_RUNNING` for absent/refused
+socket, `REMOTE_STATE_UNSAFE` for an unsafe/foreign-owned path, `REMOTE_STATE_UNAVAILABLE` with
+state `deadline`, and `REMOTE_SERVE_OUTDATED` for unsupported or the exact legacy unknown-op
+refusal. Other typed refusals pass through, including `REMOTE_SCOPE_DENIED` for an undeclared
+extension. An already-spent deadline causes no I/O. Root discovery and the single control
+exchange share the caller's bound; no scan, state creation, restart or fallback occurs.
+
+Only Remote discovers/adopts its private control address. Colab neither derives that path
+nor reads Remote records or imports Remote types. The CLI sends exactly
+`{"op":"sync.activate","extension":"colab","version":3}` internally, with success
+`{"activated":true,"version":3,"generation":"<lowercase UUIDv4>"}`. An unsupported version
+is `REMOTE_CONTROL_UNSUPPORTED`; malformed/extra input is `REMOTE_INPUT_INVALID`.
+The extension must be in the existing enabled Local declaration list and have a registered
+factory. Activation uses the existing bounded single-flight setup owner; a failed candidate
+leaves the prior channel available. Status, channel end and reads do not activate sync.
+A Remote restart loses registrations, bindings and interests: the project owner registers
+again and Colab explicitly re-activates, rebinds and queries its own saved positions.
+
+Installing a newer binary does not change an already-running older door. That door refuses
+the unknown control operation with typed `REMOTE_CONTROL_UNSUPPORTED` (earliest legacy doors
+use `REMOTE_INPUT_INVALID`, message `Unknown control operation.`); ordinary Local objects
+remain available. The door needs a restart to gain this activation surface. Refusal is not
+permission to retry in a loop or invent a second socket.
+
+The explicitly requested native connection offers its highest version, 3, exactly once
+using the same seven request headers and endpoint as the legacy handshake. A successful
+reply has the existing 101 headers plus `tmt-object-channel: <1, 2 or 3>` naming the
+accepted version. Native activation requires 3; a selected older version returns typed
+unsupported and leaves the previous channel intact. A supported strict refusal is exactly:
+
+```http
+HTTP/1.1 426 Upgrade Required
+tmt-object-channel-error: unsupported-version
+tmt-object-generation: <the offered generation>
+Content-Length: 0
+```
+
+There is no second connection, repeated offer or fallback after a v3 EOF, timeout,
+malformed reply or typed refusal. The new acceptor answers 3 to a v3 offer, and typed
+unsupported to a syntactically valid higher version. A current v1/v2-only Colab silently
+closes a v3 offer; it cannot supply the new selected-version reply. Such a peer continues
+to connect through ordinary Local activation, which offers 2 and retains exactly the
+existing single fresh v1 attempt after failure before a complete reply head. V1/v2 heads,
+framing, methods and outcomes stay byte-identical. This distinction is the rollout gate,
+not a multi-round version negotiation.
+
+**Bounds.** V3 adds `sync-request`, `sync-result` and `sync-notice`; existing object frames
+remain valid with their original bounds. The four-byte length prefix is excluded below.
+The negotiated limit is checked before body allocation; sync frames retain strict UTF-8,
+duplicate-member, unknown-member, depth-eight and unsigned JSON-safe-number validation.
+
+| Bound                                                                           | Value                              |
+| ------------------------------------------------------------------------------- | ---------------------------------- |
+| One sync frame body                                                             | 397,312 bytes                      |
+| Canonical REST fields in one document                                           | 393,216 bytes                      |
+| Non-fields metadata in one frame, including received whitespace/escape spelling | 4,096 bytes                        |
+| One query/discovery result                                                      | One frame, at most 256 documents   |
+| Stateless discovery continuation                                                | At most 1,024 graphic ASCII bytes  |
+| Bound spaces in one channel generation                                          | 8                                  |
+| Page interests                                                                  | 3 per channel, 12 per installation |
+| Shared object/sync requests                                                     | 8 per channel, 32 per installation |
+| Existing callbacks                                                              | 8 per channel, 32 per installation |
+| Existing receive queue                                                          | 8 frames and 524,288 body bytes    |
+
+There are no parts, staging handles, batches or retained pages for later draining. A
+provider page must already fit one carrier result, charging actual reads/re-reads for
+rows omitted from a bounded query. `query_page_bytes(context,page)` measures the actual
+encoded result with the longest RPC ID reserved. It refuses an oversized page without
+trimming rows or advancing its cursor. Native object chunks remain 32,768 decoded bytes;
+the larger sync frame does not enable a new attachment transport. Colab's canonical
+REST fields preserve its 354,304-byte sealed update and 43,692-byte padded-base64 checkpoint
+envelopes. Authority/checkpoint mapping, retained unpublished originals and rebootstrap
+on missing history remain Colab decisions; discovery does not prove retained first payloads.
+
+**DTOs.** The leaf owns these wire types; consumers do not import Remote implementation
+types. Sync frame `version` is 1, independently of negotiated carrier version 3.
+Generation/binding IDs are lowercase UUIDv4, RPC/notice counters positive canonical
+u64 decimal strings, and cursor `seq` unsigned JSON-safe integers. The types `BoundContext`, `StreamPosition` and `InterestNotice` carry the bound identity,
+consumer position and wake/terminal status respectively. A `Target` is
+`{resource,id}`; a `Document` is `{target,fields,digest}`, with the SHA-256 of the canonical
+Firestore REST `Document.fields` map. No additional ciphertext wrapper or Auth token is
+carried. Bound public context is `{id,project,extension,declarationDigest,space,uid}`;
+identifiers and digests confer no admission.
+
+Requests are `{kind:"sync-request",version:1,generation,requestId,call}`. `call` has exactly
+`{method,input}` with the following inputs:
+
+| Method           | Input                                         |
+| ---------------- | --------------------------------------------- |
+| `sync.bind`      | `{project,extension,declarationDigest,space}` |
+| `sync.read`      | `{binding,target}`                            |
+| `sync.query`     | `{binding,query}`                             |
+| `sync.subscribe` | `{binding,interest}`                          |
+| `sync.cancel`    | `{binding,subscriptionId}`                    |
+| `sync.publish`   | `{binding,mutation}`                          |
+
+`query` is either `{shape:"stream",resource,scope,stream,cursor}` or
+`{shape:"discovery",resource,name,scope,continuation}`. Optional cursor/continuation is
+encoded as null when absent. The discovery `name` must select the declared optional
+shape; discovery has no stream field or logical cursor. `interest` is exactly
+`{resource,scope}`, the regular query scope minus its stream field; no discovery shape
+is required. It has no seed, sentinel, cursor, continuation or delivery progress.
+`mutation` is `{mode:"create",document}`, `{mode:"put",document}` or `{mode:"delete",target}`.
+
+Results are `{kind:"sync-result",version:1,generation,requestId,method,outcome}`. `outcome`
+is tagged by `result`: `binding` with `context`, `read` with nullable `document`, `stream`
+with `documents,cursor`, `discovery` with `documents,continuation`, `subscribed` or
+`cancelled` with `id`, `published` with `status`, or `error` with `error`. Publish status
+is `confirmed`, `already-present` or `unknown`. Create uses the declared conditional
+create semantics; put/delete use declared whole-field/unconditional semantics. The
+carrier neither prepares a read nor retries, changes the target or reseals original bytes.
+A possible effect remains unknown across cancellation, deadline or identity loss.
+
+Error is exactly `{code,state,resetAtMs,retryAfterMs}`, with absent optional values encoded
+as null. Codes are `REMOTE_INPUT_INVALID`, `REMOTE_SCOPE_DENIED`, `REMOTE_STATE_UNAVAILABLE`,
+`REMOTE_BUDGET_EXHAUSTED` and `REMOTE_RATE_LIMITED`. Only state-unavailable may carry a
+state: `cancelled`, `deadline`, `catch-up-required`, `conflict`, `unsupported`, `unenrolled`,
+`expired`, `sign-in-needed` or `revoking`. Budget exhaustion carries both millisecond
+fields; other codes carry neither. The Remote budget guard stays in force and typed
+refusals reach Colab unchanged; this adds no Colab uid/space counter outcome.
+
+**Registration, wake and cleanup.** The subscribe RPC request ID is also its subscription
+ID, fenced by the shared object/sync request high-water mark. A successful registration
+is written before notices are enabled. Notices are
+`{kind:"sync-notice",version:1,generation,subscriptionId,sequence,notice}`, where `notice`
+is `{notice:"changed"}` or `{notice:"terminal",error}`. Notice sequence increases within
+one interest. Only a pending Changed flag and a reserved terminal refusal are retained;
+there is no document queue. Changed is level-triggered, may be spurious and is never lost.
+Only a successful bounded provider probe proving absence may suppress it. Colab performs
+ordinary queries from its own positions and alone advances them; empty finite results
+preserve the input cursor. Gaps/compaction/oversized pages return catch-up-required.
+
+The injected subscription owns polling/listeners. The carrier only awaits `next` with a
+fresh bounded deadline. Idle/backoff deadline is not positive absence: it continues that
+same interest without carrier sleeps or provider queries. If a probe deadline closes the
+provider interest, its next Unavailable is terminal. Cancellation removes the interest,
+stops and joins its awaiter before acknowledgment; generation loss/stop closes all ports,
+wakes workers and joins awaiters, dispatcher and bus reader. A taken notice overtaken by
+cancel cannot satisfy a successor. A terminal interest keeps its ledger slot until cancel or
+generation close; consumers cancel it before registering a successor. No registration
+survives restart or reconnect.
+
+**Injected construction.** `Registration` accepts trusted public configuration, exact
+Firestore declaration bytes/digest, Auth and this constructor-only factory:
+
+```rust
+Arc<dyn for<'a> Fn(BindInput<'a>)
+    -> Result<Arc<dyn SealedSyncPort>, SyncError> + Send + Sync>
+```
+
+`BindInput` contains `public_config: serde_json::Value`, `declaration: &'a [u8]`,
+`declaration_digest: &'a str`, `space: &'a str`, and `auth: Arc<dyn AuthPort>`.
+Wrong-project configuration/Auth is refused before construction/provider I/O; the returned
+context must match every frozen input. Repeated binding of one space reuses its context.
+The factory captures the selected project's shared runtime/model; it does not create a
+runtime, Auth owner, budget pool or timer per consumer. The later production project owner
+obtains release declarations through InstalledDeclarations, owns Auth cancellation and a
+wakeable minute budget checkpoint even while workers idle/back off, and calls finish after
+carrier/provider joins before releasing the budget writer and Serving lease.
 
 ### Proposal: extension-scoped sealed-document client
 

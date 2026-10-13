@@ -91,6 +91,35 @@ fn the_acceptor_replies_exactly_once_to_the_canonical_request() {
 }
 
 #[test]
+fn a_version_three_offer_selects_three_once_and_legacy_replies_stay_identical() {
+    for entry in ENTRIES {
+        for version in [1, 2, 3] {
+            let offered = mutate(
+                &request(),
+                "tmt-object-channel: 1\r\n",
+                &format!("tmt-object-channel: {version}\r\n"),
+            );
+            let (result, replied) = offered_by(entry, offered.as_bytes());
+            let link = result.unwrap_or_else(|fault| {
+                panic!("version {version} must be accepted via {entry:?}: {fault:?}")
+            });
+            assert_eq!(link.generation(), generation(GEN), "{entry:?}");
+            assert_eq!(link.version, version, "{entry:?}");
+            let expected = if version == 3 {
+                mutate(
+                    &reply(),
+                    "tmt-object-generation:",
+                    "tmt-object-channel: 3\r\ntmt-object-generation:",
+                )
+            } else {
+                reply()
+            };
+            assert_eq!(String::from_utf8(replied).unwrap(), expected, "{entry:?}");
+        }
+    }
+}
+
+#[test]
 fn the_acceptor_refuses_every_one_token_change_and_replies_nothing() {
     let pad = "a".repeat(9000);
     let many: String = (0..40).map(|n| format!("X-N{n}: 1\r\n")).collect();
@@ -109,7 +138,7 @@ fn the_acceptor_refuses_every_one_token_change_and_replies_nothing() {
         ("upgrade", mutate(&request(), "tmt-object-channel-v1\r\nContent", "websocket\r\nContent"), Refusal::BadValue("upgrade")),
         ("body length", mutate(&request(), "Content-Length: 0", "Content-Length: 1"), Refusal::BadValue("content-length")),
         ("padded length", mutate(&request(), "Content-Length: 0", "Content-Length: 00"), Refusal::BadValue("content-length")),
-        ("channel version", mutate(&request(), after, "tmt-object-channel: 3\r\n"), Refusal::BadValue("tmt-object-channel")),
+        ("channel version", mutate(&request(), after, "tmt-object-channel: 0\r\n"), Refusal::BadValue("tmt-object-channel")),
         ("uppercase generation", mutate(&request(), GEN, &GEN.to_uppercase()), Refusal::BadValue("tmt-object-generation")),
         ("version 1 generation", mutate(&request(), "-4b86-", "-1b86-"), Refusal::BadValue("tmt-object-generation")),
         ("missing mount", mutate(&request(), "tmt-mount: colab\r\n", ""), Refusal::MissingHeader("tmt-mount")),
@@ -305,6 +334,20 @@ fn the_initiator_refuses_every_one_token_change_to_the_reply() {
         assert_eq!(result.err(), Some(fault), "{name}");
         peer.join().unwrap();
     }
+}
+
+#[test]
+fn a_complete_legacy_refusal_keeps_status_precedence_over_header_faults() {
+    let (client, server) = UnixStream::pair().unwrap();
+    let peer = scripted(
+        server,
+        "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".into(),
+    );
+    assert_eq!(
+        version_one(client, &offer(), setup()).err(),
+        Some(refused(Refusal::Status))
+    );
+    peer.join().unwrap();
 }
 
 #[test]
@@ -563,4 +606,26 @@ fn negotiation_never_opens_a_fresh_connection_after_the_setup_budget_is_spent() 
     });
     assert_eq!(result.err(), Some(Fault::Timeout(Stage::Head)));
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_valid_unsupported_version_gets_a_typed_refusal_not_a_legacy_retry() {
+    for entry in ENTRIES {
+        let offered = mutate(
+            &request(),
+            "tmt-object-channel: 1\r\n",
+            "tmt-object-channel: 4\r\n",
+        );
+        let (result, bytes) = offered_by(entry, offered.as_bytes());
+        assert_eq!(
+            result.err(),
+            Some(Fault::Handshake(Refusal::UnsupportedVersion))
+        );
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            format!(
+                "HTTP/1.1 426 Upgrade Required\r\ntmt-object-channel-error: unsupported-version\r\ntmt-object-generation: {GEN}\r\nContent-Length: 0\r\n\r\n"
+            )
+        );
+    }
 }

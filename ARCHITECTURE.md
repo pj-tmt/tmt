@@ -562,7 +562,11 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 
 Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
-channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
+channels, backends and quotas. The same channel multiplexes the neutral v3 sealed-document
+DTOs through an injected bound client, with internal activation and generation-scoped
+interests; Auth, provider polling and project runtime ownership stay outside the carrier.
+Production factory registration awaits the native provider dependency and Colab acceptor
+rollout; no factory returns typed unavailable. Pure declaration, Rules and Hosting composition feeds the
 Firestore deploy CLI. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve

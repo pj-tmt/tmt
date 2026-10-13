@@ -9,7 +9,7 @@
 //! Upgrade: tmt-object-channel-v1                    tmt-object-generation: <same>
 //! Content-Length: 0
 //! tmt-mount: <the selected mount>
-//! tmt-object-channel: <1 or 2>
+//! tmt-object-channel: <1, 2 or 3>
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
 use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, bounded, halves};
@@ -143,6 +143,11 @@ pub fn negotiate(
     unreachable!("two attempts always return")
 }
 
+/// Native activation only: offer the highest version once. A fault never re-offers.
+pub fn negotiate_sync(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Link, Fault> {
+    initiate_version(stream, offer, setup, 3).map_err(|(fault, _)| fault)
+}
+
 /// Keep version-1 wire/refusal fixtures explicit without a public legacy entry point.
 #[cfg(test)]
 pub(super) fn version_one(
@@ -184,21 +189,67 @@ fn initiate_version(
     if reply.version != Some(1) {
         return Err(refused(Refusal::Version));
     }
+    // Legacy refusal precedence is part of the existing outcome contract.
+    if version != 3 && (reply.code != Some(101) || reply.reason != Some("Switching Protocols")) {
+        return Err(refused(Refusal::Status));
+    }
+    let selected_fields = [
+        "connection",
+        "upgrade",
+        "tmt-object-channel",
+        "tmt-object-generation",
+    ];
+    if version == 3 && reply.code == Some(426) {
+        if reply.reason != Some("Upgrade Required") || !first_bytes.is_empty() {
+            return Err(refused(Refusal::Status));
+        }
+        let names = [
+            "tmt-object-channel-error",
+            "tmt-object-generation",
+            "content-length",
+        ];
+        let seen = fields(reply.headers, &names).map_err(refused)?;
+        require(&seen, "tmt-object-channel-error", "unsupported-version").map_err(refused)?;
+        require(&seen, "content-length", "0").map_err(refused)?;
+        if generation(&seen).map_err(refused)? != offer.generation {
+            return Err(refused(Refusal::Generation));
+        }
+        return Err(refused(Refusal::UnsupportedVersion));
+    }
+    let seen = fields(
+        reply.headers,
+        if version == 3 {
+            &selected_fields
+        } else {
+            &REPLY_FIELDS
+        },
+    )
+    .map_err(refused)?;
+    let selected = if version == 3 {
+        match value(&seen, "tmt-object-channel") {
+            "1" => 1,
+            "2" => 2,
+            "3" => 3,
+            _ => return Err(refused(Refusal::BadValue("tmt-object-channel"))),
+        }
+    } else {
+        version
+    };
     if reply.code != Some(101) || reply.reason != Some("Switching Protocols") {
         return Err(refused(Refusal::Status));
     }
-    let seen = fields(reply.headers, &REPLY_FIELDS).map_err(refused)?;
     token(&seen, "connection", "upgrade").map_err(refused)?;
     require(&seen, "upgrade", PROTOCOL).map_err(refused)?;
     if generation(&seen).map_err(refused)? != offer.generation {
         return Err(refused(Refusal::Generation));
     }
     // The extension may start sending frames right after its reply.
+    reader.set_version(selected);
     reader.keep(first_bytes);
     Ok(Link {
         generation: offer.generation,
         role: Role::Remote,
-        version,
+        version: selected,
         reader,
         writer,
     })
@@ -221,8 +272,9 @@ pub fn accept(
 /// Accept the channel as the extension for a caller whose router already read one
 /// complete request `head` (through the blank line, within its own bound) and
 /// dispatched on its path. `rest` is whatever the caller read after the head; it must be
-/// empty. The head gets exactly the checks [`accept`] applies and nothing is written
-/// to `stream` on a refusal; the head-read bound belongs to the caller.
+/// empty. The head gets exactly the checks [`accept`] applies. A valid unsupported
+/// version receives the typed refusal; malformed offers write nothing. The
+/// head-read bound belongs to the caller.
 pub fn accept_head(
     stream: UnixStream,
     head: &[u8],
@@ -266,7 +318,16 @@ fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<(Uuid4, u8), Re
     let version = match value(&seen, "tmt-object-channel") {
         "1" => 1,
         "2" => 2,
-        _ => return Err(Refusal::BadValue("tmt-object-channel")),
+        "3" => 3,
+        text => {
+            let number = text
+                .parse::<u8>()
+                .map_err(|_| Refusal::BadValue("tmt-object-channel"))?;
+            if number == 0 || number.to_string() != text {
+                return Err(Refusal::BadValue("tmt-object-channel"));
+            }
+            number
+        }
     };
     let generation = generation(&seen)?;
     if !rest.is_empty() {
@@ -277,21 +338,38 @@ fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<(Uuid4, u8), Re
 
 /// Write the one reply within its bound and hand the link over.
 fn replied(
-    reader: bounded::Reader,
+    mut reader: bounded::Reader,
     mut writer: bounded::Writer,
     generation: Uuid4,
     version: u8,
     budgets: &Budgets,
     setup: Instant,
 ) -> Result<Link, Fault> {
+    if version > 3 {
+        let reply = format!(
+            "HTTP/1.1 426 Upgrade Required\r\ntmt-object-channel-error: unsupported-version\r\ntmt-object-generation: {generation}\r\nContent-Length: 0\r\n\r\n"
+        );
+        writer.send_by(
+            reply.as_bytes(),
+            within(Instant::now(), budgets.reply, setup),
+            Stage::Reply,
+        )?;
+        return Err(Fault::Handshake(Refusal::UnsupportedVersion));
+    }
+    let selected = if version == 3 {
+        "tmt-object-channel: 3\r\n"
+    } else {
+        ""
+    };
     let reply = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\ntmt-object-generation: {generation}\r\n\r\n"
+        "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\n{selected}tmt-object-generation: {generation}\r\n\r\n"
     );
     writer.send_by(
         reply.as_bytes(),
         within(Instant::now(), budgets.reply, setup),
         Stage::Reply,
     )?;
+    reader.set_version(version);
     Ok(Link {
         generation,
         role: Role::Extension,

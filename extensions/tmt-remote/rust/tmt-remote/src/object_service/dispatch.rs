@@ -5,8 +5,9 @@
 //!
 //! The channel is bounded and final: when the bus ends, an extension leaves a callback
 //! unanswered past its bound, or the service stops, every thread ends and the last one
-//! drops the bus, which shuts the socket down and joins its reader. No frame spawns a
-//! thread, and nothing is retried.
+//! drops the bus, which shuts the socket down and joins its reader. Native interest
+//! registration owns at most three joined awaiters; provider polling remains behind
+//! the injected port. Ordinary requests use the fixed worker pool and nothing is retried.
 use super::{
     ServiceBounds,
     config::ConfigSource,
@@ -28,9 +29,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_extension_objects::{
-    Admit, AdmitInput, Bus, Call, Checkpoint, Context, Counter, Decision, Disclosure, ErrorCode,
-    Fault, Frame, Operation, Origin, OriginState, Outcome, Projection, Reason, Request,
-    ResultFrame, Stage, Success, Uuid4,
+    Admit, AdmitInput, Bus, Call, ChannelFrame, Checkpoint, Context, Counter, Decision, Disclosure,
+    ErrorCode, Fault, Frame, Operation, Origin, OriginState, Outcome, Projection, Reason, Request,
+    ResultFrame, Stage, StampedChannelFrame, Success, Uuid4,
 };
 
 /// Where a test-only pause runs in a request.
@@ -70,6 +71,7 @@ pub(super) struct Launch<'a> {
     pub(super) sessions: Arc<dyn Sessions>,
     pub(super) backend: Arc<LocalObjectReader>,
     pub(super) writer: Arc<LocalObjectWriter>,
+    pub(super) native: Option<Arc<super::sync::Registration>>,
 }
 
 /// The most origin-state notices a channel may hold: an `established` and a `closed` for
@@ -104,8 +106,12 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+enum Input {
+    Object(Request),
+    Sync(tmt_extension_objects::sync::Frame),
+}
 struct Work {
-    request: Request,
+    request: Input,
     received: Instant,
 }
 pub(super) struct Hub {
@@ -129,6 +135,7 @@ pub(super) struct Hub {
     /// Decisions delivered by the dispatcher and not yet taken by their worker.
     decisions: Mutex<BTreeMap<u64, Decision>>,
     decided: Condvar,
+    native: Option<Arc<super::sync::Bindings>>,
     /// The last callback identifier issued. Held across issuing one and writing its frame,
     /// so identifiers reach the wire in the strictly increasing order the ledger requires.
     issuer: Mutex<u64>,
@@ -144,6 +151,9 @@ impl Hub {
         self.queued.notify_all();
         self.decided.notify_all();
         self.events.wake();
+        if let Some(native) = &self.native {
+            native.close();
+        }
     }
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::Acquire)
@@ -169,7 +179,12 @@ impl Running {
             sessions,
             backend,
             writer,
+            native,
         } = launch;
+        let native = native.map(|registration| {
+            Arc::new(super::sync::Bindings::new(registration, bus.generation()))
+        });
+        let extra = usize::from(native.is_some());
         let hub = Arc::new(Hub {
             generation: bus.generation(),
             extension: extension.to_owned(),
@@ -189,22 +204,25 @@ impl Running {
             decisions: Mutex::new(BTreeMap::new()),
             decided: Condvar::new(),
             issuer: Mutex::new(0),
+            native,
         });
         let bus = Arc::new(bus);
         // Registered before any thread runs, so a channel that ends right away detaches
         // itself (`Hub::end`) instead of being registered after it is over.
         origins.attach(extension, hub.generation, Arc::clone(&hub.events));
         let mut threads = Vec::new();
-        for index in 0..=WORKERS + 1 {
+        for index in 0..=WORKERS + 1 + extra {
             let (thread_hub, thread_bus) = (Arc::clone(&hub), Arc::clone(&bus));
             let spawned = thread::Builder::new()
                 .name(match index {
                     0 => "tmt-object-dispatch".into(),
+                    i if i > WORKERS + 1 => "tmt-sync-announce".into(),
                     i if i > WORKERS => "tmt-object-announce".into(),
                     i => format!("tmt-object-worker-{i}"),
                 })
                 .spawn(move || match index {
                     0 => dispatch(&thread_hub, &thread_bus),
+                    i if i > WORKERS + 1 => native::announce(&thread_hub, &thread_bus),
                     i if i > WORKERS => announce(&thread_hub, &thread_bus),
                     _ => work(&thread_hub, &thread_bus),
                 });
@@ -227,6 +245,9 @@ impl Running {
         })
     }
 
+    pub(super) fn supports_sync(&self) -> bool {
+        self.hub.native.is_some()
+    }
     pub(super) fn generation(&self) -> Uuid4 {
         self.hub.generation
     }
@@ -263,23 +284,34 @@ impl Running {
 /// The only reader of the bus.
 fn dispatch(hub: &Hub, bus: &Bus) {
     while !hub.stopped() {
-        match bus.recv_stamped(Some(Instant::now() + SLICE)) {
-            Ok(tmt_extension_objects::StampedObjectFrame {
-                frame: Frame::Request(request),
+        match bus.recv_channel_stamped(Some(Instant::now() + SLICE)) {
+            Ok(StampedChannelFrame {
+                frame: ChannelFrame::Object(Frame::Request(request)),
                 first_prefix,
             }) => {
                 locked(&hub.queue).push_back(Work {
-                    request,
+                    request: Input::Object(request),
                     received: first_prefix,
                 });
                 hub.queued.notify_one();
             }
-            Ok(tmt_extension_objects::StampedObjectFrame {
-                frame: Frame::Admission(answer),
+            Ok(StampedChannelFrame {
+                frame: ChannelFrame::Object(Frame::Admission(answer)),
                 ..
             }) => {
                 locked(&hub.decisions).insert(answer.callback_id.get(), answer.decision);
                 hub.decided.notify_all();
+            }
+            Ok(StampedChannelFrame {
+                frame:
+                    ChannelFrame::Sync(request @ tmt_extension_objects::sync::Frame::Request { .. }),
+                first_prefix,
+            }) => {
+                locked(&hub.queue).push_back(Work {
+                    request: Input::Sync(request),
+                    received: first_prefix,
+                });
+                hub.queued.notify_one();
             }
             // The ledger refuses every other kind in this direction before it is queued.
             Ok(_) => {}
@@ -338,6 +370,10 @@ fn take(hub: &Hub) -> Option<Work> {
 fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     let Work { request, received } = next;
     let deadline = received + hub.request;
+    let request = match request {
+        Input::Object(request) => request,
+        Input::Sync(request) => return native::serve(hub, bus, &request, deadline),
+    };
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
         hook(Pause::BeforeRequest, deadline);
@@ -646,3 +682,5 @@ pub(super) fn mutation_error(error: crate::objects::BackendError) -> ErrorCode {
         | crate::objects::BackendError::Deadline => ErrorCode::Unknown,
     }
 }
+
+mod native;

@@ -15,17 +15,18 @@ use std::{
 
 struct ActivationAttempt {
     deadline: Instant,
-    done: Mutex<bool>,
+    native: bool,
+    done: Mutex<Option<Result<(), ActivateError>>>,
     changed: Condvar,
 }
 impl ActivationAttempt {
-    fn finish(&self) {
-        *self.done.lock().unwrap_or_else(|p| p.into_inner()) = true;
+    fn finish(&self, outcome: Result<(), ActivateError>) {
+        *self.done.lock().unwrap_or_else(|p| p.into_inner()) = Some(outcome);
         self.changed.notify_all();
     }
-    fn wait(&self, deadline: Instant) {
+    fn wait(&self, deadline: Instant) -> Option<Result<(), ActivateError>> {
         let mut done = self.done.lock().unwrap_or_else(|p| p.into_inner());
-        while !*done {
+        while done.is_none() {
             let Some(left) = deadline
                 .checked_duration_since(Instant::now())
                 .filter(|d| !d.is_zero())
@@ -38,6 +39,7 @@ impl ActivationAttempt {
                 .unwrap_or_else(|p| p.into_inner())
                 .0;
         }
+        *done
     }
 }
 struct ActivationDemand {
@@ -113,12 +115,18 @@ impl Reactivation {
         while let Some((name, attempt)) = self.next() {
             let outcome = if self.stop.load(Ordering::Acquire) {
                 Err(ActivateError::Stopped)
-            } else if self.healthy(name) {
+            } else if !attempt.native && self.healthy(name) {
                 Ok(())
             } else {
-                service
-                    .activate_until(mounts, name, attempt.deadline)
-                    .map(|_| ())
+                if attempt.native {
+                    service
+                        .activate_native_until(mounts, name, attempt.deadline)
+                        .map(|_| ())
+                } else {
+                    service
+                        .activate_until(mounts, name, attempt.deadline)
+                        .map(|_| ())
+                }
             };
             let failed = outcome.is_err() || !self.healthy(name);
             let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
@@ -127,11 +135,11 @@ impl Reactivation {
                 .iter_mut()
                 .find(|s| s.name == name)
                 .expect("declared demand");
-            if failed {
+            if failed && !attempt.native {
                 slot.retry_at = Some((self.clock)() + limits::OBJECT_REACTIVATION_COOLDOWN);
             }
             // Publish completion before making a new flight possible.
-            attempt.finish();
+            attempt.finish(outcome);
             slot.flight = None;
         }
     }
@@ -158,7 +166,7 @@ impl Reactivation {
         queue.pending.clear();
         for slot in &queue.slots {
             if let Some(attempt) = &slot.flight {
-                attempt.finish();
+                attempt.finish(Err(ActivateError::Stopped));
             }
         }
         self.changed.notify_all();
@@ -193,7 +201,8 @@ impl ActivationSink for Reactivation {
             }
             let attempt = Arc::new(ActivationAttempt {
                 deadline: deadline.min(Instant::now() + limits::OBJECT_REACTIVATION),
-                done: Mutex::new(false),
+                native: false,
+                done: Mutex::new(None),
                 changed: Condvar::new(),
             });
             queue.slots[index].flight = Some(Arc::clone(&attempt));
@@ -203,7 +212,7 @@ impl ActivationSink for Reactivation {
             attempt
         };
         drop(queue);
-        attempt.wait(deadline.min(attempt.deadline));
+        let _ = attempt.wait(deadline.min(attempt.deadline));
         // An unfinished candidate may already have registered its generation. Only an
         // installed live channel can supply a ticket; false never refuses forwarding.
         !self.stop.load(Ordering::Acquire) && self.healthy(name)
@@ -211,6 +220,120 @@ impl ActivationSink for Reactivation {
     fn close(&self) {
         self.state.lock().unwrap_or_else(|p| p.into_inner()).stopped = true;
         self.disable();
+    }
+}
+/// Existing owner-only control transport uses this hook; it carries no data or
+/// credentials and never registers the project-owner factory by itself.
+pub trait NativeActivation: Send + Sync {
+    fn activate_native(
+        &self,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<String, crate::error::RemoteError>;
+}
+fn unavailable() -> crate::error::RemoteError {
+    crate::error::RemoteError::new(
+        "REMOTE_STATE_UNAVAILABLE",
+        "Native sync activation is unavailable.",
+    )
+}
+impl NativeActivation for Reactivation {
+    fn activate_native(
+        &self,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<String, crate::error::RemoteError> {
+        if Instant::now() >= deadline || self.stop.load(Ordering::Acquire) {
+            return Err(unavailable());
+        }
+        {
+            let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            if state.stopped {
+                return Err(unavailable());
+            }
+            let slot = state
+                .slots
+                .iter()
+                .find(|slot| slot.name == name)
+                .ok_or_else(|| {
+                    crate::error::RemoteError::new(
+                        "REMOTE_SCOPE_DENIED",
+                        "Native sync extension is not enabled.",
+                    )
+                })?;
+            if slot.native.is_none() {
+                return Err(unavailable());
+            }
+            if let Some(running) = slot
+                .active
+                .as_ref()
+                .filter(|running| running.ended().is_none() && running.supports_sync())
+            {
+                return Ok(running.generation().to_string());
+            }
+        }
+        let mut queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        if queue.closed {
+            return Err(unavailable());
+        }
+        let index = queue
+            .slots
+            .iter()
+            .position(|slot| slot.name == name)
+            .ok_or_else(unavailable)?;
+        let attempt = if let Some(attempt) = &queue.slots[index].flight {
+            if !attempt.native {
+                return Err(unavailable());
+            }
+            attempt.clone()
+        } else {
+            if queue
+                .slots
+                .iter()
+                .filter(|slot| slot.flight.is_some())
+                .count()
+                >= self.capacity
+            {
+                return Err(unavailable());
+            }
+            let attempt = Arc::new(ActivationAttempt {
+                deadline: deadline.min(Instant::now() + limits::OBJECT_REACTIVATION),
+                native: true,
+                done: Mutex::new(None),
+                changed: Condvar::new(),
+            });
+            queue.slots[index].flight = Some(attempt.clone());
+            let name = queue.slots[index].name;
+            queue.pending.push_back((name, attempt.clone()));
+            self.changed.notify_one();
+            attempt
+        };
+        drop(queue);
+        if matches!(
+            attempt.wait(deadline.min(attempt.deadline)),
+            Some(Err(ActivateError::Channel(
+                super::Fault::UnsupportedSync
+                    | super::Fault::Handshake(tmt_extension_objects::Refusal::UnsupportedVersion)
+            )))
+        ) {
+            return Err(crate::error::RemoteError::new(
+                "REMOTE_CONTROL_UNSUPPORTED",
+                "Native sync carrier version is unsupported.",
+            ));
+        }
+        let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state.stopped
+            && !self.stop.load(Ordering::Acquire)
+            && let Some(running) = state
+                .slots
+                .iter()
+                .find(|slot| slot.name == name)
+                .and_then(|slot| slot.active.as_ref())
+                .filter(|running| running.ended().is_none() && running.supports_sync())
+        {
+            return Ok(running.generation().to_string());
+        }
+        Err(unavailable())
     }
 }
 struct ScopedReactivation<'a>(&'a Reactivation);

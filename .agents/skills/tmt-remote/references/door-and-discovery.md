@@ -38,6 +38,11 @@ without its adapter's admission, operations are refused before ledger effects.
 Validated Local websocket demand can reactivate an absent/ended channel;
 failure still forwards without an origin. The [object-backend guide](object-backends.md)
 owns the bounded single-flight lifecycle; ordinary discovery shapes are unchanged.
+The owner-only internal `sync.activate` operation uses the same hook to request v3.
+There is no public command or implicit activation on status/read/channel loss. Serve
+currently injects no native provider factory; typed unavailable preserves the existing
+Local channel. Older running doors need a restart to gain the surface, then explicit
+re-activation, as defined by the [carrier contract](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier).
 
 ## Discovery and restart implementation
 
