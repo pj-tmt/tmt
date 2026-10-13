@@ -218,7 +218,8 @@ decays to 60 s idle, adds positive jitter and bounds transient backoff to 900 s.
 requests do not overlap within an interest. One `runAggregationQuery` COUNT over the exact
 regular equality scope minus stream is precharged as 1 + the two shared Rules lookups.
 There is no stream/seq filter, so counts cover initially empty pages and late seq-1 writers.
-The first probe and any count difference emit Changed and record activity. Equal counts
+The first probe emits Changed without recording activity; a later count difference emits
+Changed and records activity. Equal counts
 suppress Changed until a ten-minute heartbeat bounds a delete/create swap; the heartbeat
 does not reset activity. Only the last count and notice time are kept in memory; no persisted
 fingerprint, stream cursor or delivery progress. Colab alone owns catch-up positions.

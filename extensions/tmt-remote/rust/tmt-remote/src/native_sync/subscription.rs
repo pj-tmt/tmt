@@ -207,7 +207,7 @@ impl Subscription for NativeSubscription {
                 match result {
                     Ok(count) => {
                         self.cadence.succeeded();
-                        let changed = self.last_count != Some(count);
+                        let changed = self.last_count.is_some_and(|last| last != count);
                         let heartbeat = self.last_notice_ms.is_none_or(|last| {
                             now.saturating_sub(last) >= limits::NATIVE_SYNC_HEARTBEAT_MS
                         });

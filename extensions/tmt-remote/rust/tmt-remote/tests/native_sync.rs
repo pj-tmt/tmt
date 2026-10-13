@@ -777,7 +777,7 @@ fn count_first_probe_and_count_difference_emit_once_over_all_streams() {
         .as_object_mut()
         .unwrap()
         .remove("discovery");
-    let (client, budget, _) =
+    let (client, budget, clock) =
         native_with_declaration(script.clone(), auth(), declaration.to_string().as_bytes());
     let cancel = AtomicBool::new(false);
     let io = io(&cancel);
@@ -786,6 +786,21 @@ fn count_first_probe_and_count_difference_emit_once_over_all_streams() {
         ready(subscription.next(&io)).unwrap(),
         Change::Changed
     ));
+    let baseline_wait = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(6),
+        cancelled: &cancel,
+    };
+    assert_eq!(
+        ready(subscription.next(&baseline_wait)).err(),
+        Some(SyncError::Deadline)
+    );
+    assert_eq!(
+        script.requests.lock().unwrap().len(),
+        1,
+        "first baseline must not start the active floor"
+    );
+    clock.0.store(60_000, Ordering::SeqCst);
+
     assert!(matches!(
         ready(subscription.next(&io)).unwrap(),
         Change::Changed
@@ -822,6 +837,7 @@ fn count_first_probe_and_count_difference_emit_once_over_all_streams() {
 #[test]
 fn count_unchanged_nonempty_page_decays_to_idle_without_discovery_scan() {
     let script = Arc::new(Script::new(vec![
+        count_reply(899),
         count_reply(900),
         count_reply(900),
         count_reply(900),
@@ -834,7 +850,14 @@ fn count_unchanged_nonempty_page_decays_to_idle_without_discovery_scan() {
         ready(subscription.next(&io)).unwrap(),
         Change::Changed
     ));
-    clock.0.store(400_000, Ordering::SeqCst);
+    clock.0.store(60_000, Ordering::SeqCst);
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    // A genuine count arrival entered the active floor. Equal later counts
+    // must let that activity age out rather than refreshing it forever.
+    clock.0.store(460_000, Ordering::SeqCst);
     let idle = IoBudget {
         deadline: Instant::now() + Duration::from_secs(65),
         cancelled: &cancel,
@@ -845,10 +868,10 @@ fn count_unchanged_nonempty_page_decays_to_idle_without_discovery_scan() {
     );
     assert_eq!(
         script.requests.lock().unwrap().len(),
-        3,
+        4,
         "only two 60s idle probes, no document discovery scan"
     );
-    assert_eq!(budget.reads(), 9);
+    assert_eq!(budget.reads(), 12);
 }
 
 #[test]
@@ -943,7 +966,7 @@ fn page_probe_and_wake_triggered_catchup_queries_share_the_same_guard() {
         Ok(response(200, json!([{"document":remote_document(1)}]))),
         count_reply(2),
     ]));
-    let (client, budget) = native_client(script.clone(), auth());
+    let (client, budget, clock) = native_with_clock(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let io = io(&cancel);
     let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
@@ -955,6 +978,7 @@ fn page_probe_and_wake_triggered_catchup_queries_share_the_same_guard() {
         panic!("stream page expected")
     };
     assert_eq!(page.cursor.unwrap().seq, 1);
+    clock.0.store(60_000, Ordering::SeqCst);
     // Query output and supplied positions never suppress the page-level hint.
     assert!(matches!(
         ready(subscription.next(&io)).unwrap(),
