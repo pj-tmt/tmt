@@ -1565,7 +1565,7 @@ describe('named workspace selection and digest admission', () => {
       expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
       const changed = { ...original, capturedAtMs: original.capturedAtMs + 1 };
       fs.writeFileSync(snapshotPath(fixture), JSON.stringify(changed));
-      const database = path.join(fixture.globalDir, 'tmux-team.db');
+      const database = path.join(fixture.globalDir, 'tmt.db');
       const databaseBytes = fs.readFileSync(database);
       const trace = installTmuxTrace(fixture);
       const refused = await fixture.runJsonCli<{ error: { code: string } }>(
