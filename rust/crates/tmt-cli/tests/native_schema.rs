@@ -144,7 +144,7 @@ fn native_export_has_exact_compiled_source_closure_without_storage_or_credential
 #[test]
 fn both_installer_probes_are_disjoint_and_unknown_versions_refuse_before_input() {
     let mut fixture = Fixture::new("probes");
-    for version in ["1", "2"] {
+    for version in ["1", "2", "3", "4"] {
         let (status, stdout, stderr) = fixture.run(&[
             "__native-install",
             "--handoff-version",
@@ -162,7 +162,7 @@ fn both_installer_probes_are_disjoint_and_unknown_versions_refuse_before_input()
     let (status, _, _) = fixture.run(&[
         "__native-install",
         "--handoff-version",
-        "3",
+        "5",
         "--probe",
         "--json",
     ]);
