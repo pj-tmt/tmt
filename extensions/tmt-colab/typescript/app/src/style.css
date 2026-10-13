@@ -241,6 +241,9 @@ footer {
   width: auto;
   margin: 0;
 }
+.source-notice .tmt-ui-notice-actions {
+  align-items: baseline;
+}
 .source-notice > p,
 .source-notice .tmt-ui-notice-actions [role='status'] {
   margin: 0;
