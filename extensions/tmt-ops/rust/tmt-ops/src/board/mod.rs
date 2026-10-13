@@ -22,7 +22,6 @@ mod mentions;
 mod menu_surface;
 mod meter;
 pub(crate) mod notes;
-mod pick;
 mod picker_surface;
 mod rate;
 mod refresh;
@@ -310,10 +309,6 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 })
                 .map_err(|error| error.message);
         }
-        Request::Reorder(keys) => Config::load(core)
-            .and_then(|mut config| config.set_tab_order(&keys))
-            .map(|()| "Tab order saved.".to_owned())
-            .map_err(|error| error.message),
         Request::WorkspacePreferences { expected, next } => Config::load(core)
             .and_then(|mut config| config.save_workspace_preferences(&expected, &next))
             .map(|()| "Workspace preferences saved.".to_owned())
@@ -458,7 +453,7 @@ fn session(
                     requested = Some(None);
                     app.apply(*snapshot);
                     dirty = true;
-                    app.reconcile_pick_current()
+                    Effect::None
                 } else {
                     Effect::None
                 }
@@ -803,7 +798,7 @@ pub(super) fn selection(
     _config: &Config,
     input: Option<&str>,
     initial: Option<&str>,
-) -> Result<(pick::Picks, Option<String>), SquadError> {
+) -> Result<Option<String>, SquadError> {
     if input.is_some() {
         return Err(SquadError::hinted(
             "SQUAD_UI_TABS_RETIRED",
@@ -815,7 +810,7 @@ pub(super) fn selection(
     if let Some(name) = initial.filter(|name| *name != ALL) {
         crate::squad::Squad::resolve(core, Some(name))?;
     }
-    Ok((pick::Picks::default(), Some(ALL.into())))
+    Ok(Some(ALL.into()))
 }
 
 /// `ui --reload-all`: every board that started before now reloads once it is idle.
@@ -873,15 +868,7 @@ pub fn run(
         Config::load(&core)
     })?;
     let startup_squad = squad.clone();
-    let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
-    // A reloaded board comes back on the tab it was on, with the tabs it had admitted.
-    let (picks, squad) = match &resume {
-        Some(resume) => (
-            pick::Picks::from_keys(resume.picks.clone()),
-            Some(ALL.into()),
-        ),
-        None => (picks, squad),
-    };
+    let squad = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     // The labels read in the background; nothing waits for it, and a source that
     // does not answer simply never shows. Dropping it ends the thread.
     let labels = crate::labels::Reader::spawn(
@@ -918,7 +905,6 @@ pub fn run(
         .filter(|_| app.migration_notice.is_none())
         .or_else(|| config.obsolete_board_notice().map(str::to_owned));
     app.initial_look = Some(crate::look::Look::new(initial_theme));
-    app.picks = picks;
     app.popup = popup;
     app.reload = reload::Watch::start(now_ms);
     if let Some(resume) = resume {

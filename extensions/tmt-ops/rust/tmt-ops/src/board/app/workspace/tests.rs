@@ -252,7 +252,6 @@ fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
         assert_eq!(app.current.as_deref(), Some(crate::board::ALL));
         assert!(app.workspace.selected.is_none());
         assert!(app.input.is_none());
-        assert!(app.dragging.is_none());
     }
     for code in ['t', 'j', 'x', 'm', 'n', 'o', 'c', 'D'] {
         let effect = key(&mut app, KeyCode::Char(code));
@@ -261,10 +260,7 @@ fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
         assert!(app.workspace_form.is_none(), "{code}");
     }
     assert_eq!(key(&mut app, KeyCode::Char('s')), Effect::None);
-    assert!(
-        app.switcher.is_none(),
-        "old switcher is never a startup fallback"
-    );
+    assert!(app.menu.is_none(), "sort has no startup fallback menu");
 }
 
 #[test]
@@ -1364,10 +1360,7 @@ fn retired_source_actions_cannot_open_legacy_ui_or_redirect_the_selected_target(
             app.notice
         );
         assert_eq!(app.workspace.selected, selected, "{text}");
-        assert!(
-            app.input.is_none() && app.menu.is_none() && app.switcher.is_none(),
-            "{text}"
-        );
+        assert!(app.input.is_none() && app.menu.is_none(), "{text}");
     }
 }
 

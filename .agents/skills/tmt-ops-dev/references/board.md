@@ -46,10 +46,12 @@ freshness checked, size-bounded, never through a symlink) and `exec`s the launch
 so the pid is kept; a failed `exec` discards the snapshot and returns
 `SQUAD_RELOAD_FAILED`. A failed `exec` also resets SIGPIPE to its default for the
 whole process, so tests drive `restart_with` with an injected failure, never a real `exec`. The new process takes the snapshot once at start and
-`App::carry` applies it on the first fresh view of that tab (`carry.rs`): selection
-by `RowTarget` identity, never by index, a vanished row falling back to the normal
-start, and the snapshot dropped if that view fails. The snapshot holds view state
-only, no squad data.
+`App::carry` applies it on the first fresh workspace view (`carry.rs`): shell,
+tree expansion, exact UUID selection, Reader focus and scroll state. A missing
+workspace target remains explicit and grants no adjacent recipient authority;
+a failed view drops the pending handoff. Version 3 carries no named-tab picks;
+old versions are consumed as normal-start misses. The snapshot holds session
+state only, no squad data or durable preference policy.
 
 ## Rows, grid and identity
 
@@ -223,7 +225,7 @@ anchors refuse actions and never retarget to a visible neighbour.
 
 ## Overlays and offline validation
 
-`App::overlay_event` synchronizes help/settings/theme/view/switcher/cron/checklist controllers
+`App::overlay_event` synchronizes help/settings/theme/cron/checklist controllers
 and workspace forms with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
 rollback and worker effects; `picker_surface::State` owns component cursor/query,
 admitted scenes and clipped frame maps. Refresh follows stable selected identity;
@@ -231,12 +233,11 @@ resize/model replacement invalidates hits. Query edits select the first match;
 query/list and selection-only scope fields remain controller-specific.
 
 Choice cursors are caller-projected `›` cells from the reconciled selected row ID.
-View keeps saved `●` at mark cell 0 and cursor at cell 1. Theme uses zero-gap
+Theme uses zero-gap
 `[10,1,1fr]` tracks; menus keep the exact key width followed by one cursor cell.
-Switcher uses a fixed nonshrinking five-cell pick/cursor/attention prefix, and
-cron a six-cell state/cursor/ID prefix, both with zero inner and original outer
+Cron uses a six-cell state/cursor/ID prefix with zero inner and original outer
 gaps. Content starts and semantic marks stay fixed. The cron list supplies its
-cursor; the shared jobs half passes no cursor. These cues appear on the first
+cursor. These cues appear on the first
 admitted row line; Config retains its existing selected continuation marks.
 
 A controller returns `None` only for an unconsumed event: routing may offer it again

@@ -4,7 +4,7 @@
 //! new process loads, and a row that is gone falls back to the usual start.
 
 use super::{App, RowTarget};
-use crate::board::{pick::Picks, resume::Resume};
+use crate::board::resume::Resume;
 
 impl App {
     /// Whether replacing the process now would lose something the user has open
@@ -26,7 +26,6 @@ impl App {
             || self.help
             || self.menu.is_some()
             || self.theme_picker.is_some()
-            || self.switcher.is_some()
             || self.cron_list.is_some()
             || self.checklist_shown()
             || self.row_details.reader.is_some()
@@ -64,7 +63,6 @@ impl App {
                         .collect()
                 })
                 .unwrap_or_default(),
-            picks: self.picks.keys(),
             search: self.search.clone(),
             tab,
         })
@@ -73,7 +71,6 @@ impl App {
     /// Takes a reload's state in at startup; it applies when the first fresh view of
     /// its tab (the one `App::new` was given) lands.
     pub(in crate::board) fn carry(&mut self, resume: Resume) {
-        self.picks = Picks::from_keys(resume.picks.clone());
         self.pending_resume = Some(resume);
     }
 
@@ -102,8 +99,7 @@ impl App {
             self.reconcile_folds();
         }
         self.row_details.expanded = resume.expanded;
-        let panes = self.view.as_ref().map_or(0, |view| view.board.panes.len());
-        self.focus = resume.focus.min(panes.saturating_sub(1));
+        self.focus = resume.focus.min(self.focus_panes().len().saturating_sub(1));
         self.scrolls.restore(resume.scrolls);
         self.follow = resume.follow;
         match resume.selected {
@@ -245,7 +241,6 @@ mod tests {
                     scrolls: Vec::new(),
                     expanded: Vec::new(),
                     folds: Vec::new(),
-                    picks: None,
                     search: String::new(),
                 });
             }),
@@ -331,28 +326,42 @@ mod tests {
     }
 
     #[test]
-    fn the_admitted_tabs_and_a_fold_come_back() {
-        let mut before = loaded(&["a", "b"]);
-        before.picks = Picks::from_keys(Some(vec!["product".into(), "infra".into()]));
+    fn workspace_reload_keeps_reader_target_tree_expansion_and_scroll_without_tab_picks() {
+        use crate::board::{
+            ALL,
+            app::workspace::tests::{ROOM, board},
+            shell::OpsTab,
+        };
+        let mut before = board();
+        before.focus = 1;
+        before.follow = false;
+        before.workspace.pool_expanded = true;
         before
-            .folds
-            .get_mut("product")
-            .unwrap()
-            .overrides
-            .insert(Pane::Detail, true);
+            .scrolls
+            .restore([(Pane::Rows, 3), (Pane::Replies, 5)]);
+        let target = before.workspace.selected.clone();
         let resume = arrive(&before.resume().unwrap());
-        assert_eq!(resume.folds, [(Pane::Detail, true)]);
-
-        let mut after = App::new(Some("product".into()));
+        assert_eq!(resume.tab, ALL);
+        let mut after = App::new(Some(ALL.into()));
         after.carry(resume);
+        let mut fresh = board();
+        let mut snapshot = snapshot(ALL, json!([]));
+        snapshot.tabs = fresh.tabs.clone();
+        snapshot.view = Ok(fresh.view.take().unwrap());
+        after.apply(snapshot);
+        assert_eq!(after.shell.tab, OpsTab::Agents);
+        assert_eq!(after.workspace.selected, target);
+        assert!(after.workspace.expanded.contains(ROOM));
+        assert!(after.workspace.pool_expanded);
         assert_eq!(
-            after.picks.keys(),
-            Some(vec!["infra".into(), "product".into()])
+            after.focused(),
+            Pane::Replies,
+            "authored CLI pane count cannot reset the current Reader focus"
         );
-        after.apply(product(&["a", "b"]));
-        assert_eq!(
-            after.folds["product"].overrides.get(&Pane::Detail),
-            Some(&true)
-        );
+        assert_eq!(after.scrolls.offset(Pane::Rows), 3);
+        assert_eq!(after.scrolls.offset(Pane::Replies), 5);
+        assert!(!after.follow);
+        assert!(after.pending_resume.is_none());
+        assert!(!after.reload_blocked());
     }
 }

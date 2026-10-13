@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
 /// A snapshot older than this is a leftover, not a handoff.
 const FRESH_MS: u64 = 60_000;
 /// A real snapshot is a few hundred bytes; the cap bounds a foreign file.
@@ -31,8 +31,6 @@ pub(super) struct Resume {
     pub expanded: Vec<DetailTarget>,
     /// Pane fold overrides of the shown tab; `true` is folded.
     pub folds: Vec<(Pane, bool)>,
-    /// The tabs this board admits; `None` while every tab is.
-    pub picks: Option<Vec<String>>,
     pub search: String,
 }
 
@@ -66,7 +64,6 @@ impl Resume {
             "folds": self.folds.iter()
                 .map(|(pane, folded)| json!([pane.title(), folded]))
                 .collect::<Vec<_>>(),
-            "picks": self.picks,
             "search": self.search,
         });
         cache::replace(&path(directory, pid), document.to_string().as_bytes())
@@ -137,16 +134,6 @@ impl Resume {
                 .into_iter()
                 .map(|(pane, folded)| Some((pane, folded.as_bool()?)))
                 .collect::<Option<_>>()?,
-            picks: match &document["picks"] {
-                Value::Null => None,
-                value => Some(
-                    value
-                        .as_array()?
-                        .iter()
-                        .map(|key| key.as_str().map(str::to_owned))
-                        .collect::<Option<_>>()?,
-                ),
-            },
             search: document["search"].as_str()?.to_owned(),
         })
     }
@@ -289,7 +276,6 @@ mod tests {
                 })),
             ],
             folds: vec![(Pane::Detail, true), (Pane::Replies, false)],
-            picks: Some(vec!["product".into(), "@all".into()]),
             search: "auth".into(),
         }
     }
@@ -311,7 +297,6 @@ mod tests {
                     squad: "infra".into(),
                     member: Some("m1".into()),
                 })),
-                picks: None,
                 ..sample()
             },
             Resume {
@@ -328,6 +313,11 @@ mod tests {
             assert_eq!(
                 fs::metadata(&file).unwrap().permissions().mode() & 0o777,
                 0o600
+            );
+            let stored: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+            assert!(
+                stored.get("picks").is_none(),
+                "reload cannot carry old named-tab admission"
             );
             assert_eq!(Resume::take(&root, 41, 1_500).as_ref(), Some(&resume));
             assert!(!file.exists(), "reading consumes the snapshot");
@@ -359,7 +349,7 @@ mod tests {
             Resume::take(&root, 41, 1_500).is_some(),
             "the control is valid"
         );
-        valid(&|document| document["version"] = json!(3));
+        valid(&|document| document["version"] = json!(2));
         rejects("another version");
         valid(&|document| document["pid"] = json!(42));
         rejects("another process");

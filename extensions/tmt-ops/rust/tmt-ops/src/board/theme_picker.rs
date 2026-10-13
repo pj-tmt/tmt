@@ -361,7 +361,7 @@ mod tests {
         assert_eq!(app.mouse(mouse, std::time::Instant::now()), Effect::None);
         assert_eq!(app.focus, focus);
         assert_eq!(app.current, current);
-        assert!(!app.searching && !app.help && app.switcher.is_none() && app.input.is_none());
+        assert!(!app.searching && !app.help && app.input.is_none());
         assert_eq!(app.theme_picker.as_ref().unwrap().scope, ThemeScope::Board);
         let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
         assert_eq!(app.key(refresh), Effect::None, "picker isolates ctrl-r");

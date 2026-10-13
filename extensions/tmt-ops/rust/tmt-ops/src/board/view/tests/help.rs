@@ -62,7 +62,7 @@ fn help_captures_board_actions_and_restores_selection_focus_and_scroll() {
         [Pane::Rows, Pane::Notes, Pane::Detail, Pane::Replies].map(|pane| app.scrolls.offset(pane)),
         offsets
     );
-    assert!(app.input.is_none() && app.settings.is_none() && app.switcher.is_none());
+    assert!(app.input.is_none() && app.settings.is_none());
     for close in [KeyCode::Esc, KeyCode::Char('?'), KeyCode::Char('q')] {
         assert_eq!(key(&mut app, close), Effect::None);
         assert!(!app.help);

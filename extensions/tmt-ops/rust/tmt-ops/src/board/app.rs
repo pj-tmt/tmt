@@ -147,7 +147,7 @@ pub struct Snapshot {
     pub squad_keys: Vec<String>,
     /// Tab keys in order: squad names and built-in tabs (`board::tabs`).
     pub tabs: Vec<String>,
-    /// Hidden tabs, still reachable through the switcher.
+    /// Hidden keys retained by the independent CLI tab projection.
     pub hidden: Vec<String>,
     /// How many tabs at the front are pinned.
     pub pinned: usize,
@@ -209,7 +209,6 @@ pub enum Request {
     },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
-    Reorder(Vec<String>),
     WorkspacePreferences {
         expected: crate::config::OpsPreferences,
         next: crate::config::OpsPreferences,
@@ -238,7 +237,6 @@ impl Request {
             | Self::Reply { .. }
             | Self::Leads { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
-            Self::Reorder(_) => "Saving the tab order…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
             Self::Cron(_) => "Updating the job…",
@@ -254,7 +252,6 @@ impl Request {
                 | Self::DirectTalk { .. }
                 | Self::Annotate { .. }
                 | Self::Reply { .. }
-                | Self::Reorder(_)
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
@@ -560,7 +557,6 @@ pub(super) enum Overlay {
     Help,
     Settings,
     Theme,
-    Switcher,
     CronList,
     ReplyReader,
     Checklist,
@@ -573,7 +569,6 @@ impl Overlay {
                 Self::Help => "help",
                 Self::Settings => "settings",
                 Self::Theme => "theme-picker",
-                Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
                 Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
@@ -583,29 +578,7 @@ impl Overlay {
     }
 }
 
-/// The quick switcher: a filter over every tab, hidden ones included.
-pub struct Switcher {
-    pub(super) unpicked_only: bool,
-    pub(super) surface: RefCell<super::picker_surface::State>,
-}
-impl Default for Switcher {
-    fn default() -> Self {
-        Self::new(String::new())
-    }
-}
-impl Switcher {
-    pub fn new(query: String) -> Self {
-        Self {
-            unpicked_only: false,
-            surface: RefCell::new(super::picker_surface::State::new(Some(query), vec![], None)),
-        }
-    }
-    pub fn query(&self) -> String {
-        self.surface.borrow().picker.query().unwrap_or("").into()
-    }
-}
-
-/// Where one tab was drawn on the tab line, for clicks and drags.
+/// Where a shell destination was drawn, for clipped navigation clicks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TabHit {
     pub y: u16,
@@ -701,12 +674,9 @@ pub struct App {
     pub(super) excluded_counters: Vec<String>,
     pub(super) meter_hover: Option<Option<usize>>,
     squad_keys: Vec<String>,
-    pub(super) picks: super::pick::Picks,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
     pub pinned: usize,
-    /// The quick switcher (`s`), while open.
-    pub switcher: Option<Switcher>,
     /// The `c` list of every squad's jobs, while open.
     pub(super) cron_list: Option<super::cronboard::List>,
     pub(super) row_details: super::row_detail::State,
@@ -780,17 +750,10 @@ pub struct App {
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
-    pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
-    /// The last tab line hid tabs, so the footer offers the switcher.
-    pub(super) tabs_overflow: std::cell::Cell<bool>,
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,
     body_width: u16,
-    /// The first tab the tab line showed, so it scrolls only as needed.
-    pub tab_start: std::cell::Cell<usize>,
-    /// The tab a left button went down on, until it is released.
-    dragging: Option<usize>,
 }
 
 fn page_step(code: KeyCode) -> Step {
@@ -1548,13 +1511,7 @@ impl App {
         self.invalidate_frame_geometry();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
-        // A failed inventory read has no keys, including no built-ins. Keep
-        // this board's policy until an authoritative inventory returns.
-        if !self.tabs.is_empty() || !self.hidden.is_empty() {
-            self.picks.reconcile(&self.switchable());
-        }
         self.pinned = snapshot.pinned;
-        self.reconcile_switcher(false);
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.folds
@@ -1735,152 +1692,6 @@ impl App {
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
     }
 
-    /// Canonical indices survive selection, so hit maps and saved order share one identity.
-    pub(super) fn picked_indices(&self) -> Vec<usize> {
-        self.tabs
-            .iter()
-            .enumerate()
-            .filter_map(|(index, key)| self.picks.contains(key).then_some(index))
-            .collect()
-    }
-
-    pub(super) fn unpicked_squads(&self) -> Vec<&String> {
-        self.tabs
-            .iter()
-            .filter(|key| !super::tabs::aggregate(key) && !self.picks.contains(key))
-            .collect()
-    }
-
-    fn switch(&mut self, step: isize) -> Effect {
-        let picked = self.picked_indices();
-        let Some(position) = picked
-            .iter()
-            .position(|&index| self.current.as_ref() == self.tabs.get(index))
-        else {
-            return Effect::None;
-        };
-        let next = picked[(position as isize + step).rem_euclid(picked.len() as isize) as usize];
-        self.go(self.tabs[next].clone())
-    }
-
-    /// An inventory removal cannot leave navigation on an excluded or vanished tab.
-    pub(super) fn reconcile_pick_current(&mut self) -> Effect {
-        let inventory = self.switchable();
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|key| inventory.contains(key) && self.picks.contains(key))
-            || inventory.is_empty()
-        {
-            return Effect::None;
-        }
-        let next = self
-            .tabs
-            .iter()
-            .find(|key| self.picks.contains(key))
-            .cloned()
-            .or_else(|| {
-                inventory
-                    .iter()
-                    .find(|key| key.as_str() == super::ALL)
-                    .cloned()
-            });
-        next.map_or(Effect::None, |key| self.go(key))
-    }
-
-    fn toggle_tab_pick(&mut self, key: String) -> Effect {
-        let inventory = self.switchable();
-        if !inventory.contains(&key) {
-            return Effect::None;
-        }
-        self.picks.toggle(&key, &inventory);
-        self.tab_hits.borrow_mut().clear();
-        self.unpicked_hit.set(None);
-        self.dragging = None;
-        self.invalidate_frame_geometry();
-        let effect = if self.current.as_ref() == Some(&key) && !self.picks.contains(&key) {
-            let position = self.tabs.iter().position(|tab| tab == &key).unwrap_or(0);
-            let next = self
-                .tabs
-                .iter()
-                .skip(position + 1)
-                .chain(self.tabs.iter().take(position + 1))
-                .find(|tab| self.picks.contains(tab))
-                .cloned()
-                .unwrap_or_else(|| super::ALL.to_owned());
-            self.go(next)
-        } else {
-            Effect::None
-        };
-        self.reconcile_switcher(false);
-        effect
-    }
-
-    /// Default Space is local to the switcher; an explicit pick binding replaces it.
-    pub(super) fn pick_keys(&self) -> Vec<String> {
-        let bindings = self.bindings();
-        let keys = bindings
-            .iter()
-            .filter(|(_, action)| action.verb == Verb::PickTab)
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
-        if keys.is_empty() && !bindings.contains_key("space") {
-            vec!["space".into()]
-        } else {
-            keys
-        }
-    }
-
-    pub(super) fn switcher_keys(&self) -> Vec<String> {
-        if self
-            .switcher
-            .as_ref()
-            .is_some_and(|switcher| switcher.unpicked_only)
-        {
-            self.unpicked_squads().into_iter().cloned().collect()
-        } else {
-            self.switchable()
-        }
-    }
-
-    /// Shift+←/→: the current tab trades places with its neighbor, and the
-    /// new order is saved. The ends do not wrap.
-    fn move_current(&mut self, step: isize) -> Effect {
-        let Some(from) = self
-            .current
-            .as_ref()
-            .and_then(|current| self.tabs.iter().position(|tab| tab == current))
-        else {
-            return Effect::None;
-        };
-        let picked = self.picked_indices();
-        let Some(position) = picked.iter().position(|&index| index == from) else {
-            return Effect::None;
-        };
-        match position
-            .checked_add_signed(step)
-            .and_then(|index| picked.get(index))
-        {
-            Some(&to) => self.move_tab(from, to),
-            None => Effect::None,
-        }
-    }
-
-    /// Moves one tab to another position and saves the order. Pinned tabs
-    /// keep `[tabs] pin`'s order, so only the others move, and never among
-    /// them: a saved `order` could not change where a pin is drawn.
-    fn move_tab(&mut self, from: usize, to: usize) -> Effect {
-        if from == to || from >= self.tabs.len() || to >= self.tabs.len() {
-            return Effect::None;
-        }
-        if from < self.pinned || to < self.pinned {
-            return self.say("Pinned tabs keep the order in [tabs] pin.");
-        }
-        let tab = self.tabs.remove(from);
-        self.tabs.insert(to, tab);
-        Effect::Act(Request::Reorder(self.tabs.clone()))
-    }
-
     /// Close the current tab's meter continuity and resume the target's cached
     /// meter, including the enabled HOME meters when its view is retained.
     fn handoff_meters(&mut self, next: &str, now: Instant) {
@@ -1939,7 +1750,6 @@ impl App {
             return self.say("Select a squad from the workspace; old squad tabs are retired.");
         }
         self.meter_hover = None;
-        self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -2333,11 +2143,6 @@ impl App {
         }
         if action.verb == Verb::Menu {
             return self.context_menu();
-        }
-        if action.verb == Verb::PickTab {
-            self.switcher = Some(Switcher::default());
-            self.reconcile_switcher(false);
-            return Effect::None;
         }
         if (self.loading() || self.cached_display().is_some())
             && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes)
@@ -3501,10 +3306,6 @@ impl App {
                     .workspace_form
                     .as_ref()
                     .map_or_else(Vec::new, |draft| draft.focus_fields()),
-                Overlay::Switcher => vec![
-                    vec!["switcher".into(), "query".into()],
-                    vec!["switcher".into(), "choices".into()],
-                ],
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
                 Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
@@ -3546,8 +3347,6 @@ impl App {
             Some(Overlay::Settings)
         } else if self.theme_picker.is_some() {
             Some(Overlay::Theme)
-        } else if self.switcher.is_some() {
-            Some(Overlay::Switcher)
         } else if self.cron_list.is_some() {
             Some(Overlay::CronList)
         } else {
@@ -3625,7 +3424,6 @@ impl App {
                     Effect::None
                 }
             }),
-            Overlay::Switcher => self.switcher_event(event, field),
             Overlay::CronList => self.cron_list_event(event),
         }
     }
@@ -3691,90 +3489,6 @@ impl App {
         self.workspace_key(key)
     }
 
-    /// Every tab the switcher offers: the tab line's, then hidden ones.
-    pub fn switchable(&self) -> Vec<String> {
-        self.tabs.iter().chain(&self.hidden).cloned().collect()
-    }
-
-    fn reconcile_switcher(&self, reset: bool) {
-        let keys = self.switcher_keys();
-        let Some(switcher) = &self.switcher else {
-            return;
-        };
-        let mut surface = switcher.surface.borrow_mut();
-        let query = surface.picker.query().unwrap_or("");
-        let rows: Vec<_> = super::tabs::matching(&keys, query)
-            .into_iter()
-            .map(|key| tmt_tui::components::ListRow {
-                id: key.clone(),
-                disabled: false,
-            })
-            .collect();
-        let first = rows.first().map(|row| row.id.clone());
-        surface.reconcile(rows);
-        if reset && let Some(id) = first {
-            surface.select(&id);
-        }
-    }
-
-    fn switcher_event(
-        &mut self,
-        event: &Event,
-        field: &tmt_tui::app::ComponentId,
-    ) -> Option<Effect> {
-        use tmt_tui::components::{PickerEvent, PickerField, PickerInput};
-        let field = match field.last().map(String::as_str) {
-            Some("query") => PickerField::Query,
-            Some("choices") => PickerField::List,
-            _ => return None,
-        };
-        self.reconcile_switcher(false);
-        if let Event::Key(key) = event
-            && event_name(*key).is_some_and(|name| self.pick_keys().contains(&name))
-        {
-            let selected = self
-                .switcher
-                .as_ref()?
-                .surface
-                .borrow()
-                .picker
-                .list
-                .selected()
-                .map(str::to_owned);
-            return Some(selected.map_or(Effect::None, |key| self.toggle_tab_pick(key)));
-        }
-        let input = self
-            .switcher
-            .as_ref()?
-            .surface
-            .borrow_mut()
-            .input(event, field);
-        match input {
-            Some(PickerInput::Event(PickerEvent::Cancel)) => self.switcher = None,
-            Some(PickerInput::Event(PickerEvent::Confirm(key))) => {
-                self.switcher = None;
-                return Some(self.go(key));
-            }
-            Some(PickerInput::Event(PickerEvent::QueryChanged(_))) => self.reconcile_switcher(true),
-            Some(_) => {}
-            None if matches!(event, Event::Key(key) if key.code == KeyCode::Enter)
-                && self
-                    .switcher
-                    .as_ref()?
-                    .surface
-                    .borrow()
-                    .picker
-                    .list
-                    .selected()
-                    .is_none() =>
-            {
-                self.switcher = None
-            }
-            None => return None,
-        }
-        Some(Effect::None)
-    }
-
     /// Refuse pointer and viewport authority from a superseded frame. Offsets
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
@@ -3783,7 +3497,6 @@ impl App {
         self.hits.borrow_mut().clear();
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
-        self.unpicked_hit.set(None);
         self.title_hits.borrow_mut().clear();
         self.detail_more_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
@@ -3805,9 +3518,6 @@ impl App {
         }
         if let Some(picker) = &self.theme_picker {
             picker.surface.borrow_mut().invalidate();
-        }
-        if let Some(switcher) = &self.switcher {
-            switcher.surface.borrow_mut().invalidate();
         }
         if let Some(list) = &self.cron_list {
             list.invalidate();
@@ -4042,19 +3752,6 @@ impl App {
         if self.scroll_pointer(event) {
             return Effect::None;
         }
-        if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && self.unpicked_hit.get().is_some_and(|rect| {
-                rect.contains(ratatui::layout::Position::new(event.column, event.row))
-            })
-        {
-            self.dragging = None;
-            self.switcher = Some(Switcher {
-                unpicked_only: true,
-                ..Switcher::default()
-            });
-            self.reconcile_switcher(false);
-            return Effect::None;
-        }
         // Shell tabs are navigation only, including before the first snapshot.
         // They never address the old name-based squad tab inventory.
         let tab = self.tab_hits.borrow().iter().copied().find(|hit| {
@@ -4178,188 +3875,6 @@ impl App {
 }
 
 #[cfg(test)]
-mod pick_tests {
-    use super::*;
-    use serde_json::json;
-
-    fn loaded(name: &str) -> Snapshot {
-        let mut snapshot = super::tests::snapshot(name, json!([]));
-        snapshot.tabs = [
-            super::super::ALL,
-            "product",
-            "omitted",
-            "infra",
-            "@tab:needs-me",
-        ]
-        .map(String::from)
-        .to_vec();
-        snapshot.hidden = vec!["hidden".into()];
-        snapshot.pinned = 1;
-        snapshot
-    }
-
-    fn board() -> App {
-        let mut app = App::new(Some("product".into()));
-        app.apply(loaded("product"));
-        app.picks =
-            super::super::pick::Picks::parse(Some("product,infra"), &app.switchable()).unwrap();
-        app
-    }
-
-    fn key(app: &mut App, code: KeyCode) -> Effect {
-        app.key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    fn highlight(app: &mut App, name: &str) {
-        app.reconcile_switcher(false);
-        app.switcher
-            .as_ref()
-            .unwrap()
-            .surface
-            .borrow_mut()
-            .select(name);
-    }
-
-    #[test]
-    fn space_toggles_only_the_highlighted_tab_and_current_unpick_uses_normal_load() {
-        let mut app = board();
-        let other = board();
-        let canonical = app.tabs.clone();
-        key(&mut app, KeyCode::Char('s'));
-        highlight(&mut app, "product");
-        assert_eq!(
-            key(&mut app, KeyCode::Char(' ')),
-            Effect::Load("infra".into())
-        );
-        assert!(!app.picks.contains("product"));
-        assert_eq!(app.current.as_deref(), Some("infra"));
-        assert!(
-            app.loading(),
-            "an uncached tab retains the old view with the normal stale fence"
-        );
-        assert!(app.switcher.is_some());
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
-        assert_eq!(app.tabs, canonical);
-        assert!(
-            other.picks.contains("product"),
-            "another board is independent"
-        );
-        app.apply(loaded("infra"));
-        highlight(&mut app, "infra");
-        assert_eq!(
-            key(&mut app, KeyCode::Char(' ')),
-            Effect::Load(super::super::ALL.into())
-        );
-        assert!(
-            app.picks.contains(super::super::ALL),
-            "last unpick opens home"
-        );
-        assert!(!app.picks.contains("infra"));
-    }
-
-    #[test]
-    fn opening_unpicked_or_hidden_entries_picks_without_changing_global_hide() {
-        let mut app = board();
-        key(&mut app, KeyCode::Char('s'));
-        highlight(&mut app, "omitted");
-        assert_eq!(
-            key(&mut app, KeyCode::Enter),
-            Effect::Load("omitted".into())
-        );
-        assert!(app.picks.contains("omitted"));
-        assert!(app.switcher.is_none());
-        app.apply(loaded("omitted"));
-        app.go("hidden".into());
-        assert!(app.picks.contains("hidden"));
-        assert!(!app.tabs.contains(&"hidden".into()));
-        assert_eq!(app.hidden, ["hidden"]);
-    }
-
-    #[test]
-    fn rebindable_pick_action_opens_the_switcher_and_overrides_space_in_both_fields() {
-        let mut app = board();
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("p".into(), Action::parse("pick-tab").unwrap());
-        assert_eq!(app.pick_keys(), ["p"]);
-        assert_eq!(key(&mut app, KeyCode::Char('p')), Effect::None);
-        highlight(&mut app, "infra");
-        key(&mut app, KeyCode::Char('p'));
-        assert!(!app.picks.contains("infra"));
-        key(&mut app, KeyCode::Tab);
-        key(&mut app, KeyCode::Char('p'));
-        assert!(app.picks.contains("infra"));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
-        key(&mut app, KeyCode::Esc);
-        key(&mut app, KeyCode::Char('/'));
-        key(&mut app, KeyCode::Char('p'));
-        assert_eq!(app.search, "p", "text inputs keep printable bindings");
-        assert!(app.switcher.is_none());
-    }
-
-    #[test]
-    fn picks_survive_refresh_cache_switches_and_reorder_retains_omitted_keys() {
-        let mut app = board();
-        let canonical = app.tabs.clone();
-        app.go("infra".into());
-        app.apply(loaded("infra"));
-        app.go("product".into());
-        assert!(!app.loading(), "visited view comes from its original cache");
-        assert!(!app.picks.contains("omitted"));
-        let mut refreshed = loaded("product");
-        refreshed.tabs.push("new-squad".into());
-        app.apply(refreshed);
-        assert!(!app.picks.contains("new-squad"));
-        assert!(app.cache.contains_key("infra"));
-        assert_eq!(app.picked_indices(), [1, 3]);
-        let moved = app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
-        let Effect::Act(Request::Reorder(order)) = moved else {
-            panic!("expected reorder");
-        };
-        assert_eq!(order.len(), canonical.len() + 1);
-        assert!(canonical.iter().all(|key| order.contains(key)));
-        assert_eq!(order[0], super::super::ALL);
-        assert!(order.contains(&"omitted".into()));
-    }
-
-    #[test]
-    fn default_follows_additions_but_explicit_removal_reconciles_to_home() {
-        let mut app = board();
-        app.picks = Default::default();
-        let mut refreshed = loaded("product");
-        refreshed.tabs.push("new-squad".into());
-        app.apply(refreshed);
-        assert!(app.picked_indices().contains(&5));
-        app.picks = super::super::pick::Picks::parse(Some("product"), &app.switchable()).unwrap();
-        let mut removed = loaded("product");
-        removed.tabs.retain(|key| key != "product");
-        app.apply(removed);
-        assert_eq!(
-            app.reconcile_pick_current(),
-            Effect::Load(super::super::ALL.into())
-        );
-        assert!(!app.picks.contains("product"));
-        assert!(app.picks.contains(super::super::ALL));
-    }
-
-    #[test]
-    fn an_unavailable_inventory_does_not_erase_this_boards_picks() {
-        let mut app = board();
-        let mut failed = loaded("product");
-        failed.tabs.clear();
-        failed.hidden.clear();
-        failed.view = Err("inventory unavailable".into());
-        app.apply(failed);
-        assert_eq!(app.reconcile_pick_current(), Effect::None);
-        app.apply(loaded("product"));
-        assert!(app.picks.contains("product") && app.picks.contains("infra"));
-        assert!(!app.picks.contains("omitted"));
-    }
-}
-
-#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use serde_json::json;
@@ -4405,70 +3920,18 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn switcher_fields_keep_query_text_and_refresh_selection_by_identity() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot("product", json!([])));
-        press(&mut app, KeyCode::Char('s'));
-        press(&mut app, KeyCode::Down);
-        let chosen = app
-            .switcher
-            .as_ref()
-            .unwrap()
-            .surface
-            .borrow()
-            .picker
-            .list
-            .selected()
-            .unwrap()
-            .to_owned();
-        let mut updated = snapshot("product", json!([]));
-        updated.tabs.reverse();
-        app.apply(updated);
-        assert_eq!(
-            app.switcher
-                .as_ref()
-                .unwrap()
-                .surface
-                .borrow()
-                .picker
-                .list
-                .selected(),
-            Some(chosen.as_str())
-        );
-        let current = app.current.clone();
-        let focus = app.focus;
-        press(&mut app, KeyCode::Char('q'));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "q");
-        press(&mut app, KeyCode::Char('?'));
-        assert_eq!(app.switcher.as_ref().unwrap().query(), "q?");
-        press(&mut app, KeyCode::Backspace);
-        press(&mut app, KeyCode::Backspace);
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(
-            app.overlay_focus.focused().unwrap().last().unwrap(),
-            "choices"
-        );
-        press(&mut app, KeyCode::Char('q'));
-        assert!(
-            app.switcher.is_none(),
-            "q closes the list field and stays text in the query"
-        );
-        assert_eq!(app.current, current);
-        assert_eq!(app.focus, focus);
-    }
-
-    #[test]
     fn common_overlay_route_consumes_close_release_and_unknown_mouse() {
         use ratatui::crossterm::event::KeyEventKind;
         let mut app = App::new(Some("product".into()));
         app.apply(snapshot("product", json!([])));
         let current = app.current.clone();
         let focus = app.focus;
-        app.switcher = Some(Switcher::default());
+        app.help_state.borrow_mut().open();
+        app.help = true;
         let mut released = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         released.kind = KeyEventKind::Release;
         assert_eq!(app.key(released), Effect::None);
-        assert!(app.switcher.is_some(), "release cannot close a modal");
+        assert!(app.help, "release cannot close a modal");
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
             Effect::None
@@ -4491,7 +3954,7 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             Effect::None
         );
-        assert!(app.switcher.is_none());
+        assert!(!app.help);
         assert!(app.overlay_focus.overlay().is_none());
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),

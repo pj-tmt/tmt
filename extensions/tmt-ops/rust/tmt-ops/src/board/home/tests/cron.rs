@@ -47,7 +47,7 @@ fn scoped_timer_list_opens_after_a_read_and_cancel_keeps_the_exact_target() {
     assert!(rendered.contains("merge queue sweep"), "{rendered}");
     press(&mut app, KeyCode::Char('s'));
     press(&mut app, KeyCode::Char('a'));
-    assert!(app.switcher.is_none() && app.input.is_none() && app.menu.is_none());
+    assert!(app.input.is_none() && app.menu.is_none());
     press(&mut app, KeyCode::Esc);
     assert!(app.cron_list.is_none());
     assert_eq!(app.workspace.selected, selected);

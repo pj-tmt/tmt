@@ -439,7 +439,6 @@ mod tests {
             scrolls: Vec::new(),
             expanded: Vec::new(),
             folds: Vec::new(),
-            picks: None,
             search: String::new(),
         };
         let error =

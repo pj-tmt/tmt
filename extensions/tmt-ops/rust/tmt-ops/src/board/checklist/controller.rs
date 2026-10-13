@@ -17,7 +17,6 @@ impl App {
             || self.settings.is_some()
             || self.help
             || self.theme_picker.is_some()
-            || self.switcher.is_some()
             || self.cron_list.is_some()
         {
             return self.say("Close the current input or overlay before opening Checklist.");

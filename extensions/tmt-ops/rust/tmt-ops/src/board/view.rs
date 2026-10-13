@@ -53,7 +53,6 @@ pub fn render(frame: &mut Frame, app: &App) {
         app.help
             || app.settings.is_some()
             || app.menu.is_some()
-            || app.switcher.is_some()
             || app.cron_list.is_some()
             || app.theme_picker.is_some()
             || app.workspace_form.is_some(),
@@ -111,8 +110,6 @@ pub(in crate::board) fn render_frame(
     app.workspace_action_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
-    app.unpicked_hit.set(None);
-    app.tabs_overflow.set(false);
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
