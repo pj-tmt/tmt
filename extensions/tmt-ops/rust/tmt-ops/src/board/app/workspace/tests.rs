@@ -545,6 +545,85 @@ fn pool_annotation_refuses_before_opening_the_shared_composer() {
     );
 }
 
+#[test]
+fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
+    const FIRST: &str = "req_44444444-4444-4444-8444-444444444441";
+    const SECOND: &str = "req_44444444-4444-4444-8444-444444444442";
+    let opening = || {
+        let mut app = board();
+        let selected = app.workspace.selected.clone().unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&selected)
+            .unwrap()["waitingOnYou"] = json!([
+            {"requestId":FIRST,"preparedAtMs":20,"preview":"first question"},
+            {"requestId":SECOND,"preparedAtMs":30,"preview":"second question"}
+        ]);
+        app.perform(&Action::parse("reply").unwrap());
+        assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Enter);
+        assert!(matches!(
+            &app.input.as_ref().unwrap().compose,
+            Compose::Reply { request, .. } if request == SECOND
+        ));
+        app
+    };
+    let mut app = opening();
+    key(&mut app, KeyCode::Char('y'));
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Reply {
+            me: "Owner".into(),
+            request: SECOND.into(),
+            from: "worker".into(),
+            text: "y".into(),
+        })
+    );
+
+    for change in ["request", "sender", "loading", "membership", "name"] {
+        let mut app = opening();
+        key(&mut app, KeyCode::Char('y'));
+        let selected = app.workspace.selected.clone().unwrap();
+        match change {
+            "sender" => app.view.as_mut().unwrap().me = Some("Other".into()),
+            "loading" => app.current = Some("unloaded".into()),
+            _ => {
+                let rows = &mut app
+                    .view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .rows;
+                match change {
+                    "request" => rows.get_mut(&selected).unwrap()["waitingOnYou"] = json!([]),
+                    "membership" => {
+                        rows.remove(&selected);
+                    }
+                    _ => rows.get_mut(&selected).unwrap()["name"] = json!("renamed"),
+                }
+            }
+        }
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{change}");
+        assert!(app.notice.as_deref().unwrap().contains("nothing sent"));
+    }
+    let mut app = opening();
+    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
+    assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+    let mut app = opening();
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
+    assert!(app.input.is_none() && app.menu.is_none());
+}
+
 /// Explicit, read-only evidence capture. This never rewrites a frozen fixture
 /// and never calls Core, tmux, the filesystem-backed services or the action lane.
 #[test]
