@@ -74,7 +74,7 @@ import { FilesPanel } from './files-panel.js';
 import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
-import { isChatThread } from './thread-records.js';
+import { isChatThread, threadNumbers } from './thread-records.js';
 import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { compactOffered } from './page-usage.js';
@@ -993,6 +993,7 @@ function Page() {
           thread.ref.id === annotation.thread!.id,
       )
     : undefined;
+  const numbers = useMemo(() => threadNumbers(view.threads ?? []), [view.threads]);
   const openThreads = openThreadCount(view.threads ?? []);
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
@@ -1275,13 +1276,15 @@ function Page() {
               {
                 id: `${thread.ref.writer}:${thread.threadId}`,
                 selector: thread.anchor,
+                ordinal: numbers.get(`${thread.ref.writer}:${thread.threadId}`)!,
               },
             ]
           : [],
       ),
       annotation?.selector ?? undefined,
+      numbers.size,
     );
-  }, [state, view.threads, annotation]);
+  }, [state, view.threads, annotation, numbers]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (
@@ -1523,6 +1526,11 @@ function Page() {
                   connectionPresentation={connectionPresentation}
                   archived={archived}
                   thread={annotationThread}
+                  number={
+                    annotationThread
+                      ? numbers.get(`${annotationThread.ref.writer}:${annotationThread.threadId}`)
+                      : undefined
+                  }
                   anchor={annotation.selector ?? undefined}
                   layout="anchored"
                   attached={resolved.includes(
@@ -1723,6 +1731,7 @@ function Page() {
           reopenProposal={proposalLayer.reopenProposal}
           creationRecipient={view.creationRecipient}
           hideHeader
+          numbers={numbers}
           renderProposal={proposalLayer.renderProposal}
           key={`discussion:${snapshot.id}:${draftsReady}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}

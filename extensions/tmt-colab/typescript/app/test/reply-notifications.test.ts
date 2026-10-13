@@ -20,6 +20,7 @@ function thread(writer = me, id = 'thread', chat = false): ThreadView {
     revision: '1',
     deleted: false,
     deviceName: writer,
+    createdAt: '1',
     at: '1',
     resolved: false,
     threadId: chat ? writer : id,

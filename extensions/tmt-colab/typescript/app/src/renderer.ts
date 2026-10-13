@@ -89,7 +89,11 @@ export async function mountRenderer(
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
-  highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
+  highlight(
+    anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
+    draft?: QuoteSelector,
+    threadCount?: number,
+  ): void;
   slots(slots: InlineSlot[]): void;
   questions(
     blocks: { id: string; title: string }[],
@@ -146,7 +150,7 @@ export async function mountRenderer(
   };
   const stopTheme = subscribeTheme(sendTheme);
   let requestId = '';
-  let anchors: { id: string; selector: QuoteSelector }[] = [];
+  let anchors: { id: string; selector: QuoteSelector; ordinal?: number }[] = [];
   const positions = new Map<string, number>();
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
@@ -610,14 +614,35 @@ export async function mountRenderer(
     }
     options.onAnchors?.([...value.resolved] as string[], true);
   };
-  const highlight = (input: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector) => {
+  const highlight = (
+    input: { id: string; selector: QuoteSelector; ordinal: number }[],
+    draft?: QuoteSelector,
+    threadCount = input.length,
+  ) => {
     if (stopped) return;
     // Author code can inspect everything delivered into its frame. Rebuild this
     // narrow view instead of forwarding caller objects or discussion labels.
-    const next = input.map(({ id, selector }) => ({ id, selector: structuredClone(selector) }));
-    // The empty ID checks an unsaved quote without adding a thread marker or action.
-    if (draft) next.push({ id: '', selector: structuredClone(draft) });
-    if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
+    const next = input.map(({ id, selector, ordinal }) => ({
+      id,
+      selector: structuredClone(selector),
+      ordinal,
+    }));
+    if (
+      !Number.isSafeInteger(threadCount) ||
+      threadCount < 0 ||
+      next.some(
+        ({ ordinal }) => !Number.isSafeInteger(ordinal) || ordinal < 1 || ordinal > threadCount,
+      ) ||
+      new Set(next.map(({ ordinal }) => ordinal)).size !== next.length ||
+      new Set(next.map(({ id }) => id)).size !== next.length
+    )
+      return;
+    // The unsaved quote resolves separately, without a thread ordinal or action.
+    if (draft) validateSelector(draft);
+    if (
+      next.length > 1000 ||
+      next.some((v) => typeof v.id !== 'string' || v.id.length === 0 || v.id.length > 73)
+    )
       return;
     for (const item of next) validateSelector(item.selector);
     positions.clear();
@@ -627,6 +652,8 @@ export async function mountRenderer(
       renderId: snapshot.renderId,
       requestId,
       anchors: next,
+      threadCount,
+      draft: draft ? structuredClone(draft) : null,
     };
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) {
       anchors = [];
@@ -634,7 +661,7 @@ export async function mountRenderer(
       channel.port1.postMessage({ ...message, anchors: [] });
       return;
     }
-    anchors = next;
+    anchors = [...next, ...(draft ? [{ id: '', selector: structuredClone(draft) }] : [])];
     options.onAnchors?.([]);
     channel.port1.postMessage(message);
   };

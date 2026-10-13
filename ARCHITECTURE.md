@@ -619,7 +619,7 @@ bytes without core and storage access.
   highlights, thread clicks and closed-set key requests are cosmetic claims; only parent
   controls admit discussion or sends. The bootstrap bounds DOM resolution before
   author HTML without application capability. Group slots retain inactive quote context. Parent highlights carry only
-  anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
+  anchor IDs, quote selectors and bounded paint-only ordinals; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request. The parent projects the effective light/dark theme as root `data-theme` over the render-bound cosmetic port; details in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.

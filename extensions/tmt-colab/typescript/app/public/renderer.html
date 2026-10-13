@@ -26,6 +26,31 @@
             [v.prefix, v.suffix].every(
               (s) => typeof s === 'string' && [...s].length <= 32 && utf8.encode(s).length <= 128,
             );
+          function validHighlightAnchors(anchors, threadCount) {
+            return (
+              Array.isArray(anchors) &&
+              anchors.length <= 1000 &&
+              Number.isSafeInteger(threadCount) &&
+              threadCount >= 0 &&
+              anchors.every(
+                (item) =>
+                  item &&
+                  typeof item === 'object' &&
+                  !Array.isArray(item) &&
+                  Object.keys(item).length === 3 &&
+                  Object.keys(item).every((key) => ['id', 'selector', 'ordinal'].includes(key)) &&
+                  typeof item.id === 'string' &&
+                  item.id.length > 0 &&
+                  item.id.length <= 73 &&
+                  Number.isSafeInteger(item.ordinal) &&
+                  item.ordinal > 0 &&
+                  item.ordinal <= threadCount &&
+                  validQuote(item.selector),
+              ) &&
+              new Set(anchors.map((item) => item.ordinal)).size === anchors.length &&
+              new Set(anchors.map((item) => item.id)).size === anchors.length
+            );
+          }
           let batch = [],
             requestId = '',
             stopped = false,
@@ -808,27 +833,31 @@
                   group.push(position.id);
                   lines.set(line, group);
                 }
-                for (const [top, ids] of lines) {
-                  const marker = document.createElement('button');
-                  marker.type = 'button';
-                  marker.dataset.colabThread = ids[0];
-                  marker.textContent = ids.length > 1 ? String(ids.length) : '▪';
-                  marker.title =
-                    batch.find((item) => item.id === ids[0])?.selector.exact.slice(0, 80) ??
-                    'Annotation';
-                  marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
-                  marker.style.cssText = `position:absolute;right:8px;top:${top - origin}px;width:20px;height:20px;padding:0;border:1px solid #625327;border-radius:0;background:#ffe18a;color:#392e12;font:12px/18px sans-serif;pointer-events:auto;cursor:pointer`;
-                  marker.addEventListener('click', (event) => {
-                    if (event.isTrusted)
-                      port.postMessage({
-                        type: 'colab.render.open-thread',
-                        renderId,
-                        requestId,
-                        id: ids[0],
-                      });
-                  });
-                  markers.append(marker);
-                }
+                for (const [top, ids] of lines)
+                  for (const [index, id] of ids.entries()) {
+                    const marker = document.createElement('button');
+                    marker.type = 'button';
+                    marker.dataset.colabThread = id;
+                    marker.textContent = String(batch.find((item) => item.id === id).ordinal);
+                    marker.title =
+                      'Thread ' +
+                      marker.textContent +
+                      ': ' +
+                      (batch.find((item) => item.id === id)?.selector.exact.slice(0, 80) ??
+                        'Annotation');
+                    marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
+                    marker.style.cssText = `position:absolute;right:${8 + index * 24}px;top:${top - origin}px;width:20px;height:20px;padding:0;border:1px solid #625327;border-radius:0;background:#ffe18a;color:#392e12;font:12px/18px sans-serif;pointer-events:auto;cursor:pointer`;
+                    marker.addEventListener('click', (event) => {
+                      if (event.isTrusted)
+                        port.postMessage({
+                          type: 'colab.render.open-thread',
+                          renderId,
+                          requestId,
+                          id: id,
+                        });
+                    });
+                    markers.append(marker);
+                  }
               }
             } catch {
               positions.length = 0;
@@ -1061,33 +1090,23 @@
               !v ||
               typeof v !== 'object' ||
               Array.isArray(v) ||
-              Object.keys(v).length !== 4 ||
+              Object.keys(v).length !== 6 ||
               v.type !== 'colab.render.highlight' ||
               v.renderId !== renderId ||
               typeof v.requestId !== 'string' ||
               !/^[0-9a-f-]{36}$/.test(v.requestId) ||
               !Array.isArray(v.anchors) ||
-              v.anchors.length > 1000
+              v.anchors.length > 1000 ||
+              !Number.isSafeInteger(v.threadCount) ||
+              v.threadCount < 0 ||
+              !(v.draft === null || validQuote(v.draft))
             )
               return;
             if (utf8.encode(JSON.stringify(v)).length > 256 * 1024) return;
-            if (
-              !v.anchors.every(
-                (item) =>
-                  item &&
-                  typeof item === 'object' &&
-                  !Array.isArray(item) &&
-                  Object.keys(item).length === 2 &&
-                  Object.keys(item).every((key) => ['id', 'selector'].includes(key)) &&
-                  typeof item.id === 'string' &&
-                  item.id.length <= 73 &&
-                  validQuote(item.selector),
-              )
-            )
-              return;
+            if (!validHighlightAnchors(v.anchors, v.threadCount)) return;
             clearTarget();
             gesture = undefined;
-            batch = v.anchors;
+            batch = [...v.anchors, ...(v.draft ? [{ id: '', selector: v.draft }] : [])];
             requestId = v.requestId;
             resolve();
           };

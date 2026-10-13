@@ -39,7 +39,7 @@ async function mount(page: Page, source: string) {
       host.id = 'probe';
       document.body.append(host);
       const controller = new AbortController();
-      const handle = await mountRenderer(host, source, {
+      const renderer = await mountRenderer(host, source, {
         signal: controller.signal,
         onState: (state: string) => {
           host.dataset.state = state;
@@ -78,6 +78,21 @@ async function mount(page: Page, source: string) {
           ]);
         },
       });
+      // Give legacy scenario inputs explicit paint-only ordinals at the fixture boundary.
+      const handle = {
+        ...renderer,
+        highlight(
+          input: { id: string; selector: unknown; ordinal?: number }[],
+          draft?: unknown,
+          count?: number,
+        ) {
+          return renderer.highlight(
+            input.map((anchor, index) => ({ ...anchor, ordinal: anchor.ordinal ?? index + 1 })),
+            draft,
+            count ?? input.length,
+          );
+        },
+      };
       // Test-owned handles never exist in the production entry point.
       Object.assign(window, { probe: { handle, controller } });
       return { ...handle.snapshot } as {

@@ -432,6 +432,7 @@ export async function mount(
       deviceName: 'You',
       threadId,
       revision: '1',
+      createdAt: String(Date.now()),
       at: String(Date.now()),
       anchor,
       resolved: false,
@@ -860,6 +861,7 @@ export function conversation(options: {
     threadId: options.surface === 'chat' ? id(4) : id(41),
     revision: '1',
     at,
+    createdAt: at,
     anchor:
       options.surface === 'chat' ? null : { exact: 'Exact selected text', prefix: '', suffix: '' },
     resolved: false,
@@ -1084,6 +1086,7 @@ export function proposal(placement: 'inline' | 'missing' | 'duplicate' = 'inline
         deviceName: 'You',
         threadId: proposalId,
         revision: '1',
+        createdAt: String(Date.now()),
         at: String(Date.now()),
         anchor: null,
         resolved: false,

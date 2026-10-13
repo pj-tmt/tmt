@@ -17,7 +17,7 @@ import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './a
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
-import { isOwnDiscussionWriter } from './thread-records.js';
+import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
@@ -343,6 +343,7 @@ export function CommentExchange({
 }
 
 export type ThreadWindowProps = {
+  number?: number;
   creationRecipient?: CreationRecipient;
   /** Absent until the first committed turn; the composer stays in this same window. */
   thread?: ThreadView;
@@ -371,6 +372,7 @@ export type ThreadWindowProps = {
 };
 
 export function ThreadWindow({
+  number,
   thread,
   anchor: initialAnchor,
   creationRecipient,
@@ -474,6 +476,7 @@ export function ThreadWindow({
         }
         title={
           <span className="thread-state">
+            {number !== undefined && <span className="annotation-number">{number}</span>}
             {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
             <span>
               {!thread
@@ -646,6 +649,7 @@ export function ThreadWindow({
 }
 
 export function ThreadPanel({
+  numbers: suppliedNumbers,
   creationRecipient,
   hideHeader = false,
   threads,
@@ -672,6 +676,7 @@ export function ThreadPanel({
   creationRecipient?: CreationRecipient;
   hideHeader?: boolean;
   threads: readonly ThreadView[];
+  numbers?: ReadonlyMap<string, number>;
   resolved: readonly string[];
   anchorsChecked: boolean;
   selection: QuoteSelector | null;
@@ -692,6 +697,7 @@ export function ThreadPanel({
   renderProposal?(thread: ThreadView): ReactNode;
   reopenProposal?(thread: ThreadView): void;
 }) {
+  const numbers = suppliedNumbers ?? threadNumbers(threads);
   const [compose, setCompose] = useState(false);
   const [proposalsOnly, setProposalsOnly] = useState(false);
   const visibleThreads = threads.filter((thread) => !proposalsOnly || !!thread.proposal);
@@ -786,6 +792,9 @@ export function ThreadPanel({
                   }}
                 >
                   <strong>
+                    {numbers.get(id) !== undefined && (
+                      <span className="annotation-number">{numbers.get(id)}</span>
+                    )}
                     {thread.deleted
                       ? text.threadDeleted
                       : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
@@ -847,6 +856,7 @@ export function ThreadPanel({
                     archived={archived}
                     creationRecipient={creationRecipient}
                     thread={thread}
+                    number={numbers.get(id)}
                     attached={resolved.includes(id)}
                     anchorsChecked={anchorsChecked}
                     selection={selection}
