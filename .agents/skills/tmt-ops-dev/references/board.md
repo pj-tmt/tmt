@@ -213,17 +213,20 @@ anchors refuse actions and never retarget to a visible neighbour.
   Applied retains only a frozen announcement for explicit notification-only retry;
   focus returns to the first field so queued submit keys cannot retry a notification.
   Unanswered requests remain separate and use the existing one-request composer.
-- A visible conversation reserves its composer inside that pane. Otherwise row
-  painters reserve input beneath the complete target in the same line stream used
-  for starts, reveal and hits. `view::waiting` removes only hits covered by the
-  current opaque band, preserving independent pointer scrolling in other panes. Headers derive from actual `Compose` recipients/subjects. Unanchored input
-  keeps the footer path. Recipient/sender/source fences remain enforced at submit. Read-only detail belongs to `row_detail`, outside the composer.
-- `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag
-  alone permits `✓ sent`. A removed workspace target remains an explicit missing anchor, with no adjacent
-  recipient authority. An active status form retains its row through
-  applied/unknown outcomes and notification retry without claiming a successful
-  send; the acquired model and request state are unchanged. Clearing precedes any
-  underlying action after leaving the form.
+- A visible conversation reserves its composer inside that pane, anchored to
+  the exact selected membership. A note can be delivered to the squad lead;
+  Status has no message draft key. Neither changes the conversation owning its
+  input band. Compact Overview moves an explicit message to Agents.
+  `view::waiting` removes only hits covered by the opaque band, preserving
+  independent pointer scrolling in other panes. Headers derive from actual
+  Compose recipients/subjects; sender, recipient and source fences run at submit.
+  Read-only detail belongs to `row_detail`, outside the composer.
+- Completion uses the observed Core outcome as one notice. It does not retain a
+  second row-mark cache or invent delivery from dispatch intent. Refresh retains
+  the workspace UUID anchor; a removed target stays missing without adjacent
+  recipient authority. Worker in-flight state blocks reload until effects finish.
+  An active status form retains its typed applied/unknown outcome and frozen
+  notification retry without claiming delivery; acquired request data is unchanged.
 
 ## Overlays and offline validation
 

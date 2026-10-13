@@ -59,17 +59,6 @@ impl Accepted {
         })
     }
 
-    /// The word under the row, such as `✓ queued`.
-    pub fn mark(&self) -> &'static str {
-        match self.disposition {
-            Disposition::Sent => "sent",
-            Disposition::Uncertain => "handed over",
-            Disposition::Queued => "queued",
-            Disposition::Offline => "queued · offline",
-            Disposition::Held => "held",
-        }
-    }
-
     /// The board notice; `what` names the message, such as `Note on alpha`.
     pub fn describe(&self, what: &str, to: &str) -> String {
         let request = &self.request;

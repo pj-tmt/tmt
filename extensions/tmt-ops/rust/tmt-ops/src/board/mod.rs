@@ -195,11 +195,6 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 pub(super) enum ActionOutcome {
     Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     Message(String),
-    /// A request Core accepted: the notice and the row's mark.
-    Accepted {
-        notice: String,
-        mark: &'static str,
-    },
     Status(Box<crate::membership::status_update::Outcome>),
     /// Core agreed that the person at the board may change a member's digest.
     Digest(Box<digest::Granted>),
@@ -271,10 +266,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             text,
         } => {
             return send::talk(core, &squad, &me, &to, &text)
-                .map(|accepted| ActionOutcome::Accepted {
-                    notice: accepted.describe("Message", &to),
-                    mark: accepted.mark(),
-                })
+                .map(|accepted| ActionOutcome::Message(accepted.describe("Message", &to)))
                 .map_err(|error| error.message);
         }
         Request::DirectTalk {
@@ -283,10 +275,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             text,
         } => {
             return send::talk_direct(core, &sender, &recipient, &text)
-                .map(|accepted| ActionOutcome::Accepted {
-                    notice: accepted.describe("Message", &recipient),
-                    mark: accepted.mark(),
-                })
+                .map(|accepted| ActionOutcome::Message(accepted.describe("Message", &recipient)))
                 .map_err(|error| error.message);
         }
         Request::Annotate {
@@ -297,9 +286,8 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             text,
         } => {
             return send::annotate(core, &squad, &me, &to, &row, &text)
-                .map(|accepted| ActionOutcome::Accepted {
-                    notice: accepted.describe(&format!("Note on {row}"), &to),
-                    mark: accepted.mark(),
+                .map(|accepted| {
+                    ActionOutcome::Message(accepted.describe(&format!("Note on {row}"), &to))
                 })
                 .map_err(|error| error.message);
         }
@@ -567,9 +555,6 @@ fn session(
                     Ok(ActionOutcome::Workspace(outcome)) => app.finished_workspace(*outcome),
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
-                    Ok(ActionOutcome::Accepted { notice, mark }) => {
-                        app.finished_as(Ok(notice), mark)
-                    }
                     Ok(ActionOutcome::Digest(granted)) => app.open_digest(*granted),
                     Err(error) => app.finished(Err(error)),
                 }

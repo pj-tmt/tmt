@@ -1126,45 +1126,6 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
 }
 
 #[test]
-fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() {
-    let mut app = board(json!([{"title": null, "rows": [
-        row("alpha", "working", "one", json!({"id": "u1", "annotation": {"to": "sol", "text": "noted"}})),
-        row("bravo", "working", "two", json!({"id": "u2"})),
-    ]}]));
-    app.view.as_mut().unwrap().look = Default::default();
-    app.sent = Some(crate::board::app::RowFeedback {
-        mark: Some("sent"),
-        target: app.row_target(0).unwrap(),
-    });
-    let screen = draw(&app, 60, 12);
-    let alpha = screen.iter().position(|l| l.contains("alpha")).unwrap();
-    assert_eq!(screen[alpha + 1], "    ✓ sent");
-    assert!(screen[alpha + 2].starts_with("    ✎ sent to sol: noted"));
-    assert!(screen[alpha + 3].contains("bravo"));
-    // The feedback line is the row's, so a click on it selects the row, and the
-    // sent mark takes the working role without the row's selection.
-    let hit = app
-        .hits
-        .borrow()
-        .iter()
-        .copied()
-        .find(|hit| usize::from(hit.y) == alpha + 1);
-    assert_eq!(hit.map(|hit| hit.row().unwrap()), Some(0));
-    let buffer = board_buffer(&app, 60, 12);
-    let look = app.look();
-    assert_eq!(
-        painted_at(&buffer, 4, (alpha + 1) as u16),
-        painted(look.role(Role::Working))
-    );
-    // A queued request says so instead of claiming it was sent.
-    app.sent.as_mut().unwrap().mark = Some("queued · offline");
-    assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✓ queued · offline");
-    // The next frame without feedback restores the original stream.
-    app.sent = None;
-    assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✎ sent to sol: noted");
-}
-
-#[test]
 fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() {
     let rows = rows_from(
         "[p.rows]\ncolumns=[{name='task',width=12,overflow='wrap',max_lines=2}]\nlines=[[{field='task',token='waiting'}]]\n",

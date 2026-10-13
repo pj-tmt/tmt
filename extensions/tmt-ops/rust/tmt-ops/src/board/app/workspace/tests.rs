@@ -1233,10 +1233,8 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
                 text: "y".into(),
             })
         );
-        assert_eq!(
-            app.pending_send.as_ref().unwrap().target,
-            RowTarget::Workspace(selected.clone())
-        );
+        assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
+        assert!(app.notice.is_none(), "a requested reply is not completion");
         app.finished(Ok("Replied".into()));
         let mut fresh = board();
         fresh
@@ -1256,14 +1254,10 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
         app.apply(snapshot);
         assert_eq!(app.workspace.selected, Some(selected.clone()));
         assert_eq!(app.selected_row().unwrap()["waitingOnYou"], json!([]));
-        assert_eq!(
-            app.sent.as_ref().unwrap().target,
-            RowTarget::Workspace(selected)
-        );
+        assert_eq!(app.notice.as_deref(), Some("Replied"));
         let screen = paint(&app, width, 36).join("\n");
         assert!(screen.contains("Replied"), "{width}: {screen}");
         key(&mut app, KeyCode::Down);
-        assert!(app.sent.is_none());
         assert!(app.notice.is_none());
     }
 }

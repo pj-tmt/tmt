@@ -135,8 +135,6 @@ impl App {
                 "The row target or actor changed; no further action taken. {outcome}"
             ));
         }
-        let feedback =
-            self.row_feedback(self.input.as_ref().and_then(|input| input.row_send.clone()));
         let open = self
             .input
             .as_ref()
@@ -221,7 +219,6 @@ impl App {
                     let Some(preview) = &draft.preview else {
                         return Effect::None;
                     };
-                    self.pending_send = feedback;
                     return Effect::Act(Request::Status(Box::new(Action::Apply(Submit {
                         preview: preview.clone(),
                         clear_pending: draft.clear_pending,
@@ -668,7 +665,13 @@ mod tests {
             intent: intent.clone(),
             notification: Err("offline".into()),
         });
-        assert!(app.sent.as_ref().unwrap().mark.is_none());
+        assert!(matches!(
+            app.status_draft.as_ref().unwrap().outcome,
+            Some(Outcome::Applied {
+                notification: Err(_),
+                ..
+            })
+        ));
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         press(&mut app, KeyCode::End);
         let Effect::Act(Request::Status(action)) = press(&mut app, KeyCode::Enter) else {
@@ -695,7 +698,10 @@ mod tests {
             assert!(text.contains("Retry notification only"));
         }
         app.finished_status(Outcome::Unknown("Outcome unknown".into()));
-        assert!(app.sent.as_ref().unwrap().mark.is_none());
+        assert!(matches!(
+            app.status_draft.as_ref().unwrap().outcome,
+            Some(Outcome::Unknown(_))
+        ));
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
     }
 

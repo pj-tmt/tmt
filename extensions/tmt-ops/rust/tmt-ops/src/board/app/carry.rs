@@ -15,7 +15,6 @@ impl App {
             || self.loading_since.is_some()
             || self.pending_resume.is_some()
             || self.in_flight > 0
-            || self.pending_send.is_some()
             || self.input.is_some()
             || self.workspace_form.is_some()
             || self.composer.has_drafts()

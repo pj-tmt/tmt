@@ -392,24 +392,6 @@ pub(super) struct RowSend {
     pub note_member: bool,
 }
 
-/// A send retains its exact target through effect completion.
-/// Feedback is display evidence only, never dispatch authority.
-pub(super) struct RowFeedback {
-    /// What the send reported, such as `sent` or `queued`; `None` keeps the
-    /// row without claiming a send.
-    pub mark: Option<&'static str>,
-    pub target: RowTarget,
-}
-
-impl RowFeedback {
-    /// The confirmation shown under `target`, when this feedback is for it.
-    pub(crate) fn line(&self, target: &RowTarget) -> Option<String> {
-        self.mark
-            .filter(|_| &self.target == target)
-            .map(|mark| format!("✓ {mark}"))
-    }
-}
-
 impl RowSend {
     pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
         if app.loading()
@@ -671,9 +653,6 @@ pub struct App {
     pub(super) composer: super::composer::State,
     pub(super) mentions: super::mentions::State,
     pub(super) references: super::inventory::Inventory,
-    /// Last successful row send; cleared on the next user action.
-    pub(super) sent: Option<RowFeedback>,
-    pub(super) pending_send: Option<RowFeedback>,
     /// Lane jobs submitted whose events have not arrived.
     pub(super) in_flight: usize,
     /// Current-frame inline band, reserved by the row painter.
@@ -1232,11 +1211,7 @@ impl App {
             return;
         }
         self.reconcile_row_details();
-        let anchor = self
-            .input
-            .as_ref()
-            .and_then(Input::target)
-            .or(self.sent.as_ref().map(|feedback| &feedback.target));
+        let anchor = self.input.as_ref().and_then(Input::target);
         if let Some(target) = anchor
             && let Some(index) = (0..self.rows().len())
                 .find(|&index| self.row_target(index).as_ref() == Some(target))
@@ -2791,7 +2766,6 @@ impl App {
             _ => None,
         });
         let squad = input.squad;
-        self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
             Compose::Talk { .. } if direct.is_some() => {
                 let (sender, recipient) = direct.unwrap();
@@ -2829,43 +2803,14 @@ impl App {
         })
     }
 
-    pub(super) fn row_feedback(&self, send: Option<RowSend>) -> Option<RowFeedback> {
-        send.map(|send| RowFeedback {
-            mark: None,
-            target: send.target,
-        })
-    }
     pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
-        if matches!(
-            outcome,
-            crate::membership::status_update::Outcome::Applied { .. }
-                | crate::membership::status_update::Outcome::Unknown(_)
-        ) {
-            if let Some(feedback) = self.pending_send.take() {
-                self.sent = Some(feedback);
-            }
-        } else {
-            self.pending_send = None;
-        }
         if let Some(draft) = &mut self.status_draft {
             draft.finished(outcome);
             self.notice = draft.error.clone();
         }
     }
-    /// Shows how a request ended.
+    /// Shows the observed outcome without a second row-feedback cache.
     pub fn finished(&mut self, outcome: Result<String, String>) {
-        self.finished_as(outcome, "sent");
-    }
-    /// Shows how a request ended; a success marks the row with `mark`.
-    pub fn finished_as(&mut self, outcome: Result<String, String>, mark: &'static str) {
-        self.sent = self
-            .pending_send
-            .take()
-            .filter(|_| outcome.is_ok())
-            .map(|feedback| RowFeedback {
-                mark: Some(mark),
-                ..feedback
-            });
         self.notice = Some(outcome.unwrap_or_else(|error| error));
     }
 
@@ -3116,14 +3061,6 @@ impl App {
             return effect;
         }
         self.notice = None;
-        if !self
-            .input
-            .as_ref()
-            .is_some_and(|input| matches!(input.compose, Compose::Status))
-            && self.sent.take().is_some()
-        {
-            self.clamp();
-        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
@@ -4359,7 +4296,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn row_composer_switches_modes_preserves_draft_and_marks_only_success() {
+    fn row_composer_switches_modes_preserves_draft_and_reports_observed_outcomes() {
         let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
@@ -4408,32 +4345,27 @@ pub(crate) mod tests {
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
         );
-        assert!(app.sent.is_none(), "dispatch intent is not send success");
+        assert!(
+            app.notice.is_none(),
+            "opening a dispatch does not claim success"
+        );
         app.finished(Err("delivery uncertain".into()));
-        assert!(app.sent.is_none());
+        assert_eq!(app.notice.as_deref(), Some("delivery uncertain"));
         app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "approved");
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Replied".into()));
-        assert_eq!(
-            app.sent
-                .as_ref()
-                .map(|feedback| (&feedback.target, feedback.mark)),
-            Some((&target, Some("sent")))
-        );
+        assert_eq!(app.notice.as_deref(), Some("Replied"));
         assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
-        press(&mut app, KeyCode::Char('x'));
+        press(&mut app, KeyCode::Tab);
         assert!(
-            app.sent.is_none(),
-            "the next key clears the row confirmation"
+            app.notice.is_none(),
+            "the next key clears the completion notice"
         );
         app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "later");
         press(&mut app, KeyCode::Enter);
-        app.finished_as(
-            Ok("Message queued in auth-fix's inbox (r).".into()),
-            "queued",
-        );
+        app.finished(Ok("Message queued in auth-fix's inbox (r).".into()));
         assert_eq!(
             app.notice.as_deref(),
             Some("Message queued in auth-fix's inbox (r)."),
@@ -4728,7 +4660,6 @@ pub(crate) mod tests {
                     app.notice.as_ref().unwrap().contains("nothing sent"),
                     "{change}"
                 );
-                assert!(app.sent.is_none());
             }
         }
     }
