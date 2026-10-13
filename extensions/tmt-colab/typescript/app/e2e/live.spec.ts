@@ -6,6 +6,7 @@ import {
   test,
   type BrowserContext,
   type Locator,
+  type Page,
   type WebSocketRoute,
 } from '@playwright/test';
 import { capturePath } from './captures.js';
@@ -22,6 +23,30 @@ const ownVector = JSON.parse(
 const hex = (s: string) => Uint8Array.from(s.match(/../g) ?? [], (n) => parseInt(n, 16));
 const json = (value: unknown) => c.text(JSON.stringify(value));
 const mount = '/r/abcd/x/colab/';
+interface Hunk {
+  oldStart: number;
+  old: string;
+  new: string;
+}
+/** The serve's evaluation in short: each hunk's old text is on the page once, at a line start.
+ * The merged page, or the indices of the hunks that do not fit. */
+function placeHunks(page: string, hunks: Hunk[]): string | number[] {
+  const at = hunks.map((hunk) => {
+    const found: number[] = [];
+    for (let i = page.indexOf(hunk.old); i >= 0; i = page.indexOf(hunk.old, i + 1))
+      if (i === 0 || page[i - 1] === '\n') found.push(i);
+    return found.length === 1 ? found[0] : -1;
+  });
+  const missing = at.flatMap((place, index) => (place < 0 ? [index] : []));
+  if (missing.length) return missing;
+  let merged = page;
+  for (const index of [...hunks.keys()].sort((x, y) => at[y] - at[x]))
+    merged =
+      merged.slice(0, at[index]) +
+      hunks[index].new +
+      merged.slice(at[index] + hunks[index].old.length);
+  return merged;
+}
 async function wire(
   context: BrowserContext,
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
@@ -495,8 +520,10 @@ async function wire(
     statusChecks = 0;
   // Saves the fixture committed, by operation ID, so a lost reply can be settled by status.
   const saved = new Map<string, string>();
-  // The source of the last save: the next save's base must be exactly that.
+  // The source of the last save: the next save's base is that, or its hunks are placed on it.
   let lastSource: string | null = null;
+  // Every save frame the fixture received, in order.
+  const saveFrames: Record<string, unknown>[] = [];
   const outgoing = new Map<WebSocketRoute, { frames: string[]; waiting: boolean }>();
   const pump = (socket: WebSocketRoute) => {
     const state = outgoing.get(socket);
@@ -792,13 +819,35 @@ async function wire(
         frame: Record<string, unknown>,
         bytes: Uint8Array,
       ) {
+        saveFrames.push(frame);
         expect(frame.sourceSha256).toBe(c.encodeBinary(await c.digest(bytes)));
-        const source = new TextDecoder().decode(bytes);
-        if (lastSource !== null)
-          expect(frame.baseSha256).toBe(c.encodeBinary(await c.digest(c.text(lastSource))));
+        let source = new TextDecoder().decode(bytes);
+        const operationId = frame.operationId as string;
+        let merged = false;
+        if (
+          lastSource !== null &&
+          frame.baseSha256 !== c.encodeBinary(await c.digest(c.text(lastSource)))
+        ) {
+          // The page moved since the editor opened it: like the real serve, place its hunks on
+          // the page as it is now, or refuse them naming the ones that do not fit.
+          const hunks = frame.hunks as Hunk[] | undefined;
+          expect(hunks, 'a save from a moved page carries its hunks').toBeDefined();
+          const placed = placeHunks(lastSource, hunks!);
+          if (Array.isArray(placed)) {
+            send(socket, 'saveresult', {
+              operationId,
+              state: 'rejected',
+              code: 'COLAB_PATCH_CONFLICT',
+              message: `Hunk ${placed[0] + 1} does not match the page.`,
+              conflicts: placed,
+            });
+            return;
+          }
+          source = placed;
+          merged = true;
+        }
         lastSource = source;
         await fixture.contentUpdate(source);
-        const operationId = frame.operationId as string;
         saved.set(operationId, String(entries.length));
         if (drop) {
           drop = false;
@@ -810,6 +859,9 @@ async function wire(
           operationId,
           state: 'committed',
           revision: saved.get(operationId),
+          ...(merged
+            ? { merged: true, sourceSha256: c.encodeBinary(await c.digest(c.text(source))) }
+            : {}),
         });
       }
       async function append(frame: Record<string, unknown>) {
@@ -859,6 +911,9 @@ async function wire(
     statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
     get statementChunks() {
       return statementChunks;
+    },
+    get saveFrames() {
+      return saveFrames;
     },
     get hellos() {
       return hellos;
@@ -2047,6 +2102,142 @@ test('chunked epoch baseline stays live in two tabs through an edit and reload',
     page.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
 });
+/** A page of one line per row, the heading first, so row N is line N + 1. */
+const rowsPage = (changes: Record<number, string> = {}) =>
+  [
+    '<h1>Merged rows</h1>',
+    ...Array.from({ length: 30 }, (_, i) => changes[i + 1] ?? `<p>row ${i + 1}</p>`),
+    '',
+  ].join('\n');
+
+/** Two tabs open on the Source panel of the same page. */
+async function twoSourceTabs(page: Page, context: BrowserContext, source: string) {
+  const f = await wire(context, { source });
+  const other = await context.newPage();
+  for (const tab of [page, other]) {
+    await tab.goto(mount);
+    await tab.locator(`[data-page-id="${v.page}"] a`).click();
+    await expect(
+      tab.frameLocator('iframe').getByRole('heading', { name: 'Merged rows' }),
+    ).toBeVisible();
+    await (await pageAction(tab, 'Source')).click();
+    await expect(tab.getByRole('textbox')).toHaveValue(source);
+  }
+  return { f, other };
+}
+
+test('a Save of a page that changed elsewhere is merged, says so once, and shows the merged source', async ({
+  page,
+  context,
+}) => {
+  const { f, other } = await twoSourceTabs(page, context, rowsPage());
+  const mine = rowsPage({ 3: '<p>mine</p>' });
+  const both = rowsPage({ 3: '<p>mine</p>', 25: '<p>theirs</p>' });
+  await page.getByRole('textbox').fill(mine);
+  await other.getByRole('textbox').fill(rowsPage({ 25: '<p>theirs</p>' }));
+  await other.getByRole('button', { name: 'Save source' }).click();
+  // The page renders their change while this draft, built on the page as opened, stays as typed.
+  await expect(page.frameLocator('iframe').getByText('theirs')).toBeVisible();
+  await expect(page.getByRole('textbox')).toHaveValue(mine);
+  await page.getByRole('button', { name: 'Save source' }).click();
+  const merged = page.getByRole('status').filter({ hasText: copy.saveMerged });
+  await expect(merged).toBeVisible();
+  await expect(page.getByRole('textbox')).toHaveValue(both);
+  await expect(other.getByRole('textbox')).toHaveValue(both);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.frameLocator('iframe').getByText('mine')).toBeVisible();
+  // One hunk with its context, anchored to the page as the editor opened it, and one frame sent.
+  const sent = f.saveFrames.at(-1)!;
+  expect(sent.hunks).toEqual([
+    {
+      oldStart: 1,
+      old: '<h1>Merged rows</h1>\n<p>row 1</p>\n<p>row 2</p>\n<p>row 3</p>\n<p>row 4</p>\n<p>row 5</p>\n<p>row 6</p>\n',
+      new: '<h1>Merged rows</h1>\n<p>row 1</p>\n<p>row 2</p>\n<p>mine</p>\n<p>row 4</p>\n<p>row 5</p>\n<p>row 6</p>\n',
+    },
+  ]);
+  expect(f.saveFrames.filter((frame) => frame.operationId === sent.operationId)).toHaveLength(1);
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'dark'],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.screenshot({ path: capturePath(`2843-merged-${width}-${theme}.png`) });
+  }
+  // The line clears with the next edit.
+  await page.getByRole('textbox').fill(`${both}<p>next</p>\n`);
+  await expect(merged).toHaveCount(0);
+});
+
+test('a Save whose anchor changed elsewhere is refused naming it, keeps the draft and can copy it', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const odd = `<p>${'Long '.repeat(20)}\u202e<b>x</b>\u0007 end</p>`;
+  const { f, other } = await twoSourceTabs(page, context, rowsPage({ 10: odd }));
+  const mine = rowsPage({ 5: '<p>my five</p>', 20: '<p>my twenty</p>', 28: '<p>my row</p>' });
+  await page.getByRole('textbox').fill(mine);
+  await other.getByRole('textbox').fill(
+    rowsPage({
+      5: '<p>their five</p>',
+      10: '<p>their ten</p>',
+      20: '<p>their twenty</p>',
+    }),
+  );
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(page.frameLocator('iframe').getByText('their five')).toBeVisible();
+  await page.getByRole('button', { name: 'Save source' }).click();
+  // Rows 5 and 20 conflict, row 28 does not: nothing is saved, and the first conflict is named by
+  // the line the editor changed, as numbered in the source it opened, and quoted as plain text.
+  const notice = page.getByRole('alert');
+  await expect(notice).toContainText('Not saved');
+  await expect(notice).toContainText(
+    'Nothing was saved. 2 of your edits conflict with changes made elsewhere, the first near \u201c<p>row 5</p>\u201d (line 6).',
+  );
+  await expect(notice).toContainText('Your draft is kept.');
+  await expect(page.getByRole('textbox')).toHaveValue(mine);
+  expect(f.saveFrames).toHaveLength(2);
+  // Pressing Save again is a new request with the same outcome, never an automatic resend.
+  await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(notice).toContainText('Nothing was saved.');
+  expect(f.saveFrames).toHaveLength(3);
+  await expect(page.getByRole('textbox')).toHaveValue(mine);
+  await page.getByRole('button', { name: 'Copy draft' }).click();
+  await expect(page.getByRole('status').filter({ hasText: copy.saveDraftCopied })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(mine);
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'dark'],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.screenshot({ path: capturePath(`2843-conflicts-${width}-${theme}.png`) });
+  }
+  // One conflict reads in the singular, and an excerpt with markup, bidi and control characters is
+  // inert, clipped text on one line.
+  await page.getByRole('textbox').fill(rowsPage({ 10: '<p>my ten</p>' }));
+  await page.getByRole('button', { name: 'Save source' }).click();
+  const clipped = `<p>${'Long '.repeat(20)}`.slice(0, 60);
+  await expect(notice).toContainText(
+    `Nothing was saved. Your edit near \u201c${clipped}\u2026\u201d (line 11) conflicts`,
+  );
+  await expect(notice.locator('b')).toHaveCount(0);
+  const shown = await notice.innerText();
+  expect(shown.includes('\u202e') || shown.includes('\u0007')).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  for (const [width, theme] of [
+    [1440, 'light'],
+    [390, 'dark'],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.screenshot({ path: capturePath(`2843-conflict-${width}-${theme}.png`) });
+  }
+});
+
 for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as const)
   test(`signed reset rejects ${invalid} without partial renderer publication`, async ({
     page,

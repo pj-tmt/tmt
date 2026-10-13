@@ -11,6 +11,8 @@ export interface SaveProblem {
   message: string;
   unconfirmed: boolean;
   full?: 'compact' | 'export' | 'compacted';
+  /** The edit conflicts with a change made elsewhere: the draft is kept and can be copied. */
+  conflict?: true;
 }
 export function SaveNotice({ problem, actions }: { problem: SaveProblem; actions?: ReactNode }) {
   const waiting = problem.unconfirmed || problem.full === 'compacted';

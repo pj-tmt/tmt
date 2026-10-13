@@ -142,7 +142,41 @@ fn replace_lines(
     ))
 }
 
-fn apply_hunks(source: &str, hunks: &[Hunk]) -> Result<String, PatchFault> {
+/// Where one hunk's old text sits in `source`: at the start of a line, once, or once at the line
+/// the hunk states when it occurs more than once.
+fn place_hunk(source: &str, hunk: &Hunk, number: usize) -> Result<usize, PatchFault> {
+    let at_line_start = |at: &usize| *at == 0 || source.as_bytes()[*at - 1] == b'\n';
+    let found: Vec<usize> = occurrences(source, &hunk.old)
+        .into_iter()
+        .filter(at_line_start)
+        .collect();
+    match found.as_slice() {
+        [] => Err(conflict(format!(
+            "Hunk {number} (old line {}) does not match the page: its context and removed lines are not there as written.",
+            hunk.old_start
+        ))),
+        [at] => Ok(*at),
+        many => {
+            // Several occurrences: only the one at the stated line is the one meant.
+            let at_stated: Vec<usize> = many
+                .iter()
+                .copied()
+                .filter(|at| line_number(source, *at) == hunk.old_start)
+                .collect();
+            match at_stated.as_slice() {
+                [at] => Ok(*at),
+                _ => Err(conflict(format!(
+                    "Hunk {number} (old line {}) matches the page {} times; add context lines until it matches once.",
+                    hunk.old_start,
+                    many.len()
+                ))),
+            }
+        }
+    }
+}
+
+/// The source after every hunk applies, or why they do not: all of them apply or none does.
+pub fn apply_hunks(source: &str, hunks: &[Hunk]) -> Result<String, PatchFault> {
     if hunks.is_empty() {
         return Err(invalid("The diff has no hunks."));
     }
@@ -150,38 +184,7 @@ fn apply_hunks(source: &str, hunks: &[Hunk]) -> Result<String, PatchFault> {
     let mut placed: Vec<(usize, usize, &Hunk, usize)> = Vec::new();
     for (index, hunk) in hunks.iter().enumerate() {
         let number = index + 1;
-        let at_line_start = |at: &usize| *at == 0 || source.as_bytes()[*at - 1] == b'\n';
-        let found: Vec<usize> = occurrences(source, &hunk.old)
-            .into_iter()
-            .filter(at_line_start)
-            .collect();
-        let chosen = match found.as_slice() {
-            [] => {
-                return Err(conflict(format!(
-                    "Hunk {number} (old line {}) does not match the page: its context and removed lines are not there as written.",
-                    hunk.old_start
-                )));
-            }
-            [at] => *at,
-            many => {
-                // Several occurrences: only the one at the stated line is the one meant.
-                let at_stated: Vec<usize> = many
-                    .iter()
-                    .copied()
-                    .filter(|at| line_number(source, *at) == hunk.old_start)
-                    .collect();
-                match at_stated.as_slice() {
-                    [at] => *at,
-                    _ => {
-                        return Err(conflict(format!(
-                            "Hunk {number} (old line {}) matches the page {} times; add context lines until it matches once.",
-                            hunk.old_start,
-                            many.len()
-                        )));
-                    }
-                }
-            }
-        };
+        let chosen = place_hunk(source, hunk, number)?;
         placed.push((chosen, chosen + hunk.old.len(), hunk, number));
     }
     placed.sort_by_key(|(from, ..)| *from);
@@ -200,6 +203,29 @@ fn apply_hunks(source: &str, hunks: &[Hunk]) -> Result<String, PatchFault> {
     }
     out.push_str(&source[cursor..]);
     Ok(out)
+}
+
+/// The hunks (0-based, in the order given) that cannot be placed on `source`: their old text is
+/// missing or ambiguous, or the later of two that overlap. Empty when the whole diff applies.
+pub fn conflicting_hunks(source: &str, hunks: &[Hunk]) -> Vec<usize> {
+    let mut conflicting = Vec::new();
+    let mut placed: Vec<(usize, usize, usize)> = Vec::new();
+    for (index, hunk) in hunks.iter().enumerate() {
+        match place_hunk(source, hunk, index + 1) {
+            Ok(at) => placed.push((at, at + hunk.old.len(), index)),
+            Err(_) => conflicting.push(index),
+        }
+    }
+    placed.sort();
+    conflicting.extend(
+        placed
+            .windows(2)
+            .filter(|pair| pair[0].1 > pair[1].0)
+            .map(|pair| pair[1].2),
+    );
+    conflicting.sort_unstable();
+    conflicting.dedup();
+    conflicting
 }
 
 /// Parses a unified diff. File headers and anything before the first hunk are ignored; each
@@ -461,6 +487,41 @@ mod tests {
             text: "B".into(),
         };
         assert_eq!(last.apply("a\nb").unwrap(), "a\nB");
+    }
+
+    #[test]
+    fn the_conflicting_hunks_are_the_ones_that_cannot_be_placed_or_overlap_an_earlier_one() {
+        let hunk = |old_start: usize, old: &str, new: &str| Hunk {
+            old_start,
+            old: old.into(),
+            new: new.into(),
+        };
+        let source = "a\nb\nc\nd\ne\n";
+        let fits = [hunk(1, "a\nb\n", "A\nb\n"), hunk(4, "d\ne\n", "d\nE\n")];
+        assert_eq!(conflicting_hunks(source, &fits), Vec::<usize>::new());
+        assert!(apply_hunks(source, &fits).is_ok());
+        // The second hunk's text is gone, the third overlaps the first (it is the later of the pair),
+        // and indices come back in the order the hunks were given.
+        let broken = [
+            hunk(1, "a\nb\n", "A\nb\n"),
+            hunk(3, "x\ny\n", "x\n"),
+            hunk(2, "b\nc\n", "b\n"),
+        ];
+        assert_eq!(conflicting_hunks(source, &broken), vec![1, 2]);
+        assert_eq!(
+            apply_hunks(source, &broken).unwrap_err().code(),
+            "COLAB_PATCH_CONFLICT"
+        );
+        // Text that occurs twice is placed by its stated line, else it conflicts.
+        let twice = "x\ny\nx\ny\n";
+        assert_eq!(
+            conflicting_hunks(twice, &[hunk(3, "x\ny\n", "z\n")]),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            conflicting_hunks(twice, &[hunk(2, "x\ny\n", "z\n")]),
+            vec![0]
+        );
     }
 
     const DIFF: &str = "--- a/page.html\n+++ b/page.html\n@@ -2,3 +2,3 @@ section\n beta\n-gamma\n+GAMMA\n delta\n";

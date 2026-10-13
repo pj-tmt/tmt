@@ -18,6 +18,11 @@ function humanSize(bytes: number): string {
   return `${value.toFixed(1).replace(/\.0$/, '')} ${unit}`;
 }
 
+/** Where an edit conflicts: near a quoted line when it holds text, else at its line number. */
+function where(excerpt: string, line: number): string {
+  return excerpt === '' ? `at line ${line}` : `near \u201c${excerpt}\u201d (line ${line})`;
+}
+
 const reconnectCommand = 'tmt remote pair';
 
 export const text = {
@@ -404,6 +409,14 @@ export const text = {
     `The source is ${formatBytes(size)}, over the ${formatBytes(limit)} one page can hold. Shorten it, then save again.`,
   saveStale:
     'The page changed while you were editing, so nothing was saved. Copy your changes, reload to get the latest source, then apply them again.',
+  saveMerged: 'Saved. Your edit was merged with a change made elsewhere.',
+  saveConflict: (excerpt: string, line: number) =>
+    `Nothing was saved. Your edit ${where(excerpt, line)} conflicts with a change made elsewhere. Your draft is kept. Copy it, reload for the latest source, then apply that part again.`,
+  saveConflicts: (count: number, excerpt: string, line: number) =>
+    `Nothing was saved. ${count} of your edits conflict with changes made elsewhere, the first ${where(excerpt, line)}. Your draft is kept. Copy it, reload for the latest source, then apply those parts again.`,
+  saveCopyDraft: 'Copy draft',
+  saveDraftCopied: 'Draft copied.',
+  saveDraftNotCopied: 'Could not copy. Select the text and copy it yourself.',
   saveNotSaved: 'Not saved',
   saveUnconfirmed: 'Unconfirmed',
   saveNotApplied: 'The save did not reach the page, so nothing changed. Save again.',

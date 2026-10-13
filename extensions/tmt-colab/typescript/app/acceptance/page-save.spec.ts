@@ -199,7 +199,7 @@ test('a lost reply is settled by one status request and the save lands exactly o
   });
 });
 
-test('a save on a stale base is refused and the newer version stays', async () => {
+test('a save that overlaps a newer change is refused naming it and the newer version stays', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -228,7 +228,8 @@ test('a save on a stale base is refused and the newer version stays', async () =
     );
     await box.fill('<p>v1 edited in the browser</p>');
     await save(page);
-    await expect(page.getByRole('alert')).toContainText(text.saveStale);
+    // The CLI changed the line the browser changed: its edit cannot be placed, so nothing is saved.
+    await expect(page.getByRole('alert')).toContainText(text.saveConflict('<p>v1</p>', 1));
     await expect(page.getByRole('alert')).toContainText(text.saveNotSaved);
     await expect(box).toHaveValue('<p>v1 edited in the browser</p>');
     await expect(page.getByRole('alert')).not.toBeFocused();
@@ -382,5 +383,82 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
     console.log(`FINAL_CAP CLI over-cap refusal ${refusal}`);
     expect(read().revision).toBe(acceptedRevision);
     verify('over-cap CLI leaves exact source', d, Date.now());
+  });
+});
+
+// #2843: an edit made in the browser against the page it opened still saves when the page changed
+// elsewhere meanwhile, and refuses, keeping the draft, only where the changes overlap.
+test('a browser Save merges with a concurrent CLI patch and refuses an overlapping one, keeping the draft', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'save-merge');
+    const colab = world.binaries.colab;
+    const rows = (changes: Record<number, string> = {}) =>
+      [
+        '<h1>Merge rows</h1>',
+        ...Array.from({ length: 30 }, (_, i) => changes[i + 1] ?? `<p>row ${i + 1}</p>`),
+        '',
+      ].join('\n');
+    const created = createPage(world, 'Save merge', rows());
+    const page = await browser.context.newPage();
+    await page.goto(`${door.address}/${created.path}`);
+    await expect(
+      page.frameLocator('iframe').getByRole('heading', { name: 'Merge rows', exact: true }),
+    ).toBeVisible();
+    const box = await openSource(page);
+    await expect(box).toHaveValue(rows());
+    const read = () =>
+      (
+        JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
+          source: string;
+        }
+      ).source;
+    // The editor changes row 3 while the CLI changes row 25: both land, nothing is reloaded.
+    const mine = rows({ 3: '<p>mine</p>' });
+    await box.fill(mine);
+    run(world, colab, [
+      'page',
+      'patch',
+      created.pageId,
+      '--find',
+      '<p>row 25</p>',
+      '--replace',
+      '<p>theirs</p>',
+      '--json',
+    ]);
+    await expect(page.frameLocator('iframe').getByText('theirs')).toBeVisible();
+    await expect(box).toHaveValue(mine);
+    await save(page);
+    const both = rows({ 3: '<p>mine</p>', 25: '<p>theirs</p>' });
+    await expect(page.getByRole('status').filter({ hasText: text.saveMerged })).toBeVisible();
+    expect(read()).toBe(both);
+    await expect(box).toHaveValue(both);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    // The editor and the CLI change row 10 differently: nothing is saved and the draft is kept.
+    const clash = rows({ 3: '<p>mine</p>', 10: '<p>my ten</p>', 25: '<p>theirs</p>' });
+    await box.fill(clash);
+    run(world, colab, [
+      'page',
+      'patch',
+      created.pageId,
+      '--find',
+      '<p>row 10</p>',
+      '--replace',
+      '<p>their ten</p>',
+      '--json',
+    ]);
+    await expect(page.frameLocator('iframe').getByText('their ten')).toBeVisible();
+    const before = read();
+    await save(page);
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText(text.saveNotSaved);
+    await expect(alert).toContainText(
+      'Your edit near \u201c<p>row 10</p>\u201d (line 11) conflicts with a change made elsewhere.',
+    );
+    await expect(box).toHaveValue(clash);
+    expect(read()).toBe(before);
+    await expect(page.getByRole('button', { name: text.saveCopyDraft })).toBeVisible();
+    await capture(page, '2843-conflict');
   });
 });

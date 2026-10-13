@@ -29,6 +29,15 @@ pub enum Payload {
 pub struct Reference {
     pub object_id: String,
 }
+/// One anchored change in a save: the exact old text (whole lines) and what replaces it, with the
+/// line it started at in the source the editor opened.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WireHunk {
+    pub old_start: u32,
+    pub old: String,
+    pub new: String,
+}
 // Repeat common fields in each typed variant: flatten/Value would lose duplicate-field rejection.
 macro_rules! frames {
     ($($name:ident { $($field:ident: $ty:ty),* $(,)? }),* $(,)?) => {
@@ -56,7 +65,7 @@ frames! {
     Subscribe { cursors: List<SyncCursor, 256> },
     Append { stream_id: String, seq: String, envelope_hash: String, envelope: Payload },
     Chunk { object_id: String, envelope_hash: String, index: usize, count: usize, bytes: String },
-    Save { operation_id: String, base_sha256: String, source_sha256: String, source: Payload, attachments: Option<tmt_colab_model::attachment::DocumentChange> },
+    Save { operation_id: String, base_sha256: String, source_sha256: String, source: Payload, attachments: Option<tmt_colab_model::attachment::DocumentChange>, hunks: Option<List<WireHunk, 64>> },
     SaveStatus { operation_id: String },
     Usage {},
     Compact {},

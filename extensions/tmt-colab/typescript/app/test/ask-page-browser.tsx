@@ -568,7 +568,9 @@ export async function mount(
         fail = undefined;
       };
     },
-    async edit() {},
+    async edit() {
+      return { merged: false };
+    },
     async export() {
       if (!options.exportAttachments) throw new Error('Not used');
       const utf8 = (value: string) => new TextEncoder().encode(value);

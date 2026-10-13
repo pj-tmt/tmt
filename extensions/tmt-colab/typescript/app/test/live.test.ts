@@ -14,12 +14,14 @@ import { Live } from '../src/live.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 import {
+  SaveConflict,
   SaveNotApplied,
   SaveOutcomeUnknown,
   SaveRefused,
   SaveTooLarge,
   type SaveResult,
 } from '../src/save.js';
+import { digest, encodeBinary, text as bytesOf } from '@tmt/colab-client';
 
 const connections = vi.hoisted(
   () =>
@@ -112,8 +114,20 @@ vi.mock('../src/connection.js', () => ({
     async run<T>(fn: () => Promise<T>) {
       return fn();
     }
-    save(operationId: string, base: string, source: string, attachments?: unknown) {
-      return saves.save(this, operationId, base, source, ...(attachments ? [attachments] : []));
+    save(
+      operationId: string,
+      base: string,
+      source: string,
+      attachments?: unknown,
+      hunks?: unknown,
+    ) {
+      return saves.save(
+        this,
+        operationId,
+        base,
+        source,
+        ...(hunks ? [attachments, hunks] : attachments ? [attachments] : []),
+      );
     }
     saveStatus(operationId: string) {
       return saves.status(this, operationId);
@@ -1630,8 +1644,121 @@ it('a save resolves once the page shows the saved source, with one operation ID 
       expect.stringMatching(/^[0-9a-f-]{36}$/),
       'verified',
       '<p>new</p>',
+      undefined,
+      [{ oldStart: 1, old: 'verified', new: '<p>new</p>' }],
     ]);
     expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+  }
+});
+
+const lines = (count: number, mark = '') =>
+  Array.from({ length: count }, (_, i) => `line ${i + 1}${mark}\n`).join('');
+
+it('an edit of a source the page has moved past sends its hunks and resolves once the merged page shows', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const base = lines(30);
+    const draft = base.replace('line 5\n', 'mine\n');
+    // Someone else changed line 25 meanwhile; the serve merges and names the result by digest.
+    const merged = draft.replace('line 25\n', 'theirs\n');
+    let shown = false;
+    saves.save.mockImplementation(async (connection, operationId) => {
+      setTimeout(() => connection.publish(shows(lines(30).replace('line 25\n', 'theirs\n'))), 10);
+      setTimeout(() => {
+        shown = true;
+        connection.publish(shows(merged));
+      }, 60);
+      return {
+        ...committed(operationId),
+        merged: true,
+        sourceSha256: encodeBinary(await digest(bytesOf(merged))),
+      };
+    });
+    const outcome = await live.edit(draft, base);
+    // Resolved only once the page shows the merged source, not when the first change arrived.
+    expect(shown).toBe(true);
+    expect(outcome).toEqual({ merged: true });
+    expect(saves.save.mock.calls[0].slice(2, 4)).toEqual([base, draft]);
+    expect(saves.save.mock.calls[0][5]).toEqual([
+      {
+        oldStart: 2,
+        old: 'line 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\n',
+        new: 'line 2\nline 3\nline 4\nmine\nline 6\nline 7\nline 8\n',
+      },
+    ]);
+  } finally {
+    live.close();
+  }
+});
+
+it('a save whose reply was lost and that merged is shown by its revision, not waited for as the draft', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const base = lines(30);
+    const draft = base.replace('line 5\n', 'mine\n');
+    saves.save.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    // The record says committed and names a revision, not that the page merged: the page shows
+    // a source the editor never held, and the revision is how the editor knows it is there.
+    saves.status.mockImplementation(async (connection, operationId) => {
+      connection.publish(shows(draft.replace('line 25\n', 'theirs\n')));
+      return { ...committed(operationId), revision: 'v1:revision' };
+    });
+    const started = Date.now();
+    await expect(live.edit(draft, base)).resolves.toEqual({ merged: false });
+    expect(Date.now() - started).toBeLessThan(4000);
+    expect(saves.save).toHaveBeenCalledOnce();
+    expect(saves.status).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
+it('a conflict names the first hunk that did not fit from the base the editor holds, and sends nothing again', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const base = lines(40);
+    const draft = base.replace('line 5\n', 'mine\n').replace('line 30\n', 'also mine\n');
+    saves.save.mockResolvedValueOnce({
+      operationId: 'x',
+      state: 'rejected',
+      code: 'COLAB_PATCH_CONFLICT',
+      message: 'Hunk 2 does not match.',
+      conflicts: [1],
+    });
+    const error = await live.edit(draft, base).catch((reason) => reason);
+    expect(error).toBeInstanceOf(SaveConflict);
+    // Hunk 2 is named by the line the editor changed, as numbered in the source it opened.
+    expect(error).toMatchObject({ count: 1, first: { line: 30, excerpt: 'line 30' } });
+    expect(saves.save).toHaveBeenCalledOnce();
+    expect(saves.status).not.toHaveBeenCalled();
+    // A conflict the serve names outside the hunks it was sent is the plain refusal.
+    saves.save.mockResolvedValueOnce({
+      operationId: 'y',
+      state: 'rejected',
+      code: 'COLAB_PATCH_CONFLICT',
+      message: 'Moved.',
+      conflicts: [9],
+    });
+    await expect(live.edit(draft, base)).rejects.toBeInstanceOf(SaveRefused);
+  } finally {
+    live.close();
+  }
+});
+
+it('a typed attachment change still needs the admitted source as its base', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    await expect(live.edit('verified', 'an older source', { remove: [] })).rejects.toThrow();
+    expect(saves.save).not.toHaveBeenCalled();
   } finally {
     live.close();
   }

@@ -12,7 +12,15 @@ import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import {
   createHashHistory,
   createBrowserHistory,
@@ -64,7 +72,7 @@ import { CreatorDefaultProvider } from './creator-default.js';
 import { DraftSession } from './draft-store.js';
 import { CHAT_DRAFT, SavedDrafts, savedDrafts } from './saved-drafts.js';
 import { isChatThread } from './thread-records.js';
-import { SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
+import { SaveConflict, SaveOutcomeUnknown, SaveRefused, saveMessage } from './save.js';
 import { PageSizeNotice, PageSizeSection, usePageSize } from './page-size.js';
 import { compactOffered } from './page-usage.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
@@ -684,6 +692,13 @@ function Page() {
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<SaveProblem | null>(null);
+  /** The last Save merged the edit into a page that had changed; true until the next edit. */
+  const [merged, setMerged] = useState(false);
+  /** How the last Copy draft ended. */
+  const [copied, setCopied] = useState<'copied' | 'failed' | null>(null);
+  const sourceArea = useRef<HTMLTextAreaElement>(null);
+  /** Where the caret and scroll were when a merged Save replaced the text, to put them back. */
+  const placement = useRef<{ start: number; end: number; top: number } | null>(null);
   const size = usePageSize(snapshot.binding);
   const { state: connection, controller: connectionOwner } = useConnection({
     loaded,
@@ -756,16 +771,27 @@ function Page() {
     if (!snapshot.binding || saving) return;
     setSaving(true);
     setEditError(null);
+    setMerged(false);
+    setCopied(null);
+    const area = sourceArea.current;
     try {
-      await snapshot.binding.edit(draft, base.current);
+      const outcome = await snapshot.binding.edit(draft, base.current);
       dirty.current = false;
       base.current = latest.current.source;
+      if (outcome.merged && area && document.activeElement === area)
+        placement.current = {
+          start: area.selectionStart,
+          end: area.selectionEnd,
+          top: area.scrollTop,
+        };
       setDraft(latest.current.source);
+      setMerged(outcome.merged);
       void size.refresh();
     } catch (error) {
       const problem: SaveProblem = {
         message: saveMessage(error),
         unconfirmed: error instanceof SaveOutcomeUnknown,
+        ...(error instanceof SaveConflict ? { conflict: true as const } : {}),
       };
       // A full page names the way out that can help, decided by what the serve says is limiting
       // it now: combining changes frees room only when the changes are the limit.
@@ -784,6 +810,23 @@ function Page() {
     } finally {
       setSaving(false);
     }
+  }
+  // A merged Save replaces the text with the merged page; the caret and scroll stay where the new
+  // text allows, and nothing takes focus.
+  useLayoutEffect(() => {
+    const area = sourceArea.current,
+      kept = placement.current;
+    placement.current = null;
+    if (!area || !kept || document.activeElement !== area) return;
+    area.setSelectionRange(Math.min(kept.start, draft.length), Math.min(kept.end, draft.length));
+    area.scrollTop = kept.top;
+  }, [draft]);
+  /** Copy the unsaved draft from a conflict, since a reload loses it. */
+  function copyDraft() {
+    void navigator.clipboard.writeText(draft).then(
+      () => setCopied('copied'),
+      () => setCopied('failed'),
+    );
   }
   /** Compact from the save refusal: the draft stays, nothing is saved or resent; the person
    * presses Save again. */
@@ -1570,17 +1613,40 @@ function Page() {
                     variant="text"
                     onActivate={() => setPanel('export')}
                   />
+                ) : editError.conflict ? (
+                  <>
+                    <BrowserAction
+                      type="button"
+                      label={text.saveCopyDraft}
+                      variant="text"
+                      onActivate={(event) => {
+                        if (event.isTrusted) copyDraft();
+                      }}
+                    />
+                    {copied && (
+                      <span role="status">
+                        {copied === 'copied' ? text.saveDraftCopied : text.saveDraftNotCopied}
+                      </span>
+                    )}
+                  </>
                 ) : undefined
               }
             />
           )}
+          {merged && !editError && (
+            <div className="source-notice">
+              <p role="status">{text.saveMerged}</p>
+            </div>
+          )}
           <textarea
             id="source-edit"
+            ref={sourceArea}
             readOnly={archived || !snapshot.binding || saving || !!liveError}
             spellCheck={false}
             value={draft}
             onChange={(event) => {
               dirty.current = true;
+              setMerged(false);
               setDraft(event.target.value);
             }}
           />

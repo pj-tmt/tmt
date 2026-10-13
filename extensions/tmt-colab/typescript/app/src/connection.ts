@@ -35,6 +35,7 @@ import {
   type PageUsage,
 } from './page-usage.js';
 import { SAVE_SOURCE_BYTES, SaveTooLarge, saveResult, type SaveResult } from './save.js';
+import type { SaveHunk } from './save-hunks.js';
 import { text as strings } from './strings.js';
 
 function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
@@ -55,6 +56,10 @@ function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
 }
 
 const CHUNK_BYTES = 32 * 1024;
+/** The most one sync frame may hold, either way; the serve's `WS_FRAME_BYTES`. */
+const FRAME_BYTES = 64 * 1024;
+/** What the frame envelope (version, type, space, page, epoch) takes, with room to spare. */
+const ENVELOPE_BYTES = 1024;
 /** The whole reply budget for one save: upload window, native preparation and commit. */
 const SAVE_REPLY_MS = 30_000;
 /** The reply budget for a usage or compact request: a combine decodes the page several times. */
@@ -174,7 +179,7 @@ export class Connection {
       if (this.#stopped) return;
       if (
         typeof event.data !== 'string' ||
-        text(event.data).length > 64 * 1024 ||
+        text(event.data).length > FRAME_BYTES ||
         ++this.#queued > 8
       )
         return this.close(new Error('Sync message capacity'));
@@ -274,7 +279,7 @@ export class Connection {
         epoch: a.epoch,
         ...fields,
       });
-    requireValue(text(raw).length <= 64 * 1024 && this.#socket.bufferedAmount <= 1024 * 1024);
+    requireValue(text(raw).length <= FRAME_BYTES && this.#socket.bufferedAmount <= 1024 * 1024);
     this.#socket.send(raw);
   }
   #emit(projection: PageView) {
@@ -491,12 +496,15 @@ export class Connection {
     });
   }
   /** Publish the whole source through native preparation. The reply says what happened; a lost
-   * reply closes this connection and is settled by one `saveStatus` on the next. */
+   * reply closes this connection and is settled by one `saveStatus` on the next. `hunks` are the
+   * edit anchored to `base`, for the serve to merge when the page moved meanwhile; they ride only
+   * when the frame still fits, and never with an attachment change. */
   async save(
     operationId: string,
     base: string,
     source: string,
     attachments?: attachment.DocumentChange,
+    hunks?: readonly SaveHunk[],
   ): Promise<SaveResult> {
     await this.ready;
     this.admission.validatePage(this.sharing);
@@ -511,12 +519,20 @@ export class Connection {
       // A typed set/remove of document references, bound to this source by native preparation.
       ...(change && !attachment.emptyDocumentChange(change) ? { attachments: change } : {}),
     };
+    const inline = bytes.length <= CHUNK_BYTES;
+    const objectId = hex(sourceHash);
+    const reference = inline ? encodeBinary(bytes) : { objectId };
+    const carried =
+      hunks &&
+      !('attachments' in fields) &&
+      text(JSON.stringify({ ...fields, hunks, source: reference })).length + ENVELOPE_BYTES <=
+        FRAME_BYTES
+        ? { hunks }
+        : {};
     return this.#request(operationId, async () => {
-      if (bytes.length <= CHUNK_BYTES)
-        return this.send('save', { ...fields, source: encodeBinary(bytes) });
-      const objectId = hex(sourceHash),
-        count = Math.ceil(bytes.length / CHUNK_BYTES);
-      this.send('save', { ...fields, source: { objectId } });
+      if (inline) return this.send('save', { ...fields, ...carried, source: reference });
+      const count = Math.ceil(bytes.length / CHUNK_BYTES);
+      this.send('save', { ...fields, ...carried, source: reference });
       for (let index = 0; index < count; index++) {
         while (!this.#stopped && this.#socket.bufferedAmount > SAVE_BUFFER_BYTES)
           await new Promise((resolve) => setTimeout(resolve, 10));
