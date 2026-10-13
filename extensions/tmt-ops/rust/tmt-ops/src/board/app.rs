@@ -4,7 +4,6 @@
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
 use crate::display_rows::{Item, RowOrigin};
-use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,

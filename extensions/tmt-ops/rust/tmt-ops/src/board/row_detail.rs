@@ -428,18 +428,6 @@ impl App {
         }
         Effect::None
     }
-    pub(super) fn detail_value(&self, row: usize, visible: &[&str]) -> Value {
-        if self.row_details.expanded.is_empty() {
-            return Value::Null;
-        }
-        self.detail_target_value(self.row_target(row), visible)
-    }
-    pub(super) fn detail_target_value(&self, target: Option<RowTarget>, visible: &[&str]) -> Value {
-        target
-            .filter(|target| self.row_details.contains(&Target::Row(target.clone())))
-            .and_then(|target| self.row_detail(&target, visible))
-            .map_or(Value::Null, |detail| detail.value())
-    }
     fn active_detail_targets(&self) -> Vec<Target> {
         let mut targets = self.row_details.expanded.clone();
         if self.scrolls.visible(crate::config::Pane::Replies)
@@ -680,46 +668,6 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
         more: more.then(|| output.len() - 1),
         lines: output,
     }
-}
-
-/// A shared renderer can join a prepainted row stream without changing its
-/// component-owned headings, borders or composer reservations.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn insert(
-    lines: &mut Vec<Line<'static>>,
-    at: usize,
-    data: &Value,
-    width: u16,
-    indent: u16,
-    look: Look,
-    selected: bool,
-    boxed: bool,
-) -> usize {
-    let detail = render(
-        data,
-        width.saturating_sub(if boxed { 2 } else { 0 }),
-        indent,
-        look,
-        selected,
-    )
-    .into_iter()
-    .map(|line| {
-        if !boxed {
-            return line;
-        }
-        let mut spans = vec![Span::styled(" ", look.role(Role::Dim))];
-        let used = line.width();
-        spans.extend(line.spans);
-        spans.push(Span::raw(
-            " ".repeat(usize::from(width.saturating_sub(2)).saturating_sub(used)),
-        ));
-        spans.push(Span::styled(" ", look.role(Role::Dim)));
-        Line::from(spans)
-    })
-    .collect::<Vec<_>>();
-    let count = detail.len();
-    lines.splice(at..at, detail);
-    count
 }
 
 /// Paint list-reserved lines using the same renderer, leaving scrolling and hit

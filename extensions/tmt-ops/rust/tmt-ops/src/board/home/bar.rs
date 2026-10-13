@@ -12,10 +12,7 @@ use crate::{
     },
     look::Look,
 };
-use ratatui::{
-    style::Style,
-    text::{Line, Span},
-};
+use ratatui::{style::Style, text::Line};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align, table::escape};

@@ -1,7 +1,6 @@
 //! Base key hints, notices, link previews and input strip.
 
 use crate::board::app::App;
-use crate::config::Pane;
 use ratatui::{
     Frame,
     layout::Rect,

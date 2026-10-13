@@ -362,21 +362,59 @@ fn timer_counts_use_owner_uuid_and_distinguish_unknown_zero_and_stale() {
     assert!(draw(&app, 40, 24).contains("timers 0/0"));
 }
 
+fn workspace_fixture() -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":crate::board::app::workspace::tests::MEMBER,
+        "requestId":"req_44444444-4444-4444-8444-444444444444",
+        "response":body("worker", 90)
+    })];
+    app
+}
+
 #[test]
 fn link_hint_uses_effective_action_and_truncates_url_before_hint() {
-    let mut app = fixture();
-    let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(false, &[Pane::Rows, Pane::Replies]);
-    view.document["sections"][0]["rows"][0]["fields"]["link"] =
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["fields"]["link"] =
         json!(format!("https://example.test/{}", "long-path/".repeat(20)));
     assert!(draw(&app, 60, 24).contains("(press o - open $link)"));
-    app.view.as_mut().unwrap().bindings.insert(
-        "o".into(),
-        crate::action::Action::parse("copy custom").unwrap(),
-    );
-    assert!(draw(&app, 60, 24).contains("(press o - copy custom)"));
-    app.view.as_mut().unwrap().bindings.remove("o");
-    assert!(!draw(&app, 60, 24).contains("press o"));
+    let path = std::env::temp_dir()
+        .join(format!("ops-conversation-link-{}", std::process::id()))
+        .join("ops.toml");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for (text, expected) in [
+        ("[bind]\no = 'copy custom'\n", "(press o - copy custom)"),
+        ("", "(press o - open $link)"),
+    ] {
+        std::fs::write(&path, text).unwrap();
+        let config = crate::config::Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        let shown = draw(&app, 60, 24);
+        assert!(shown.contains(expected), "{shown}");
+        assert!(
+            !shown.contains("long-path/long-path/long-path/long-path/long-path/"),
+            "URL must truncate before the effective action hint"
+        );
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 
 fn workspace(app: &mut App, width: u16, height: u16) {
@@ -391,19 +429,9 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 
 #[test]
 fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient() {
-    use crate::config::{Board, BoardMode, Direction};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
-    let mut app = fixture();
-    let mut board = Board::simple(
-        BoardMode::Split,
-        Direction::LeftRight,
-        vec![Pane::Rows, Pane::Replies],
-        &[40, 60],
-    );
-    board.members = true;
-    app.view.as_mut().unwrap().board = board;
-    app.view.as_mut().unwrap().bindings =
-        crate::action::preset(false, &[Pane::Rows, Pane::Replies]);
+    let mut app = workspace_fixture();
+    let selected = app.workspace.selected.clone();
     workspace(&mut app, 160, 36);
     app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
     assert!(app.input.is_some());
@@ -438,6 +466,6 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     );
     assert!(app.scrolls.offset(Pane::Replies) < before);
     assert_eq!(app.input.as_ref().unwrap().draft_key, key);
-    assert_eq!(app.selected, 0);
-    assert_eq!(app.focused(), Pane::Rows);
+    assert_eq!(app.workspace.selected, selected);
+    assert_eq!(app.focused(), Pane::Replies);
 }

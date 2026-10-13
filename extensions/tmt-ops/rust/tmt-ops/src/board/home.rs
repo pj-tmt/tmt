@@ -286,7 +286,7 @@ mod controller;
 pub(crate) mod counters;
 mod paint;
 pub(super) use bar::{hidden_needs, hidden_usage};
-pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target, USAGE};
+pub(super) use controller::{LEADS, Target, USAGE};
 pub(super) use limits::hidden_limits;
 pub(super) use paint::{age_label, limits_of, summary_of, usage_of};
 

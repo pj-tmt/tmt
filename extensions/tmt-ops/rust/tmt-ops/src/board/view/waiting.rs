@@ -114,42 +114,7 @@ pub(super) fn prompt(
     );
 }
 
-/// Lines the inline input reserves under `row`, or `None` when it is not anchored
-/// there. The reservation joins the row stream, so placement derives from that same
-/// stream after scroll reveal, never from a previous frame's hit map.
-pub(in crate::board) fn reserved_lines(
-    app: &crate::board::app::App,
-    row: usize,
-    area: ratatui::layout::Rect,
-) -> Option<usize> {
-    app.input.as_ref()?;
-    if app.conversation_input_area().is_some() {
-        return None;
-    }
-    let target = app.row_target(row)?;
-    reserved_target_lines(app, &target, area)
-}
-
-pub(in crate::board) fn reserved_target_lines(
-    app: &crate::board::app::App,
-    target: &crate::board::app::RowTarget,
-    area: ratatui::layout::Rect,
-) -> Option<usize> {
-    if app.input.as_ref()?.target()? != target {
-        return None;
-    }
-    let demand = input_lines(app, area);
-    let margin = if app.effective_board().is_some_and(|board| board.members)
-        || matches!(target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
-    {
-        3
-    } else {
-        2
-    };
-    Some(demand.min(usize::from(area.height.saturating_sub(margin))))
-}
-
-/// Both inline rows and the conversation reserve the same compact editor band.
+/// The conversation reserves this compact editor band.
 pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
@@ -182,40 +147,8 @@ pub(in crate::board) fn input_lines(
     demand + usize::from(!input.response_quotes.is_empty())
 }
 
-/// Reserve visual lines in a line stream (the home painter's).
-pub(in crate::board) fn reserve_input(
-    app: &crate::board::app::App,
-    row: usize,
-    area: ratatui::layout::Rect,
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-) -> Option<std::ops::Range<usize>> {
-    let height = reserved_lines(app, row, area)?;
-    let start = lines.len();
-    lines.extend((0..height).map(|_| ratatui::text::Line::default()));
-    Some(start..lines.len())
-}
-
-pub(in crate::board) fn place_input(
-    app: &crate::board::app::App,
-    range: Option<std::ops::Range<usize>>,
-    area: ratatui::layout::Rect,
-    offset: usize,
-    viewport: usize,
-) {
-    if let Some(range) = range.filter(|range| {
-        !range.is_empty() && range.start >= offset && range.end <= offset + viewport
-    }) {
-        app.input_band.set(Some(ratatui::layout::Rect {
-            y: area.y + (range.start - offset) as u16,
-            height: range.len() as u16,
-            ..area
-        }));
-    }
-}
-
-/// One band owner paints at the reserved row position. Member bands cover the
-/// full body; boxed HOME lead bands cover its full inner width. Both modes share
-/// opaque chrome and remove the underlying hits.
+/// Paint the reserved conversation editor band with opaque chrome and remove
+/// the underlying hits before publishing editor geometry.
 pub(super) fn inline_prompt(
     frame: &mut ratatui::Frame,
     app: &crate::board::app::App,
