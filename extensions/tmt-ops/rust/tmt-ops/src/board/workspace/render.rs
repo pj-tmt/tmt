@@ -187,120 +187,32 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     outline.paint_flat(area, frame.buffer_mut());
     let inside = outline.inner(area);
     let rows = app.workspace_rows();
-    let lines: Vec<_> = rows
-        .iter()
-        .map(|row| {
-            let selected = app.workspace.selected.as_ref() == Some(&row.target);
-            let cursor = if selected { "› " } else { "  " };
-            let mut text = match &row.target {
-                OpsTarget::Pool | OpsTarget::Squad(_) => {
-                    let expanded = match &row.target {
-                        OpsTarget::Pool => app.workspace.pool_expanded,
-                        OpsTarget::Squad(id) => app.workspace.expanded.contains(id),
-                        _ => false,
-                    };
-                    let count = row.count.map_or("?".into(), |count| count.to_string());
-                    format!(
-                        "{cursor}{} {} · {count}",
-                        if expanded { "▾" } else { "▸" },
-                        safe(&row.title)
-                    )
-                }
-                OpsTarget::Member { .. } => format!(
-                    "{cursor}  {}{} · {}",
-                    safe(&row.title),
-                    if row.lead { " · lead" } else { "" },
-                    safe(row.state.as_deref().unwrap_or("unreported"))
-                ),
-            };
-            if let Some(presence) = row.presence {
-                text.push_str(if presence {
-                    " · active"
-                } else {
-                    " · offline"
-                });
-            }
-            if let Some(state) = row.state.as_ref().filter(|_| row.depth == 0) {
-                text.push_str(&format!(" · {}", safe(state)));
-            }
-            let notice = observation(row.observation);
-            if !notice.is_empty() {
-                text.push_str(&format!(" · {notice}"));
-            }
-            let role = match row.state.as_deref() {
-                Some("blocked") => Role::Blocked,
-                Some("waiting") => Role::Waiting,
-                Some("working") => Role::Working,
-                _ => Role::Text,
-            };
-            let state_style = app
-                .workspace_snapshot()
-                .and_then(|snapshot| snapshot.rows.get(&row.target))
-                .and_then(|raw| raw["colors"]["state"].as_str())
-                .filter(|_| row.state.as_deref() != Some("waiting"))
-                .map_or_else(|| look.role(role), |color| look.named(color));
-            let style = if selected {
-                look.selection()
-                    .patch(look.row_span(true, state_style, true))
-            } else {
-                state_style
-            };
-            let mut line = Line::styled(text, style);
-            if let Some(raw) = app
-                .workspace_snapshot()
-                .and_then(|snapshot| snapshot.rows.get(&row.target))
-                .filter(|_| matches!(row.target, OpsTarget::Member { .. }))
-            {
-                let chips = crate::board::row_chips::of(&app.labels, raw, crate::status::now_ms());
-                let count = crate::board::row_chips::prefix(
-                    &chips,
-                    usize::from(inside.width).saturating_sub(line.width() + 1),
-                );
-                if count > 0 {
-                    line.spans.push(Span::styled(" ", style));
-                }
-                for chip in chips.into_iter().take(count) {
-                    line.spans.push(Span::styled(
-                        chip.text,
-                        if selected {
-                            look.selection()
-                                .patch(look.row_span(true, look.role(chip.role), true))
-                        } else {
-                            look.role(chip.role)
-                        },
-                    ));
-                }
-            }
-            line
-        })
-        .collect();
-    *app.row_starts.borrow_mut() = (0..lines.len()).collect();
+
+    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
     if app.follow
         && let Some(index) = rows
             .iter()
             .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
     {
         app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, inside, lines.len());
+            .reveal_range(Pane::Rows, index..index + 1, inside, rows.len());
     }
     app.scrolls.show_paint(
         frame,
         Pane::Rows,
         inside,
-        lines.len(),
+        rows.len(),
         look,
         |frame, viewport, offset| {
-            for (line, text) in lines
+            for (line, tree) in rows
                 .iter()
                 .skip(offset)
                 .take(usize::from(viewport.height))
                 .enumerate()
             {
+                let text = tree_line(app, tree, inside.width);
                 let row = Rect::new(viewport.x, viewport.y + line as u16, viewport.width, 1);
-                if rows
-                    .get(offset + line)
-                    .is_some_and(|tree| Some(&tree.target) == app.workspace.selected.as_ref())
-                {
+                if Some(&tree.target) == app.workspace.selected.as_ref() {
                     frame.buffer_mut().set_style(row, look.selection());
                 }
                 strip::paint_left(frame.buffer_mut(), row, text.clone());
@@ -325,6 +237,92 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             }
         },
     );
+}
+/// Format only rows admitted to the scroll viewport; hidden rows need no spans.
+fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
+    let look = app.look();
+    let selected = app.workspace.selected.as_ref() == Some(&row.target);
+    let cursor = if selected { "› " } else { "  " };
+    let mut text = match &row.target {
+        OpsTarget::Pool | OpsTarget::Squad(_) => {
+            let expanded = match &row.target {
+                OpsTarget::Pool => app.workspace.pool_expanded,
+                OpsTarget::Squad(id) => app.workspace.expanded.contains(id),
+                _ => false,
+            };
+            let count = row.count.map_or("?".into(), |count| count.to_string());
+            format!(
+                "{cursor}{} {} · {count}",
+                if expanded { "▾" } else { "▸" },
+                safe(&row.title)
+            )
+        }
+        OpsTarget::Member { .. } => format!(
+            "{cursor}  {}{} · {}",
+            safe(&row.title),
+            if row.lead { " · lead" } else { "" },
+            safe(row.state.as_deref().unwrap_or("unreported"))
+        ),
+    };
+    if let Some(presence) = row.presence {
+        text.push_str(if presence {
+            " · active"
+        } else {
+            " · offline"
+        });
+    }
+    if let Some(state) = row.state.as_ref().filter(|_| row.depth == 0) {
+        text.push_str(&format!(" · {}", safe(state)));
+    }
+    let notice = observation(row.observation);
+    if !notice.is_empty() {
+        text.push_str(&format!(" · {notice}"));
+    }
+    let role = match row.state.as_deref() {
+        Some("blocked") => Role::Blocked,
+        Some("waiting") => Role::Waiting,
+        Some("working") => Role::Working,
+        _ => Role::Text,
+    };
+    let state_style = app
+        .workspace_snapshot()
+        .and_then(|snapshot| snapshot.rows.get(&row.target))
+        .and_then(|raw| raw["colors"]["state"].as_str())
+        .filter(|_| row.state.as_deref() != Some("waiting"))
+        .map_or_else(|| look.role(role), |color| look.named(color));
+    let style = if selected {
+        look.selection()
+            .patch(look.row_span(true, state_style, true))
+    } else {
+        state_style
+    };
+    let mut line = Line::styled(text, style);
+    if let Some(raw) = app
+        .workspace_snapshot()
+        .and_then(|snapshot| snapshot.rows.get(&row.target))
+        .filter(|_| matches!(row.target, OpsTarget::Member { .. }))
+    {
+        let chips = crate::board::row_chips::of(&app.labels, raw, crate::status::now_ms());
+        let count = crate::board::row_chips::prefix(
+            &chips,
+            usize::from(width).saturating_sub(line.width() + 1),
+        );
+        if count > 0 {
+            line.spans.push(Span::styled(" ", style));
+        }
+        for chip in chips.into_iter().take(count) {
+            line.spans.push(Span::styled(
+                chip.text,
+                if selected {
+                    look.selection()
+                        .patch(look.row_span(true, look.role(chip.role), true))
+                } else {
+                    look.role(chip.role)
+                },
+            ));
+        }
+    }
+    line
 }
 fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();

@@ -32,7 +32,9 @@ anchor disables actions rather than selecting its neighbour.
 
 `board::shell` owns Overview, Agents and Digest selection. `workspace::render`
 uses shared TUI Outline, Strip and Scrolls for the dense tree and squad detail;
-WP1 retains conversation, editor, drafts, reply reader and send authority.
+only rows admitted to the scroll viewport build text spans. The full stable tree
+retains scroll length and row indices for selection and hit mapping. WP1 retains
+conversation, editor, drafts, reply reader and send authority.
 Overview owns global attention/usage/limits. Agents and Digest use the selected
 squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views.
