@@ -46,8 +46,10 @@ rectangles. With fewer than three content rows, the tree omits its outline and
 keeps usable target rows.
 
 The retired HOME attention/audience/cron/tile body painters and their caches are
-removed. `home::paint` retains the shared summary, usage and quota strips; fitted
-hidden-value projections retain their data owners. Cache equality tests render
+removed, including their cursor targets and held-row feedback payload.
+`home::paint` retains the shared summary, usage and quota strips. Aggregate usage
+and counter keys derive stable source order directly from acquired squads;
+search admission and UUID evidence precedence do not depend on tree indices. Cache equality tests render
 actual workspace frames, including pointer hits and composer geometry, rather
 than maintaining a second HOME renderer. The single decoded HOME oracle and
 private workspace capture packet share literal fixtures and the actual frame
@@ -82,7 +84,9 @@ Pending blocks replay; partial results remain readable without automatic retry.
 The service rechecks the frozen identities and revisions before writes.
 
 In-place reload carries shell choice, expanded room UUIDs, pool expansion and the
-exact selected target in resume version 2. A removed target stays missing.
+exact selected target in resume version 3. A removed target stays missing.
+A retired HOME cursor or detail invalidates the reload hint and is consumed
+without opening a surface; bounded private-file and symlink checks remain.
 Workspace forms block reload until their operation/result is dismissed. The old
 HOME display cache is not admitted as a new shell frame.
 

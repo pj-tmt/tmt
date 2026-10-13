@@ -87,18 +87,6 @@ impl App {
             Some(RowTarget::Workspace(target)) => {
                 self.workspace.selected = Some(target);
             }
-            Some(RowTarget::Home(target)) => {
-                if let Some(index) = self
-                    .home_entries()
-                    .iter()
-                    .position(|entry| entry.target == target)
-                {
-                    // The cursor target set by the opening placement would win over the index.
-                    self.home_target = None;
-                    self.selected = index;
-                    self.home_start = false;
-                }
-            }
             Some(anchor) => self.follow_member(&anchor),
             None => {}
         }

@@ -351,7 +351,6 @@ pub enum Compose {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowTarget {
     Workspace(super::workspace::OpsTarget),
-    Home(super::home::Target),
     Member {
         tab: String,
         section: usize,
@@ -393,14 +392,13 @@ pub(super) struct RowSend {
     pub note_member: bool,
 }
 
-/// A successful send keeps its Home row visible through the ensuing refresh,
-/// until the next key clears the confirmation. This is display evidence only.
+/// A send retains its exact target through effect completion.
+/// Feedback is display evidence only, never dispatch authority.
 pub(super) struct RowFeedback {
     /// What the send reported, such as `sent` or `queued`; `None` keeps the
     /// row without claiming a send.
     pub mark: Option<&'static str>,
     pub target: RowTarget,
-    pub home: Option<HomeFeedback>,
 }
 
 impl RowFeedback {
@@ -410,12 +408,6 @@ impl RowFeedback {
             .filter(|_| &self.target == target)
             .map(|mark| format!("✓ {mark}"))
     }
-}
-
-pub(super) struct HomeFeedback {
-    pub row: Value,
-    pub lead: Option<String>,
-    pub index: usize,
 }
 
 impl RowSend {
@@ -667,12 +659,6 @@ pub struct App {
     pub searching: bool,
     /// Index among visible rows (headers excluded).
     pub selected: usize,
-    pub(super) home_target: Option<super::home::Target>,
-    /// Where the cursor was when the user left HOME; the next visit restores it.
-    home_left: Option<super::home::Target>,
-    /// The cursor still sits where HOME's opening rule put it. The first lead
-    /// read can reorder the leads, so it places the cursor once more.
-    pub(super) home_start: bool,
     pub notice: Option<String>,
     pub(super) migration_notice: Option<String>,
     pub help: bool,
@@ -1256,68 +1242,16 @@ impl App {
                 .find(|&index| self.row_target(index).as_ref() == Some(target))
         {
             self.selected = index;
-            if let RowTarget::Home(target) = target {
-                self.home_target = Some(target.clone());
-            }
         }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-            let entries = self.home_entries();
-            let index = self
-                .home_target
-                .as_ref()
-                .and_then(|target| entries.iter().position(|entry| &entry.target == target))
-                .unwrap_or(self.selected.min(entries.len().saturating_sub(1)));
-            let target = entries.get(index).map(|entry| entry.target.clone());
-            self.selected = index;
-            self.home_target = target;
-        } else {
-            self.home_target = None;
-            self.selected = self.selected.min(self.rows().len().saturating_sub(1));
-        }
+        self.selected = self.selected.min(self.rows().len().saturating_sub(1));
     }
 
     /// Another squad is now on screen: its selection and scrolling start over.
-    /// HOME alone returns to the row the user left.
     fn shown_changed(&mut self) {
-        self.home_target = None;
-        self.home_start = false;
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
         self.restore_focus();
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-            let left = self.home_left.take();
-            let index = left.and_then(|target| {
-                self.home_entries()
-                    .iter()
-                    .position(|entry| entry.target == target)
-            });
-            match index {
-                Some(index) => self.selected = index,
-                None => return self.place_home_start(),
-            }
-        }
-        self.clamp();
-    }
-
-    /// HOME opens on its first row from the top: a blocked row, else the first
-    /// lead, else the first squad. The cron line
-    /// is never the opening row. Squad tabs have no home entries and keep the
-    /// lead they start on.
-    fn place_home_start(&mut self) {
-        let entries = self.home_entries();
-        let first = |section: &str| {
-            entries
-                .iter()
-                .position(|entry| entry.target.section == section)
-        };
-        let index = ["blocked", super::home::LEADS, "squads"]
-            .into_iter()
-            .find_map(first);
-        self.home_start =
-            index.is_some_and(|index| entries[index].target.section == super::home::LEADS);
-        self.selected = index.unwrap_or(0);
-        self.home_target = None;
         self.clamp();
     }
 
@@ -1371,9 +1305,6 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
-        if std::mem::take(&mut self.home_start) {
-            self.place_home_start();
-        }
         self.clamp();
     }
 
@@ -1579,10 +1510,7 @@ impl App {
                 }
                 self.usage_document = None;
                 // A refresh can reorder rows; the cursor follows its member.
-                let anchor = (!changed)
-                    .then(|| self.row_target(self.selected))
-                    .flatten()
-                    .filter(|target| !matches!(target, RowTarget::Home(_)));
+                let anchor = (!changed).then(|| self.row_target(self.selected)).flatten();
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -1711,9 +1639,6 @@ impl App {
             view.history_pending = false;
         }
         self.handoff_meters(&next, Instant::now());
-        if self.shown.as_deref() == Some(super::ALL) && self.home_target.is_some() {
-            self.home_left = self.home_target.clone();
-        }
         self.current = Some(next.clone());
         self.error = None;
         self.menu = None;
@@ -2107,11 +2032,6 @@ impl App {
         let named = |name: Option<&str>| name.filter(|name| !name.is_empty()).map(str::to_owned);
         let lead = match self.current.as_deref() {
             Some(super::LEADS) => named(self.selected_row().and_then(|row| row["name"].as_str())),
-            Some(super::ALL) if view.home.is_some() => named(
-                self.home_entries()
-                    .get(self.selected)
-                    .and_then(|entry| entry.lead),
-            ),
             Some(super::ALL) => named(
                 self.selected_row()
                     .and_then(|row| row["fields"]["lead"].as_str()),
@@ -2187,7 +2107,6 @@ impl App {
             }
             RowTarget::Workspace(_) => None,
             RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => Some(id.clone()),
-            RowTarget::Home(_) => None,
         };
         let targets: Vec<_> = (0..self.rows().len())
             .map(|index| self.row_target(index))
@@ -2214,12 +2133,6 @@ impl App {
             let target = self.workspace_rows().get(index)?.target.clone();
             return matches!(target, super::workspace::OpsTarget::Member { .. })
                 .then_some(RowTarget::Workspace(target));
-        }
-        if self.view.as_ref()?.home.is_some() {
-            return self
-                .home_entries()
-                .get(index)
-                .map(|entry| RowTarget::Home(entry.target.clone()));
         }
         let (slot, row) = *self.rows().get(index)?;
         self.projected_row_target(slot, row)
@@ -2251,11 +2164,6 @@ impl App {
                     .then(|| snapshot.rows.get(target))
                     .flatten()
             }
-            RowTarget::Home(target) => self
-                .home_entries()
-                .into_iter()
-                .find(|entry| &entry.target == target)
-                .map(|entry| entry.row),
             RowTarget::Member {
                 tab,
                 section,
@@ -2302,16 +2210,6 @@ impl App {
                     })
             }
             RowTarget::Workspace(_) => None,
-            RowTarget::Home(target) => self
-                .home_entries()
-                .into_iter()
-                .find(|entry| &entry.target == target)
-                .and_then(|entry| {
-                    entry.lead.map(|name| NoteRecipient {
-                        id: None,
-                        name: name.into(),
-                    })
-                }),
             RowTarget::Member { tab, .. } if tab == super::LEADS => {
                 NoteRecipient::from_row(self.target_row(target)?)
             }
@@ -2417,12 +2315,6 @@ impl App {
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
-                None if matches!(&send.target,RowTarget::Home(target) if target.member.is_none()) =>
-                {
-                    return self.say(
-                        "This squad has no lead; choose a lead before writing to its squad row.",
-                    );
-                }
                 None => Compose::Talk {
                     to: send.name.clone(),
                 },
@@ -2556,11 +2448,10 @@ impl App {
             Some(Compose::Talk {
                 to: send.name.clone(),
             }),
-            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none())
-                && !matches!(
-                    &send.target,
-                    RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id: None, .. })
-                ))
+            (!matches!(
+                &send.target,
+                RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id: None, .. })
+            ))
             .then_some(Compose::Status),
         ];
         let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
@@ -2939,25 +2830,9 @@ impl App {
     }
 
     pub(super) fn row_feedback(&self, send: Option<RowSend>) -> Option<RowFeedback> {
-        send.map(|send| {
-            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
-                .then(|| {
-                    self.home_entries()
-                        .iter()
-                        .enumerate()
-                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
-                        .map(|(index, entry)| HomeFeedback {
-                            row: entry.row.clone(),
-                            lead: entry.lead.map(str::to_owned),
-                            index,
-                        })
-                })
-                .flatten();
-            RowFeedback {
-                mark: None,
-                target: send.target,
-                home,
-            }
+        send.map(|send| RowFeedback {
+            mark: None,
+            target: send.target,
         })
     }
     pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
@@ -3340,8 +3215,6 @@ impl App {
             self.workspace_select(row);
             return;
         }
-        self.home_start = false;
-        self.home_target = None;
         self.selected = row;
         self.clamp();
         self.follow = true;

@@ -851,42 +851,77 @@ fn supplied_label_role_and_choice_hit_survive_the_workspace_tree_and_digest_tab(
     )]);
     for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
         app.shell.tab = tab;
-        let screen = paint(&app, 100, 36).join("\n");
-        assert!(screen.contains("digest Auto ▾"), "{tab:?}: {screen}");
-        assert!(screen.contains("1 held"));
-        let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let held = buffer
-            .content
-            .windows(6)
-            .find(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held")
-            .unwrap();
-        assert_eq!(
-            held[0].fg,
-            app.look()
-                .role(Role::Text)
-                .fg
-                .unwrap_or(ratatui::style::Color::Reset),
-            "selection contrast policy keeps words readable"
-        );
-        let (area, _) = app.chip_hits.borrow().first().unwrap().to_owned();
-        assert!(matches!(
-            app.mouse(
-                MouseEvent {
-                    kind: MouseEventKind::Down(MouseButton::Left),
-                    column: area.x,
-                    row: area.y,
-                    modifiers: KeyModifiers::NONE
-                },
-                Instant::now()
-            ),
-            Effect::Act(Request::DigestOpen(_))
-        ));
+        for width in [100, 160] {
+            let screen = paint(&app, width, 36).join("\n");
+            assert!(screen.contains("digest Auto ▾"), "{tab:?}: {screen}");
+            assert!(screen.contains("1 held"));
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            let held = buffer
+                .content
+                .windows(6)
+                .find(|cells| {
+                    cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held"
+                })
+                .unwrap();
+            assert_eq!(
+                held[0].fg,
+                app.look()
+                    .role(Role::Text)
+                    .fg
+                    .unwrap_or(ratatui::style::Color::Reset),
+                "selection contrast policy keeps words readable"
+            );
+            let chips = app.chip_hits.borrow().clone();
+            assert!(!chips.is_empty());
+            for (area, _) in chips {
+                // Both the tree chip and the shared conversation chip resolve the
+                // same exact membership. The whole label, including its last cell,
+                // is actionable; neighbouring text never becomes a dropdown.
+                for column in [area.x, area.right() - 1] {
+                    let Effect::Act(Request::DigestOpen(ask)) = app.mouse(
+                        MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column,
+                            row: area.y,
+                            modifiers: KeyModifiers::NONE,
+                        },
+                        Instant::now(),
+                    ) else {
+                        panic!("visible chip must open its own member");
+                    };
+                    assert_eq!(ask.squad, "product");
+                    assert_eq!(ask.member, "worker");
+                    assert_eq!(
+                        app.workspace.selected,
+                        Some(OpsTarget::Member {
+                            room_id: Some(ROOM.into()),
+                            identity_id: MEMBER.into(),
+                        })
+                    );
+                }
+                if area.x > 0 {
+                    assert!(!matches!(
+                        app.mouse(
+                            MouseEvent {
+                                kind: MouseEventKind::Down(MouseButton::Left),
+                                column: area.x - 1,
+                                row: area.y,
+                                modifiers: KeyModifiers::NONE
+                            },
+                            Instant::now(),
+                        ),
+                        Effect::Act(Request::DigestOpen(_))
+                    ));
+                }
+            }
+        }
     }
 }
+
 #[test]
 fn in_place_reload_keeps_shell_expansion_and_exact_selection_without_new_recipient_authority() {
     let mut app = board();

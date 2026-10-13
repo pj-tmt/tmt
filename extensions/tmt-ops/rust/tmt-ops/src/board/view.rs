@@ -70,12 +70,6 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let overview = !app.loading()
-        && app.workspace_snapshot().is_none()
-        && app
-            .home_entries()
-            .iter()
-            .any(|entry| entry.target.section == super::home::USAGE);
     Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(u16::from(
@@ -84,7 +78,7 @@ fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
         Constraint::Length(1),
         Constraint::Length(limit_rows),
         Constraint::Length(u16::from(
-            header::meter_enabled(app) || has_usage || home_history_pending || overview,
+            header::meter_enabled(app) || has_usage || home_history_pending,
         )),
         Constraint::Min(1),
         Constraint::Length(1),
@@ -110,13 +104,6 @@ pub(in crate::board) fn render_frame(
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
-    let overview = (!app.loading() && app.workspace_snapshot().is_none())
-        .then(|| {
-            app.home_entries()
-                .iter()
-                .position(|entry| entry.target.section == super::home::USAGE)
-        })
-        .flatten();
     let home_history_pending = !app.loading()
         && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview)
         && app
@@ -166,33 +153,11 @@ pub(in crate::board) fn render_frame(
             look.role(tmt_cli_style::Role::Muted),
         ))
     } else {
-        home_usage.or_else(|| {
-            overview.map(|_| {
-                ratatui::text::Line::styled(
-                    "  Usage no reading",
-                    look.role(tmt_cli_style::Role::Muted),
-                )
-            })
-        })
+        home_usage
     };
-    if let Some(mut line) = usage {
+    if let Some(line) = usage {
         app.home_counters.borrow_mut().place_header(meter_status);
-        if overview == Some(app.selected) {
-            // Reserve the same two-cell cursor slot in every usage state; the
-            // text stays muted and the provider tracks never look selected.
-            if let Some(first) = line.spans.first_mut() {
-                first.content = format!("> {}", first.content.trim_start()).into();
-            }
-        }
         strip::paint_left(frame.buffer_mut(), meter_status, line);
-    }
-    if let Some(row) = overview.filter(|_| meter_status.height > 0) {
-        app.hits.borrow_mut().push(super::app::Hit {
-            y: meter_status.y,
-            x: meter_status.x,
-            width: meter_status.width,
-            target: super::app::HitTarget::Row(row),
-        });
     }
     for (offset, line) in home_limits
         .into_iter()

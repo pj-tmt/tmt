@@ -111,7 +111,7 @@ grammar or key tables into the references below.
 | Membership, leadership marker, `me`, field providers, staleness, reminders, cron     | [data-and-state.md](references/data-and-state.md)         |
 | `ops.toml` layering and writes, themes, views, settings, link and action effects     | [config-and-effects.md](references/config-and-effects.md) |
 | Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
-| HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
+| Workspace projection, acquired HOME summaries and header cache                       | [board-home.md](references/board-home.md)                 |
 | Inert agent text, notebook/source utilities, conversation and reply authority        | [board-notebooks.md](references/board-notebooks.md)       |
 | Board cron acquisition, scoped Timers modal, forms and input                         | [board-cron.md](references/board-cron.md)                 |
 | Refresh worker, change detection, token meter, shutdown                              | [refresh-and-meter.md](references/refresh-and-meter.md)   |

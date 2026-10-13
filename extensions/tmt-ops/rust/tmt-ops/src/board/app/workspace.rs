@@ -79,7 +79,6 @@ impl App {
                 .map(|squad| squad.name.clone()),
             RowTarget::Workspace(OpsTarget::Member { room_id: None, .. }) => Some(String::new()),
             RowTarget::Workspace(_) => None,
-            RowTarget::Home(target) => Some(target.squad.clone()),
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => Some(squad.clone()),
         }
     }

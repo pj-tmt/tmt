@@ -140,7 +140,6 @@ impl super::app::App {
             };
             let squad = match &target {
                 RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
-                RowTarget::Home(target) => target.squad.clone(),
                 RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
             };
             if squad.is_empty() {

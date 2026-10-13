@@ -144,38 +144,8 @@ fn age(at: Option<u64>, now: u64) -> String {
 
 impl App {
     pub(super) fn row_detail(&self, target: &RowTarget, visible: &[&str]) -> Option<Detail> {
-        if matches!(target, RowTarget::Home(target) if target.section == super::home::USAGE) {
-            return self.overview_detail(self.body_width());
-        }
         let row = match target {
             RowTarget::Workspace(_) => self.target_row(target)?,
-            RowTarget::Home(target) if target.section == super::home::LEADS => {
-                &self
-                    .home_leads
-                    .leads
-                    .iter()
-                    .find(|lead| {
-                        lead.squad == target.squad && Some(lead.id()) == target.member.as_deref()
-                    })?
-                    .row
-            }
-            RowTarget::Home(target) => {
-                &self
-                    .view
-                    .as_ref()?
-                    .home
-                    .as_ref()?
-                    .sections
-                    .iter()
-                    .find(|section| section.key == target.section)?
-                    .rows
-                    .iter()
-                    .find(|row| {
-                        row.squad == target.squad
-                            && row.member["id"].as_str() == target.member.as_deref()
-                    })?
-                    .member
-            }
             RowTarget::Member {
                 tab,
                 section,
@@ -189,63 +159,43 @@ impl App {
             RowTarget::Lead { .. } => self.target_row(target)?,
             _ => return None,
         };
-        let home_lead =
-            matches!(target, RowTarget::Home(target) if target.section == super::home::LEADS);
-        let home_member = matches!(target, RowTarget::Home(_)) && !home_lead;
         let mut detail = Detail {
             show_reply: true,
             ..Detail::default()
         };
-        if home_lead
-            && let RowTarget::Home(target) = target
-            && let Some(lead) = self.home_leads.leads.iter().find(|lead| {
-                lead.squad == target.squad && Some(lead.id()) == target.member.as_deref()
-            })
-        {
-            for (label, text) in super::home::hidden_lead_metadata(
-                &self.labels,
-                lead,
-                self.body_width(),
-                crate::status::now_ms(),
-            ) {
-                detail.add(label, Some(&text), Role::Muted);
-            }
-        }
         if !visible.contains(&"task") {
             detail.add("task", row["fields"]["task"].as_str(), Role::Text);
         }
-        if !home_member && !visible.contains(&"pending") {
+        if !visible.contains(&"pending") {
             let pending = super::view::waiting::text(row).map(|text| format!("◆ {text}"));
             detail.add("pending", pending.as_deref(), Role::Waiting);
         }
-        if !home_lead && !home_member {
-            if !visible.contains(&"note") {
-                detail.add(
-                    "note",
-                    row["note"]
-                        .as_str()
-                        .or_else(|| row["fields"]["note"].as_str()),
-                    Role::Text,
-                );
-            }
-            let links = row["fields"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .filter(|(key, _)| {
-                    (key.as_str() == "link" || key.ends_with("_link"))
-                        && !visible.contains(&key.as_str())
-                })
-                .filter_map(|(_, value)| value.as_str())
-                .filter(|text| !text.is_empty())
-                .collect::<Vec<_>>()
-                .join("  ");
-            if !visible.contains(&"links") {
-                detail.add("links", Some(&links), Role::Link);
-            }
-            if !visible.contains(&"model") {
-                detail.add("model", row["fields"]["model"].as_str(), Role::Text);
-            }
+        if !visible.contains(&"note") {
+            detail.add(
+                "note",
+                row["note"]
+                    .as_str()
+                    .or_else(|| row["fields"]["note"].as_str()),
+                Role::Text,
+            );
+        }
+        let links = row["fields"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| {
+                (key.as_str() == "link" || key.ends_with("_link"))
+                    && !visible.contains(&key.as_str())
+            })
+            .filter_map(|(_, value)| value.as_str())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("  ");
+        if !visible.contains(&"links") {
+            detail.add("links", Some(&links), Role::Link);
+        }
+        if !visible.contains(&"model") {
+            detail.add("model", row["fields"]["model"].as_str(), Role::Text);
         }
         let now = crate::status::now_ms();
         if !visible.contains(&"chips") {
@@ -259,7 +209,6 @@ impl App {
                 identity_id.as_str(),
             ),
             RowTarget::Workspace(_) => return None,
-            RowTarget::Home(target) => (target.squad.as_str(), target.member.as_deref()?),
             RowTarget::Member { squad, id, .. } | RowTarget::Lead { squad, id, .. } => {
                 (squad.as_str(), id.as_str())
             }
@@ -297,91 +246,8 @@ impl App {
                 key,
                 acquired: body.is_some(),
             });
-        } else if home_lead {
-            let lead = self
-                .home_leads
-                .leads
-                .iter()
-                .find(|lead| lead.squad == *squad && lead.id() == id)?;
-            if let Some(exchange) = lead
-                .exchange
-                .as_ref()
-                .filter(|exchange| exchange.kind == Kind::Reply)
-            {
-                let key = sender
-                    .zip(exchange.request.clone())
-                    .map(|(sender, request)| MessageKey {
-                        sender,
-                        lead: id.into(),
-                        squad: squad.to_owned(),
-                        request,
-                        kind: Kind::Reply,
-                    });
-                let body = key.as_ref().and_then(|key| self.row_details.body(key));
-                detail.reply = Some(Reply {
-                    from: lead.name().into(),
-                    age: age(exchange.since_ms, now),
-                    body: body.unwrap_or("(reading reply…)").into(),
-                    source: body.is_some()
-                        && key
-                            .as_ref()
-                            .is_none_or(|key| !self.row_details.body_failed(key)),
-                    key,
-                    acquired: body.is_some(),
-                });
-            }
         }
         Some(detail.additional(visible))
-    }
-
-    fn overview_detail(&self, width: u16) -> Option<Detail> {
-        let view = self.view.as_ref()?;
-        let home = view.home.as_ref()?;
-        let mut detail = Detail::default();
-        if let Some(usage) = self.home_header_usage(std::time::Instant::now()) {
-            for (label, text) in super::home::hidden_usage(&usage, width) {
-                detail.add(label, Some(&text), Role::Muted);
-            }
-        }
-        if view.home_rate.values().any(|rate| rate.settings.enabled)
-            && let Some(standings) = &self.limits
-        {
-            for (label, text) in
-                super::home::hidden_limits(standings, crate::status::now_ms(), width)
-            {
-                detail.add(label, Some(&text), Role::Muted);
-            }
-        }
-        if let Some(names) = super::home::hidden_needs(home, width) {
-            detail.add("needs you", Some(&names), Role::Waiting);
-        }
-        detail.add(
-            "overview",
-            Some(&format!(
-                "{} squads · {} members · ◐ {} review",
-                home.squads.len(),
-                home.summary.members,
-                home.summary.review
-            )),
-            Role::Muted,
-        );
-        if width < super::home::SM.cells {
-            detail.add(
-                "states",
-                Some(&format!(
-                    "● {} working · ◌ {} idle · ✗ {} blocked",
-                    home.summary.working, home.summary.idle, home.summary.blocked
-                )),
-                Role::Muted,
-            );
-        } else if width < super::home::MD.cells {
-            detail.add(
-                "blocked",
-                Some(&format!("✗ {} blocked", home.summary.blocked)),
-                Role::Muted,
-            );
-        }
-        Some(detail)
     }
 
     pub(super) fn selected_detail_target(&self) -> Option<Target> {

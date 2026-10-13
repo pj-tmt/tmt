@@ -1135,7 +1135,6 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
     app.sent = Some(crate::board::app::RowFeedback {
         mark: Some("sent"),
         target: app.row_target(0).unwrap(),
-        home: None,
     });
     let screen = draw(&app, 60, 12);
     let alpha = screen.iter().position(|l| l.contains("alpha")).unwrap();
@@ -2406,7 +2405,7 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
         theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse("tmt").unwrap()),
         depth: tmt_cli_style::Depth::TrueColor,
     };
-    for (members, home) in [(false, false), (true, false), (false, true)] {
+    for (members, home) in [(false, false), (true, false)] {
         for width in [100, 160] {
             crate::status::with_now_ms(1_000, || {
                 let mut app = digest_app(members, home, 2, 1_801_000, look);
@@ -2516,7 +2515,7 @@ fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
             std::time::Instant::now(),
         )
     };
-    for (members, home) in [(false, false), (true, false), (false, true)] {
+    for (members, home) in [(false, false), (true, false)] {
         for width in [100, 160] {
             crate::status::with_now_ms(1_000, || {
                 let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
@@ -2547,14 +2546,7 @@ fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
                         };
                         assert_eq!(ask.squad, "product");
                         assert_eq!(ask.member, expected, "{members} {home} {width}");
-                        if home {
-                            assert_eq!(
-                                app.home_entries()[app.selected].target.member.as_deref(),
-                                Some(expected)
-                            );
-                        } else {
-                            assert_eq!(app.selected, usize::from(expected == "lead"));
-                        }
+                        assert_eq!(app.selected, usize::from(expected == "lead"));
                     }
                     // Left of the chip is the row, not the dropdown.
                     let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
@@ -2574,17 +2566,10 @@ fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
 #[test]
 fn narrow_headings_keep_leading_labels_whole_and_detail_carries_all_of_them() {
     crate::status::with_now_ms(1_000, || {
-        for (members, home) in [(false, false), (true, false), (false, true)] {
+        for (members, home) in [(false, false), (true, false)] {
             let mut app = digest_app(members, home, 2, 1_801_000, Default::default());
             app.labels = supplied_chips(&["worker", "lead"]);
-            let index = if home {
-                app.home_entries()
-                    .iter()
-                    .position(|entry| entry.target.member.as_deref() == Some("worker"))
-                    .unwrap()
-            } else {
-                0
-            };
+            let index = 0;
             let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
@@ -2608,7 +2593,7 @@ fn narrow_headings_keep_leading_labels_whole_and_detail_carries_all_of_them() {
 
 #[test]
 fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
-    for (members, home) in [(false, false), (true, false), (false, true)] {
+    for (members, home) in [(false, false), (true, false)] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
             ("tmt-light", tmt_cli_style::Depth::TrueColor),
@@ -2666,17 +2651,10 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
             }
         }
     }
-    for (members, home) in [(false, false), (true, false), (false, true)] {
+    for (members, home) in [(false, false), (true, false)] {
         crate::status::with_now_ms(1_000, || {
             let mut app = digest_app(members, home, 999999, 4_801_000, Default::default());
-            let index = if home {
-                app.home_entries()
-                    .iter()
-                    .position(|entry| entry.target.member.is_some())
-                    .unwrap()
-            } else {
-                0
-            };
+            let index = 0;
             let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
@@ -2692,7 +2670,7 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
 #[test]
 fn digest_heading_keeps_row_height_hits_and_selected_background() {
     crate::status::with_now_ms(1_000, || {
-        for (members, home) in [(false, false), (true, false), (false, true)] {
+        for (members, home) in [(false, false), (true, false)] {
             for width in [20, 80, 160] {
                 let focused = digest_app(members, home, 2, 4_801_000, Default::default());
                 let plain = digest_app(members, home, 2, 1_000, Default::default());
@@ -2780,7 +2758,7 @@ fn capture_digest_window_rows() {
     let output = std::env::var("TMT_DIGEST_OUTPUT").expect("task-owned output path");
     let mut cases = Vec::new();
     crate::status::with_now_ms(1_000, || {
-        for (members, home) in [(false, false), (true, false), (false, true)] {
+        for (members, home) in [(false, false), (true, false)] {
             for (base, depth) in [
                 ("tmt", tmt_cli_style::Depth::TrueColor),
                 ("tmt-light", tmt_cli_style::Depth::TrueColor),
@@ -2950,7 +2928,7 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
 #[test]
 fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_choice_hit() {
     use crate::labels::{Choose, Label, Supplied};
-    for (members, home) in [(false, false), (true, false), (false, true)] {
+    for (members, home) in [(false, false), (true, false)] {
         for width in [80, 100, 160] {
             crate::status::with_now_ms(1000, || {
                 let mut app = digest_app(members, home, 0, 1_801_000, Default::default());

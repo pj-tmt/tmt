@@ -109,7 +109,6 @@ impl App {
                     .filter(|name| !name.is_empty())
                     .ok_or("Choose a squad membership before managing Digest.")?
             }
-            RowTarget::Home(target) => target.squad.clone(),
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
         };
         let (Some(_), Some(member)) = (row["id"].as_str(), row["name"].as_str()) else {

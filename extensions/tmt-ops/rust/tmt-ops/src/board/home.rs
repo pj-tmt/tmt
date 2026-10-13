@@ -282,11 +282,9 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
 #[cfg(test)]
 pub(super) mod tests;
 
-mod controller;
 pub(crate) mod counters;
 mod paint;
 pub(super) use bar::{hidden_needs, hidden_usage};
-pub(super) use controller::{LEADS, Target, USAGE};
 pub(super) use limits::hidden_limits;
 pub(super) use paint::{age_label, limits_of, summary_of, usage_of};
 

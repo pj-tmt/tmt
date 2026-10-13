@@ -472,10 +472,8 @@ fn header_frames() -> Value {
         ("tmt-light", tmt_cli_style::Depth::TrueColor, "tmt-light"),
         ("tmt", tmt_cli_style::Depth::None, "NO_COLOR"),
     ] {
-        let mut app = board(&[
-            ("a", document("a", row("A", "lead-a", "working"), vec![])),
-            ("b", document("b", row("B", "lead-b", "working"), vec![])),
-        ]);
+        let mut app = crate::board::app::workspace::tests::board();
+        app.shell.tab = crate::board::shell::OpsTab::Overview;
         app.view.as_mut().unwrap().look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
             depth,
@@ -508,20 +506,29 @@ fn header_frames() -> Value {
                 hits.push(hit);
                 buffers.push(buffer);
             }
-            assert_eq!(hits[0], hits[1], "usage evidence cannot move existing hits");
+            // Admitted usage can consume one row, but every visible tree hit
+            // retains its target and horizontal bounds. No aggregate usage
+            // cell acquires row selection or dispatch authority.
+            let shape = |hits: &[crate::board::app::Hit]| {
+                hits.iter()
+                    .map(|hit| (hit.target, hit.x, hit.width))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(shape(&hits[0]), shape(&hits[1]));
             assert_eq!(frames[0]["starts"], frames[1]["starts"]);
             assert_eq!(frames[0]["tabs"], frames[1]["tabs"]);
-            let usage_y = hits[0].iter().find(|hit| hit.row() == Some(0)).unwrap().y;
-            for y in 0..30 {
-                if y == usage_y {
-                    continue;
-                }
+            let shift = hits[1][0].y - hits[0][0].y;
+            assert!(shift <= 1);
+            for (before, after) in hits[0].iter().zip(&hits[1]) {
+                assert_eq!(after.y, before.y + shift);
+            }
+            for y in 0u16..3 {
                 let start = usize::from(y) * usize::from(width);
                 let end = start + usize::from(width);
                 assert_eq!(
                     &buffers[0].content[start..end],
                     &buffers[1].content[start..end],
-                    "only the reserved usage line changes with evidence, {width}/{name}/{y}"
+                    "usage evidence cannot change tabs, rules or summary, {width}/{name}/{y}"
                 );
             }
             captures.push(json!({"theme":name,"width":width,"before":frames[0],"after":frames[1]}));
@@ -552,16 +559,30 @@ fn record_home_header_diff() {
 
 #[test]
 fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
-    // Squad and member names are display text: all digits, control characters and
-    // very long names must paint, escaped, instead of failing admission.
+    use crate::board::app::workspace::tests::{MEMBER, ROOM};
+    use crate::board::workspace::OpsTarget;
+    // Names remain display text; canonical UUIDs own selection and hit identity.
     let long = "q".repeat(300);
     for squad in ["2024", "tab\there", long.as_str(), " padded "] {
-        let mut member = row("W", "wor\nker", "blocked");
-        member["waitingOnYou"] = json!([{"requestId":"q","preparedAtMs":20,"preview":"private"}]);
-        let app = board(&[(
-            squad,
-            document(squad, row("L", "lead", "working"), vec![member]),
-        )]);
+        let mut app = crate::board::app::workspace::tests::board();
+        let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+        home.workspace.roster.squads[0].name = squad.into();
+        home.workspace.roster.members.get_mut(MEMBER).unwrap().name = "wor\nker".into();
+        home.workspace.roster.squads[0]
+            .member_states
+            .get_mut(MEMBER)
+            .unwrap()
+            .state = Some("blocked".into());
+        let member = home
+            .workspace
+            .rows
+            .get_mut(&OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            })
+            .unwrap();
+        member["name"] = json!("wor\nker");
+        member["state"] = json!("blocked");
         for width in [80, 100, 160] {
             let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
             terminal
@@ -575,92 +596,18 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
                 .map(|cell| cell.symbol())
                 .collect::<String>();
             assert!(
-                text.contains("blocked") && text.contains("Squads"),
+                text.contains("blocked") && text.contains("Agents"),
                 "{squad:?}/{width}"
             );
             assert!(!text.contains('\n') && !text.contains('\t'));
+            assert_eq!(
+                app.workspace.selected,
+                Some(OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                })
+            );
         }
-    }
-}
-
-#[test]
-fn a_reloaded_home_comes_back_on_the_row_it_was_on() {
-    let documents = [
-        ("a", waiting()),
-        (
-            "b",
-            document(
-                "b",
-                row("L2", "lead-b", "working"),
-                vec![row("M", "member-b", "working")],
-            ),
-        ),
-    ];
-    let mut before = board(&documents);
-    keys(&mut before, &[Down, Down]);
-    let target = before.row_target(before.selected).unwrap();
-    let opening = board(&documents);
-    assert_ne!(
-        opening.row_target(opening.selected),
-        Some(target.clone()),
-        "the control: a normal start opens elsewhere"
-    );
-
-    let resume = before.resume().unwrap();
-    let after = board_resuming(&documents, Some(resume));
-    assert_eq!(after.row_target(after.selected), Some(target));
-    assert!(
-        !after.home_start,
-        "the opening rule does not move the restored cursor"
-    );
-}
-
-#[test]
-fn overview_is_first_in_traversal_but_does_not_replace_initial_focus() {
-    use crate::board::row_detail::Target as DetailTarget;
-    for width in [160, 100, 80, 60] {
-        let mut app = board(&[("a", waiting())]);
-        app.set_body_width(width);
-        assert_eq!(
-            app.home_entries()[0].target.section,
-            crate::board::home::USAGE
-        );
-        assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
-        assert_eq!(press(&mut app, Up), Effect::None);
-        assert_eq!(
-            app.home_target.as_ref().unwrap().section,
-            crate::board::home::USAGE
-        );
-        let target = DetailTarget::Row(app.row_target(app.selected).unwrap());
-        assert_eq!(press(&mut app, Char('e')), Effect::None);
-        assert!(app.row_details.contains(&target));
-        assert!(
-            app.detail_read().is_none(),
-            "overview detail never acquires reply data"
-        );
-        let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        assert_eq!(press(&mut app, Enter), Effect::None);
-        assert!(
-            !app.row_details.contains(&target),
-            "Enter toggles the same shared detail"
-        );
-        let stable = app.home_target.clone();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        assert_eq!(
-            app.home_target, stable,
-            "resize/paint retains the overview identity"
-        );
-        press(&mut app, Char('/'));
-        assert!(
-            app.home_entries()
-                .iter()
-                .all(|entry| entry.target.section != crate::board::home::USAGE)
-        );
     }
 }
 

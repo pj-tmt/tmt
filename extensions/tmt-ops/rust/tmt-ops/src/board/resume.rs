@@ -3,7 +3,7 @@
 //! it by that pid and deletes it. It is a hint: a missing, old, unreadable or
 //! foreign file means a normal start, and nothing here is evidence about Core.
 
-use super::{app::RowTarget, home::Target as HomeTarget, row_detail::Target as DetailTarget};
+use super::{app::RowTarget, row_detail::Target as DetailTarget};
 use crate::{cache, config::Pane};
 use serde_json::{Value, json};
 use std::{
@@ -158,12 +158,6 @@ fn row_json(target: &RowTarget) -> Value {
         RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool) => {
             json!({"kind":"workspace-pool"})
         }
-        RowTarget::Home(target) => json!({
-            "kind": "home",
-            "section": target.section,
-            "squad": target.squad,
-            "member": target.member,
-        }),
         RowTarget::Member {
             tab,
             section,
@@ -194,14 +188,6 @@ fn row_from(value: &Value) -> Option<RowTarget> {
                 ),
             },
             identity_id: text("id").filter(|id| crate::config::uuid_like(id))?,
-        }),
-        "home" => RowTarget::Home(HomeTarget {
-            section: text("section")?,
-            squad: text("squad")?,
-            member: match &value["member"] {
-                Value::Null => None,
-                member => Some(member.as_str()?.to_owned()),
-            },
         }),
         "member" => RowTarget::Member {
             tab: text("tab")?,
@@ -260,11 +246,11 @@ mod tests {
                     id: "a1".into(),
                 }),
                 DetailTarget::Job("c1".into()),
-                DetailTarget::Row(RowTarget::Home(HomeTarget {
-                    section: "blocked".into(),
-                    squad: "infra".into(),
-                    member: None,
-                })),
+                DetailTarget::Row(RowTarget::Workspace(
+                    crate::board::workspace::OpsTarget::Squad(
+                        "44444444-4444-4444-8444-444444444444".into(),
+                    ),
+                )),
             ],
             search: "auth".into(),
         }
@@ -282,11 +268,12 @@ mod tests {
         for resume in [
             sample(),
             Resume {
-                selected: Some(RowTarget::Home(HomeTarget {
-                    section: "squads".into(),
-                    squad: "infra".into(),
-                    member: Some("m1".into()),
-                })),
+                selected: Some(RowTarget::Workspace(
+                    crate::board::workspace::OpsTarget::Member {
+                        room_id: Some("44444444-4444-4444-8444-444444444444".into()),
+                        identity_id: "55555555-5555-4555-8555-555555555555".into(),
+                    },
+                )),
                 ..sample()
             },
             Resume {
@@ -352,6 +339,15 @@ mod tests {
         rejects("an unknown pane");
         valid(&|document| document["selected"] = json!({"kind": "guess"}));
         rejects("an unknown target");
+        valid(&|document| {
+            document["selected"] =
+                json!({"kind":"home","section":"blocked","squad":"infra","member":null})
+        });
+        rejects("a retired HOME cursor cannot confer a selection");
+        valid(
+            &|document| document["expanded"] = json!([{"kind":"row","target":{"kind":"home","section":"usage","squad":"","member":null}}]),
+        );
+        rejects("a retired HOME detail cannot reopen a surface");
         valid(&|document| document["focus"] = json!(-1));
         rejects("a negative index");
         write(json!("not an object"));

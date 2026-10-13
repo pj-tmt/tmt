@@ -164,11 +164,7 @@ pub(super) fn inline_prompt(
         return;
     };
     let inset = app.conversation_input_area().is_some()
-        || app.effective_board().is_some_and(|board| board.members)
-        || input.row_send.as_ref().is_some_and(|send| {
-            matches!(&send.target,
-        crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
-        });
+        || app.effective_board().is_some_and(|board| board.members);
     let band = if inset {
         reserved.intersection(body)
     } else {
