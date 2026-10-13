@@ -721,6 +721,15 @@ fn hidden_or_removed_selection_cannot_redirect_an_action_to_an_adjacent_member()
     assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
     assert_eq!(app.workspace_begin(Kind::Remove), Effect::None);
     assert!(app.workspace_form.is_none());
+    for code in ['t', 'j', 'o', 'x', 'm', 'D'] {
+        assert_eq!(
+            key(&mut app, KeyCode::Char(code)),
+            Effect::None,
+            "hidden: {code}"
+        );
+        assert!(app.input.is_none() && app.menu.is_none() && app.workspace_form.is_none());
+        assert_eq!(app.workspace.selected, target);
+    }
     app.search.clear();
     app.view
         .as_mut()
@@ -737,6 +746,15 @@ fn hidden_or_removed_selection_cannot_redirect_an_action_to_an_adjacent_member()
     assert_eq!(app.workspace_selection_state(), SelectionState::Missing);
     assert_eq!(app.workspace.selected, target);
     assert!(app.selected_row().is_none());
+    for code in ['t', 'j', 'o', 'x', 'm', 'D'] {
+        assert_eq!(
+            key(&mut app, KeyCode::Char(code)),
+            Effect::None,
+            "missing: {code}"
+        );
+        assert!(app.input.is_none() && app.menu.is_none() && app.workspace_form.is_none());
+        assert_eq!(app.workspace.selected, target);
+    }
 }
 #[test]
 fn partial_item_result_survives_as_readable_evidence_with_no_automatic_retry() {

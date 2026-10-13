@@ -49,7 +49,7 @@ whole process, so tests drive `restart_with` with an injected failure, never a r
 `App::carry` applies it on the first fresh workspace view (`carry.rs`): shell,
 tree expansion, exact UUID selection, Reader focus and scroll state. A missing
 workspace target remains explicit and grants no adjacent recipient authority;
-a failed view drops the pending handoff. Version 3 carries no named-tab picks;
+a failed view drops the pending handoff. Version 3 carries no named-tab picks or pane folds;
 old versions are consumed as normal-start misses. The snapshot holds session
 state only, no squad data or durable preference policy.
 
@@ -142,6 +142,8 @@ The factory-view picker, worker opening/save effects and overlay state are also
 removed. Workspace Settings offers Auto/Side/Stack, Theme and Token window;
 closing its menu restores the same selected target and Reader focus. Independent
 Config setting admission/save/reset does not expose a factory-view picker.
+Pane title-fold hit maps and per-tab fold overrides are removed; current clipped
+workspace controls and response viewport owners alone publish pointer authority.
 
 `board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
 pointer areas. Tree starts, reveal and clipped hits share that viewport. Following

@@ -29,8 +29,6 @@ pub(super) struct Resume {
     pub follow: bool,
     pub scrolls: Vec<(Pane, usize)>,
     pub expanded: Vec<DetailTarget>,
-    /// Pane fold overrides of the shown tab; `true` is folded.
-    pub folds: Vec<(Pane, bool)>,
     pub search: String,
 }
 
@@ -61,9 +59,6 @@ impl Resume {
                 .map(|(pane, offset)| json!([pane.title(), offset]))
                 .collect::<Vec<_>>(),
             "expanded": self.expanded.iter().map(detail_json).collect::<Vec<_>>(),
-            "folds": self.folds.iter()
-                .map(|(pane, folded)| json!([pane.title(), folded]))
-                .collect::<Vec<_>>(),
             "search": self.search,
         });
         cache::replace(&path(directory, pid), document.to_string().as_bytes())
@@ -129,10 +124,6 @@ impl Resume {
                 .as_array()?
                 .iter()
                 .map(detail_from)
-                .collect::<Option<_>>()?,
-            folds: pairs("folds")?
-                .into_iter()
-                .map(|(pane, folded)| Some((pane, folded.as_bool()?)))
                 .collect::<Option<_>>()?,
             search: document["search"].as_str()?.to_owned(),
         })
@@ -275,7 +266,6 @@ mod tests {
                     member: None,
                 })),
             ],
-            folds: vec![(Pane::Detail, true), (Pane::Replies, false)],
             search: "auth".into(),
         }
     }
@@ -303,7 +293,6 @@ mod tests {
                 selected: None,
                 scrolls: Vec::new(),
                 expanded: Vec::new(),
-                folds: Vec::new(),
                 search: String::new(),
                 ..sample()
             },
@@ -316,8 +305,8 @@ mod tests {
             );
             let stored: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
             assert!(
-                stored.get("picks").is_none(),
-                "reload cannot carry old named-tab admission"
+                stored.get("picks").is_none() && stored.get("folds").is_none(),
+                "reload cannot carry old named-tab admission or pane folds"
             );
             assert_eq!(Resume::take(&root, 41, 1_500).as_ref(), Some(&resume));
             assert!(!file.exists(), "reading consumes the snapshot");

@@ -355,7 +355,4 @@ pub(super) fn inline_prompt(
     app.hits
         .borrow_mut()
         .retain(|hit| !covered(&Rect::new(hit.x, hit.y, hit.width, 1)));
-    app.title_hits
-        .borrow_mut()
-        .retain(|hit| !covered(&hit.area));
 }

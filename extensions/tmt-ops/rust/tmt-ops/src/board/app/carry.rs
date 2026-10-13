@@ -52,17 +52,6 @@ impl App {
             follow: self.follow,
             scrolls: self.scrolls.offsets(),
             expanded: self.row_details.expanded.clone(),
-            folds: self
-                .folds
-                .get(&tab)
-                .map(|state| {
-                    state
-                        .overrides
-                        .iter()
-                        .map(|(pane, fold)| (*pane, *fold))
-                        .collect()
-                })
-                .unwrap_or_default(),
             search: self.search.clone(),
             tab,
         })
@@ -90,14 +79,6 @@ impl App {
         self.shell.tab = resume.shell;
         self.workspace.expanded = resume.squads_expanded.into_iter().collect();
         self.workspace.pool_expanded = resume.pool_expanded;
-        if let Some(state) = self
-            .current
-            .as_ref()
-            .and_then(|tab| self.folds.get_mut(tab))
-        {
-            state.overrides.extend(resume.folds);
-            self.reconcile_folds();
-        }
         self.row_details.expanded = resume.expanded;
         self.focus = resume.focus.min(self.focus_panes().len().saturating_sub(1));
         self.scrolls.restore(resume.scrolls);
@@ -240,7 +221,6 @@ mod tests {
                     follow: true,
                     scrolls: Vec::new(),
                     expanded: Vec::new(),
-                    folds: Vec::new(),
                     search: String::new(),
                 });
             }),

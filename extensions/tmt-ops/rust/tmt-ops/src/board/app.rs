@@ -7,7 +7,7 @@ use crate::display_rows::{Item, RowOrigin};
 use crate::{
     action::{Action, Bindings, Verb},
     attention::Attention,
-    config::{Board, BoardMode, Config, NotesRender, Pane},
+    config::{Board, Config, NotesRender, Pane},
     effects,
 };
 use ratatui::crossterm::event::{
@@ -626,18 +626,6 @@ impl std::fmt::Debug for Hit {
     }
 }
 
-/// Config is immutable; only this session presentation set changes on a toggle.
-struct FoldState {
-    board: Board,
-    overrides: BTreeMap<Pane, bool>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TitleHit {
-    pub pane: Pane,
-    pub area: ratatui::layout::Rect,
-}
-
 #[derive(Default)]
 pub struct App {
     pub(super) shell: super::shell::OpsShell,
@@ -750,9 +738,6 @@ pub struct App {
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
-    /// Only titles actually painted in the last frame can toggle.
-    pub title_hits: RefCell<Vec<TitleHit>>,
-    folds: BTreeMap<String, FoldState>,
     body_width: u16,
 }
 
@@ -1300,7 +1285,7 @@ impl App {
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
-        self.reconcile_folds();
+        self.restore_focus();
         if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
             let left = self.home_left.take();
             let index = left.and_then(|target| {
@@ -1514,11 +1499,6 @@ impl App {
         self.pinned = snapshot.pinned;
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
-        self.folds
-            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
-        if let (Some(key), Ok(view)) = (&snapshot.squad, &snapshot.view) {
-            self.remember_folds(key.clone(), &view.board);
-        }
         self.attention
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.attention.extend(snapshot.attention);
@@ -1641,7 +1621,7 @@ impl App {
                     self.shown_changed();
                     self.restore_pending();
                 } else {
-                    self.reconcile_folds();
+                    self.restore_focus();
                     if let Some(anchor) = anchor {
                         self.follow_member(&anchor);
                     }
@@ -1781,34 +1761,6 @@ impl App {
         Effect::Load(next)
     }
 
-    fn remember_folds(&mut self, key: String, board: &Board) {
-        if !self.tabs.contains(&key) && !self.hidden.contains(&key) {
-            return;
-        }
-        if self
-            .folds
-            .get(&key)
-            .is_none_or(|state| state.board != *board)
-        {
-            self.folds.insert(
-                key,
-                FoldState {
-                    board: board.clone(),
-                    overrides: BTreeMap::new(),
-                },
-            );
-        }
-    }
-
-    fn reconcile_folds(&mut self) {
-        if let (Some(key), Some(view)) = (&self.shown, &self.view) {
-            let key = key.clone();
-            let board = view.board.clone();
-            self.remember_folds(key, &board);
-        }
-        self.restore_focus();
-    }
-
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
         let window = self
             .meter
@@ -1906,29 +1858,6 @@ impl App {
     /// Authored board values belong to the independent CLI/config projection.
     pub fn effective_board(&self) -> Option<&Board> {
         self.view.as_ref().map(|view| &view.board)
-    }
-
-    /// Resolve immutable defaults and user overrides for the board body width.
-    pub fn folds_at(&self, width: u16) -> BTreeSet<Pane> {
-        let Some(board) = self.effective_board() else {
-            return BTreeSet::new();
-        };
-        let mut collapsed = board.collapsed.clone();
-        if let Some(rule) = &board.fold_below
-            && width < rule.width
-        {
-            collapsed.extend(&rule.panes);
-        }
-        if let Some(state) = self.shown.as_ref().and_then(|key| self.folds.get(key)) {
-            for (pane, folded) in &state.overrides {
-                if *folded {
-                    collapsed.insert(*pane);
-                } else {
-                    collapsed.remove(pane);
-                }
-            }
-        }
-        collapsed
     }
 
     /// Logical placement survives invalidating pointer rectangles. A refresh
@@ -2065,55 +1994,6 @@ impl App {
         }
     }
 
-    fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
-        self.jobs_focus = false;
-        if self.loading() {
-            return self.say(format!(
-                "Loading {}…",
-                self.current.clone().unwrap_or_default()
-            ));
-        }
-        let Some(board) = self.effective_board().cloned() else {
-            return Effect::None;
-        };
-        if board.mode != BoardMode::Split {
-            return self.say("toggle applies to split mode only.");
-        }
-        let panes: Vec<_> = panes
-            .iter()
-            .filter(|pane| board.panes.contains(pane))
-            .copied()
-            .collect();
-        if panes.is_empty() {
-            return Effect::None;
-        }
-        let position = board
-            .panes
-            .iter()
-            .position(|pane| Some(pane) == panes.first())
-            .expect("validated toggle panes");
-        let had_focus = self.focused_pane().is_some();
-        let Some(key) = self.shown.clone() else {
-            return Effect::None;
-        };
-        self.remember_folds(key.clone(), &board);
-        let collapsed = self.collapsed_panes();
-        let expanding = panes.iter().all(|pane| collapsed.contains(pane));
-        let Some(state) = self.folds.get_mut(&key) else {
-            return Effect::None;
-        };
-        for pane in &panes {
-            state.overrides.insert(*pane, !expanding);
-        }
-        if expanding && !had_focus {
-            self.focus = position;
-        } else {
-            self.restore_focus();
-        }
-        self.last_click = None;
-        Effect::None
-    }
-
     pub(super) fn selected_section(&self) -> Option<usize> {
         self.rows()
             .get(self.selected)
@@ -2170,18 +2050,6 @@ impl App {
             }
         }
         match action.verb {
-            Verb::Toggle => {
-                let panes: Vec<_> = action
-                    .args
-                    .iter()
-                    .map(|arg| {
-                        arg.literal()
-                            .and_then(Pane::parse)
-                            .expect("validated toggle pane")
-                    })
-                    .collect();
-                return self.toggle_panes(&panes);
-            }
             Verb::TokenWindow => {
                 return self.cycle_token_window();
             }
@@ -3497,7 +3365,6 @@ impl App {
         self.hits.borrow_mut().clear();
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
-        self.title_hits.borrow_mut().clear();
         self.detail_more_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.chip_hits.borrow_mut().clear();
@@ -3769,19 +3636,6 @@ impl App {
         }
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;
-        }
-        let title = self
-            .title_hits
-            .borrow()
-            .iter()
-            .find(|hit| {
-                hit.area
-                    .contains(ratatui::layout::Position::new(event.column, event.row))
-            })
-            .map(|hit| hit.pane);
-        if let Some(pane) = title {
-            self.notice = None;
-            return self.toggle_panes(&[pane]);
         }
         self.focus_at(event.column, event.row);
         let hit = self.hits.borrow().iter().copied().find(|hit| {
@@ -5330,397 +5184,6 @@ pub(crate) mod tests {
             app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Effect::Quit
         ));
-    }
-    fn folding_snapshot(squad: &str) -> Snapshot {
-        let mut snapshot = snapshot(squad, json!([]));
-        let view = snapshot.view.as_mut().unwrap();
-        view.board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Rows, Pane::Detail, Pane::Notes],
-            &[40, 30, 30],
-        );
-        view.bindings = crate::action::preset(true, &view.board.panes);
-        snapshot
-    }
-
-    #[test]
-    fn short_pane_folds_share_paint_hits_and_existing_focus_reconciliation() {
-        use ratatui::{Terminal, backend::TestBackend};
-        let mut app = App::new(Some("product".into()));
-        let mut snapshot = folding_snapshot("product");
-        snapshot.view.as_mut().unwrap().document["sections"] = json!([{
-            "title": null, "rows": [{"id": "alpha-id", "name": "alpha", "presence": "offline",
-                "state": "working", "fields": {"task": "resize evidence"}}]
-        }]);
-        snapshot.view.as_mut().unwrap().board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Rows, Pane::Detail],
-            &[50, 50],
-        );
-        app.apply(snapshot);
-        app.focus = 1;
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "no geometry before first paint"
-        );
-        let mut terminal = Terminal::new(TestBackend::new(80, 7)).unwrap();
-        terminal
-            .draw(|frame| {
-                super::super::view::prepare(&mut app, frame.area());
-                super::super::view::render(frame, &app);
-            })
-            .unwrap();
-        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        assert!(
-            app.folds_at(80).is_empty(),
-            "geometry never writes an override"
-        );
-        let title = app
-            .title_hits
-            .borrow()
-            .iter()
-            .find(|hit| hit.pane == Pane::Detail)
-            .unwrap()
-            .area;
-        assert_eq!(title.height, 1);
-        assert_ne!(
-            app.scrolls.pane_at(title.x + 1, title.y),
-            Some(Pane::Detail)
-        );
-        assert!(!app.scrolls.visible(Pane::Detail));
-        app.focus_at(title.x + 1, title.y);
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        terminal.backend_mut().resize(80, 11);
-        terminal
-            .draw(|frame| {
-                super::super::view::prepare(&mut app, frame.area());
-                super::super::view::render(frame, &app);
-            })
-            .unwrap();
-        assert!(
-            app.scrolls.visible(Pane::Detail),
-            "growth restores the body and its scroll region"
-        );
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "growth restores expanded geometry"
-        );
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.folds_at(80), BTreeSet::from([Pane::Detail]));
-        for height in [7, 11] {
-            terminal.backend_mut().resize(80, height);
-            terminal
-                .draw(|frame| {
-                    super::super::view::prepare(&mut app, frame.area());
-                    super::super::view::render(frame, &app);
-                })
-                .unwrap();
-            assert!(!app.scrolls.visible(Pane::Detail));
-            assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Detail]));
-            assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        }
-    }
-
-    #[test]
-    fn fold_focus_skips_hidden_bodies_and_recovers_from_every_pane_folded() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        app.focus = 1;
-        // No selected row is needed: d goes through the normal binding path.
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        app.perform(&Action::parse("toggle rows").unwrap());
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        app.perform(&Action::parse("toggle notes").unwrap());
-        assert_eq!(app.focused_pane(), None);
-        for key in [KeyCode::Tab, KeyCode::Down, KeyCode::End, KeyCode::PageDown] {
-            press(&mut app, key);
-            assert_eq!(app.selected, 0);
-            assert_eq!(app.focused_pane(), None);
-        }
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Detail));
-        press(&mut app, KeyCode::Char('n'));
-        assert_eq!(app.focused_pane(), Some(Pane::Notes));
-        assert!(!app.collapsed_panes().contains(&Pane::Notes));
-        assert!(
-            app.view.as_ref().unwrap().board.collapsed.is_empty(),
-            "configured board remains immutable"
-        );
-    }
-
-    #[test]
-    fn fold_state_survives_refresh_and_cached_switch_but_config_change_resets_it() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        press(&mut app, KeyCode::Char('d'));
-        app.apply(folding_snapshot("product"));
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        app.apply(folding_snapshot("infra"));
-        app.go("infra".into());
-        assert!(app.collapsed_panes().is_empty());
-        app.go("product".into());
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        let mut changed = folding_snapshot("product");
-        changed
-            .view
-            .as_mut()
-            .unwrap()
-            .board
-            .collapsed
-            .insert(Pane::Rows);
-        app.apply(changed);
-        assert_eq!(app.collapsed_panes(), BTreeSet::from([Pane::Rows]));
-        let mut removed = folding_snapshot("product");
-        removed.tabs = vec!["product".into()];
-        app.apply(removed);
-        assert!(!app.folds.contains_key("infra"));
-    }
-
-    #[test]
-    fn responsive_folds_respect_toggles_resize_focus_and_config_reset() {
-        let responsive = || {
-            let mut snapshot = folding_snapshot("product");
-            snapshot.view.as_mut().unwrap().board.fold_below = Some(crate::config::FoldBelow {
-                width: 100,
-                panes: [Pane::Detail].into(),
-            });
-            snapshot
-        };
-        let mut app = App::new(Some("product".into()));
-        app.set_body_width(120);
-        app.apply(responsive());
-        assert!(app.collapsed_panes().is_empty());
-        app.focus = 1;
-        app.set_body_width(80);
-        assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
-        assert_eq!(app.focused_pane(), Some(Pane::Rows));
-        app.set_body_width(120);
-        assert!(app.collapsed_panes().is_empty());
-        assert_eq!(
-            app.focused_pane(),
-            Some(Pane::Rows),
-            "widening never steals focus"
-        );
-        app.set_body_width(80);
-        app.toggle_panes(&[Pane::Detail]);
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "explicit expansion wins below threshold"
-        );
-        app.set_body_width(120);
-        app.apply(responsive());
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "override survives refresh and widening"
-        );
-        app.toggle_panes(&[Pane::Detail]);
-        assert!(
-            app.collapsed_panes().contains(&Pane::Detail),
-            "explicit collapse wins above threshold"
-        );
-        app.set_body_width(80);
-        app.set_body_width(200);
-        assert!(app.collapsed_panes().contains(&Pane::Detail));
-        let mut changed = responsive();
-        changed
-            .view
-            .as_mut()
-            .unwrap()
-            .board
-            .fold_below
-            .as_mut()
-            .unwrap()
-            .width = 90;
-        app.apply(changed);
-        assert!(
-            app.collapsed_panes().is_empty(),
-            "changed board clears overrides"
-        );
-        assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
-        app.apply(folding_snapshot("product"));
-        for width in [80, 120, 200] {
-            app.set_body_width(width);
-            assert!(
-                app.collapsed_panes().is_empty(),
-                "no rule keeps the original presentation"
-            );
-        }
-    }
-
-    #[test]
-    fn grouped_toggle_folds_mixed_panes_then_expands_and_keeps_each_override() {
-        for tmux in [false, true] {
-            let mut snapshot = folding_snapshot("product");
-            let view = snapshot.view.as_mut().unwrap();
-            view.board = crate::config::Config::read(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/fixtures/markup-parity.toml"),
-            )
-            .unwrap()
-            .preview_view(
-                &crate::view::ViewScope::Board,
-                Some(crate::view::ViewName::Team),
-                "team",
-            )
-            .unwrap()
-            .board("team")
-            .unwrap();
-            view.bindings = crate::action::preset(tmux, &view.board.panes);
-            let mut app = App::new(Some("product".into()));
-            app.set_body_width(120);
-            app.apply(snapshot);
-            app.focus = 1;
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
-            assert_eq!(app.focused_pane(), Some(Pane::Rows));
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(
-                app.focused_pane(),
-                Some(Pane::Rows),
-                "unfolding never steals focus"
-            );
-            assert!(app.collapsed_panes().is_empty());
-            app.toggle_panes(&[Pane::Detail]);
-            assert_eq!(app.collapsed_panes(), [Pane::Detail].into());
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(
-                app.collapsed_panes(),
-                [Pane::Detail, Pane::Replies].into(),
-                "any expanded member folds the whole group"
-            );
-            press(&mut app, KeyCode::Char('d'));
-            for width in [80, 120, 200] {
-                app.set_body_width(width);
-                assert!(
-                    app.collapsed_panes().is_empty(),
-                    "both explicit expansions override fold_below"
-                );
-            }
-            press(&mut app, KeyCode::Char('d'));
-            app.set_body_width(200);
-            assert_eq!(app.collapsed_panes(), [Pane::Detail, Pane::Replies].into());
-            assert!(app.view.as_ref().unwrap().board.collapsed.is_empty());
-        }
-    }
-
-    #[test]
-    fn pane_defaults_cover_every_layout_and_group_state_is_per_squad_and_session() {
-        let config = crate::config::Config::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/markup-parity.toml"),
-        )
-        .unwrap();
-        for layout in ["crew", "pr-queue", "minimal", "team"] {
-            let board = config.board(layout).unwrap();
-            let snapshot = |squad: &str| {
-                let mut snapshot = folding_snapshot(squad);
-                let view = snapshot.view.as_mut().unwrap();
-                view.board = board.clone();
-                view.bindings = config.bindings(true, &board.panes).unwrap();
-                snapshot
-            };
-            let mut app = App::new(Some("product".into()));
-            app.set_body_width(120);
-            app.apply(snapshot("product"));
-            let targets: BTreeSet<_> = board
-                .panes
-                .iter()
-                .filter(|pane| [Pane::Detail, Pane::Replies].contains(pane))
-                .copied()
-                .collect();
-            press(&mut app, KeyCode::Char('d'));
-            assert_eq!(app.collapsed_panes(), targets, "{layout}");
-            assert!(app.notice.is_none());
-            app.apply(snapshot("product"));
-            assert_eq!(app.collapsed_panes(), targets, "reload retains overrides");
-            app.apply(snapshot("infra"));
-            app.go("infra".into());
-            assert!(
-                app.collapsed_panes().is_empty(),
-                "another squad has its own defaults"
-            );
-            app.go("product".into());
-            assert_eq!(
-                app.collapsed_panes(),
-                targets,
-                "tab switch retains group state"
-            );
-            let mut restarted = App::new(Some("product".into()));
-            restarted.set_body_width(120);
-            restarted.apply(snapshot("product"));
-            assert!(
-                restarted.collapsed_panes().is_empty(),
-                "restart uses config, never persisted overrides"
-            );
-        }
-    }
-
-    #[test]
-    fn partial_group_toggles_present_panes_and_an_absent_group_is_silent() {
-        let mut snapshot = folding_snapshot("product");
-        let view = snapshot.view.as_mut().unwrap();
-        view.board = Board::simple(
-            BoardMode::Split,
-            crate::config::Direction::TopBottom,
-            vec![Pane::Detail],
-            &[100],
-        );
-        view.bindings = crate::action::preset(true, &view.board.panes);
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        app.perform(&Action::parse("toggle detail replies").unwrap());
-        assert_eq!(
-            app.collapsed_panes(),
-            [Pane::Detail].into(),
-            "partially present group acts on its available subset"
-        );
-        assert!(app.notice.is_none());
-        app.perform(&Action::parse("toggle rows notes").unwrap());
-        assert_eq!(
-            app.collapsed_panes(),
-            [Pane::Detail].into(),
-            "entirely absent group changes nothing"
-        );
-        assert!(app.notice.is_none());
-        app.perform(&Action::parse("toggle detail replies").unwrap());
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), None);
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(app.focused_pane(), Some(Pane::Detail));
-    }
-
-    #[test]
-    fn folding_refuses_a_stale_frame_tabs_and_an_absent_pane() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(folding_snapshot("product"));
-        app.go("infra".into());
-        press(&mut app, KeyCode::Char('d'));
-        assert!(app.collapsed_panes().is_empty());
-        assert_eq!(app.notice.as_deref(), Some("Loading infra…"));
-        let mut tabs = folding_snapshot("infra");
-        tabs.view.as_mut().unwrap().board.mode = BoardMode::Tabs;
-        app.apply(tabs);
-        press(&mut app, KeyCode::Char('d'));
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("toggle applies to split mode only.")
-        );
-        app.apply(snapshot("infra", json!([])));
-        press(&mut app, KeyCode::Char('d'));
-        app.notice = None;
-        press(&mut app, KeyCode::Char('d'));
-        assert!(
-            app.notice.is_none(),
-            "no detail/replies means d is a silent no-op"
-        );
     }
 }
 
