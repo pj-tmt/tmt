@@ -297,12 +297,12 @@ so the lead skill and `tmt extension rm squad` are unaffected. Squad never write
 directory and never executes a playbook. The lead skill source is embedded only in the squad
 executable, never in the core skill bundle.
 
-## HOME lead sends
+## Shared dispatch intents
 
-`send::leads` owns all-leads and picked-lead audience validation; `send::dispatch` owns the shared frozen intent, private journal and acceptance recovery used by it and status announcements. The existing `App.input`
-keeps the opening user UUID and squad/lead occurrences; both submission and the
-send effect validate current authority. The public dispatch deduplicates recipient
-UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
+`send::dispatch` owns the frozen intent, private journal and acceptance recovery
+used by status announcements. Status drafts retain the opening actor
+and room/member context; `membership::status_update` revalidates that authority
+before constructing an intent. Public dispatch deduplicates recipient UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
 manual cron sends. Before dispatch, a private 0600 intent under
 `board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
 acceptance removes it; uncertain acceptance retains it for manual inspection.

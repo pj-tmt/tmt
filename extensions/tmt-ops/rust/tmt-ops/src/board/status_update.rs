@@ -412,23 +412,34 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::app::workspace::tests::{MEMBER, ROOM};
     use super::super::app::{Compose, Input};
+    use super::super::workspace::OpsTarget;
     use super::*;
     use serde_json::json;
     fn press(app: &mut App, key: KeyCode) -> Effect {
         app.key(KeyEvent::new(key, KeyModifiers::NONE))
     }
     fn app() -> App {
-        let mut app = super::super::app::tests::crew(crate::action::preset(true, &[]), vec![]);
-        let view = app.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.me_id = Some("actor-uuid".into());
-        view.document["squad"]["lead"] = json!({"id":"lead-uuid","name":"Sol"});
-        app.select(1);
-        app
+        super::super::app::tests::workspace_composer()
+    }
+    fn member_row(app: &mut App) -> &mut serde_json::Value {
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            })
+            .unwrap()
     }
     fn ready(app: &mut App) -> Preview {
-        press(app, KeyCode::Char('a'));
+        app.perform(&crate::action::Action::parse("annotate").unwrap());
         for _ in 0..4 {
             if app
                 .input
@@ -442,7 +453,7 @@ mod tests {
         let target = app.status_draft.as_ref().unwrap().target.clone().unwrap();
         let preview = Preview {
             target,
-            room: "room-uuid".into(),
+            room: ROOM.into(),
             namespace: "squad.product.".into(),
             keys: ["squad.product.pending".into(), "squad.product.state".into()],
             name: "auth-fix".into(),
@@ -491,6 +502,25 @@ mod tests {
         for c in "Message draft".chars() {
             press(&mut app, KeyCode::Char(c));
         }
+        // Annotation is about this member even when the lead receives it.
+        // Its editor must stay visible in the same selected conversation.
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 42)).unwrap();
+        terminal
+            .draw(|frame| super::super::view::render(frame, &app))
+            .unwrap();
+        assert!(app.input_band.get().is_some());
+        assert!(app.input_viewport.get().is_some());
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("Message draft")
+        );
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.input.as_ref().unwrap().text, "Message draft");
@@ -520,9 +550,9 @@ mod tests {
     #[test]
     fn multiple_requests_use_the_existing_picker_and_status_answer_selects_one() {
         let mut app = app();
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+        member_row(&mut app)["waitingOnYou"] =
             json!([{"requestId":"q1","preview":"First?"},{"requestId":"q2","preview":"Second?"}]);
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&crate::action::Action::parse("annotate").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         press(&mut app, KeyCode::Tab);
         assert_eq!(
@@ -543,7 +573,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .identity,
-            "auth-fix"
+            MEMBER
         );
         // Explicit Answer request chooses q2; neither request is finalised by opening.
         app.status_draft.as_mut().unwrap().focus = 5;
@@ -558,7 +588,7 @@ mod tests {
             matches!(press(&mut app,KeyCode::Enter),Effect::Act(Request::Reply{request,..}) if request=="q2")
         );
         assert_eq!(
-            app.view.as_ref().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"]
+            member_row(&mut app)["waitingOnYou"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -698,8 +728,7 @@ mod tests {
                 if actor_changed {
                     app.view.as_mut().unwrap().me = Some("Another actor".into());
                 } else {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["name"] =
-                        json!("Another target");
+                    member_row(&mut app)["name"] = json!("Another target");
                 }
                 for key in [KeyCode::End, KeyCode::Enter, KeyCode::Enter] {
                     assert_eq!(
@@ -731,12 +760,11 @@ mod tests {
                 .draw(|frame| super::super::view::render(frame, app))
                 .unwrap();
             let band = app.input_band.get().unwrap();
-            assert!(
-                !app.hits
-                    .borrow()
-                    .iter()
-                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
-            );
+            assert!(!app.hits.borrow().iter().any(|hit| {
+                !ratatui::layout::Rect::new(hit.x, hit.y, hit.width, 1)
+                    .intersection(band)
+                    .is_empty()
+            }));
             terminal
                 .backend()
                 .buffer()
@@ -749,7 +777,7 @@ mod tests {
         for width in [80, 100, 160] {
             let mut app = app();
             app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::None;
-            app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([{"requestId":"req_11111111-1111-4111-8111-111111111111","preview":"First question with a wrapping preview that remains identifiable"},
+            member_row(&mut app)["waitingOnYou"] = json!([{"requestId":"req_11111111-1111-4111-8111-111111111111","preview":"First question with a wrapping preview that remains identifiable"},
                     {"requestId":"req_22222222-2222-4222-8222-222222222222","preview":"Second question"}]);
             let preview = ready(&mut app);
             assert!(draw(&app, width).contains("› [ ] Clear pending"));

@@ -1,7 +1,7 @@
 use super::interaction::{board, press};
 use super::*;
 use crate::board::{
-    app::{App, Compose, Effect, Request},
+    app::App,
     home_leads::{Kind, LeadPreview},
 };
 use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyCode::*};
@@ -120,34 +120,6 @@ fn home_lead_and_member_use_the_same_reply_renderer_and_v_reader() {
         !app.row_details
             .contains(&Target::Row(app.row_target(app.selected).unwrap()))
     );
-}
-
-#[test]
-fn audience_controls_use_one_composer_and_refuse_sender_or_lead_changes() {
-    let mut app = fixture();
-    press(&mut app, Char('@'));
-    press(&mut app, Down);
-    press(&mut app, Enter);
-    assert!(app.menu.is_none());
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, Compose::Leads { all: false, recipients, .. } if recipients[0].id == "B")
-    );
-    press(&mut app, Char('x'));
-    assert!(
-        matches!(press(&mut app, Enter), Effect::Act(Request::Leads { all: false, text, .. }) if text == "x")
-    );
-    for actor in [true, false] {
-        let mut app = fixture();
-        press(&mut app, Char('A'));
-        press(&mut app, Char('x'));
-        if actor {
-            app.view.as_mut().unwrap().me_id = Some("other".into());
-        } else {
-            app.home_leads.leads[0].row["id"] = json!("replacement");
-        }
-        assert_eq!(press(&mut app, Enter), Effect::None);
-        assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
-    }
 }
 
 #[test]

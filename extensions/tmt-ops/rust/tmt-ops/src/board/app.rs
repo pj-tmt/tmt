@@ -201,12 +201,6 @@ pub enum Request {
         from: String,
         text: String,
     },
-    Leads {
-        sender: String,
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-        text: String,
-    },
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     WorkspacePreferences {
@@ -234,8 +228,7 @@ impl Request {
             Self::Talk { .. }
             | Self::DirectTalk { .. }
             | Self::Annotate { .. }
-            | Self::Reply { .. }
-            | Self::Leads { .. } => "Sending…",
+            | Self::Reply { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -255,7 +248,6 @@ impl Request {
                 | Self::WorkspacePreferences { .. }
                 | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
-                | Self::Leads { .. }
                 | Self::Status(_)
                 | Self::Digest(_)
         )
@@ -291,10 +283,6 @@ pub enum Choice {
     Cron(super::cronboard::CronRequest),
     /// Leaves the menu without doing anything.
     Dismiss,
-    Leads {
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-    },
     Reply {
         request: String,
         from: String,
@@ -335,11 +323,6 @@ pub struct Menu {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
     Workspace,
-    Leads {
-        sender: String,
-        recipients: Vec<crate::send::LeadRecipient>,
-        all: bool,
-    },
     AskLead {
         to: String,
         sender: String,
@@ -437,9 +420,6 @@ pub(super) struct HomeFeedback {
 
 impl RowSend {
     pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
-        if matches!(input.compose, Compose::Leads { .. }) {
-            return app.leads_valid(input);
-        }
         if app.loading()
             || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
             || app.view.as_ref().and_then(|view| view.me_id.as_ref()) != self.sender_id.as_ref()
@@ -471,11 +451,9 @@ impl RowSend {
                 self.note.as_ref() == Some(&input.compose)
                     && (self.note_member || app.note_recipient(&self.target) == self.note_recipient)
             }
-            Compose::AskLead { .. }
-            | Compose::Leads { .. }
-            | Compose::Cron
-            | Compose::Workspace
-            | Compose::Digest(_) => false,
+            Compose::AskLead { .. } | Compose::Cron | Compose::Workspace | Compose::Digest(_) => {
+                false
+            }
         }
     }
 }
@@ -512,7 +490,6 @@ impl Input {
 
     pub(super) fn header(&self) -> String {
         match &self.compose {
-            Compose::Leads { .. } => self.prompt.clone(),
             Compose::Talk { to } => {
                 if self.squad.is_empty() {
                     format!("→ {to} · talk")
@@ -1989,27 +1966,12 @@ impl App {
         {
             return self.say("Select a visible named member before running this action.");
         }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some())
-            && self.workspace_snapshot().is_none()
-        {
-            match action.verb {
-                Verb::Tab | Verb::Jump
-                    if action.args.first().and_then(|arg| arg.literal()) != Some("lead") =>
-                {
-                    return self.home_enter();
-                }
-                Verb::Annotate => return self.home_answer(),
-                _ => {}
-            }
-        }
         match action.verb {
             Verb::TokenWindow => {
                 return self.cycle_token_window();
             }
             Verb::HomeMessage => return self.toggle_row_detail(),
             Verb::ViewReply => return self.view_row_reply(),
-            Verb::HomeWrite => return self.home_write(),
-            Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
             Verb::Digest => return self.digest_row(self.selected),
             Verb::Settings => {
@@ -2532,7 +2494,6 @@ impl App {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
-            Choice::Leads { recipients, all } => self.compose_leads(recipients, all),
             Choice::Reply { request, from } => self.ask(
                 format!("→ {from}"),
                 Compose::Reply { request, from },
@@ -2893,8 +2854,7 @@ impl App {
                     | Compose::Workspace
                     | Compose::Status
                     | Compose::AnswerPicker
-                    | Compose::Digest(_)
-                    | Compose::Leads { .. } => false,
+                    | Compose::Digest(_) => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -2949,16 +2909,6 @@ impl App {
                 squad,
                 to,
                 row,
-                text,
-            },
-            Compose::Leads {
-                sender,
-                recipients,
-                all,
-            } => Request::Leads {
-                sender,
-                recipients,
-                all,
                 text,
             },
             Compose::Status => unreachable!("status submission has its own retained form"),
@@ -4364,7 +4314,7 @@ pub(crate) mod tests {
             .unwrap()
     }
 
-    fn workspace_composer() -> App {
+    pub(in crate::board) fn workspace_composer() -> App {
         use super::super::workspace::OpsTarget;
         use super::workspace::tests::{MEMBER, ROOM};
         let mut app = super::workspace::tests::board();

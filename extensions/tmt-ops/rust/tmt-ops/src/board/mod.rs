@@ -308,12 +308,6 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             .map(|()| "Workspace preferences saved.".to_owned())
             .map_err(|error| error.message),
         Request::Cron(request) => cronboard::act(core, request),
-        Request::Leads {
-            sender,
-            recipients,
-            all,
-            text,
-        } => send::leads(core, &sender, &recipients, all, &text).map_err(|error| error.message),
         Request::Reply {
             me,
             request,

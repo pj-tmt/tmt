@@ -192,9 +192,6 @@ pub struct LeadRecipient {
     pub name: String,
 }
 
-mod leads;
-pub use leads::leads;
-
 mod dispatch;
 
 pub(crate) use dispatch::Intent;

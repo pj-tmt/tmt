@@ -64,8 +64,7 @@ impl App {
                 Compose::Talk { .. }
                 | Compose::Reply { .. }
                 | Compose::Annotate { .. }
-                | Compose::AskLead { .. }
-                | Compose::Leads { .. } => true,
+                | Compose::AskLead { .. } => true,
                 Compose::Status => self.reference_editor().is_some(),
                 Compose::Cron => self
                     .cron_draft

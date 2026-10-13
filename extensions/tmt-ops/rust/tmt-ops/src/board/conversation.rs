@@ -162,8 +162,10 @@ impl App {
             .filter(|pane| pane.height >= 9)?;
         let input = self.input.as_ref()?;
         let target = self.conversation_target()?;
-        let recipient = self.target_row(&target)?["id"].as_str()?;
-        (input.draft_key.as_ref()?.1 == recipient).then_some(pane)
+        // Placement follows the selected membership being discussed. A note
+        // can be delivered to its lead, and Status has no message draft key.
+        // Neither changes the conversation that owns this input band.
+        (input.target() == Some(&target)).then_some(pane)
     }
 
     pub(super) fn conversation_target(&self) -> Option<RowTarget> {
