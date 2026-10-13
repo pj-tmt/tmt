@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   readlinkSync,
@@ -16,7 +17,7 @@ describe('retired extension guidance preservation', () => {
     'preserves historical links on install, refresh and default uninstall (dangling=%s)',
     async (dangling) => {
       await withSandbox(async (sandbox) => {
-        const targets = oldLayout(sandbox, dangling);
+        const targets = oldLayout(sandbox, dangling, !dangling);
         const prefix = path.join(sandbox.root, 'prefix');
         const retiredProgram = path.join(prefix, 'bin', 'tmt-office');
         const retiredData = path.join(sandbox.globalDir, 'office', 'office.db');
@@ -50,6 +51,14 @@ describe('retired extension guidance preservation', () => {
           conflicts: [],
           skipped: expect.arrayContaining(targets),
         });
+        if (!dangling) {
+          for (const root of new Set(targets.map((target) => path.dirname(target)))) {
+            expect(existsSync(path.join(root, 'tmux-team'))).toBe(false);
+            expect(readFileSync(path.join(root, 'tmt', 'SKILL.md'), 'utf8')).not.toContain(
+              'name: tmux-team'
+            );
+          }
+        }
         const removed = await runCli(sandbox, ['uninstall', '--yes', '--prefix', prefix, '--json']);
         expect(removed.status, removed.stdout + removed.stderr).toBe(0);
         expect(readlinkSync(retiredProgram)).toBe('../lib/tmt-office/current/tmt-office');
