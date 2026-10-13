@@ -1616,7 +1616,7 @@ for (const width of [1440, 390])
             : page.getByRole('dialog', { name: 'Annotate selection' });
         const input = container.getByRole('combobox', { name: 'Message', exact: true });
         const action = container.getByRole('button', {
-          name: 'Send',
+          name: /^Send(?: · to .+)?$/,
           exact: true,
           includeHidden: true,
         });

@@ -400,11 +400,22 @@ test('paired writers retain anchored annotation conversations, direct exact send
           (node.ownerDocument.defaultView as unknown as { anchorTraffic: string[] }).anchorTraffic,
       );
     expect(traffic.length).toBeGreaterThan(0);
+    let paints = 0;
+    // This author probe observes both question lookup selectors and numbered highlight anchors.
     for (const batch of traffic) {
       expect(batch).not.toContain(opening.split('\n')[0].slice(0, 32));
-      for (const anchor of JSON.parse(batch))
-        expect(Object.keys(anchor).sort()).toEqual(['id', 'ordinal', 'selector']);
+      for (const anchor of JSON.parse(batch)) {
+        const numbered = 'ordinal' in anchor;
+        expect(Object.keys(anchor).sort()).toEqual(
+          numbered ? ['id', 'ordinal', 'selector'] : ['id', 'selector'],
+        );
+        if (numbered) {
+          paints++;
+          expect(Number.isSafeInteger(anchor.ordinal) && anchor.ordinal > 0).toBe(true);
+        }
+      }
     }
+    expect(paints).toBeGreaterThan(0);
     await expect(first.getByTestId('annotation-row').first()).toHaveAttribute(
       'title',
       opening.split('\n')[0].slice(0, 32),

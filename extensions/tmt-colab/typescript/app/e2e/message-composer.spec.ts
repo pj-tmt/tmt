@@ -232,8 +232,11 @@ for (const width of [1440, 390]) {
           .evaluateAll((nodes) =>
             nodes.map((control) => {
               const composer = control.closest('.annotation-compose')!;
+              const chat = composer.hasAttribute('data-chat');
               const label = composer.querySelector('.tmt-ui-field-label')!;
-              const send = composer.querySelector('.annotation-status-row > .tmt-ui-action')!;
+              const send = composer.querySelector(
+                '.annotation-status-row [data-variant="primary"]',
+              )!;
               const fieldBox = control.getBoundingClientRect(),
                 sendBox = send.getBoundingClientRect();
               return {
@@ -242,6 +245,7 @@ for (const width of [1440, 390]) {
                 sendRight: sendBox.right,
                 fieldRight: fieldBox.right,
                 padding: parseFloat(getComputedStyle(send).paddingLeft),
+                chat,
               };
             }),
           );
@@ -250,7 +254,8 @@ for (const width of [1440, 390]) {
           expect(field.labelWidth).toBe(1);
           expect(field.clearance).toBeGreaterThanOrEqual(8);
           expect(Math.abs(field.sendRight - field.fieldRight)).toBeLessThan(1);
-          expect(field.padding).toBeGreaterThan(0);
+          if (field.chat) expect(field.padding).toBeGreaterThan(0);
+          else expect(field.padding).toBe(0);
         }
         const state = await page.evaluate(() =>
           [...document.querySelectorAll<HTMLButtonElement>('.tmt-ui-action')].map((button) => {

@@ -258,7 +258,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
               : s.askerPage.getByRole('dialog', { name: 'Annotate selection' });
           const input = container.getByRole('combobox', { name: 'Message', exact: true });
           const action = container.getByRole('button', {
-            name: 'Send',
+            name: /^Send(?: · to .+)?$/,
             exact: true,
           });
           await s.door.remote.kill();

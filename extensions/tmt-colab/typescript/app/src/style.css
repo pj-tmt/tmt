@@ -846,6 +846,14 @@ footer {
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   flex-shrink: 1;
 }
+/* A tall failure card can leave only a few lines below it, even in a tall viewport. */
+.annotation-popover .conversation-window:has(.annotation-compose[data-connection='ended']) {
+  overflow: auto;
+}
+.annotation-popover .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
+  flex-shrink: 0;
+  overflow: visible;
+}
 .ask-panel {
   margin: 0;
   padding: 0;
