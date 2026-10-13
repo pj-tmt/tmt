@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 
 async function mount(
   page: Page,
-  mode: 'home' | 'page' | 'empty' | 'cold-failed' | 'cold-loading' = 'home',
+  mode: 'home' | 'page' | 'empty' | 'cold-failed' | 'cold-loading' | 'navigation-rejected' = 'home',
 ) {
   await page.goto('/');
   await page.evaluate(async (mode) => {
@@ -96,6 +96,32 @@ test('empty, loading and failed list reads have explicit states and close remain
   );
   await dialog(page).getByRole('button', { name: 'Close Search pages', exact: true }).click();
   await expect(control(page)).toBeFocused();
+});
+
+test('failed destination loading focuses the error screen heading', async ({ page }) => {
+  await mount(page);
+  await page.evaluate(async () => {
+    const fixture = '/test/quick-switcher-browser.tsx';
+    const api = await import(/* @vite-ignore */ fixture);
+    api.failPage(api.id(2));
+  });
+  await control(page).click();
+  await options(page).filter({ hasText: 'Beta review' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByText('Fixture page load refused', { exact: true })).toBeVisible();
+  await expect(page.locator('.tmt-ui-header h1')).toHaveText('Page unavailable');
+  await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
+  await expect(page.locator('.tmt-ui-header h1')).toHaveAttribute('tabindex', '-1');
+});
+
+test('rejected navigation restores the mounted Search pages control', async ({ page }) => {
+  await mount(page, 'navigation-rejected');
+  await control(page).click();
+  await options(page).filter({ hasText: 'Beta review' }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(control(page)).toBeFocused();
+  expect((await proof(page)).navigationRejections).toBe(1);
+  expect((await proof(page)).pageReads).toEqual([]);
 });
 
 test('trusted frame shortcut opens inert search; editor and modified shortcuts do not', async ({
