@@ -459,7 +459,6 @@ pub(super) fn board(sections: Value) -> App {
             opener: None,
             clipboard: None,
 
-            tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
             me: None,
@@ -1036,8 +1035,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 opener: None,
                 clipboard: None,
 
-                tab_colors: Default::default(),
-                look: Default::default(),
+                    look: Default::default(),
                 theme_notice: None,
                 me: None,
                 me_id: None,
@@ -1700,77 +1698,6 @@ fn every_row_is_one_line_cut_by_display_width_at_any_width() {
             assert!(line.width() <= usize::from(width), "at {width}: {line:?}");
         }
     }
-}
-
-#[test]
-fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
-    let mut app = board(json!([{"title": null, "rows": [
-        row("auth-fix", "blocked", "rotate", json!({"pending": "approve"})),
-    ]}]));
-    lead_sol(&mut app);
-    app.attention = BTreeMap::from([
-        (
-            "product".into(),
-            Attention {
-                waiting: 1,
-                blocked: 1,
-            },
-        ),
-        (
-            "reviews".into(),
-            Attention {
-                waiting: 0,
-                blocked: 2,
-            },
-        ),
-    ]);
-    let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let tabs: String = (0..60)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1  ✗ reviews 2");
-    let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
-    let product = &buffer[(column("product"), 0)];
-    // Waiting wins over blocked; selection is bold without moving the tab.
-    let fg = |role| app.look().role(role).fg.unwrap_or_default();
-    assert_eq!(product.fg, fg(Role::Text), "a selected tab name is a word");
-    assert_eq!(buffer[(0, 0)].fg, fg(Role::Waiting));
-    assert!(product.modifier.contains(Modifier::BOLD));
-    assert!(!product.modifier.contains(Modifier::REVERSED));
-    let reviews = &buffer[(column("reviews"), 0)];
-    assert_eq!(reviews.fg, fg(Role::Muted));
-    assert_eq!(buffer[(column("reviews") - 2, 0)].fg, fg(Role::Blocked));
-    assert!(!reviews.modifier.contains(Modifier::REVERSED));
-
-    let screen = draw(&app, 60, 6);
-    assert_eq!(screen[1], "lead sol · 1 member · 1 waiting on you");
-    // Colors come from [tabs.colors]; without a lead the summary says so.
-    let view = app.view.as_mut().unwrap();
-    view.tab_colors.blocked = "review".into();
-    view.document["squad"]["lead"] = Value::Null;
-    app.attention.clear();
-    app.attention.insert(
-        "reviews".into(),
-        Attention {
-            waiting: 0,
-            blocked: 2,
-        },
-    );
-    let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let tabs: String = (0..60)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    let reviews = tabs[..tabs.find("reviews").unwrap()].chars().count() as u16;
-    assert_eq!(
-        buffer[(reviews - 2, 0)].fg,
-        app.look().role(Role::Review).fg.unwrap_or_default()
-    );
-    assert_eq!(draw(&app, 60, 6)[1], "no lead · 1 member");
 }
 
 #[test]

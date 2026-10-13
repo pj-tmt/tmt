@@ -100,8 +100,6 @@ pub struct View {
     pub bindings: Bindings,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
-    /// `[tabs.colors]`, re-read with every load like the rest of ops.toml.
-    pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
     pub me_id: Option<String>,
@@ -3390,7 +3388,6 @@ pub(crate) mod tests {
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             opener: None,
             clipboard: None,
-            tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
             me: None,

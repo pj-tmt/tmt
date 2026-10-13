@@ -1087,7 +1087,6 @@ fn squad_view(
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),
@@ -1123,7 +1122,6 @@ fn member_view(
     me: Option<crate::me::Me>,
     key: &str,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
-    let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), key)?;
@@ -1141,7 +1139,6 @@ fn member_view(
         bindings,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),
@@ -1170,7 +1167,6 @@ fn all_view(
     me: Option<crate::me::Me>,
     listed: &Result<Value, crate::core::SquadError>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
-    let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
     let (loaded, home, home_rate) =
@@ -1189,7 +1185,6 @@ fn all_view(
         bindings,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
         me_id: me.as_ref().map(|me| me.id.clone()),

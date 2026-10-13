@@ -624,6 +624,13 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
         home.summary.blocked = 3;
         home.incomplete = state == "partial";
         app.error = (state == "stale").then(|| "Roster unavailable".into());
+        app.attention.insert(
+            "product".into(),
+            crate::attention::Attention {
+                waiting: 13,
+                blocked: 3,
+            },
+        );
         app.tab_hits.borrow_mut().clear();
         let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
         assert_eq!(
@@ -631,6 +638,21 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
             "OPS / UI  1 Overview  2 Agents  3 Digest  "
         );
         assert_eq!(app.tab_hits.borrow().len(), 3);
+        for (index, span) in line.spans.iter().skip(1).enumerate() {
+            let selected = index == 1; // The fixture starts in Agents.
+            let expected = if selected {
+                app.look()
+                    .role(tmt_cli_style::Role::Accent)
+                    .patch(app.look().selection())
+                    .add_modifier(ratatui::style::Modifier::BOLD)
+            } else {
+                app.look().role(tmt_cli_style::Role::Muted)
+            };
+            assert_eq!(
+                span.style, expected,
+                "attention cannot recolor shell labels"
+            );
+        }
     }
     app.tab_hits.borrow_mut().clear();
     crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 25, 1));
