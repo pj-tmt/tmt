@@ -102,20 +102,18 @@ fn remote_status(bytes: &[u8]) -> Option<&'static str> {
     };
     match value.get("running").and_then(Value::as_bool) {
         Some(true)
-            if value.len() == 3
-                && value.get("origin").is_some_and(Value::is_string)
+            if value.get("origin").is_some_and(Value::is_string)
                 && value.get("path").is_some_and(Value::is_string) =>
         {
             Some(RUNNING)
         }
         Some(false)
-            if value.len() == 2
-                && value.get("lastPort").is_some_and(|port| {
-                    port.is_null()
-                        || port
-                            .as_u64()
-                            .is_some_and(|port| (1..=65535).contains(&port))
-                }) =>
+            if value.get("lastPort").is_some_and(|port| {
+                port.is_null()
+                    || port
+                        .as_u64()
+                        .is_some_and(|port| (1..=65535).contains(&port))
+            }) =>
         {
             None
         }
