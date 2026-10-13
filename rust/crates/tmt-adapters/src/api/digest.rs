@@ -29,6 +29,12 @@ pub enum Operation {
         after: u64,
         limit: u64,
     },
+    History {
+        identity: String,
+        checklist: Option<String>,
+        after: u64,
+        limit: u64,
+    },
     Claim {
         identity: String,
         opportunity: DigestOpportunity,
@@ -148,7 +154,7 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
                 Operation::Due(v.identity_id)
             }
         }
-        "digest.checklist.read" => {
+        "digest.checklist.read" | "digest.checklist.history" => {
             let v: Read = serde_json::from_slice(input).map_err(|_| invalid())?;
             uuid(&v.identity_id)?;
             if let Some(id) = &v.checklist_id {
@@ -157,11 +163,20 @@ pub(super) fn decode(operation: &str, input: &[u8]) -> Result<Request, Fault> {
             if v.after > MAX_JS_SAFE_INTEGER || !(1..=128).contains(&v.limit) {
                 return Err(invalid());
             }
-            Operation::Read {
-                identity: v.identity_id,
-                checklist: v.checklist_id,
-                after: v.after,
-                limit: v.limit,
+            if operation.ends_with(".history") {
+                Operation::History {
+                    identity: v.identity_id,
+                    checklist: v.checklist_id,
+                    after: v.after,
+                    limit: v.limit,
+                }
+            } else {
+                Operation::Read {
+                    identity: v.identity_id,
+                    checklist: v.checklist_id,
+                    after: v.after,
+                    limit: v.limit,
+                }
             }
         }
         "digest.checklist.claim" => {
@@ -251,6 +266,17 @@ pub(super) fn execute(
             after,
             limit,
         } => digest::read(storage, &identity, checklist.as_deref(), after, limit).map_err(error)?,
+        Operation::History {
+            identity,
+            checklist,
+            after,
+            limit,
+        } => {
+            let page = RequestService::new(storage, wall_time_ms)
+                .digest_checklist_history(&identity, checklist.as_deref(), after, limit)
+                .map_err(error)?;
+            history_value(&identity, &page)
+        }
         Operation::Claim {
             identity,
             opportunity,
@@ -305,6 +331,25 @@ pub(super) fn execute(
 fn encode(value: Value) -> Result<Vec<u8>, Fault> {
     serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
 }
+fn history_value(identity: &str, page: &tmt_core::request::digest::DigestHistoryRead) -> Value {
+    json!({"identityId":identity,"observedAtMs":page.observed_at_ms,
+        "throughSequence":page.through_sequence,"retainedFromSequence":page.retained_from_sequence,
+        "legacySettledCount":page.legacy_settled_count,"deliveredDigests":page.delivered_digests,
+        "nextAfter":page.next_after,"checklists":page.checklists.iter().map(|row| {
+            let evidence = &row.evidence;
+            json!({"checklistId":evidence.checklist.id,"settlementSequence":evidence.settlement_sequence,
+                "claimedAtMs":evidence.checklist.created_at_ms,"settledAtMs":evidence.settled_at_ms,
+                "outcome":evidence.checklist.state.as_str(),"opportunity":evidence.opportunity.map(|o| match o {
+                    DigestOpportunity::Idle => "idle", DigestOpportunity::TurnBoundary => "turn_boundary"}),
+                "sealedCount":evidence.sealed_count,"retainedCount":row.retained_count,
+                "membershipComplete":evidence.sealed_count.is_some_and(|count| count == row.retained_count),
+                "nextItemAfter":row.next_item_after,"items":row.items.iter().map(|item| json!({
+                    "sequence":item.sequence,"createdAtMs":item.created_at_ms,
+                    "contextTokensAtArrival":item.context_tokens_at_arrival,
+                    "contextObservedAtMs":item.context_observed_at_ms})).collect::<Vec<_>>()})
+        }).collect::<Vec<_>>()})
+}
+
 fn error(error: RequestError<StorageError>) -> Fault {
     match error {
         RequestError::Digest(reason) => Fault::new(

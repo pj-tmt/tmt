@@ -263,6 +263,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain content-free exchange flow aggregates",
         "schema/052.sql"
     ),
+    migration!(
+        "retain checklist settlement order and delivery inputs",
+        "schema/053.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

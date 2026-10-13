@@ -725,17 +725,18 @@ Squad owns user/lead authorization and duration syntax; it passes the recorded
 owner UUID. Provider adapters must admit their exact launch's turn boundary before
 claiming. Core never reads Squad configuration or installs provider-global hooks.
 
-| Operation                 | Input                                                                                                 | Result                                                         |
-| ------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `digest.policy.set`       | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
-| `digest.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
-| `digest.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
-| `digest.checklist.dueNow` | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
-| `digest.checklist.flush`  | `identityId`                                                                                          | `identityId`, `state`                                          |
-| `digest.stats.show`       | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
-| `digest.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
-| `digest.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
-| `digest.checklist.settle` | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
+| Operation                  | Input                                                                                                 | Result                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `digest.policy.set`        | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
+| `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
+| `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
+| `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
+| `digest.checklist.flush`   | `identityId`                                                                                          | `identityId`, `state`                                          |
+| `digest.stats.show`        | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
+| `digest.checklist.read`    | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
+| `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                        |
+| `digest.checklist.claim`   | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
+| `digest.checklist.settle`  | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
 
 UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
 integers, a set expiry is strictly future, absent revision is 0. A clear advances
@@ -801,3 +802,69 @@ request retention. Settlement idempotency lasts while the record is retained.
 Claimed and uncertain records remain discoverable even after members expire.
 A crash after claim remains unknown until inspected; no elapsed time reopens it.
 See the [delivery contract](request-response-v1.md#digest-delivery-windows).
+
+### Digest checklist history
+
+`digest.checklist.history` v1 is a content-free, storage-only observation over
+existing retained checklist records, not a complete archive. It never claims,
+delivers, acknowledges, refreshes provider evidence, prunes or renews retention.
+The normative [history vectors](digest-checklist-history-v1.json) pin its shape.
+
+Input is a canonical active `identityId`, optional canonical `checklistId`,
+`after` (default 0, nonnegative JS-safe integer) and `limit` (default 32, 1–128).
+Envelope identity/originator and unknown fields are refused. No name resolution
+or transport authorization is performed.
+
+Without `checklistId`, `after` is a **settlement sequence**. Each checklist receives
+one sequence from Core's existing durable change cursor in its first terminal
+transition transaction, independent of timestamps; retries preserve it. Only
+settled records with a known sequence greater than `after` are listed, ordered
+by that sequence. Claimed-but-unsettled records do not appear. Late settlement
+receives a newer sequence even if its claim predates the collector's last read
+or the wall clock moved backwards. Unrelated Core changes can leave sequence gaps.
+
+The result contains `identityId`, `observedAtMs`, `throughSequence` (the snapshot's
+durable change-cursor watermark), `retainedFromSequence` (oldest surviving known
+settlement sequence, or null), `legacySettledCount` (surviving terminal records
+without an assigned sequence), `deliveredDigests` (the existing cumulative counter),
+`checklists` and `nextAfter` (last returned settlement sequence when more records
+remain, otherwise null). At end of enumeration, collect through `throughSequence`;
+future terminal transitions receive higher sequences. Finish any member-input
+continuations before committing that collector watermark.
+
+Each checklist has `checklistId`, `settlementSequence`, `claimedAtMs`,
+`settledAtMs`, `outcome`, `opportunity`, `sealedCount`, `retainedCount`,
+`membershipComplete`, `items` and `nextItemAfter`. `outcome` is `delivered`,
+`definitely_unsent` or `uncertain`; `opportunity` is `idle`, `turn_boundary` or
+null for unknown historical claims. Claim captures original `sealedCount` and
+opportunity; the first terminal transition records settlement time/order atomically.
+An identical settlement changes neither. Legacy facts remain null, and terminal
+records predating sequence collection are counted as legacy rather than assigned
+an invented historical order.
+
+`retainedCount` counts the complete currently visible sealed membership, independent
+of the returned input page. `membershipComplete` is true only when a known original
+sealed count equals it. It does not imply complete context evidence or a complete
+history window. Definitely-unsent settlement releases membership; its count remains
+known but inputs are unavailable. Expired request metadata hides member inputs
+immediately, even before physical cleanup. Existing checklist/request pruning stays
+unchanged. The oldest surviving sequence is not a coverage guarantee, and absent
+records cannot be reconstructed from the cumulative delivered count.
+
+Each input is only `sequence`, `createdAtMs`, `contextTokensAtArrival` and
+`contextObservedAtMs`. Context fields are nullable immutable hold-time observations;
+missing context is unknown, never zero. No body, preview, request ID, receipt,
+reply/inspection command, attempt token or provider locator is returned.
+
+An enumeration page returns at most `limit` checklists and **128 member inputs in
+total**. Ordinary checklists stay inline: the page ends before a subsequent batch
+would exceed the input budget. If the first batch itself has more than 128 visible
+inputs, its first 128 are inline and `nextItemAfter` names the last input sequence.
+Resume through the **same operation** with `checklistId` and `after` equal to that
+input cursor; in this scope `limit` bounds inputs, `nextAfter` is null, and the
+checklist's settlement sequence stays unchanged. A scope mismatch is refused;
+unsettled or legacy terminal records without a sequence return no checklist.
+`nextItemAfter` is null at input-page end. Both scopes read one SQLite snapshot;
+membership may expire between pages and clients must check completeness on each.
+The fixed numeric/UUID fields and these bounds keep encoded pages below 128 KiB,
+within Digest's existing 1 MiB Core subprocess capture limit.
