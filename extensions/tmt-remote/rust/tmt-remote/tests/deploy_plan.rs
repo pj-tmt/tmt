@@ -19,6 +19,50 @@ fn path(name: &str) -> PathBuf {
 fn fixture(name: &str) -> Vec<u8> {
     fs::read(path(name)).unwrap_or_else(|error| panic!("{name}: {error}"))
 }
+
+#[test]
+fn declared_chunk_sizes_are_optional_bounded_and_digest_bound() {
+    let original = fixture("colab-firestore.json");
+    declaration::parse(&original).expect("existing bytes remain valid without chunkBytes");
+    let artifact = colab_artifact();
+    let old = compose(FIRESTORE, &[colab(&original, &artifact)]).unwrap();
+    for chunk in [32_768, 262_144] {
+        let changed = edit("colab-firestore.json", |v| {
+            v["resources"][0]["limits"]["chunkBytes"] = json!(chunk);
+            v["resources"][0]["limits"]["maxObjectBytes"] = json!(12_582_912);
+            v["resources"][0]["limits"]["maxNamespaceBytes"] = json!(12_582_912);
+        });
+        declaration::parse(&changed).expect("per-resource cloud chunk size parses");
+        let new = compose(FIRESTORE, &[colab(&changed, &artifact)]).unwrap();
+        assert_ne!(
+            old.view().extensions[0].declaration_digest,
+            new.view().extensions[0].declaration_digest
+        );
+    }
+    for bad in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!(null),
+        json!("32768"),
+        json!(9_007_199_254_740_992u64),
+    ] {
+        let changed = edit("colab-firestore.json", |v| {
+            v["resources"][0]["limits"]["chunkBytes"] = bad
+        });
+        assert!(
+            declaration::parse(&changed).is_err(),
+            "invalid declared chunk size"
+        );
+    }
+    let over = edit("colab-firestore.json", |v| {
+        let object = v["resources"][0]["limits"]["maxObjectBytes"]
+            .as_u64()
+            .unwrap();
+        v["resources"][0]["limits"]["chunkBytes"] = json!(object + 1);
+    });
+    assert!(declaration::parse(&over).is_err());
+}
 fn json_fixture(name: &str) -> Value {
     serde_json::from_slice(&fixture(name)).unwrap()
 }

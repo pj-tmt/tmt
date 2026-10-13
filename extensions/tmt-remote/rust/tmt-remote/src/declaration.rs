@@ -34,6 +34,8 @@ pub struct ResourceLimits {
     pub max_object_bytes: u64,
     pub max_namespace_bytes: u64,
     pub max_entries: u64,
+    /// Optional decoded cloud chunk size; absent declarations retain their exact bytes.
+    pub chunk_bytes: Option<u64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Index {
@@ -290,10 +292,18 @@ fn resource_inner(value: &Value) -> Result<Resource> {
 }
 
 fn bounds(value: &Value) -> Result<ResourceLimits> {
-    let top = members(
-        value,
-        &["maxObjectBytes", "maxNamespaceBytes", "maxEntries"],
-    )?;
+    let keys = ["maxObjectBytes", "maxNamespaceBytes", "maxEntries"];
+    let top = value.as_object().ok_or(DeclarationError {
+        resource: None,
+        reason: Reason::Shape,
+    })?;
+    if !keys.iter().all(|key| top.contains_key(*key))
+        || top
+            .keys()
+            .any(|key| !keys.contains(&key.as_str()) && key != "chunkBytes")
+    {
+        return refuse(Reason::Shape);
+    }
     let positive = |value: &Value| -> Result<u64> {
         // `as_u64` is None for fractions, exponents, signs and values beyond u64.
         match value.as_u64() {
@@ -305,9 +315,14 @@ fn bounds(value: &Value) -> Result<ResourceLimits> {
         max_object_bytes: positive(&top["maxObjectBytes"])?,
         max_namespace_bytes: positive(&top["maxNamespaceBytes"])?,
         max_entries: positive(&top["maxEntries"])?,
+        chunk_bytes: top.get("chunkBytes").map(positive).transpose()?,
     };
     // An object larger than its namespace could never be stored.
-    if bounds.max_object_bytes > bounds.max_namespace_bytes {
+    if bounds.max_object_bytes > bounds.max_namespace_bytes
+        || bounds
+            .chunk_bytes
+            .is_some_and(|chunk| chunk > bounds.max_object_bytes)
+    {
         return refuse(Reason::Limit);
     }
     Ok(bounds)

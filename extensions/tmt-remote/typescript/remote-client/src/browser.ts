@@ -1,3 +1,23 @@
+export { bindSyncContext, syncDocumentPath, verifySealedObject } from './sealed-sync.js';
+export type {
+  SyncIdentity,
+  SyncToken,
+  SyncAuthState,
+  SyncAuthFailure,
+  SyncAuthPort,
+  SyncCall,
+  SyncResource,
+  SyncContext,
+  SyncTarget,
+  SealedDocument,
+  SyncCursor,
+  SyncPage,
+  SyncChange,
+  SyncSubscription,
+  SyncPublish,
+  SealedSyncPort,
+  SealedObjectManifest,
+} from './sealed-sync.js';
 import { deviceObjects as store, request } from './browser-store.js';
 import { remoteRegistryPage } from './remote-registry-page.js';
 export { remoteRegistry, RemoteRegistryError } from './remote-registry.js';

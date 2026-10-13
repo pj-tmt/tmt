@@ -84,3 +84,11 @@ identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, 
 firestore.googleapis.com once document transport ships. Colab owns those shell headers;
 the fixture verifies these requirements, not shipped policy. The local path never imports
 Firebase implicitly.
+
+## Sealed-document types
+
+`sealed-sync.ts` and native `sealed_sync.rs` define the proposed bound ports and
+pure validation, not a provider factory. The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+owns context, injected Auth, sequence catch-up, uncertainty and the cloud object
+profile. The browser transport will reuse hosted bootstrap; native transport and
+credentials are later slices. Frozen fixtures are not installed provider evidence.

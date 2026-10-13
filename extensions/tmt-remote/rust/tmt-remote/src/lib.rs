@@ -39,6 +39,7 @@ pub mod remote_link;
 pub mod remote_selector;
 pub mod routes;
 pub mod rules;
+pub mod sealed_sync;
 pub mod session;
 pub mod settings;
 pub mod site;

@@ -3,7 +3,7 @@
 Layer 1 (page sharing and collaboration) must run on the Firebase no-cost (Spark) plan. The
 guard code is `src/firestore_budget.rs`; its vectors come from the independent script
 `tests/fixtures/firestore_budget/reference.py`. The semantics (thresholds, outcomes, error
-code) are in the [contract](../../../../contracts/remote-channel-v1.md#proposal-free-plan-budget-guard).
+code) are in the [contract](../../../../contracts/remote-channel-v1.md#free-plan-budget-guard).
 This page holds the dated numbers: recheck them before relying on them, they change.
 `tmt remote status --budget` and the settings page show the Firestore rows of the table below from `firestore_limits.rs`; change both together when you recheck.
 
@@ -95,3 +95,16 @@ source-read date and 70/90 guard thresholds. They are not a measured usage perce
 quota-headroom source, so no threshold-crossing warning is inferred from this table. The
 SDK validates the dated member against the same checked limits fixture; received values
 and date, rather than a local fallback, are displayed.
+
+## Proposed object payload cost
+
+The [sealed-document contract](../../../../contracts/remote-channel-v1.md#proposed-cloud-object-profile)
+owns the chunk profile. A 12 MiB ciphertext payload takes 48 chunk writes at 256 KiB
+or 384 at 32 KiB, plus a final manifest write. Against 20,000 writes/day, payload-only
+ideals are 416 and 52 such objects; manifest writes reduce those to 408 and 51.
+These are not available headroom: Rules lookups, recovery, other pages, deletes,
+listeners and storage also consume the shared project budget. No per-user/per-space
+counter companions or preparation reads are part of a sealed-document append: it
+is one write plus the existing three dependent Rules lookups. The shipped modeled
+page-share guard remains a guard, not a hint or aggregate project enforcement.
+Native polling/read costs belong to the later native slice, not this profile.

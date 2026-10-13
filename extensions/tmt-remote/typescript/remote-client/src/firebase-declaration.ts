@@ -55,13 +55,23 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
       const segments = r.path.split('/');
       require(segments.length <= 8 && segments.every((s) => /^[a-z0-9_-]{1,64}$/.test(s)));
       require(!['x', 'append', 'subscribe', 'ack', 'pair'].includes(segments[0]!));
-      const limits = members(r.limits, ['maxObjectBytes', 'maxNamespaceBytes', 'maxEntries']);
+      require(typeof r.limits === 'object' && r.limits !== null);
+      const limits = members(r.limits, [
+        'maxObjectBytes',
+        'maxNamespaceBytes',
+        'maxEntries',
+        ...(Object.hasOwn(r.limits, 'chunkBytes') ? ['chunkBytes'] : []),
+      ]);
       require(
         Object.values(limits).every(
           (n) => typeof n === 'number' && Number.isSafeInteger(n) && n > 0,
         ),
       );
       require(Number(limits.maxObjectBytes) <= Number(limits.maxNamespaceBytes));
+      require(
+        limits.chunkBytes === undefined ||
+          Number(limits.chunkBytes) <= Number(limits.maxObjectBytes),
+      );
       require(r.ttlField === null || (typeof r.ttlField === 'string' && field.test(r.ttlField)));
       require(Array.isArray(r.indexes) && r.indexes.length <= 64);
       const indexes = new Set<string>();

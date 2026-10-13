@@ -234,3 +234,16 @@ From the repository root, with `CARGO_BUILD_JOBS=2`:
 The crash-window tests observe named milestones inside the real algorithms (compiled
 only for tests) and the SIGKILL probe re-executes the test binary; none uses a sleep to
 infer an effect. After changing a guard, perturb it once and confirm a test fails.
+
+## Proposed Firestore adapter
+
+The [cloud profile](../../../../contracts/remote-channel-v1.md#proposed-cloud-object-profile)
+defines the future thin adapter over `sealed_sync::SealedSyncPort`, sharing Auth and
+declared resources with the document client. No cloud backend is enabled today.
+Original-ID recovery, create-only chunk/manifest publication and complete-or-absent
+reads apply to every backend. The current LocalFs suite additionally proves its
+durable quota reservations, namespace fences and exact accounting; the smaller
+cloud profile does not claim these. Split that matrix explicitly when adding the
+adapter. Preserve original-only observational status and report cleanup honestly.
+The 32 KiB object-channel frame remains unchanged; aggregate frames for a declared
+256 KiB cloud chunk without changing identities or resealing encrypted content.
