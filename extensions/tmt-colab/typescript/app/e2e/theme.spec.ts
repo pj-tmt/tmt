@@ -14,6 +14,7 @@ const content = `<h1>Review notes</h1>
 <p class="muted">A page begins with its content. Colab supplies the title and actions above.</p>
 <section><h2>Release readiness</h2><p>◆ Waiting — review the candidate before release.</p><ul><li>Verify the changed behaviour.</li><li>Record the reviewed head and evidence.</li></ul></section>
 <h2 id="checks">Checks</h2><table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody><tr><td>Token equality</td><td>✓ Passed</td></tr><tr><td>Narrow layout</td><td>✓ Passed</td></tr></tbody></table>
+<h2>Measured usage</h2><div id="sample-chart"><svg viewBox="0 0 320 64" role="img" aria-label="Sample usage chart" style="display:block;width:100%;height:80px"><rect x="0" y="32" width="96" height="32" fill="currentColor"/><rect x="112" y="16" width="96" height="48" fill="currentColor"/><rect x="224" y="0" width="96" height="64" fill="currentColor"/></svg></div>
 <h2>Next step</h2><p>Copy the inline starter into your page and write semantic content.</p><pre><code>tmt colab skill</code></pre><p><a href="#checks">Read the checks</a> and record the result.</p>`;
 const sample = `<!doctype html><html><head><meta charset="utf-8">${style}</head><body>${content}</body></html>`;
 const interactive = `${sample}<button onclick="this.textContent='Count: '+(++window.count)">Count: 0</button>
@@ -61,6 +62,44 @@ async function choose(page: Page, theme: 'light' | 'dark') {
     })
     .click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+}
+
+for (const width of [1280, 1440, 390]) {
+  test(`starter container ${width}: centred cap and shared content width`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await mount(page, sample);
+    const child = page.frameLocator('#layout-fixture iframe');
+    const geometry = await child.locator('body').evaluate((body) => {
+      const bounds = body.getBoundingClientRect();
+      const css = getComputedStyle(body);
+      const gutter = parseFloat(css.paddingLeft);
+      const content = ['p', 'table', '#sample-chart', 'pre'].map((selector) => {
+        const box = body.querySelector(selector)!.getBoundingClientRect();
+        return { selector, x: box.x, width: box.width };
+      });
+      return {
+        viewport: innerWidth,
+        x: bounds.x,
+        width: bounds.width,
+        gutter,
+        scrollWidth: document.documentElement.scrollWidth,
+        content,
+      };
+    });
+    expect(geometry.viewport).toBe(width);
+    expect(geometry.width).toBe(Math.min(width, 1280));
+    expect(geometry.x).toBe((width - geometry.width) / 2);
+    expect(geometry.gutter).toBe(16);
+    expect(geometry.scrollWidth).toBe(width);
+    for (const block of geometry.content) {
+      expect(block.x, block.selector).toBe(geometry.x + geometry.gutter);
+      expect(block.width, block.selector).toBe(geometry.width - 2 * geometry.gutter);
+    }
+    if (captures && width !== 1280) {
+      await page.screenshot({ path: `${captures}/container-${width}.png`, fullPage: true });
+    }
+  });
 }
 
 for (const width of [1440, 390]) {

@@ -405,7 +405,7 @@ requires consent; install and upgrade accept `--to`. Retention, discovery, recei
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
-Digest owns [settings, history and status](extensions/tmt-digest/contracts/digest-v1.md).
+Digest [tick stores history; status reads it](extensions/tmt-digest/contracts/digest-v1.md).
 
 ## Ops extension
 

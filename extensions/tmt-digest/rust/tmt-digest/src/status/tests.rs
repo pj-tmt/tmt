@@ -48,17 +48,20 @@ fn every_frozen_status_response_matches_the_same_projection() {
             }
             stats.push(held.map(|held| Observation {
                 held,
+                delivered: None,
                 observed: 1791629999000,
                 age,
             }));
         }
         let settings = DigestConfig::parse(settings.as_bytes()).unwrap();
-        assert_eq!(
-            project(&settings, &identities, &stats, 1791630000000).unwrap(),
-            *expected,
-            "{}",
-            vector["name"]
-        );
+        let mut actual = project(&settings, &identities, &stats, 1791630000000).unwrap();
+        for row in actual["members"].as_array_mut().unwrap() {
+            assert!(row.get("oldestHeldAgeMs").is_some());
+            assert_eq!(row["deliveredDigests"], Value::Null);
+            row.as_object_mut().unwrap().remove("oldestHeldAgeMs");
+            row.as_object_mut().unwrap().remove("deliveredDigests");
+        }
+        assert_eq!(actual, *expected, "{}", vector["name"]);
     }
 }
 
@@ -73,6 +76,7 @@ fn zero_held_leaves_only_the_mode_choice_and_unknown_evidence_stays_visible() {
     for (mode, text) in [("auto", "Auto"), ("5m", "Every 5m"), ("off", "Off")] {
         let observation = Observation {
             held: 0,
+            delivered: None,
             observed: 1000,
             age: None,
         };
@@ -108,16 +112,19 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
     for observation in [
         Observation {
             held: 3,
+            delivered: None,
             observed: 1000,
             age: None,
         },
         Observation {
             held: 3,
+            delivered: None,
             observed: 1000,
             age: Some(1001),
         },
         Observation {
             held: 3,
+            delivered: None,
             observed: MAX_NUMBER,
             age: Some(0),
         },
@@ -132,6 +139,7 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
         "5m",
         Some(Observation {
             held: 10,
+            delivered: None,
             observed: 1000,
             age: None,
         }),
@@ -144,6 +152,7 @@ fn missing_unsafe_or_impossible_deadlines_are_unknown_and_threshold_stays_explic
         "off",
         Some(Observation {
             held: 10,
+            delivered: None,
             observed: 1000,
             age: Some(0),
         }),
@@ -164,6 +173,7 @@ fn duration_normalization_and_countdown_rounding_do_not_overflow_or_duplicate_pr
             mode,
             Some(Observation {
                 held: 1,
+                delivered: None,
                 observed: 1000,
                 age: Some(0),
             }),

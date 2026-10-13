@@ -16,6 +16,7 @@ const MAX_MS: u64 = 9_007_199_254_740_991;
 
 pub struct TickProcess {
     core: Core,
+    history: Option<crate::history::Store>,
     settings_path: PathBuf,
     synchronized: BTreeMap<String, Mode>,
     failed: BTreeSet<String>,
@@ -27,6 +28,7 @@ impl TickProcess {
     pub fn new(core: Core, settings_path: PathBuf, boundary_ms: u64, boundary: Instant) -> Self {
         Self {
             core,
+            history: None,
             settings_path,
             synchronized: BTreeMap::new(),
             failed: BTreeSet::new(),
@@ -84,6 +86,25 @@ impl TickProcess {
         self.synchronized.insert(id.into(), mode);
         Ok(())
     }
+    pub(super) fn attach_history(&mut self, result: Result<Option<crate::history::Store>, Error>) {
+        match result {
+            Ok(history) => self.history = history,
+            Err(error) => self
+                .errors
+                .push(format!("{} ({})", error.message, error.code)),
+        }
+    }
+    fn collect_history(&mut self, id: &str) {
+        if let Some(store) = &mut self.history
+            && let Err(error) = crate::history::collect(&self.core, store, id, self.boundary)
+        {
+            // Collection cannot mark a member delivery-failed or authorize a retry.
+            let message = format!("{id}: {} ({})", error.message, error.code);
+            if !self.errors.contains(&message) {
+                self.errors.push(message);
+            }
+        }
+    }
     fn flush(&mut self, id: &str) -> Result<(), Error> {
         if self.failed.contains(id) || !self.within_minute()? {
             return Ok(());
@@ -110,6 +131,7 @@ impl TickProcess {
             self.errors
                 .push(format!("{id}: {} ({})", error.message, error.code));
         }
+        self.collect_history(id);
         Ok(())
     }
     pub fn finish(self) -> Result<(), Error> {
@@ -145,6 +167,14 @@ impl TickPort for TickProcess {
         ids.sort();
         if ids.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(invalid());
+        }
+        for id in &ids {
+            if !self.within_minute()? {
+                break;
+            }
+            if !self.synchronized.contains_key(id) && !self.failed.contains(id) {
+                self.collect_history(id);
+            }
         }
         let mut observations = vec![];
         for batch in ids.chunks(256) {

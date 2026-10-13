@@ -43,7 +43,7 @@ Successful ticks print nothing. Invalid settings, unavailable Core and delivery 
 
 ## Read status
 
-`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Unavailable stats stay unknown; savings are unavailable in phase 2. It does not tick, deliver messages or change settings.
+`tmt digest status --json` returns one read-only document for all saved identities, with resolved modes, held-message counts and ready-made labels. Use `--window 24h|7d|lifetime` (default 24h) for estimated context-input tokens avoided. Lifetime starts when Digest begins collecting; unavailable or incomplete evidence is never zero. This is a gross estimate, not billed tokens or turns saved. It does not tick, deliver messages or change settings.
 
 ## Inspect help and the skill
 

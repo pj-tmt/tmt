@@ -138,7 +138,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "clap",
             "tmt-cli-style",
             "tmt-invoke",
+            "serde", // content-free settlement DTOs, not Core domain ownership
             "serde_json",
+            "rusqlite", // private Digest history; never the Core database
             "toml_edit",
             "nix",
         ],

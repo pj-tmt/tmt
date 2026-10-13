@@ -3015,6 +3015,8 @@ version = "0.1.0-dev"
 dependencies = [
  "clap",
  "nix",
+ "rusqlite",
+ "serde",
  "serde_json",
  "tmt-cli-style",
  "tmt-invoke",

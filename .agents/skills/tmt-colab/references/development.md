@@ -108,6 +108,12 @@ python3 extensions/tmt-colab/contracts/vectors/baseline-reference.py
 python3 extensions/tmt-colab/contracts/vectors/send-preview-reference.py
 ```
 
+The Firestore declaration maps sealed REST fields, named discovery and write modes without
+shipping a cloud consumer. Its `authority` records retain original statement/wrap/chain bytes;
+recipient-only wrap reads are part of the Rules emulator gate. Follow the contract's
+[declaration mapping](../../../../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration)
+when changing fields, especially six-field members and checkpoint `seq = index + 1`.
+
 ## Focused Rust suites
 
 Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
