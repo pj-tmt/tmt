@@ -281,42 +281,69 @@ test('a file that cannot be opened is reported on its own row without touching o
   await send(page).click();
   const entries = panel.getByTestId('message-attachment');
   await entries.nth(0).getByRole('button', { name: text.attachmentDownload }).click();
-  await expect(entries.nth(0).getByRole('alert')).toHaveText(text.attachmentUnavailable);
+  await expect(entries.nth(0).getByRole('alert')).toHaveText(`✗ ${text.attachmentUnavailable}`);
   await expect(entries.nth(1).getByRole('alert')).toHaveCount(0);
 });
 
 const captures = process.env.COLAB_1854_CAPTURE_DIR;
-for (const width of [1440, 390])
-  for (const scheme of ['light', 'dark'] as const)
-    test(`captures the attachment states at ${width} ${scheme}`, async ({ page }) => {
-      test.skip(!captures, 'Set COLAB_1854_CAPTURE_DIR to write UX review captures.');
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.setViewportSize({ width, height: 900 });
-      await mount(page);
-      const { panel, input } = await openChat(page);
-      await input.fill('Files for review');
-      await attach(page, [
-        note('notes.txt'),
-        { name: 'shot.png', mimeType: 'image/png', buffer: PNG },
-        note('refuse.bin'),
-      ]);
-      const shot = (name: string) =>
-        page.screenshot({ path: `${captures}/1854-${name}-${width}-${scheme}.png` });
-      await shot('chips-ready');
-      await send(page).click();
-      await expect(panel.getByTestId('attachment-chip').nth(2)).toHaveAttribute(
-        'data-state',
-        'refused',
-      );
-      await shot('chips-refused');
-      await panel.getByRole('button', { name: text.attachRemove }).last().click();
-      await send(page).click();
-      const png = panel
-        .getByTestId('message-attachment')
-        .filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
-      await expect(png.locator('img')).toBeVisible();
-      await shot('message-preview');
-    });
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    for (const scheme of ['light', 'dark'] as const)
+      test(`captures the attachment states at ${surface} ${width} ${scheme}`, async ({ page }) => {
+        test.skip(!captures, 'Set COLAB_1854_CAPTURE_DIR to write UX review captures.');
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.setViewportSize({ width, height: 900 });
+        await mount(page);
+        const { panel, input } = await (async () => {
+          if (surface === 'chat') return openChat(page);
+          const quote = page.frameLocator('#ask-page-fixture iframe').locator('#selected');
+          await quote.evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const selection = getSelection()!;
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+          await page.getByTestId('selection-ask').click();
+          return {
+            panel: page.locator('.comment-thread'),
+            input: page.getByRole('combobox', { name: 'Message', exact: true }),
+          };
+        })();
+        await input.fill('Files for review');
+        await attach(page, [
+          note('notes.txt'),
+          { name: 'shot.png', mimeType: 'image/png', buffer: PNG },
+          note('refuse.bin'),
+        ]);
+        const shot = (name: string) =>
+          page.screenshot({ path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png` });
+        await shot('chips-ready');
+        await page.evaluate(async (path) => (await import(path)).pauseAttachmentUploads(), fixture);
+        await send(page).click();
+        await expect(panel.getByTestId('attachment-chip').first()).toHaveAttribute(
+          'data-state',
+          'uploading',
+        );
+        await expect(send(page)).toBeDisabled();
+        await shot('chips-uploading');
+        await page.evaluate(
+          async (path) => (await import(path)).resumeAttachmentUploads(),
+          fixture,
+        );
+        await expect(panel.getByTestId('attachment-chip').nth(2)).toHaveAttribute(
+          'data-state',
+          'refused',
+        );
+        await shot('chips-refused');
+        await panel.getByRole('button', { name: text.attachRemove }).last().click();
+        await send(page).click();
+        const png = panel
+          .getByTestId('message-attachment')
+          .filter({ has: page.getByRole('button', { name: 'Preview shot.png' }) });
+        await expect(png.locator('img')).toBeVisible();
+        await shot('message-preview');
+      });
 
 test('an epoch or admission change disposes and rereads the visible thumbnail', async ({
   page,

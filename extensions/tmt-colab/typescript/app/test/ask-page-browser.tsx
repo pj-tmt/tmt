@@ -76,6 +76,8 @@ let presentationAsk: AskBinding | undefined;
 export function finishMentionDirectory() {
   finishDirectory?.();
 }
+let holdAttachmentUploads = false;
+let releaseAttachmentUpload: (() => void) | undefined;
 /** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
 let releaseDraftRead: (() => void) | undefined;
 export function finishDraftRead() {
@@ -139,6 +141,7 @@ export async function mount(
     history?: 'thread' | 'chat';
   } = {},
 ) {
+  resumeAttachmentUploads();
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -269,6 +272,10 @@ export async function mount(
         async upload(input, target, progress) {
           actions.push(`attach:upload:${input.filename}`);
           progress(1, 2);
+          if (holdAttachmentUploads)
+            await new Promise<void>((resolve) => {
+              releaseAttachmentUpload = resolve;
+            });
           if (input.filename.includes('refuse'))
             throw new AttachmentUploadError({ kind: 'refused', reason: 'capacity' });
           const original = {
@@ -1513,4 +1520,14 @@ export function annotationLookDelete() {
     ),
   };
   emit();
+}
+
+/** Bounded fixture gate for capturing the existing upload-progress and Send fence. */
+export function pauseAttachmentUploads() {
+  holdAttachmentUploads = true;
+}
+export function resumeAttachmentUploads() {
+  holdAttachmentUploads = false;
+  releaseAttachmentUpload?.();
+  releaseAttachmentUpload = undefined;
 }
