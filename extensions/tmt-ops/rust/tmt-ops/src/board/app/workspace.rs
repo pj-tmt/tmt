@@ -3,7 +3,7 @@
 use super::*;
 use crate::board::{
     shell::OpsTab,
-    workspace::{OpsTarget, OpsTreeRow, SelectionState, observe::WorkspaceSnapshot},
+    workspace::{OpsTarget, OpsTreeRow, SelectionState, observe::OpsWorkspaceSnapshot},
 };
 use crate::{
     action::OpsUiAction,
@@ -11,7 +11,7 @@ use crate::{
 };
 
 impl App {
-    pub(in crate::board) fn workspace_snapshot(&self) -> Option<&WorkspaceSnapshot> {
+    pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
     pub(in crate::board) fn workspace_rows(&self) -> Vec<OpsTreeRow> {

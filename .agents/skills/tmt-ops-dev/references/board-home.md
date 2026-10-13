@@ -8,7 +8,7 @@ validated send effects belong to [config-and-effects.md](config-and-effects.md).
 ## Acquisition and model ownership
 
 `board::home::Home` retains the existing attention, sampled-history and provider
-limit projections. Its `workspace::observe::WorkspaceSnapshot` is built from the
+limit projections. Its `workspace::observe::OpsWorkspaceSnapshot` is built from the
 same `tab_view::Acquired` documents, room records and global identity inventory;
 painting and input perform no Core reads. Public aggregate documents and
 `ls --tab all` keep their independent projection.

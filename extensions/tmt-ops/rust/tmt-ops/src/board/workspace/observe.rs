@@ -10,7 +10,7 @@ use crate::{squad::Squad, tab_view::Acquired};
 use serde_json::Value;
 
 #[derive(Debug, Default)]
-pub(crate) struct WorkspaceSnapshot {
+pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
     /// Exact admitted row projections used by the existing action/conversation
     /// adapters. Display models never reconstruct send data from visible text.
@@ -38,7 +38,7 @@ fn member(row: &Value) -> Option<OpsMember> {
     })
 }
 
-impl WorkspaceSnapshot {
+impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.preferences = config.workspace_preferences()?;
         let scopes = [

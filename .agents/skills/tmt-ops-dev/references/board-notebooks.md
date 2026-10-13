@@ -6,10 +6,10 @@ and [detail/reply appearance](../../../../extensions/tmt-ops/skills/tmt-ops/SKIL
 Effect policy belongs to [config-and-effects.md](config-and-effects.md#actions-and-effects);
 the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priority/cancellation.
 
-## Lead notebook and links
+## Notebook/source utilities and links
 
-- The notes pane reads the lead's saved-identity notebook, with no separate squad
-  notebook. `observe` chooses `Member::is_lead` and reads the UUID via bounded public
+- Notebook utilities retain the lead's saved-identity notebook, with no separate
+  squad notebook. `observe` chooses `Member::is_lead` and reads the UUID via bounded public
   `notes.read`, never creating a file. `refresh::lead_notes` distinguishes missing,
   no-lead and failed reads; hidden notes use `Notes::NotShown`. A temporary lead
   remains an API failure.
@@ -17,8 +17,8 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
   characters from agent-written text, preserving newlines and script/emoji joiners
   and expanding tabs to four spaces. `board::markdown` renders the supported subset
   over sanitized input and leaves unsupported constructs as source. Plain mode
-  creates no interactive links. `view::notes` caches lines, source indices, links
-  and wrapped display-cell ranges by width/look in the immutable view.
+  creates no interactive links. The retained notebook renderer caches lines,
+  source indices, links and wrapped display-cell ranges by width/look.
 - `links` classifies explicit destinations and admits configured handlers;
   `markdown::render_links` keeps destination occurrence and source-line identity
   through wrapping. `App` selects/previews before activation and validates built-in
@@ -26,7 +26,7 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
   user-file handler. Unknown/invalid schemes and relative local paths are inert.
   Parsing/painting fetches nothing and executes nothing; activation reuses existing
   prompts, request pickers, opening and reaping owners.
-- `App.note_cursors` keeps one cursor per retained squad, anchored to the complete
+- Retained notebook cursor utilities keep one cursor per squad, anchored to the complete
   sanitized source line with a wrapped continuation offset. Refresh chooses the
   nearest duplicate match or clamps after deletion. `Scrolls` reveals the cursor;
   wheel scrolling suspends following until cursor movement. Source mapping comes
@@ -37,19 +37,21 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
   `requests::apply`; display quotes are separate. Bounded room-history projection
   provides open markers. Painting matches the nearest source line starting with
   the retained quote; answered annotations disappear on refresh. No notebook write,
-  extra read or acknowledgement is introduced.
+  extra read or acknowledgement is introduced. The workspace has no interactive
+  Notes pane or notebook annotation default; notebook CLI commands and these
+  source utilities remain independent of workspace conversation placement.
 
-## Selected detail
+## Selected detail and bounded notebook acquisition
 
-- `view::detail` appends full projected column values in column order after fields
+- Retained row-detail utilities append full projected column values after fields
   already represented by header/task/activity/links, escaping and wrapping without
-  grid fitting, source lookup or provider calls. The displayed lead occurrence uses
-  compact detail and separate notes/replies panes; `App::selected_is_lead` uses
-  `RowOrigin::Lead`, including retained views/search, rather than guessing from name.
+  grid fitting, source lookup or provider calls. Stable row/recipient identity,
+  rather than a display name, determines the source.
 - `App::notebook_identity` requests only a saved selected member with visible,
   expanded effective detail (including view preview, tabs focus and last painted
   viewport). Temporary identities get a placeholder without a read; HOME/leads have
-  no member notebook. `refresh::Deferred::Notebook` uses bounded cancellable public
+  no member notebook. These are retained acquisition rules, not a workspace Notes
+  pane. `refresh::Deferred::Notebook` uses bounded cancellable public
   `notes.read` (1 MiB API limit), never creating a notebook. Full loads outrank
   selection jobs, which collapse to the latest; generation and selection/refresh
   revision fence events, and each snapshot revalidates the visible selection.
@@ -74,7 +76,7 @@ across room and global observations; request bodies load off the UI thread.
 Unavailable/expired source is not an annotatable response.
 
 `board::conversation` owns one session per sender/recipient UUID and paints the
-same selected-agent response in wide HOME and the Replies pane. Each session
+same selected-agent response in the workspace Overview and Agents detail area. Each session
 retains the response, source anchor, follow state and Markdown render cache keyed
 by source, width and look. Reading older text pauses follow; a replacement result
 is indicated without replacing the displayed request until End resumes follow.

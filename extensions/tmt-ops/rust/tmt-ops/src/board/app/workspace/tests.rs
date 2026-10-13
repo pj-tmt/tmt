@@ -13,7 +13,7 @@ fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
     loaded.tabs.push(crate::board::ALL.into());
-    let mut workspace = WorkspaceSnapshot {
+    let mut workspace = OpsWorkspaceSnapshot {
         roster: OpsRoster {
             members: [(
                 MEMBER.into(),
