@@ -3189,7 +3189,7 @@ describe('WP2 squad workspace services', () => {
       expect((await squad(sandbox, ['set', 'worker', 'state=working'])).status).toBe(0);
       const originalRoom = parseWholeStdout(
         await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
-      ).room;
+      ).room as { id: string };
       expect(
         (
           await squad(sandbox, [
@@ -3221,7 +3221,7 @@ describe('WP2 squad workspace services', () => {
       });
       const currentRoom = parseWholeStdout(
         await runCli(sandbox, ['room', 'show', 'squad-next', '--json'])
-      ).room;
+      ).room as { id: string; memberIds: string[] };
       expect(currentRoom.id).toBe(originalRoom.id);
       expect(currentRoom.memberIds).toContain(worker);
       expect(observe(sandbox).metadata).toContainEqual({
@@ -3266,7 +3266,7 @@ describe('WP2 squad workspace services', () => {
       ).toBe('c1');
       const room = parseWholeStdout(
         await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
-      ).room;
+      ).room as { id: string };
       // Bypass Ops removal to pin the service's positive external-departure observation.
       expect(
         (await runCli(sandbox, ['room', 'leave', room.id, '--identity', worker, '--json'])).status
