@@ -414,7 +414,7 @@ fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
             .join("receipt.json"),
     )
     .unwrap();
-    let cli_pointer = fs::read_link(prefix.join("lib/tmux-team/current")).unwrap();
+    let cli_pointer = fs::read_link(prefix.join("lib/tmt/current")).unwrap();
     let office_report = install_fixture(&office, &prefix, super::Product::Office).unwrap();
     assert!(office_report.changed);
     assert_eq!(
@@ -430,7 +430,7 @@ fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
     assert!(!retry.changed);
     assert_eq!(retry.active_executable, office_report.active_executable);
     assert_eq!(
-        fs::read_link(prefix.join("lib/tmux-team/current")).unwrap(),
+        fs::read_link(prefix.join("lib/tmt/current")).unwrap(),
         cli_pointer
     );
     assert_eq!(

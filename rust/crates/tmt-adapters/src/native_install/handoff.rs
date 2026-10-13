@@ -20,10 +20,36 @@ use std::{
 use tmt_core::native_install::{Channel, PinAction};
 use uuid::Uuid;
 
+/// Protocols 1 and 2 belong to updaters that validate the former `lib/tmux-team`
+/// prefix; protocols 3 and 4 carry the same requests from updaters that
+/// validate `lib/tmt`. The candidate serves all four, the updater speaks 3 and 4.
 pub const VERSION: u32 = 1;
 pub const LIMIT: usize = 16 * 1024;
 pub const PR_VERSION: u32 = 2;
 pub const PR_LIMIT: usize = 64 * 1024;
+pub const MOVED_VERSION: u32 = 3;
+pub const MOVED_PR_VERSION: u32 = 4;
+
+fn is_pr(version: u32) -> bool {
+    matches!(version, PR_VERSION | MOVED_PR_VERSION)
+}
+
+/// The protocol of the byte-transfer object a version carries.
+fn transfer_protocol(version: u32) -> u32 {
+    if version >= MOVED_VERSION {
+        MOVED_VERSION
+    } else {
+        VERSION
+    }
+}
+
+fn caller(version: u32) -> super::Caller {
+    if version >= MOVED_VERSION {
+        super::Caller::Current
+    } else {
+        super::Caller::Legacy
+    }
+}
 pub const UNSUPPORTED: &str = "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh";
 
 #[derive(Debug)]
@@ -66,7 +92,8 @@ struct Response {
 
 /// Protocol 1 remains frozen. Protocol 2 wraps the same local byte transfer
 /// with acquisition provenance and explicit channel intent, without teaching
-/// an older executable to interpret unknown evidence.
+/// an older executable to interpret unknown evidence. Protocol 4 is protocol 2
+/// for an updater that validates `lib/tmt`.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PrRequest {
@@ -83,11 +110,7 @@ pub fn probe_version(version: u32) -> serde_json::Value {
     serde_json::json!({"protocol": version})
 }
 pub fn input_limit(version: u32) -> usize {
-    if version == PR_VERSION {
-        PR_LIMIT
-    } else {
-        LIMIT
-    }
+    if is_pr(version) { PR_LIMIT } else { LIMIT }
 }
 
 /// Only the candidate calls this. Revalidate local bytes and the complete
@@ -109,7 +132,7 @@ pub fn install_version(
             return Err(invalid("Installer handoff exceeds its bound."));
         }
         let (request, provenance, explicit_channel) = match version {
-            VERSION => {
+            VERSION | MOVED_VERSION => {
                 let request: Request = super::pr_json::parse(input, LIMIT)?;
                 let provenance = GitHubProvenance {
                     release_id: request.release_id,
@@ -118,9 +141,9 @@ pub fn install_version(
                 .into();
                 (request, provenance, true)
             }
-            PR_VERSION => {
+            PR_VERSION | MOVED_PR_VERSION => {
                 let request: PrRequest = super::pr_json::parse(input, PR_LIMIT)?;
-                if request.protocol != PR_VERSION {
+                if request.protocol != version {
                     return Err(invalid("Unsupported PR installer handoff."));
                 }
                 (
@@ -131,8 +154,8 @@ pub fn install_version(
             }
             _ => return Err(invalid("Unsupported native installer handoff.")),
         };
-        if request.protocol != VERSION
-            || (version == VERSION && request.release_id == 0)
+        if request.protocol != transfer_protocol(version)
+            || (!is_pr(version) && request.release_id == 0)
             || provenance.manifest_sha256() != request.manifest_sha256
             || provenance.release().is_some_and(|release| {
                 release.release_id == 0 || release.release_id != request.release_id
@@ -185,7 +208,7 @@ pub fn install_version(
         {
             return Err(invalid("Installer handoff release mismatch."));
         }
-        if version == PR_VERSION {
+        if is_pr(version) {
             let schema = super::manifest_application_schema(super::Product::Cli, &manifest)?;
             if serde_json::to_value(&schema).map_err(io::Error::other)?
                 != super::compiled_application_schema(&schema.source_sha)?
@@ -210,6 +233,7 @@ pub fn install_version(
         }
         super::activate(
             super::ActivationRequest {
+                caller: caller(version),
                 product: super::Product::Cli,
                 prefix: &request.prefix,
                 channel,
@@ -220,7 +244,7 @@ pub fn install_version(
                 provenance: Some(provenance),
                 verifier: None,
                 explicit_channel,
-                schema: if version == PR_VERSION {
+                schema: if is_pr(version) {
                     Some(super::manifest_application_schema(
                         super::Product::Cli,
                         &manifest,
@@ -291,9 +315,9 @@ pub(super) fn upgrade(
     let version = if matches!(downloaded.provenance, Provenance::Pr(_))
         || matches!(current.state.channel, Channel::Pr(_))
     {
-        PR_VERSION
+        MOVED_PR_VERSION
     } else {
-        VERSION
+        MOVED_VERSION
     };
     let limit = input_limit(version);
     let artifact = artifact::acquire_candidate(
@@ -367,7 +391,7 @@ pub(super) fn upgrade(
         }
         checkpoint()?;
         let transfer = Request {
-            protocol: VERSION,
+            protocol: transfer_protocol(version),
             archive,
             manifest,
             prefix: current.prefix.clone(),
@@ -388,7 +412,7 @@ pub(super) fn upgrade(
                 .release()
                 .map_or(0, |proof| proof.release_id),
         };
-        let input = if version == PR_VERSION {
+        let input = if is_pr(version) {
             serde_json::to_vec(&PrRequest {
                 protocol: version,
                 transfer,

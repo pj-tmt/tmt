@@ -12,9 +12,16 @@ pub(super) struct Quote {
 }
 impl Quote {
     pub fn label(&self) -> String {
+        let request: String = self
+            .key
+            .request
+            .trim_start_matches("req_")
+            .chars()
+            .take(8)
+            .collect();
         format!(
             "quote {} · bytes {}..{}",
-            self.key.request, self.range.start, self.range.end
+            request, self.range.start, self.range.end
         )
     }
     pub fn reference(&self) -> String {

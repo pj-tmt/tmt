@@ -30,7 +30,7 @@ function currentReleaseId(prefix: string): string {
 }
 
 function releaseIds(prefix: string): string[] {
-  return readdirSync(path.join(prefix, 'lib', 'tmux-team', 'releases')).sort();
+  return readdirSync(path.join(prefix, 'lib', 'tmt', 'releases')).sort();
 }
 
 function receipt(prefix: string): Record<string, unknown> {
@@ -400,7 +400,7 @@ esac
           version,
           changed: true,
         });
-        expect(readlinkSync(installed.executable)).toBe('../lib/tmux-team/current/tmt');
+        expect(readlinkSync(installed.executable)).toBe('../lib/tmt/current/tmt');
         expect(existsSync(sandbox.database)).toBe(false);
 
         sandbox.env.PATH = '';
@@ -426,7 +426,7 @@ esac
         const prefix = installPrefix(sandbox);
         const first = await install(sandbox, fixture, prefix);
         const pointer = readlinkSync(currentPointer(prefix));
-        const before = readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt'));
+        const before = readFileSync(path.join(prefix, 'lib', 'tmt', pointer, 'tmt'));
 
         const firstHome = path.join(sandbox.root, 'unrelated tmux state one');
         const second = await install(sandbox, fixture, prefix, [], firstHome);
@@ -437,9 +437,9 @@ esac
         expect(second).toEqual({ ...first, changed: false });
         expect(third).toEqual({ ...first, changed: false });
         expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
-        expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(before)
-        ).toBe(true);
+        expect(readFileSync(path.join(prefix, 'lib', 'tmt', pointer, 'tmt')).equals(before)).toBe(
+          true
+        );
         expect(releaseIds(prefix)).toHaveLength(1);
         expect(existsSync(firstHome)).toBe(false);
         expect(existsSync(secondHome)).toBe(false);
@@ -472,7 +472,7 @@ esac
         );
         expect(unmanagedCapture.status, unmanagedCapture.stderr).toBe(0);
         expect(unmanagedCapture.stdout).toBe(realpathSync(sandbox.cli.executable));
-        const invoking = path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt');
+        const invoking = path.join(prefix, 'lib', 'tmt', 'releases', originalId, 'tmt');
         const capture = await runCli(
           {
             ...sandbox,
@@ -485,7 +485,7 @@ esac
         const callback = capture.stdout;
         expect(callback).toBe(path.join(realpathSync(prefix), 'bin', 'tmt'));
         const originalBytes = readFileSync(
-          path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')
+          path.join(prefix, 'lib', 'tmt', 'releases', originalId, 'tmt')
         );
 
         const pinned = await traceInstallationPhase(sandbox, 'pin-install', () =>
@@ -542,7 +542,7 @@ esac
         expect(readFileSync(receiptPath(prefix))).toEqual(pinnedReceipt);
         expect(existsSync(sandbox.database)).toBe(false);
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')).equals(
+          readFileSync(path.join(prefix, 'lib', 'tmt', 'releases', originalId, 'tmt')).equals(
             originalBytes
           )
         ).toBe(true);
@@ -552,7 +552,7 @@ esac
         );
         const unpinnedId = currentReleaseId(prefix);
         expect(unpinned.changed).toBe(true);
-        const staleExecutable = path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt');
+        const staleExecutable = path.join(prefix, 'lib', 'tmt', 'releases', pinnedId, 'tmt');
         const staleCapture = await runCli(
           {
             ...sandbox,
@@ -569,7 +569,7 @@ esac
             {
               ...sandbox,
               cli: {
-                executable: path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt'),
+                executable: path.join(prefix, 'lib', 'tmt', 'releases', pinnedId, 'tmt'),
                 args: [],
               },
             },
@@ -590,11 +590,9 @@ esac
           pinned_version: null,
         });
         expect(releaseIds(prefix)).toEqual([pinnedId, unpinnedId].sort());
-        expect(existsSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId))).toBe(
-          false
-        );
+        expect(existsSync(path.join(prefix, 'lib', 'tmt', 'releases', originalId))).toBe(false);
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt')).equals(
+          readFileSync(path.join(prefix, 'lib', 'tmt', 'releases', pinnedId, 'tmt')).equals(
             originalBytes
           )
         ).toBe(true);
@@ -620,9 +618,7 @@ esac
         const prefix = installPrefix(sandbox);
         await install(sandbox, originalFixture, prefix);
         const pointer = readlinkSync(currentPointer(prefix));
-        const originalExecutable = readFileSync(
-          path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt')
-        );
+        const originalExecutable = readFileSync(path.join(prefix, 'lib', 'tmt', pointer, 'tmt'));
         const originalReceipt = receipt(prefix);
         const candidate = await createArtifact(
           sandbox,
@@ -661,9 +657,7 @@ esac
         );
         expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(
-            originalExecutable
-          )
+          readFileSync(path.join(prefix, 'lib', 'tmt', pointer, 'tmt')).equals(originalExecutable)
         ).toBe(true);
         expect(readFileSync(receiptPath(prefix))).toEqual(forgedReceiptBytes);
         expect(receipt(prefix).file_sha256).toEqual(originalReceipt.file_sha256);
@@ -708,7 +702,7 @@ esac
         const ownedPrefix = path.join(sandbox.root, 'owned prefix');
         await install(sandbox, fixture, ownedPrefix);
         const pointer = readlinkSync(currentPointer(ownedPrefix));
-        const executable = readFileSync(path.join(ownedPrefix, 'lib', 'tmux-team', pointer, 'tmt'));
+        const executable = readFileSync(path.join(ownedPrefix, 'lib', 'tmt', pointer, 'tmt'));
         writeFileSync(receiptPath(ownedPrefix), '{ malformed receipt');
         const tampered = await runCli(
           sandbox,
@@ -730,9 +724,7 @@ esac
         expectError(tampered, 'NATIVE_INSTALL_FAILED');
         expect(readlinkSync(currentPointer(ownedPrefix))).toBe(pointer);
         expect(
-          readFileSync(path.join(ownedPrefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(
-            executable
-          )
+          readFileSync(path.join(ownedPrefix, 'lib', 'tmt', pointer, 'tmt')).equals(executable)
         ).toBe(true);
         expect(existsSync(sandbox.database)).toBe(false);
       });

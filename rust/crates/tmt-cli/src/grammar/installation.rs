@@ -347,7 +347,7 @@ pub(in crate::grammar) fn native_install() -> Command {
         .arg(
             Arg::new("handoff-version")
                 .long("handoff-version")
-                .value_parser(["1", "2"])
+                .value_parser(["1", "2", "3", "4"])
                 .conflicts_with_all([
                     "archive", "manifest", "prefix", "channel", "pin", "unpin", "product",
                 ]),

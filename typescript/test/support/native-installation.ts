@@ -89,7 +89,7 @@ export async function install(
 }
 
 export function currentPointer(prefix: string): string {
-  return path.join(prefix, 'lib', 'tmux-team', 'current');
+  return path.join(prefix, 'lib', 'tmt', 'current');
 }
 
 export function receiptPath(prefix: string): string {
