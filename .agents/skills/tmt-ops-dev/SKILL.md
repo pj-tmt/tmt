@@ -112,7 +112,7 @@ grammar or key tables into the references below.
 | `ops.toml` layering and writes, themes, views, settings, link and action effects     | [config-and-effects.md](references/config-and-effects.md) |
 | Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
 | HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
-| Lead/member notebooks, links, annotations, detail and replies                        | [board-notebooks.md](references/board-notebooks.md)       |
+| Inert agent text, notebook/source utilities, conversation and reply authority        | [board-notebooks.md](references/board-notebooks.md)       |
 | Board cron acquisition, jobs half/list, forms and scoped input                       | [board-cron.md](references/board-cron.md)                 |
 | Refresh worker, change detection, token meter, shutdown                              | [refresh-and-meter.md](references/refresh-and-meter.md)   |
 

@@ -214,11 +214,23 @@ impl Config {
                         notices.push(format!("`squad.{name}.{key}` remains available to CLI listing; custom board sections/columns no longer compose the workspace. Use its squad tree and selected-agent details."));
                     }
                 }
+                if table
+                    .get("notes")
+                    .and_then(Item::as_table_like)
+                    .is_some_and(|notes| notes.get("render").is_some())
+                {
+                    notices.push(format!("`squad.{name}.notes.render` belongs to the retired notebook pane. The authored value is preserved for migration; the workspace reads agent responses instead."));
+                }
             }
         }
         if let Some(tabs) = self.document.get("tabs").and_then(Item::as_table_like) {
             for (key, _) in tabs.iter() {
                 notices.push(format!("`tabs.{key}` remains available to CLI listing; old squad-tab arrangement does not control the three-tab workspace. Use UUID squad pins/sort and guarded 1/2/3."));
+            }
+        }
+        if let Some(links) = self.document.get("links").and_then(Item::as_table_like) {
+            for (scheme, _) in links.iter() {
+                notices.push(format!("`links.{scheme}` belongs to retired notebook-link activation. The authored handler is preserved; configure an explicit workspace binding or opener for the selected agent's link."));
             }
         }
         notices
@@ -546,6 +558,23 @@ mod tests {
         );
         assert_eq!(config.document.to_string(), before);
     }
+    #[test]
+    fn retired_notebook_settings_and_handlers_remain_authored_with_located_notices() {
+        let config =
+            config("[squad.product.notes]\nrender='plain'\n[links]\nissue='run echo {path}'\n");
+        let before = config.document.to_string();
+        let notices = config.workspace_migration_notices();
+        for path in ["squad.product.notes.render", "links.issue"] {
+            assert!(notices.iter().any(|notice| notice.contains(path)), "{path}");
+        }
+        assert_eq!(
+            config.notes_render("product").unwrap(),
+            crate::config::NotesRender::Plain
+        );
+        assert!(config.links().unwrap().contains_key("issue"));
+        assert_eq!(config.document.to_string(), before);
+    }
+
     struct FileFixture(PathBuf);
     impl FileFixture {
         fn new() -> Self {

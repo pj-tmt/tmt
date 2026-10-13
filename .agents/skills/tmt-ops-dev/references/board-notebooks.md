@@ -6,59 +6,31 @@ and [detail/reply appearance](../../../../extensions/tmt-ops/skills/tmt-ops/SKIL
 Effect policy belongs to [config-and-effects.md](config-and-effects.md#actions-and-effects);
 the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priority/cancellation.
 
-## Notebook/source utilities and links
+## Inert text and independent notebook/source utilities
 
-- Notebook utilities retain the lead's saved-identity notebook, with no separate
-  squad notebook. `observe` chooses `Member::is_lead` and reads the UUID via bounded public
-  `notes.read`, never creating a file. `refresh::lead_notes` distinguishes missing,
-  no-lead and failed reads; hidden notes use `Notes::NotShown`. A temporary lead
-  remains an API failure.
-- `board::notes::sanitize` removes escape sequences, controls and hidden bidi/format
-  characters from agent-written text, preserving newlines and script/emoji joiners
-  and expanding tabs to four spaces. `board::markdown` renders the supported subset
-  over sanitized input and leaves unsupported constructs as source. Plain mode
-  creates no interactive links. The retained notebook renderer caches lines,
-  source indices, links and wrapped display-cell ranges by width/look.
-- `links` classifies explicit destinations and admits configured handlers;
-  `markdown::render_links` keeps destination occurrence and source-line identity
-  through wrapping. `App` selects/previews before activation and validates built-in
-  row/lead targets and bounded composer text; custom argv comes only from the loaded
-  user-file handler. Unknown/invalid schemes and relative local paths are inert.
-  Parsing/painting fetches nothing and executes nothing; activation reuses existing
-  prompts, request pickers, opening and reaping owners.
-- Retained notebook cursor utilities keep one cursor per squad, anchored to the complete
-  sanitized source line with a wrapped continuation offset. Refresh chooses the
-  nearest duplicate match or clamps after deletion. `Scrolls` reveals the cursor;
-  wheel scrolling suspends following until cursor movement. Source mapping comes
-  from the same rendering pass, with a fixed two-cell gutter before wrapping;
-  only visible continuations receive selection decoration.
-- Notebook annotations use the existing composer/sender and current lead. The
-  `[<squad> · notes L<one-based line> <JSON quote>] ` tag is shared by send and
-  `requests::apply`; display quotes are separate. Bounded room-history projection
-  provides open markers. Painting matches the nearest source line starting with
-  the retained quote; answered annotations disappear on refresh. No notebook write,
-  extra read or acknowledgement is introduced. The workspace has no interactive
-  Notes pane or notebook annotation default; notebook CLI commands and these
-  source utilities remain independent of workspace conversation placement.
+The workspace has no notebook/detail pane or notebook-link activation route.
+Selecting an agent never queues `notes.read`; selected worker jobs are only typed
+Status preview and exact Message sources. The old notebook event, eight-entry
+cache, per-squad cursor/link maps and painters are removed. Notebook storage,
+public source APIs and saved-identity behavior retain their independent owners.
+`observe` and `refresh::lead_notes` retain the bounded acquired-data conversion,
+including missing, no-lead, temporary-identity and failed-read distinctions;
+none creates a notebook. Incompatible notebook rendering/handler settings get
+located migration notices without rewriting authored values.
 
-## Selected detail and bounded notebook acquisition
+`board::notes::sanitize` removes escapes, controls and hidden bidi/format
+characters, preserves newlines and script/emoji joiners, and expands tabs to four
+spaces. Shared Markdown renders sanitized text and leaves unsupported constructs
+as source. The retained `NotesCursor` anchors response source lines and wrapped
+continuations; it reconciles nearest duplicates and clamps deleted lines.
+Conversation Scrolls owns the viewport, independently of that source anchor.
 
-- Retained row-detail utilities append full projected column values after fields
-  already represented by header/task/activity/links, escaping and wrapping without
-  grid fitting, source lookup or provider calls. Stable row/recipient identity,
-  rather than a display name, determines the source.
-- `App::notebook_identity` requests only a saved selected member with visible,
-  expanded effective detail (including view preview, tabs focus and last painted
-  viewport). Temporary identities get a placeholder without a read; HOME/leads have
-  no member notebook. These are retained acquisition rules, not a workspace Notes
-  pane. `refresh::Deferred::Notebook` uses bounded cancellable public
-  `notes.read` (1 MiB API limit), never creating a notebook. Full loads outrank
-  selection jobs, which collapse to the latest; generation and selection/refresh
-  revision fence events, and each snapshot revalidates the visible selection.
-- `board::notes::Notebooks` retains the last eight identities' sanitized results,
-  preserving rendered bodies for unchanged content. Width/look/render-mode changes
-  invalidate rendering; failed reads replace the selected entry. Both notebook
-  panes share Markdown/plain rendering and missing-file styles.
+The `links` classifier, custom-handler admission and Markdown source mapping stay
+inert during parsing/painting. The selected agent's attached URL uses existing
+Open/opener effects; a compatible explicit binding defines its own action. The
+removed notebook adapter does not supply navigation or execution authority.
+Legacy note tags and their request projection remain independent source data;
+workspace response annotations use exact request IDs and raw source ranges.
 
 ## Replies and verification
 
@@ -91,8 +63,9 @@ vanished recipients. Native terminal selection remains available with the
 terminal's mouse-reporting override. Colab URLs use existing link effects;
 native Colab page/thread writes are not implemented.
 
-Relevant tests are `notes` (sanitizer, cursor and bounded cache), `markdown`, `links`,
-`app` (composer/link fences), `refresh` (selection jobs) and `view/tests` (detail,
-notebook selection, replies and hits). [development.md](development.md#checks) owns
-verification commands and [TUI development](../../tmt-tui/references/development.md#board-parity-baseline)
+Relevant tests are `notes` (sanitizer and response anchors), `markdown`, `links`,
+`response`, `conversation` and workspace App tests (source authority, composer and
+hits), plus `refresh` (selected-message coalescing, generation and child shutdown).
+[development.md](development.md#checks) owns verification commands and
+[TUI development](../../tmt-tui/references/development.md#board-parity-baseline)
 the frozen parity gate.

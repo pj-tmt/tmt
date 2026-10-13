@@ -160,12 +160,6 @@ pub(super) enum BoardEvent {
         revision: u64,
         result: Result<crate::membership::status_update::Preview, String>,
     },
-    Notebook {
-        cancellation: crate::runner::Cancellation,
-        identity: String,
-        revision: u64,
-        notes: app::Notes,
-    },
     Attention {
         cancellation: crate::runner::Cancellation,
         attention: std::collections::BTreeMap<String, crate::attention::Attention>,
@@ -505,21 +499,6 @@ fn session(
                 enrichment,
             }) => {
                 if !cancellation.cancelled() && app.apply_enriched(&squad, enrichment) {
-                    dirty = true;
-                }
-                Effect::None
-            }
-            Ok(BoardEvent::Notebook {
-                cancellation,
-                identity,
-                revision: read_revision,
-                notes,
-            }) => {
-                if !cancellation.cancelled()
-                    && read_revision == revision
-                    && app.notebook_identity().as_deref() == Some(identity.as_str())
-                {
-                    app.notebooks.borrow_mut().keep(identity, notes);
                     dirty = true;
                 }
                 Effect::None
@@ -1266,11 +1245,6 @@ mod tests {
             app.selected_read(),
             None,
             "hidden source surfaces start no background body read"
-        );
-        assert_eq!(
-            app.notebook_identity(),
-            None,
-            "the retired notebook pane starts no read"
         );
     }
 

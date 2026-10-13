@@ -64,7 +64,6 @@ impl Generation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
-    Notebook(String),
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
 }
@@ -278,18 +277,6 @@ impl Worker {
                             key,
                             revision,
                             cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::Notebook(identity),
-                            revision,
-                        } => super::BoardEvent::Notebook {
-                            cancellation: cancellation.clone(),
-                            identity: identity.clone(),
-                            revision,
-                            notes: member_notes(
-                                reader
-                                    .api("notes.read", serde_json::json!({"identityId": identity})),
-                            ),
                         },
                         Deferred::Usage(MeterRead::Home) => {
                             home_usage(&reader, &mut limits, cancellation.clone())
@@ -1431,7 +1418,7 @@ mod tests {
                 .unwrap();
             sender
                 .send(Work::Selected {
-                    read: Some(SelectedRead::Notebook("obsolete".into())),
+                    read: Some(selected_message("obsolete")),
                     revision: serial,
                     generation: 0,
                 })
@@ -1651,49 +1638,23 @@ printf '%s\n' '{{}}'
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    fn selected_message(request: &str) -> SelectedRead {
+        SelectedRead::Message(super::super::home_leads::MessageKey {
+            sender: "user".into(),
+            lead: "lead".into(),
+            squad: "product".into(),
+            request: request.into(),
+            kind: super::super::home_leads::Kind::Reply,
+        })
+    }
+
     #[test]
-    fn selected_notebook_reader_uses_public_api_and_shutdown_cancels_the_child() {
-        let dir = std::env::temp_dir().join(format!("squad-selected-notes-{}", std::process::id()));
+    fn selected_message_shutdown_cancels_its_inflight_child() {
+        let dir = std::env::temp_dir().join(format!(
+            "squad-selected-message-cancel-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
-        let fake = dir.join("tmt");
-        let calls = dir.join("calls");
-        crate::test_support::write_ready_executable(
-            &fake,
-            &format!(
-                r###"#!/bin/sh
-if [ "$1" = api ]; then
-  request=$(cat)
-  case "$request" in
-    *'"notes.read"'*) printf '%s' "$request" > '{}'; printf '%s\n' '{{"content":"## Now\nSafe"}}'; exit 0 ;;
-  esac
-fi
-printf '%s\n' '{{}}'
-"###,
-                calls.display()
-            ),
-        );
-        let (events, input) = mpsc::channel();
-        let worker = Worker::spawn(Core::at(fake.clone()), false, events, None);
-        worker.selected(7, Some(SelectedRead::Notebook("selected-id".into())));
-        let super::super::BoardEvent::Notebook {
-            identity,
-            revision,
-            notes,
-            cancellation,
-        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
-        else {
-            panic!("notebook event")
-        };
-        assert_eq!((identity.as_str(), revision), ("selected-id", 7));
-        assert_eq!(notes, Notes::Text("## Now\nSafe".into()));
-        assert!(!cancellation.cancelled());
-        let request: Value = serde_json::from_slice(&std::fs::read(&calls).unwrap()).unwrap();
-        assert_eq!(
-            request,
-            json!({"version":1,"operation":"notes.read","input":{"identityId":"selected-id"}})
-        );
-        drop(worker);
-        assert!(cancellation.cancelled());
         let ready = dir.join("started");
         let slow = dir.join("slow");
         crate::test_support::write_ready_executable(
@@ -1702,7 +1663,7 @@ printf '%s\n' '{{}}'
                 r###"#!/bin/sh
 if [ "$1" = api ]; then
   request=$(cat)
-  case "$request" in *'"notes.read"'*) echo $$ > '{}'; exec sleep 30 ;; esac
+  case "$request" in *'"requests.show"'*) echo $$ > '{}'; exec sleep 30 ;; esac
 fi
 printf '%s\n' '{{}}'
 "###,
@@ -1711,7 +1672,7 @@ printf '%s\n' '{{}}'
         );
         let (events, _) = mpsc::channel();
         let worker = Worker::spawn(Core::at(slow), false, events, None);
-        worker.selected(8, Some(SelectedRead::Notebook("selected-id".into())));
+        worker.selected(8, Some(selected_message("request")));
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ready.exists() {
             assert!(Instant::now() < deadline, "reader did not start");
@@ -1733,13 +1694,13 @@ printf '%s\n' '{{}}'
     }
 
     #[test]
-    fn notebooks_coalesce_behind_reload_and_obey_the_existing_generation() {
+    fn selected_messages_coalesce_behind_reload_and_obey_the_existing_generation() {
         let (sender, pending) = mpsc::channel();
         let generation = AtomicU64::new(1);
         let queue = |identity: Option<&str>, revision, expected| {
             sender
                 .send(Work::Selected {
-                    read: identity.map(|id| SelectedRead::Notebook(id.to_owned())),
+                    read: identity.map(selected_message),
                     revision,
                     generation: expected,
                 })
@@ -1769,14 +1730,17 @@ printf '%s\n' '{{}}'
             |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
                 let Deferred::Selected {
-                    read: SelectedRead::Notebook(identity),
+                    read: SelectedRead::Message(key),
                     revision,
                 } = job
                 else {
                     panic!("other work")
                 };
-                assert_eq!((identity.as_str(), revision, expected), ("selected", 4, 1));
-                steps.borrow_mut().push(identity);
+                assert_eq!(
+                    (key.request.as_str(), revision, expected),
+                    ("selected", 4, 1)
+                );
+                steps.borrow_mut().push(key.request);
                 false
             },
         );
@@ -1785,7 +1749,7 @@ printf '%s\n' '{{}}'
         let (sender, pending) = mpsc::channel();
         sender
             .send(Work::Selected {
-                read: Some(SelectedRead::Notebook("stale".into())),
+                read: Some(selected_message("stale")),
                 revision: 5,
                 generation: 0,
             })
@@ -1800,21 +1764,21 @@ printf '%s\n' '{{}}'
             |_, _, _, _| panic!("no load"),
             |_, _| panic!("no read"),
         );
+    }
+
+    #[test]
+    fn acquired_note_status_preserves_missing_saved_requirement_and_sanitization() {
         for (code, expected) in [
-            ("NOTEBOOK_NOT_FOUND", "(no notes yet)"),
+            ("NOTEBOOK_NOT_FOUND", Notes::Missing),
             (
                 "NOTEBOOK_SAVED_IDENTITY_REQUIRED",
-                "(temporary identity: no notebook)",
+                Notes::Failed("(temporary identity: no notebook)".into()),
             ),
         ] {
-            let note = member_notes(Err(crate::core::SquadError::new(code, "ignored")));
-            let lines = super::super::view::notebook_lines(
-                &note,
-                80,
-                crate::look::Look::default(),
-                NotesRender::Markdown,
+            assert_eq!(
+                member_notes(Err(crate::core::SquadError::new(code, "ignored"))),
+                expected
             );
-            assert_eq!(lines[0].to_string(), expected);
         }
         assert_eq!(
             member_notes(Ok(json!({"content":"## Now\n\u{1b}[31mSafe"}))),

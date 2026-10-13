@@ -1,5 +1,4 @@
 use super::{
-    detail::{detail_represents, render_detail},
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
     overlays::render_switcher,
@@ -37,6 +36,33 @@ use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
 use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
+
+/// Exercise the shared typed field renderer, not the retired notebook/detail pane.
+fn entity_detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let value = app
+        .row_target(app.selected)
+        .and_then(|target| app.detail(&crate::board::row_detail::Target::Row(target)))
+        .map_or(Value::Null, |detail| detail.value());
+    let lines = crate::board::row_detail::render(&value, width, 0, app.look(), false);
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(Paragraph::new(lines.clone()), frame.area()))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+fn buffer_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
+    (0..buffer.area.height)
+        .map(|y| {
+            (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .filter(|line| !line.is_empty())
+        .collect()
+}
 
 #[test]
 fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint() {
@@ -108,101 +134,6 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
                 .iter()
                 .all(|line| !line.contains("Updating usage"))
         );
-    }
-}
-
-#[test]
-fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            let now = crate::status::now_ms();
-            let question =
-                "Ship #412 tonight or wait for CI? Token rotation is risky if CI is red.";
-            let mut app = board(json!([{"title": null, "rows": [
-                row("auth-fix", "blocked", "rotate tokens", json!({"waitingOnYou": [{"requestId": "q", "preview": question, "preparedAtMs": now - 720000}]})),
-                row("docs-request", "working", "handbook", json!({"pending": "Keep the glossary?", "waitingOnYou": [{"requestId": "docs-q", "preview": "fallback", "preparedAtMs": now - 720000}]})),
-                row("docs", "working", "copy", json!({"pending": "Choose the tone?"})),
-            ]}]));
-            lead_sol(&mut app);
-            let view = app.view.as_mut().unwrap();
-            view.bindings = crate::action::preset(true, &[]);
-            view.look = crate::look::Look {
-                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
-                depth,
-            };
-            view.me = Some("Ben".into());
-            let screen = draw(&app, width, 24);
-            let asks = screen
-                .iter()
-                .find(|line| line.contains("Ship #412"))
-                .unwrap();
-            assert!(asks.contains("12m"), "{base}/{width}: {asks}");
-            let pending = screen
-                .iter()
-                .find(|line| line.contains("Keep the glossary?"))
-                .unwrap();
-            assert_eq!(pending.find("12m"), asks.find("12m"), "request ages align");
-            let pending_only = screen
-                .iter()
-                .find(|line| line.contains("Choose the tone?"))
-                .unwrap();
-            assert!(!pending_only.contains("12m"), "pending-only has no age");
-            assert!(screen.last().unwrap().contains("◆ 3 waiting"));
-            assert!(!screen.last().unwrap().contains("A ask lead"));
-            assert!(
-                app.hits.borrow().iter().any(|hit| hit.row().unwrap() == 1
-                    && screen[usize::from(hit.y)].contains("Ship #412"))
-            );
-            app.perform(&crate::action::Action::parse("ask-lead").unwrap());
-            let prompt = draw(&app, width, 24);
-            let title = prompt
-                .iter()
-                .find(|line| line.contains("→ lead sol"))
-                .unwrap();
-            assert!(title.starts_with("│ → lead sol"));
-            assert!(title.ends_with('│'), "opaque prompt spans the whole band");
-            assert_eq!(title.width(), usize::from(width));
-            let top = prompt
-                .iter()
-                .position(|line| line.contains("→ lead sol"))
-                .unwrap()
-                - 1;
-            assert_eq!(
-                prompt[top],
-                format!("┌{}┐", "─".repeat(usize::from(width) - 2))
-            );
-            assert!(
-                prompt
-                    .iter()
-                    .any(|line| line.contains("Enter send · Esc keep draft"))
-            );
-            assert!(
-                prompt
-                    .iter()
-                    .any(|line| line.contains("List what waits on me"))
-            );
-            app.input = None;
-            app.select(1);
-            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
-            terminal
-                .draw(|frame| render_detail(frame, &app, frame.area()))
-                .unwrap();
-            let detail = terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>();
-            assert!(
-                detail.contains(question),
-                "full available preview in detail"
-            );
-        }
     }
 }
 
@@ -1749,84 +1680,12 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
 }
 
 #[test]
-fn lead_detail_keeps_fields_separate_from_notebooks_and_replies() {
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            for lifetime in ["saved", "temporary"] {
-                let mut app =
-                    board(json!([{"rows": [row("worker", "working", "ship", json!({}))]}]));
-                let view = app.view.as_mut().unwrap();
-                view.look = crate::look::Look {
-                    theme: tmt_cli_style::Theme::new(
-                        tmt_cli_style::theme::Base::parse(base).unwrap(),
-                    ),
-                    depth,
-                };
-                view.document["squad"]["lead"] = json!({
-                    "id": "LEAD", "name": "sol", "lifetime": lifetime, "state": "review",
-                    "pending": "Approve the rollout?",
-                    "fields": {"task": "review the patch", "model": "sol", "cap": "high",
-                        "pr_link": "https://example.com/1741", "link": ""},
-                    "waitingOnYou": [{"preview": "request preview must stay out"}]
-                });
-                view.replies = vec![json!({"response": "Reply sentinel"})];
-                app.notebooks
-                    .borrow_mut()
-                    .keep("LEAD".into(), Notes::Text("Notebook sentinel".into()));
-                let buffer = detail_buffer(&app, width, 20);
-                assert_eq!(
-                    detail_text(&buffer),
-                    [
-                        "sol  lead",
-                        "review · sol · high",
-                        "task: review the patch",
-                        "◆ waits on you: Approve the rollout?",
-                        "links: pr_link https://example.com/1741",
-                    ]
-                );
-                assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
-                assert_eq!(
-                    crate::board::glyph_guard::glyph_error(&detail_text(&buffer)[3]),
-                    None
-                );
-                assert_eq!(
-                    buffer[(5, 0)].fg,
-                    app.look().role(Role::Dim).fg.unwrap_or_default()
-                );
-                assert_eq!(
-                    buffer[(0, 3)].fg,
-                    app.look().role(Role::Waiting).fg.unwrap_or_default()
-                );
-                assert_eq!(app.notebook_identity(), None);
-                app.view.as_mut().unwrap().document["squad"]["lead"]["pending"] = Value::Null;
-                let text = detail_text(&detail_buffer(&app, width, 20)).join("\n");
-                assert!(
-                    !text.contains("waits on you"),
-                    "an inbox preview is not lead pending text"
-                );
-                app.select(1);
-                assert!(!app.selected_is_lead());
-                assert!(
-                    detail_text(&detail_buffer(&app, width, 20))
-                        .join("\n")
-                        .contains("─ notebook")
-                );
-            }
-        }
-    }
-}
-
-#[test]
 fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scroll() {
     let mut app = board(json!([]));
     app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol", "id": "LEAD", "lifetime": "saved", "fields": {"task": "", "model": "", "cap": ""}});
-    let buffer = detail_buffer(&app, 100, 20);
+    let buffer = entity_detail_buffer(&app, 100, 20);
     assert_eq!(
-        detail_text(&buffer),
+        buffer_text(&buffer),
         ["sol  lead", "no row fields set · tmt ops sq set sol task=…",]
     );
     assert_eq!(
@@ -1835,19 +1694,19 @@ fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scrol
     );
     app.view.as_mut().unwrap().document["squad"]["lead"]["fields"]["task"] =
         json!("one\ntwo\t\u{1b}[31m long task to wrap");
-    let text = detail_text(&detail_buffer(&app, 12, 20)).join("");
+    let text = buffer_text(&entity_detail_buffer(&app, 12, 20)).join("");
     assert!(text.contains("task:"));
     assert!(!text.contains('\u{1b}') && !text.contains("no row fields set"));
-    detail_buffer(&app, 12, 3);
+    entity_detail_buffer(&app, 12, 3);
     app.scrolls
         .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
     assert!(
-        detail_text(&detail_buffer(&app, 12, 3))
+        buffer_text(&entity_detail_buffer(&app, 12, 3))
             .join("")
             .contains("wrap")
     );
-    detail_buffer(&app, 0, 0);
-    detail_buffer(&app, 1, 1);
+    entity_detail_buffer(&app, 0, 0);
+    entity_detail_buffer(&app, 1, 1);
 }
 
 #[test]
@@ -1869,178 +1728,6 @@ fn the_footer_shows_no_board_key_hints_while_an_overlay_owns_input() {
     app.help = false;
     app.notice = None;
     assert!(footer(&app).contains("q quit"));
-}
-
-#[test]
-fn detail_notebook_uses_safe_markdown_and_existing_scroll() {
-    let app = board(
-        json!([{"rows":[row("worker", "working", "ship", json!({"id":"W", "lifetime":"saved"}))]}]),
-    );
-    let safe = super::super::notes::sanitize(
-        "## Current state\n- Now: **testing**\n\u{1b}[31mSafe\nNext: review\nBlocked: none",
-    );
-    app.notebooks
-        .borrow_mut()
-        .keep("W".into(), Notes::Text(safe));
-    let full = detail_text(&detail_buffer(&app, 50, 20)).join("\n");
-    assert!(
-        full.contains("─ notebook ─") && full.contains("Current state") && full.contains("testing")
-    );
-    assert!(!full.contains("**") && !full.contains('\u{1b}'));
-    let buffer = detail_buffer(&app, 50, 20);
-    assert!(!buffer[(0, 4)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(49, 4)].symbol(), "─");
-    detail_buffer(&app, 16, 5);
-    app.scrolls
-        .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
-    assert!(
-        detail_text(&detail_buffer(&app, 16, 5))
-            .join("")
-            .contains("none")
-    );
-    app.notebooks.borrow_mut().keep("W".into(), Notes::Missing);
-    app.scrolls
-        .scroll(Pane::Detail, super::super::scroll::Step::Top);
-    assert!(detail_text(&detail_buffer(&app, 50, 20)).contains(&"(no notes yet)".into()));
-}
-
-fn detail_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
-    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-    terminal
-        .draw(|frame| render_detail(frame, app, Rect::new(0, 0, width, height)))
-        .unwrap();
-    terminal.backend().buffer().clone()
-}
-
-fn detail_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
-    (0..buffer.area.height)
-        .map(|y| {
-            (0..buffer.area.width)
-                .map(|x| buffer[(x, y)].symbol())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
-        .filter(|line| !line.is_empty())
-        .collect()
-}
-
-#[test]
-fn detail_ignores_retired_notes_and_represented_fields_do_not_repeat() {
-    let mut app = board(json!([{"title": null, "rows": [row(
-        "worker", "working", "rotate tokens", json!({
-            "state": "working", "presence": "active", "pending": "approve",
-            "pane": {"target": "crew:2.0", "cwd": "/work"},
-            "note": "needs a call", "activity": {"activity": "testing"},
-            "fields": {"state": "working", "task": "rotate tokens", "pr_link": "https://example.com/412"}
-        })
-    )]}]));
-    // Includes all represented fields, even those missing from fields.
-    app.view.as_mut().unwrap().rows = rows_from(
-        "[p.columns]\nshow = ['member', 'state', 'task', 'pending', 'note', 'activity', 'presence', 'target', 'cwd', 'link', 'pr_link']\n",
-    );
-    assert_eq!(
-        detail_text(&detail_buffer(&app, 100, 20)),
-        [
-            "worker",
-            "waiting on you: approve",
-            "r reply · ⏎ jump",
-            "active · working · crew:2.0 · /work",
-            "task: rotate tokens",
-            "activity: testing",
-            "links: pr_link https://example.com/412",
-            &format!("─ notebook {}", "─".repeat(89)),
-            "(temporary identity: no notebook)",
-        ]
-    );
-    for column in &app.view.as_ref().unwrap().rows.columns {
-        assert!(detail_represents(&column.field), "{}", column.field);
-    }
-    for field in ["pr", "model", "build", "review", "location"] {
-        assert!(!detail_represents(field), "{field}");
-    }
-    // The actual default preset is identical.
-    let mut default = preset_board();
-    let before = detail_text(&detail_buffer(&default, 100, 20));
-    default.view.as_mut().unwrap().rows = columns();
-    assert_eq!(detail_text(&detail_buffer(&default, 100, 20)), before);
-}
-
-#[test]
-fn detail_appends_full_projected_provider_and_bound_values_in_column_order() {
-    let mut app = board(json!([{"title": null, "rows": [row(
-        "worker", "working", "rotate tokens", json!({
-            "fields": {"task": "rotate tokens", "pr": "#412 open · changes requested", "model": "a full session model name"}
-        })
-    )]}]));
-    app.view.as_mut().unwrap().rows = rows_from(
-        "[p.fields.pr]\npreset = 'github-pr'\n[p.rows]\ncolumns = [{name = 'pr', width = 4, title = 'Pull request', from = 'fields.pr'}, {name = 'model', width = 4, from = 'session.model'}]\n",
-    );
-    let buffer = detail_buffer(&app, 80, 20);
-    assert_eq!(
-        detail_text(&buffer),
-        [
-            "worker",
-            "– · –",
-            "task: rotate tokens",
-            "pr: #412 open · changes requested",
-            "model: a full session model name",
-            &format!("─ notebook {}", "─".repeat(69)),
-            "(temporary identity: no notebook)",
-        ]
-    );
-    // New lines inherit the terminal foreground; no grid/provider tint.
-    assert_eq!(buffer[(0, 3)].fg, ratatui::style::Color::Reset);
-    assert_eq!(buffer[(4, 3)].fg, ratatui::style::Color::Reset);
-}
-
-#[test]
-fn detail_wraps_long_values_without_grid_truncation() {
-    let value = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let mut app = board(json!([{"title": null, "rows": [row(
-        "worker", "working", "", json!({"fields": {"model": value}})
-    )]}]));
-    app.view.as_mut().unwrap().rows =
-        rows_from("[p.rows]\ncolumns = [{name = 'model', width = 4}]\n");
-    let text = detail_text(&detail_buffer(&app, 9, 20));
-    assert_eq!(
-        text[2..]
-            .iter()
-            .take_while(|line| !line.starts_with("─ note"))
-            .cloned()
-            .collect::<String>(),
-        format!("model:{value}")
-    );
-    assert!(!text.join("").contains('…'));
-    // Existing bounds handle zero area and single-cell panes.
-    detail_buffer(&app, 0, 0);
-    detail_buffer(&app, 1, 1);
-}
-
-#[test]
-fn detail_uses_failed_missing_and_shared_cell_escaping() {
-    let mut app = board(json!([{"title": null, "rows": [row(
-        "worker", "working", "", json!({
-            "fields": {"pr": "stale provider value", "model": "", "build": "one\ntwo\t\u{1b}[31m"},
-            "failed": ["pr"]
-        })
-    )]}]));
-    app.view.as_mut().unwrap().rows =
-        rows_from("[p.columns]\nshow = ['pr', 'model', 'review', 'build']\n");
-    assert_eq!(
-        detail_text(&detail_buffer(&app, 100, 20))[2..],
-        [
-            "pr: ?",
-            "model: –",
-            "review: –",
-            &format!(
-                "build: {}",
-                tmt_cli_style::table::escape("one\ntwo\t\u{1b}[31m")
-            ),
-            &format!("─ notebook {}", "─".repeat(89)),
-            "(temporary identity: no notebook)",
-        ]
-    );
 }
 
 #[test]
@@ -2593,71 +2280,6 @@ fn the_wheel_scrolls_the_pane_under_the_pointer_whichever_is_focused() {
 }
 
 #[test]
-fn a_click_focuses_the_pane_under_it() {
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    let text = (1..=30)
-        .map(|n| format!("line {n:02}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text(text),
-    );
-    app.view.as_mut().unwrap().render = NotesRender::Plain;
-    let click = |app: &mut App, column, row| {
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column,
-                row,
-                modifiers: KeyModifiers::NONE,
-            },
-            std::time::Instant::now(),
-        )
-    };
-    draw(&app, 60, 11);
-    assert_eq!(app.focused(), Pane::Rows);
-    // A click focuses notes and places the source-line cursor; Down moves it.
-    assert_eq!(click(&mut app, 45, 5), crate::board::Effect::None);
-    assert_eq!(app.focused(), Pane::Notes);
-    assert_eq!(app.selected, 0);
-    let clicked = app.note_cursors.borrow()["product"].source;
-    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    let screen = draw(&app, 60, 11);
-    assert_eq!(app.note_cursors.borrow()["product"].source, clicked + 1);
-    assert!(
-        screen
-            .iter()
-            .any(|line| line.contains(&format!("line {:02}", clicked + 2)))
-    );
-    // The rows border now shows the notes as focused.
-    let mut terminal = Terminal::new(TestBackend::new(60, 11)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    assert_eq!(buffer[(33, 2)].symbol(), "F");
-    assert!(buffer[(33, 2)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(3, 2)].symbol(), "r");
-    assert!(!buffer[(3, 2)].modifier.contains(Modifier::BOLD));
-    // A click on a row focuses the rows again and selects it.
-    let hit = app.hits.borrow()[0];
-    click(&mut app, hit.x, hit.y);
-    assert_eq!(app.focused(), Pane::Rows);
-    assert_eq!(app.selected, hit.row().unwrap());
-    // Outside every pane, or under the help, a click changes nothing.
-    click(&mut app, 45, 5);
-    assert_eq!(app.focused(), Pane::Notes);
-    click(&mut app, 5, 0);
-    assert_eq!(app.focused(), Pane::Notes, "the header is not a pane");
-    app.help = true;
-    click(&mut app, 5, 5);
-    assert_eq!(app.focused(), Pane::Notes, "the help takes no clicks");
-}
-
-#[test]
 fn the_wheel_scrolls_rows_away_from_the_selection_until_a_key_brings_it_back() {
     let rows: Vec<Value> = (0..20)
         .map(|i| row(&format!("m{i:02}"), "working", "", json!({})))
@@ -2706,239 +2328,6 @@ fn a_bound_paging_key_runs_its_binding_instead_of_scrolling() {
         matches!(effect, crate::board::app::Effect::Act(_)),
         "{effect:?}"
     );
-}
-
-#[test]
-fn notebook_links_preview_before_click_and_honor_explicit_bindings() {
-    use crate::board::app::{Effect, Request};
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text("[界 wide words](https://example.com) [other](tmt:back)".into()),
-    );
-    draw(&app, 60, 15);
-    let (hit, _) = app.link_hits.borrow()[0];
-    let click = MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: hit.x,
-        row: hit.y,
-        modifiers: KeyModifiers::NONE,
-    };
-    assert_eq!(app.mouse(click, std::time::Instant::now()), Effect::None);
-    assert_eq!(app.focused_pane(), Some(Pane::Notes));
-    assert!(
-        draw(&app, 60, 15)
-            .last()
-            .unwrap()
-            .contains("https://example.com")
-    );
-    assert!(
-        matches!(app.mouse(click, std::time::Instant::now()), Effect::Act(Request::Open { link, .. }) if link == "https://example.com")
-    );
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(app.selected_link().unwrap().target, "tmt:back");
-    app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
-    assert_eq!(app.selected_link().unwrap().target, "https://example.com");
-    app.view.as_mut().unwrap().configured_bindings = crate::action::parse_bindings(
-        [("tab", Some("next-pane")), ("enter", Some("copy {name}"))].into_iter(),
-        "bind",
-    )
-    .unwrap();
-    assert!(matches!(
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        Effect::Act(Request::Copy { .. })
-    ));
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(app.focused_pane(), Some(Pane::Rows));
-}
-
-#[test]
-fn notebook_cursor_click_resize_refresh_annotation_and_cancel() {
-    use crate::board::app::{Effect, Request};
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text("# First\n\n- selected source line that wraps at narrow widths\n- last".into()),
-    );
-    app.view.as_mut().unwrap().me = Some("Ben".into());
-    draw(&app, 60, 15);
-    let (hit, _) = *app
-        .note_hits
-        .borrow()
-        .iter()
-        .find(|(_, source)| *source == 2)
-        .unwrap();
-    assert_eq!(
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: hit.x,
-                row: hit.y,
-                modifiers: KeyModifiers::NONE
-            },
-            std::time::Instant::now()
-        ),
-        Effect::None
-    );
-    assert_eq!(app.note_cursors.borrow()["product"].source, 2);
-    assert_eq!(app.selected, 0);
-    draw(&app, 30, 15);
-    assert_eq!(app.note_cursors.borrow()["product"].source, 2);
-    app.view.as_mut().unwrap().notes = Notes::Text(
-        "new\n# First\n\n- selected source line that wraps at narrow widths\n- last".into(),
-    );
-    app.view.as_mut().unwrap().derived = Default::default();
-    draw(&app, 60, 15);
-    assert_eq!(app.note_cursors.borrow()["product"].source, 3);
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
-        Effect::None
-    );
-    let input = app.input.as_ref().unwrap();
-    assert!(
-        input
-            .prompt
-            .starts_with("note for sol · L4 “selected source")
-    );
-    assert!(input.text.is_empty());
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-        Effect::None
-    );
-    assert!(app.input.is_none());
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        Effect::None
-    );
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-    assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-            Effect::Act(Request::Annotate { me, squad, to, row, text })
-            if me == "Ben" && squad == "product" && to == "sol" && row.starts_with("notes L4 ") && text == "x")
-    );
-    app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
-    assert_eq!(app.note_cursors.borrow()["product"].source, 4);
-    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    assert_eq!(app.note_cursors.borrow()["product"].source, 0);
-    app.current = Some("loading".into());
-    draw(&app, 60, 15);
-    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    draw(&app, 60, 15);
-    assert!(!app.note_cursors.borrow().contains_key("loading"));
-}
-
-#[test]
-fn sent_marker_reserves_space_without_clipping_wrapped_source_text() {
-    let text = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text(text.into()),
-    );
-    app.view.as_mut().unwrap().render = NotesRender::Plain;
-    app.view.as_mut().unwrap().document["squad"]["noteAnnotations"] =
-        json!([{"line": 0, "quote": text, "requestId": "open"}]);
-    let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let mut content = String::new();
-    for (area, _) in app.note_hits.borrow().iter() {
-        for x in area.x..area.x + area.width {
-            content.extend(
-                terminal.backend().buffer()[(x, area.y)]
-                    .symbol()
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric()),
-            );
-        }
-    }
-    assert_eq!(content, text, "the marker cannot hide any wrapped content");
-}
-
-#[test]
-fn notebook_cursor_uses_existing_selection_and_sent_marker_clears_on_answer() {
-    for (base, depth) in [
-        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
-        (
-            tmt_cli_style::Base::TmtLight,
-            tmt_cli_style::Depth::TrueColor,
-        ),
-        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
-    ] {
-        let mut app = paned(
-            split(
-                Direction::LeftRight,
-                vec![Pane::Rows, Pane::Notes],
-                vec![50, 50],
-            ),
-            Notes::Text(
-                "selected source line that wraps across multiple painted rows\nother".into(),
-            ),
-        );
-        app.view.as_mut().unwrap().look = crate::look::Look {
-            theme: tmt_cli_style::Theme::new(base),
-            depth,
-        };
-        app.view.as_mut().unwrap().render = NotesRender::Plain;
-        app.focus = 1;
-        app.view.as_mut().unwrap().document["squad"]["noteAnnotations"] =
-            json!([{"line": 0, "quote": "selected", "requestId": "open"}]);
-        let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
-        terminal.draw(|frame| render(frame, &app)).unwrap();
-        let (hit, _) = app.note_hits.borrow()[0];
-        let cell = &terminal.backend().buffer()[(hit.x + hit.width - 1, hit.y)];
-        let selection = app.look().selection();
-        assert_eq!(cell.bg, selection.bg.unwrap_or_default());
-        assert_eq!(
-            cell.modifier.contains(Modifier::REVERSED),
-            selection.bg.is_none()
-        );
-        let sources = app
-            .view
-            .as_ref()
-            .unwrap()
-            .derived
-            .borrow()
-            .notes
-            .as_ref()
-            .unwrap()
-            .sources
-            .clone();
-        for (area, at) in app.note_hits.borrow().iter() {
-            if sources[*at] == 0 {
-                let cell = &terminal.backend().buffer()[(area.x + area.width - 1, area.y)];
-                assert_eq!(cell.bg, selection.bg.unwrap_or_default());
-                assert_eq!(
-                    cell.modifier.contains(Modifier::REVERSED),
-                    selection.bg.is_none()
-                );
-            }
-        }
-        assert!(
-            draw(&app, 60, 12)
-                .iter()
-                .any(|line| line.contains("✎ selected"))
-        );
-        app.view.as_mut().unwrap().document["squad"]
-            .as_object_mut()
-            .unwrap()
-            .remove("noteAnnotations");
-        assert!(
-            !draw(&app, 60, 12)
-                .iter()
-                .any(|line| line.contains("✎ selected"))
-        );
-    }
 }
 
 #[test]
@@ -3480,107 +2869,6 @@ fn help_lines(app: &App) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            for tab in ["product", crate::board::LEADS] {
-                let rows = (0..5).map(|i| json!({"id":format!("id-{i}"), "name":format!("member-{i}"), "squad":"product",
-                    "state":"working", "fields":{"task":"row remains visible"},
-                    "waitingOnYou":[{"requestId":format!("q-{i}"), "preview":"A long waiting question that must truncate before the recipient or input disappears. ".repeat(8)}]})).collect::<Vec<_>>();
-                let mut snapshot =
-                    crate::board::app::tests::snapshot(tab, json!([{"title":null, "rows":rows}]));
-                let view = snapshot.view.as_mut().unwrap();
-                view.me = Some("Ben".into());
-                if tab == "product" {
-                    view.document["squad"]["lead"] = json!({"id": "LEAD", "name": "sol"});
-                }
-                view.look = crate::look::Look {
-                    theme: tmt_cli_style::Theme::new(
-                        tmt_cli_style::theme::Base::parse(base).unwrap(),
-                    ),
-                    depth,
-                };
-                view.board = split(
-                    Direction::LeftRight,
-                    vec![Pane::Rows, Pane::Notes],
-                    vec![55, 45],
-                );
-                view.notes = Notes::Text("neighbor pane fragment\n".repeat(25));
-                let mut app = App::new(Some(tab.into()));
-                app.apply(snapshot);
-                // The product tab's cursor row 0 is the lead.
-                app.select(if tab == "product" { 3 } else { 2 });
-                let before = draw(&app, width, 30);
-                let old_after = before
-                    .iter()
-                    .position(|line| line.contains("member-3"))
-                    .unwrap();
-                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-                app.input.as_mut().unwrap().text = "x".repeat(30).into();
-                let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
-                terminal.draw(|frame| render(frame, &app)).unwrap();
-                let buffer = terminal.backend().buffer();
-                let screen = draw(&app, width, 30);
-                let band = app.input_band.get().expect("inline band");
-                let header = &screen[usize::from(band.y + 1)];
-                assert!(
-                    header.contains("→ member-2 (product) · answer"),
-                    "{base}/{width}/{tab}: {header}"
-                );
-                assert_eq!(band.height, 6);
-                assert!(screen[usize::from(band.y + 3)].contains(&"x".repeat(30)));
-                let (editor, offset) = app.input_viewport.get().unwrap();
-                assert_eq!(offset, 0);
-                assert_eq!(editor.y, band.y + 3);
-                assert_eq!(
-                    app.input.as_ref().unwrap().text.layout(editor.width).cursor,
-                    (0, 30)
-                );
-                assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
-                assert!(screen[usize::from(band.y + 2)].contains('…'));
-                assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc keep draft"));
-                assert_eq!(screen[usize::from(band.y)], "─".repeat(usize::from(width)));
-                assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
-                for y in band.y..band.bottom() {
-                    assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
-                    assert!(!app.hits.borrow().iter().any(|hit| hit.y == y));
-                    assert!(!app.note_hits.borrow().iter().any(|(area, _)| area.y == y));
-                }
-                assert_eq!(
-                    screen
-                        .iter()
-                        .position(|line| line.contains("member-3"))
-                        .unwrap(),
-                    old_after + 6
-                );
-                let accent = app.look().role(Role::Accent);
-                assert_eq!(buffer[(2, band.y + 1)].fg, accent.fg.unwrap_or_default());
-                let waiting = app.look().role(Role::Waiting);
-                assert_eq!(buffer[(2, band.y + 2)].fg, waiting.fg.unwrap_or_default());
-                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-                let note = draw(&app, width, 30);
-                assert!(note.iter().any(|line| line.contains(if tab == "product" {
-                    "→ sol (product) · note · about member-2"
-                } else {
-                    "→ member-2 (product) · note"
-                })));
-                assert_eq!(app.input_band.get().unwrap().height, 5);
-                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-                assert_eq!(
-                    &draw(&app, width, 30)[..29],
-                    &before[..29],
-                    "cancel restores the body"
-                );
-            }
-        }
-    }
-}
-
 fn boxed_members(sections: Value) -> App {
     let mut app = board(sections);
     lead_sol(&mut app);
@@ -3647,249 +2935,6 @@ fn boxed_member_order_preserves_lead_and_authored_sections_and_uses_home_exchang
     let screen = draw(&app, 80, 40).join("\n");
     assert!(screen.find("First").unwrap() < screen.find("old-wait").unwrap());
     assert!(screen.find("Second").unwrap() > screen.find("empty-z").unwrap());
-}
-
-/// Read-only runtime evidence for the immutable #1829 first-slice packet.
-/// The packet and output directory are explicit task-owned inputs; this never
-/// updates repository parity or performs acquisition/actions.
-#[test]
-#[ignore = "explicit pinned selection/focus evidence capture"]
-fn capture_selection_focus_packet() {
-    let packet_path = std::env::var("TMT_SELECTION_PACKET").expect("pinned packet path");
-    let output = std::env::var("TMT_SELECTION_OUTPUT").expect("task-owned output path");
-    let packet: Value = serde_json::from_slice(&std::fs::read(packet_path).unwrap()).unwrap();
-    crate::status::with_now_ms(packet["clock"]["fixedNowMs"].as_u64().unwrap(), || {
-        let mut captures = Vec::new();
-        for case in packet["cases"].as_array().unwrap() {
-            for (base, depth) in [
-                ("tmt", tmt_cli_style::Depth::TrueColor),
-                ("tmt-light", tmt_cli_style::Depth::TrueColor),
-                ("terminal", tmt_cli_style::Depth::Ansi16),
-                ("tmt", tmt_cli_style::Depth::None),
-            ] {
-                let members = packet["members"].as_array().unwrap().iter().map(|member| {
-                let waiting = if member["requestIds"].as_array().unwrap().is_empty() { json!([]) } else {
-                    json!([{"requestId": packet["request"]["id"], "preview": packet["request"]["preview"],
-                        "preparedAtMs": packet["clock"]["requestCreatedAtMs"]}])
-                };
-                row(member["name"].as_str().unwrap(), member["state"].as_str().unwrap(),
-                    member["task"].as_str().unwrap(), json!({"id":member["uuid"], "squad":"ux-demo",
-                        "waitingOnYou":waiting, "state":member["state"]}))
-            }).collect::<Vec<_>>();
-                let mut app = board(json!([{"title":"primary", "rows":members[1..]},
-                {"title":"repeat", "rows":[members[1].clone()]}]));
-                app.current = Some("ux-demo".into());
-                app.tabs = vec!["ux-demo".into()];
-                let width = case["viewport"]["columns"].as_u64().unwrap() as u16;
-                let height = case["viewport"]["rows"].as_u64().unwrap() as u16;
-                let view_name = case["view"].as_str().unwrap_or("single");
-                let view = app.view.as_mut().unwrap();
-                view.document["squad"]["name"] = json!("ux-demo");
-                view.document["squad"]["lead"] = members[0].clone();
-                view.me = Some("fixture-user".into());
-                view.me_id = Some(packet["scope"]["actorUUID"].as_str().unwrap().into());
-                view.rows = rows_from(
-                    r#"[p.rows]
-columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "wrap", max_lines = 8}]
-"#,
-                );
-                let settings = if view_name == "single" || view_name == "HOME" {
-                    None
-                } else {
-                    Some(crate::view::ViewName::parse(view_name).unwrap())
-                };
-                if let Some(settings) = settings {
-                    let settings = settings.settings();
-                    let split =
-                        crate::split::read(settings.get("layout").unwrap(), "fixture.layout")
-                            .unwrap();
-                    view.board = crate::config::Board {
-                        members: view_name == "members",
-                        mode: BoardMode::Split,
-                        panes: split.panes(),
-                        split,
-                        collapsed: settings
-                            .get("collapsed")
-                            .and_then(toml_edit::Item::as_array)
-                            .into_iter()
-                            .flatten()
-                            .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
-                            .collect(),
-                        fold_below: settings
-                            .get("fold_below")
-                            .map(|v| crate::config::FoldBelow {
-                                width: v["width"].as_integer().unwrap() as u16,
-                                panes: v["panes"]
-                                    .as_array()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
-                                    .collect(),
-                            }),
-                    };
-                }
-                view.notes = Notes::Text(if case["selectedLink"].is_object() {
-                    format!(
-                        "[{}]({})",
-                        case["selectedLink"]["label"].as_str().unwrap(),
-                        case["selectedLink"]["target"].as_str().unwrap()
-                    )
-                } else {
-                    "Fixture coordination notes\nKeep the saved bindings.".into()
-                });
-                view.bindings = crate::action::preset(true, &view.board.panes);
-                view.look = crate::look::Look {
-                    theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
-                    depth,
-                };
-                if view_name == "HOME" || case["id"].as_str().unwrap().contains("HOME") {
-                    use crate::board::{
-                        home::{Home, MemberRow, MemberSection},
-                        home_leads::{Kind, Lead, LeadPreview},
-                    };
-                    view.home = Some(Home {
-                        workspace: Default::default(),
-                        summary: crate::board::home::Counts {
-                            members: 4,
-                            waiting: 1,
-                            blocked: 1,
-                            working: 2,
-                            ..Default::default()
-                        },
-                        windows: crate::config::TokenWindow::DEFAULTS,
-                        sections: vec![MemberSection {
-                            key: "blocked".into(),
-                            rows: vec![MemberRow {
-                                squad: "ux-demo".into(),
-                                member: members[1].clone(),
-                                lead: Some("ux-demo-lead".into()),
-                                age: Some(crate::board::home::Age {
-                                    since_ms: packet["clock"]["requestCreatedAtMs"]
-                                        .as_u64()
-                                        .unwrap(),
-                                }),
-                            }],
-                        }],
-                        squads: vec![crate::board::home::SquadLine {
-                            squad: "ux-demo".into(),
-                            lead: Some(members[0].clone()),
-                            counts: crate::board::home::Counts {
-                                members: 4,
-                                waiting: 1,
-                                blocked: 1,
-                                working: 2,
-                                ..Default::default()
-                            },
-                            members: crate::board::home::Counts {
-                                members: 3,
-                                waiting: 1,
-                                blocked: 1,
-                                working: 1,
-                                ..Default::default()
-                            },
-                        }],
-                        failures: Vec::new(),
-                        incomplete: false,
-                    });
-                    view.exchanges = vec![Lead {
-                        squad: "ux-demo".into(),
-                        row: members[0].clone(),
-                        failure: None,
-                        exchange: case
-                            .get("syntheticLeadExchange")
-                            .map(|exchange| LeadPreview {
-                                kind: Kind::Reply,
-                                request: None,
-                                since_ms: Some(exchange["sinceMs"].as_u64().unwrap()),
-                                preview: exchange["preview"].as_str().unwrap().into(),
-                                status: "retained".into(),
-                            }),
-                    }];
-                    view.bindings = crate::action::all_preset();
-                    app.current = Some(crate::tabs::ALL.into());
-                    app.tabs = vec![crate::tabs::ALL.into()];
-                } else {
-                    view.exchanges = crate::board::home_leads::members(
-                        &view.document,
-                        None,
-                        packet["clock"]["fixedNowMs"].as_u64().unwrap(),
-                    );
-                }
-                let tab = app.current.clone().unwrap();
-                let mut snapshot = crate::board::app::tests::snapshot(&tab, json!([]));
-                snapshot.view = Ok(app.view.take().unwrap());
-                snapshot.tabs = app.tabs.clone();
-                app = App::new(Some(tab));
-                app.apply(snapshot);
-                if app.view.as_ref().unwrap().home.is_some() {
-                    let leads = app.view.as_ref().unwrap().exchanges.clone();
-                    app.apply_home_leads(crate::board::home_leads::Read::for_test(
-                        packet["scope"]["actorUUID"].as_str().unwrap(),
-                        leads,
-                    ));
-                }
-                app.set_body_width(width);
-                app.select(1);
-                if case["receivingFocus"] == "notes" {
-                    // Focus view's Notes is initially folded: use the existing focus
-                    // transition so its configured body is expanded before painting.
-                    if app.effective_board().unwrap().members {
-                        app.focus = app
-                            .effective_board()
-                            .unwrap()
-                            .panes
-                            .iter()
-                            .position(|p| *p == Pane::Notes)
-                            .unwrap();
-                    } else {
-                        app.perform(&crate::action::Action::parse("notes").unwrap());
-                    }
-                }
-                if let Some(composer) = case.get("composer").filter(|v| v.is_object()) {
-                    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-                    app.input.as_mut().expect("answer composer").text =
-                        composer["draft"].as_str().unwrap().into();
-                }
-                if case["id"] == "grid-decoration-exclusions-100x30" {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["annotation"] = json!({"to":case["renderOnlyFeedback"]["annotation"]["to"], "text":case["renderOnlyFeedback"]["annotation"]["text"]});
-                    app.sent = Some(crate::board::app::RowFeedback {
-                        target: app.row_target(app.selected).unwrap(),
-                        mark: Some("sent"),
-                        home: None,
-                    });
-                }
-                if case["selectedLink"].is_object() {
-                    board_buffer(&app, width, height);
-                    let view = app.view.as_ref().unwrap();
-                    let derived = view.derived.borrow();
-                    let link = derived.notes.as_ref().unwrap().links.first().unwrap();
-                    app.note_link = Some((link.target.clone(), link.offset));
-                }
-                let document = app.view.as_ref().unwrap().document.clone();
-                let buffer = board_buffer(&app, width, height);
-                let cells = buffer
-                    .content
-                    .iter()
-                    .map(|cell| {
-                        json!({"symbol":cell.symbol(),
-                "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg),
-                "modifier":format!("{:?}",cell.modifier)})
-                    })
-                    .collect::<Vec<_>>();
-                captures.push(
-                    json!({"case":case["id"], "base":base, "depth":format!("{depth:?}"),
-                "width":width, "height":height, "cells":cells,
-                "document":document, "hits":format!("{:?}",app.hits.borrow()),
-                "starts":*app.row_starts.borrow(), "titles":format!("{:?}",app.title_hits.borrow()),
-                "band":format!("{:?}",app.input_band.get()), "selected":app.selected,
-                "focus":format!("{:?}",app.focused_pane()),
-                "footer26":hints(&app,26), "footer27":hints(&app,27),
-                "footer31":hints(&app,31), "footer32":hints(&app,32)}),
-                );
-            }
-        }
-        std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
-    });
 }
 
 #[test]
@@ -4283,7 +3328,7 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
                 }
                 app.labels = supplied_chips(&["worker", "lead", "other"]);
                 let buffer = board_buffer(&app, width, 20);
-                let screen = detail_text(&buffer).join("\n");
+                let screen = buffer_text(&buffer).join("\n");
                 let narrow_monitor = home && width == 160;
                 let shown = screen
                     .matches(if narrow_monitor {
@@ -4388,7 +3433,7 @@ fn clicking_the_choice_chip_asks_for_the_dropdown_on_every_surface() {
                     chips.len(),
                     if home { 2 } else { 1 },
                     "{members} {home} {width}: {}",
-                    detail_text(&buffer).join("\n")
+                    buffer_text(&buffer).join("\n")
                 );
                 for (index, at) in chips.into_iter().enumerate() {
                     let expected = if index == 1 { "lead" } else { "worker" };
@@ -4448,7 +3493,7 @@ fn narrow_headings_keep_leading_labels_whole_and_detail_carries_all_of_them() {
             let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
-            let narrow = detail_text(&board_buffer(&app, 22, 30)).join("\n");
+            let narrow = buffer_text(&board_buffer(&app, 22, 30)).join("\n");
             assert!(
                 !narrow.contains("Due now ·"),
                 "a label was cut mid-way: {narrow}"
@@ -4489,7 +3534,7 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
                         },
                     );
                     let buffer = board_buffer(&app, width, 20);
-                    let lines = detail_text(&buffer);
+                    let lines = buffer_text(&buffer);
                     for line in lines.iter().filter(|line| line.contains("digest 30m")) {
                         assert!(
                             line.contains("worker") || line.contains("lead"),
@@ -4517,7 +3562,7 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
                     );
                     crate::status::with_now_ms(1_801_000, || {
                         assert!(
-                            !detail_text(&board_buffer(&app, width, 20))
+                            !buffer_text(&board_buffer(&app, width, 20))
                                 .join("\n")
                                 .contains("digest")
                         )
@@ -4540,7 +3585,7 @@ fn digest_rows_tick_expire_and_keep_words_and_expanded_details() {
             let target = app.row_target(index).unwrap();
             app.row_details
                 .toggle(crate::board::row_detail::Target::Row(target));
-            let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");
+            let narrow = buffer_text(&board_buffer(&app, 20, 30)).join("\n");
             // The state keeps the heading; the expanded detail carries the rest.
             assert!(narrow.contains("dige"), "{narrow}");
             assert!(narrow.contains("1h20m"), "{narrow}");
@@ -4676,7 +3721,7 @@ fn capture_digest_window_rows() {
                                         .toggle(crate::board::row_detail::Target::Row(target));
                                 }
                                 let buffer = board_buffer(&app, width, 30);
-                                cases.push(json!({"selected":selected,"members":members,"home":home,"expanded":expanded,"theme":base,"width":width,"held":held,"text":detail_text(&buffer).join("\n"),"cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
+                                cases.push(json!({"selected":selected,"members":members,"home":home,"expanded":expanded,"theme":base,"width":width,"held":held,"text":buffer_text(&buffer).join("\n"),"cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
                             }
                         }
                     }
@@ -4770,7 +3815,7 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
             let mut app = board(json!([{"title": null, "rows": rows}]));
             app.view.as_mut().unwrap().board.members = members;
             app.labels = source.clone();
-            let lines = detail_text(&board_buffer(&app, width, 24));
+            let lines = buffer_text(&board_buffer(&app, width, 24));
             let screen = lines.join("\n");
             let context = format!("{members} {width}:\n{screen}");
             assert_eq!(
@@ -4857,7 +3902,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                             .collect(),
                     )]);
                     let buffer = board_buffer(&app, width, 20);
-                    let screen = detail_text(&buffer).join("\n");
+                    let screen = buffer_text(&buffer).join("\n");
                     let context = format!("{members} {home} {width} {mode} {held}:\n{screen}");
                     assert!(!screen.contains("No held messages"), "{context}");
                     assert_eq!(screen.contains("3 held"), held, "{context}");

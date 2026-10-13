@@ -138,7 +138,7 @@ fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window(
 #[test]
 fn the_member_detail_shows_the_next_run_too() {
     let mut app = squad_tab();
-    let first = detail_text(&detail_buffer(&app, 80, 12)).join("\n");
+    let first = buffer_text(&entity_detail_buffer(&app, 80, 12)).join("\n");
     assert!(
         first.contains("cron:") && first.contains("job for u1"),
         "{first}"
@@ -146,7 +146,7 @@ fn the_member_detail_shows_the_next_run_too() {
     // A member without an active job has no cron line.
     press(&mut app, KeyCode::Char('j'));
     press(&mut app, KeyCode::Char('j'));
-    let carol = detail_text(&detail_buffer(&app, 80, 12)).join("\n");
+    let carol = buffer_text(&entity_detail_buffer(&app, 80, 12)).join("\n");
     assert!(
         carol.contains("carol") && !carol.contains("cron:"),
         "{carol}"

@@ -684,11 +684,6 @@ pub struct App {
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
-    pub(super) note_link: Option<(String, usize)>,
-    pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
-    pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
-    pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
-    pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
     /// What the configured label sources last supplied for member rows.
@@ -1345,7 +1340,6 @@ impl App {
     /// Another squad is now on screen: its selection and scrolling start over.
     /// HOME alone returns to the row the user left.
     fn shown_changed(&mut self) {
-        self.note_link = None;
         self.home_target = None;
         self.home_start = false;
         self.selected = 0;
@@ -1569,9 +1563,6 @@ impl App {
         }
         self.pinned = snapshot.pinned;
         self.reconcile_switcher(false);
-        self.note_cursors
-            .borrow_mut()
-            .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.meters
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
         self.folds
@@ -2416,9 +2407,6 @@ impl App {
                 _ => {}
             }
         }
-        if action.verb == Verb::Annotate && self.focused_pane() == Some(Pane::Notes) {
-            return self.annotate_note();
-        }
         match action.verb {
             Verb::Toggle => {
                 let panes: Vec<_> = action
@@ -3119,40 +3107,6 @@ impl App {
         )
     }
 
-    fn annotate_note(&mut self) -> Effect {
-        let Some(view) = &self.view else {
-            return Effect::None;
-        };
-        let Notes::Text(text) = &view.notes else {
-            return self.say("No notebook line to annotate.");
-        };
-        if view.me.is_none() {
-            return self.say("Record yourself with tmt ops squad me <name> before annotating.");
-        }
-        let Some(to) = view.document["squad"]["lead"]["name"]
-            .as_str()
-            .map(str::to_owned)
-        else {
-            return self.say("This squad has no lead to annotate for.");
-        };
-        let squad = self.current.clone().unwrap_or_default();
-        let (row, prompt) = {
-            let mut cursors = self.note_cursors.borrow_mut();
-            let cursor = cursors.entry(squad.clone()).or_default();
-            cursor.reconcile(text);
-            let source = text.split('\n').nth(cursor.source).unwrap_or_default();
-            (
-                crate::requests::note_row(&squad, cursor.source, source),
-                format!(
-                    "note for {to} · L{} “{}”",
-                    cursor.source + 1,
-                    super::notes::display_quote(source)
-                ),
-            )
-        };
-        self.ask(prompt, Compose::Annotate { to, row }, squad)
-    }
-
     fn link_member(&self, name: &str) -> Option<&Value> {
         self.view.as_ref()?.document["sections"]
             .as_array()?
@@ -3164,180 +3118,6 @@ impl App {
                 (lead["name"].as_str() == Some(name) || lead["id"].as_str() == Some(name))
                     .then_some(lead)
             })
-    }
-
-    pub(super) fn selected_link(&self) -> Option<super::markdown::Link> {
-        let (target, offset) = self.note_link.as_ref()?;
-        self.view
-            .as_ref()?
-            .derived
-            .borrow()
-            .notes
-            .as_ref()?
-            .links
-            .iter()
-            .find(|link| &link.target == target && &link.offset == offset)
-            .cloned()
-    }
-
-    fn note_binding(&self, key: KeyEvent) -> Option<Action> {
-        let view = self.view.as_ref()?;
-        let event = event_name(key)?;
-        self.rows()
-            .get(self.selected)
-            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?))
-            .and_then(|bindings| bindings.get(&event))
-            .or_else(|| view.configured_bindings.get(&event))
-            .cloned()
-    }
-
-    fn choose_link(&mut self, id: usize) -> bool {
-        let Some(view) = &self.view else {
-            return false;
-        };
-        let derived = view.derived.borrow();
-        let Some(notes) = &derived.notes else {
-            return false;
-        };
-        let Some(link) = notes.links.get(id) else {
-            return false;
-        };
-        self.note_link = Some((link.target.clone(), link.offset));
-        self.notice = None;
-        if let (Some(key), Notes::Text(text), Some(hit)) = (
-            self.shown_tab(),
-            &view.notes,
-            notes.hits.iter().find(|hit| hit.link == id),
-        ) {
-            let mut cursors = self.note_cursors.borrow_mut();
-            let cursor = cursors.entry(key.to_owned()).or_default();
-            cursor.select_visual(text, &notes.sources, hit.line);
-            cursor.follow = true;
-        }
-        true
-    }
-
-    fn select_link(&mut self, step: isize) -> Effect {
-        let state = self.view.as_ref().and_then(|view| {
-            view.derived.borrow().notes.as_ref().map(|notes| {
-                (
-                    notes.links.len(),
-                    notes.links.iter().position(|link| {
-                        self.note_link.as_ref() == Some(&(link.target.clone(), link.offset))
-                    }),
-                )
-            })
-        });
-        let Some((len, old)) = state else {
-            return Effect::None;
-        };
-        if len == 0 {
-            self.note_link = None;
-            self.next_pane();
-            return Effect::None;
-        }
-        let next = old.map_or(if step < 0 { len - 1 } else { 0 }, |old| {
-            (old as isize + step).rem_euclid(len as isize) as usize
-        });
-        self.choose_link(next);
-        Effect::None
-    }
-
-    fn activate_link(&mut self) -> Effect {
-        if self.loading() {
-            return self.say("The board is loading; link refused.");
-        }
-        let Some(link) = self.selected_link() else {
-            return Effect::None;
-        };
-        let view = self.view.as_ref().expect("rendered link has a view");
-        match link.kind {
-            Kind::Web | Kind::Github => Effect::Act(Request::Open {
-                link: link.target,
-                opener: view.opener.clone(),
-            }),
-            Kind::File(path) => Effect::Act(Request::RevealFile {
-                path,
-                opener: view.opener.clone(),
-            }),
-            Kind::Custom { scheme, path } => {
-                match crate::links::argv(&view.links, &scheme, &path) {
-                    Ok(argv) => Effect::Act(Request::Run(argv)),
-                    Err(reason) => self.say(reason),
-                }
-            }
-            Kind::Tmt {
-                verb: Verb::Back, ..
-            } => Effect::Act(Request::Back),
-            Kind::Tmt {
-                verb,
-                member: Some(member),
-                text,
-            } => {
-                let Some(row) = self.link_member(&member).cloned() else {
-                    return self.say("Link target is not a current squad member.");
-                };
-                let member = row["name"].as_str().unwrap_or_default().to_owned();
-                match verb {
-                    Verb::Jump => Effect::Act(Request::Jump(member)),
-                    Verb::Copy => match Action::parse("copy").unwrap().args[0].fill(&row) {
-                        Ok(text) => Effect::Act(Request::Copy {
-                            text,
-                            program: view.clipboard.clone(),
-                        }),
-                        Err(reason) => self.say(reason),
-                    },
-                    Verb::Open => match effects::default_link(&row)
-                        .ok_or_else(|| "This member has no link.".to_owned())
-                        .and_then(effects::web_link)
-                    {
-                        Ok(link) => Effect::Act(Request::Open {
-                            link: link.to_owned(),
-                            opener: view.opener.clone(),
-                        }),
-                        Err(reason) => self.say(reason),
-                    },
-                    Verb::Talk | Verb::Reply | Verb::Annotate => {
-                        let sender = view.me.clone().unwrap_or_default();
-                        let action = Action::parse(verb.name()).expect("built-in verb");
-                        let effect = self.compose(&action, &row);
-                        if let Some(input) = &mut self.input {
-                            input.text = text.clone().into();
-                            input.link = Some(LinkSend {
-                                member: member.clone(),
-                                sender: sender.clone(),
-                            });
-                        }
-                        if let Some(menu) = &mut self.menu {
-                            menu.prefill = text;
-                            menu.link = Some(LinkSend { member, sender });
-                        }
-                        effect
-                    }
-                    _ => self.say("Unsupported link verb."),
-                }
-            }
-            _ => self.say("Invalid link target."),
-        }
-    }
-
-    fn move_note(&self, step: Step) {
-        let (Some(view), Some(key)) = (&self.view, self.shown_tab()) else {
-            return;
-        };
-        let Notes::Text(text) = &view.notes else {
-            return;
-        };
-        let derived = view.derived.borrow();
-        let sources = derived
-            .notes
-            .as_ref()
-            .map_or(&[][..], |notes| notes.sources.as_slice());
-        self.note_cursors
-            .borrow_mut()
-            .entry(key.to_owned())
-            .or_default()
-            .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
@@ -4064,8 +3844,6 @@ impl App {
         self.unpicked_hit.set(None);
         self.title_hits.borrow_mut().clear();
         self.detail_more_hits.borrow_mut().clear();
-        self.note_hits.borrow_mut().clear();
-        self.link_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.chip_hits.borrow_mut().clear();
         if let Some(draft) = &self.workspace_form {
@@ -4196,15 +3974,6 @@ impl App {
                 .filter(|pane| !self.collapsed_panes().contains(pane))
             {
                 self.scroll_pane(pane, Step::Lines(lines));
-                if pane == Pane::Notes
-                    && let Some(key) = self.shown_tab()
-                {
-                    self.note_cursors
-                        .borrow_mut()
-                        .entry(key.to_owned())
-                        .or_default()
-                        .follow = false;
-                }
                 if pane == Pane::Rows {
                     self.follow = false;
                 }
@@ -4379,41 +4148,6 @@ impl App {
             return self.toggle_panes(&[pane]);
         }
         self.focus_at(event.column, event.row);
-        if self.focused_pane() == Some(Pane::Notes) {
-            let hit = self
-                .link_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| {
-                    area.contains(ratatui::layout::Position::new(event.column, event.row))
-                })
-                .map(|(_, link)| *link);
-            if let Some(id) = hit {
-                let previous = self.note_link.clone();
-                if self.choose_link(id) {
-                    return if previous == self.note_link {
-                        self.activate_link()
-                    } else {
-                        Effect::None
-                    };
-                }
-            }
-            self.note_link = None;
-            if let (Some(key), Some(view)) = (self.shown_tab(), &self.view)
-                && let Notes::Text(text) = &view.notes
-                && let Some((_, visual)) = self.note_hits.borrow().iter().find(|(area, _)| {
-                    area.contains(ratatui::layout::Position::new(event.column, event.row))
-                })
-            {
-                let mut cursors = self.note_cursors.borrow_mut();
-                let cursor = cursors.entry(key.to_owned()).or_default();
-                if let Some(notes) = &view.derived.borrow().notes {
-                    cursor.select_visual(text, &notes.sources, *visual);
-                    cursor.follow = true;
-                }
-            }
-            return Effect::None;
-        }
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
@@ -4478,28 +4212,10 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        self.notebook_identity()
-            .map(super::refresh::SelectedRead::Notebook)
+        None
     }
 
-    /// Lazy acquisition follows the effective detail, including folds and tabs.
-    pub(super) fn notebook_identity(&self) -> Option<String> {
-        let board = self.effective_board()?;
-        if self.loading()
-            || self.selected_is_lead()
-            || !self.scrolls.visible(Pane::Detail)
-            || !board.panes.contains(&Pane::Detail)
-            || self.collapsed_panes().contains(&Pane::Detail)
-            || (board.mode == BoardMode::Tabs && self.focused_pane() != Some(Pane::Detail))
-        {
-            return None;
-        }
-        let row = self.selected_row()?;
-        (row["lifetime"] == "saved")
-            .then(|| row["id"].as_str().map(str::to_owned))
-            .flatten()
-    }
-
+    /// Exact admitted row data for the selected workspace target.
     pub fn selected_row(&self) -> Option<&Value> {
         if self.workspace_snapshot().is_some() {
             return self
@@ -7585,197 +7301,5 @@ mod token_window_tests {
             app.usage_document, projected,
             "loading preserves painted owner"
         );
-    }
-}
-
-#[cfg(test)]
-mod link_tests {
-    use super::*;
-    use serde_json::json;
-    fn app(target: &str) -> App {
-        let mut app = tests::crew(Default::default(), Vec::new());
-        let view = app.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"auth-fix"});
-        view.notes = Notes::Text(format!("[action]({target})"));
-        let Notes::Text(text) = &view.notes else {
-            unreachable!()
-        };
-        let mapped = super::super::markdown::render_links(text, 80, view.look, &view.links);
-        view.derived.borrow_mut().notes = Some(super::super::derived::NotebookLines {
-            width: 80,
-            look: view.look,
-            lines: mapped.lines,
-            sources: mapped.sources,
-            links: mapped.links,
-            hits: mapped.hits,
-        });
-        app.select_link(1);
-        app
-    }
-    fn enter(app: &mut App) -> Effect {
-        app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-    }
-    #[test]
-    fn builtins_use_the_existing_prompt_and_cancel_or_stale_targets_send_nothing() {
-        for verb in ["talk", "annotate"] {
-            let mut app = app(&format!("tmt:{verb}/auth-fix?text=hello%20%24%28id%29"));
-            assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(app.input.as_ref().unwrap().text, "hello $(id)");
-            assert_eq!(
-                app.input_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-                Effect::None
-            );
-            assert!(app.input.is_none());
-            app.activate_link();
-            app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
-            app.view.as_mut().unwrap().document["squad"]["lead"] = serde_json::Value::Null;
-            assert_eq!(enter(&mut app), Effect::None);
-            assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
-        }
-        let mut app = app("tmt:talk/auth-fix?text=hello");
-        app.activate_link();
-        app.view.as_mut().unwrap().me = Some("Other".into());
-        assert_eq!(enter(&mut app), Effect::None);
-        app.view.as_mut().unwrap().me = Some("Ben".into());
-        app.activate_link();
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Talk {
-                me: "Ben".into(),
-                squad: "product".into(),
-                to: "auth-fix".into(),
-                text: "hello".into()
-            })
-        );
-    }
-    #[test]
-    fn notebook_send_to_a_lead_outside_member_rows_keeps_its_validation() {
-        for changed in [false, true] {
-            let mut app = app("tmt:talk/Lead?text=hello");
-            app.view.as_mut().unwrap().document["squad"]["lead"] =
-                json!({"id":"lead-id", "name":"Lead"});
-            assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(
-                app.input.as_ref().unwrap().header(),
-                "→ Lead (product) · talk"
-            );
-            if changed {
-                app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
-                assert_eq!(enter(&mut app), Effect::None);
-            } else {
-                assert!(
-                    matches!(enter(&mut app), Effect::Act(Request::Talk { ref to, .. }) if to == "Lead")
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn answer_picker_is_prefilled_and_revalidates_current_open_requests() {
-        let mut app = app("tmt:answer/auth-fix?text=answer");
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
-            {"requestId":"one", "preview":"first"}, {"requestId":"two", "preview":"second"}
-        ]);
-        assert_eq!(app.activate_link(), Effect::None);
-        assert!(app.input.is_none());
-        assert_eq!(app.menu.as_ref().unwrap().prefill, "answer");
-        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.input.as_ref().unwrap().text, "answer");
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Reply {
-                me: "Ben".into(),
-                request: "one".into(),
-                from: "auth-fix".into(),
-                text: "answer".into()
-            })
-        );
-        app.activate_link();
-        app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
-        assert_eq!(enter(&mut app), Effect::None);
-    }
-    #[test]
-    fn answer_selection_uses_core_inbox_after_withdrawal_and_preserves_manual_state() {
-        let mut app = app("tmt:answer/auth-fix?text=answer");
-        let view = app.view.as_mut().unwrap();
-        let row = &mut view.document["sections"][0]["rows"][0];
-        row["pending"] = json!("independent decision");
-        let state = row["state"].clone();
-        let room = crate::requests::Window {
-            items: vec![json!({
-                "requestId":"withdrawn", "kind":"request", "recipientId":"ME",
-                "sender":{"identityId":"auth-fix"}, "preview":"obsolete question",
-                "final":{"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":20}
-            })],
-            complete: true,
-        };
-        // Core's inbox has already excluded the withdrawal. Squad must use that
-        // projection rather than deriving answer candidates from room history.
-        let mut inbox = crate::requests::Window {
-            items: vec![json!({"requestId":"open", "from":{"identityId":"auth-fix"},
-                "preview":"current question", "preparedAtMs":10})],
-            complete: true,
-        };
-        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
-        assert_eq!(
-            view.document["sections"][0]["rows"][0]["waitingOnYou"],
-            json!([{"requestId":"open", "preview":"current question", "preparedAtMs":10}])
-        );
-        app.activate_link();
-        assert!(app.menu.is_none(), "one Core-open request needs no picker");
-        assert_eq!(
-            enter(&mut app),
-            Effect::Act(Request::Reply {
-                me: "Ben".into(),
-                request: "open".into(),
-                from: "auth-fix".into(),
-                text: "answer".into()
-            })
-        );
-        app.activate_link();
-        assert!(
-            app.input.is_some(),
-            "reopen the still-current answer before refresh"
-        );
-        inbox.items.clear();
-        let view = app.view.as_mut().unwrap();
-        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
-        let row = &view.document["sections"][0]["rows"][0];
-        assert_eq!(row["waitingOnYou"], json!([]));
-        assert_eq!(row["pending"], "independent decision");
-        assert_eq!(row["state"], state);
-        assert!(
-            crate::attention::waits_on_you(row),
-            "manual pending remains independent"
-        );
-        assert_eq!(
-            enter(&mut app),
-            Effect::None,
-            "stale answer cannot be submitted"
-        );
-    }
-    #[test]
-    fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {
-        for verb in ["jump", "talk", "answer", "open", "copy", "annotate"] {
-            let mut app = app(&format!("tmt:{verb}/missing"));
-            assert_eq!(app.activate_link(), Effect::None);
-            assert!(app.input.is_none() && app.menu.is_none());
-        }
-        let mut lead = app("tmt:jump/Lead");
-        lead.view.as_mut().unwrap().document["squad"]["lead"] =
-            json!({"id":"lead-id", "name":"Lead"});
-        assert_eq!(
-            lead.activate_link(),
-            Effect::Act(Request::Jump("Lead".into()))
-        );
-        let mut app = app("tmt:jump/auth-fix");
-        assert_eq!(
-            app.activate_link(),
-            Effect::Act(Request::Jump("auth-fix".into()))
-        );
-        app.current = Some("infra".into());
-        assert_eq!(app.activate_link(), Effect::None);
     }
 }

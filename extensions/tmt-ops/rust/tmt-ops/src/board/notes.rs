@@ -1,4 +1,4 @@
-//! Identity notebooks, shown as inert text. Notes are agent-written, so every
+//! Inert agent text and response source anchors. Agent text is untrusted, so every
 //! terminal escape and control character is removed before display; this is
 //! the plain rendering that Markdown rendering (#391) builds on.
 
@@ -131,90 +131,7 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 
 /// The last eight selected identities, with one rendered body per notebook.
 /// Public notes.read owns the same 1 MiB bound as the lead pane.
-#[derive(Default)]
-pub(super) struct Notebooks {
-    entries: std::collections::VecDeque<(String, super::app::Notes, Option<Rendered>)>,
-}
-
-type Rendered = (
-    usize,
-    crate::look::Look,
-    crate::config::NotesRender,
-    Vec<ratatui::text::Line<'static>>,
-);
-
-impl Notebooks {
-    pub fn keep(&mut self, identity: String, notes: super::app::Notes) {
-        let old = self
-            .entries
-            .iter()
-            .position(|entry| entry.0 == identity)
-            .and_then(|index| self.entries.remove(index));
-        let rendered = old
-            .filter(|entry| entry.1 == notes)
-            .and_then(|entry| entry.2);
-        self.entries.push_back((identity, notes, rendered));
-        if self.entries.len() > 8 {
-            self.entries.pop_front();
-        }
-    }
-
-    pub fn lines(
-        &mut self,
-        identity: &str,
-        width: usize,
-        look: crate::look::Look,
-        render: crate::config::NotesRender,
-    ) -> Vec<ratatui::text::Line<'static>> {
-        let Some(index) = self.entries.iter().position(|entry| entry.0 == identity) else {
-            return super::view::notebook_lines(
-                &super::app::Notes::Failed("(loading notebook…)".into()),
-                width,
-                look,
-                render,
-            );
-        };
-        let mut entry = self.entries.remove(index).unwrap();
-        if entry
-            .2
-            .as_ref()
-            .is_none_or(|cached| (cached.0, cached.1, cached.2) != (width, look, render))
-        {
-            entry.2 = Some((
-                width,
-                look,
-                render,
-                super::view::notebook_lines(&entry.1, width, look, render),
-            ));
-        }
-        let lines = entry.2.as_ref().unwrap().3.clone();
-        self.entries.push_back(entry);
-        lines
-    }
-}
-
-/// Display-only quote; the durable annotation tag retains the source text.
-pub(super) fn display_quote(text: &str) -> String {
-    let text = text.trim();
-    let text = ["- ", "* ", "+ "]
-        .into_iter()
-        .find_map(|prefix| text.strip_prefix(prefix))
-        .or_else(|| {
-            let digits = text.bytes().take_while(u8::is_ascii_digit).count();
-            (digits > 0)
-                .then(|| text.get(digits..))
-                .flatten()
-                .and_then(|rest| rest.strip_prefix(". ").or_else(|| rest.strip_prefix(") ")))
-        })
-        .unwrap_or(text);
-    if text.chars().count() > 48 {
-        format!("{}…", text.chars().take(47).collect::<String>())
-    } else {
-        text.to_owned()
-    }
-}
-
-/// Selection belongs to notebook content; Scrolls remains the viewport owner.
+/// A response source anchor survives wrapping and refreshed content; Scrolls owns the viewport.
 #[derive(Default)]
 pub(super) struct NotesCursor {
     pub source: usize,
@@ -265,33 +182,6 @@ impl NotesCursor {
                     .unwrap_or(visual);
         }
     }
-
-    pub fn move_by(
-        &mut self,
-        text: &str,
-        sources: &[usize],
-        step: super::scroll::Step,
-        page: usize,
-    ) {
-        self.reconcile(text);
-        let fallback: Vec<_>;
-        let sources = if sources.is_empty() {
-            fallback = (0..text.split('\n').count()).collect();
-            &fallback[..]
-        } else {
-            sources
-        };
-        let current = self.visual(sources).unwrap_or_default();
-        let next = match step {
-            super::scroll::Step::Lines(n) => current.saturating_add_signed(n),
-            super::scroll::Step::Pages(n) => current.saturating_add_signed(n * page as isize),
-            super::scroll::Step::Top => 0,
-            super::scroll::Step::Bottom => sources.len().saturating_sub(1),
-        }
-        .min(sources.len().saturating_sub(1));
-        self.select_visual(text, sources, next);
-        self.follow = true;
-    }
 }
 
 #[cfg(test)]
@@ -299,25 +189,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_quote_strips_list_prefixes_without_changing_the_source() {
-        for source in ["- item", "* item", "+ item", "12. item", "2) item"] {
-            assert_eq!(display_quote(source), "item");
-        }
-        assert_eq!(display_quote("path-name"), "path-name");
-        assert_eq!(
-            display_quote(&"字".repeat(49)),
-            format!("{}…", "字".repeat(47))
-        );
-    }
-
-    #[test]
-    fn paging_and_clicks_keep_the_chosen_wrapped_continuation() {
+    fn wrapped_continuation_survives_resize_and_content_insertion() {
         let text = "long notebook line\nnext";
         let sources = [0, 0, 0, 0, 0, 1];
         let mut cursor = NotesCursor::default();
         cursor.select_visual(text, &sources, 2);
         assert_eq!(cursor.visual(&sources), Some(2));
-        cursor.move_by(text, &sources, super::super::scroll::Step::Pages(1), 2);
+        cursor.select_visual(text, &sources, 4);
         assert_eq!(cursor.source, 0);
         assert_eq!(cursor.visual(&sources), Some(4));
         assert_eq!(
@@ -338,20 +216,6 @@ mod tests {
         assert_eq!(cursor.source, 2);
         cursor.reconcile("only");
         assert_eq!(cursor.source, 0);
-        cursor.move_by(
-            "a\nb\nc",
-            &[0, 0, 1, 2],
-            super::super::scroll::Step::Bottom,
-            2,
-        );
-        assert_eq!(cursor.source, 2);
-        cursor.move_by(
-            "a\nb\nc",
-            &[0, 0, 1, 2],
-            super::super::scroll::Step::Pages(-1),
-            2,
-        );
-        assert_eq!(cursor.source, 0);
     }
 
     #[test]
@@ -360,30 +224,6 @@ mod tests {
         cursor.select("repeat\nother\nrepeat", 2);
         cursor.reconcile("new\nrepeat\nother\nrepeat");
         assert_eq!(cursor.source, 3);
-    }
-
-    #[test]
-    fn notebook_cache_is_bounded_and_reuses_only_unchanged_content() {
-        let mut cache = Notebooks::default();
-        let look = crate::look::Look::default();
-        let mode = crate::config::NotesRender::Markdown;
-        for id in 0..8 {
-            cache.keep(
-                id.to_string(),
-                super::super::app::Notes::Text("## Now".into()),
-            );
-        }
-        let first = cache.lines("0", 20, look, mode);
-        cache.keep("0".into(), super::super::app::Notes::Text("## Now".into()));
-        assert!(cache.entries.back().unwrap().2.is_some());
-        cache.keep("8".into(), super::super::app::Notes::Missing);
-        assert_eq!(cache.entries.len(), 8);
-        assert!(!cache.entries.iter().any(|entry| entry.0 == "1"));
-        assert_eq!(cache.lines("0", 20, look, mode), first);
-        cache.keep("0".into(), super::super::app::Notes::Text("Next".into()));
-        assert!(cache.entries.back().unwrap().2.is_none());
-        assert_ne!(cache.lines("0", 5, look, mode), first);
-        assert_eq!(cache.entries.back().unwrap().2.as_ref().unwrap().0, 5);
     }
 
     #[test]

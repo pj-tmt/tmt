@@ -1,10 +1,8 @@
 //! Frame orchestration; surface painters retain their existing owners.
 
 mod cached;
-mod detail;
 pub(super) mod footer;
 mod header;
-mod notes;
 mod overlays;
 mod panes;
 pub(in crate::board) mod scene;
@@ -23,7 +21,6 @@ pub(super) use footer::toggle_label;
 #[cfg(test)]
 pub(super) use header::SPINNER_DELAY;
 pub(super) use header::{spinner_frame, spinner_wait, time_marks};
-pub(super) use notes::notebook_lines;
 
 /// Exactly `width` display cells: truncated with an ellipsis, or padded.
 pub fn fit(text: &str, width: usize) -> String {
@@ -114,8 +111,6 @@ pub(in crate::board) fn render_frame(
     app.detail_more_hits.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
-    app.note_hits.borrow_mut().clear();
-    app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.unpicked_hit.set(None);

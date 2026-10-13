@@ -305,18 +305,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = app.migration_notice.as_ref().or(app.notice.as_ref()) {
         Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
-    } else if let Some(link) = app
-        .selected_link()
-        .filter(|_| app.focused_pane() == Some(Pane::Notes))
-    {
-        Line::from(Span::styled(
-            format!(
-                "{} · {} · Enter/click to activate",
-                link.kind.label(),
-                link.target
-            ),
-            look.role(Role::Link),
-        ))
     } else if let Some(error) = &app.error {
         Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else if app.modal_open() || app.input_band.get().is_some() {
