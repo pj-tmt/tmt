@@ -98,6 +98,181 @@ pub(in crate::board) fn board() -> App {
     app.workspace_reconcile();
     app
 }
+
+/// Acquire effective tables through Config, as the refresh worker does.
+fn configured_member(text: &str, row: serde_json::Value) -> App {
+    let mut app = board();
+    let target = app.workspace.selected.clone().unwrap();
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.rows.insert(target, row);
+    let path = std::env::temp_dir().join(format!(
+        "ops-workspace-bind-{}.toml",
+        crate::id::new_v4().unwrap()
+    ));
+    std::fs::write(&path, text).unwrap();
+    let config = Config::read(path.clone()).unwrap();
+    workspace.configure(&config).unwrap();
+    std::fs::remove_file(path).unwrap();
+    app
+}
+
+#[test]
+fn configured_refresh_normalizes_control_keys_and_section_wins_without_owning_search() {
+    let mut app = configured_member(
+        r#"
+[bind]
+ctrl-r = "copy {name}"
+f5 = "refresh"
+[[squad.product.section]]
+title = "Tasks"
+filter = "task"
+[squad.product.section.bind]
+ctrl-r = "refresh"
+"#,
+        json!({"id":MEMBER,"name":"worker","fields":{"task":"ship"}}),
+    );
+    let refresh = KeyEvent::new(
+        KeyCode::Char('R'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(app.key(refresh), Effect::Refresh);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .sections
+        .clear();
+    assert!(
+        matches!(app.key(refresh), Effect::Act(Request::Copy { text, .. }) if text == "worker")
+    );
+    assert_eq!(key(&mut app, KeyCode::F(5)), Effect::Refresh);
+    app.searching = true;
+    app.search = "worker".into();
+    assert_eq!(app.key(refresh), Effect::None);
+    assert_eq!(app.search, "worker");
+    assert!(app.input.is_none());
+}
+
+#[test]
+fn configured_section_action_overrides_global_and_missing_fields_refuse_on_selected_uuid() {
+    let text = r#"
+[bind]
+o = "open {link}"
+f5 = "refresh"
+[[squad.product.section]]
+title = "Tasks"
+filter = "task"
+[squad.product.section.bind]
+o = "run code {name} --task={task}"
+"#;
+    let mut app = configured_member(
+        text,
+        json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.com/pull/42","task":"ship"}}),
+    );
+    assert_eq!(key(&mut app, KeyCode::F(5)), Effect::Refresh);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::Act(Request::Run(vec![
+            "code".into(),
+            "worker".into(),
+            "--task=ship".into()
+        ]))
+    );
+    let mut app = configured_member(
+        text,
+        json!({"id":MEMBER,"name":"worker","fields":{"link":"https://example.com/pull/42"}}),
+    );
+    assert!(
+        matches!(key(&mut app, KeyCode::Char('o')), Effect::Act(Request::Open { link, .. }) if link == "https://example.com/pull/42")
+    );
+    let mut app = configured_member(text, json!({"id":MEMBER,"name":"worker","fields":{}}));
+    let selected = app.workspace.selected.clone();
+    assert_eq!(key(&mut app, KeyCode::Char('o')), Effect::None);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("open: link is empty for this row.")
+    );
+    assert_eq!(app.workspace.selected, selected);
+}
+
+#[test]
+fn configured_host_actions_use_published_coordinates_and_refuse_missing_fields() {
+    let text = r#"
+[bind]
+enter = "run flat {name}"
+[bind.tmux]
+enter = "run tmux switch-client -t {pane} {host} {session} {window}"
+[bind.herdr]
+enter = "run herdr pane focus {pane} {session}"
+"#;
+    for (pane, expected) in [
+        (
+            json!({"id":"%1","location":{"host":"tmux","session":"work","window":"2"}}),
+            Some(vec![
+                "tmux",
+                "switch-client",
+                "-t",
+                "%1",
+                "tmux",
+                "work",
+                "2",
+            ]),
+        ),
+        (json!({"id":"%2","location":{"host":"herdr"}}), None),
+        (json!({"id":"%3"}), Some(vec!["flat", "worker"])),
+        (
+            json!({"id":"%4","location":{"host":"other"}}),
+            Some(vec!["flat", "worker"]),
+        ),
+    ] {
+        let mut app = configured_member(text, json!({"id":MEMBER,"name":"worker","pane":pane}));
+        let selected = app.workspace.selected.clone();
+        let effect = key(&mut app, KeyCode::Enter);
+        if let Some(args) = expected {
+            assert_eq!(
+                effect,
+                Effect::Act(Request::Run(args.into_iter().map(str::to_owned).collect()))
+            );
+        } else {
+            assert_eq!(effect, Effect::None);
+            assert_eq!(
+                app.notice.as_deref(),
+                Some("run: session is empty for this row.")
+            );
+        }
+        assert_eq!(app.workspace.selected, selected);
+    }
+}
+
+#[test]
+fn configured_section_keeps_unoverridden_host_actions_for_the_same_membership() {
+    let mut app = configured_member(
+        r#"
+[bind]
+enter = "run flat {name}"
+[bind.tmux]
+enter = "run host {pane}"
+o = "run host-o {pane}"
+[[squad.product.section]]
+title = "Tasks"
+filter = "task"
+[squad.product.section.bind]
+enter = "run section {name}"
+"#,
+        json!({"id":MEMBER,"name":"worker","fields":{"task":"ship"},"pane":{"id":"%1","location":{"host":"tmux"}}}),
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Run(vec!["section".into(), "worker".into()]))
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::Act(Request::Run(vec!["host-o".into(), "%1".into()]))
+    );
+}
 // Literal observed fixtures for captures and the real-render cost harness.
 pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
     let mut app = board();

@@ -456,12 +456,9 @@ pub(super) fn board(sections: Value) -> App {
             notes: crate::board::app::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
-            section_bindings: Vec::new(),
-            configured_bindings: Default::default(),
-            host_bindings: Default::default(),
             opener: None,
             clipboard: None,
-            links: Default::default(),
+
             tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
@@ -1034,12 +1031,11 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 notes,
                 render: NotesRender::Markdown,
                 bindings,
-                section_bindings: Vec::new(),
-                configured_bindings: Default::default(),
-                host_bindings: Default::default(),
+
+
                 opener: None,
                 clipboard: None,
-                links: Default::default(),
+
                 tab_colors: Default::default(),
                 look: Default::default(),
                 theme_notice: None,

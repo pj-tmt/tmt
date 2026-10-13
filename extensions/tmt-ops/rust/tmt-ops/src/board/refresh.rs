@@ -1085,12 +1085,8 @@ fn squad_view(
         render: config.notes_render(&squad.name)?,
         ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
-        section_bindings: sections.into_iter().map(|section| section.bind).collect(),
-        configured_bindings: config.configured_bindings()?,
-        host_bindings: config.host_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        links: config.links()?,
         tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -1132,16 +1128,6 @@ fn member_view(
     let (theme, theme_notice) = config.theme("")?;
     let loaded = tab_view::load(core, config, squads, tabs, me.as_ref(), key)?;
     let bindings = config.bindings_for_tab(key, tmux, &[])?;
-    let tab = settings
-        .user
-        .iter()
-        .find(|tab| Some(tab.name.as_str()) == tabs::user_name(key));
-    let section_bindings = tab.map_or_else(Vec::new, |tab| {
-        tab.sections
-            .iter()
-            .map(|section| section.bind.clone())
-            .collect()
-    });
     let view = View {
         history_pending: false,
         ask_lead: config.ask_lead("")?,
@@ -1153,12 +1139,8 @@ fn member_view(
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
-        section_bindings,
-        configured_bindings: config.configured_bindings()?,
-        host_bindings: config.host_bindings()?,
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        links: config.links()?,
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -1205,12 +1187,8 @@ fn all_view(
         rows: loaded.rows,
         render: NotesRender::Markdown,
         bindings,
-        section_bindings: Vec::new(),
-        configured_bindings: Default::default(),
-        host_bindings: Default::default(),
         opener: config.program("opener")?,
         clipboard: config.program("clipboard")?,
-        links: Default::default(),
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
@@ -1901,7 +1879,19 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
             expected["columns"][1]["title"] = json!("MEMBER");
             assert_eq!(view.rows.value(), expected);
             assert_eq!(view.bindings["enter"].verb, crate::action::Verb::Jump);
-            assert_eq!(view.section_bindings[0]["o"].verb, crate::action::Verb::Tab);
+            assert_eq!(
+                config
+                    .tabs()
+                    .unwrap()
+                    .user
+                    .iter()
+                    .find(|tab| tab.name == "needs-me")
+                    .unwrap()
+                    .sections[0]
+                    .bind["o"]
+                    .verb,
+                crate::action::Verb::Tab
+            );
             if partial {
                 assert_eq!(listed["partial"], true);
                 assert_eq!(listed["failures"].as_array().unwrap().len(), 2);

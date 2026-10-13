@@ -98,14 +98,8 @@ pub struct View {
     pub render: NotesRender,
     /// The host preset overridden by `[bind]`.
     pub bindings: Bindings,
-    /// Each document section's own bindings, in document order.
-    pub section_bindings: Vec<Bindings>,
-    pub configured_bindings: Bindings,
-    /// `[bind.<host>]`: over `bindings` for a row whose pane is on that host.
-    pub host_bindings: std::collections::BTreeMap<String, Bindings>,
     pub opener: Option<Vec<String>>,
     pub clipboard: Option<Vec<String>>,
-    pub links: crate::links::Handlers,
     /// `[tabs.colors]`, re-read with every load like the rest of ops.toml.
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
@@ -3394,12 +3388,8 @@ pub(crate) mod tests {
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
-            section_bindings: Vec::new(),
-            configured_bindings: Default::default(),
-            host_bindings: Default::default(),
             opener: None,
             clipboard: None,
-            links: Default::default(),
             tab_colors: Default::default(),
             look: Default::default(),
             theme_notice: None,
@@ -3708,10 +3698,7 @@ pub(crate) mod tests {
         json!({"id": name, "name": name, "state": "working", "fields": fields})
     }
 
-    pub(in crate::board) fn crew(
-        bindings: crate::action::Bindings,
-        sections: Vec<crate::action::Bindings>,
-    ) -> App {
+    pub(in crate::board) fn crew(bindings: crate::action::Bindings) -> App {
         let mut app = App::new(Some("product".into()));
         let mut snapshot = snapshot(
             "product",
@@ -3721,9 +3708,7 @@ pub(crate) mod tests {
             ]),
         );
         let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = bindings.clone();
         view.bindings = bindings;
-        view.section_bindings = sections;
         view.clipboard = Some(vec!["pbcopy".into()]);
         app.apply(snapshot);
         app
@@ -3735,7 +3720,7 @@ pub(crate) mod tests {
 
     #[test]
     fn ask_lead_requires_confirmation_and_revalidates_sender_and_lead() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(crate::action::preset(true, &[]));
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
         assert_eq!(press(&mut app, KeyCode::Char('A')), Effect::None);
@@ -3757,7 +3742,7 @@ pub(crate) mod tests {
             })
         );
         for change in ["lead", "sender", "squad"] {
-            let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+            let mut app = crew(crate::action::preset(true, &[]));
             app.view.as_mut().unwrap().me = Some("Ben".into());
             app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
             press(&mut app, KeyCode::Char('A'));
@@ -3775,7 +3760,7 @@ pub(crate) mod tests {
 
     #[test]
     fn ask_lead_missing_lead_and_rebinding_never_send_on_open() {
-        let mut app = crew(bind(&[("z", "ask-lead")]), Vec::new());
+        let mut app = crew(bind(&[("z", "ask-lead")]));
         app.view.as_mut().unwrap().me = Some("Ben".into());
         press(&mut app, KeyCode::Char('z'));
         assert!(app.input.is_none());
@@ -3954,17 +3939,17 @@ pub(crate) mod tests {
         );
         assert_eq!(app.current.as_deref(), Some("infra"));
         // A member's row has no squad of its own to open.
-        let mut app = crew(bind(&[("enter", "tab")]), Vec::new());
+        let mut app = crew(bind(&[("enter", "tab")]));
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert_eq!(app.notice.as_deref(), Some("tab: this row has no squad."));
     }
 
     #[test]
     fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(true, &[])),
-            Vec::new(),
-        );
+        let mut app = crew(crate::action::with_action_keys(crate::action::preset(
+            true,
+            &[],
+        )));
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Jump("auth-fix".into()))
@@ -4558,7 +4543,7 @@ pub(crate) mod tests {
 
     #[test]
     fn back_is_one_request_and_outcomes_become_the_notice() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(crate::action::preset(true, &[]));
         assert_eq!(
             press(&mut app, KeyCode::Backspace),
             Effect::Act(Request::Back)
@@ -4572,7 +4557,7 @@ pub(crate) mod tests {
     #[test]
     fn ctrl_r_refreshes_without_typing_into_search_or_message_inputs() {
         for tmux in [false, true] {
-            let mut app = crew(crate::action::preset(tmux, &[]), Vec::new());
+            let mut app = crew(crate::action::preset(tmux, &[]));
             let refresh = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
             assert_eq!(app.key(refresh), Effect::Refresh);
             assert_eq!(press(&mut app, KeyCode::F(5)), Effect::None);
@@ -4617,178 +4602,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn ctrl_r_keeps_normalization_and_effective_binding_overrides() {
-        let mut global = crate::action::preset(true, &[]);
-        global.extend(bind(&[("ctrl-r", "copy"), ("f5", "refresh")]));
-        let mut app = crew(global, vec![bind(&[("ctrl-r", "refresh")])]);
-        let refresh = KeyEvent::new(
-            KeyCode::Char('R'),
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        );
-        assert_eq!(event_name(refresh).as_deref(), Some("ctrl-r"));
-        assert_eq!(app.key(refresh), Effect::Refresh, "section wins");
-        app.view.as_mut().unwrap().section_bindings.clear();
-        assert!(matches!(
-            app.key(refresh),
-            Effect::Act(Request::Copy { .. })
-        ));
-        assert_eq!(
-            press(&mut app, KeyCode::F(5)),
-            Effect::Refresh,
-            "explicit F5 works"
-        );
-        app.searching = true;
-        app.search = "auth".into();
-        assert_eq!(
-            app.key(refresh),
-            Effect::None,
-            "rebound ctrl-r does not refresh an input"
-        );
-        assert_eq!(app.search, "auth", "control keys never become search text");
-    }
-
-    #[test]
-    fn section_bindings_win_over_bind_which_wins_over_the_preset() {
-        let mut global = crate::action::preset(true, &[]);
-        global.extend(bind(&[("o", "open {pr_link}"), ("f5", "refresh")]));
-        let sections = vec![
-            Bindings::new(),
-            bind(&[("o", "run code {name} --task={task}")]),
-        ];
-        let mut app = crew(global, sections);
-        assert_eq!(press(&mut app, KeyCode::F(5)), Effect::Refresh);
-        assert!(matches!(
-            press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Open { .. })
-        ));
-        press(&mut app, KeyCode::Down);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Run(vec![
-                "code".into(),
-                "docs".into(),
-                "--task=guide".into()
-            ]))
-        );
-        // A missing field refuses rather than running with a gap.
-        let mut app = crew(bind(&[("o", "open {pr_link}")]), Vec::new());
-        press(&mut app, KeyCode::Down);
-        assert_eq!(press(&mut app, KeyCode::Char('o')), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("open: pr_link is empty for this row.")
-        );
-    }
-
-    fn located(name: &str, pane: Value) -> Value {
-        let mut row = member(name, json!({}));
-        row["pane"] = pane;
-        row
-    }
-
-    #[test]
-    fn a_host_table_overrides_bind_for_rows_on_that_host_and_only_for_them() {
-        let mut flat = crate::action::preset(true, &[]);
-        flat.extend(bind(&[("enter", "run flat {name}")]));
-        let hosts = [
-            (
-                "tmux".to_owned(),
-                bind(&[(
-                    "enter",
-                    "run tmux switch-client -t {pane} {host} {session} {window}",
-                )]),
-            ),
-            (
-                "herdr".to_owned(),
-                bind(&[("enter", "run herdr pane focus {pane} {session}")]),
-            ),
-        ];
-        let mut snapshot = snapshot(
-            "product",
-            json!([{"title": "Crew", "rows": [
-                located("a", json!({"id": "%1", "location":
-                    {"host": "tmux", "session": "work", "window": "2"}})),
-                located("b", json!({"id": "%2", "location": {"host": "herdr"}})),
-                located("c", json!({"id": "%3"})),
-                located("d", json!({"id": "%4", "location": {"host": "other"}})),
-            ]}]),
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = flat.clone();
-        view.bindings = flat;
-        view.host_bindings = hosts.into_iter().collect();
-        view.section_bindings = vec![Bindings::new()];
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        let run = |args: &[&str]| {
-            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
-        };
-        // The tmux table fills its coordinates from Core's published location.
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            run(&["tmux", "switch-client", "-t", "%1", "tmux", "work", "2"])
-        );
-        // A host table with a field its host does not report refuses; nothing runs.
-        press(&mut app, KeyCode::Down);
-        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("run: session is empty for this row.")
-        );
-        // No location, or a host with no table, keeps the flat binding.
-        for _ in 0..2 {
-            press(&mut app, KeyCode::Down);
-            let name = app.selected_row().unwrap()["name"]
-                .as_str()
-                .unwrap()
-                .to_owned();
-            assert_eq!(
-                press(&mut app, KeyCode::Enter),
-                run(&["flat", &name]),
-                "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_section_binding_still_wins_over_a_host_table() {
-        let mut flat = crate::action::preset(true, &[]);
-        flat.extend(bind(&[("enter", "run flat {name}")]));
-        let mut snapshot = snapshot(
-            "product",
-            json!([{"title": "Crew", "rows": [located(
-                "a",
-                json!({"id": "%1", "location": {"host": "tmux", "session": "s", "window": "0"}})
-            )]}]),
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.configured_bindings = flat.clone();
-        view.bindings = flat;
-        view.host_bindings = [(
-            "tmux".to_owned(),
-            bind(&[("enter", "run host {pane}"), ("o", "run host-o {pane}")]),
-        )]
-        .into_iter()
-        .collect();
-        view.section_bindings = vec![bind(&[("enter", "run section {name}")])];
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot);
-        let run = |args: &[&str]| {
-            Effect::Act(Request::Run(args.iter().map(|arg| (*arg).into()).collect()))
-        };
-        assert_eq!(press(&mut app, KeyCode::Enter), run(&["section", "a"]));
-        // The host table still supplies what the section leaves alone.
-        assert_eq!(press(&mut app, KeyCode::Char('o')), run(&["host-o", "%1"]));
-    }
-
-    #[test]
     fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
         let mut bindings = crate::action::with_action_keys(crate::action::preset(false, &[]));
         bindings.insert(
             "x".into(),
             crate::action::Action::parse("reply").expect("reply"),
         );
-        let mut app = crew(bindings, Vec::new());
+        let mut app = crew(bindings);
         press(&mut app, KeyCode::Enter);
         let menu = app.menu.as_ref().expect("menu");
         let order: Vec<&str> = menu.entries.iter().map(|e| e.key.as_str()).collect();
@@ -4817,7 +4637,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_plain_host_menu_lists_row_actions_and_runs_the_chosen_one() {
-        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
+        let mut app = crew(crate::action::preset(false, &[]));
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         let menu = app.menu.as_ref().expect("menu");
         assert_eq!(menu.title, "auth-fix");
@@ -4841,7 +4661,7 @@ pub(crate) mod tests {
         use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
         let mut global = crate::action::preset(true, &[]);
         global.extend(bind(&[("click", "notes"), ("double-click", "jump")]));
-        let mut app = crew(global, Vec::new());
+        let mut app = crew(global);
         *app.hits.borrow_mut() = vec![
             Hit {
                 y: 3,
@@ -4946,7 +4766,6 @@ mod lead_row_tests {
         let view = loaded.view.as_mut().unwrap();
         view.document["squad"]["lead"] = lead();
         view.bindings = crate::action::with_action_keys(crate::action::preset(true, &[]));
-        view.configured_bindings = view.bindings.clone();
         view.me = Some("Ben".into());
         app.apply(loaded);
         app
@@ -5065,10 +4884,10 @@ mod token_window_tests {
     }
 
     fn app() -> App {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(false, &[])),
-            Vec::new(),
-        );
+        let mut app = crew(crate::action::with_action_keys(crate::action::preset(
+            false,
+            &[],
+        )));
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,

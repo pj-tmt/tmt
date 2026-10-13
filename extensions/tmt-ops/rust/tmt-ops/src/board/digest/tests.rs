@@ -57,7 +57,7 @@ fn label(text: &str, action: Option<Choose>) -> Label {
 
 /// A board on `auth-fix` whose digest source supplied a mode chip with a choice.
 fn app() -> App {
-    let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+    let mut app = crew(crate::action::preset(true, &[]));
     supply(&mut app);
     app
 }
@@ -140,7 +140,7 @@ fn the_key_asks_core_before_any_dropdown_opens() {
 #[test]
 fn without_a_choice_to_make_nothing_opens_or_runs() {
     // No extension: nothing supplied labels.
-    let mut bare = crew(crate::action::preset(true, &[]), Vec::new());
+    let mut bare = crew(crate::action::preset(true, &[]));
     assert_eq!(press(&mut bare, KeyCode::Char('i')), Effect::None);
     assert_eq!(
         bare.notice.as_deref(),
@@ -183,14 +183,14 @@ fn the_row_menu_lists_the_change_only_for_a_member_whose_source_offers_one() {
         keys
     };
     let bindings = || crate::action::with_action_keys(crate::action::preset(false, &[]));
-    let mut offering = crew(bindings(), Vec::new());
+    let mut offering = crew(bindings());
     supply(&mut offering);
     let offered = keys(&mut offering);
     assert!(
         offered.contains(&("i".into(), "digest".into())),
         "{offered:?}"
     );
-    let mut bare = crew(bindings(), Vec::new());
+    let mut bare = crew(bindings());
     assert!(keys(&mut bare).iter().all(|(key, _)| key != "i"));
 }
 
