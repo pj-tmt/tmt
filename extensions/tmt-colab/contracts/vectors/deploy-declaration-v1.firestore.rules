@@ -3,7 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /x/colab {
       match /spaces/{space} {
-        allow get: if request.auth != null;
+        allow get: if request.auth != null && resource.data.owner == request.auth.uid;
         allow create: if request.auth != null && request.resource.data.keys().hasOnly(['space', 'owner']) && request.resource.data.keys().hasAll(['space', 'owner']) && space.matches('[a-z2-7]{32}') && request.resource.data.space == space && request.resource.data.owner == request.auth.uid;
       }
       match /pages/{id} {
