@@ -8,9 +8,7 @@ use crate::{
     firestore_budget::READ_LOOKUPS,
     limits,
     objects::IoBudget,
-    sealed_sync::{
-        Change, DiscoveryQuery, Pending, Subscription, SyncError, SyncInterest, validate_interest,
-    },
+    sealed_sync::{Change, Pending, Subscription, SyncError, SyncInterest, validate_interest},
     wire,
 };
 use serde_json::{Value, json};
@@ -52,12 +50,8 @@ pub(super) async fn create_subscription(
             resource: interest.resource.clone(),
             scope: interest.scope.clone(),
         },
-        next_discovery_ms: consumer
-            .runtime
-            .clock
-            .now()
-            .monotonic_ms
-            .saturating_add(limits::NATIVE_DISCOVERY_MS),
+        last_count: None,
+        last_notice_ms: None,
         consumer,
         cadence: PollCadence::default(),
         next_ms: 0,
@@ -71,47 +65,14 @@ struct NativeSubscription {
     interest: SyncInterest,
     cadence: PollCadence,
     next_ms: u64,
-    next_discovery_ms: u64,
+    last_count: Option<u64>,
+    last_notice_ms: Option<u64>,
     terminal: bool,
     registered: bool,
 }
 impl NativeSubscription {
-    async fn discover(&self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
-        let spec = self
-            .consumer
-            .resource(&self.interest.resource)?
-            .sync
-            .as_ref()
-            .and_then(|s| s.query.as_ref())
-            .ok_or(SyncError::Unavailable)?;
-        let Some(shape) = spec.discovery.as_ref() else {
-            return Ok(false);
-        };
-        let mut request = DiscoveryQuery {
-            resource: self.interest.resource.clone(),
-            shape: shape.name.clone(),
-            scope: self.interest.scope.clone(),
-            continuation: None,
-        };
-        let mut records = 0usize;
-        for _ in 0..limits::NATIVE_DISCOVERY_RUN_PAGES {
-            let page = super::discovery::query(&self.consumer, &request, io).await?;
-            records += page.documents.len();
-            if records > limits::NATIVE_SYNC_PAGE_DOCUMENTS {
-                return Err(SyncError::CatchUpRequired);
-            }
-            request.continuation = page.continuation;
-            if request.continuation.is_none() {
-                // A first-seq discovery row may stay unchanged while its stream grows.
-                // Completion is a level-triggered wake, never a delivery acknowledgment.
-                return Ok(true);
-            }
-        }
-        Err(SyncError::CatchUpRequired)
-    }
-    async fn poll(&self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
+    async fn poll(&self, io: &IoBudget<'_>) -> Result<u64, SyncError> {
         let resource = self.consumer.resource(&self.interest.resource)?;
-        let limit = self.consumer.limit(resource)?;
         let filters: Vec<Value> = self
             .interest
             .scope
@@ -136,19 +97,20 @@ impl NativeSubscription {
                 format!("/{parent}")
             }
         );
-        let body = json!({"structuredQuery":{
-            "from":[{"collectionId":collection}],
-            "where":{"compositeFilter":{"op":"AND","filters":filters}},
-            "orderBy":[{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],
-            "limit":limit
+        let body = json!({"structuredAggregationQuery":{
+            "structuredQuery":{
+                "from":[{"collectionId":collection}],
+                "where":{"compositeFilter":{"op":"AND","filters":filters}}
+            },
+            "aggregations":[{"count":{},"alias":"count"}]
         }});
         let response = self
             .consumer
             .send(
                 Operation::Query,
-                format!("https://firestore.googleapis.com/v1/{path}:runQuery"),
+                format!("https://firestore.googleapis.com/v1/{path}:runAggregationQuery"),
                 body.to_string().into_bytes(),
-                limit as u64 + READ_LOOKUPS,
+                1 + READ_LOOKUPS,
                 io,
             )
             .await?
@@ -158,35 +120,39 @@ impl NativeSubscription {
             return Err(SyncError::CatchUpRequired);
         }
         let reply = wire::strict_json(&response.body).ok_or(SyncError::Unavailable)?;
-        let mut found = false;
+        let mut count = None;
         for row in reply.as_array().ok_or(SyncError::Unavailable)? {
-            let Some(value) = row.get("document") else {
+            let Some(result) = row.get("result") else {
                 if !row.get("readTime").is_some_and(Value::is_string) {
                     return Err(SyncError::Unavailable);
                 }
                 continue;
             };
-            if found {
-                return Err(SyncError::CatchUpRequired);
-            }
-            let document = self
-                .consumer
-                .parse_document(value, &self.interest.resource)?;
-            let fields = crate::sealed_sync::validate_fields(&document.bytes)?;
-            if self
-                .interest
-                .scope
-                .iter()
-                .any(|(key, value)| fields.get(key) != Some(value))
+            let fields = result
+                .get("aggregateFields")
+                .and_then(Value::as_object)
+                .ok_or(SyncError::Unavailable)?;
+            let value = fields
+                .get("count")
+                .and_then(Value::as_object)
+                .ok_or(SyncError::Unavailable)?;
+            let decimal = value
+                .get("integerValue")
+                .and_then(Value::as_str)
+                .ok_or(SyncError::Unavailable)?;
+            let total = decimal.parse::<u64>().map_err(|_| SyncError::Unavailable)?;
+            if count.is_some()
+                || fields.len() != 1
+                || value.len() != 1
+                || total > i64::MAX as u64
+                || total.to_string() != decimal
             {
-                return Err(SyncError::Denied);
+                return Err(SyncError::Unavailable);
             }
-            found = true;
+            count = Some(total);
         }
         self.consumer.check(io)?;
-        // Only a successful bounded absence observation suppresses Changed.
-        // A retained first row is insufficient evidence about later writes.
-        Ok(found)
+        count.ok_or(SyncError::Unavailable)
     }
 }
 impl Subscription for NativeSubscription {
@@ -236,33 +202,16 @@ impl Subscription for NativeSubscription {
                 if now >= stop_at {
                     return Err(SyncError::Deadline);
                 }
-                let due = now >= self.next_discovery_ms;
-                let changed = if due {
-                    match self.discover(io).await {
-                        Ok(changed) => {
-                            self.next_discovery_ms = self
-                                .consumer
-                                .runtime
-                                .clock
-                                .now()
-                                .monotonic_ms
-                                .saturating_add(limits::NATIVE_DISCOVERY_MS);
-                            Ok(changed)
-                        }
-                        Err(error) => Err(error),
-                    }
-                } else {
-                    Ok(false)
-                };
-                let result = match changed {
-                    Ok(true) => Ok(true),
-                    Ok(false) => self.poll(io).await,
-                    Err(error) => Err(error),
-                };
+                let result = self.poll(io).await;
                 let now = self.consumer.runtime.clock.now().monotonic_ms;
                 match result {
-                    Ok(changed) => {
+                    Ok(count) => {
                         self.cadence.succeeded();
+                        let changed = self.last_count != Some(count);
+                        let heartbeat = self.last_notice_ms.is_none_or(|last| {
+                            now.saturating_sub(last) >= limits::NATIVE_SYNC_HEARTBEAT_MS
+                        });
+                        self.last_count = Some(count);
                         if changed {
                             self.cadence.activity(now);
                         }
@@ -270,7 +219,8 @@ impl Subscription for NativeSubscription {
                             now.saturating_add(self.cadence.delay_ms(now, |max| {
                                 self.consumer.runtime.jitter.milliseconds(max)
                             }));
-                        if changed {
+                        if changed || heartbeat {
+                            self.last_notice_ms = Some(now);
                             return Ok(Change::Changed);
                         }
                     }

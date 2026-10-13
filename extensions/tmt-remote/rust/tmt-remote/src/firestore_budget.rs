@@ -321,22 +321,6 @@ pub fn modeled_poll_reads_per_hour(
         .ok_or(ModelError::OutOfRange)
 }
 
-/// Native discovery uses one-document provider pages and an empty completion
-/// probe. Every page charges Rules lookups even when no document is returned.
-pub fn modeled_discovery_reads_per_hour(
-    documents: u64,
-    interval_ms: u64,
-) -> Result<u64, ModelError> {
-    if documents > crate::limits::NATIVE_SYNC_PAGE_DOCUMENTS as u64
-        || interval_ms <= crate::limits::NATIVE_POLL_FLOOR_MS
-    {
-        return Err(ModelError::OutOfRange);
-    }
-    modeled_poll_reads_per_hour(1, interval_ms)?
-        .checked_mul(documents + 1)
-        .ok_or(ModelError::OutOfRange)
-}
-
 /// The provider answered `resource-exhausted`. Whether that is a refusal or an unknown
 /// outcome depends only on whether the request could have changed anything.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

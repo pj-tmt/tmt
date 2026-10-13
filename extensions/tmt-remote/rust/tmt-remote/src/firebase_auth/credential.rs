@@ -163,9 +163,17 @@ impl FileStore {
         Ok(())
     }
 }
+fn admit_owner(owner: u32, current: u32) -> Result<(), AuthError> {
+    if owner != current {
+        Err(invalid())
+    } else {
+        Ok(())
+    }
+}
 fn admit(file: &File, repair: bool) -> Result<bool, AuthError> {
     let m = file.metadata().map_err(|_| invalid())?;
-    if !m.is_file() || m.uid() != nix::unistd::Uid::effective().as_raw() {
+    admit_owner(m.uid(), nix::unistd::Uid::effective().as_raw())?;
+    if !m.is_file() {
         return Err(invalid());
     }
     let mode = m.mode() & 0o777;
@@ -267,5 +275,23 @@ impl Drop for Staged {
         if !self.published {
             let _ = fs::remove_file(&self.path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn foreign_credential_owner_is_an_unreadable_diagnostic() {
+        // Inject only the UID comparison: changing ownership of a fixture on
+        // a non-root developer host would require privileges outside the test.
+        let error = admit_owner(1001, 1002).unwrap_err();
+        assert_eq!(error.kind, AuthErrorKind::InvalidCredential);
+        assert_eq!(
+            serde_json::to_value(super::super::presentation::diagnostic(&error)).unwrap(),
+            serde_json::json!({"state":"unreadable","expiresAtMs":null})
+        );
+        assert!(error.to_string().contains("file ownership"));
+        assert!(admit_owner(1001, 1001).is_ok());
     }
 }

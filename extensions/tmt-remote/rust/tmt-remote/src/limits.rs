@@ -191,7 +191,7 @@ pub const OWNED_PROJECT_SCAN: usize = 4096;
 /// Public native catalog admission bound; browser handoff has its own policy.
 pub const REMOTE_CATALOG_BYTES: usize = 65_536;
 
-// Repeated page discovery is slower than active per-stream catch-up.
-pub const NATIVE_DISCOVERY_MS: u64 = 60_000;
+// Bound equal-count delete/create swaps without restarting active cadence.
+pub const NATIVE_SYNC_HEARTBEAT_MS: u64 = 600_000;
 // At most 256 records plus the empty page that proves run completion.
 pub const NATIVE_DISCOVERY_RUN_PAGES: u16 = 257;

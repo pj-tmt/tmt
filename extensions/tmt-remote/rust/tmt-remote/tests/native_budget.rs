@@ -1,8 +1,7 @@
 //! Native request charging shares the shipped model; expected values are frozen
 //! independently of the implementation and include worst-case empty polling.
 use tmt_remote::firestore_budget::{
-    Decision, Model, NativeUsage, charge_native, modeled_discovery_reads_per_hour,
-    modeled_poll_reads_per_hour, native_budget_state,
+    Decision, Model, NativeUsage, charge_native, modeled_poll_reads_per_hour, native_budget_state,
 };
 
 #[test]
@@ -88,33 +87,23 @@ fn guard_table_states_full_charge_at_active_and_idle_intervals() {
 }
 
 #[test]
-fn discovery_guard_table_charges_each_single_document_page_and_completion_probe() {
-    for (documents, hourly) in [(0, 180), (1, 360), (2, 540), (8, 1_620), (256, 46_260)] {
-        assert_eq!(
-            modeled_discovery_reads_per_hour(documents, 60_000).unwrap(),
-            hourly
-        );
-    }
-    assert!(modeled_discovery_reads_per_hour(257, 60_000).is_err());
-    assert!(modeled_discovery_reads_per_hour(1, 5_000).is_err());
-}
-
-#[test]
 fn page_probe_guard_table_includes_every_wake_triggered_query_page() {
     // Q includes empty completion pages and consumer-issued discovery pages.
     // Each bounded request shares the same three-read charge; no second pool.
+    // Equal counts wake only on the ten-minute heartbeat: 18 reads/h per Q.
     for (queries, active, idle) in [
         (0, 2160, 180),
-        (1, 4320, 360),
-        (8, 19440, 1620),
-        (256, 555120, 46260),
+        (1, 4320, 198),
+        (8, 19440, 324),
+        (256, 555120, 4788),
     ] {
         assert_eq!(
             modeled_poll_reads_per_hour(1, 5000).unwrap() * (1 + queries),
             active
         );
         assert_eq!(
-            modeled_poll_reads_per_hour(1, 60000).unwrap() * (1 + queries),
+            modeled_poll_reads_per_hour(1, 60000).unwrap()
+                + modeled_poll_reads_per_hour(1, 600000).unwrap() * queries,
             idle
         );
     }

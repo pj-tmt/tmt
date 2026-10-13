@@ -1,5 +1,5 @@
 //! One owner for the accepted command/status copy and secret-free projection.
-use super::{AuthState, Status};
+use super::{AuthError, AuthErrorKind, AuthState, Status};
 use serde::Serialize;
 pub const SIGN_IN_ENDED: &str = "Firestore sign-in has ended. Run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab.";
 pub const SIGN_IN_UNCONFIRMED: &str = "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity that Colab must admit separately.";
@@ -13,6 +13,8 @@ enum SignInState {
     Expiring,
     NeedsRenewal,
     Unconfirmed,
+    Unreadable,
+    Busy,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +38,16 @@ pub fn unconfirmed(expires_at_ms: Option<u64>) -> SignInView {
     SignInView {
         state: SignInState::Unconfirmed,
         expires_at_ms,
+    }
+}
+/// Credential diagnostics never hide the selected door's ordinary status.
+pub fn diagnostic(error: &AuthError) -> SignInView {
+    SignInView {
+        state: match error.kind {
+            AuthErrorKind::Unavailable | AuthErrorKind::StateChanged => SignInState::Busy,
+            _ => SignInState::Unreadable,
+        },
+        expires_at_ms: None,
     }
 }
 pub fn status_line(status: &Status, now_ms: u64) -> Option<String> {

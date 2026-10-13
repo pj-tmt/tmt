@@ -197,3 +197,32 @@ fn an_in_flight_request_is_bounded_by_the_absolute_deadline_and_is_uncertain() {
             .starts_with(b"POST /fixture HTTP/1.1\r\n")
     );
 }
+
+#[test]
+fn query_operation_posts_the_aggregation_endpoint_without_a_method_allow_list_refusal() {
+    let clock = Arc::new(SystemClock::default());
+    let http = UreqHttp::new(clock.clone());
+    let (url, join) = fixture(response("200 OK", "", b"[]"));
+    let request = Request::firestore(
+        Operation::Query,
+        url.replace(
+            "/fixture",
+            "/v1/projects/demo-remote-1/databases/(default)/documents/x/notes:runAggregationQuery",
+        ),
+        b"{}".to_vec(),
+        "fixture-token".into(),
+        2,
+    );
+    assert_eq!(
+        http.send(
+            &request,
+            clock.now().monotonic_ms + 2000,
+            &AtomicBool::new(false)
+        )
+        .unwrap()
+        .status,
+        200
+    );
+    assert!(String::from_utf8(join.join().unwrap()).unwrap().starts_with(
+        "POST /v1/projects/demo-remote-1/databases/(default)/documents/x/notes:runAggregationQuery HTTP/1.1\r\n"));
+}

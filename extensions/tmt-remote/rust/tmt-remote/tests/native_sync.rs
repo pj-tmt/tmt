@@ -137,6 +137,7 @@ struct Script {
     deadlines: Mutex<Vec<u64>>,
     requests: Mutex<Vec<(Operation, String, Value)>>,
     cancel: Option<Arc<AtomicBool>>,
+    expected_precharge: Mutex<Option<(Arc<MemoryNativeBudget>, u64)>>,
 }
 impl Script {
     fn new(replies: Vec<Result<Response, AuthError>>) -> Self {
@@ -145,6 +146,7 @@ impl Script {
             deadlines: Mutex::new(vec![]),
             requests: Mutex::new(vec![]),
             cancel: None,
+            expected_precharge: Mutex::new(None),
         }
     }
 }
@@ -155,6 +157,13 @@ impl Http for Script {
         deadline: u64,
         _: &dyn Cancellation,
     ) -> Result<Response, AuthError> {
+        if let Some((budget, expected)) = &*self.expected_precharge.lock().unwrap() {
+            assert_eq!(
+                budget.reads(),
+                *expected,
+                "charge must precede the HTTP effect"
+            );
+        }
         self.deadlines.lock().unwrap().push(deadline);
         assert_eq!(request.bearer(), Some("id-token-canary"));
         assert!(!format!("{request:?}").contains("id-token-canary"));
@@ -449,7 +458,7 @@ fn close_and_cancel_after_possible_write_preserve_unknown() {
 #[test]
 fn page_probe_does_not_interpret_stream_gaps_and_denial_ends_the_subscription() {
     let script = Arc::new(Script::new(vec![
-        Ok(response(200, json!([{"document":remote_document(3)}]))),
+        count_reply(3),
         Ok(response(
             403,
             json!({"error":{"message":"PERMISSION_DENIED"}}),
@@ -545,16 +554,21 @@ fn provider_page_over_the_carrier_cap_is_never_retained_or_disclosed() {
 
 #[test]
 fn idle_poll_wait_stops_at_the_caller_deadline_without_a_second_request() {
-    let script = Arc::new(Script::new(vec![Ok(response(
-        200,
-        json!([{"readTime":"2026-10-13T00:00:00Z"}]),
-    ))]));
+    let script = Arc::new(Script::new(vec![count_reply(0)]));
     let (client, budget) = native_client(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let io = io(&cancel);
     let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    let short = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(4),
+        cancelled: &cancel,
+    };
     assert_eq!(
-        ready(subscription.next(&io)).err(),
+        ready(subscription.next(&short)).err(),
         Some(SyncError::Deadline)
     );
     assert_eq!(budget.reads(), 3);
@@ -743,135 +757,191 @@ fn discovery_position_expires_or_belongs_to_another_generation_before_http() {
     assert_eq!(script.requests.lock().unwrap().len(), 1);
 }
 
-#[test]
-fn repeated_first_row_keeps_a_level_triggered_notice_for_later_writes() {
-    let script = Arc::new(Script::new(vec![
-        Ok(response(200, json!([{"document":remote_document(1)}]))),
-        Ok(response(200, json!([{"document":remote_document(1)}]))),
-    ]));
-    let (client, budget) = native_client(script.clone(), auth());
-    let cancel = AtomicBool::new(false);
-    let first_io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&interest(), &first_io)).unwrap();
-    assert!(matches!(
-        ready(subscription.next(&first_io)).unwrap(),
-        Change::Changed
-    ));
-    let next_io = IoBudget {
-        deadline: Instant::now() + Duration::from_secs(6),
-        cancelled: &cancel,
-    };
-    // The first row can stay unchanged while later records are appended. It
-    // must still wake the consumer, which owns all per-stream catch-up positions.
-    assert!(matches!(
-        ready(subscription.next(&next_io)).unwrap(),
-        Change::Changed
-    ));
-    assert_eq!(budget.reads(), 6);
-    let requests = script.requests.lock().unwrap();
-    for request in requests.iter() {
-        let filters = request.2["structuredQuery"]["where"]["compositeFilter"]["filters"]
-            .as_array()
-            .unwrap();
-        assert_eq!(filters.len(), 1);
-        assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
-        assert_eq!(filters[0]["fieldFilter"]["op"], "EQUAL");
-        assert_eq!(request.2["structuredQuery"]["limit"], 1);
-    }
+fn count_reply(count: u64) -> Result<Response, AuthError> {
+    Ok(response(
+        200,
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":count.to_string()}}},"readTime":"2026-10-13T00:00:00Z"}]),
+    ))
 }
 
 #[test]
-fn periodic_page_discovery_remains_bounded_and_notices_a_new_writer() {
-    let mut arrival = remote_document(1);
-    arrival["name"] =
-        json!("projects/demo-remote-1/databases/(default)/documents/x/notes/rows/new-writer+1");
-    arrival["fields"]["streamKey"] = json!({"stringValue":"new-writer"});
+fn count_first_probe_and_count_difference_emit_once_over_all_streams() {
     let script = Arc::new(Script::new(vec![
-        Ok(response(200, json!([{"document":arrival}]))),
-        Ok(response(200, json!([{"readTime":"2026-10-13T00:00:00Z"}]))),
+        count_reply(0),
+        count_reply(1),
+        count_reply(1),
     ]));
-    let (client, budget, clock) = native_with_clock(script.clone(), auth());
-    let cancel = AtomicBool::new(false);
-    let first_io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&interest(), &first_io)).unwrap();
-    clock.0.store(60_000, Ordering::SeqCst);
-    assert!(matches!(
-        ready(subscription.next(&first_io)).unwrap(),
-        Change::Changed
-    ));
-    assert_eq!(budget.reads(), 6);
-    let requests = script.requests.lock().unwrap();
-    let filters = requests[0].2["structuredQuery"]["where"]["compositeFilter"]["filters"]
-        .as_array()
-        .unwrap();
-    assert!(filters.iter().all(|f| f["fieldFilter"]["op"] == "EQUAL"));
-    assert!(
-        !filters
-            .iter()
-            .any(|f| f["fieldFilter"]["field"]["fieldPath"] == "streamKey")
-    );
-    assert_eq!(
-        requests[0].2["structuredQuery"]["orderBy"][0]["field"]["fieldPath"],
-        "__name__"
-    );
-}
-
-#[test]
-fn an_empty_page_without_discovery_notices_a_new_writer() {
     let mut declaration: Value =
         serde_json::from_str(fixture()["declaration"].as_str().unwrap()).unwrap();
     declaration["resources"][0]["sync"]["query"]
         .as_object_mut()
         .unwrap()
         .remove("discovery");
-    let declaration = declaration.to_string();
-    let mut arrival = remote_document(900);
-    arrival["name"] =
-        json!("projects/demo-remote-1/databases/(default)/documents/x/notes/rows/new-writer+900");
-    arrival["fields"]["streamKey"] = json!({"stringValue":"new-writer"});
-    let script = Arc::new(Script::new(vec![
-        Ok(response(200, json!([{"readTime":"2026-10-13T00:00:00Z"}]))),
-        Ok(response(200, json!([{"document":arrival}]))),
-    ]));
     let (client, budget, _) =
-        native_with_declaration(script.clone(), auth(), declaration.as_bytes());
+        native_with_declaration(script.clone(), auth(), declaration.to_string().as_bytes());
     let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
     let short = IoBudget {
-        deadline: Instant::now() + Duration::from_secs(1),
+        deadline: Instant::now() + Duration::from_secs(6),
         cancelled: &cancel,
     };
-    let mut subscription = ready(client.subscribe(&interest(), &short)).unwrap();
     assert_eq!(
         ready(subscription.next(&short)).err(),
         Some(SyncError::Deadline)
     );
+    assert_eq!(budget.reads(), 9);
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    for (_, url, body) in requests.iter() {
+        assert!(url.ends_with(":runAggregationQuery"));
+        let query = &body["structuredAggregationQuery"]["structuredQuery"];
+        let filters = query["where"]["compositeFilter"]["filters"]
+            .as_array()
+            .unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
+        assert_eq!(filters[0]["fieldFilter"]["op"], "EQUAL");
+        assert!(query.get("limit").is_none());
+        assert!(query.get("orderBy").is_none());
+        assert_eq!(
+            body["structuredAggregationQuery"]["aggregations"],
+            json!([{"count":{},"alias":"count"}])
+        );
+    }
+}
+
+#[test]
+fn count_unchanged_nonempty_page_decays_to_idle_without_discovery_scan() {
+    let script = Arc::new(Script::new(vec![
+        count_reply(900),
+        count_reply(900),
+        count_reply(900),
+    ]));
+    let (client, budget, clock) = native_with_clock(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    clock.0.store(400_000, Ordering::SeqCst);
+    let idle = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(65),
+        cancelled: &cancel,
+    };
+    assert_eq!(
+        ready(subscription.next(&idle)).err(),
+        Some(SyncError::Deadline)
+    );
+    assert_eq!(
+        script.requests.lock().unwrap().len(),
+        3,
+        "only two 60s idle probes, no document discovery scan"
+    );
+    assert_eq!(budget.reads(), 9);
+}
+
+#[test]
+fn count_equal_swap_is_bounded_by_ten_minute_heartbeat_without_activity_reset() {
+    let script = Arc::new(Script::new(vec![
+        count_reply(1),
+        count_reply(1),
+        count_reply(1),
+    ]));
+    let (client, budget, clock) = native_with_clock(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    clock.0.store(600_000, Ordering::SeqCst);
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    let short = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(6),
+        cancelled: &cancel,
+    };
+    assert_eq!(
+        ready(subscription.next(&short)).err(),
+        Some(SyncError::Deadline)
+    );
+    assert_eq!(
+        script.requests.lock().unwrap().len(),
+        2,
+        "heartbeat must not restart the active floor"
+    );
+    assert_eq!(budget.reads(), 6);
+}
+
+#[test]
+fn count_failure_backs_off_and_does_not_adopt_a_count() {
+    let script = Arc::new(Script::new(vec![
+        Ok(response(503, json!({}))),
+        count_reply(0),
+    ]));
+    let (client, budget, clock) = native_with_clock(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert_eq!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::Unavailable)
+    );
     let later = IoBudget {
-        deadline: Instant::now() + Duration::from_secs(120),
+        deadline: Instant::now() + Duration::from_secs(121),
         cancelled: &cancel,
     };
     assert!(matches!(
         ready(subscription.next(&later)).unwrap(),
         Change::Changed
     ));
+    assert_eq!(clock.0.load(Ordering::SeqCst), 120_000);
     assert_eq!(budget.reads(), 6);
-    let requests = script.requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    for request in requests.iter() {
-        assert_eq!(request.2["structuredQuery"]["limit"], 1);
-        let filters = request.2["structuredQuery"]["where"]["compositeFilter"]["filters"]
-            .as_array()
-            .unwrap();
-        assert_eq!(filters.len(), 1);
-        assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
-    }
+}
+
+#[test]
+fn count_probe_is_precharged_even_on_failure_and_refuses_before_http() {
+    let script = Arc::new(Script::new(vec![Ok(response(503, json!({})))]));
+    let (client, budget, clock) = native_with_clock(script.clone(), auth());
+    budget.set_reads(44_994);
+    *script.expected_precharge.lock().unwrap() = Some((budget.clone(), 44_997));
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert_eq!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::Unavailable)
+    );
+    assert_eq!(budget.reads(), 44_997);
+    clock.0.store(120_000, Ordering::SeqCst);
+    assert!(matches!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::BudgetExhausted(_))
+    ));
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+    assert_eq!(budget.reads(), 44_997);
 }
 
 #[test]
 fn page_probe_and_wake_triggered_catchup_queries_share_the_same_guard() {
     let script = Arc::new(Script::new(vec![
+        count_reply(1),
         Ok(response(200, json!([{"document":remote_document(1)}]))),
-        Ok(response(200, json!([{"document":remote_document(1)}]))),
-        Ok(response(200, json!([{"document":remote_document(1)}]))),
+        count_reply(2),
     ]));
     let (client, budget) = native_client(script.clone(), auth());
     let cancel = AtomicBool::new(false);
@@ -896,16 +966,27 @@ fn page_probe_and_wake_triggered_catchup_queries_share_the_same_guard() {
 
 #[test]
 fn a_malformed_probe_cannot_prove_absence_or_emit_a_changed_notice() {
-    let script = Arc::new(Script::new(vec![Ok(response(200, json!([{}])))]));
-    let (client, budget) = native_client(script.clone(), auth());
-    let cancel = AtomicBool::new(false);
-    let io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
-    assert_eq!(
-        ready(subscription.next(&io)).err(),
-        Some(SyncError::Unavailable)
-    );
-    assert_eq!(budget.reads(), 3);
+    for body in [
+        json!([]),
+        json!([{}]),
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":"-1"}}}}]),
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":"01"}}}}]),
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":1}}}}]),
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":"9223372036854775808"}}}}]),
+        json!([{"result":{"aggregateFields":{"count":{"integerValue":"1"}}}},
+               {"result":{"aggregateFields":{"count":{"integerValue":"1"}}}}]),
+    ] {
+        let script = Arc::new(Script::new(vec![Ok(response(200, body))]));
+        let (client, budget) = native_client(script.clone(), auth());
+        let cancel = AtomicBool::new(false);
+        let io = io(&cancel);
+        let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+        assert_eq!(
+            ready(subscription.next(&io)).err(),
+            Some(SyncError::Unavailable)
+        );
+        assert_eq!(budget.reads(), 3);
+    }
 }
 
 #[test]
@@ -970,10 +1051,7 @@ fn invalid_page_interest_refuses_without_auth_http_or_capacity_reservation() {
 #[test]
 fn cancellation_after_a_page_probe_fences_the_late_notice() {
     let cancel = Arc::new(AtomicBool::new(false));
-    let mut script = Script::new(vec![Ok(response(
-        200,
-        json!([{"document":remote_document(1)}]),
-    ))]);
+    let mut script = Script::new(vec![count_reply(1)]);
     script.cancel = Some(cancel.clone());
     let script = Arc::new(script);
     let (client, budget) = native_client(script.clone(), auth());

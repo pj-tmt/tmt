@@ -177,7 +177,10 @@ revoking before one delete attempt; offline/unknown keeps that state for explici
 rerun, with no normal token access. Delete/already-absent purges the local secret. No settings
 keys, Keychain integration or claims of immediate invalidation of previously issued tokens.
 
-Ordinary status adds `signIn` with `state` and nullable `expiresAtMs`; expiring human copy
+Ordinary status adds `signIn` with `state` and nullable `expiresAtMs`. Unreadable/unsafe
+credentials report `unreadable`, and a transient writer lock reports `busy`, with the existing
+credential diagnostic line; both preserve door status and a normal exit. Explicit/default
+selection errors still refuse. Expiring human copy
 names the ISO UTC end date and says to sign in after that date, then admit the new identity.
 Command JSON uses the full uid; human output abbreviates it to eight characters. Paired
 device revocation remains `tmt remote devices revoke`, with cross-pointing help. A host
@@ -210,48 +213,46 @@ same flush cadence. Persistence flushes dirty state on the tick and
 when the serving owner calls `NativeRuntime.finish` at stop; abrupt owner loss can undercount only the last flush window. Unsafe,
 corrupt or externally changed state is refused, never replaced with a fresh allowance.
 
-Polling has a 5 s floor for 120 s after local publication or received change, decays to
-60 s idle, adds positive jitter and bounds transient backoff to 900 s. Poll requests do not
-overlap within an interest. For the one-document page, the pessimistic read cost is
-2,160/hour at the active floor or 180/hour idle, before discovery. Provider quota exhaustion
+Polling has a 5 s floor for 120 s after local publication or a received count change,
+decays to 60 s idle, adds positive jitter and bounds transient backoff to 900 s. Probe
+requests do not overlap within an interest. One `runAggregationQuery` COUNT over the exact
+regular equality scope minus stream is precharged as 1 + the two shared Rules lookups.
+There is no stream/seq filter, so counts cover initially empty pages and late seq-1 writers.
+The first probe and any count difference emit Changed and record activity. Equal counts
+suppress Changed until a ten-minute heartbeat bounds a delete/create swap; the heartbeat
+does not reset activity. Only the last count and notice time are kept in memory; no persisted
+fingerprint, stream cursor or delivery progress. Colab alone owns catch-up positions.
+An empty finite query preserves its input cursor (including None). Provider quota exhaustion
 retains unknown mutation outcomes and stops subsequent effects until the same reset.
-A page interest uses the regular declared equality scope minus the stream field; it needs
-no seed, stream position or discovery declaration. Its one-document probe has no stream or
-seq filter, so it covers initially empty pages and later writes on existing streams. Only
-a successful bounded absence observation suppresses Changed; a retained first row still
-emits the level-triggered hint even when unchanged. No fingerprints, stream cursors or
-provider-held delivery progress are retained. Colab alone owns its per-stream query
-positions. An empty finite query preserves its input cursor (including None).
-When discovery is declared, the interest also runs it every 60 s with no logical cursor.
-Signed stateless positions bind the last document, scope, shape, client generation and
-original deadline. Every continuation clips Auth/provider work to that original deadline.
-A run admits at most 256 records and 257 one-document pages including empty completion;
-successful completion emits Changed even if the first-seq rows are unchanged. Closing
-fences late results and releases the 3-consumer/12-serving page-interest cap. One page
-interest counts once regardless of writers; there is no document event queue.
 
-Pessimistic reads per page interest/hour, before mutation traffic and backoff. Q is the
-number of one-document query pages a consumer requests per wake, including finite-query
-empty completions and any consumer-issued discovery. Each wake query adds the same
-three-read charge to the shared guard. The table uses the existing
-`modeled_poll_reads_per_hour(1, interval) * (1 + Q)`; it introduces no new quota formula.
+The subscription runs no discovery scan. Consumers issue ordinary declaration-named
+Discovery queries on Changed. Their signed stateless positions bind the last document,
+scope, shape, client generation and original deadline; every continuation clips Auth/provider
+work to that deadline. A consumer run admits at most 256 records and 257 one-document pages
+including empty completion. Closing fences late results and releases the 3-consumer/12-serving
+page-interest cap. One interest counts once regardless of writers; no document event queue.
 
-| Q per wake | Active probe + wake queries (5 s) | Idle probe + wake queries (60 s) |
-| ---------- | --------------------------------: | -------------------------------: |
-| 0          |                             2,160 |                              180 |
-| 1          |                             4,320 |                              360 |
-| 8          |                            19,440 |                            1,620 |
-| 256        |                           555,120 |                           46,260 |
+Pessimistic reads per page interest/hour, before mutation traffic and backoff. Q is the number
+of one-document query pages a consumer requests per wake, including empty completion and
+consumer-issued Discovery. At the active floor every probe may observe a count change; idle
+COUNT probes cost 180/hour and heartbeat catch-up adds 18/hour per Q. The heartbeat shares an
+already due probe, not another COUNT request. The existing model gives active
+`modeled_poll_reads_per_hour(1, 5000) * (1 + Q)` and idle
+`modeled_poll_reads_per_hour(1, 60000) + modeled_poll_reads_per_hour(1, 600000) * Q`.
 
-Optional provider discovery adds `modeled_discovery_reads_per_hour(N, 60000)`: for
-N = 0/1/2/8/256 records, the respective charges are 180/360/540/1,620/46,260 per hour,
-including every empty completion. It is absent when no discovery shape is declared.
-Initial catch-up and any extra consumer queries also add their actual precharged maxima;
-no request, wake or discovery result refunds reads.
+| Q per wake | Active probe + wake queries (5 s) | Idle probes + heartbeat queries (10 min) |
+| ---------- | --------------------------------: | ---------------------------------------: |
+| 0          |                             2,160 |                                      180 |
+| 1          |                             4,320 |                                      198 |
+| 8          |                            19,440 |                                      324 |
+| 256        |                           555,120 |                                    4,788 |
+
+Initial catch-up and extra consumer queries add their actual precharged maxima. No request
+or wake refunds reads, and no periodic provider-owned Discovery cost is added.
 
 The shared guard refuses before these worst cases can spend the modeled allowance; this
 table grants no extra quota or claim about Google's measured usage. Native vectors pin
-these costs and empty completion reads. A delete has no stream fields and conservatively
+these costs, COUNT wakes and empty completion reads. A delete has no stream fields and conservatively
 reserves its whole resource; other mutations reserve the declared stream, with 4 serving
 writes total. Opaque document IDs are never parsed into a stream. No preparation read.
 

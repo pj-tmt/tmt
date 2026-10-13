@@ -185,21 +185,35 @@ pub(crate) fn status(
     };
     let mut notice = None;
     if let Some(selection) = selection {
-        let store =
-            FileStore::new(layout.expect("selected layout"), &selection.project).map_err(mapped)?;
-        let http = UreqHttp::new(clock.clone());
-        let cancel = AtomicBool::new(false);
-        let mut client = Client::load(
-            Project::from_public_config(&selection.public_config).map_err(mapped)?,
-            &store,
-            &http,
-            clock.as_ref(),
-            &RandomJitter,
-            &cancel,
-        )
-        .map_err(mapped)?;
-        status = client.status();
-        notice = client.take_permission_notice();
+        let project = Project::from_public_config(&selection.public_config).map_err(mapped)?;
+        let loaded = (|| {
+            let store = FileStore::new(layout.expect("selected layout"), &selection.project)?;
+            let http = UreqHttp::new(clock.clone());
+            let cancel = AtomicBool::new(false);
+            let mut client = Client::load(
+                project,
+                &store,
+                &http,
+                clock.as_ref(),
+                &RandomJitter,
+                &cancel,
+            )?;
+            Ok::<_, auth::AuthError>((client.status(), client.take_permission_notice()))
+        })();
+        match loaded {
+            Ok((loaded_status, loaded_notice)) => {
+                status = loaded_status;
+                notice = loaded_notice;
+            }
+            Err(error) => {
+                return Ok(SignInStatus {
+                    value: serde_json::to_value(presentation::diagnostic(&error))
+                        .expect("safe diagnostic serializes"),
+                    line: Some(error.to_string()),
+                    notice: None,
+                });
+            }
+        }
     }
     Ok(SignInStatus {
         value: serde_json::to_value(presentation::project(&status))
