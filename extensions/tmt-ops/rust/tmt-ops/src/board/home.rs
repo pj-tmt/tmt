@@ -312,8 +312,5 @@ impl Scenes {
 }
 
 mod bar;
-mod leads;
 mod limits;
 use super::view::scene;
-
-pub(super) use leads::hidden_metadata as hidden_lead_metadata;

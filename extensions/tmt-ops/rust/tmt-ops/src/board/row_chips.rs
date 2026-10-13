@@ -2,7 +2,7 @@
 //! Core digest policy's. Every surface asks here, so a row never shows both and
 //! no painter knows which source a chip came from.
 use crate::labels::Supplied;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
@@ -68,16 +68,6 @@ pub fn offers_choice(text: &str) -> bool {
     text.ends_with(CHOICE)
 }
 
-/// The id of the heading piece that offers a choice, among `shown`'s pieces.
-pub fn choice_piece(pieces: &Value) -> Option<String> {
-    pieces
-        .as_array()?
-        .iter()
-        .find(|piece| piece["text"].as_str().is_some_and(offers_choice))
-        .and_then(|piece| piece["id"].as_str())
-        .map(str::to_owned)
-}
-
 /// Core's digest policy: the word, then what remains of it.
 fn policy(row: &Value, now: u64) -> Vec<Chip> {
     let Some(label) = crate::digest::label(row, now) else {
@@ -118,46 +108,6 @@ pub fn prefix(chips: &[Chip], budget: usize) -> usize {
         shown += unit;
     }
     shown
-}
-
-/// A heading's chips as template data.
-pub struct Shown {
-    pub pieces: Value,
-    /// Columns the pieces take, gaps included.
-    pub width: usize,
-    /// Whether the heading had room for every chip.
-    pub all: bool,
-}
-
-/// The chips that fit `room` columns, the first led by the one-column gap that
-/// separates them from the name; `closed` ends them with another gap, for
-/// headings whose next cell follows directly. Trailing labels drop whole.
-pub fn shown(supplied: &Supplied, row: &Value, now: u64, room: usize, closed: bool) -> Shown {
-    let mut chips = of(supplied, row, now);
-    let count = prefix(&chips, room.saturating_sub(1 + usize::from(closed)));
-    let all = count == chips.len();
-    chips.truncate(count);
-    let mut pieces: Vec<_> = chips
-        .iter()
-        .enumerate()
-        .map(|(index, chip)| {
-            let gap = if index == 0 { " " } else { "" };
-            json!({"id": format!("chip-{index}"), "text": format!("{gap}{}", chip.text), "role": chip.role.name()})
-        })
-        .collect();
-    if closed && !pieces.is_empty() {
-        pieces.push(json!({"id": format!("chip-{count}"), "text": " ", "role": Role::Text.name()}));
-    }
-    let width = pieces
-        .iter()
-        .filter_map(|piece| piece["text"].as_str())
-        .map(UnicodeWidthStr::width)
-        .sum();
-    Shown {
-        pieces: json!(pieces),
-        width,
-        all,
-    }
 }
 
 /// The fields row detail adds when the heading could not show every chip.

@@ -285,7 +285,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
         &format!("{} · {}", sanitize(runtime), sanitize(model)),
         runtime_width,
     );
-    let chips = super::row_chips::of(&app.labels, row, crate::status::now_ms());
+    let mut chips = super::row_chips::of(&app.labels, row, crate::status::now_ms());
+    // A source name and its first label form one unit. Never paint a bare source
+    // or clip the choice mark away from the label whose action it represents.
+    chips.truncate(super::row_chips::prefix(&chips, usize::from(area.width)));
     let mut header = vec![
         Line::styled(format!("Conversation · {name}"), look.role(Role::Accent)),
         Line::styled(

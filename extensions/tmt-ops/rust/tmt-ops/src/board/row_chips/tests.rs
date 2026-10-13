@@ -1,5 +1,6 @@
 use super::*;
 use crate::labels::{Label, Supplied};
+use serde_json::json;
 
 const ID: &str = "10000000-0000-4000-8000-000000000001";
 
@@ -138,38 +139,6 @@ fn narrow_budgets_keep_the_source_name_with_the_labels_that_fit_whole() {
 }
 
 #[test]
-fn shown_leads_with_one_gap_and_closes_with_one_when_asked() {
-    let labels = supplied(&[("Auto", Role::Text), ("3 held", Role::Muted)]);
-    let open = shown(&labels, &row(0), 0, 40, false);
-    assert_eq!(
-        open.pieces,
-        json!([
-            {"id": "chip-0", "text": " digest ", "role": "muted"},
-            {"id": "chip-1", "text": "Auto", "role": "text"},
-            {"id": "chip-2", "text": " · 3 held", "role": "muted"}
-        ])
-    );
-    assert_eq!((open.width, open.all), (8 + 4 + 9, true));
-    let closed = shown(&labels, &row(0), 0, 40, true);
-    assert_eq!(
-        closed.pieces[3],
-        json!({"id": "chip-3", "text": " ", "role": "text"})
-    );
-    assert_eq!(closed.width, 8 + 4 + 9 + 1);
-    // The room counts the gaps: trailing labels drop whole to make them fit.
-    let tight = shown(&labels, &row(0), 0, 12 + 9 - 1, false);
-    assert_eq!((tight.width, tight.all), (12, false));
-    let tight = shown(&labels, &row(0), 0, 12 + 9, true);
-    assert_eq!((tight.width, tight.all), (13, false));
-    // Nothing to show stays nothing, not a lone gap.
-    let none = shown(&Supplied::default(), &json!({"id": ID}), 0, 40, true);
-    assert_eq!((none.pieces, none.width, none.all), (json!([]), 0, true));
-    // When the name and its first label do not fit, no chip shows.
-    let cramped = shown(&labels, &row(0), 0, 11, false);
-    assert_eq!((cramped.pieces, cramped.all), (json!([]), false));
-}
-
-#[test]
 fn detail_names_the_source_and_lists_every_label() {
     let labels = supplied(&[
         ("Auto", Role::Text),
@@ -235,8 +204,15 @@ fn a_label_that_offers_a_choice_ends_with_the_mark_and_only_it_is_found() {
     assert!(!all);
     let (chips, _) = fitted(&source, &row, 0, "digest Auto".width());
     assert!(chips.is_empty(), "the mark is never cut off its chip");
-    let shown = shown(&source, &row, 0, 40, true);
-    assert_eq!(choice_piece(&shown.pieces).as_deref(), Some("chip-1"));
+    let chips = of(&source, &row, 0);
+    assert_eq!(
+        chips
+            .iter()
+            .filter(|chip| offers_choice(&chip.text))
+            .count(),
+        1
+    );
+    assert!(offers_choice(&chips[1].text));
     // The detail lists plain text; the mark belongs to the heading.
     assert_eq!(
         detail(&source, &row, 0),
@@ -244,9 +220,9 @@ fn a_label_that_offers_a_choice_ends_with_the_mark_and_only_it_is_found() {
     );
     // Labels that offer nothing have no mark to find.
     let plain = supplied(&[("Auto", Role::Text)]);
-    assert_eq!(choice_piece(&shown_pieces(&plain)), None);
-}
-
-fn shown_pieces(supplied: &Supplied) -> Value {
-    shown(supplied, &row(0), 0, 40, true).pieces
+    assert!(
+        of(&plain, &row, 0)
+            .iter()
+            .all(|chip| !offers_choice(&chip.text))
+    );
 }

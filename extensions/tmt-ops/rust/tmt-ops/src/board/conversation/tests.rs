@@ -291,6 +291,51 @@ fn clicking_response_links_does_not_open_or_execute_destinations() {
 }
 
 #[test]
+fn narrow_response_header_keeps_source_and_choice_label_together() {
+    use crate::labels::{Choose, Label, Supplied};
+    let choose = Choose::parse(
+        "digest",
+        &json!({
+            "kind":"choose", "options":[{"label":"Auto","value":"auto"}],
+            "current":"auto", "argv":["digest", "member", "{value}"]
+        }),
+    )
+    .unwrap();
+    for (width, visible) in [(12, false), (13, true), (40, true)] {
+        let mut app = workspace_fixture();
+        app.labels = Supplied::from_rows(vec![(
+            "digest".into(),
+            [(
+                crate::board::app::workspace::tests::MEMBER.into(),
+                vec![Label {
+                    text: "Auto".into(),
+                    role: Role::Text,
+                    action: Some(choose.clone()),
+                }],
+            )]
+            .into(),
+        )]);
+        let screen = draw(&app, width, 24);
+        assert_eq!(
+            screen.contains("digest Auto ▾"),
+            visible,
+            "{width}: {screen}"
+        );
+        if !visible {
+            assert!(
+                !screen.contains("digest"),
+                "a source cannot appear without its label"
+            );
+        }
+        assert_eq!(app.chip_hits.borrow().len(), usize::from(visible));
+        for (area, row) in app.chip_hits.borrow().iter() {
+            assert_eq!(*row, app.selected);
+            assert!(area.right() <= width);
+        }
+    }
+}
+
+#[test]
 fn sender_identity_and_empty_selection_do_not_reuse_another_conversation() {
     let mut app = fixture();
     draw(&app, 80, 18);
