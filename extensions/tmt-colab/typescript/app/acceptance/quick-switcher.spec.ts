@@ -14,7 +14,7 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
       '<h2>Alpha source</h2><p>Read-only search proof.</p>',
     );
     const second = createPage(world, 'Boundary beta', '<h2>Beta source</h2>');
-    createPage(
+    const third = createPage(
       world,
       'A longer boundary page title for the compact result layout',
       '<p>Third source</p>',
@@ -30,6 +30,21 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
     for (const snapshot of before) expect(typeof snapshot.revision).toBe('string');
     const door = await startDoor(world);
     const browser = await pairBrowser(world, 'search-viewer');
+    // Only verified folds supply browser-local title hints; never-opened pages
+    // deliberately have no searchable title. Visit normally before switching.
+    const visited = await openPage(door, browser, second);
+    for (const [created, title] of [
+      [second, 'Boundary beta'],
+      [third, 'A longer boundary page title for the compact result layout'],
+    ] as const) {
+      await visited.goto(`${door.address}/${created.path}`);
+      await expect(visited.locator('.tmt-ui-header h1')).toHaveText(title);
+      await visited.getByRole('link', { name: 'Space home', exact: true }).click();
+      await expect(
+        visited.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
+      ).toHaveText(title);
+    }
+    await visited.close();
     const page = await openPage(door, browser, first);
     const frame = page.frameLocator('iframe');
     await expect(frame.getByRole('heading', { name: 'Alpha source' })).toBeVisible();
