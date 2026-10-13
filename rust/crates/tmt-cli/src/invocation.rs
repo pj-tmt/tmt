@@ -46,10 +46,24 @@ pub enum Invocation {
     Init,
     WorkspaceRestore {
         socket: Option<String>,
+        name: Option<tmt_core::workspace::SnapshotName>,
+        expect: Option<String>,
         layout_only: bool,
     },
     WorkspaceShow {
         socket: Option<String>,
+        name: Option<tmt_core::workspace::SnapshotName>,
+    },
+    WorkspaceSave {
+        socket: Option<String>,
+        name: tmt_core::workspace::SnapshotName,
+    },
+    WorkspaceList {
+        socket: Option<String>,
+    },
+    WorkspaceRemove {
+        socket: Option<String>,
+        name: tmt_core::workspace::SnapshotName,
     },
     Run {
         name: String,

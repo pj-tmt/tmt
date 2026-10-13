@@ -301,6 +301,16 @@ impl Host {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
+    /// An explicit recovery socket selects the built-in host even outside its pane.
+    /// Implicit recovery keeps the caller's ordinary host selection.
+    pub fn for_workspace(environment: &CallerEnvironment, explicit_socket: bool) -> Self {
+        if explicit_socket {
+            Self::of(HostKind::Tmux, UnixCommandRunner)
+        } else {
+            Self::for_caller(environment)
+        }
+    }
+
     /// The host that runs a known server.
     pub fn for_server(server: &ServerEvidence) -> Self {
         Self::for_server_with(server, UnixCommandRunner).with_drivers(external::approved())
@@ -388,6 +398,10 @@ impl<R: CommandRunner + Clone> Host<R> {
 impl<R: CommandRunner> Host<R> {
     pub fn kind(&self) -> HostKind {
         self.primary
+    }
+
+    pub fn workspace_supported(&self) -> bool {
+        self.primary == HostKind::Tmux
     }
 
     /// The nearest verified external pane of the caller, unless the caller's

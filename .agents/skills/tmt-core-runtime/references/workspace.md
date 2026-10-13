@@ -34,6 +34,48 @@ Marker, binding, server, pane PID and recorded native pane incarnation must agre
 before an identity is annotated. Mismatch leaves an ordinary pane and never
 retires or repairs durable state. External hosts without a capture port skip.
 
+## Named snapshots and digest selection
+
+`tmt workspace save <name> [--socket PATH] [--json]` copies the published
+`latest.json` byte-for-byte to `saved-<name>.json` in the same socket directory.
+It preserves the original capture timestamp; it does not capture current layout
+or change automatic cadence. Names contain 1–64 lowercase ASCII letters, digits,
+underscores or hyphens, starting with a letter or digit; `latest` is reserved.
+Each socket permits 16 named snapshots, excluding latest. Save and
+`tmt workspace rm <name>` share the automatic publisher's stable nonblocking
+lock. Manual contention is `WORKSPACE_BUSY` (exit 5); automatic capture still
+coalesces. Named publication atomically links a complete synced 0600 stage with
+no replacement. Duplicate names return `WORKSPACE_SNAPSHOT_EXISTS` (exit 5),
+and a full socket returns `WORKSPACE_SNAPSHOT_LIMIT` (exit 1). Named bytes remain
+immutable until explicit removal; names may then be reused. Removal refuses
+malformed or symlinked input and never removes latest or foreign files.
+
+`tmt workspace ls [--socket PATH] [--json]` performs bounded enumeration without
+capture or initialization. Version 1 JSON is `{version,socket,snapshots}`, with
+latest first (`name:null`) followed by named entries sorted by name. Each entry
+has `name`, `digest` and `capturedAtMs`; no available documents means an empty
+list. Invalid recognized documents fail the operation rather than appearing as
+usable snapshots. Save returns `{version,socket,name,digest,capturedAtMs}`;
+remove returns `{version,socket,name,removed:true}`. Missing named selections
+return `WORKSPACE_SNAPSHOT_NOT_FOUND` (exit 3). Invalid name or digest syntax is
+an ordinary parser `USAGE_ERROR`.
+
+Show and restore accept an optional name; omission selects latest. Show's
+version 1 JSON adds `name` and `digest` to its existing topology and actions.
+The digest is lowercase SHA-256 of the exact acquired file bytes, including
+whitespace, never a re-encoding or a live-state checksum.
+`restore [<name>] --expect <digest>` validates and compares one acquisition
+before identity reads or host effects. A mismatch is
+`WORKSPACE_SNAPSHOT_CHANGED` (exit 5) and changes no recovery or durable state.
+An accepted restore retains that in-memory input for all effects, so publication
+or removal after admission cannot substitute a different document. Restore's
+JSON adds the admitted name and digest. There is no token store or lock held
+through launches; live-state and ownership rechecks remain required.
+
+An explicit socket selects tmux recovery even outside its original pane. An
+implicitly selected external host returns `WORKSPACE_HOST_UNSUPPORTED` (exit 1),
+not an empty inventory. No new driver port or permission is introduced.
+
 ## Events and policy
 
 Global `workspace.snapshotEnabled` defaults to true. Set it with
@@ -82,7 +124,7 @@ tty and foreground-group agreement when the direct terminal query is unavailable
 
 ## Restore preview
 
-`tmt workspace show [--socket PATH] [--json]` reads the exact selected socket's
+`tmt workspace show [<name>] [--socket PATH] [--json]` reads the exact selected socket's
 snapshot without capture, publication, database initialization, reconciliation or
 provider observation. Outside the original tmux environment, select its absolute
 socket path explicitly; no default server or snapshot-directory search occurs.
@@ -114,7 +156,7 @@ provider capability, availability and binding admission are rechecked at launch.
 
 ## Layout-only restore
 
-`tmt workspace restore --layout-only [--socket PATH] [--json]` reads the latest
+`tmt workspace restore [<name>] --layout-only [--socket PATH] [--json]` reads the selected
 snapshot for the exact selected socket through the same bounded, no-follow reader.
 It bypasses identity learning, provider observation, SQLite and advisory capture.
 Core validates every saved layout's checksum, bounded tree, dimensions, leaf
@@ -152,7 +194,7 @@ No pre-existing pane, window or session is removed or overwritten.
 
 ## Full restore
 
-`tmt workspace restore [--socket PATH] [--json]` runs the same layout phase,
+`tmt workspace restore [<name>] [--socket PATH] [--json]` runs the same layout phase,
 then starts eligible panes through this executable's ordinary `tmt resume -- <name>`
 or generic external dispatch with the recorded literal TMT argv. Core adds no
 provider launch path or board grammar. A partial layout starts nothing; existing

@@ -1536,3 +1536,100 @@ describe('layout-only workspace restore', () => {
     });
   }
 });
+
+describe('named workspace selection and digest admission', () => {
+  it('preserves named bytes across capture, refuses changed latest before effects and restores frozen input after replacement', async () => {
+    await withRestoreFixture(async (fixture) => {
+      expect((await fixture.runJsonCli(['name', 'Guard Snapshot Identity', '-s'])).code).toBe(0);
+      const original = readSnapshot(fixture);
+      original.sessions[0].name = 'guard-frozen';
+      const bytes = `${JSON.stringify(original)}\n`;
+      fs.writeFileSync(snapshotPath(fixture), bytes);
+      const selected = ['--socket', fixture.socketPath];
+      const saved = await fixture.runJsonCli<{ digest: string }>([
+        'workspace',
+        'save',
+        'work',
+        ...selected,
+      ]);
+      expect(saved.code, saved.stderr).toBe(0);
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      expect(saved.json!.digest).toBe(digest);
+      const named = path.join(path.dirname(snapshotPath(fixture)), 'saved-work.json');
+      expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
+      // A committed binding change captures latest independently of refresh cadence.
+      expect(
+        (await fixture.runJsonCli(['mv', 'Guard Snapshot Identity', 'Guard Renamed Identity'])).code
+      ).toBe(0);
+      expect(fs.readFileSync(snapshotPath(fixture), 'utf8')).not.toBe(bytes);
+      expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
+      const changed = { ...original, capturedAtMs: original.capturedAtMs + 1 };
+      fs.writeFileSync(snapshotPath(fixture), JSON.stringify(changed));
+      const database = path.join(fixture.globalDir, 'tmux-team.db');
+      const databaseBytes = fs.readFileSync(database);
+      const trace = installTmuxTrace(fixture);
+      const refused = await fixture.runJsonCli<{ error: { code: string } }>(
+        ['workspace', 'restore', '--expect', digest, ...selected],
+        { outsideTmux: true }
+      );
+      expect(refused.code).toBe(5);
+      expect(refused.json!.error.code).toBe('WORKSPACE_SNAPSHOT_CHANGED');
+      expect(trace.commands()).toEqual([]);
+      expect(fs.readFileSync(database)).toEqual(databaseBytes);
+      expect(fs.readFileSync(snapshotPath(fixture), 'utf8')).toBe(JSON.stringify(changed));
+      const positive = await fixture.runJsonCli<LayoutRestore>(
+        ['workspace', 'restore', 'work', '--layout-only', '--expect', digest, ...selected],
+        { outsideTmux: true }
+      );
+      expect(positive.code, positive.stderr + positive.stdout).toBe(0);
+      expect(
+        positive.json!.sessions.some(
+          (session) => session.name === 'guard-frozen' && session.action === 'created'
+        )
+      ).toBe(true);
+      expect(fixture.tmux(['has-session', '-t', 'e2e'])).toBe('');
+      expect(fs.readFileSync(database)).toEqual(databaseBytes);
+      // The first live host read is a deterministic barrier after acquisition.
+      fs.writeFileSync(snapshotPath(fixture), bytes);
+      const replacement = structuredClone(original);
+      replacement.sessions[0].name = 'guard-replacement';
+      const wrapper = path.join(fixture.wrapperDir, 'tmux');
+      const delegate = path.join(fixture.wrapperDir, 'tmux-guard-inner');
+      fs.renameSync(wrapper, delegate);
+      const replaced = path.join(fixture.root, 'guard-replaced');
+      writeExecutable(
+        wrapper,
+        `#!${process.execPath}
+const fs = require('node:fs');
+const cp = require('node:child_process');
+if (!fs.existsSync(${JSON.stringify(replaced)})) {
+  fs.writeFileSync(${JSON.stringify(snapshotPath(fixture))}, ${JSON.stringify(JSON.stringify(replacement))});
+  fs.writeFileSync(${JSON.stringify(replaced)}, 'replaced');
+}
+const result = cp.spawnSync(${JSON.stringify(delegate)}, process.argv.slice(2), { env: process.env, stdio: 'inherit', timeout: 5000 });
+process.exit(result.status ?? 98);
+`,
+        0o755
+      );
+      const frozen = await fixture.runJsonCli<LayoutRestore>(
+        ['workspace', 'restore', '--layout-only', '--expect', digest, ...selected],
+        { outsideTmux: true }
+      );
+      expect(frozen.code, frozen.stderr + frozen.stdout).toBe(0);
+      expect(fs.readFileSync(replaced, 'utf8')).toBe('replaced');
+      expect(
+        frozen.json!.sessions.some(
+          (session) => session.name === 'guard-frozen' && session.action === 'skip_existing'
+        )
+      ).toBe(true);
+      expect(frozen.json!.sessions.some((session) => session.name === 'guard-replacement')).toBe(
+        false
+      );
+      expect(fixture.tmux(['list-sessions', '-F', '#{session_name}'])).not.toContain(
+        'guard-replacement'
+      );
+      expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
+      expect(fs.readFileSync(database)).toEqual(databaseBytes);
+    });
+  });
+});
