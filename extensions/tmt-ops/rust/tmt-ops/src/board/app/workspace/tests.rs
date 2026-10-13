@@ -579,7 +579,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     );
     let rendered = paint(&app, 160, 36).join("\n");
     assert!(rendered.contains("j copy"), "{rendered}");
-    assert!(rendered.contains("k jump"), "{rendered}");
+    assert!(rendered.contains("k host"), "{rendered}");
     assert!(matches!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Copy { .. })
@@ -1148,7 +1148,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         assert_eq!(app.focused_pane(), Some(Pane::Rows));
         let lines = paint(&app, width, 36);
         assert!(
-            lines.last().unwrap().contains("j jump"),
+            lines.last().unwrap().contains("j host"),
             "{width}: {:?}",
             lines.last()
         );
@@ -1295,6 +1295,14 @@ fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
             }
         }
     }
+}
+
+#[test]
+fn member_footer_names_the_default_host_action_without_an_open_alias() {
+    let app = board();
+    let lines = paint(&app, 160, 36);
+    assert!(lines.last().unwrap().contains("j host"));
+    assert!(!lines.last().unwrap().contains("j open"));
 }
 
 #[test]

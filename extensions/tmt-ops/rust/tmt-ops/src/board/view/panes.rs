@@ -6,5 +6,3 @@ use ratatui::{Frame, layout::Rect};
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
     crate::board::workspace::render::render(frame, app, area);
 }
-
-pub(in crate::board) use crate::board::composition::Shared;

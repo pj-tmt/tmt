@@ -1,8 +1,8 @@
 //! Board scenes as admitted markup. A section is a literal template bound to
 //! display-ready data, solved by `tmt-tui` geometry at the body width and painted
 //! into a scratch buffer whose rows join the caller's line stream. The stream, the
-//! shared cursor, hits, reveal and input reservations stay with the painter that
-//! owns them; a section only reports where each of its blocks landed.
+//! shared cursor, hits, reveal and input reservations stay with the active surface
+//! owner; strips return only styled lines.
 use crate::{
     board::{picker_surface::Data, view::fit},
     look::Look,
@@ -14,12 +14,10 @@ use ratatui::{
     text::{Line, Span},
 };
 use serde_json::Value;
-use std::ops::Range;
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::{
     binding::{Schema, Template},
-    geometry::{self, Rect as BoxRect},
-    paint, text,
+    geometry, paint, text,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -76,51 +74,14 @@ impl<T> Kept<T> {
     }
 }
 
-/// Where a node landed in its painted section: the line, the first column and
-/// the columns it covers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::board) struct Spot {
-    pub line: usize,
-    pub x: u16,
-    pub width: u16,
-}
-
-/// The painted section and where each identified node landed.
+/// Painted strip lines; the workspace owns its target geometry separately.
 pub(in crate::board) struct Painted {
     pub lines: Vec<Line<'static>>,
-    nodes: Vec<(Vec<String>, BoxRect)>,
 }
 
-impl Painted {
-    fn rect(&self, id: &[&str]) -> Option<&BoxRect> {
-        self.nodes
-            .iter()
-            .find(|(own, _)| own.iter().map(String::as_str).eq(id.iter().copied()))
-            .map(|(_, rect)| rect)
-    }
-
-    /// The one-line place of a node.
-    pub fn spot(&self, id: &[&str]) -> Option<Spot> {
-        self.rect(id).map(|rect| Spot {
-            line: rect.y.max(0) as usize,
-            x: rect.x.clamp(0, i32::from(u16::MAX)) as u16,
-            width: rect.width.min(u32::from(u16::MAX)) as u16,
-        })
-    }
-
-    /// The scene lines a node covers.
-    pub fn lines(&self, id: &[&str]) -> Option<Range<usize>> {
-        self.rect(id)
-            .map(|rect| rect.y as usize..(rect.y as u32 + rect.height) as usize)
-    }
-}
-
-/// The node being decorated: its own scoped identity (the last element names the
-/// part), the identity it inherits from the nearest ancestor that has one (the
-/// block it belongs to), and its inherited role.
+/// The strip node being decorated: its own identity and inherited role.
 pub(in crate::board) struct Part<'a> {
     pub id: Option<&'a [String]>,
-    pub scope: Option<&'a [String]>,
     pub role: Role,
 }
 
@@ -151,21 +112,13 @@ pub(in crate::board) fn paint(
     // A root without content has no rows and no cells to lift.
     let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
     paint::paint_with(&cells, &mut buffer, |index, role, _| {
-        let scope = std::iter::successors(Some(index), |at| cells[*at].parent)
-            .find_map(|at| cells[at].node.id.as_deref());
         decorate(Part {
             id: cells[index].node.id.as_deref(),
-            scope,
             role,
         })
     });
-    let nodes = cells
-        .iter()
-        .filter_map(|cell| cell.node.id.clone().map(|id| (id, cell.rect)))
-        .collect();
     Painted {
         lines: lift(&buffer),
-        nodes,
     }
 }
 

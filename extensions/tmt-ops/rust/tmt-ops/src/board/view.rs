@@ -17,7 +17,6 @@ use ratatui::{
 use tmt_cli_style::grid::Align;
 use tmt_tui::components::strip;
 
-pub(super) use footer::toggle_label;
 #[cfg(test)]
 pub(super) use header::SPINNER_DELAY;
 pub(super) use header::{spinner_frame, spinner_wait, time_marks};

@@ -1,7 +1,7 @@
 //! Base key hints, notices, link previews and input strip.
 
 use crate::board::app::App;
-use crate::config::{BoardMode, Pane};
+use crate::config::Pane;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -11,41 +11,6 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
-
-/// The panes the effective toggle folds, when the board is split and shows any.
-fn toggle_panes(app: &App, action: &crate::action::Action) -> Vec<Pane> {
-    let Some(board) = app.effective_board().filter(|b| b.mode == BoardMode::Split) else {
-        return Vec::new();
-    };
-    action
-        .args
-        .iter()
-        .filter_map(|arg| arg.literal().and_then(Pane::parse))
-        .filter(|pane| board.panes.contains(pane))
-        .collect()
-}
-
-/// One state label for the effective toggle in help.
-pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
-    let panes = toggle_panes(app, action);
-    if panes.is_empty() {
-        return None;
-    }
-    let collapsed = app.collapsed_panes();
-    let state = if panes.iter().all(|pane| collapsed.contains(pane)) {
-        "▸"
-    } else {
-        "▾"
-    };
-    Some(format!(
-        "{} {state}",
-        panes
-            .iter()
-            .map(|pane| pane.title())
-            .collect::<Vec<_>>()
-            .join("+")
-    ))
-}
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
@@ -58,9 +23,8 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
         Verb::Jump if lead => "jump lead",
-        // Enter is the row's main action: the pane, the menu or the squad.
-        Verb::Jump | Verb::Menu | Verb::Tab => "open",
-        // Home's key line words `a` the same way; the board has no annotations.
+        Verb::Jump => "host",
+        Verb::Menu => "menu",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
@@ -168,11 +132,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
         if !seen.insert(action.text.as_str()) {
             continue;
         }
-        let word = if action.verb == Verb::Jump {
-            "jump"
-        } else {
-            hint_word(action)
-        };
+        let word = hint_word(action);
         let hint = format!("{} {word}", key_label(key));
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             tail.push(hint);
