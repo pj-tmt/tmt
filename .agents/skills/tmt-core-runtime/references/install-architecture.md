@@ -185,7 +185,9 @@ moved installations until the separate alias decision.
   when a link equals exactly the former target. `lib/tmux-team` is not touched; it stays the rollback
   source. An interruption after activation leaves `lib/tmt/current` with the former links; the next
   installation completes the link move. Once `lib/tmt` has an activation it is authoritative and a
-  caller that observed the former current is refused with "changed while downloading".
+  caller that observed the former current is refused with "changed while downloading". The first
+  activation in `lib/tmt` publishes even when its release equals the former one (a bootstrap of the
+  installed version), so the links never point into an empty prefix.
 - **Refusals** happen before any write and leave the installation usable: a `lib/tmt` that holds
   entries the publisher did not write, a foreign command at a link name, an activation in either
   layout that fails receipt verification.

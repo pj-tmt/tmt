@@ -385,7 +385,11 @@ fn activate_with_local_schema(
         let local = local_schema()?;
         pr_receipt::admit_databases(request.product, schema, schema, &local, false)?;
     }
-    let active_id = if plan.changed {
+    // The first activation in a layout always publishes. The move to a new prefix
+    // can install the release the former prefix already holds, and links into an
+    // empty prefix would dangle.
+    let changed = plan.changed || published_id.is_none();
+    let active_id = if changed {
         let mut receipt = receipt::Receipt::new(artifact, plan.state);
         receipt.provenance = request.provenance;
         if let Err(error) = layout.publish(
@@ -429,7 +433,7 @@ fn activate_with_local_schema(
     // The move kept the former prefix as the rollback source. The first
     // upgrade after it retires that prefix, best effort and only when nothing
     // managed points into it; a refusal never fails the upgrade.
-    if plan.changed
+    if changed
         && published_id.is_some()
         && former_layout.is_some()
         && request.caller == Caller::Current
@@ -442,7 +446,7 @@ fn activate_with_local_schema(
         &layout,
         &artifact.version.to_string(),
         active_id,
-        plan.changed,
+        changed,
     ))
 }
 

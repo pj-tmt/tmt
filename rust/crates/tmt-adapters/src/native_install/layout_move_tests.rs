@@ -254,6 +254,48 @@ fn a_damaged_new_release_is_refused_and_the_rollback_source_stays_usable() {
 }
 
 #[test]
+fn an_equal_version_install_by_a_current_caller_still_moves_the_installation() {
+    // A bootstrap or offline install of the release the former prefix already
+    // holds: nothing differs, yet the links must not point into an empty prefix.
+    let directory = TestDirectory::new();
+    let (prefix, old) = legacy(&directory, "1.2.3");
+
+    let report = activate(&prefix, Caller::Current, "1.2.3", OLD, Some(old)).unwrap();
+
+    assert!(report.changed, "the installation moved");
+    assert!(
+        report
+            .active_executable
+            .starts_with(prefix.join("lib/tmt/releases"))
+    );
+    assert_links(&prefix, "lib/tmt");
+    assert_eq!(
+        run(&prefix.join("bin/tmt")),
+        "old\n",
+        "the command link resolves"
+    );
+    assert_eq!(
+        inspect(&prefix.join("bin/tmt"))
+            .unwrap()
+            .state
+            .version
+            .to_string(),
+        "1.2.3"
+    );
+    assert!(
+        prefix
+            .join(format!("lib/tmux-team/releases/{old}/tmt"))
+            .exists(),
+        "the former prefix stays the rollback source"
+    );
+
+    let again = activate(&prefix, Caller::Current, "1.2.3", OLD, None).unwrap();
+    assert!(!again.changed, "the move happens once");
+    assert_eq!(again.active_executable, report.active_executable);
+    assert_links(&prefix, "lib/tmt");
+}
+
+#[test]
 fn an_interrupted_move_is_completed_by_the_next_installation() {
     let directory = TestDirectory::new();
     let (prefix, old) = legacy(&directory, "1.2.3");
