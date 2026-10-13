@@ -2001,8 +2001,10 @@ provider exists. Chunked resources explicitly declare decoded `chunkBytes`: atta
 262,144, checkpoints 32,768, with at most 513 chunks and the existing 12 MiB serialized-object cap.
 The object-channel's existing 32 KiB framing is unchanged; the later adapter assembles transport
 parts into declared cloud chunks. Immutable chunk IDs are `<original>+<index>` (zero-based decimal)
-and the last-written create-only manifest is `<original>+manifest`. The manifest has exactly
-`{original,count,bytes,digest,chunkBytes}`; canonical UTF-8 JSON sorts these keys. Count equals
+and the last-written create-only manifest is `<original>+manifest`. The logical manifest data is exactly
+`{original,count,bytes,digest,chunkBytes}`; canonical UTF-8 JSON sorts these keys. Its transport
+document also includes declared admission metadata and uses the restricted REST fields encoding
+above; the logical manifest is not an extra on-wire envelope. Count equals
 ceil(bytes/chunkBytes); nonfinal chunks are full, the final chunk is bounded, and an empty object
 has no chunks. Readers require that manifest and every chunk, exact count/length and full-object
 SHA-256 matching the admitted descriptor: a complete verified object or absence/unavailability,

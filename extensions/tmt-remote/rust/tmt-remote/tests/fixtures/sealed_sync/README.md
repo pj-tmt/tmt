@@ -14,3 +14,7 @@ positive/negative restricted Value cases. Field names intentionally differ from
 Colab's to detect hard-coded mappings. Document/declaration hashes use Python hashlib.
 Safe integers, canonical padded base64 and exact microsecond UTC timestamps are
 covered; extra precision and unsupported nested/provider values are refused.
+
+The object manifest vectors are logical object data, not an alternate wire codec.
+An adapter adds declared admission metadata and encodes those fields through the
+restricted REST codec; no extra envelope or production manifest producer ships here.
