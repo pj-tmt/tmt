@@ -518,7 +518,7 @@ export function selectRemoteFirestore(paths) {
   );
 }
 
-// Colab uses the same hosted emulator lane and full-native Unit tests gate as Remote.
+// Colab runs its pinned, network-isolated Docker suite in the same full-native Unit tests gate.
 const COLAB_FIRESTORE_ROOTS = [
   'extensions/tmt-colab/firestore',
   'extensions/tmt-colab/rust/tmt-colab/tests/emulator',

@@ -647,14 +647,14 @@ jobs:
       # Firestore Rules emulator suites: selected paths only (ci-scope remote_firestore/colab_firestore).
       # The tool pins mirror extensions/tmt-office/typescript/services/office/Dockerfile.
       - name: Select the hosted Temurin 21 for the Rules emulator
-        if: needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true'
+        if: needs.changes.outputs.remote_firestore == 'true'
         run: |
           test -n "$JAVA_HOME_21_X64"
           printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
           "$JAVA_HOME_21_X64/bin/java" -version
       - name: Install the pinned Firestore Rules emulator tools
-        if: needs.changes.outputs.remote_firestore == 'true' || needs.changes.outputs.colab_firestore == 'true'
+        if: needs.changes.outputs.remote_firestore == 'true'
         run: npm install --global firebase-tools@15.29.0
       - name: Run the Remote Firestore Rules emulator suite
         if: needs.changes.outputs.remote_firestore == 'true'
@@ -667,9 +667,22 @@ jobs:
         if: needs.changes.outputs.colab_firestore == 'true'
         timeout-minutes: 8
         run: |
-          firebase emulators:exec --only firestore --project demo-tmt-colab \
-            --config extensions/tmt-colab/rust/tmt-colab/tests/emulator/firebase.json --non-interactive \
-            'node --test extensions/tmt-colab/rust/tmt-colab/tests/emulator/suite.mjs'
+          image="tmt-colab-rules:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --tag "$image" extensions/tmt-colab/rust/tmt-colab/tests/emulator
+          cleanup() {
+            result=$?
+            trap - EXIT
+            if ! docker image rm "$image"; then
+              if [ "$result" -eq 0 ]; then result=1; fi
+            fi
+            exit "$result"
+          }
+          trap cleanup EXIT
+          docker run --rm --init --network none \
+            --volume "$GITHUB_WORKSPACE/extensions/tmt-colab:/c:ro" "$image" \
+            firebase emulators:exec --only firestore --project demo-tmt-colab \
+            --config /c/rust/tmt-colab/tests/emulator/firebase.json --non-interactive \
+            'node --test /c/rust/tmt-colab/tests/emulator/suite.mjs'
       - name: Run retained developer tooling tests
         working-directory: typescript
         # The deleted TypeScript source coverage denominator is not Rust coverage.

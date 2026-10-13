@@ -179,7 +179,7 @@ and run the oracle without `--write`, the Colab suites above and Remote's `deplo
 `tests/emulator/suite.mjs` proves admission with caller-authenticated writes and reads. It has no npm dependency and no skip path: it runs only under
 `firebase emulators:exec --only firestore` (firebase-tools 15.29.0, Java 21, pins identical to Remote's). Run it
 locally in Docker in the booked slot: `scripts/dev-disk-check.sh` first (30 GiB free), one image tag per worktree,
-remove the image after the run (DEVELOPMENT's disk section). CI runs selected changes in the hosted Unit tests lane ([selection](../../tmt-release/references/ci-selection.md)); Docker network-none/read-only isolation remains local qualification only.
+remove the image after the run (DEVELOPMENT's disk section). CI runs selected changes in the Unit tests lane with the same pinned image, network-none/read-only isolation and no credentials ([selection](../../tmt-release/references/ci-selection.md)).
 
 ```sh
 tag=tmt-colab-rules:$(printf %s "$(basename "$PWD")" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9_.-' '-')
