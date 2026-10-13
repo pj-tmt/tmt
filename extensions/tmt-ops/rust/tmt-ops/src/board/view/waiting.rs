@@ -363,6 +363,15 @@ pub(super) fn inline_prompt(
             1
         };
         if let Some(quote) = input.response_quotes.last() {
+            let hint = "Alt-Backspace removes";
+            let source = super::fit(
+                &format!(
+                    "{} quote(s) · {}",
+                    input.response_quotes.len(),
+                    quote.label()
+                ),
+                usize::from(areas.content.width).saturating_sub(hint.len() + 1),
+            );
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect {
@@ -371,11 +380,7 @@ pub(super) fn inline_prompt(
                     ..areas.content
                 },
                 Line::styled(
-                    format!(
-                        "{} quote(s) · {} · Alt-Backspace remove",
-                        input.response_quotes.len(),
-                        quote.label()
-                    ),
+                    format!("{} {hint}", source.trim_end()),
                     look.role(Role::Muted),
                 ),
             );

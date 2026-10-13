@@ -165,7 +165,7 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         let rect = Rect::new(x, y + row, width, 1);
         let line = if row == height - 1 {
             Line::styled(
-                "Mentions are text only · ↑↓ choose · Enter insert · Esc close",
+                "Mentions are text only · ↑↓ choose · Enter/Tab insert · Esc close",
                 look.role(Role::Muted),
             )
         } else if let Some(candidate) = completion.matches.get(start + usize::from(row)) {
