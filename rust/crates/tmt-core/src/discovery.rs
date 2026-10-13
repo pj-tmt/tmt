@@ -61,7 +61,6 @@ impl DiscoveryTarget {
             &self.server.pid().to_string(),
             self.server.start_identity(),
             &self.server_start_time,
-            self.server_id.as_deref().unwrap_or(""),
             &self.pane,
             &self.process.pid().to_string(),
             self.process.start_identity(),
@@ -69,7 +68,9 @@ impl DiscoveryTarget {
         ] {
             field(value);
         }
-        // Names are cosmetic. Ownership follows UUIDs, including across rename.
+        // Initializing the server UUID must not invalidate other unmarked panes
+        // from the same scan. Native server identity fences replacement; marker
+        // UUIDs fence existing pane ownership, including across cosmetic rename.
         if let Some(marker) = &self.marker {
             for value in [
                 &marker.identity_id,
@@ -146,6 +147,9 @@ mod tests {
         let mut replaced = original.clone();
         replaced.marker.as_mut().unwrap().identity_id = "id-b".into();
         assert_ne!(replaced.digest(), digest);
+        let mut other_owner = original.clone();
+        other_owner.marker.as_mut().unwrap().server_id = "server-b".into();
+        assert_ne!(other_owner.digest(), digest);
         let mut restart = original.clone();
         restart.server = ProcessIncarnation::new(1, "server-restart").unwrap();
         assert_ne!(restart.digest(), digest);
@@ -153,5 +157,15 @@ mod tests {
         other.socket = "/tmp/b".into();
         assert_ne!(other.digest(), digest);
         assert_ne!(target().digest(), digest);
+    }
+
+    #[test]
+    fn discovery_digest_survives_server_uuid_initialization_not_native_replacement() {
+        let unmarked = target();
+        let mut initialized = unmarked.clone();
+        initialized.server_id = Some("server-a".into());
+        assert_eq!(initialized.digest(), unmarked.digest());
+        initialized.server = ProcessIncarnation::new(1, "server-replaced").unwrap();
+        assert_ne!(initialized.digest(), unmarked.digest());
     }
 }

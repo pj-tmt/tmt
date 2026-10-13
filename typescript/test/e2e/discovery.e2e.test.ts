@@ -62,6 +62,119 @@ type Inventory = {
 };
 
 describe('read-only candidate inventory and guarded add', () => {
+  it('adopts two unmarked panes in sequence with their expectations from one scan', async () => {
+    await withE2EFixture(async (fixture) => {
+      const firstPane = fixture.pane;
+      const secondPane = (await fixture.createMockPane('second candidate')).pane;
+      const serverId = () => fixture.tmux(['display-message', '-p', '#{@tmt.server-id}']).trim();
+      expect(serverId()).toBe('');
+      const scan = await fixture.runJsonCli<Inventory>([
+        'discover',
+        '--socket',
+        fixture.socketPath,
+      ]);
+      expect(scan.code, scan.stderr).toBe(0);
+      expect(scan.json!.candidates).toHaveLength(2);
+      expect(serverId()).toBe('');
+      const candidates = [firstPane, secondPane].map((pane) =>
+        scan.json!.candidates.find((candidate) => candidate.pane === pane)!
+      );
+      const ids: string[] = [];
+      for (const [index, candidate] of candidates.entries()) {
+        expect(candidate.adoptable).toBe(true);
+        expect(candidate.expect).toMatch(/^[0-9a-f]{64}$/);
+        const bound = await fixture.runJsonCli<{ status: string; id: string }>([
+          'add',
+          candidate.pane,
+          `batch worker ${index}`,
+          '--socket',
+          fixture.socketPath,
+          '--expect',
+          candidate.expect!,
+          '-s',
+        ]);
+        expect(bound.code, bound.stderr).toBe(0);
+        expect(bound.json!.status).toBe('bound');
+        expect(serverId()).not.toBe('');
+        ids.push(bound.json!.id);
+      }
+      expect(new Set(ids).size).toBe(2);
+      const state = durableState(fixture);
+      expect(state.identities).toHaveLength(2);
+      expect(state.bindings).toHaveLength(2);
+      for (const [index, candidate] of candidates.entries()) {
+        expect(state.bindings).toContainEqual(
+          expect.objectContaining({ identity_id: ids[index], pane_id: candidate.pane })
+        );
+      }
+    });
+  }, 30_000);
+
+  it('refuses an old expectation after an unmarked server is replaced, then accepts a fresh one', async () => {
+    await withE2EFixture(async (fixture) => {
+      const firstPane = fixture.pane;
+      const serverId = () => fixture.tmux(['display-message', '-p', '#{@tmt.server-id}']).trim();
+      const scan = await fixture.runJsonCli<Inventory>([
+        'discover',
+        '--socket',
+        fixture.socketPath,
+      ]);
+      expect(scan.code, scan.stderr).toBe(0);
+      const original = scan.json!.candidates.find((candidate) => candidate.pane === firstPane)!;
+      expect(original.adoptable).toBe(true);
+      expect(original.expect).toMatch(/^[0-9a-f]{64}$/);
+      expect(serverId()).toBe('');
+      const oldServerPid = fixture.serverPid;
+      const restarted = await fixture.restartServer();
+      expect(fixture.serverPid).not.toBe(oldServerPid);
+      // The address exists again: refusal must fence replacement, not absence.
+      expect(restarted.pane).toBe(firstPane);
+      expect(serverId()).toBe('');
+      const rescan = await fixture.runJsonCli<Inventory>([
+        'discover',
+        '--socket',
+        fixture.socketPath,
+      ]);
+      expect(rescan.code, rescan.stderr).toBe(0);
+      const fresh = rescan.json!.candidates.find((candidate) => candidate.pane === firstPane)!;
+      expect(fresh.adoptable).toBe(true);
+      expect(fresh.expect).toMatch(/^[0-9a-f]{64}$/);
+      expect(fresh.expect).not.toBe(original.expect);
+      const database = path.join(fixture.globalDir, 'tmux-team.db');
+      expect(fs.existsSync(database)).toBe(false);
+      const refused = await fixture.runJsonCli<{ status: string; error: { code: string } }>([
+        'add',
+        restarted.pane,
+        'replacement worker',
+        '--socket',
+        fixture.socketPath,
+        '--expect',
+        original.expect!,
+        '-s',
+      ]);
+      expect(refused.code, refused.stderr).toBe(3);
+      expect(refused.json).toMatchObject({ status: 'refused', error: { code: 'PANE_CHANGED' } });
+      expect(serverId()).toBe('');
+      expect(fixture.paneMetadata()).toBe('');
+      expect(fs.existsSync(database)).toBe(false);
+      const bound = await fixture.runJsonCli<{ status: string; id: string }>([
+        'add',
+        restarted.pane,
+        'replacement worker',
+        '--socket',
+        fixture.socketPath,
+        '--expect',
+        fresh.expect!,
+        '-s',
+      ]);
+      expect(bound.code, bound.stderr).toBe(0);
+      expect(bound.json!.status).toBe('bound');
+      expect(durableState(fixture).bindings).toEqual([
+        expect.objectContaining({ identity_id: bound.json!.id, pane_id: restarted.pane }),
+      ]);
+    });
+  }, 30_000);
+
   it('discovers an unmarked server, retains literal titles, and binds only an explicitly guarded pane', async () => {
     await withE2EFixture(async (fixture) => {
       // select-pane -T expands formats and rejects actual LF/TAB in titles.

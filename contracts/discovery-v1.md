@@ -60,11 +60,14 @@ are temporary; saving promotes an existing temporary UUID without downgrading
 saved identities. Ordinary unguarded `add`/`name` retain their existing policy.
 
 `expect` is a lowercase SHA-256 digest in a discovery-specific namespace, of
-length-framed host/socket, native server/pane incarnations, TMT server UUID,
-executable hint and ownership UUIDs/PID. It excludes display names, titles,
-cosmetic/activity fields and scan time. A changed process, server, marker or
-admission input requires rescan. Missing/unknown native or ownership evidence
-cannot authorize adoption.
+length-framed host/socket, native server/pane incarnations, executable hint and
+pane-marker ownership UUIDs/PID (including the marker's server UUID). It excludes
+the server's TMT UUID, display names, titles, cosmetic/activity fields and scan
+time. Initializing server metadata while adopting one unmarked pane preserves
+the original expectations for other panes from that scan; native server
+replacement still requires rescan. A changed process, marker or admission input
+requires rescan. Missing/unknown native or ownership evidence cannot authorize
+adoption.
 
 Guarded add reobserves before storage initialization and twice inside the
 binding transaction before identity creation/promotion, server-marker
@@ -90,7 +93,7 @@ Invalid selectors/digest syntax are `USAGE_ERROR`. Drift uses `PANE_CHANGED`
 failures the existing reconciliation/storage codes (1). No new error-code family,
 store schema or driver permission is introduced.
 
-Normative state examples are in [discovery-v1.json](discovery-v1.json). Core owns
+Normative state and digest vectors are in [discovery-v1.json](discovery-v1.json). Core owns
 bounds and the digest fence; adapters own read-only host/storage acquisition;
 the CLI owns grammar and JSON. The Herdr protocol inventory operation is deferred
 to its epics #2097/#2890 and requires its own uniform driver-contract plan.

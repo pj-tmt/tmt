@@ -104,3 +104,54 @@ pub fn source_status(error: &HostError, socket: Option<&str>) -> &'static str {
     }
     "unknown"
 }
+
+#[cfg(test)]
+mod tests {
+    use tmt_core::{
+        discovery::DiscoveryTarget,
+        endpoint::{BindingMarker, ProcessIncarnation},
+    };
+
+    #[test]
+    fn discovery_digest_matches_normative_first_run_and_ownership_vectors() {
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../contracts/discovery-v1.json")).unwrap();
+        let fence = &contract["digestFence"];
+        let base = &fence["base"];
+        assert_eq!(base["host"], tmt_core::host::HostKind::Tmux.as_str());
+        for vector in fence["vectors"].as_array().unwrap() {
+            let marker = &vector["marker"];
+            let target = DiscoveryTarget {
+                socket: base["socket"].as_str().unwrap().into(),
+                server: ProcessIncarnation::new(
+                    base["serverPid"].as_u64().unwrap(),
+                    vector["serverStartIdentity"].as_str().unwrap(),
+                )
+                .unwrap(),
+                server_id: vector["serverId"].as_str().map(str::to_owned),
+                server_start_time: base["serverStartTime"].as_str().unwrap().into(),
+                pane: base["pane"].as_str().unwrap().into(),
+                process: ProcessIncarnation::new(
+                    base["panePid"].as_u64().unwrap(),
+                    base["paneStartIdentity"].as_str().unwrap(),
+                )
+                .unwrap(),
+                runtime: base["runtime"].as_str().map(str::to_owned),
+                marker: (!marker.is_null()).then(|| BindingMarker {
+                    name: "cosmetic".into(),
+                    canonical_name: "cosmetic".into(),
+                    identity_id: marker["identityId"].as_str().unwrap().into(),
+                    binding_id: marker["bindingId"].as_str().unwrap().into(),
+                    server_id: marker["serverId"].as_str().unwrap().into(),
+                    pane_pid: marker["panePid"].as_u64().unwrap(),
+                }),
+            };
+            assert_eq!(
+                target.digest(),
+                vector["expect"].as_str().unwrap(),
+                "{}",
+                vector["name"]
+            );
+        }
+    }
+}

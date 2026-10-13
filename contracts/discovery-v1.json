@@ -1,6 +1,10 @@
 {
   "version": 1,
-  "bounds": { "candidates": 256, "observationMs": 2000, "resultBytes": 1048576 },
+  "bounds": {
+    "candidates": 256,
+    "observationMs": 2000,
+    "resultBytes": 1048576
+  },
   "states": [
     {
       "host": "tmux",
@@ -50,8 +54,18 @@
       "ownership": "old_binding",
       "adoptable": false
     },
-    { "host": "tmux", "source": "permission_denied", "candidate": null, "adoptable": false },
-    { "host": "tmux", "source": "offline", "candidate": null, "adoptable": false },
+    {
+      "host": "tmux",
+      "source": "permission_denied",
+      "candidate": null,
+      "adoptable": false
+    },
+    {
+      "host": "tmux",
+      "source": "offline",
+      "candidate": null,
+      "adoptable": false
+    },
     {
       "host": "herdr",
       "source": "unsupported",
@@ -60,5 +74,64 @@
       "adoptable": false
     }
   ],
-  "literalDisplay": "#{run-shell:never} $(never)\nnew row\tstill one title"
+  "literalDisplay": "#{run-shell:never} $(never)\nnew row\tstill one title",
+  "digestFence": {
+    "base": {
+      "host": "tmux",
+      "socket": "/tmp/a",
+      "serverPid": 1,
+      "serverStartTime": "1",
+      "pane": "%1",
+      "panePid": 2,
+      "paneStartIdentity": "pane-start",
+      "runtime": "codex"
+    },
+    "vectors": [
+      {
+        "name": "unmarked_server",
+        "serverStartIdentity": "server-start",
+        "serverId": null,
+        "marker": null,
+        "expect": "bf591b8c42ee4d8f2cd13fb00375c9a7807bca32370c9e9c191c9698b32dade8"
+      },
+      {
+        "name": "server_uuid_initialized",
+        "serverStartIdentity": "server-start",
+        "serverId": "11111111-1111-4111-8111-111111111111",
+        "marker": null,
+        "expect": "bf591b8c42ee4d8f2cd13fb00375c9a7807bca32370c9e9c191c9698b32dade8"
+      },
+      {
+        "name": "native_server_replaced_with_reused_pid",
+        "serverStartIdentity": "server-replaced",
+        "serverId": "11111111-1111-4111-8111-111111111111",
+        "marker": null,
+        "expect": "c867a6cecfc342dd7f49494ff572049a19cc50f9b1c1503dd7bf77e9f0434bd0"
+      },
+      {
+        "name": "owned_pane",
+        "serverStartIdentity": "server-start",
+        "serverId": "11111111-1111-4111-8111-111111111111",
+        "marker": {
+          "identityId": "22222222-2222-4222-8222-222222222222",
+          "bindingId": "33333333-3333-4333-8333-333333333333",
+          "serverId": "11111111-1111-4111-8111-111111111111",
+          "panePid": 2
+        },
+        "expect": "dfb2a0790e48a60a5336d05191ba6fc11c47f1ae9aeb459e9037d675739f72c8"
+      },
+      {
+        "name": "marker_server_owner_changed",
+        "serverStartIdentity": "server-start",
+        "serverId": "11111111-1111-4111-8111-111111111111",
+        "marker": {
+          "identityId": "22222222-2222-4222-8222-222222222222",
+          "bindingId": "33333333-3333-4333-8333-333333333333",
+          "serverId": "44444444-4444-4444-8444-444444444444",
+          "panePid": 2
+        },
+        "expect": "03357e59bd802a60b19796dcee87f5da95d89c74d6d068d5cfb2949faefbb3b6"
+      }
+    ]
+  }
 }
