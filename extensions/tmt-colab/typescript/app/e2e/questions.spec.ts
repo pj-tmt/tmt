@@ -161,6 +161,114 @@ test('answered canonical threads resist empty siblings and agent provenance pres
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
 });
 
+for (const change of [false, true]) {
+  test(`a verified answer before Ask completion releases its recorded draft (Change answer ${change})`, async ({
+    page,
+  }) => {
+    const card = await mount(page);
+    await card.getByLabel('Keep it', { exact: true }).check();
+    if (change) {
+      await send(page);
+      await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+      await card.getByLabel('Change it', { exact: true }).check();
+    }
+    await run(page, 'pausePrepare');
+    await card.getByRole('button', { name: /^Send answer/ }).click();
+    await expect(card.locator('.question-answer')).toHaveText(change ? 'Change it' : 'Keep it');
+    await expect(card.getByText('Sending…', { exact: true })).toBeVisible();
+    const recorded = await run(page, 'discussionProof');
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].comments).toHaveLength(change ? 2 : 1);
+    expect((await run(page, 'proof')).sends).toHaveLength(change ? 1 : 0);
+    await run(page, 'resumePrepare');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(change ? 2 : 1);
+    await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
+    expect(await run(page, 'discussionProof')).toEqual(recorded);
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toBeDisabled();
+  });
+}
+
+test('ordinary answer history growth keeps the inline card in window scrolling', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  const frame = page.locator('#ask-page-fixture iframe');
+  for (let index = 0; index < 6; index++) {
+    const oldHeight = await frame.evaluate((node) => node.getBoundingClientRect().height);
+    await run(page, 'questionSibling', {
+      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(4),
+      sequence: String(index + 1),
+      device: false,
+      index,
+    });
+    await expect(card.locator('.question-history article')).toHaveCount(index + 2);
+    await expect
+      .poll(() => frame.evaluate((node) => node.getBoundingClientRect().height))
+      .toBeGreaterThan(oldHeight);
+    await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+    await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
+    await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
+  }
+  await expect(card.locator('.question-answer')).toHaveText('Keep it');
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+});
+
+test('repeated Change answer keeps growing history attached in window scrolling', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  for (let index = 0; index < 6; index++) {
+    await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+    await card.getByLabel(index % 2 ? 'Keep it' : 'Change it', { exact: true }).check();
+    await send(page);
+    await expect(card.locator('.question-history article')).toHaveCount(index + 2);
+    await expect(page.locator('#ask-page-fixture iframe')).toHaveAttribute(
+      'data-scroll-mode',
+      'window',
+    );
+    await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
+  }
+  const threads = await run(page, 'discussionProof');
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(7);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(7);
+});
+
+test('authored viewport feedback still detaches a question card while its history grows', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  await page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('body')
+    .evaluate((body) => {
+      const growth = body.ownerDocument.createElement('div');
+      growth.style.height = 'calc(100vh + 120px)';
+      growth.textContent = 'Authored viewport feedback';
+      body.append(growth);
+    });
+  await run(page, 'questionSibling', {
+    body: 'An ordinary follow-up grows the trusted conversation during authored viewport feedback.',
+    sequence: '1',
+    device: false,
+    index: 0,
+  });
+  await expect(card.locator('.question-history article')).toHaveCount(2);
+  const frame = page.locator('#ask-page-fixture iframe');
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
+  await expect(frame).toHaveAttribute('scrolling', 'auto');
+  await expect(page.locator('[data-inline-question]')).toHaveAttribute('data-detached', 'true');
+  await expect(page.locator('.question-group-card')).not.toBeVisible();
+  expect(await run(page, 'discussionProof')).toHaveLength(2);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+});
+
 test('uncertain delivery keeps the answer and never resends automatically', async ({ page }) => {
   const card = await mount(page);
   await card.getByLabel('Keep it', { exact: true }).check();

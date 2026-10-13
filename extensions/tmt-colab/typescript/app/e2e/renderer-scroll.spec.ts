@@ -122,6 +122,45 @@ for (const reader of [false, true]) {
   });
 }
 
+test('identical normalized slot requests cannot mask authored viewport feedback', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/src/renderer.ts';
+    const { mountRenderer } = await import(path);
+    const host = document.createElement('div');
+    document.getElementById('root')!.replaceChildren(host);
+    const controller = new AbortController();
+    const renderer = await mountRenderer(
+      host,
+      '<style>body{margin:0}</style><div style="height:calc(100vh + 120px)">Authored feedback</div>',
+      { signal: controller.signal, onState() {} },
+    );
+    let reports = 0;
+    window.addEventListener(
+      'message',
+      (event) => {
+        if (
+          event.source !== host.querySelector('iframe')?.contentWindow ||
+          event.data?.type !== 'colab.render.height' ||
+          event.data.renderId !== renderer.snapshot.renderId
+        )
+          return;
+        // Different raw values normalize to the same trusted footprint each time.
+        renderer.slots([
+          { id: '10000000-0000-4000-8000-000000000001', height: ++reports % 2 ? 20.2 : 20.7 },
+        ]);
+      },
+      { signal: controller.signal },
+    );
+  });
+  await expect(page.locator('iframe')).toHaveAttribute('data-scroll-mode', 'frame');
+  await expect(page.locator('iframe')).toHaveAttribute('scrolling', 'auto');
+  expect((await page.locator('iframe').boundingBox())!.height).toBe(900);
+});
+
 test('layout claims are bound to the current frame/render and bounded even when author-forged', async ({
   page,
 }) => {

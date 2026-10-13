@@ -711,11 +711,16 @@ export async function mountRenderer(
       )
     )
       return;
-    slotHeights = input.map(({ id, height, before }) => ({
+    const heights = input.map(({ id, height, before }) => ({
       id,
       height: Math.min(2000, Math.max(0, Math.ceil(height))),
       ...(before !== undefined ? { before: Math.min(2000, Math.max(0, Math.ceil(before))) } : {}),
     }));
+    // Trusted card updates change the page's content height independently of its
+    // viewport. Restart the growth baseline only for changed parent dimensions;
+    // repeated requests and frame reports still share the bounded growth budget.
+    if (JSON.stringify(heights) !== JSON.stringify(slotHeights)) growthReports = 0;
+    slotHeights = heights;
     slotRequestId = crypto.randomUUID();
     slotRounds = 0;
     slotPositions = '';
