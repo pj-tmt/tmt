@@ -106,6 +106,7 @@ export class Live implements PageBinding {
       deviceName: () => this.registration.deviceName ?? '',
       own: () => this.#admitted.own ?? {},
       connection: () => this.#current,
+      settled: () => this.#settled(),
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () => !this.#closed && !this.#error && !this.#opening?.pending,
       scope: () => (this.#error ? 'blocked' : disclosureScope(this.#connection)),
@@ -533,8 +534,19 @@ export class Live implements PageBinding {
       });
     };
   }
-  async export(): Promise<ExportBundle> {
+  /** The connection to take the page revision from. A combine another device made reaches this
+   * connection as a notice only. When the serve holds a checkpoint this connection has not
+   * recorded, reopen once: catch-up admits that checkpoint and verifies it. Nothing retries, and
+   * nothing reopens on a timer; the caller decides what a cut still unseen afterwards means. */
+  async #settled(): Promise<Connection> {
     const c = await this.#current;
+    if (this.#closed || this.#error || c !== this.#connection || !c.objects.hasUnseenCut())
+      return c;
+    this.#failed(new Error('RESYNC_REQUIRED'));
+    return this.#current;
+  }
+  async export(): Promise<ExportBundle> {
+    const c = await this.#settled();
     const view = await c.run(async () => {
       requireValue(!this.#closed && !this.#error && c === this.#connection);
       const a = c.admission;

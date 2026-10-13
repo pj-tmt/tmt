@@ -3224,6 +3224,27 @@ fn receive_batch(
     }
     entries
 }
+/// The notices a combine sent to this peer, one frame per namespace: the identity of a stored
+/// checkpoint and nothing else. Each frame is released as a browser does.
+fn receive_announced(
+    server: &Running,
+    peer: &mut WebSocket<UnixStream>,
+    namespaces: &[&str],
+) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for namespace in namespaces {
+        let frame = receive(peer);
+        send(peer, server.frame("ack", json!({"cursors":[]})));
+        assert_eq!(frame["type"], "checkpoint", "{frame}");
+        assert_eq!(frame["namespace"], *namespace, "{frame}");
+        assert!(
+            frame.get("envelope").is_none(),
+            "a notice has no envelope: {frame}"
+        );
+        frames.push(frame);
+    }
+    frames
+}
 
 #[test]
 fn root_local_attachment_read_is_refused_for_remote_callers_and_never_opens_storage() {
@@ -3782,6 +3803,8 @@ fn a_batch_wider_than_the_send_queue_delivers_in_order_without_replacing_the_liv
             values::encode_binary(frozen.chain())
         );
     }
+    // The combine that stored the checkpoint at 9 is announced after the batch.
+    receive_announced(&server, &mut peer, &["content"]);
     peer.send(Message::Ping(vec![9].into())).unwrap();
     assert!(
         matches!(peer.read().unwrap(), Message::Pong(_)),
@@ -4256,9 +4279,13 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
     // Both healthy peers drain concurrently; leaving one unread during the other's
     // deliberate credit probes would exercise the separate stalled-write deadline.
     std::thread::scope(|scope| {
-        let other =
-            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let other = scope.spawn(|| {
+            let batch = receive_batch(&server, &mut second, entries, &mut second_cursor);
+            receive_announced(&server, &mut second, &["content"]);
+            batch
+        });
         let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
+        receive_announced(&server, &mut first, &["content"]);
         assert_eq!(other.join().unwrap(), delivered);
     });
     assert!(native_source(&layout, &key) == source);
@@ -4272,9 +4299,13 @@ fn a_one_and_a_half_mib_browser_save_uploads_in_chunks_and_every_peer_follows() 
     // Both healthy peers drain concurrently; leaving one unread during the other's
     // deliberate credit probes would exercise the separate stalled-write deadline.
     std::thread::scope(|scope| {
-        let other =
-            scope.spawn(|| receive_batch(&server, &mut second, entries, &mut second_cursor));
+        let other = scope.spawn(|| {
+            let batch = receive_batch(&server, &mut second, entries, &mut second_cursor);
+            receive_announced(&server, &mut second, &["content"]);
+            batch
+        });
         let delivered = receive_batch(&server, &mut first, entries, &mut first_cursor);
+        receive_announced(&server, &mut first, &["content"]);
         assert_eq!(other.join().unwrap(), delivered);
     });
     assert!(native_source(&layout, &key) == next);
@@ -4939,6 +4970,14 @@ fn a_requested_compaction_runs_in_the_serve_for_the_local_cli_only_and_keeps_liv
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     assert_eq!(report.source_sha256, hex);
+    // The live peer is told of the checkpoint the combine stored: the stream, the namespace and
+    // the sequence it covers, and nothing of the checkpoint itself.
+    // (A browser that later needs the page revision learns the checkpoint through catch-up.)
+    let (announced, _) = receive_until(&mut peer, "checkpoint");
+    assert_eq!(announced["streamId"], report.by.as_str(), "{announced}");
+    assert_eq!(announced["namespace"], "content", "{announced}");
+    assert_eq!(announced["seq"], report.through.to_string(), "{announced}");
+    assert!(announced.get("envelope").is_none(), "{announced}");
     let again = page::compact_ipc::request(&layout, PAGE).unwrap();
     assert!(!again.compacted, "{again:?}");
     assert_eq!(
@@ -4946,7 +4985,8 @@ fn a_requested_compaction_runs_in_the_serve_for_the_local_cli_only_and_keeps_liv
         Some(page::compact::Skipped::NothingToCombine)
     );
 
-    // The live peer survived, a write after the combine reaches it, and the source is exact.
+    // The live peer survived (nothing more was announced for a combine that changed nothing), a
+    // write after the combine reaches it, and the source is exact.
     peer.send(Message::Ping(vec![7].into())).unwrap();
     assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
     last = "<h1>After the combine</h1>".into();
@@ -4961,6 +5001,52 @@ fn a_requested_compaction_runs_in_the_serve_for_the_local_cli_only_and_keeps_liv
     assert_eq!(
         page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
         last
+    );
+}
+
+#[test]
+fn the_automatic_combine_of_a_write_announces_its_checkpoint_to_live_peers() {
+    use tmt_colab::{page, publication::Outcome};
+    let (server, layout, key, mut peer) = publish_fixture();
+    // The root-local stream combines itself once 50 updates sit after its last checkpoint.
+    let writes = tmt_colab::page::compact::TRIGGER_UPDATES + 2;
+    let mut announced = Vec::new();
+    let mut broadcasts = 0;
+    for i in 0..writes {
+        let frozen = prepare_write(&layout, &key, &format!("<h1>Source {i}</h1>"));
+        let published = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+        assert!(matches!(
+            published.record.outcome,
+            Outcome::Committed { .. }
+        ));
+        // The write's broadcast, and after it the checkpoint its combine stored. Each frame
+        // releases its own credit, as a browser does.
+        let mut broadcast = false;
+        while !broadcast {
+            let frame = receive(&mut peer);
+            send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+            match frame["type"].as_str() {
+                Some("broadcast") => {
+                    broadcasts += 1;
+                    broadcast = true;
+                }
+                Some("checkpoint") => announced.push((broadcasts, frame)),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    }
+    assert_eq!(announced.len(), 1, "one combine, one announcement");
+    let (after_broadcasts, frame) = &announced[0];
+    assert_eq!(frame["namespace"], "content", "{frame}");
+    let seq: usize = frame["seq"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        seq,
+        tmt_colab::page::compact::TRIGGER_UPDATES,
+        "it covers the stream up to the write that triggered it"
+    );
+    assert_eq!(
+        *after_broadcasts, seq,
+        "announced right after the update it stands at"
     );
 }
 
@@ -4985,9 +5071,16 @@ fn an_owner_device_asks_for_usage_and_a_combine_and_a_public_reader_cannot() {
     assert!(usage.get("error").is_none(), "{usage}");
 
     send(&mut peer, server.frame("compact", json!({})));
-    let (combined, _) = receive_until(&mut peer, "compactresult");
+    let (combined, before_reply) = receive_until(&mut peer, "compactresult");
     let report = &combined["report"];
     assert_eq!(report["compacted"], true, "{combined}");
+    // The checkpoint reaches the asking device too, before the reply that says it was stored.
+    assert!(
+        before_reply
+            .iter()
+            .any(|frame| frame["type"] == "checkpoint" && frame["namespace"] == "content"),
+        "{before_reply:?}"
+    );
     assert_eq!(
         report["before"], usage["usage"],
         "the report starts where usage ended"

@@ -20,6 +20,19 @@ use tungstenite::{
 use wire::Frame;
 pub use wire::SyncScope;
 
+/// A combine of the root-local stream that ran with a commit: whose stream, and the sequence its
+/// checkpoints now cover.
+pub struct Combined {
+    pub stream: String,
+    pub through: u64,
+}
+/// What one commit under the writer produced: the publication, the page revision read while no
+/// other writer could run, and the combine that followed it, if one ran.
+pub struct Commit {
+    pub committed: crate::page::PublicationCommitted,
+    pub revision: Option<String>,
+    pub combined: Option<Combined>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Code {
@@ -110,7 +123,7 @@ pub trait Admission: Send {
         _chain: &[u8],
         _now: u64,
         _combine_until: Instant,
-    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+    ) -> crate::Result<Commit> {
         Err(crate::page::Fault::Denied.into())
     }
     /// What the root-local stream recorded for an operation a browser chose. Read-only.
@@ -538,7 +551,11 @@ impl Server<crate::registration::OwnerAdmission> {
         let chain = values::binary(&write.chain, publication::CHAIN_BYTES)?;
         let outputs = broadcasts(job, &packet, &write.chain, &author)?;
         let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
-        let (committed, revision) = state
+        let Commit {
+            committed,
+            revision,
+            combined,
+        } = state
             .admission
             .0
             .lock()
@@ -551,6 +568,9 @@ impl Server<crate::registration::OwnerAdmission> {
             )
         {
             state.fanout_delivery(&outputs.0, outputs.1);
+            if let Some(combined) = &combined {
+                state.announce_combined(&outputs.0, combined);
+            }
         }
         Ok(crate::page::Published {
             record: committed.record,
@@ -568,9 +588,36 @@ impl Server<crate::registration::OwnerAdmission> {
     ) -> crate::Result<crate::page::compact::Report> {
         use crate::page::Fault;
         values::generated_id(page).map_err(|_| Fault::Invalid)?;
-        let state = self.0.lock().map_err(|_| Fault::Unavailable)?;
-        let mut admission = state.admission.0.lock().map_err(|_| Fault::Unavailable)?;
-        admission.compact(page, received + limits::COMPACT_COMBINE)
+        let mut state = self.0.lock().map_err(|_| Fault::Unavailable)?;
+        let report = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| Fault::Unavailable)?
+            .compact(page, received + limits::COMPACT_COMBINE)?;
+        if report.compacted {
+            // Whoever is subscribed to this page learns of the checkpoints, in whichever scope.
+            let mut scopes: Vec<SyncScope> = Vec::new();
+            for scope in state
+                .peers
+                .values()
+                .filter(|peer| peer.subscribed)
+                .filter_map(|peer| peer.scope.as_ref())
+                .filter(|scope| scope.page == page)
+            {
+                if !scopes.contains(scope) {
+                    scopes.push(scope.clone());
+                }
+            }
+            let combined = Combined {
+                stream: report.by.clone(),
+                through: report.through,
+            };
+            for scope in scopes {
+                state.announce_combined(&scope, &combined);
+            }
+        }
+        Ok(report)
     }
 }
 impl<A: Admission> Server<A> {
@@ -1059,10 +1106,22 @@ impl<A: Admission> State<A> {
                 if self.peers[&id].incoming.is_some() {
                     return Err(Code::Invalid);
                 }
-                let result = self
+                let report = self
                     .admission
-                    .compact(&scope.page, now + limits::COMPACT_COMBINE)
-                    .map(|report| serde_json::json!({ "report": report }));
+                    .compact(&scope.page, now + limits::COMPACT_COMBINE);
+                // The checkpoints reach every subscriber, this one included, before the reply.
+                if let Ok(report) = &report
+                    && report.compacted
+                {
+                    self.announce_combined(
+                        &scope,
+                        &Combined {
+                            stream: report.by.clone(),
+                            through: report.through,
+                        },
+                    );
+                }
+                let result = report.map(|report| serde_json::json!({ "report": report }));
                 self.reply_page(id, &scope, "compactresult", result)?;
             }
             Frame::SaveStatus { operation_id, .. } => {
@@ -1210,7 +1269,11 @@ impl<A: Admission> State<A> {
                 &values::encode_binary(write.chain()),
                 &author,
             )?;
-            let (committed, revision) = self.admission.commit_save(
+            let Commit {
+                committed,
+                revision,
+                combined,
+            } = self.admission.commit_save(
                 write.job(),
                 write.packet(),
                 write.chain(),
@@ -1231,7 +1294,7 @@ impl<A: Admission> State<A> {
                     }
                     None => SaveResult::committed(&operation, revision),
                 },
-                fan_out.then_some(outputs),
+                fan_out.then_some((outputs, combined)),
             ))
         })();
         let (reply, outputs) = match done {
@@ -1251,10 +1314,62 @@ impl<A: Admission> State<A> {
         // Under this lock hold the commit and the removal are one step for a status request.
         self.unsave(job);
         self.reply_save(id, &job.scope, &reply)?;
-        if let Some((scope, delivery)) = outputs {
+        if let Some(((scope, delivery), combined)) = outputs {
             self.fanout_delivery(&scope, delivery);
+            if let Some(combined) = &combined {
+                self.announce_combined(&scope, combined);
+            }
         }
         Ok(SaveFinish::Replied)
+    }
+    /// Tell the page's subscribers that a stream holds a checkpoint for `namespace`, if it holds a
+    /// stored and paired one covering `through`. The notice carries the checkpoint's identity and
+    /// nothing else: it grants nothing and moves no browser's view. A browser that later needs the
+    /// page revision, which counts every checkpoint the serve holds, learns the checkpoint
+    /// through catch-up, which verifies it.
+    fn announce_checkpoint(
+        &mut self,
+        scope: &SyncScope,
+        stream: &str,
+        namespace: store::Namespace,
+        through: u64,
+    ) {
+        let Ok(epoch) = values::decimal(&scope.epoch, false) else {
+            return;
+        };
+        let stream_scope = StreamScope {
+            page: &scope.page,
+            epoch,
+            stream,
+        };
+        // The latest paired checkpoint is what the store hands a peer that starts from nothing.
+        let Ok(Some(object)) =
+            self.store
+                .namespace_next(stream_scope, namespace, store::NamespaceCursor::default())
+        else {
+            return;
+        };
+        if !object.checkpoint || object.cursor.seq != through {
+            return;
+        }
+        let Ok(notice) = wire::output(
+            scope,
+            "checkpoint",
+            serde_json::json!({
+                "streamId": stream, "namespace": namespace.name(),
+                "seq": object.cursor.seq.to_string(),
+                "envelopeHash": values::encode_binary(&object.cursor.hash),
+            }),
+        ) else {
+            return;
+        };
+        self.fanout_delivery(scope, Delivery::Frame(notice));
+    }
+    /// The checkpoints a combine of the root-local stream stored, for every subscriber of `scope`.
+    fn announce_combined(&mut self, scope: &SyncScope, combined: &Combined) {
+        for namespace in [store::Namespace::Content, store::Namespace::Own] {
+            self.announce_checkpoint(scope, &combined.stream, namespace, combined.through);
+        }
     }
     fn resolve(&self, scope: &SyncScope, cursor: &wire::SyncCursor) -> Result<(), Code> {
         self.store.resolve_cursor(
@@ -1598,10 +1713,13 @@ impl<A: Admission> State<A> {
             bytes: &bytes,
         };
         if c.kind == "checkpoint" {
-            // Peers already hold every update a checkpoint covers, so nothing is broadcast;
-            // the store prunes the covered prefix once the checkpoint pairs.
-            self.store.checkpoint(&stored)?;
+            // The store prunes the covered prefix once the checkpoint pairs. Peers already hold
+            // every update it covers, so once stored it is announced only for their cut.
+            let accepted = self.store.checkpoint(&stored)?;
             self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
+            if accepted == Accepted::New {
+                self.announce_checkpoint(scope, principal, ns, sequence);
+            }
             return Ok(());
         }
         let (envelope, transfer) = delivery(scope, hash, bytes.clone())?;

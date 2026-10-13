@@ -1560,7 +1560,9 @@ decoder child merges only that stream's updates with `merge_updates_v1` (a devic
 depend on structs another device wrote, so the merge does not build or project the page), the
 device seals a checkpoint per namespace at its stream head, and the store prunes the covered
 prefix when both namespaces are paired. Other devices' streams are never touched. Combining is
-best effort and repeatable. Before publishing either checkpoint, the owner decodes the page with
+best effort and repeatable. The serve tells live subscribers which checkpoints it
+stored (`checkpoint` notice, see the sync frames); an open browser settles that
+before a read fenced by the page revision. Before publishing either checkpoint, the owner decodes the page with
 the candidate merged streams and requires its HTML, complete metadata and every writer's own
 projection to equal the current page. A mismatch or decoder failure publishes nothing and leaves
 the write durable and every update in place.
@@ -2466,6 +2468,7 @@ operations are:
 | `compactresult` | `report` (the compaction report) or `error: {code, message}`; the one reply to a `compact`                                                      |
 | `receipt`       | `streamId, seq, envelopeHash`; durable acceptance, not task completion                                                                          |
 | `broadcast`     | `streamId, seq, envelopeHash, envelope`; subscriber must verify before applying                                                                 |
+| `checkpoint`    | `streamId, namespace, seq, envelopeHash`; a notice that the serve stored a paired checkpoint; grants nothing                                    |
 | `ack`           | `cursors`; scoped delivery positions only                                                                                                       |
 | `awareness`     | `device, data`; bounded ephemeral presence, never persisted or authority                                                                        |
 | `error`         | `code`; one of DENIED, EXPIRED, STALE_EPOCH, INVALID, GAP, CAPACITY, CONFLICT, RESYNC_REQUIRED                                                  |
@@ -2482,18 +2485,18 @@ Every client message is one UTF-8 JSON object with exactly the common fields
 Epoch is a positive canonical decimal string. Duplicate/unknown fields, nulls,
 wrong types, noncanonical values and unsupported operations reject.
 
-| Client type  | Exact additional fields                                                 | Implemented behavior                                                                                                                                                                                                                                                                          |
-| ------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hello`      | `device, membershipRevision, cursors`                                   | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.                                                                                                                                                                               |
-| `subscribe`  | `cursors`                                                               | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                                                                                                                                                                                       |
-| `append`     | `streamId, seq, envelopeHash, envelope`                                 | Inline update or object reference; verify complete exact bytes and durably append before receipt. Kind `checkpoint` is accepted only for the sender's own stream, namespace `own`, at its head (`streamSeq` the head, `prevHash` the head hash); it is stored and receipted, never broadcast. |
-| `chunk`      | `objectId, envelopeHash, index, count, bytes`                           | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                          |
-| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                         |
-| `savestatus` | `operationId`                                                           | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                      |
-| `usage`      | none                                                                    | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                         |
-| `compact`    | none                                                                    | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                             |
-| `ack`        | `cursors`                                                               | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                    |
-| `awareness`  | `device, data`                                                          | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                                                                                                                                                                                                 |
+| Client type  | Exact additional fields                                                 | Implemented behavior                                                                                                                                                                                                                                                                                                                         |
+| ------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`      | `device, membershipRevision, cursors`                                   | Device matches principal; one successful hello per connection starts server-driven catchup, then live delivery.                                                                                                                                                                                                                              |
+| `subscribe`  | `cursors`                                                               | Empty list starts live delivery; nonempty list resolves cursors and starts catchup, then live delivery.                                                                                                                                                                                                                                      |
+| `append`     | `streamId, seq, envelopeHash, envelope`                                 | Inline update or object reference; verify complete exact bytes and durably append before receipt. Kind `checkpoint` is accepted only for the sender's own stream, namespace `own`, at its head (`streamSeq` the head, `prevHash` the head hash); it is stored and receipted, then announced to subscribers as a `checkpoint` notice (below). |
+| `chunk`      | `objectId, envelopeHash, index, count, bytes`                           | Complete the connection's pending referenced append or save; no standalone upload or partial append.                                                                                                                                                                                                                                         |
+| `save`       | `operationId, baseSha256, sourceSha256, source[, attachments \| hunks]` | Owner device only. Inline source or `{objectId}` plus chunks; see Browser Save below.                                                                                                                                                                                                                                                        |
+| `savestatus` | `operationId`                                                           | Owner device only. Answers from the root-local operation record; see Browser Save below.                                                                                                                                                                                                                                                     |
+| `usage`      | none                                                                    | Owner device only. One `usageresult` from the serve's own snapshot; no state changes.                                                                                                                                                                                                                                                        |
+| `compact`    | none                                                                    | Owner device only. One `compactresult` after the same combine `tmt colab page compact` runs, under the sync lock.                                                                                                                                                                                                                            |
+| `ack`        | `cursors`                                                               | Resolve retained scoped positions and release one frame credit; no deletion, core acknowledgment or application authority.                                                                                                                                                                                                                   |
+| `awareness`  | `device, data`                                                          | Device matches principal; at most 4 KiB canonical base64url bytes, ephemeral.                                                                                                                                                                                                                                                                |
 
 `cursors` has at most 256 strict objects `{streamId, namespace, seq, envelopeHash}`,
 unique by stream/namespace. Sequence zero is an explicit bootstrap sentinel and
@@ -2521,6 +2524,22 @@ Server `receipt` has `streamId, seq, envelopeHash`; `broadcast` additionally has
 `envelope` in the same inline/reference shape. Both use the common fields.
 New appends broadcast to admitted subscribers, including the subscribed sender;
 exact retries return the original receipt without a second broadcast. Server
+`checkpoint` has `streamId, namespace` (`content` or `own`), `seq` and
+`envelopeHash`, and nothing else: it names a checkpoint and carries none of it.
+The serve sends it to admitted subscribers only after the checkpoint is stored and
+paired, right after the receipt or result of whatever stored it: a browser's
+checkpoint `append`, a `save`, a `compact`, `tmt colab page compact` or the combine
+after a native write. An exact retry of a stored checkpoint sends nothing. A notice
+grants nothing. A subscriber records it as an unseen cut, unless it already holds
+that cut or a later one (a stale notice changes nothing); editing, rendering and
+Save continue unchanged, and no cursor, cut or revision moves. The page revision
+counts every checkpoint the serve holds, so a read fenced by that revision (a
+document file, the export) first settles an unseen cut: the subscriber reopens its
+connection once, and catch-up admits the checkpoint, verifying everything it
+verifies today. A cut still unseen after that one reopen fails the read as
+`changed`; nothing reopens a second time or on a timer. An ordinary reload or
+reconnect admits checkpoints through catch-up as always. A notice that is not
+exactly this shape closes the connection. Server
 awareness has `device, data`. Scoped errors have `code` from the table above.
 Malformed, oversized, binary or inbound server-only frames close with code 1008
 and reason `INVALID`. Capacity never evicts accepted receipts or payloads.
