@@ -11,7 +11,7 @@ use std::{
 use tar::{Builder, EntryType, Header};
 
 const TARGET: &str = "aarch64-apple-darwin";
-const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
+const OPS_PAYLOAD: &[u8] = b"#!/bin/sh\nexit 0\n";
 
 #[path = "companion_archive_tests.rs"]
 mod companion_archive_tests;
@@ -187,23 +187,23 @@ fn product_fixture_at(
     }
 }
 
-fn office_fixture() -> Fixture {
-    office_fixture_with_payload(OFFICE_PAYLOAD)
+fn ops_fixture() -> Fixture {
+    ops_fixture_with_payload(OPS_PAYLOAD)
 }
 
-fn office_fixture_with_payload(payload: &[u8]) -> Fixture {
+fn ops_fixture_with_payload(payload: &[u8]) -> Fixture {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let mut entries = valid_entries(root);
     entries[0] = Entry::File {
-        path: format!("{root}/tmt-office"),
+        path: format!("{root}/tmt-ops"),
         bytes: payload.to_vec(),
         mode: 0o755,
     };
     product_fixture(
         entries,
-        "tmt-office",
+        "tmt-ops",
         &[
-            "tmt-office",
+            "tmt-ops",
             "LICENSE",
             "NATIVE-INSTALL.md",
             "THIRD-PARTY-NOTICES.txt",
@@ -226,17 +226,9 @@ fn install_fixture(
             channel: tmt_core::native_install::Channel::Stable,
             pin: tmt_core::native_install::PinAction::Preserve,
         },
-        product
-            .requires_release_verifier()
-            .then_some(&accept_release as super::ReleaseVerifier<'_>),
+        None,
         || Ok(()),
     )
-}
-
-/// Stands in for the product owner's check; the Office handshake itself is
-/// tested with the Office commands that own it.
-fn accept_release(_: &std::path::Path, _: &semver::Version) -> io::Result<()> {
-    Ok(())
 }
 
 fn extension_fixture(product: super::Product, version: &str, payload: &[u8]) -> Fixture {
@@ -401,9 +393,9 @@ fn interrupted_extension_activation_retains_the_previous_receipt_and_cleans_stag
 }
 
 #[test]
-fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
+fn ops_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
-    let office = office_fixture();
+    let ops = ops_fixture();
     let prefix = cli.directory.path.join("prefix");
     let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
     let cli_receipt = fs::read(
@@ -415,20 +407,20 @@ fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
     )
     .unwrap();
     let cli_pointer = fs::read_link(prefix.join("lib/tmt/current")).unwrap();
-    let office_report = install_fixture(&office, &prefix, super::Product::Office).unwrap();
-    assert!(office_report.changed);
+    let ops_report = install_fixture(&ops, &prefix, super::Product::Ops).unwrap();
+    assert!(ops_report.changed);
     assert_eq!(
-        office_report.executable,
-        fs::canonicalize(&prefix).unwrap().join("bin/tmt-office")
+        ops_report.executable,
+        fs::canonicalize(&prefix).unwrap().join("bin/tmt-ops")
     );
-    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
+    assert_eq!(fs::read(&ops_report.executable).unwrap(), OPS_PAYLOAD);
     assert_eq!(
-        fs::read_link(&office_report.executable).unwrap(),
-        PathBuf::from("../lib/tmt-office/current/tmt-office")
+        fs::read_link(&ops_report.executable).unwrap(),
+        PathBuf::from("../lib/tmt-ops/current/tmt-ops")
     );
-    let retry = install_fixture(&office, &prefix, super::Product::Office).unwrap();
+    let retry = install_fixture(&ops, &prefix, super::Product::Ops).unwrap();
     assert!(!retry.changed);
-    assert_eq!(retry.active_executable, office_report.active_executable);
+    assert_eq!(retry.active_executable, ops_report.active_executable);
     assert_eq!(
         fs::read_link(prefix.join("lib/tmt/current")).unwrap(),
         cli_pointer
@@ -449,18 +441,18 @@ fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
         cli_receipt
     );
     super::inspect(&cli_report.executable).unwrap();
-    super::inspect_product(super::Product::Office, &office_report.executable).unwrap();
-    assert!(super::inspect(&office_report.executable).is_err());
-    assert!(super::inspect_product(super::Product::Office, &cli_report.executable).is_err());
+    super::inspect_product(super::Product::Ops, &ops_report.executable).unwrap();
+    assert!(super::inspect(&ops_report.executable).is_err());
+    assert!(super::inspect_product(super::Product::Ops, &cli_report.executable).is_err());
 }
 
 #[test]
 fn cross_product_archives_are_rejected_before_creating_installation_prefix() {
     for (fixture, product) in [
-        (office_fixture(), super::Product::Cli),
+        (ops_fixture(), super::Product::Cli),
         (
             fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin")),
-            super::Product::Office,
+            super::Product::Ops,
         ),
     ] {
         let prefix = fixture.directory.path.join("prefix");
@@ -471,26 +463,26 @@ fn cross_product_archives_are_rejected_before_creating_installation_prefix() {
 }
 
 #[test]
-fn interrupted_office_pin_preserves_both_active_releases() {
+fn interrupted_ops_pin_preserves_both_active_releases() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
-    let office = office_fixture();
+    let ops = ops_fixture();
     let prefix = cli.directory.path.join("prefix");
     let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
-    let office_report = install_fixture(&office, &prefix, super::Product::Office).unwrap();
-    let office_root = prefix.join("lib/tmt-office");
-    let current = fs::read_link(office_root.join("current")).unwrap();
+    let ops_report = install_fixture(&ops, &prefix, super::Product::Ops).unwrap();
+    let ops_root = prefix.join("lib/tmt-ops");
+    let current = fs::read_link(ops_root.join("current")).unwrap();
     let mut calls = 0;
     let error = super::install_product(
-        super::Product::Office,
+        super::Product::Ops,
         super::InstallRequest {
-            archive: &office.archive,
-            manifest: &office.manifest,
+            archive: &ops.archive,
+            manifest: &ops.manifest,
             prefix: &prefix,
             target: TARGET,
             channel: tmt_core::native_install::Channel::Stable,
             pin: tmt_core::native_install::PinAction::PinCandidate,
         },
-        Some(&accept_release),
+        Some(&|_: &std::path::Path, _: &semver::Version| Ok(())),
         || {
             calls += 1;
             if calls == 4 {
@@ -506,13 +498,10 @@ fn interrupted_office_pin_preserves_both_active_releases() {
     .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     assert_eq!(calls, 4);
-    assert_eq!(fs::read_link(office_root.join("current")).unwrap(), current);
-    assert_eq!(
-        fs::read_dir(office_root.join("releases")).unwrap().count(),
-        1
-    );
+    assert_eq!(fs::read_link(ops_root.join("current")).unwrap(), current);
+    assert_eq!(fs::read_dir(ops_root.join("releases")).unwrap().count(), 1);
     assert!(
-        super::inspect_product(super::Product::Office, &office_report.executable)
+        super::inspect_product(super::Product::Ops, &ops_report.executable)
             .unwrap()
             .state
             .pinned_version
@@ -524,22 +513,22 @@ fn interrupted_office_pin_preserves_both_active_releases() {
             .active_executable,
         cli_report.active_executable
     );
-    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
+    assert_eq!(fs::read(&ops_report.executable).unwrap(), OPS_PAYLOAD);
 }
 
 #[test]
-fn office_command_collision_does_not_overwrite_user_file_or_cli() {
+fn ops_command_collision_does_not_overwrite_user_file_or_cli() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
-    let office = office_fixture();
+    let ops = ops_fixture();
     let prefix = cli.directory.path.join("prefix");
     let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
-    fs::write(prefix.join("bin/tmt-office"), b"user managed command").unwrap();
-    assert!(install_fixture(&office, &prefix, super::Product::Office).is_err());
+    fs::write(prefix.join("bin/tmt-ops"), b"user managed command").unwrap();
+    assert!(install_fixture(&ops, &prefix, super::Product::Ops).is_err());
     assert_eq!(
-        fs::read(prefix.join("bin/tmt-office")).unwrap(),
+        fs::read(prefix.join("bin/tmt-ops")).unwrap(),
         b"user managed command"
     );
-    assert!(!prefix.join("lib/tmt-office/current").exists());
+    assert!(!prefix.join("lib/tmt-ops/current").exists());
     assert_eq!(
         super::inspect(&cli_report.executable)
             .unwrap()
@@ -566,17 +555,17 @@ fn file_map(entries: &[(&str, &[u8])]) -> BTreeMap<String, Vec<u8>> {
 
 fn multi_product_manifest() -> serde_json::Value {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
-    let office = office_fixture();
+    let ops = ops_fixture();
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&cli.manifest).unwrap()).unwrap();
-    let office_manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(&office.manifest).unwrap()).unwrap();
-    let office_name = "tmt-office-aarch64-apple-darwin.tar.gz";
-    let mut office_asset = office_manifest["artifacts"][&office.name].clone();
-    office_asset["name"] = json!(office_name);
-    manifest["artifacts"][office_name] = office_asset;
+    let ops_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&ops.manifest).unwrap()).unwrap();
+    let ops_name = "tmt-ops-aarch64-apple-darwin.tar.gz";
+    let mut ops_asset = ops_manifest["artifacts"][&ops.name].clone();
+    ops_asset["name"] = json!(ops_name);
+    manifest["artifacts"][ops_name] = ops_asset;
     manifest["releases"].as_array_mut().unwrap().push(json!({
-        "app_name": "tmt-office", "app_version": "0.1.0", "artifacts": [office_name]
+        "app_name": "tmt-ops", "app_version": "0.1.0", "artifacts": [ops_name]
     }));
     manifest
 }
@@ -592,9 +581,9 @@ fn manifest_selection_keeps_products_and_versions_independent_on_the_same_target
         )
     );
     assert_eq!(
-        artifact::select(super::Product::Office, &manifest, TARGET).unwrap(),
+        artifact::select(super::Product::Ops, &manifest, TARGET).unwrap(),
         (
-            "tmt-office-aarch64-apple-darwin.tar.gz".into(),
+            "tmt-ops-aarch64-apple-darwin.tar.gz".into(),
             semver::Version::new(0, 1, 0)
         )
     );
@@ -606,9 +595,9 @@ fn manifest_selection_rejects_cross_product_claims_and_duplicate_candidates() {
     shared["releases"][0]["artifacts"]
         .as_array_mut()
         .unwrap()
-        .push(json!("tmt-office-aarch64-apple-darwin.tar.gz"));
+        .push(json!("tmt-ops-aarch64-apple-darwin.tar.gz"));
     let error = artifact::select(
-        super::Product::Office,
+        super::Product::Ops,
         &serde_json::to_vec(&shared).unwrap(),
         TARGET,
     )
@@ -619,15 +608,15 @@ fn manifest_selection_rejects_cross_product_claims_and_duplicate_candidates() {
     );
 
     let mut duplicate = multi_product_manifest();
-    let mut asset = duplicate["artifacts"]["tmt-office-aarch64-apple-darwin.tar.gz"].clone();
-    asset["name"] = json!("second-office.tar.gz");
-    duplicate["artifacts"]["second-office.tar.gz"] = asset;
+    let mut asset = duplicate["artifacts"]["tmt-ops-aarch64-apple-darwin.tar.gz"].clone();
+    asset["name"] = json!("second-ops.tar.gz");
+    duplicate["artifacts"]["second-ops.tar.gz"] = asset;
     duplicate["releases"][1]["artifacts"]
         .as_array_mut()
         .unwrap()
-        .push(json!("second-office.tar.gz"));
+        .push(json!("second-ops.tar.gz"));
     let error = artifact::select(
-        super::Product::Office,
+        super::Product::Ops,
         &serde_json::to_vec(&duplicate).unwrap(),
         TARGET,
     )
@@ -881,26 +870,26 @@ fn malformed_manifest_is_rejected_without_touching_archive_or_extracting() {
 #[test]
 fn uninstall_preserves_unmanaged_links_and_tampered_releases() {
     use std::os::unix::fs::symlink;
-    let fixture = office_fixture();
+    let fixture = ops_fixture();
     let prefix = fixture.directory.path.join("prefix");
-    let report = install_fixture(&fixture, &prefix, super::Product::Office).unwrap();
+    let report = install_fixture(&fixture, &prefix, super::Product::Ops).unwrap();
     let original_link = fs::read_link(&report.executable).unwrap();
-    let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
+    let pointer = fs::read_link(prefix.join("lib/tmt-ops/current")).unwrap();
     let user_file = fixture.directory.path.join("user-command");
     fs::write(&user_file, b"user content").unwrap();
     fs::remove_file(&report.executable).unwrap();
     symlink(&user_file, &report.executable).unwrap();
-    assert!(super::uninstall_extension(&prefix, super::Product::Office).is_err());
+    assert!(super::uninstall_extension(&prefix, super::Product::Ops).is_err());
     assert_eq!(fs::read_link(&report.executable).unwrap(), user_file);
     assert_eq!(fs::read(&user_file).unwrap(), b"user content");
     assert_eq!(
-        fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
+        fs::read_link(prefix.join("lib/tmt-ops/current")).unwrap(),
         pointer
     );
     fs::remove_file(&report.executable).unwrap();
     symlink(&original_link, &report.executable).unwrap();
     fs::write(&report.active_executable, b"user edited executable").unwrap();
-    let error = super::uninstall_extension(&prefix, super::Product::Office).unwrap_err();
+    let error = super::uninstall_extension(&prefix, super::Product::Ops).unwrap_err();
     assert_eq!(
         error.to_string(),
         "Installed release file has changed; refusing replacement."
@@ -912,10 +901,7 @@ fn uninstall_preserves_unmanaged_links_and_tampered_releases() {
     );
 }
 
-fn office_request<'a>(
-    fixture: &'a Fixture,
-    prefix: &'a std::path::Path,
-) -> super::InstallRequest<'a> {
+fn ops_request<'a>(fixture: &'a Fixture, prefix: &'a std::path::Path) -> super::InstallRequest<'a> {
     super::InstallRequest {
         archive: &fixture.archive,
         manifest: &fixture.manifest,
@@ -927,28 +913,13 @@ fn office_request<'a>(
 }
 
 #[test]
-fn a_product_that_requires_a_verifier_is_refused_without_one_before_any_write() {
-    let office = office_fixture();
-    let prefix = office.directory.path.join("prefix");
-    let error = super::install_product(
-        super::Product::Office,
-        office_request(&office, &prefix),
-        None,
-        || Ok(()),
-    )
-    .unwrap_err();
-    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-    assert!(!prefix.exists());
-}
-
-#[test]
 fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_release() {
-    let office = office_fixture();
-    let prefix = office.directory.path.join("prefix");
-    let previous = install_fixture(&office, &prefix, super::Product::Office).unwrap();
-    let pointer = fs::read_link(prefix.join("lib/tmt-office/current")).unwrap();
+    let ops = ops_fixture();
+    let prefix = ops.directory.path.join("prefix");
+    let previous = install_fixture(&ops, &prefix, super::Product::Ops).unwrap();
+    let pointer = fs::read_link(prefix.join("lib/tmt-ops/current")).unwrap();
 
-    let update = office_fixture_with_payload(b"candidate payload\n");
+    let update = ops_fixture_with_payload(b"candidate payload\n");
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&update.manifest).unwrap()).unwrap();
     manifest["releases"][0]["app_version"] = json!("1.2.4");
@@ -961,7 +932,7 @@ fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_rele
             version.to_string(),
             release.join("receipt.json").exists(),
             fs::canonicalize(release.parent().unwrap()).unwrap()
-                == fs::canonicalize(prefix.join("lib/tmt-office/releases")).unwrap(),
+                == fs::canonicalize(prefix.join("lib/tmt-ops/releases")).unwrap(),
         ));
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -969,8 +940,8 @@ fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_rele
         ))
     };
     let error = super::install_product(
-        super::Product::Office,
-        office_request(&update, &prefix),
+        super::Product::Ops,
+        ops_request(&update, &prefix),
         Some(&verifier),
         || Ok(()),
     )
@@ -981,15 +952,12 @@ fn verifier_sees_the_written_candidate_and_its_rejection_keeps_the_previous_rele
         Some((b"candidate payload\n".to_vec(), "1.2.4".into(), false, true))
     );
     assert_eq!(
-        fs::read_link(prefix.join("lib/tmt-office/current")).unwrap(),
+        fs::read_link(prefix.join("lib/tmt-ops/current")).unwrap(),
         pointer
     );
+    assert_eq!(fs::read(&previous.active_executable).unwrap(), OPS_PAYLOAD);
     assert_eq!(
-        fs::read(&previous.active_executable).unwrap(),
-        OFFICE_PAYLOAD
-    );
-    assert_eq!(
-        fs::read_dir(prefix.join("lib/tmt-office/releases"))
+        fs::read_dir(prefix.join("lib/tmt-ops/releases"))
             .unwrap()
             .count(),
         1
@@ -1015,7 +983,7 @@ fn record_release_source(executable: &std::path::Path, repository: &str) {
 #[test]
 fn every_product_reads_former_organization_receipts_and_refuses_the_retired_name() {
     let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
-    let office = office_fixture();
+    let ops = ops_fixture();
     let prefix = cli.directory.path.join("prefix");
     let installed = [
         (
@@ -1023,8 +991,8 @@ fn every_product_reads_former_organization_receipts_and_refuses_the_retired_name
             install_fixture(&cli, &prefix, super::Product::Cli).unwrap(),
         ),
         (
-            super::Product::Office,
-            install_fixture(&office, &prefix, super::Product::Office).unwrap(),
+            super::Product::Ops,
+            install_fixture(&ops, &prefix, super::Product::Ops).unwrap(),
         ),
     ];
     for (product, report) in &installed {

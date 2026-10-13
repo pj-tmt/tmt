@@ -467,7 +467,7 @@ fn removing_the_product_removes_both_prefixes_and_reports_each_command_once() {
 #[test]
 fn only_the_cli_former_prefix_is_a_move() {
     assert!(is_move(Product::Cli));
-    for product in [Product::Ops, Product::Office, Product::Remote] {
+    for product in [Product::Ops, Product::Remote, Product::Colab] {
         assert!(!is_move(product), "{product:?}");
     }
 }

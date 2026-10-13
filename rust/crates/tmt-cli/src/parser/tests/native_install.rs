@@ -141,7 +141,6 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
         );
     }
     for product in [
-        tmt_core::native_install::Product::Office,
         tmt_core::native_install::Product::Remote,
         tmt_core::native_install::Product::Colab,
         tmt_core::native_install::Product::Digest,
@@ -231,7 +230,7 @@ fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
             "--handoff-version",
             "1",
             "--product",
-            "office",
+            "remote",
         ],
     ] {
         assert_eq!(parse_error(&args).code, "USAGE_ERROR");

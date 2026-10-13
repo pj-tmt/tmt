@@ -1,5 +1,5 @@
-//! Squad is a non-Office extension product: the fixed table alone gives it an
-//! installation with two command links, and nothing Office-specific runs.
+//! Ops is an official extension: the fixed table gives it an installation
+//! with its reviewed command links.
 
 use super::*;
 use crate::native_install::{Product, inspect_product, uninstall_extension};
@@ -69,7 +69,7 @@ fn ops_installs_one_link_repeats_as_a_no_op_and_leaves_the_cli_alone() {
     assert!(!again.changed);
     assert_eq!(again.active_executable, report.active_executable);
     inspect_product(Product::Ops, &report.executable).unwrap();
-    assert!(inspect_product(Product::Office, &report.executable).is_err());
+    assert!(inspect_product(Product::Colab, &report.executable).is_err());
     assert_eq!(
         crate::native_install::inspect(&cli_report.executable)
             .unwrap()

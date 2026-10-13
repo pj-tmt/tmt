@@ -557,7 +557,6 @@ mod tests {
         assert_eq!(extension("remote").unwrap(), Product::Remote);
         assert_eq!(extension("colab").unwrap(), Product::Colab);
         assert_eq!(extension("digest").unwrap(), Product::Digest);
-        assert_eq!(extension("office").unwrap(), Product::Office);
         for name in [
             "cli",
             "tmt",
@@ -566,6 +565,7 @@ mod tests {
             "tmt-squad",
             "tmt-sq",
             "unknown",
+            "office",
         ] {
             let error = extension(name).unwrap_err();
             assert_eq!(error.code, "EXTENSION_UNKNOWN");
