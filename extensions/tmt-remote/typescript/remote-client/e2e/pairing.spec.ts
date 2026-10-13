@@ -598,7 +598,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   >;
   expect(device).toMatchObject({ kind: 'browser', origin, name: 'E2E browser', owner: true });
 
-  // The page-facing SDK exposes no caller-chosen extension and keeps the key opaque.
+  // The certificate path exposes no caller-chosen extension and keeps the key opaque.
   const result = await app.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as {
       certifyKey(
@@ -655,6 +655,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'RefusalError',
     'RemoteRegistryError',
     'ReopenSessionError',
+    'bindSyncContext',
     'budget',
     'certifyKey',
     'firebaseRemote',
@@ -664,7 +665,14 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'pairingPage',
     'remoteRegistry',
     'reopenSession',
+    'syncDocumentPath',
     'transportUrl',
+    'validateSyncDiscovery',
+    'validateSyncDocument',
+    'validateSyncFields',
+    'validateSyncMutation',
+    'validateSyncQuery',
+    'verifySealedObject',
   ]);
   expect(result.newRecordHasCache).toBe(false);
   expect(result.again.issuedAtMs).toBe(result.nextTime);
