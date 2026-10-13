@@ -6,7 +6,7 @@ export const CLI_NAMESPACE = 'lib/tmt';
 export const LEGACY_CLI_NAMESPACE = 'lib/tmux-team';
 
 /** Observe the managed command's active release, never a directory-precedence fallback. */
-export function readCliLayout(installationPrefix) {
+export function readCliLayout(installationPrefix, inspectReceiptText = (text) => text) {
   const prefix = fs.realpathSync(installationPrefix);
   const bin = path.join(prefix, 'bin');
   assert.equal(fs.realpathSync(bin), bin, 'Active CLI link escapes owned prefix.');
@@ -32,7 +32,7 @@ export function readCliLayout(installationPrefix) {
   assert(fs.lstatSync(executable).isFile(), 'Active CLI executable must be a regular file.');
   const receiptFile = path.join(release, 'receipt.json');
   assert(fs.lstatSync(receiptFile).isFile(), 'Active CLI receipt must be a regular file.');
-  const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
+  const receipt = JSON.parse(inspectReceiptText(fs.readFileSync(receiptFile, 'utf8')));
   assert(
     receipt !== null &&
       typeof receipt === 'object' &&

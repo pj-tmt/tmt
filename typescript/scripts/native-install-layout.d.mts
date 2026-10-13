@@ -9,4 +9,7 @@ export interface CliLayout {
   executable: string;
   receipt: Record<string, unknown>;
 }
-export function readCliLayout(installationPrefix: string): CliLayout;
+export function readCliLayout(
+  installationPrefix: string,
+  inspectReceiptText?: (text: string) => string
+): CliLayout;

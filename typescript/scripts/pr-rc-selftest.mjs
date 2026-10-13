@@ -319,7 +319,7 @@ function snapshot(directory) {
   return result;
 }
 export function readOwnedReceipt(world) {
-  return JSON.parse(safeEvidence(readCliLayout(path.join(world, 'prefix')).receipt));
+  return readCliLayout(path.join(world, 'prefix'), safeEvidence).receipt;
 }
 function clientEnvironment(world) {
   // Deliberately construct the environment: no host ancestry, providers, legacy home or token alias.

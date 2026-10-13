@@ -264,6 +264,10 @@ describe('one-shot PR RC reader qualification', () => {
         fs.symlinkSync(`releases/${id}`, path.join(root, 'current'));
         fs.symlinkSync(`../${namespace}/current/tmt`, path.join(prefix, 'bin/tmt'));
         expect(readOwnedReceipt(world)).toEqual(expected);
+        // Scan raw bytes before parsing: malformed evidence must not print a credential in its error.
+        fs.writeFileSync(path.join(active, 'receipt.json'), '{"bad":"ghp_' + 'x'.repeat(30));
+        expect(() => readOwnedReceipt(world)).toThrow('possible credential');
+        fs.writeFileSync(path.join(active, 'receipt.json'), JSON.stringify(expected));
         fs.unlinkSync(path.join(root, 'current'));
         fs.symlinkSync(world, path.join(root, 'current'));
         expect(() => readOwnedReceipt(world)).toThrow('escapes owned prefix');
