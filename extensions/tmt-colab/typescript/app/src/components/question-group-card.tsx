@@ -172,9 +172,11 @@ export function QuestionGroupCard({
   const complete = rows.filter((row) => row.answer || row.body).length;
   const sendingCount = sending.length || pending.length;
   const sendLabel =
-    members.length === 1
-      ? 'Send answer'
-      : `Send ${sendingCount} ${sendingCount === 1 ? 'answer' : 'answers'}`;
+    sendingCount === 0
+      ? 'Send answers'
+      : members.length === 1
+        ? 'Send answer'
+        : `Send ${sendingCount} ${sendingCount === 1 ? 'answer' : 'answers'}`;
   const disabled = blocked || readOnly || !!sending.length || !discussion;
   async function send() {
     if (busy.current || disabled || !decision.allowed || !pending.length || !attached) return;

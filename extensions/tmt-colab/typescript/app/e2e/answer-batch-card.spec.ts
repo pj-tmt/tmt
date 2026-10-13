@@ -37,6 +37,29 @@ async function recorded(page: Page, count: number) {
     .toBe(count);
 }
 
+test('no eligible answer uses a disabled Send answers action for empty and recorded groups', async ({
+  page,
+}) => {
+  for (const count of [1, 3]) {
+    const group = await mount(page, { count }, { agents: [] });
+    const empty = group.getByRole('button', { name: 'Send answers · to thread only', exact: true });
+    await expect(empty).toHaveText('Send answers');
+    await expect(empty).toBeDisabled();
+    await card(page).getByLabel('Keep it', { exact: true }).check();
+    const label = count === 1 ? 'Send answer' : 'Send 1 answer';
+    const send = group.getByRole('button', { name: `${label} · to thread only`, exact: true });
+    await expect(send).toBeEnabled();
+    await send.click();
+    await recorded(page, 1);
+    await expect(
+      card(page).getByRole('button', { name: 'Change answer', exact: true }),
+    ).toBeVisible();
+    await expect(empty).toHaveText('Send answers');
+    await expect(empty).toBeDisabled();
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+  }
+});
+
 test('three comments make one Ask per distinct recipient; only the canonical tab renders replies, including after reload', async ({
   page,
 }) => {
@@ -210,7 +233,7 @@ test('partial Send publishes only complete drafts; a later Send leaves earlier c
   expect(after).toHaveLength(2);
   await group.getByRole('tab').nth(1).click();
   await expect(card(page).getByLabel('Your answer', { exact: true })).toHaveValue('');
-  await expect(group.getByRole('button', { name: /^Send 0 answers/ })).toBeDisabled();
+  await expect(group.getByRole('button', { name: /^Send answers · to/ })).toBeDisabled();
 });
 
 for (const recordBeforeFail of [false, true]) {
@@ -455,7 +478,8 @@ for (const [width, theme] of [
           })
           .toBe(true);
         const directory = process.env.COLAB_QUESTION_CAPTURE_DIR;
-        if (directory) {
+        const states = process.env.COLAB_BATCH_CAPTURE_STATES?.split(',');
+        if (directory && (!states || states.includes(state))) {
           mkdirSync(directory, { recursive: true });
           await page.screenshot({
             path: `${directory}/batch-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,

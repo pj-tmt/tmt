@@ -877,9 +877,9 @@ test('answer blocks publish verified normal annotations and keep changes and age
     const page = await openPage(door, browser, created);
     const card = page.locator('.question-group-card');
     await expect(
-      card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
+      card.getByRole('button', { name: 'Send answers · to @answer-agent', exact: true }),
     ).toBeVisible();
-    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answers');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await expect(card.locator('.question-state')).toContainText('answered');
