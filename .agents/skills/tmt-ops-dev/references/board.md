@@ -128,10 +128,14 @@ only, no squad data.
 preferences and actual minimum usable sizes. Squad expansion is keyed by room
 UUID, not a per-tab pane fold. Retired factory/pane/tab settings remain authored
 configuration with located migration notices; they do not create a legacy UI.
+Config bindings and direct source/menu actions share that retirement admission,
+so an action cannot reopen the old surface or implicitly redirect to a lead.
 The independent split/markup readers remain separately tested for CLI projection
 and offline authoring contracts. The old grid/boxed-list painters, width/model
 carry cache and duplicated renderer timing harness are removed; workspace
 performance measurements use the actual App/render/buffer-diff path.
+The former factory-pane composition/cache is removed with its frame route;
+CLI factory-value tests do not invoke interactive geometry.
 
 `board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
 pointer areas. Tree starts, reveal and clipped hits share that viewport. Following
@@ -250,7 +254,7 @@ board never loads the file. The shipped skill owns the
 [development.md](development.md#checks) owns commands and capture requirements;
 [TUI development](../../tmt-tui/references/development.md#board-parity-baseline) owns
 the frozen parity approval/regeneration gate. Relevant tests live in `view/tests`
-(cells, styles, hits, footer, menu and parity), `composition`, `scroll`, `app`,
+(cells, styles, hits, footer, menu and parity), `workspace`, `scroll`, `app`,
 `markup` and `layout`. Text-list projection is corroborated by the native Squad test.
 
 ## Checklist controller

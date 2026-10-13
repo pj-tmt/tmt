@@ -1306,6 +1306,43 @@ fn member_footer_names_the_default_host_action_without_an_open_alias() {
 }
 
 #[test]
+fn retired_source_actions_cannot_open_legacy_ui_or_redirect_the_selected_target() {
+    for text in [
+        "pick-tab",
+        "view",
+        "notes",
+        "home-message",
+        "home-write",
+        "home-pick",
+        "ask-lead",
+        "toggle detail",
+        "tab",
+        "jump lead",
+    ] {
+        let mut app = board();
+        let selected = app.workspace.selected.clone();
+        let action = crate::action::Action::parse(text).unwrap();
+        assert_eq!(app.perform(&action), Effect::None, "{text}");
+        assert!(
+            app.notice
+                .as_ref()
+                .is_some_and(|notice| notice.contains("retired")
+                    || notice.contains("implicit lead targeting")),
+            "{text}: {:?}",
+            app.notice
+        );
+        assert_eq!(app.workspace.selected, selected, "{text}");
+        assert!(
+            app.input.is_none()
+                && app.menu.is_none()
+                && app.switcher.is_none()
+                && app.view_picker.is_none(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
 fn repeated_membership_selection_keeps_its_room_context_and_exact_row_data() {
     const OTHER_ROOM: &str = "77777777-7777-4777-8777-777777777777";
     let mut app = board();

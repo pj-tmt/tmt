@@ -99,8 +99,7 @@ pub struct View {
     /// Retained home composition; only the aggregate board view owns it.
     pub home: Option<super::home::Home>,
     pub(super) derived: RefCell<super::derived::Derived>,
-    /// Geometry is read by input/focus while row painters borrow their own cache.
-    pub(super) composition: RefCell<Option<super::composition::Cache>>,
+    /// Authored CLI row projection, independent of interactive workspace geometry.
     pub rows: crate::rows::Rows,
     pub board: Board,
     /// The full-reload interval; `None` reloads only on ctrl-r and actions.
@@ -2371,6 +2370,9 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if let Err(error) = crate::config::admit_workspace_action(action, "action") {
+            return self.say(error.message);
+        }
         if let Verb::Ui(action) = action.verb {
             return self.workspace_action(action);
         }
@@ -4438,7 +4440,6 @@ pub(crate) mod tests {
             exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
-            composition: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
             rows: crate::rows::Rows::preset(),
             refresh: Some(crate::config::DEFAULT_REFRESH),

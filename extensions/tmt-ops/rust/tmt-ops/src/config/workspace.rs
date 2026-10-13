@@ -135,7 +135,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         .collect()
 }
 
-fn check(action: &Action, path: &str) -> Result<(), SquadError> {
+pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError> {
     if matches!(
         action.verb,
         Verb::Toggle
@@ -361,7 +361,7 @@ impl Config {
                 notices.push("`bind.w`: w is reserved for Workspace snapshots in list scopes; move this binding to another key explicitly.".into());
                 continue;
             }
-            if let Err(error) = check(&action, &format!("bind.{key}")) {
+            if let Err(error) = admit_action(&action, &format!("bind.{key}")) {
                 notices.push(error.message);
                 continue;
             }

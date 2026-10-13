@@ -487,7 +487,6 @@ pub(super) fn board(sections: Value) -> App {
             exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
-            composition: Default::default(),
             document: json!({"squad": {"name": "product", "lead": null}, "sections": sections}),
             rows: columns(),
             refresh: Some(crate::config::DEFAULT_REFRESH),
@@ -1084,7 +1083,6 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             exchanges: Vec::new(),
                 home: None,
             derived: Default::default(),
-            composition: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"id": "LEAD", "name": "sol", "fields": {}}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
                         "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",

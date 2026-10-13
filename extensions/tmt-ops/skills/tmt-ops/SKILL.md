@@ -1074,8 +1074,9 @@ notification queue. Board reminder-setting controls are a separate slice.
 `tmt ops sq layout validate board.xml` checks an authoring file only; add `--json`
 for a structured result. Success exits 0, and invalid/unreadable files and invalid
 command syntax exit 1. It does not discover core, read Squad config, run
-providers or open a terminal. **The board does not load these files.** Board rows
-and pane composition still come from the existing Squad settings.
+providers or open a terminal. **The board does not load these files.** The
+interactive tree and conversation use workspace preferences; authored row and
+factory values remain independent CLI projections.
 
 The `squad-projected-v1` schema declares `$.squad.name` and `$.rows` (a collection).
 With `each="$.rows" as="row"`, each row declares stable `row.id`, scalar `name`,

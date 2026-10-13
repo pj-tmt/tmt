@@ -5,7 +5,6 @@ mod app;
 mod changes;
 mod checklist;
 mod composer;
-mod composition;
 mod conversation;
 mod cronboard;
 mod derived;
@@ -67,25 +66,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-
-/// Config tests exercise the production geometry owner without exposing its cache.
-#[cfg(test)]
-pub(crate) fn pane_rectangles(
-    board: &crate::config::Board,
-    folds: &std::collections::BTreeSet<crate::config::Pane>,
-    area: ratatui::layout::Rect,
-) -> Vec<(crate::config::Pane, ratatui::layout::Rect)> {
-    composition::layout(&mut None, board, folds, board.panes[0], area, false)
-        .unwrap()
-        .into_iter()
-        .map(|(id, rect)| {
-            (
-                crate::config::Pane::parse(id.last().unwrap()).unwrap(),
-                rect,
-            )
-        })
-        .collect()
-}
 
 const INPUT_WAIT: Duration = Duration::from_millis(200);
 /// Reported when input ends without a signal: the terminal is gone.
@@ -961,7 +941,6 @@ pub fn run(
             move |supplied| events.send(BoardEvent::Labels(supplied)).is_ok()
         },
     );
-    composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
