@@ -1,4 +1,5 @@
 /** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
+import { parseSyncMapping } from './sealed-sync-mapping.js';
 import { RefusalError } from './operations.js';
 export interface HostedDeclaration {
   readonly bytes: string;
@@ -45,7 +46,18 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
     require(Array.isArray(row.resources) && row.resources.length <= 64);
     const names = new Set<string>();
     for (const value of row.resources) {
-      const r = members(value, ['name', 'kind', 'path', 'limits', 'ttlField', 'indexes']);
+      require(typeof value === 'object' && value !== null);
+      const r = members(value, [
+        'name',
+        'kind',
+        'path',
+        'limits',
+        'ttlField',
+        'indexes',
+        ...(Object.hasOwn(value, 'sync') ? ['sync'] : []),
+      ]);
+      const sync = r.sync === undefined ? undefined : parseSyncMapping(r.sync);
+      require(!['log', 'blob'].includes(String(r.kind)) || !sync?.writeModes?.includes('put'));
       require(typeof r.name === 'string' && name.test(r.name) && !names.has(r.name));
       names.add(r.name);
       require(
@@ -55,13 +67,23 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
       const segments = r.path.split('/');
       require(segments.length <= 8 && segments.every((s) => /^[a-z0-9_-]{1,64}$/.test(s)));
       require(!['x', 'append', 'subscribe', 'ack', 'pair'].includes(segments[0]!));
-      const limits = members(r.limits, ['maxObjectBytes', 'maxNamespaceBytes', 'maxEntries']);
+      require(typeof r.limits === 'object' && r.limits !== null);
+      const limits = members(r.limits, [
+        'maxObjectBytes',
+        'maxNamespaceBytes',
+        'maxEntries',
+        ...(Object.hasOwn(r.limits, 'chunkBytes') ? ['chunkBytes'] : []),
+      ]);
       require(
         Object.values(limits).every(
           (n) => typeof n === 'number' && Number.isSafeInteger(n) && n > 0,
         ),
       );
       require(Number(limits.maxObjectBytes) <= Number(limits.maxNamespaceBytes));
+      require(
+        limits.chunkBytes === undefined ||
+          Number(limits.chunkBytes) <= Number(limits.maxObjectBytes),
+      );
       require(r.ttlField === null || (typeof r.ttlField === 'string' && field.test(r.ttlField)));
       require(Array.isArray(r.indexes) && r.indexes.length <= 64);
       const indexes = new Set<string>();
@@ -77,7 +99,10 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
         require(!indexes.has(key));
         indexes.add(key);
       }
-      require(r.kind !== 'awareness' || (r.ttlField === null && r.indexes.length === 0));
+      require(
+        r.kind !== 'awareness' ||
+          (r.ttlField === null && r.indexes.length === 0 && r.sync === undefined),
+      );
     }
     const admission = members(row.admission, ['artifact', 'digest', 'entryPoint']);
     require(

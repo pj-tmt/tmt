@@ -364,8 +364,7 @@ fn grammar() -> Command {
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
     let explicit = matches.get_one::<String>("remote").map(String::as_str);
-    if !matches!(name, "link" | "deploy")
-        && !(name == "status" && arguments.get_flag("layers"))
+    if !(matches!(name, "link" | "deploy") || name == "status" && arguments.get_flag("layers"))
         && explicit.is_some()
     {
         let root = discovery_root()?;

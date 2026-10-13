@@ -8,7 +8,9 @@ use crate::{
     limits, mount, routes, wire,
 };
 use serde_json::{Map, Value};
+mod sync;
 use std::collections::BTreeSet;
+pub use sync::{SyncDiscoveryMapping, SyncMapping, SyncQueryMapping};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
@@ -34,6 +36,8 @@ pub struct ResourceLimits {
     pub max_object_bytes: u64,
     pub max_namespace_bytes: u64,
     pub max_entries: u64,
+    /// Optional decoded cloud chunk size; absent declarations retain their exact bytes.
+    pub chunk_bytes: Option<u64>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Index {
@@ -42,6 +46,7 @@ pub struct Index {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Resource {
+    pub sync: Option<SyncMapping>,
     pub name: String,
     pub kind: Kind,
     /// Relative to the extension's namespace root; validated segments, joined by `/`.
@@ -92,6 +97,7 @@ pub enum Reason {
     Digest,
     EntryPoint,
     Hosting(HostingRefusal),
+    SyncMapping,
 }
 impl Reason {
     pub fn code(self) -> &'static str {
@@ -119,6 +125,7 @@ impl Reason {
             Self::Digest => "digest",
             Self::EntryPoint => "entry-point",
             Self::Hosting(_) => "hosting",
+            Self::SyncMapping => "sync-mapping",
         }
     }
 }
@@ -219,10 +226,12 @@ fn resource(position: usize, value: &Value) -> Result<Resource> {
     resource_inner(value).map_err(at)
 }
 fn resource_inner(value: &Value) -> Result<Resource> {
-    let top = members(
+    let top = optional_members(
         value,
         &["name", "kind", "path", "limits", "ttlField", "indexes"],
+        &["sync"],
     )?;
+    let sync = top.get("sync").map(sync::parse).transpose()?;
     let name = text(&top["name"], Reason::ResourceName)?;
     if !canonical::extension_name(name) {
         return refuse(Reason::ResourceName);
@@ -234,6 +243,17 @@ fn resource_inner(value: &Value) -> Result<Resource> {
         "awareness" => Kind::Awareness,
         _ => return refuse(Reason::Kind),
     };
+    if kind == Kind::Awareness && sync.is_some() {
+        return refuse(Reason::AwarenessStores);
+    }
+    if matches!(kind, Kind::Log | Kind::Blob)
+        && sync
+            .as_ref()
+            .and_then(|m| m.write_modes.as_ref())
+            .is_some_and(|modes| modes.iter().any(|mode| mode == "put"))
+    {
+        return refuse(Reason::SyncMapping);
+    }
     let path = namespace_path(text(&top["path"], Reason::Path)?)?;
     let bounds = bounds(&top["limits"])?;
     let ttl_field = match &top["ttlField"] {
@@ -280,6 +300,7 @@ fn resource_inner(value: &Value) -> Result<Resource> {
         return refuse(Reason::AwarenessStores);
     }
     Ok(Resource {
+        sync,
         name: name.to_owned(),
         kind,
         path,
@@ -290,9 +311,10 @@ fn resource_inner(value: &Value) -> Result<Resource> {
 }
 
 fn bounds(value: &Value) -> Result<ResourceLimits> {
-    let top = members(
+    let top = optional_members(
         value,
         &["maxObjectBytes", "maxNamespaceBytes", "maxEntries"],
+        &["chunkBytes"],
     )?;
     let positive = |value: &Value| -> Result<u64> {
         // `as_u64` is None for fractions, exponents, signs and values beyond u64.
@@ -305,9 +327,14 @@ fn bounds(value: &Value) -> Result<ResourceLimits> {
         max_object_bytes: positive(&top["maxObjectBytes"])?,
         max_namespace_bytes: positive(&top["maxNamespaceBytes"])?,
         max_entries: positive(&top["maxEntries"])?,
+        chunk_bytes: top.get("chunkBytes").map(positive).transpose()?,
     };
     // An object larger than its namespace could never be stored.
-    if bounds.max_object_bytes > bounds.max_namespace_bytes {
+    if bounds.max_object_bytes > bounds.max_namespace_bytes
+        || bounds
+            .chunk_bytes
+            .is_some_and(|chunk| chunk > bounds.max_object_bytes)
+    {
         return refuse(Reason::Limit);
     }
     Ok(bounds)
@@ -340,6 +367,25 @@ fn admission(value: &Value) -> Result<Admission> {
     })
 }
 
+/// An object holding every required key and only the listed required/optional keys.
+fn optional_members<'a>(
+    value: &'a Value,
+    keys: &[&str],
+    optional: &[&str],
+) -> Result<&'a Map<String, Value>> {
+    let top = value.as_object().ok_or(DeclarationError {
+        resource: None,
+        reason: Reason::Shape,
+    })?;
+    if !keys.iter().all(|key| top.contains_key(*key))
+        || top
+            .keys()
+            .any(|key| !keys.contains(&key.as_str()) && !optional.contains(&key.as_str()))
+    {
+        return refuse(Reason::Shape);
+    }
+    Ok(top)
+}
 /// An object holding exactly `keys`: a missing or extra member is a shape error.
 fn members<'a>(value: &'a Value, keys: &[&str]) -> Result<&'a Map<String, Value>> {
     match value.as_object() {
@@ -409,4 +455,9 @@ fn entry_point_name(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Shared field-name grammar for the restricted document codec and declaration mappings.
+pub fn sync_field_name(value: &str) -> bool {
+    field_name(value)
 }

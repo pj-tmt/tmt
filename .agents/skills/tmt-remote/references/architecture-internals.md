@@ -1,7 +1,7 @@
 # Remote architecture internals
 
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`,
-`transport`, `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
+`transport`, `sealed_sync` (including `sealed_sync::codec`), `declaration`, `deploy_plan`, `hosting`, `rules`, `firestore_budget`, `firestore_limits`, `readiness` and `deploy_run` have no I/O, clock, storage or `CoreClient` access):
 
 | Module                                           | Owns                                                                                                                                                                                                                  |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -18,6 +18,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `declaration`, `deploy_plan`, `hosting`, `rules` | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (bytes in; installed discovery belongs to `deploy_discovery`)                     |
 | `deploy_command`, `deploy_record`, `remote_link` | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                        |
 | `remote_catalog`, `remote_selector`              | Public references and explicit/default/local targeting; imported configuration never grants access or ownership                                                                                                       |
+| `sealed_sync`, `sealed_sync::codec`              | Bound sealed-document/Auth ports and pure context, restricted REST fields, query/interest/mutation and cloud-manifest validation; no provider, credential storage or I/O                                              |
 | `firestore_budget`                               | Free-plan Firestore budget model and client guard; vectors in `tests/fixtures/firestore_budget`                                                                                                                       |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                |
 | `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                             |

@@ -21,7 +21,7 @@ function object(value: unknown, keys: readonly string[]): Record<string, unknown
   valid(Object.keys(record).sort().join(',') === [...keys].sort().join(','));
   return record;
 }
-function config(value: unknown): PublicWebConfig {
+export function parsePublicWebConfig(value: unknown): PublicWebConfig {
   const r = object(value, ['apiKey', 'appId', 'authDomain', 'projectId']);
   valid(typeof r.projectId === 'string' && /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(r.projectId));
   valid(r.authDomain === `${r.projectId}.firebaseapp.com`);
@@ -63,7 +63,7 @@ export async function verifyHostedLink(link: string, origin: string): Promise<Pu
         typeof r.checksum === 'string' &&
         /^[a-f0-9]{64}$/.test(r.checksum),
     );
-    const publicConfig = config(r.publicWebConfig);
+    const publicConfig = parsePublicWebConfig(r.publicWebConfig);
     valid(origin === `https://${publicConfig.projectId}.web.app`);
     const body = { kind: r.kind, publicWebConfig: publicConfig, version: r.version };
     const checksum = Array.from(

@@ -1460,7 +1460,7 @@ Version 1 supports exactly the seven calls above, with unchanged bytes. Version 
 | Method                     | Input members                                         |
 | -------------------------- | ----------------------------------------------------- |
 | `objects.remove-namespace` | `namespace`                                           |
-| `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace`   |
+| `objects.usage`            | `scope`: `extension`, or `namespace` plus `namespace` |
 
 Both calls require a local-extension origin; any mounted origin is denied before callback, effect or disclosure.
 Callers check the negotiated link's support before either call; an unsupported call is never written on version 1. A version-1
@@ -1484,7 +1484,7 @@ has exactly one of `ok` and `error`. `transferId` repeats the original transfer 
 | `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
 | `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                              | `read`                       |
 | `removed`   | none                                                                                                          | `remove-namespace`           |
-| `usage`     | `chargedBytes` (0 to 2^53-1), `entries`, `activeUploads`, `retainedIdentities` (each a `u32`)                      | `usage`                      |
+| `usage`     | `chargedBytes` (0 to 2^53-1), `entries`, `activeUploads`, `retainedIdentities` (each a `u32`)                 | `usage`                      |
 
 A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
 `config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
@@ -1771,9 +1771,23 @@ and is unique in the declaration; kind is `log`, `checkpoint`, `blob` or `awaren
 operation route name (`append`, `subscribe`, `ack`, `pair`) or the mount segment `x`. Two resources of a plan never
 have equal or nested paths. Limits specify positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and
 `maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by Remote's advertised
-backend limits. TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
+backend limits. Optional `limits.chunkBytes` is a positive integer below 2^53 and not above
+`maxObjectBytes`; absence preserves existing declarations without an inferred chunk size.
+Optional resource `sync` is `{fields,spaceField,uidField,query}`: 1..64 unique field names
+using the index-field grammar, a declared string-valued space binding, and a declared
+string-valued publisher uid binding or null. Query is null or
+`{scopeFields,streamField,seqField,order}`: 1..8 unique exact-match scope fields,
+including spaceField and streamField; seqField is distinct and excluded from scope,
+all names are declared in fields, and order is `asc`. Stream is string-valued and seq
+is integer-valued. Optional `sync.writeModes` is a nonempty unique list of `create`, `put`,
+`delete`; absence allows only create. Log/blob resources cannot declare put. Optional
+`query.discovery` is `{name,scopeFields,seqEquals}`: name uses the field grammar and is not
+`stream`; scopeFields are exactly the regular scope without streamField, and seqEquals is null
+or a canonical nonnegative decimal string below 2^53. No other filters or runtime mapping are accepted.
+Missing sync means document transport is unavailable for that resource, not an inferred mapping.
+TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
 contain at most 64 distinct `{field,direction}` entries, where direction is `asc` or `desc` and field uses the same
-name grammar. The fields a kind stores belong to its Rules and indexes, not to the declaration. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
+name grammar. Field semantics and admission belong to Rules; sync declares transported names and query bindings, never grants. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
 epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
 signed operations or the machine journal.
 
@@ -1928,6 +1942,113 @@ Colab owns the hosted shell policy; these are requirements, not its current head
 The local door's pairing and session path never implicitly loads Firebase.
 Firestore document transport, cloud agent operations and a machine connector are not shipped
 by this bootstrap.
+
+### Proposal: extension-scoped sealed-document client
+
+The SDK and native types define one bound client port, not an implemented transport or factory.
+Its context contains verified public Firebase configuration, extension, exact declaration digest,
+declared resources, space and authenticated uid. Binding validates the entire declaration before
+accepting any resource; digest or context disagreement refuses before provider access. The public
+configuration is verified by the bootstrap above (native callers use their explicitly selected
+project); pure binding cannot attest an origin or grant admission. Colab owns membership, page/epoch
+and writer admission in its [sync/admission contract](../extensions/tmt-colab/contracts/colab-v1.md#sync-and-backend-admission).
+There is no agent-operation, owner-device or Admin authority and no fallback to another remote.
+
+`SyncAuthPort` (native `AuthPort`) supplies an already authenticated `{projectId,uid}` identity
+and a cancellation/deadline-bound token request. A token result carries that same identity,
+its transient secret and `expiresAtMs`; the transport must recheck identity and expiry before
+I/O and must not log, persist or place the token in an original ID, receipt or argv. An auth
+failure is `REMOTE_STATE_UNAVAILABLE` with state `expired`, `sign-in-needed`, `unavailable` or
+`cancelled`. Offline does not prove expiry; a refused refresh cannot silently mint a new uid.
+The port defines neither credential storage nor refresh policy. Browser implementation shares
+one bootstrap App/Auth; native credentials and transport are later slices.
+
+The port offers bounded read, query, subscribe, publish and close. A document target names one
+resource and an opaque ID, resolved only within that declared collection under `x/<extension>`.
+Space/uid IDs use ASCII letters, digits, `_`, `+` or `-`, 1..128 bytes; document IDs use the same
+alphabet, 1..256 bytes. Document.bytes is canonical UTF-8 JSON of the Firestore REST `Document.fields` map,
+not one opaque ciphertext field or a second envelope. Each field has exactly one of
+`stringValue`, `integerValue`, `booleanValue`, `nullValue`, `timestampValue` or `bytesValue`;
+other Value kinds are refused before I/O. Integers are canonical decimal strings within
+2^53-1, nullValue is null, and bytesValue is canonical padded standard base64. Timestamps
+are valid RFC 3339 UTC with Z and the shortest exact 0/3/6-digit fraction: other precision
+is refused, never rounded. Firestore stores only microseconds; the SDK adapter must preserve
+these bytes through native SDK types while native REST uses the same fields map. Keys are
+sorted, whitespace omitted and every field is declared by sync.fields. Remote checks the
+space binding on field-bearing reads/create/put, publisher uid on create/put, exact scope filters and SHA-256;
+it never decrypts the sealed envelope field. Payload fields are otherwise extension-owned.
+Ports capture frozen document bytes before asynchronous token acquisition. One publish targets one
+declared document: create uses exists=false, put replaces the whole field object unconditionally,
+and delete is unconditional. Declared writeModes do not grant admission; ordinary Auth and Rules,
+including extension-owned version fields, remain decisive. There is no Admin authority, updateTime
+precondition, preparation read or accounting companion. Create of identical frozen bytes returns
+already-present; conflicting bytes refuse with `REMOTE_STATE_UNAVAILABLE`, state `conflict`.
+Undeclared modes refuse with that code and state `unsupported`. An acknowledged effect is confirmed;
+a possibly applied effect is unknown, including cancellation. Recovery reads the SAME target: create
+and put compare frozen desired fields, delete checks absence, without claiming which writer applied
+it. No hidden retry, replacement ID or resealing is permitted. Admission refusal uses
+`REMOTE_SCOPE_DENIED`; provider exhaustion follows the [budget guard](#free-plan-budget-guard),
+including unknown writes.
+
+Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
+identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer
+below 2^53. Colab Rules enforce contiguous seq within a stream owned by its initial uid. Neither a global clock nor lexical document
+ID orders catch-up. A finite query gap/compaction refuses with `REMOTE_STATE_UNAVAILABLE` and
+state `catch-up-required` (native SyncError::CatchUpRequired); no partial finite page is exposed.
+Ordinary queries require the exact stream filter. The optional declaration-named discovery shape
+has no stream filter or logical cursor, only its exact equality scope and declared seq equality.
+A bounded run returns actual documents, paged by an opaque stateless continuation (at most 1 KiB,
+printable ASCII without spaces), containing the last document name and bound to scope, shape,
+generation and deadline. A mismatched token or continuation after close/deadline refuses typed
+before I/O. No continuation means the run is complete; otherwise it is incomplete. There is no
+run ledger. Repeated runs discover arrivals missed by a prior run; pruning requires rebootstrap.
+Native poll interval/read costs are defined by the native transport, not this type boundary.
+Subscribe takes a page-level `SyncInterest {resource,scope}`: exact query-mapping scope minus
+the stream field, without requiring discovery. It has no seed stream, cursor, continuation or
+provider-held delivery progress; one page interest counts once toward the listener caps.
+It produces only coalesced Changed wake hints or CatchUpRequired. Changed is level-triggered:
+it may be spurious but never lost; suppressing a wake requires positively observed absence
+from a successful bounded probe. Browser listeners/native polling cover later writes, not only
+first-sequence documents;
+terminal status is a typed refusal, not a document queue. Consumers fetch with ordinary read/query
+and alone advance their logical cursors. A gap, compaction or overflow is never a silent drop.
+Each call has caller cancellation and an absolute deadline; closing suppresses late publication.
+There is no offline mutation queue. Envelope/checkpoint bounds are 354,304/43,692 encoded bytes.
+Provider pages hold at most 256 documents and fit one 397,312-byte carrier result, including
+metadata; never retain a larger page for later draining. Listener caps remain 3 per open page and
+12 per tab, one in-flight write per stream and 4 per tab. These are transport bounds, not a new
+per-user or per-space project quota; implementation slices pin deadlines/backoff without adding
+operations authority.
+
+#### Proposed cloud object profile
+
+A thin ObjectBackend adapter uses this same client; no second Firebase stack or direct attachment
+provider exists. Chunked resources explicitly declare decoded `chunkBytes`: attachments use
+262,144, checkpoints 32,768, with at most 513 chunks. Attachment serialized bytes stay capped at
+12 MiB; checkpoint serialized bytes can reach 16,779,264 (513 chunks). Each admitted resource
+provides its own lower object bound; the shared validator ceiling is 16,779,264.
+The object-channel's existing 32 KiB framing is unchanged; the later adapter assembles transport
+parts into declared cloud chunks. Immutable chunk IDs are `<original>+<index>` (zero-based decimal)
+and the last-written create-only manifest is `<original>+manifest`. The logical manifest data is exactly
+`{original,count,bytes,digest,chunkBytes}`; canonical UTF-8 JSON sorts these keys. Its transport
+document also includes declared admission metadata and uses the restricted REST fields encoding
+above; the logical manifest is not an extra on-wire envelope. Count equals
+ceil(bytes/chunkBytes); nonfinal chunks are full, the final chunk is bounded, and an empty object
+has no chunks. Readers require that manifest and every chunk, exact count/length and full-object
+SHA-256 matching the admitted descriptor: a complete verified object or absence/unavailability,
+never truncated data. Original identity, chunks and manifest remain unchanged across loss of
+acknowledgement or restart. No upload reseals or invents a second original on recovery.
+
+This profile promises original-ID/digest idempotency and complete-or-absent publication, not
+LocalFs's durable cross-machine reservations, namespace fences or exact accounting. New chunks
+are denied when the page is archived/deleted or loses admission; Colab owns those Rules and
+metadata resources. Owner namespace deletion is best-effort; `Removed` requires verified absence,
+otherwise cleanup is pending/unknown, not freed storage. Spark tables and attachment cost examples
+are dated hints, not aggregate enforcement; the shipped page-append budget guard remains in force.
+There is no physical TTL setting or cleanup runner on Spark; rows remain until owner deletion.
+Remote-authored frozen vectors qualify pure grammar/validation only, not Colab admission or
+provider acceptance. Cloud adapter conformance distinguishes these every-backend guarantees from
+local-only guarantees rather than silently skipping the latter.
 
 ### Proposal: authorized deploy
 
@@ -2129,9 +2250,11 @@ do not authorize first deployment, new account resources or expanded provider pe
 an enabled extension with undeployed requirements leaves that cloud extension unavailable until
 an authorized deploy; local availability and existing operation authority are unchanged.
 
-### Proposal: free-plan budget guard
+### Free-plan budget guard
 
-Layer 1 must run on the provider's no-cost plan, and the provider's quotas are project-wide: no client
+The shipped Rust/SDK model and guard, `status --budget` and the published-limit projection use
+the dated free-plan table. Document transport is still separate; its effect path must apply this
+guard before sending. Layer 1 must run on the provider's no-cost plan, and the provider's quotas are project-wide: no client
 reads them and Rules cannot. A client therefore guards its own modeled share, not the provider's counter. For one
 shared page with `members` listeners and `writers` of them appending, one append costs the project `writeLookups +
 (members - 1) * (1 + readLookups)` reads (the writer's Rules lookups, then for every other listener the delivered

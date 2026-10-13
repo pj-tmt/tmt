@@ -407,3 +407,13 @@ Open is same-tab navigation; it neither rebinds a client nor transfers private s
 Settings keeps foreign Open disabled during a request, an unknown original outcome, or an
 unsent device name; Add and Manage remain available. Default selection/projection and a
 bound-client factory are not part of this static consumer.
+
+## Sealed-document ports (transport not implemented)
+
+`SyncContext`, `SyncAuthPort` and `SealedSyncPort` describe extension-scoped reads,
+subscriptions as coalesced wake hints and one declared-target create/put/delete publication. `bindSyncContext`,
+`syncDocumentPath` and `verifySealedObject` perform pure validation only; they do
+not create a Firebase client or enable cloud attachments. Caller-supplied public
+configuration must already be bootstrap-verified. Injected Auth never changes uid
+silently. The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.
