@@ -202,9 +202,7 @@ pub(super) mod tests;
 
 pub(crate) mod counters;
 mod paint;
-pub(super) use bar::{hidden_needs, hidden_usage};
 pub(super) use limits::clock_marks as limit_clock_marks;
-pub(super) use limits::hidden_limits;
 pub(super) use paint::{limits_of, summary_of, usage_of};
 
 /// Held header strips of one immutable view, keyed by data, width and look.

@@ -52,8 +52,6 @@ pub(super) struct HomeHeaderUsage<'a> {
     pub windows: [crate::config::TokenWindow; 3],
     pub totals: [Option<super::rate::Reading>; 3],
     pub top: Option<UsageTop<'a>>,
-    pub models: Vec<UsageModel<'a>>,
-    pub unreported: usize,
 }
 
 #[derive(Debug)]
@@ -62,20 +60,13 @@ pub(super) struct UsageTop<'a> {
     pub share: UsageShare,
 }
 
-#[derive(Debug)]
-pub(super) struct UsageModel<'a> {
-    pub model: Option<&'a str>,
-    pub share: UsageShare,
-}
-
 #[derive(Clone, Copy)]
-struct HeaderObservation<'a> {
+struct HeaderObservation {
     reading: super::rate::Reading,
     covered_slots: u64,
-    model: Option<&'a str>,
 }
 
-impl HeaderObservation<'_> {
+impl HeaderObservation {
     fn evidence(&self) -> (u64, bool, u64) {
         (self.covered_slots, !self.reading.partial, self.reading.span)
     }
@@ -83,7 +74,7 @@ impl HeaderObservation<'_> {
 
 struct HeaderMember<'a> {
     name: &'a str,
-    readings: [Option<HeaderObservation<'a>>; 3],
+    readings: [Option<HeaderObservation>; 3],
 }
 
 pub struct View {
@@ -985,7 +976,6 @@ impl App {
                             .map(|(reading, covered_slots)| HeaderObservation {
                                 reading,
                                 covered_slots,
-                                model: meter.model(id),
                             })
                     });
                     if let Some(candidate) = candidate
@@ -1019,12 +1009,7 @@ impl App {
             }
             measured.then_some(sum)
         });
-        let unreported = members
-            .iter()
-            .filter(|member| member.readings[2].is_none())
-            .count();
         let mut top = None;
-        let mut by_model = BTreeMap::<Option<&str>, u128>::new();
         if let Some(total) = totals[2].filter(|total| total.tokens > 0) {
             let share = |tokens| UsageShare {
                 fraction: tokens as f64 / total.tokens as f64,
@@ -1032,39 +1017,21 @@ impl App {
             };
             let mut highest = 0;
             for member in &members {
-                if let Some(HeaderObservation { reading, model, .. }) = member.readings[2] {
-                    *by_model.entry(model).or_default() += reading.tokens;
-                    if reading.tokens > highest {
-                        highest = reading.tokens;
-                        top = Some(UsageTop {
-                            member: member.name,
-                            share: share(reading.tokens),
-                        });
-                    }
+                if let Some(HeaderObservation { reading, .. }) = member.readings[2]
+                    && reading.tokens > highest
+                {
+                    highest = reading.tokens;
+                    top = Some(UsageTop {
+                        member: member.name,
+                        share: share(reading.tokens),
+                    });
                 }
             }
-            let mut models = by_model.into_iter().collect::<Vec<_>>();
-            models.sort_by(|(a, x), (b, y)| y.cmp(x).then_with(|| a.cmp(b)));
-            return Some(HomeHeaderUsage {
-                windows,
-                totals,
-                top,
-                unreported,
-                models: models
-                    .into_iter()
-                    .map(|(model, tokens)| UsageModel {
-                        model,
-                        share: share(tokens),
-                    })
-                    .collect(),
-            });
         }
         Some(HomeHeaderUsage {
             windows,
             totals,
             top,
-            models: Vec::new(),
-            unreported,
         })
     }
 
@@ -5290,7 +5257,6 @@ mod token_window_tests {
         let raw = app.home_header_usage(start).unwrap();
         let totals = raw.totals;
         let top = raw.top.unwrap().share;
-        let model = raw.models[0].share.fraction;
         assert_eq!(totals.map(|reading| reading.unwrap().tokens), [450; 3]);
         app.home_counters.borrow_mut().begin();
         assert!(
@@ -5319,7 +5285,6 @@ mod token_window_tests {
         let settled = app.home_header_usage(start).unwrap();
         assert_eq!(settled.totals, totals);
         assert_eq!(settled.top.unwrap().share, top);
-        assert_eq!(settled.models[0].share.fraction, model);
         assert_eq!(
             app.view.as_ref().unwrap().document,
             document,
@@ -5344,15 +5309,13 @@ mod token_window_tests {
         let mut app = header(now);
         let initial = app.home_header_usage(now).unwrap();
         assert_eq!(initial.totals, [None; 3]);
-        assert_eq!(initial.unreported, 2);
-        assert!(initial.top.is_none() && initial.models.is_empty());
+        assert!(initial.top.is_none());
         let time = now + Duration::from_secs(10);
         app.sample_home(Ok(&super::super::rate::tests::input(100).resumes), time);
         let zero = app.home_header_usage(time).unwrap();
         assert_eq!(zero.totals[2].unwrap().tokens, 0);
         assert!(zero.totals[2].unwrap().partial);
-        assert_eq!(zero.unreported, 1);
-        assert!(zero.top.is_none() && zero.models.is_empty());
+        assert!(zero.top.is_none());
         app.search = "not-shown".into();
         assert!(app.home_header_usage(time).is_none());
         app.search.clear();
@@ -5368,7 +5331,7 @@ mod token_window_tests {
     }
 
     #[test]
-    fn header_deduplicates_lead_members_and_uses_one_model_share_denominator() {
+    fn header_deduplicates_memberships_and_uses_one_observed_total_for_top_share() {
         let now = Instant::now();
         let mut app = header(now);
         let mut input = super::super::rate::tests::input(100);
@@ -5399,10 +5362,6 @@ mod token_window_tests {
         app.sample_home(Ok(&resumes), time);
         let usage = app.home_header_usage(time).unwrap();
         assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [600; 3]);
-        assert_eq!(
-            usage.unreported, 1,
-            "duplicate UUID a is counted once, not once per squad"
-        );
         let top = usage.top.unwrap();
         assert_eq!(top.member, "worker-b");
         assert_eq!(
@@ -5412,15 +5371,10 @@ mod token_window_tests {
                 partial: true
             }
         );
-        assert_eq!(usage.models.len(), 2);
-        assert_eq!(usage.models[0].model, Some("model-b"));
-        assert_eq!(usage.models[0].share.fraction, 0.75);
-        assert_eq!(usage.models[1].share.fraction, 0.25);
         assert_eq!(app.view.as_ref().unwrap().document, public);
         app.search = "product".into();
         let filtered = app.home_header_usage(time).unwrap();
         assert_eq!(filtered.totals[2].unwrap().tokens, 150);
-        assert_eq!(filtered.models.len(), 1);
         app.search.clear();
         app.view.as_mut().unwrap().home_rate.remove("extra");
         assert_eq!(
@@ -5471,7 +5425,6 @@ mod token_window_tests {
             150,
             "more tokens cannot override better evidence"
         );
-        assert_eq!(usage.models[0].model, Some("better-covered"));
         let mut tied =
             super::super::meter::Meter::new(settings, &super::super::rate::tests::input(100), now);
         tied.sample(Ok(&super::super::rate::tests::input(300)), time);

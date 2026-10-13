@@ -433,14 +433,6 @@ fn overview_history_and_quota_keep_existing_observations_and_unknown_windows_dis
         assert!(limits[1].latest.as_ref().unwrap().short.is_none());
         assert_eq!(limits[0].burn, Some(1.1));
         assert_eq!(limits[1].burn, Some(1.5));
-        for width in [160, 100, 80, 60] {
-            let hidden = crate::board::home::hidden_limits(limits, 1_791_600_000_000, width);
-            assert!(
-                hidden
-                    .iter()
-                    .any(|(_, text)| text.contains("no reading") || text.contains("not available"))
-            );
-        }
     });
 }
 

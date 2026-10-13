@@ -141,7 +141,14 @@ fn held_header_usage_matches_uncached_formatting_and_invalidates_on_observation_
     let before = builds(&app);
     paint::usage_of(&app, &usage, 80, app.look());
     assert_eq!(builds(&app), before);
-    usage.unreported += 1;
-    paint::usage_of(&app, &usage, 160, app.look());
+    let before_text = paint::usage_of(&app, &usage, 80, app.look());
+    usage.totals[2].as_mut().unwrap().partial = false;
+    usage.top.as_mut().unwrap().share.partial = false;
+    let updated = paint::usage_of(&app, &usage, 80, app.look());
+    assert_ne!(
+        updated, before_text,
+        "visible coverage changes at the same width"
+    );
+    assert_eq!(updated, paint::usage(&usage, 80, app.look()));
     assert_eq!(builds(&app), before + 1);
 }

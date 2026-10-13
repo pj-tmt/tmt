@@ -165,39 +165,6 @@ fn summary_pieces(home: &Home, width: u16) -> Vec<Piece> {
     pieces
 }
 
-/// Only names omitted by the actual fitted summary belong in overview detail.
-pub(in crate::board) fn hidden_needs(home: &Home, width: u16) -> Option<String> {
-    let shown = summary_pieces(home, width)
-        .into_iter()
-        .map(|(text, _)| text)
-        .collect::<String>();
-    let names = home
-        .squads
-        .iter()
-        .filter(|squad| squad.counts.waiting > 0)
-        .collect::<Vec<_>>();
-    let mut prefix = if width < super::SM.cells {
-        format!(
-            "◆ {} need{} you ",
-            names.len(),
-            if names.len() == 1 { "s" } else { "" }
-        )
-    } else {
-        "◆ Needs you  ".into()
-    };
-    let mut hidden = Vec::new();
-    for (index, squad) in names.iter().enumerate() {
-        if index > 0 {
-            prefix.push_str(if width < super::SM.cells { " " } else { " · " });
-        }
-        prefix.push_str(&escape(&squad.squad));
-        if !shown.starts_with(&prefix) {
-            hidden.push(squad.squad.as_str());
-        }
-    }
-    (!hidden.is_empty()).then(|| hidden.join(" · "))
-}
-
 /// The strip's line: its content, without the unpainted tail of the row.
 pub(super) fn lines(painted: Painted) -> Option<Line<'static>> {
     let mut line = painted.lines.into_iter().next()?;
@@ -313,69 +280,6 @@ fn usage_pieces(
         ));
     }
     vec![("  ".into(), Some(Role::Muted)), (text, Some(Role::Muted))]
-}
-
-pub(in crate::board) fn hidden_usage(
-    usage: &HomeHeaderUsage<'_>,
-    width: u16,
-) -> Vec<(&'static str, String)> {
-    let shown = usage_pieces(usage, width, None)
-        .into_iter()
-        .map(|(text, _)| text)
-        .collect::<String>();
-    let mut fields = (0..2)
-        .map(|index| {
-            (
-                "usage",
-                format!(
-                    "{} {}",
-                    usage.windows[index].label(),
-                    if usage.totals[index].is_some() {
-                        format!("{} tok", usage_number(usage, index))
-                    } else {
-                        "no reading".into()
-                    }
-                ),
-            )
-        })
-        .collect::<Vec<_>>();
-    fields.push((
-        "coverage",
-        format!(
-            "{} {} without data",
-            usage.unreported,
-            if usage.unreported == 1 {
-                "member"
-            } else {
-                "members"
-            }
-        ),
-    ));
-    if let Some(top) = &usage.top {
-        let full = format!("{} {}", escape(top.member), percent(&top.share));
-        if !shown.contains(&full) {
-            fields.push(("top", full));
-        }
-    }
-    let models = usage
-        .models
-        .iter()
-        .map(|model| {
-            format!(
-                "{} {}",
-                model
-                    .model
-                    .map(crate::source::model_name)
-                    .unwrap_or("model not known"),
-                percent(&model.share)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    if !models.is_empty() {
-        fields.push(("models", models));
-    }
-    fields
 }
 
 /// The longest-window usage line, including explicit missing-data wording.

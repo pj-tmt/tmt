@@ -158,7 +158,7 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
 
 pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
     use crate::board::{
-        app::{HomeHeaderUsage, UsageModel, UsageShare, UsageTop},
+        app::{HomeHeaderUsage, UsageShare, UsageTop},
         rate::Reading,
     };
     HomeHeaderUsage {
@@ -183,23 +183,6 @@ pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
                 partial: true,
             },
         }),
-        models: vec![
-            UsageModel {
-                model: Some("gpt-6.1-sol"),
-                share: UsageShare {
-                    fraction: 0.6,
-                    partial: true,
-                },
-            },
-            UsageModel {
-                model: Some("claude-opus-4-6"),
-                share: UsageShare {
-                    fraction: 0.4,
-                    partial: true,
-                },
-            },
-        ],
-        unreported: 2,
     }
 }
 
@@ -360,14 +343,6 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
         assert!(!text.contains("5m") && !text.contains("models") && !text.contains("without data"));
         assert!(line.width() <= usize::from(width));
         assert_eq!(super::glyph_error(&text), None);
-        let hidden = crate::board::home::hidden_usage(&usage, width);
-        let detail = hidden
-            .iter()
-            .map(|(_, text)| text.as_str())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        assert!(detail.contains("5m") && detail.contains("members without data"));
-        assert_eq!(detail.contains("worker"), width < 80);
     }
     usage.windows =
         ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
@@ -453,7 +428,6 @@ fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
     let app = board(&[]);
     let mut usage = header_usage();
     usage.top.as_mut().unwrap().member = "long-界界界界界界-e\u{301}-worker\nunsafe";
-    usage.models[0].model = Some("unknown-model-with-a-very-long-name\u{1b}");
     for width in [MD.cells, LG.cells - 1, LG.cells, 149, 160] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         let text = line.to_string();
