@@ -2074,9 +2074,10 @@ asking names add no recipient. Empty chips allow comment-only Send and show
 `Stays on the page, no one is asked`; at eight, Add is disabled with `At most 8`.
 Question/choice text cannot add recipients. The primary label is `Send <N> answers`,
 singular `Send 1 answer` when one is eligible in a multi-question group, or
-`Send answer` for a group of one. With no eligible answers and no batch in flight,
-the disabled action reads `Send answers`. Its accessible name starts with that visible text,
-followed by ` · to <recipients>` or ` · to thread only`.
+`Send answer` for a group of one in every state. For groups of several, with no
+eligible answers and no batch in flight, the disabled action reads `Send answers`.
+Its accessible name starts with that visible text, followed by ` · to <recipients>`
+or ` · to thread only`.
 
 Only trusted explicit Send publishes complete unsent drafts, in tab order, through
 `sendAnswers`; one-question short-answer Enter uses the same one-answer path.

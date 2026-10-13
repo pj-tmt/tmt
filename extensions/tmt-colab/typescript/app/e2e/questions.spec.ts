@@ -15,7 +15,7 @@ async function mount(page: Page, question = {}, options = {}) {
   await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
   const card = page.locator('.question-group-card');
   await expect(
-    card.getByRole('button', { name: 'Send answers · to @Agent 1', exact: true }),
+    card.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
   ).toBeVisible();
   return card;
 }
@@ -83,9 +83,9 @@ test('question/choice mentions never add destinations; unknown asking agent uses
     page.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
   ).toHaveCount(0);
   await expect(
-    page.getByRole('button', { name: 'Send answers · to thread only', exact: true }),
+    page.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answers');
+  await expect(page.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
   await page.locator('.question-group-card').getByLabel('Keep it', { exact: true }).check();
   await send(page);
   expect(await run(page, 'discussionProof')).toHaveLength(1);
