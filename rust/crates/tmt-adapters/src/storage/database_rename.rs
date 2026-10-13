@@ -4,7 +4,8 @@
 //! SQLite itself proves that nothing else holds the database: an exclusive
 //! lock cannot be taken while any other connection is open, idle WAL
 //! connections included. While that lock is held the database becomes a single
-//! file (no `-wal`, `-shm` or `-journal`), gains its new name through a hard
+//! file (no `-wal`, `-shm` or `-journal`; a finished process's stale ones are
+//! removed), gains its new name through a hard
 //! link, and the old name is replaced atomically by a relative link to the new
 //! one, so no name is ever missing. Old binaries and a rollback release open
 //! the old name, follow the link and share the new name's journals.
@@ -52,8 +53,10 @@ fn lstat(path: &Path) -> io::Result<Option<Metadata>> {
     }
 }
 
+const SIDECAR_SUFFIXES: [&str; 3] = ["-wal", "-shm", "-journal"];
+
 fn sidecars(directory: &Path, basename: &str) -> Vec<PathBuf> {
-    ["-wal", "-shm", "-journal"]
+    SIDECAR_SUFFIXES
         .map(|suffix| directory.join(format!("{basename}{suffix}")))
         .into()
 }
@@ -106,6 +109,15 @@ fn link_former(directory: &Path, former: &Path) -> io::Result<()> {
 /// Renames the database in `directory` when nothing holds it. The caller owns
 /// when this runs (`tmt upgrade`); a held database keeps its name, unchanged.
 pub fn rename_database(directory: &Path) -> io::Result<DatabaseRename> {
+    rename_with(directory, link_former)
+}
+
+/// `replace_former` is the last step, injected so tests can fail it on any host
+/// (a permission-based failure does not hold for root).
+fn rename_with(
+    directory: &Path,
+    replace_former: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<DatabaseRename> {
     let former = directory.join(FORMER_DATABASE);
     let current = directory.join(DATABASE);
     let (former_meta, current_meta) = (lstat(&former)?, lstat(&current)?);
@@ -133,31 +145,31 @@ pub fn rename_database(directory: &Path) -> io::Result<DatabaseRename> {
         }
         (Some(_), Some(_)) => return refused("both database names exist as separate files"),
     };
-    if !linked {
-        for stray in sidecars(directory, DATABASE) {
-            if lstat(&stray)?.is_some() {
-                return refused(format!("{} is left over", stray.display()));
-            }
-        }
-    }
     let connection = match fence(file)? {
         Ok(connection) => connection,
         Err(kept) => return Ok(DatabaseRename::Kept(kept)),
     };
+    // The exclusive lock proves no process holds the database, so a `-wal` or
+    // `-shm` still on disk is what a finished process leaves behind (the released
+    // CLI always does) and means nothing now that the journal mode is DELETE.
     // The fenced connection keeps its own journal, named after the path it
-    // opened, until it closes; every other sidecar must be gone by now.
+    // opened, until it closes; any other `-journal` may hold a transaction.
     let own_journal = journal_of(file);
     for basename in [FORMER_DATABASE, DATABASE] {
-        for stray in sidecars(directory, basename) {
-            if stray != own_journal && lstat(&stray)?.is_some() {
+        for (suffix, stray) in SIDECAR_SUFFIXES.iter().zip(sidecars(directory, basename)) {
+            if stray == own_journal || lstat(&stray)?.is_none() {
+                continue;
+            }
+            if *suffix == "-journal" {
                 return refused(format!("{} is left over", stray.display()));
             }
+            fs::remove_file(&stray)?;
         }
     }
     if !linked {
         fs::hard_link(&former, &current)?;
     }
-    if let Err(error) = link_former(directory, &former) {
+    if let Err(error) = replace_former(directory, &former) {
         if !linked {
             // Nothing changed for readers: the old name is still the file.
             let _ = fs::remove_file(&current);
@@ -274,6 +286,25 @@ mod tests {
     }
 
     #[test]
+    fn the_sidecars_a_finished_process_leaves_behind_do_not_block_the_rename() {
+        // The released CLI exits without removing them: an empty `-wal` and a
+        // 32 KiB `-shm` stay beside a database nothing holds.
+        let directory = TestDirectory::new();
+        let former = former_store(&directory.path);
+        fs::write(directory.path.join("tmux-team.db-wal"), b"").unwrap();
+        fs::write(directory.path.join("tmux-team.db-shm"), vec![0; 32768]).unwrap();
+
+        assert_eq!(
+            rename_database(&directory.path).unwrap(),
+            DatabaseRename::Renamed
+        );
+
+        assert_eq!(names(&directory.path), [DATABASE, FORMER_DATABASE]);
+        assert_eq!(fs::read_link(&former).unwrap(), Path::new(DATABASE));
+        assert_eq!(marker(&directory.path.join(DATABASE)), "kept");
+    }
+
+    #[test]
     fn a_held_database_keeps_its_name_and_bytes() {
         let directory = TestDirectory::new();
         let former = former_store(&directory.path);
@@ -304,7 +335,7 @@ mod tests {
             let directory = TestDirectory::new();
             let former = former_store(&directory.path);
             match case {
-                "leftover" => fs::write(directory.path.join("tmt.db-wal"), b"x").unwrap(),
+                "leftover" => fs::write(directory.path.join("tmt.db-journal"), b"x").unwrap(),
                 "separate" => fs::write(directory.path.join(DATABASE), b"other").unwrap(),
                 "foreign-link" => {
                     fs::remove_file(&former).unwrap();
@@ -355,17 +386,26 @@ mod tests {
     fn a_failure_after_the_fence_leaves_only_the_former_name() {
         let directory = TestDirectory::new();
         let former = former_store(&directory.path);
-        // The directory refuses new entries, so the new name cannot be created.
-        fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o500)).unwrap();
+        let before = names(&directory.path);
 
-        let outcome = rename_database(&directory.path);
+        let outcome = rename_with(&directory.path, |_, _| {
+            Err(io::Error::other("the link could not be written"))
+        });
 
-        fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(outcome.is_err() || matches!(outcome, Ok(DatabaseRename::Kept(_))));
-        assert!(!directory.path.join(DATABASE).exists());
+        assert!(outcome.is_err());
+        assert!(
+            !directory.path.join(DATABASE).exists(),
+            "the new name was rolled back"
+        );
         assert!(fs::symlink_metadata(&former).unwrap().file_type().is_file());
         assert_eq!(marker(&former), "kept");
         assert_eq!(resolved(&directory.path), former);
+        assert_eq!(names(&directory.path), before);
+        assert_eq!(
+            rename_database(&directory.path).unwrap(),
+            DatabaseRename::Renamed,
+            "a later run still succeeds"
+        );
     }
 
     #[test]

@@ -215,10 +215,10 @@ this first discovery slice. CLI fixtures suppress automatic browser opens.
   `tmt upgrade` (hidden `__native-rename-database`, run by the activated executable on every
   completed unpinned upgrade). SQLite proves nothing holds the database: an exclusive lock, with
   no busy wait, fails while any other connection is open, idle WAL ones included. Under that lock
-  the database is checkpointed and switched to one file (no `-wal`, `-shm` or `-journal`), gets the
-  new name through a hard link, and the old name is replaced atomically by a relative link to
-  `tmt.db`, so no name is ever missing and nothing is copied. A held database, a leftover sidecar,
-  a second database or a foreign link keeps the old name with one plain reason. An interruption
+  the database is checkpointed and switched to one file (the stale `-wal` and `-shm` a finished
+  process leaves behind are removed), gets the new name through a hard link, and the old name is replaced atomically by a relative link to
+  `tmt.db`, so no name is ever missing and nothing is copied. A held database, a foreign
+  `-journal`, a second database or a foreign link keeps the old name with one plain reason. An interruption
   leaves both names on one file; the next run finishes it only under the same proof. Released
   binaries and the rollback release open the old name through the link (default open flags, no
   `NOFOLLOW`) and SQLite places the journals under `tmt.db`. Removing the link belongs to the
