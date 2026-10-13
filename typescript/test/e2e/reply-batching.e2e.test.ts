@@ -8,7 +8,7 @@ import { withE2EFixture, type E2EFixture } from './harness.js';
 import { expectJsonResult } from './cli-assertions.js';
 
 function query<T>(fixture: E2EFixture, sql: string): T[] {
-  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return db.prepare(sql).all() as T[];
   } finally {

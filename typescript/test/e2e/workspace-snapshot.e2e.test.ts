@@ -96,7 +96,7 @@ describe('event-driven workspace recovery snapshots', () => {
       ).toBe(0);
       // The recovery input intentionally predates the current name/preferences.
       fs.writeFileSync(snapshotPath(fixture), JSON.stringify(synthetic));
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         database
           .prepare(`INSERT INTO identity_session_preferences
@@ -202,7 +202,7 @@ describe('event-driven workspace recovery snapshots', () => {
       ).toBe(window);
       expect(snapshot.panes.find((value) => value.id === pane)?.cwd).toBe(cwd);
       const bytes = fs.readFileSync(snapshotPath(fixture));
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       const durable = () => ({
@@ -534,7 +534,7 @@ server.listen(${JSON.stringify(gate)}, () => {
         ).toBe('ready');
         // The scripted child holds before any CLI callback. Wait for the native
         // launch admission independently, as the normal hook parent would do.
-        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
         try {
           await fixture.waitFor(
             () => {
@@ -833,7 +833,7 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
         records.set(name, created.json!.identity.id);
       }
       const session = '33333333-3333-4333-8333-333333333333';
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         for (const name of labels.slice(0, 5)) {
           db.prepare(`INSERT INTO identity_session_preferences
@@ -1014,7 +1014,7 @@ server.listen(${JSON.stringify(gates[index])}, () => {
           'restored provider/board process absence'
         );
         if (resumeStarted) {
-          const oracle = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+          const oracle = new Database(path.join(fixture.globalDir, 'tmt.db'), {
             readonly: true,
           });
           try {
@@ -1224,7 +1224,7 @@ describe('layout-only workspace restore', () => {
         }
         recoveryInput(fixture, saved);
         const bytes = fs.readFileSync(snapshotPath(fixture));
-        const database = path.join(fixture.globalDir, 'tmux-team.db');
+        const database = path.join(fixture.globalDir, 'tmt.db');
         const databaseBytes = fs.readFileSync(database);
         const oldId = fixture.tmux(['-u', 'show-option', '-s', '-v', '@tmt.server-id']).trim();
         const oldPid = fixture.serverPid;

@@ -40,7 +40,7 @@ impl Fixture {
         ));
         fs::create_dir(&root).unwrap();
         let mut fixture = Self {
-            database: support::state_dir(&root).join("tmux-team.db"),
+            database: support::state_dir(&root).join("tmt.db"),
             root,
             request_id: String::new(),
             recipient_id: String::new(),

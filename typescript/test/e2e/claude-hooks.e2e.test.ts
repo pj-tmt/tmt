@@ -105,7 +105,7 @@ describe(
             id: identity.id,
             sessionState: 'running',
           });
-          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
           try {
             expect(
               db

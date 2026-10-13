@@ -24,7 +24,7 @@ function json<T>(result: CliResult<T>): T {
 }
 
 function databaseFile(fixture: E2EFixture): string {
-  return path.join(fixture.globalDir, 'tmux-team.db');
+  return path.join(fixture.globalDir, 'tmt.db');
 }
 
 function durableState(fixture: E2EFixture): DurableState {

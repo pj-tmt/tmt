@@ -512,7 +512,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
       const gone = await fixture.createMockPane('durable');
       const original = await fixture.runJsonCli(['add', gone.pane, 'Durable', '-s']);
       expect(original.code).toBe(0);
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       const identity = database
@@ -548,7 +548,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         ],
       });
 
-      const afterDeath = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const afterDeath = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       expect(
@@ -562,7 +562,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
       const replacement = await fixture.createMockPane('replacement');
       const rebound = await fixture.runJsonCli(['add', replacement.pane, 'durable']);
       expect(rebound.code).toBe(0);
-      const afterRebind = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const afterRebind = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       expect(
@@ -824,7 +824,7 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         notification: 'not_attempted',
         waitingFor: 'recipient_inbox_pull',
       });
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       try {

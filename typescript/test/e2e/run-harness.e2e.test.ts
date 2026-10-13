@@ -61,7 +61,7 @@ async function suspendAfterLaunchStorageCloses(
   await fixture.waitFor(
     () => {
       if (!existsSync(`/proc/${owner}`)) throw new Error('Launcher exited before suspension.');
-      return !processTreeHasOpenFile(owner, path.join(fixture.globalDir, 'tmux-team.db'));
+      return !processTreeHasOpenFile(owner, path.join(fixture.globalDir, 'tmt.db'));
     },
     5000,
     'launcher to close launch storage before suspension'
@@ -106,7 +106,7 @@ function signalOwnedHarness(pid: number, executable: string, signal: NodeJS.Sign
 }
 
 function preferences(fixture: E2EFixture): Record<string, unknown>[] {
-  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return db.prepare('SELECT * FROM identity_session_preferences').all() as Record<
       string,
@@ -118,7 +118,7 @@ function preferences(fixture: E2EFixture): Record<string, unknown>[] {
 }
 
 function identityId(fixture: E2EFixture, name: string): string {
-  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return (db.prepare('SELECT id FROM identities WHERE name = ?').get(name) as { id: string }).id;
   } finally {
@@ -192,7 +192,7 @@ exec /opt/tmt-tests/claude "$@"
         { HOME: home }
       );
       await waitForFileContent(checkpoint, { description: 'provider reached naming checkpoint' });
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         const before = db.prepare('SELECT * FROM identities WHERE auto_named = 1').get() as {
           id: string;
@@ -306,7 +306,7 @@ exec /opt/tmt-tests/claude "$@"
         }
       );
       const id = identityId(fixture, 'Preset');
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         const row = db
           .prepare(
@@ -421,7 +421,7 @@ exec /opt/tmt-tests/claude "$@"
       expect(
         failed.stderr.split('\n').filter((line) => line.startsWith('tmt: Temporary name:'))
       ).toHaveLength(1);
-      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
       try {
         expect(
           db.prepare('SELECT lifetime, retired_at_ms FROM identities WHERE auto_named = 1').all()
@@ -503,7 +503,7 @@ exec /opt/tmt-tests/claude "$@"
       const id = identityId(fixture, 'Resume');
       const session = '12345678-1234-4234-8234-123456789abc';
       const write = (sql: string, ...values: unknown[]) => {
-        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+        const db = new Database(path.join(fixture.globalDir, 'tmt.db'));
         try {
           expect(db.prepare(sql).run(...values, id).changes).toBe(1);
         } finally {
@@ -758,7 +758,7 @@ exec /opt/tmt-tests/claude "$@"
       try {
         submit(fixture, pane, ['run', '-s', 'CloseLock', fake], firstStatus, {
           LD_PRELOAD: library,
-          TMT_CLOSE_DATABASE: path.join(fixture.globalDir, 'tmux-team.db'),
+          TMT_CLOSE_DATABASE: path.join(fixture.globalDir, 'tmt.db'),
           TMT_CLOSE_BEFORE: before,
           TMT_CLOSE_HELD: held,
           TMT_CLOSE_ACQUIRE: acquire,
@@ -767,13 +767,13 @@ exec /opt/tmt-tests/claude "$@"
         first = JSON.parse(await waitForFileContent(ready)) as { child: number; owner: number };
         await waitForFileContent(before, { description: 'launcher entering SQLite close' });
         expect(state()).toBe('running');
-        expect(
-          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
-        ).toBe(true);
+        expect(processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmt.db'))).toBe(
+          true
+        );
         writeSync(acquireFd, Buffer.from('go'));
         acquireReleased = true;
         await waitForFileContent(held, { description: 'launcher holding SQLite close lock' });
-        const locked = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { timeout: 0 });
+        const locked = new Database(path.join(fixture.globalDir, 'tmt.db'), { timeout: 0 });
         try {
           expect(() => locked.prepare('SELECT * FROM bindings').all()).toThrow(/locked/);
         } finally {
@@ -806,9 +806,9 @@ exec /opt/tmt-tests/claude "$@"
         expect(signalBit(first.owner, 'ShdPnd', 20) || signalBit(first.owner, 'SigPnd', 20)).toBe(
           true
         );
-        expect(
-          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
-        ).toBe(true);
+        expect(processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmt.db'))).toBe(
+          true
+        );
         writeSync(releaseFd, Buffer.from('go'));
         closeReleased = true;
         await fixture.waitFor(
@@ -816,9 +816,9 @@ exec /opt/tmt-tests/claude "$@"
           5000,
           'closed-storage launcher and child suspended'
         );
-        expect(
-          processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmux-team.db'))
-        ).toBe(false);
+        expect(processTreeHasOpenFile(first.owner, path.join(fixture.globalDir, 'tmt.db'))).toBe(
+          false
+        );
         expect(signalBit(first.owner, 'SigBlk', 20)).toBe(false);
         expect(signalBit(first.owner, 'SigIgn', 20)).toBe(false);
         expect(signalBit(first.owner, 'SigCgt', 20)).toBe(false);
@@ -848,8 +848,7 @@ exec /opt/tmt-tests/claude "$@"
             // The close release can deliver the pending stop after our first
             // SIGCONT. Wait for descriptors to close, then resume once more.
             await fixture.waitFor(
-              () =>
-                !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmux-team.db')),
+              () => !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmt.db')),
               5000,
               'launch close gate released for cleanup'
             );
@@ -922,7 +921,7 @@ exec /opt/tmt-tests/claude "$@"
         writeSync(releaseFd, Buffer.from('go'));
         released = true;
         await fixture.waitFor(
-          () => !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmux-team.db')),
+          () => !processTreeHasOpenFile(first!.owner, path.join(fixture.globalDir, 'tmt.db')),
           5000,
           'stopped-child attachment committed and storage closed'
         );
@@ -1014,7 +1013,7 @@ process.exit(23);
       };
       expect(userArgsWithLaunchHooks(first.argv)).toEqual(args);
       expect(first.tty).toEqual([true, true, true]);
-      expect(first.descriptors.some((fd) => fd.includes('tmux-team.db'))).toBe(false);
+      expect(first.descriptors.some((fd) => fd.includes('tmt.db'))).toBe(false);
       const binding = durableState(fixture).bindings.find((row) => row.pane_id === shell.pane);
       expect(binding).toMatchObject({
         runtime_state: 'ended',

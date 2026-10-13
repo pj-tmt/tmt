@@ -38,7 +38,7 @@ export interface ResponseRow {
 
 /** Read committed state independently of the CLI's service and connection. */
 function read<T>(fixture: E2EFixture, query: (database: Database.Database) => T): T {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return query(database);
   } finally {

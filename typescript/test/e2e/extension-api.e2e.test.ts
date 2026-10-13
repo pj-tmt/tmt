@@ -48,7 +48,7 @@ describe('non-Office extension API delivery', { concurrent: false }, () => {
               (event) => event.event === 'input' && event.line?.includes(id) === true
             );
           }
-          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
           try {
             const before = db
               .prepare('SELECT * FROM request_attempts WHERE request_id = ?')

@@ -46,7 +46,7 @@ function expectError(result: CliResult<CommandError>, code: string, exitCode: nu
 
 function identityId(fixture: E2EFixture, name: string): string {
   // This read-only oracle makes rebind preservation independent of display-name casing.
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     const row = database
       .prepare('SELECT id FROM identities WHERE canonical_name = ?')

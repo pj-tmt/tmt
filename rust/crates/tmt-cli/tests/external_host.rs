@@ -206,7 +206,7 @@ fn bind(fixture: &Fixture, record: registry::DriverRecord) {
     let start = observe_start(&UnixCommandRunner, pid, deadline())
         .unwrap()
         .unwrap();
-    let mut storage = Storage::open(fixture.state().join("tmux-team.db")).unwrap();
+    let mut storage = Storage::open(fixture.state().join("tmt.db")).unwrap();
     let server = ServerEvidence {
         host: HostKind::External(fake),
         server_id: storage

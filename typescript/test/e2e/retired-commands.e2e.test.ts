@@ -48,7 +48,7 @@ interface DurableSnapshot {
 }
 
 function databasePath(fixture: E2EFixture): string {
-  return path.join(fixture.globalDir, 'tmux-team.db');
+  return path.join(fixture.globalDir, 'tmt.db');
 }
 
 function durableSnapshot(fixture: E2EFixture): DurableSnapshot {

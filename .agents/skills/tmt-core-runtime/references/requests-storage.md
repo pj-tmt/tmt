@@ -206,10 +206,23 @@ this first discovery slice. CLI fixtures suppress automatic browser opens.
   skill-refresh protocol supplies a silent report callback to preserve its frozen
   JSON/empty-stderr contract. Resolution, admission and cutover have one owner;
   ordinary discovery and concurrent completion stay quiet. The DB, WAL and SHM
-  remain together, including
-  open file descriptors; `tmux-team.db` stays until a separately authorized
-  stopped-writer cutover. Explicit homes and former local files are never renamed
-  or read as aliases.
+  remain together, including open file descriptors. Explicit homes and former
+  local files are never renamed or read as aliases.
+- **Database basename (#2292).** `ConfigPaths::database` is the one owner of the name: `tmt.db`
+  when it exists, else `tmux-team.db` when only that exists, else `tmt.db` for a new store, so
+  no reader creates an empty database beside an existing one. It is resolved after the directory
+  move, and the #2757 guard counts either name. `storage::rename_database` renames only inside
+  `tmt upgrade` (hidden `__native-rename-database`, run by the activated executable on every
+  completed unpinned upgrade). SQLite proves nothing holds the database: an exclusive lock, with
+  no busy wait, fails while any other connection is open, idle WAL ones included. Under that lock
+  the database is checkpointed and switched to one file (no `-wal`, `-shm` or `-journal`), gets the
+  new name through a hard link, and the old name is replaced atomically by a relative link to
+  `tmt.db`, so no name is ever missing and nothing is copied. A held database, a leftover sidecar,
+  a second database or a foreign link keeps the old name with one plain reason. An interruption
+  leaves both names on one file; the next run finishes it only under the same proof. Released
+  binaries and the rollback release open the old name through the link (default open flags, no
+  `NOFOLLOW`) and SQLite places the journals under `tmt.db`. Removing the link belongs to the
+  later alias decision.
 
 - `config::document` keeps unknown JSON fields and validates known settings through
   `tmt-core::settings`; `json_document` keeps number compatibility and raw object order on targeted

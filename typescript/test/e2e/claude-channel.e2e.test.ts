@@ -77,7 +77,7 @@ function start(
   const env = {
     HOME: home,
     MOCK_CHANNEL_LOG: log,
-    MOCK_DB: path.join(fixture.globalDir, 'tmux-team.db'),
+    MOCK_DB: path.join(fixture.globalDir, 'tmt.db'),
     MOCK_AUTOREPLY: '1',
     ...options.env,
   };
@@ -298,7 +298,7 @@ function bindings(fixture: E2EFixture): unknown[] {
 }
 
 function sql<T>(fixture: E2EFixture, run: (database: Database.Database) => T): T {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+  const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
   try {
     return run(database);
   } finally {
@@ -581,7 +581,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
               HOME: home,
               PATH: `${fixture.wrapperDir}:${process.env.PATH}`,
               MOCK_CHANNEL_LOG: log,
-              MOCK_DB: path.join(fixture.globalDir, 'tmux-team.db'),
+              MOCK_DB: path.join(fixture.globalDir, 'tmt.db'),
               MOCK_SESSION_ID: sessionId,
               TMT_TEST_CLAUDE_MOCK: mock,
               TMT_TEST_CLAUDE_NODE: process.execPath,
@@ -750,7 +750,7 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           },
         });
         const oracle = <T>(read: (db: Database.Database) => T): T => {
-          const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+          const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
           try {
             return read(db);
           } finally {
@@ -2347,7 +2347,7 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
               ])
             ),
             durable: observe(() => {
-              const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+              const db = new Database(path.join(fixture.globalDir, 'tmt.db'), {
                 readonly: true,
               });
               try {

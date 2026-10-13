@@ -38,7 +38,7 @@ describe('single JSON command error boundary', { concurrent: false }, () => {
       expect(
         (await fixture.runJsonCli(['role', 'set', 'Keep this role', '--identity', 'Receiver'])).code
       ).toBe(0);
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         database.exec('BEGIN IMMEDIATE');
         const request = fixture.runCliProcess([

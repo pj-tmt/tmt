@@ -8,7 +8,7 @@ import { durableState } from './identity-state-oracle.js';
 import { requestAttempts, requestResponses } from './request-state-oracle.js';
 
 function attentionState(fixture: E2EFixture): unknown {
-  const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+  const db = new Database(path.join(fixture.globalDir, 'tmt.db'), { readonly: true });
   try {
     return {
       originators: db

@@ -285,7 +285,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
             .to_string_lossy()
             .starts_with(".download-")
     }));
-    assert!(!task.join("tmux-team.db").exists());
+    assert!(!task.join("tmt.db").exists());
 
     let new_skill = run(
         &report.installation.active_executable,

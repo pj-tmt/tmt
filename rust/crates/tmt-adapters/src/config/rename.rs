@@ -1,7 +1,8 @@
 //! One-release default-directory cutover (#2270), removed after the owner cut.
-//! Move the directory as one unit; tmux-team.db and its live journals stay named.
+//! Move the directory as one unit; the database and its live journals keep their
+//! names here. `tmt upgrade` renames the database separately (#2292).
 
-use super::{ConfigError, normalize};
+use super::{ConfigError, DATABASE, FORMER_DATABASE, normalize};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -108,37 +109,46 @@ fn prepare_with(
     }
 }
 
-/// The cutover owner alone knows the relation between the default roots.
+/// The cutover owner alone knows the relation between the default roots. A
+/// database under either basename counts, in the new directory and in the former one.
 fn guard_new_database(
     current: &Path,
     mut inspect: impl FnMut(&Path) -> io::Result<()>,
 ) -> Result<(), ConfigError> {
-    let database = current.join("tmux-team.db");
     let inspect_error = |path: &Path, error: io::Error| {
         ConfigError::internal(format!("Cannot inspect {}: {error}", path.display()))
     };
-    match inspect(&database) {
-        Ok(()) => return Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(inspect_error(&database, error)),
+    for name in [DATABASE, FORMER_DATABASE] {
+        let database = current.join(name);
+        match inspect(&database) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(inspect_error(&database, error)),
+        }
     }
+    let database = current.join(DATABASE);
     let former = current
         .parent()
         .expect("a resolved default directory has a parent")
         .join("tmux-team");
-    let former_database = former.join("tmux-team.db");
-    match inspect(&former_database) {
-        Ok(()) => Err(ConfigError::internal(format!(
-            "Refusing to initialize {} while the former database {} exists. Move the current Core data directory {} aside first, then move the former Core data directory {} to {} as a whole before retrying.",
-            database.display(),
-            former_database.display(),
-            current.display(),
-            former.display(),
-            current.display(),
-        ))),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(inspect_error(&former_database, error)),
+    for name in [DATABASE, FORMER_DATABASE] {
+        let former_database = former.join(name);
+        match inspect(&former_database) {
+            Ok(()) => {
+                return Err(ConfigError::internal(format!(
+                    "Refusing to initialize {} while the former database {} exists. Move the current Core data directory {} aside first, then move the former Core data directory {} to {} as a whole before retrying.",
+                    database.display(),
+                    former_database.display(),
+                    current.display(),
+                    former.display(),
+                    current.display(),
+                )));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(inspect_error(&former_database, error)),
+        }
     }
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -203,7 +213,7 @@ mod tests {
             assert!(
                 error
                     .message
-                    .contains(&current.join("tmux-team.db").display().to_string())
+                    .contains(&current.join("tmt.db").display().to_string())
             );
             assert!(
                 error
@@ -227,20 +237,31 @@ mod tests {
     #[test]
     fn existing_database_never_inspects_the_former_sibling() {
         let current = Path::new("/owned/config/tmt");
-        let mut inspected = Vec::new();
-        guard_new_database(current, |path| {
-            assert_eq!(path, current.join("tmux-team.db"));
-            inspected.push(path.to_path_buf());
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(inspected, vec![current.join("tmux-team.db")]);
+        for name in [DATABASE, FORMER_DATABASE] {
+            let mut inspected = Vec::new();
+            guard_new_database(current, |path| {
+                inspected.push(path.to_path_buf());
+                if path == current.join(name) {
+                    Ok(())
+                } else {
+                    Err(io::Error::from(io::ErrorKind::NotFound))
+                }
+            })
+            .unwrap();
+            let expected: Vec<_> = [DATABASE, FORMER_DATABASE]
+                .into_iter()
+                .take_while(|candidate| *candidate != name)
+                .chain([name])
+                .map(|candidate| current.join(candidate))
+                .collect();
+            assert_eq!(inspected, expected);
+        }
     }
 
     #[test]
     fn fresh_database_checks_the_former_sibling_once_and_inspection_errors_refuse() {
         let current = Path::new("/owned/config/tmt");
-        for failure_at in [None, Some(0), Some(1)] {
+        for failure_at in [None, Some(0), Some(1), Some(2), Some(3)] {
             let mut inspected = Vec::new();
             let result = guard_new_database(current, |path| {
                 let index = inspected.len();
@@ -251,18 +272,15 @@ mod tests {
                     io::ErrorKind::NotFound
                 }))
             });
-            assert_eq!(inspected[0], current.join("tmux-team.db"));
-            if failure_at == Some(0) {
-                assert_eq!(inspected.len(), 1);
-            } else {
-                assert_eq!(
-                    inspected,
-                    vec![
-                        current.join("tmux-team.db"),
-                        PathBuf::from("/owned/config/tmux-team/tmux-team.db"),
-                    ]
-                );
-            }
+            assert_eq!(inspected[0], current.join("tmt.db"));
+            let all = [
+                current.join("tmt.db"),
+                current.join("tmux-team.db"),
+                PathBuf::from("/owned/config/tmux-team/tmt.db"),
+                PathBuf::from("/owned/config/tmux-team/tmux-team.db"),
+            ];
+            // Inspection stops at the first failure.
+            assert_eq!(inspected, all[..failure_at.map_or(4, |index| index + 1)]);
             if let Some(index) = failure_at {
                 assert!(
                     result

@@ -238,7 +238,7 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
       expect(results[1].badge).toBe(running);
       const readBadge = () =>
         fixture.tmux(['-u', 'show-options', '-p', '-qv', '-t', pane, BADGE_OPTION]).trim();
-      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+      const database = new Database(path.join(fixture.globalDir, 'tmt.db'), {
         readonly: true,
       });
       try {
