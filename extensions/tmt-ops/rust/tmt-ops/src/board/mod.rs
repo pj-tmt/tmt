@@ -4,7 +4,9 @@
 mod app;
 mod changes;
 mod checklist;
+mod composer;
 mod composition;
+mod conversation;
 mod cronboard;
 mod derived;
 mod digest;
@@ -13,9 +15,11 @@ mod glyph_guard;
 mod help;
 mod home;
 mod home_leads;
+mod inventory;
 mod lane;
 mod limits;
 mod markdown;
+mod mentions;
 mod menu_surface;
 mod meter;
 pub(crate) mod notes;
@@ -24,6 +28,7 @@ mod picker_surface;
 mod rate;
 mod refresh;
 mod reload;
+mod response;
 mod resume;
 mod row_chips;
 mod row_detail;
@@ -525,10 +530,7 @@ fn session(
                 Effect::None
             }
             Ok(BoardEvent::HomeLeads { cancellation, read }) => {
-                if !cancellation.cancelled()
-                    && !app.loading()
-                    && app.current.as_deref() == Some(ALL)
-                {
+                if !cancellation.cancelled() && !app.loading() {
                     app.apply_home_leads(read);
                     dirty = true;
                 }
@@ -601,6 +603,9 @@ fn session(
                 app.in_flight = app.in_flight.saturating_sub(1);
                 dirty = true;
                 let jumped = jump && outcome.is_ok();
+                if sends {
+                    app.finish_draft(outcome.is_ok());
+                }
                 match outcome {
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
@@ -695,9 +700,9 @@ fn session(
                     app.mouse(mouse, Instant::now())
                 }
             }
-            Ok(BoardEvent::Input(event @ Event::Paste(_))) if app.checklist_shown() => {
+            Ok(BoardEvent::Input(Event::Paste(text))) => {
                 dirty = true;
-                app.overlay_event(&event).unwrap_or(Effect::None)
+                app.paste(&text)
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 app.meter_hover = None;
@@ -2108,6 +2113,8 @@ mod tests {
     #[test]
     fn a_board_with_a_draft_open_keeps_running_until_it_is_cancelled() {
         let draft = || app::Input {
+            draft_key: None,
+            response_quotes: Vec::new(),
             row_send: None,
             others: Vec::new(),
             quote: None,

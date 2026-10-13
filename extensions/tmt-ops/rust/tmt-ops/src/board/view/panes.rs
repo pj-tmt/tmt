@@ -1,9 +1,6 @@
 //! Named pane dispatch and existing split/tab chrome.
 
-use super::{
-    detail::render_detail, notes::render_notes, replies::render_replies, rows::render_rows,
-    tabs::pane_tab,
-};
+use super::{detail::render_detail, notes::render_notes, rows::render_rows, tabs::pane_tab};
 use crate::board::app::App;
 use crate::board::app::TitleHit;
 use crate::board::notes::sanitize;
@@ -68,6 +65,13 @@ pub(super) fn prepare(app: &App, area: Rect) {
     };
     let (area, rule_below) =
         body_halves(app, area).map_or((area, false), |(members, _)| (members, true));
+    if board.panes == [Pane::Rows, Pane::Replies]
+        && app.view_picker.is_none()
+        && app.folds_at(area.width).is_empty()
+    {
+        *view.composition.borrow_mut() = None;
+        return;
+    }
     let mut composition = view.composition.borrow_mut();
     if crate::board::composition::layout(
         &mut composition,
@@ -92,10 +96,51 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
         return;
     };
     if view.home.is_some() {
-        crate::board::home::render(frame, app, area);
+        let placement = crate::board::conversation::layout::overview(area);
+        app.conversation.borrow_mut().pane = placement.conversation;
+        crate::board::home::render(frame, app, placement.list.unwrap_or(area));
+        if let Some(conversation) = placement.conversation {
+            crate::board::conversation::render(frame, app, conversation);
+        }
         return;
     }
     let board = app.effective_board().expect("loaded view has a board");
+    // The shared two-pane workspace uses cell budgets instead of squeezing
+    // either surface below a usable width. Other configured panes keep their
+    // composition owner until the shell migration admits them explicitly.
+    if board.panes == [Pane::Rows, Pane::Replies]
+        && app.view_picker.is_none()
+        && app.collapsed_panes().is_empty()
+    {
+        use crate::board::conversation::layout::{Preference, agents};
+        let preference = if board.members {
+            Preference::Auto
+        } else {
+            match &board.split {
+                crate::split::Split::Group {
+                    direction: crate::config::Direction::TopBottom,
+                    ..
+                } => Preference::Stack,
+                _ => Preference::Side,
+            }
+        };
+        let placement = if board.mode == BoardMode::Tabs {
+            crate::board::conversation::layout::Placement {
+                list: (app.focused() == Pane::Rows).then_some(area),
+                conversation: (app.focused() == Pane::Replies).then_some(area),
+            }
+        } else {
+            agents(area, preference, app.focused() == Pane::Replies)
+        };
+        app.conversation.borrow_mut().pane = placement.conversation;
+        if let Some(list) = placement.list {
+            render_rows(frame, app, list, Shared::default(), list);
+        }
+        if let Some(conversation) = placement.conversation {
+            crate::board::conversation::render(frame, app, conversation);
+        }
+        return;
+    }
     let (placement, chrome) = {
         let mut composition = view.composition.borrow_mut();
         let placement = crate::board::composition::layout(
@@ -130,6 +175,18 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect, rule_below: bool) {
         }
     };
     let focused = receiving_pane(app);
+    app.conversation.borrow_mut().pane = if board.mode == BoardMode::Split {
+        chrome
+            .iter()
+            .find(|slot| {
+                slot.pane == Pane::Replies && !app.collapsed_panes().contains(&Pane::Replies)
+            })
+            .map(|slot| slot.inner)
+    } else if app.focused() == Pane::Replies {
+        Some(slots[1].1)
+    } else {
+        None
+    };
     let pane_block = |pane: Pane| {
         let focus = if Some(pane) == focused { "Focus: " } else { "" };
         let mut title = match pane {
@@ -294,6 +351,6 @@ fn render_pane(
         Pane::Rows => render_rows(frame, app, area, shared, headings),
         Pane::Notes => render_notes(frame, app, area),
         Pane::Detail => render_detail(frame, app, area),
-        Pane::Replies => render_replies(frame, app, area),
+        Pane::Replies => crate::board::conversation::render(frame, app, area),
     }
 }

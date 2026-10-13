@@ -89,7 +89,7 @@ fn prepare(
     // text. Mirror the painter's request-age reservation and bounded wrapping.
     let room = super::row_paint::heading_room(rows, &layout, usize::from(area.width));
     let mut painted_extras = extras.clone();
-    for (index, (extra, (_, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
+    for (index, (extra, (origin, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
         let mut visible = Vec::new();
         for (line, configured) in rows.lines.iter().enumerate() {
             let mut position = 0;
@@ -187,7 +187,7 @@ fn prepare(
         if heading.first().map_or(0, |label| label.chips.len()) == extra.chips.len() {
             visible.push("chips");
         }
-        extra.detail = app.detail_value(index, &visible);
+        extra.detail = app.detail_target_value(app.projected_row_target(origin, row), &visible);
     }
     let scene = RowPaint::build(
         rows,
@@ -235,19 +235,20 @@ pub(super) fn render_rows(
     let available = usize::from(area.width).saturating_sub(2);
     let now = app.cron.now_ms();
     let request_now = crate::status::now_ms();
+    let inline_input = app.input.is_some() && app.conversation_input_area().is_none();
     let extras: Vec<Extra> = app
         .items()
         .into_iter()
         .filter(|item| matches!(item, Item::Row(..)))
-        .enumerate()
-        .map(|(index, item)| {
+        .map(|item| {
             let Item::Row(origin, row) = item else {
                 unreachable!()
             };
+            let target = app.projected_row_target(origin, row);
             Extra {
                 lead: origin == RowOrigin::Lead,
                 chips: crate::board::row_chips::of(&app.labels, row, request_now),
-                detail: app.detail_value(index, &[]),
+                detail: app.detail_target_value(target.clone(), &[]),
                 next: row["id"]
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
@@ -255,8 +256,15 @@ pub(super) fn render_rows(
                 sent: app
                     .sent
                     .as_ref()
-                    .and_then(|feedback| feedback.line(&app.row_target(index)?)),
-                reserve: super::waiting::reserved_lines(app, index, area).unwrap_or(0),
+                    .and_then(|feedback| feedback.line(target.as_ref()?)),
+                reserve: if inline_input {
+                    target
+                        .as_ref()
+                        .and_then(|target| super::waiting::reserved_target_lines(app, target, area))
+                        .unwrap_or(0)
+                } else {
+                    0
+                },
             }
         })
         .collect();

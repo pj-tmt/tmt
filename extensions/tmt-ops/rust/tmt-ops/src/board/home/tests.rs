@@ -316,7 +316,15 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
         id: "me-id".into(),
         name: "me".into(),
     };
-    let (home_public, home, rates) = load(&f.core, &f.config, &squads, &order, Some(&me)).unwrap();
+    let (home_public, home, rates) = load(
+        &f.core,
+        &f.config,
+        &squads,
+        &order,
+        Some(&me),
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     let calls = fs::read_to_string(f.root.join("calls")).unwrap();
     assert_eq!(
         calls.lines().collect::<Vec<_>>(),
@@ -387,7 +395,15 @@ fn home_global_windows_do_not_replace_named_squad_overrides() {
         fs::write(f.root.join(name), roster(name).to_string()).unwrap();
     }
     f.install_core();
-    let (_, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    let (_, home, rates) = load(
+        &f.core,
+        &f.config,
+        &squads(),
+        &[],
+        None,
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     assert_eq!(
         home.windows.map(|window| window.label()),
         ["1m", "1h", "2h"]
@@ -408,7 +424,15 @@ fn failed_model_read_is_home_only_and_recovers_without_inventing_usage() {
     }
     fs::write(f.root.join("models-fail"), "").unwrap();
     f.install_core();
-    let (public, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    let (public, home, rates) = load(
+        &f.core,
+        &f.config,
+        &squads(),
+        &[],
+        None,
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     assert!(public.document.get("partial").is_none());
     assert!(
         !home.incomplete,
@@ -422,7 +446,15 @@ fn failed_model_read_is_home_only_and_recovers_without_inventing_usage() {
             .all(|rate| rate.input.resumes.values().all(Value::is_null))
     );
     fs::remove_file(f.root.join("models-fail")).unwrap();
-    let (recovered, home, _) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    let (recovered, home, _) = load(
+        &f.core,
+        &f.config,
+        &squads(),
+        &[],
+        None,
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     assert!(!home.incomplete && home.failures.is_empty());
     assert_eq!(public.document, recovered.document);
 }
@@ -448,7 +480,15 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
         id: "me-id".into(),
         name: "me".into(),
     };
-    let (public, home, rates) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
+    let (public, home, rates) = load(
+        &f.core,
+        &f.config,
+        &squads(),
+        &[],
+        Some(&me),
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     assert_eq!(rates.keys().map(String::as_str).collect::<Vec<_>>(), ["b"]);
     assert_eq!(public.document["partial"], true);
     assert_eq!(home.failures.len(), 2);
@@ -458,7 +498,15 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
     fs::remove_file(f.root.join("a-fail")).unwrap();
     fs::write(f.root.join("inbox"), "{\"items\":[],\"more\":false}").unwrap();
     fs::write(f.root.join("a"), roster("a").to_string()).unwrap();
-    let (public, home, _) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
+    let (public, home, _) = load(
+        &f.core,
+        &f.config,
+        &squads(),
+        &[],
+        Some(&me),
+        &f.core.json(&["ls"]),
+    )
+    .unwrap();
     assert!(public.document.get("partial").is_none());
     assert!(home.failures.is_empty());
     assert_eq!(home.squads.len(), 2);

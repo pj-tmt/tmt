@@ -66,13 +66,28 @@ Originator withdrawal (`withdrawn`, with reason/time) remains Core history and
 never becomes a recipient reply, body read or approval. Open requests,
 announcements and unknown final states are excluded from this projection.
 
-`requests::bodies` considers only the newest `BODIES` (eight) finals and loads those
-still retained through `requests.show`. Its refresh-worker cache uses immutable
-request IDs and prunes to that same eight-item window. `view::replies` sanitizes
-and wraps them through the notebook renderer. The immutable view's
-`Derived.replies` caches bodies by request ID, width and look; headers/prompts are
-assembled per frame so ages advance without reparsing. New views discard that
-render cache. Reply scrolling belongs to `Scrolls`; reading acknowledges nothing.
+`requests::bodies` retains the bounded room-final acquisition. The refresh worker
+also requests one bounded originator-results page for HOME, member boards and
+boards configured with a Replies pane. `home_leads::State` fences that projection by sender
+UUID. `row_detail` chooses the newest final for the selected recipient UUID
+across room and global observations; request bodies load off the UI thread.
+Unavailable/expired source is not an annotatable response.
+
+`board::conversation` owns one session per sender/recipient UUID and paints the
+same selected-agent response in wide HOME and the Replies pane. Each session
+retains the response, source anchor, follow state and Markdown render cache keyed
+by source, width and look. Reading older text pauses follow; a replacement result
+is indicated without replacing the displayed request until End resumes follow.
+`Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
+nothing. Layout uses terminal cells and degrades side/stack preferences to one
+focused pane when dimensions cannot support a split.
+
+`board::response` keeps exact raw source and request identity separate from the
+sanitized Markdown display. Source selection/copy and annotations preserve raw
+byte ranges. Attachment revalidation refuses changed requests, changed bodies or
+vanished recipients. Native terminal selection remains available with the
+terminal's mouse-reporting override. Colab URLs use existing link effects;
+native Colab page/thread writes are not implemented.
 
 Relevant tests are `notes` (sanitizer, cursor and bounded cache), `markdown`, `links`,
 `app` (composer/link fences), `refresh` (selection jobs) and `view/tests` (detail,
