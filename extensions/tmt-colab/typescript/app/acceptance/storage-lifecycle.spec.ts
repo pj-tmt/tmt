@@ -113,6 +113,8 @@ test('annotation attachments: PNG, JPEG and WebP preview, video is download-only
           })
         : rows.filter({ hasText: file.name });
       if (previewable) {
+        // The stacked thread previews load when their own tile enters history's viewport.
+        await row.scrollIntoViewIfNeeded();
         await expect(row.locator('img')).toHaveAttribute(
           'src',
           new RegExp(`^data:${file.mimeType};base64,`),

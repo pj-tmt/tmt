@@ -336,9 +336,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t2.getByRole('button', { name: text.threadResolve, exact: true })).toBeEnabled();
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     await expect(t2.getByTestId('ask-reply')).toBeVisible();
-    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(
-      `${agent.name} · ${text.conversationAgent}`,
-    );
+    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(`${agent.name} · AGENT`);
     await expect(t1.getByTestId('ask-reply-attribution')).not.toContainText('discussion-replier');
     await expect(t1.getByTestId('ask-state')).toHaveCount(0);
     await expect(t2.getByTestId('ask-state')).toHaveCount(0);

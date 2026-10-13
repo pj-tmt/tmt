@@ -1050,6 +1050,9 @@ footer {
   border: 0;
   gap: 12px;
 }
+.comment-thread .thread-state {
+  min-height: 22px;
+}
 .comment-thread .conversation-title {
   min-height: 22px;
   font: 500 12px/1.5 var(--f-mono);

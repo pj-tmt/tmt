@@ -434,7 +434,22 @@ for (const width of [1440, 390]) {
       await expect(thread.getByRole('button', { name: 'New messages', exact: true })).toHaveCount(
         0,
       );
-      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
+      const readableTurn = await thread
+        .locator('.conversation-turn[data-turn-role="agent"]')
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          const body = node.querySelector('.conversation-body')!;
+          return (
+            node.querySelector('.comment-byline')!.getBoundingClientRect().height +
+            parseFloat(getComputedStyle(body).lineHeight) +
+            parseFloat(style.paddingTop) +
+            parseFloat(style.paddingBottom) +
+            8
+          );
+        });
+      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(
+        readableTurn,
+      );
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       await input.fill('@Agent 1 Exact unsent draft retained on collapse.');
       await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
