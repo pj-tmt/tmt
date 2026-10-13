@@ -1,5 +1,5 @@
 //! The Remote door `tmt colab serve` attaches to or starts, through Remote's public CLI only.
-//! A door Colab started is stopped and reaped on every exit path; an attached door is never touched.
+//! A started door gets bounded group cleanup on every exit path; an attached door is never touched.
 use crate::door::{Door, Lookup, RemoteFailure};
 use nix::{
     sys::signal::{Signal, killpg},
@@ -21,7 +21,7 @@ use std::{
 /// How long a starting door may take to print its descriptor.
 const READY: Duration = Duration::from_secs(15);
 /// How long a stopping door may take to exit after SIGTERM before its group is killed.
-const GRACE: Duration = Duration::from_secs(3);
+const GRACE: Duration = tmt_colab::limits::REMOTE_STOP_GRACE;
 const POLL: Duration = Duration::from_millis(50);
 const DESCRIPTOR_BYTES: u64 = 16 * 1024;
 
@@ -43,6 +43,8 @@ pub enum Reason {
     Remote(RemoteFailure),
     /// Remote said no door runs, and starting one failed.
     WouldNotStart,
+    /// Startup failed and cleanup could not be confirmed within its bound.
+    CleanupUnconfirmed(String),
 }
 
 impl Access {
@@ -61,6 +63,9 @@ impl Access {
                 "The Remote door did not start; the local space runs without browser access",
                 Some("tmt remote serve shows why"),
             )),
+            Self::Unavailable {
+                reason: Reason::CleanupUnconfirmed(message),
+            } => Some((message, None)),
             _ => None,
         }
     }
@@ -90,7 +95,7 @@ impl Access {
 /// Owns one started door until dropped. Remote owns the port policy.
 pub struct Supervisor {
     done: Arc<AtomicBool>,
-    watcher: Option<JoinHandle<()>>,
+    watcher: Option<JoinHandle<Vec<String>>>,
 }
 
 impl Supervisor {
@@ -109,6 +114,7 @@ impl Supervisor {
             .spawn()
             .map_err(|_| Reason::WouldNotStart)?;
         let (sender, receiver) = mpsc::channel();
+        let (failure_sender, failure_receiver) = mpsc::channel();
         let pipe = child.stdout.take().expect("piped stdout");
         let reader = thread::spawn(move || {
             let mut pipe = BufReader::new(pipe);
@@ -126,9 +132,13 @@ impl Supervisor {
             let mut line = String::new();
             let _ = pipe.by_ref().take(DESCRIPTOR_BYTES).read_line(&mut line);
             let failure = RemoteFailure::parse(&line);
+            let reported = failure.is_some();
+            if let Some(failure) = failure {
+                let _ = failure_sender.send(failure);
+            }
             // The shared warning owns an error envelope; keep other diagnostics visible and
             // drain the pipe throughout the child's lifetime so later writes never block.
-            if failure.is_none() {
+            if !reported {
                 let _ = tmt_cli_style::stream::stderr().write_all(line.as_bytes());
             }
             // A style stream owns the stderr lock: never hold it while waiting on the child,
@@ -144,32 +154,53 @@ impl Supervisor {
                     Err(_) => break,
                 }
             }
-            failure
+            None::<RemoteFailure>
         });
         let deadline = Instant::now() + READY;
+        let mut startup_failure = None;
         let door = loop {
             if stop.load(Ordering::Relaxed) || Instant::now() >= deadline {
                 break None;
             }
             match receiver.recv_timeout(POLL) {
-                Ok(line) => break Door::from_descriptor(&line),
+                Ok(line) => {
+                    startup_failure = RemoteFailure::parse(&line);
+                    break Door::from_descriptor(&line);
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break None,
             }
         };
         let Some(door) = door else {
-            terminate(&mut child);
-            let failure = reader.join().ok().flatten();
-            let failure = failure.or(diagnostics.join().ok().flatten());
-            return Err(failure.map_or(Reason::WouldNotStart, Reason::Remote));
+            let deadline = Instant::now() + tmt_colab::limits::REMOTE_CLEANUP;
+            let mut failures = abort(&mut child, deadline);
+            let failure = join_until(reader, deadline, &mut failures).flatten();
+            let failure = failure.or(join_until(diagnostics, deadline, &mut failures).flatten());
+            let failure = startup_failure
+                .or(failure)
+                .or_else(|| failure_receiver.try_recv().ok());
+            let reason = failure.map_or(Reason::WouldNotStart, Reason::Remote);
+            return Err(if failures.is_empty() {
+                reason
+            } else {
+                let original = match &reason {
+                    Reason::Remote(failure) => failure.text(),
+                    _ => "The Remote door did not start",
+                };
+                Reason::CleanupUnconfirmed(format!(
+                    "{original}; cleanup unconfirmed: {}",
+                    failures.join("; ")
+                ))
+            });
         };
         let done = Arc::new(AtomicBool::new(false));
         let watcher = {
             let done = Arc::clone(&done);
             thread::spawn(move || {
-                watch(child, &done);
-                let _ = reader.join();
-                let _ = diagnostics.join();
+                let (deadline, mut failures) = watch(child, &done);
+                let _ = join_until(reader, deadline, &mut failures);
+                let _ = join_until(diagnostics, deadline, &mut failures);
+                failures
             })
         };
         Ok((
@@ -182,43 +213,109 @@ impl Supervisor {
     }
 }
 
+/// Cleanup uncertainty preserves the original serve failure when there is one.
+#[derive(Debug)]
+pub struct CleanupUnconfirmed {
+    pub detail: String,
+    pub original: Option<Box<dyn std::error::Error + Send + Sync>>,
+}
+impl std::fmt::Display for CleanupUnconfirmed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(original) = &self.original {
+            write!(f, "{original}; ")?;
+        }
+        write!(f, "Remote cleanup unconfirmed: {}", self.detail)
+    }
+}
+impl std::error::Error for CleanupUnconfirmed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.original
+            .as_ref()
+            .map(|error| error.as_ref() as &(dyn std::error::Error + 'static))
+    }
+}
+
+impl Supervisor {
+    fn close(&mut self) -> Result<(), CleanupUnconfirmed> {
+        self.done.store(true, Ordering::Release);
+        let mut failures = Vec::new();
+        if let Some(watcher) = self.watcher.take()
+            && let Some(worker_failures) = join_until(
+                watcher,
+                Instant::now() + tmt_colab::limits::REMOTE_CLEANUP + POLL,
+                &mut failures,
+            )
+        {
+            failures.extend(worker_failures);
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(CleanupUnconfirmed {
+                detail: failures.join("; "),
+                original: None,
+            })
+        }
+    }
+}
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        self.done.store(true, Ordering::Release);
-        if let Some(watcher) = self.watcher.take() {
-            let _ = watcher.join();
+        if let Err(error) = self.close() {
+            let mut output = tmt_cli_style::stream::stderr();
+            let terminal = output.terminal();
+            let _ = tmt_cli_style::message::warning(
+                &mut output,
+                terminal,
+                &error.to_string(),
+                Some("tmt remote status --json"),
+            );
+        }
+    }
+}
+impl Access {
+    /// Close only a door this serve started, with truthful bounded completion.
+    pub fn close(mut self) -> Result<(), CleanupUnconfirmed> {
+        match &mut self {
+            Self::Started { _supervisor, .. } => _supervisor.close(),
+            _ => Ok(()),
         }
     }
 }
 
 /// Reports a door that dies on its own, then stops; stops and reaps it once `done` is set.
-fn watch(mut child: Child, done: &AtomicBool) {
+fn watch(mut child: Child, done: &AtomicBool) -> (Instant, Vec<String>) {
     loop {
         if done.load(Ordering::Acquire) {
-            terminate(&mut child);
-            return;
+            let deadline = Instant::now() + tmt_colab::limits::REMOTE_CLEANUP;
+            return (deadline, terminate(&mut child, deadline));
         }
-        match child.try_wait() {
-            Ok(None) => thread::sleep(POLL),
-            Ok(Some(status)) => {
-                // The door is gone; anything it left in its group goes too.
-                let _ = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
+        match observe_exit(&child) {
+            Ok(false) => thread::sleep(POLL),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                // ECHILD can mean the leader no longer reserves its numeric identity.
+                // Failed observation is not permission to signal a potentially reused group.
+                return (
+                    Instant::now() + tmt_colab::limits::REMOTE_CLEANUP,
+                    vec![format!("leader exit observation failed: {error}")],
+                );
+            }
+            Ok(true) => {
+                let deadline = Instant::now() + tmt_colab::limits::REMOTE_CLEANUP;
+                let failures = abort(&mut child, deadline);
+                let status = child.try_wait().ok().flatten();
+                let why = status.map(status_text).unwrap_or_else(|| "stopped".into());
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
                 let _ = tmt_cli_style::message::warning(
                     &mut output,
                     terminal,
                     &format!(
-                        "The Remote door {}; the local space keeps running without browser access",
-                        status_text(status)
+                        "The Remote door {why}; the local space keeps running without browser access"
                     ),
                     Some("tmt remote serve"),
                 );
-                return;
-            }
-            Err(_) => {
-                terminate(&mut child);
-                return;
+                return (deadline, failures);
             }
         }
     }
@@ -231,24 +328,326 @@ fn status_text(status: ExitStatus) -> String {
     )
 }
 
-/// Stops everything Colab started in the door's group and reaps the door itself. The door is
-/// the group leader but may be a wrapper (core resolves `tmt remote` to a separate process), so
-/// the whole group gets SIGTERM, then SIGKILL after a short grace; nothing is left behind.
-fn terminate(child: &mut Child) {
-    let group = Pid::from_raw(child.id() as i32);
-    let _ = killpg(group, Signal::SIGTERM);
-    let deadline = Instant::now() + GRACE;
-    while Instant::now() < deadline {
-        if matches!(child.try_wait(), Ok(Some(_))) {
-            break;
+/// Observe without reaping: the unreaped leader reserves the numeric group identity.
+fn observe_exit(child: &Child) -> std::io::Result<bool> {
+    use rustix::process::{Pid, WaitId, WaitIdOptions, waitid};
+    let pid = Pid::from_raw(child.id() as i32)
+        .ok_or_else(|| std::io::Error::other("Invalid owned Remote PID"))?;
+    waitid(
+        WaitId::Pid(pid),
+        WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+    )
+    .map(|status| status.is_some())
+    .map_err(std::io::Error::from)
+}
+
+trait ProcessCleanup {
+    fn signal(&mut self, signal: Signal) -> std::io::Result<()>;
+    fn reap(&mut self) -> std::io::Result<bool>;
+    fn absent(&mut self) -> std::io::Result<bool>;
+}
+struct OwnedChild<'a>(&'a mut Child);
+impl ProcessCleanup for OwnedChild<'_> {
+    fn signal(&mut self, signal: Signal) -> std::io::Result<()> {
+        killpg(Pid::from_raw(self.0.id() as i32), signal).map_err(std::io::Error::from)
+    }
+    fn reap(&mut self) -> std::io::Result<bool> {
+        self.0.try_wait().map(|status| status.is_some())
+    }
+    fn absent(&mut self) -> std::io::Result<bool> {
+        match killpg(Pid::from_raw(self.0.id() as i32), None) {
+            Err(nix::errno::Errno::ESRCH) => Ok(true),
+            Ok(()) => Ok(false),
+            Err(error) => Err(std::io::Error::from(error)),
         }
-        thread::sleep(POLL);
     }
-    while Instant::now() < deadline && killpg(group, None).is_ok() {
-        thread::sleep(POLL);
+}
+
+/// Destructive signals precede the only reap; subsequent probes are read-only.
+fn cleanup(
+    process: &mut impl ProcessCleanup,
+    deadline: Instant,
+    grace: Option<Duration>,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    if let Some(grace) = grace {
+        if let Err(error) = process.signal(Signal::SIGTERM)
+            && error.raw_os_error() != Some(nix::libc::ESRCH)
+        {
+            failures.push(format!("TERM failed: {error}"));
+        }
+        let grace_end = (Instant::now() + grace).min(deadline);
+        while Instant::now() < grace_end {
+            match process.absent() {
+                Ok(true) | Err(_) => break,
+                Ok(false) => {
+                    thread::sleep(POLL.min(grace_end.saturating_duration_since(Instant::now())))
+                }
+            }
+        }
+        // A pre-reap probe cannot distinguish Darwin's zombie leader from a denied group.
+        // It only ends the grace; the post-reap probe below decides cleanup completion.
     }
-    if killpg(group, None).is_ok() {
-        let _ = killpg(group, Signal::SIGKILL);
+    // This owner has never reaped the leader. Its identity remains reserved, even after exit.
+    let kill_error = process.signal(Signal::SIGKILL).err();
+    let mut reaped = false;
+    while Instant::now() < deadline {
+        match process.reap() {
+            Ok(true) => {
+                reaped = true;
+                break;
+            }
+            Ok(false) => {
+                thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())))
+            }
+            Err(error) => {
+                failures.push(format!("reap failed: {error}"));
+                break;
+            }
+        }
     }
-    let _ = child.wait();
+    if !reaped {
+        failures.push("leader reap unconfirmed".into());
+    }
+    let mut absent = false;
+    while Instant::now() < deadline {
+        match process.absent() {
+            Ok(true) => {
+                absent = true;
+                break;
+            }
+            Ok(false) => {
+                thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())))
+            }
+            Err(error) => {
+                failures.push(format!("group probe failed: {error}"));
+                break;
+            }
+        }
+    }
+    if !absent {
+        failures.push("process group absence unconfirmed".into());
+    }
+    if let Some(error) = kill_error {
+        // Mirror Core's process::confirm_group_termination: Darwin can deny KILL for an
+        // unreaped zombie leader. Only successful reap AND a read-only ESRCH clear EPERM.
+        let disappeared = error.raw_os_error() == Some(nix::libc::ESRCH)
+            || (error.raw_os_error() == Some(nix::libc::EPERM) && reaped && absent);
+        if !disappeared {
+            failures.push(format!("KILL failed: {error}"));
+        }
+    }
+    failures
+}
+fn terminate(child: &mut Child, deadline: Instant) -> Vec<String> {
+    cleanup(&mut OwnedChild(child), deadline, Some(GRACE))
+}
+/// A failed startup or an unexpected exit has no graceful service left to stop.
+fn abort(child: &mut Child, deadline: Instant) -> Vec<String> {
+    cleanup(&mut OwnedChild(child), deadline, None)
+}
+fn join_until<T>(
+    handle: JoinHandle<T>,
+    deadline: Instant,
+    failures: &mut Vec<String>,
+) -> Option<T> {
+    while !handle.is_finished() && Instant::now() < deadline {
+        thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())));
+    }
+    if !handle.is_finished() {
+        failures.push("worker join timed out".into());
+        return None;
+    }
+    match handle.join() {
+        Ok(value) => Some(value),
+        Err(_) => {
+            failures.push("worker panicked".into());
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FakeProcess {
+        events: Vec<&'static str>,
+        reaped: bool,
+        denied: bool,
+        zombie_kill: bool,
+        reapable: bool,
+    }
+    impl ProcessCleanup for FakeProcess {
+        fn signal(&mut self, signal: Signal) -> std::io::Result<()> {
+            assert!(!self.reaped, "numeric identity was reused after reap");
+            self.events.push(if signal == Signal::SIGTERM {
+                "TERM"
+            } else {
+                "KILL"
+            });
+            if self.denied || (self.zombie_kill && signal == Signal::SIGKILL) {
+                Err(std::io::Error::from_raw_os_error(nix::libc::EPERM))
+            } else {
+                Ok(())
+            }
+        }
+        fn reap(&mut self) -> std::io::Result<bool> {
+            self.events.push("reap");
+            self.reaped = self.reapable;
+            Ok(self.reaped)
+        }
+        fn absent(&mut self) -> std::io::Result<bool> {
+            self.events.push("probe");
+            Ok(self.reaped && !self.denied)
+        }
+    }
+    fn fake() -> FakeProcess {
+        FakeProcess {
+            events: Vec::new(),
+            reaped: false,
+            denied: false,
+            zombie_kill: false,
+            reapable: true,
+        }
+    }
+
+    #[test]
+    fn exit_and_stop_signal_before_reap_and_only_probe_reused_identity() {
+        let mut process = fake();
+        assert!(
+            cleanup(
+                &mut process,
+                Instant::now() + Duration::from_secs(1),
+                Some(Duration::ZERO)
+            )
+            .is_empty()
+        );
+        assert_eq!(process.events, ["TERM", "KILL", "reap", "probe"]);
+    }
+
+    #[test]
+    fn denied_signals_and_unreaped_leader_are_bounded_and_unconfirmed() {
+        let mut process = fake();
+        process.denied = true;
+        let errors = cleanup(
+            &mut process,
+            Instant::now() + Duration::from_secs(1),
+            Some(Duration::ZERO),
+        );
+        assert!(errors.iter().any(|error| error.contains("TERM failed")));
+        assert!(errors.iter().any(|error| error.contains("KILL failed")));
+        let mut process = fake();
+        process.reapable = false;
+        let start = Instant::now();
+        let errors = cleanup(
+            &mut process,
+            start + Duration::from_millis(10),
+            Some(Duration::ZERO),
+        );
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("reap unconfirmed"))
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("absence unconfirmed"))
+        );
+    }
+
+    #[test]
+    fn darwin_zombie_kill_is_cleared_only_after_reap_and_absence() {
+        let mut process = fake();
+        process.zombie_kill = true;
+        assert!(
+            cleanup(
+                &mut process,
+                Instant::now() + Duration::from_secs(1),
+                Some(Duration::ZERO)
+            )
+            .is_empty()
+        );
+        assert_eq!(process.events, ["TERM", "KILL", "reap", "probe"]);
+        let mut process = fake();
+        process.zombie_kill = true;
+        process.reapable = false;
+        let errors = cleanup(
+            &mut process,
+            Instant::now() + Duration::from_millis(10),
+            Some(Duration::ZERO),
+        );
+        assert!(errors.iter().any(|error| error.contains("KILL failed")));
+    }
+
+    #[test]
+    fn retained_reader_returns_unconfirmed_and_can_be_released_and_joined() {
+        let (release, receiver) = mpsc::channel();
+        let (finished, completion) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            receiver.recv().unwrap();
+            finished.send(()).unwrap();
+        });
+        let mut failures = Vec::new();
+        assert!(
+            join_until(
+                handle,
+                Instant::now() + Duration::from_millis(10),
+                &mut failures
+            )
+            .is_none()
+        );
+        assert_eq!(failures, ["worker join timed out"]);
+        release.send(()).unwrap();
+        completion.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn failed_start_and_unexpected_exit_reserve_identity_until_abort_cleanup() {
+        for code in [0, 23] {
+            let mut child = Command::new("/bin/sh")
+                .args(["-c", &format!("exit {code}")])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !observe_exit(&child).unwrap() {
+                assert!(Instant::now() < deadline);
+                thread::sleep(POLL);
+            }
+            let failures = abort(&mut child, deadline);
+            assert!(failures.is_empty(), "{failures:?}");
+            assert_eq!(child.try_wait().unwrap().unwrap().code(), Some(code));
+            assert!(OwnedChild(&mut child).absent().unwrap());
+        }
+        let mut process = fake();
+        assert!(cleanup(&mut process, Instant::now() + Duration::from_secs(1), None).is_empty());
+        assert_eq!(process.events, ["KILL", "reap", "probe"]);
+    }
+
+    #[test]
+    fn private_wrapped_group_is_observed_without_reap_then_stopped() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "trap 'wait; exit 0' TERM; sleep 30 & wait"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        assert!(!observe_exit(&child).unwrap());
+        let failures = cleanup(
+            &mut OwnedChild(&mut child),
+            Instant::now() + Duration::from_secs(5),
+            Some(Duration::from_millis(10)),
+        );
+        assert!(child.try_wait().unwrap().is_some(), "{failures:?}");
+        assert!(failures.is_empty(), "{failures:?}");
+        assert!(OwnedChild(&mut child).absent().unwrap());
+    }
 }

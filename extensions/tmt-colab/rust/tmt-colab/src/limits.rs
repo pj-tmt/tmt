@@ -9,6 +9,12 @@ pub use crate::app_inventory::{APP_BYTES, APP_FILES};
 pub const DECLARATION_TEXT_BYTES: usize = 64 * 1024;
 /// The strict envelope, allowing each text its worst-case sixfold JSON escaping.
 pub const DECLARATION_REPLY_BYTES: usize = 12 * DECLARATION_TEXT_BYTES + 4096;
+/// Private serve failure envelope, also bounded when stop reads it.
+pub const REMOTE_FAILURE_BYTES: usize = 16 * 1024;
+/// Owned Remote shutdown, including reaping and reader joins.
+pub const REMOTE_CLEANUP: Duration = Duration::from_secs(5);
+/// Grace before killing an owned Remote group, while its leader is unreaped.
+pub const REMOTE_STOP_GRACE: Duration = Duration::from_secs(3);
 pub const SOCKETS: usize = 16;
 /// Owned per-generation admission workers; the dispatcher never waits on them.
 pub const OBJECT_CALLBACK_WORKERS: usize = 2;

@@ -27,6 +27,7 @@ html5ever.workspace = true
 httparse.workspace = true
 nix = { workspace = true, features = ["resource"] }
 rusqlite.workspace = true
+rustix = { version = "=1.1.4", default-features = false, features = ["process"] }
 serde_json.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true

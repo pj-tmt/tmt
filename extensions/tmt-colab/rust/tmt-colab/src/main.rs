@@ -464,10 +464,10 @@ const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 fn stop_serving(root: &std::path::Path, json_output: bool) -> Result<()> {
     use std::time::Instant;
     use tmt_colab::control::{self, StopFault};
-    let layout = Layout::existing(root)?.filter(|layout| layout.running().unwrap_or(false));
+    let layout = Layout::existing(root)?;
     let door = match &layout {
         None => None,
-        Some(layout) => {
+        Some(layout) if layout.running()? => {
             let reply = control::request_stop(layout)?;
             let deadline = Instant::now() + STOP_WAIT;
             while layout.running()? {
@@ -478,7 +478,11 @@ fn stop_serving(root: &std::path::Path, json_output: bool) -> Result<()> {
             }
             reply.door()
         }
+        Some(_) => None,
     };
+    if let Some(layout) = &layout {
+        control::confirm_cleanup(layout)?;
+    }
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         let state = if door.is_some() {
@@ -1000,6 +1004,9 @@ fn spaces(root: &std::path::Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'static str {
+    if error.is::<supervisor::CleanupUnconfirmed>() {
+        return "COLAB_OUTCOME_UNKNOWN";
+    }
     if error.is::<tmt_colab::attachments::CapacityRefusal>() {
         return "COLAB_CAPACITY";
     }

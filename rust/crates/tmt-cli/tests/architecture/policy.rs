@@ -277,6 +277,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "ed25519-dalek",
             "getrandom",
             "nix",
+            "rustix", // Non-reaping observation of the owned Remote leader.
             "rusqlite",
             "sha2",
             "clap",
