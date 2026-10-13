@@ -6,6 +6,7 @@ import { bootstrapTools } from './native-bootstrap-proof.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 import { checkMigratedState, snapshotState, writePriorState } from './migrated-state.mjs';
+import { CLI_NAMESPACE, readCliLayout } from './native-install-layout.mjs';
 
 export const HANDOFF_PROBE = ['__native-install', '--handoff-version', '1', '--probe', '--json'];
 
@@ -21,6 +22,34 @@ export function hasInstallerHandoff(sourceRoot) {
     'Candidate source must declare installer handoff protocol 1'
   );
   return true;
+}
+
+/** Source declares the moved-prefix protocols; a failed probe never selects historical mode. */
+export function hasMovedInstallerHandoff(sourceRoot) {
+  if (!hasInstallerHandoff(sourceRoot)) return false;
+  const source = fs.readFileSync(
+    new URL('rust/crates/tmt-adapters/src/native_install/handoff.rs', sourceRoot),
+    'utf8'
+  );
+  if (!/pub const MOVED_(?:PR_)?VERSION\b/.test(source)) return false;
+  assert(
+    /pub const MOVED_VERSION: u32 = 3;/.test(source) &&
+      /pub const MOVED_PR_VERSION: u32 = 4;/.test(source),
+    'Candidate source must declare moved installer protocols 3 and 4'
+  );
+  return true;
+}
+
+export function requireMovedInstallerProtocol(executable, options, execute = runPackedCommand) {
+  const output = execute(
+    executable,
+    ['__native-install', '--handoff-version', '3', '--probe', '--json'],
+    options
+  );
+  assert(
+    output === '{"protocol":3}' || output === '{"protocol":3}\n',
+    'Installer must answer exactly {"protocol":3}'
+  );
 }
 
 /** Exact protocol response: malformed output and unrelated failures never identify a legacy source. */
@@ -72,6 +101,7 @@ export function proveSourceBootstrap({
   manifest,
   previousArchive,
   previousManifest,
+  sourceRoot,
   expectedMigrations,
   report = console.log,
 }) {
@@ -88,7 +118,6 @@ export function proveSourceBootstrap({
   };
   const options = { cwd: root, env };
   const installed = path.join(prefix, 'bin/tmt');
-  const pointer = path.join(prefix, 'lib/tmux-team/current');
   const sourceInstall = (inputArchive, inputManifest, expectedStatus = 0) =>
     JSON.parse(
       runPackedCommand(
@@ -109,6 +138,8 @@ export function proveSourceBootstrap({
       )
     );
   assert.equal(sourceInstall(previousArchive, previousManifest).changed, true);
+  const originalLayout = readCliLayout(prefix);
+  const pointer = originalLayout.current;
   assertMacOsArchitecture(installed, previous.target, options);
   assert.equal(runPackedCommand(installed, ['--version'], options).trim(), previous.version);
   const protocol = installerProtocol(installed, options);
@@ -121,12 +152,12 @@ export function proveSourceBootstrap({
   const priorPointer = fs.readlinkSync(pointer);
   const priorReceipt = fs.readFileSync(path.join(pointer, 'receipt.json'));
   const priorBytes = fs.readFileSync(installed);
-  const installationInventory = () =>
+  const installationInventory = (directory = prefix) =>
     fs
-      .readdirSync(prefix, { recursive: true })
+      .readdirSync(directory, { recursive: true })
       .sort()
       .map((name) => {
-        const file = path.join(prefix, name);
+        const file = path.join(directory, name);
         const stat = fs.lstatSync(file);
         if (stat.isSymbolicLink()) return [name, 'symlink', fs.readlinkSync(file)];
         if (stat.isDirectory()) return [name, 'directory'];
@@ -171,6 +202,9 @@ export function proveSourceBootstrap({
     'Source installer changed application state'
   );
   const tools = bootstrapTools(root);
+  const rollback = readCliLayout(prefix);
+  const rollbackPointer = fs.readlinkSync(rollback.current);
+  const rollbackInventory = installationInventory(rollback.root);
   runPackedCommand(
     '/bin/sh',
     [path.resolve(bootstrap), '--prefix', prefix, '--no-skill', '--no-setup'],
@@ -188,9 +222,36 @@ export function proveSourceBootstrap({
     }
   );
   assert.equal(run(['--version']).trim(), current.version);
+  const active = readCliLayout(prefix);
+  if (hasMovedInstallerHandoff(sourceRoot)) {
+    assert.equal(active.namespace, CLI_NAMESPACE, 'Bootstrap did not move the CLI namespace.');
+    for (const command of ['tmt', 'tmux-team'])
+      assert.equal(
+        fs.readlinkSync(path.join(prefix, 'bin', command)),
+        `../${CLI_NAMESPACE}/current/tmt`
+      );
+    assert(
+      !fs
+        .readdirSync(path.join(prefix, 'bin'))
+        .some((name) => name !== 'tmt' && name !== 'tmux-team'),
+      'Bootstrap left a temporary command link'
+    );
+  }
+  if (active.namespace !== rollback.namespace) {
+    assert.equal(
+      fs.readlinkSync(rollback.current),
+      rollbackPointer,
+      'Bootstrap changed rollback current'
+    );
+    assert.deepEqual(
+      installationInventory(rollback.root),
+      rollbackInventory,
+      'Bootstrap changed rollback prefix'
+    );
+  }
   assertMacOsArchitecture(installed, current.target, options);
   assert(fs.readFileSync(database).equals(databaseBytes), 'Bootstrap changed application state');
-  const oldExecutable = path.join(prefix, 'lib/tmux-team', priorPointer, 'tmt');
+  const oldExecutable = originalLayout.executable;
   assert(fs.readFileSync(oldExecutable).equals(priorBytes), 'Bootstrap lost old executable');
   run(['identity', 'ls', '--json']);
   assert.deepEqual(

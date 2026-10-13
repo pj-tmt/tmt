@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseChannelPointer, parseReleaseRecord, POINTER_LIMIT } from './release-index.mjs';
 import { parseCompiledSchema } from './native-application-schema.mjs';
+import { readCliLayout } from './native-install-layout.mjs';
 import {
   createPRRCAPI,
   RC_TARGETS,
@@ -318,10 +319,7 @@ function snapshot(directory) {
   return result;
 }
 export function readOwnedReceipt(world) {
-  const prefix = fs.realpathSync(path.join(world, 'prefix'));
-  const active = fs.realpathSync(path.join(prefix, 'lib/tmux-team/current'));
-  assert(active.startsWith(`${prefix}/`), 'Active receipt escapes owned prefix.');
-  return JSON.parse(safeEvidence(fs.readFileSync(path.join(active, 'receipt.json'), 'utf8')));
+  return JSON.parse(safeEvidence(readCliLayout(path.join(world, 'prefix')).receipt));
 }
 function clientEnvironment(world) {
   // Deliberately construct the environment: no host ancestry, providers, legacy home or token alias.

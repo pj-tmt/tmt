@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { CLI_SCHEMA_TARGETS } from '../../scripts/native-application-schema.mjs';
 import { describe, expect, it } from 'vite-plus/test';
+import { CLI_NAMESPACE, LEGACY_CLI_NAMESPACE } from '../../scripts/native-install-layout.mjs';
 import {
   QUALIFICATION,
   schemaPreflight,
@@ -246,22 +247,31 @@ describe('one-shot PR RC reader qualification', () => {
       }))
     ).toEqual({ status: 404, data: { message: 'Not Found' } });
   });
-  it('reads the real CLI namespace and refuses an active receipt outside the isolated prefix', () => {
-    const world = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-rc-selftest-'));
-    try {
-      const root = path.join(world, 'prefix/lib/tmux-team');
-      const active = path.join(root, 'releases/owned');
-      fs.mkdirSync(active, { recursive: true });
-      fs.writeFileSync(path.join(active, 'receipt.json'), JSON.stringify(receipt()));
-      fs.symlinkSync('releases/owned', path.join(root, 'current'));
-      expect(readOwnedReceipt(world)).toEqual(receipt());
-      fs.unlinkSync(path.join(root, 'current'));
-      fs.symlinkSync(world, path.join(root, 'current'));
-      expect(() => readOwnedReceipt(world)).toThrow('escapes owned prefix');
-    } finally {
-      fs.rmSync(world, { recursive: true, force: true });
+  it.each([LEGACY_CLI_NAMESPACE, CLI_NAMESPACE])(
+    'reads the active %s receipt and refuses escape',
+    (namespace) => {
+      const world = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pr-rc-selftest-')));
+      try {
+        const prefix = path.join(world, 'prefix');
+        const root = path.join(prefix, namespace);
+        const id = '10000000-0000-4000-8000-000000000001';
+        const active = path.join(root, 'releases', id);
+        fs.mkdirSync(active, { recursive: true });
+        fs.mkdirSync(path.join(prefix, 'bin'));
+        fs.writeFileSync(path.join(active, 'tmt'), 'verified fixture bytes');
+        const expected = { ...receipt(), schema_version: 1, prefix, release_id: id };
+        fs.writeFileSync(path.join(active, 'receipt.json'), JSON.stringify(expected));
+        fs.symlinkSync(`releases/${id}`, path.join(root, 'current'));
+        fs.symlinkSync(`../${namespace}/current/tmt`, path.join(prefix, 'bin/tmt'));
+        expect(readOwnedReceipt(world)).toEqual(expected);
+        fs.unlinkSync(path.join(root, 'current'));
+        fs.symlinkSync(world, path.join(root, 'current'));
+        expect(() => readOwnedReceipt(world)).toThrow('escapes owned prefix');
+      } finally {
+        fs.rmSync(world, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('binds the standing same-repository branch and refuses unrelated PRs/forks/branches', () => {
     const owned = pull();

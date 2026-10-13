@@ -9,6 +9,11 @@ import { selectNativeArtifact } from './native-artifact-policy.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 import { bootstrapTools } from './native-bootstrap-proof.mjs';
+import { CLI_NAMESPACE, LEGACY_CLI_NAMESPACE, readCliLayout } from './native-install-layout.mjs';
+import {
+  hasMovedInstallerHandoff,
+  requireMovedInstallerProtocol,
+} from './native-upgrade-proof.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -59,7 +64,22 @@ try {
   assertMacOsArchitecture(executable, values.target, options);
   const run = (args) => runPackedCommand(executable, args, options);
   assert.equal(run(['--version']).trim(), metadata.version);
-  const pointer = path.join(prefix, 'lib/tmux-team/current');
+  const layout = readCliLayout(prefix);
+  const moved = hasMovedInstallerHandoff(new URL('../../', import.meta.url));
+  assert.equal(layout.namespace, moved ? CLI_NAMESPACE : LEGACY_CLI_NAMESPACE);
+  if (moved) {
+    requireMovedInstallerProtocol(executable, options);
+    assert(
+      !fs.existsSync(path.join(prefix, LEGACY_CLI_NAMESPACE)),
+      'Fresh install created a former prefix.'
+    );
+    for (const command of ['tmt', 'tmux-team'])
+      assert.equal(
+        fs.readlinkSync(path.join(prefix, 'bin', command)),
+        `../${CLI_NAMESPACE}/current/tmt`
+      );
+  }
+  const pointer = layout.current;
   const initial = fs.readlinkSync(pointer);
   bootstrap();
   assert.equal(fs.readlinkSync(pointer), initial, 'Repeat bootstrap must not create a release');
@@ -89,9 +109,7 @@ try {
   );
   assert(!fs.existsSync(path.join(state, 'tmux-team.db')), 'Skill setup must not open SQLite');
   bootstrap(['--pin']);
-  const receipt = JSON.parse(
-    fs.readFileSync(path.join(prefix, 'lib/tmux-team/current/receipt.json'))
-  );
+  const receipt = readCliLayout(prefix).receipt;
   assert.equal(receipt.pinned_version, metadata.version);
   const pinned = JSON.parse(run(['upgrade', '--json']));
   assert.equal(pinned.skippedPinned, true, 'Pinned managed executable must update without network');

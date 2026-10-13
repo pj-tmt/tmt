@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vite-plus/test';
 const {
   HANDOFF_PROBE,
   hasInstallerHandoff,
+  hasMovedInstallerHandoff,
   installerProtocol,
   requireInstallerProtocol,
+  requireMovedInstallerProtocol,
   requireLegacyInventoryError,
 } = await import('../../scripts/native-upgrade-proof.mjs');
 const options = { cwd: '/fixture', env: {} };
@@ -30,6 +32,55 @@ const legacy = () => {
 };
 
 describe('native installer protocol and legacy recovery controls', () => {
+  it('requires both source-declared moved protocols without treating malformed declarations as historical', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'installer-move-source-'));
+    const directory = path.join(root, 'rust/crates/tmt-adapters/src/native_install');
+    const sourceRoot = pathToFileURL(`${root}/`);
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      expect(hasMovedInstallerHandoff(sourceRoot)).toBe(false);
+      const marker = path.join(directory, 'handoff.rs');
+      const original = 'pub const VERSION: u32 = 1;\n';
+      fs.writeFileSync(marker, original);
+      expect(hasMovedInstallerHandoff(sourceRoot)).toBe(false);
+      const moved = 'pub const MOVED_VERSION: u32 = 3;\npub const MOVED_PR_VERSION: u32 = 4;\n';
+      fs.writeFileSync(marker, original + moved);
+      expect(hasMovedInstallerHandoff(sourceRoot)).toBe(true);
+      expect(hasInstallerHandoff(sourceRoot)).toBe(true);
+      for (const content of [
+        moved.replace('3', '5'),
+        moved.replace('4', '2'),
+        moved.split('\n')[0],
+      ]) {
+        fs.writeFileSync(marker, original + content);
+        expect(() => hasMovedInstallerHandoff(sourceRoot)).toThrow('protocols 3 and 4');
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the exact moved probe while retaining the released protocol-one control', () => {
+    const execute = (command: string, args: string[]) => {
+      expect(command).toBe('/candidate/tmt');
+      expect(args).toEqual(['__native-install', '--handoff-version', '3', '--probe', '--json']);
+      return '{"protocol":3}\n';
+    };
+    expect(() => requireMovedInstallerProtocol('/candidate/tmt', options, execute)).not.toThrow();
+    for (const output of [
+      '{"protocol":1}',
+      '{"protocol":4}',
+      '{"protocol":3,"extra":true}',
+      'invalid',
+    ])
+      expect(() => requireMovedInstallerProtocol('/candidate/tmt', options, () => output)).toThrow(
+        'exactly'
+      );
+    expect(() => requireMovedInstallerProtocol('/candidate/tmt', options, legacy)).toThrow(
+      'nonzero probe'
+    );
+  });
+
   it('uses candidate-source applicability, not a failed probe or mutable release version', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'installer-source-'));
     const directory = path.join(root, 'rust/crates/tmt-adapters/src/native_install');

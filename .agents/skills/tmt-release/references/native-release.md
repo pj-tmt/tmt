@@ -255,6 +255,7 @@ differential result; candidate-byte equality, conflict preservation and repair s
 The installation verifier checks old/new versions with no runtime `PATH`, pinned rejection,
 explicit `--unpin` advancement, retained executable, no-op, downgrade rejection, exact skill,
 unchanged SQLite bytes and migration of state the previous release wrote. The
+CLI proofs follow the managed command's active namespace and preserve the captured old executable; the [installer owner](../../tmt-core-runtime/references/install-architecture.md) defines the transition. Source/bootstrap is not a released client's self-upgrade, and retirement needs a later changed release.
 `native-release-upgrade.yml` proof (also `workflow_dispatch` from `main` for any draft or
 published tag) does this on four hosts through the shared proof stages in
 `native-release-upgrade-prove.yml`; extension and driver releases use
