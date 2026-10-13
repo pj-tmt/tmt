@@ -54,40 +54,43 @@ describe('first-time CLI discovery', () => {
     });
   });
 
-  it('keeps the bare Office entry inspection-only when no companion is installed', async () => {
+  it('rejects retired Office commands without creating state when no external executable is installed', async () => {
     await withSandbox(async (sandbox) => {
       const bare = await runCli(sandbox, ['office']);
       const status = await runCli(sandbox, ['office', 'status']);
       expect(bare.status).toBe(1);
-      expect(bare).toEqual(status);
-      expect(bare.stderr).toContain('Install Office with: tmt office install --yes');
+      expect(status.status).toBe(1);
+      expect(bare.stderr).toContain("unrecognized subcommand 'office'");
+      expect(status.stderr).toContain("unrecognized subcommand 'office'");
       expect(existsSync(sandbox.database)).toBe(false);
       expect(existsSync(`${sandbox.globalDir}/office`)).toBe(false);
 
       const machine = await runCli(sandbox, ['--json', 'office']);
       const machineStatus = await runCli(sandbox, ['--json', 'office', 'status']);
-      expect(machine).toEqual(machineStatus);
+      expect(machineStatus.status).toBe(1);
       expect(machine.stderr).toBe('');
       expect(parseWholeStdout(machine)).toMatchObject({
-        error: { code: 'OFFICE_NOT_INSTALLED' },
+        error: { code: 'USAGE_ERROR' },
       });
     });
   });
 
-  it('offers the optional local Office path in learn while preserving exact skill output', async () => {
+  it('offers current Core guidance and excludes retired Office guidance', async () => {
     await withSandbox(async (sandbox) => {
       const learn = await runCli(sandbox, ['learn']);
       expect(learn.status).toBe(0);
       expect(learn.stderr).toBe('');
-      expect(learn.stdout).toContain('Optional local Office: inspect with tmt office');
-      expect(learn.stdout).toContain('tmt learn --skill tmt-office');
+      expect(learn.stdout).toContain('Read tmt learn --skill');
+      expect(learn.stdout).not.toContain('tmt office');
+      expect(learn.stdout).not.toContain('tmt-office');
 
-      const skill = await runCli(sandbox, ['learn', '--skill', 'tmt-office']);
+      const skill = await runCli(sandbox, ['learn', '--skill']);
       expect(skill.status).toBe(0);
       expect(skill.stderr).toBe('');
-      expect(skill.stdout).toBe(
-        readFileSync(path.resolve('../extensions/tmt-office/skills/tmt-office/SKILL.md'), 'utf8')
-      );
+      expect(skill.stdout).toBe(readFileSync(path.resolve('../skills/tmt/SKILL.md'), 'utf8'));
+      const retired = await runCli(sandbox, ['learn', '--skill', 'tmt-office']);
+      expect(retired.status).toBe(1);
+      expect(existsSync(sandbox.database)).toBe(false);
     });
   });
 });
