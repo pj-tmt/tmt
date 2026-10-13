@@ -1218,18 +1218,6 @@ footer {
   color: var(--c-muted);
 }
 
-.reply-announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
 .conversation-turn[data-running-driver='claude'] {
   --conversation-driver-color: var(--tmt-ui-color-review);
 }
@@ -1664,4 +1652,10 @@ footer {
   .annotation-creator-hint > .tmt-ui-action {
     flex-basis: 100%;
   }
+}
+
+/* Pointer-activated Answer/Proposal arrivals reuse the shared focus indicator. */
+[data-arrived] {
+  outline: 2px solid var(--tmt-ui-color-focus);
+  outline-offset: 3px;
 }

@@ -1,3 +1,4 @@
+import type { DiscussionRef } from './thread-records.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import {
   useEffect,
@@ -52,6 +53,8 @@ export function useProposalLayer({
   activeThread: string | null;
   setActiveThread: Dispatch<SetStateAction<string | null>>;
 }) {
+  const [revealedHistory, setRevealedHistory] = useState<string>();
+  useEffect(() => setRevealedHistory(undefined), [snapshot.id]);
   const [proposalStatusErrors, setProposalStatusErrors] = useState(new Set<string>());
   const [proposalOutcomes, setProposalOutcomes] = useState(new Map<string, ProposalOutcome>());
   const proposalContext = useRef({ discussionBlocked, snapshot, view, binding });
@@ -131,13 +134,14 @@ export function useProposalLayer({
     const status = presentationOf(view.threadPresentations, thread.ref)?.status;
     return (
       <ProposalCard
+        notificationSurface={location === 'comments' ? 'comments' : 'page'}
         readOnly={!!view.archived}
         thread={thread}
         outcome={outcome}
         statusError={proposalStatusErrors.has(id)}
         resolvedLabel={resolvedLabel(status)}
         unseen={status?.unseen}
-        historyOpen={location === 'comments' && activeThread === id}
+        historyOpen={location === 'comments' ? activeThread === id : revealedHistory === id}
         toggleHistory={
           location === 'comments'
             ? () => {
@@ -272,6 +276,20 @@ export function useProposalLayer({
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
   proposalContext.current = { discussionBlocked, snapshot, view, binding };
   return {
+    activateNotification: (ref: DiscussionRef) => {
+      const thread = proposals.find(
+        (thread) => thread.ref.writer === ref.writer && thread.ref.id === ref.id,
+      );
+      if (!thread || proposalBusy.current) return;
+      if (
+        slotPositions.some((slot) => slot.id === thread.threadId) &&
+        proposals.filter((candidate) => candidate.threadId === thread.threadId).length === 1
+      ) {
+        setRevealedHistory(`${ref.writer}:${ref.id}`);
+        return 'inline' as const;
+      }
+      return 'comments' as const;
+    },
     reopenProposal: (thread: ThreadView) => changeProposalStatus(thread, 'comments'),
     inline: (
       <>

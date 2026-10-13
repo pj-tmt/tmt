@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useId, useLayoutEffect } from '
 export interface ConversationReading {
   visible: boolean;
   atEnd: boolean;
+  recordKeys?: readonly string[];
 }
 export interface ReplyReveal {
   id: string;
@@ -12,10 +13,12 @@ export interface ReplyReveal {
 
 /** Page-local presentation signals from the existing surface and scroll owners. */
 export const ReplyNotificationContext = createContext<{
+  blockSurface?: 'page' | 'comments' | 'covered';
   modal(id: string, open: boolean): void;
   reading(id: string, destination: string, state: ConversationReading | null): void;
   reveal?: ReplyReveal;
   revealed(id: string): void;
+  current(id: string): boolean;
 } | null>(null);
 
 export function useNotificationModalPresence() {
@@ -40,10 +43,16 @@ export function useNotificationConversation(destination: string | undefined) {
   const request = owner?.reveal;
   return {
     report,
+    blockSurface: owner?.blockSurface ?? 'page',
     reveal: request?.destination === destination ? request : undefined,
     revealed: owner?.revealed,
+    current: owner?.current,
   };
 }
 
 export const threadNotificationDestination = (writer: string, id: string) =>
   JSON.stringify(['Thread', writer, id]);
+
+export const answerNotificationDestination = (id: string) => JSON.stringify(['Answer', id]);
+export const proposalNotificationDestination = (writer: string, id: string) =>
+  JSON.stringify(['Proposal', writer, id]);

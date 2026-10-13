@@ -18,14 +18,19 @@ async function serve(context: BrowserContext, served: () => string) {
     const html = await response.text();
     await route.fulfill({
       response,
-      body: html.replace('/src/main.tsx', navigation && !loaded.value ? OLD : served()),
+      body: html.replace(
+        /\/src\/main\.tsx(?:\?[^"']*)?/,
+        `${navigation && !loaded.value ? OLD : served()}?fixture=stale-tab`,
+      ),
     });
     if (navigation) loaded.value = true;
   });
   const loaded = { value: false };
   for (const entry of [OLD, NEW, GUIDANCE])
-    await context.route(`**${entry}`, (route) =>
-      route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
+    // Vite may retain an HMR timestamp on the rewritten entry URL.
+    await context.route(
+      (url) => url.pathname === entry,
+      (route) => route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
     );
   await context.route('**/sdk/remote-v1.js', (route) => route.fulfill({ status: 404 }));
   return {

@@ -22,6 +22,8 @@ import type { QuoteSelector, ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
 import { MessageComposer } from './message-composer.js';
 import type { ComposerEdit } from './message-composer-edit.js';
+import { useNotificationBlock } from '../use-notification-block.js';
+import { answerNotificationDestination } from '../reply-notification-context.js';
 import { text } from '../strings.js';
 import { compactRelativeTime } from '../display-time.js';
 
@@ -68,6 +70,7 @@ export function QuestionCard({
   const [changing, setChanging] = useState(false);
   const [recorded, setRecorded] = useState<CommentContext>();
   const section = useRef<HTMLElement>(null);
+  useNotificationBlock(answerNotificationDestination(question.id), section, true);
   const { directory, retry } = useAgentDirectory(ask);
   const agents = directory.state === 'ready' ? directory.agents : undefined;
   useEffect(() => {

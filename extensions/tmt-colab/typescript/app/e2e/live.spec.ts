@@ -1964,12 +1964,17 @@ test('an upgraded server shows the update row under the header without covering 
     const html = await response.text();
     await route.fulfill({
       response,
-      body: html.replace('/src/main.tsx', first ? oldEntry : newEntry),
+      body: html.replace(
+        /\/src\/main\.tsx(?:\?[^"']*)?/,
+        `${first ? oldEntry : newEntry}?fixture=upgrade`,
+      ),
     });
   });
   for (const entry of [oldEntry, newEntry])
-    await context.route(`**${entry}`, (route) =>
-      route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
+    // Vite may retain an HMR timestamp on the rewritten entry URL.
+    await context.route(
+      (url) => url.pathname === entry,
+      (route) => route.fulfill({ contentType: 'text/javascript', body: "import '/src/main.tsx';" }),
     );
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();

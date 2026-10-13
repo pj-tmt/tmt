@@ -1,3 +1,4 @@
+import type { ReplyNotification } from './reply-notifications.js';
 import type { ComposerConnectionPresentation } from './router.js';
 import { BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
@@ -94,21 +95,33 @@ export function useQuestionLayer({
   const notificationThreads = useMemo(
     () =>
       !questions.length
-        ? new Set<string>()
+        ? new Map<string, string | null>()
         : anchors === null
           ? undefined
-          : new Set(
-              questions.flatMap((question) =>
-                associated(question.id).map((thread) =>
-                  JSON.stringify([thread.ref.writer, thread.ref.id]),
-                ),
-              ),
-            ),
+          : (() => {
+              const destinations = new Map<string, string | null>();
+              for (const question of questions)
+                for (const thread of associated(question.id)) {
+                  const key = JSON.stringify([thread.ref.writer, thread.ref.id]);
+                  destinations.set(key, destinations.has(key) ? null : question.id);
+                }
+              return destinations;
+            })(),
     [questions, anchors, associated],
   );
   return {
     onQuestions,
     notificationThreads,
+    activateNotification: (event: ReplyNotification) => {
+      const group = groups.find((group) => group.questions.includes(event.questionId!));
+      if (
+        !group ||
+        !slots.some((slot) => slot.id === group.id && slot.descriptionHeight !== undefined)
+      )
+        return false;
+      setActive((previous) => ({ ...previous, [group.id]: event.questionId! }));
+      return true;
+    },
     inline: (
       <>
         {groups.map((group) => {

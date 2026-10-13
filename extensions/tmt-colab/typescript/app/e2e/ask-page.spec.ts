@@ -433,7 +433,7 @@ for (const width of [1440, 390]) {
     await expect(live).toHaveAttribute('role', 'status');
     await expect(live).toHaveAttribute('aria-live', 'polite');
     await expect(page.locator('dialog:modal .tmt-ui-notification-status')).toHaveCount(0);
-    await expect(legacy).toHaveText('');
+    await expect(legacy).toHaveCount(0);
     await page.evaluate(() => {
       const events: string[] = [];
       Object.assign(window, { replyAnnouncements: events });
@@ -461,7 +461,7 @@ for (const width of [1440, 390]) {
         .getByTestId('ask-reply'),
     ).toHaveText('<img src=x onerror=alert(1)>');
     await expect(live).toHaveText('');
-    await expect(legacy).toHaveText('');
+    await expect(legacy).toHaveCount(0);
     await expect(input).toBeFocused();
     await expect.poll(events).toEqual([]);
     await page.getByRole('button', { name: 'Close Chat', exact: true }).press('Enter');
@@ -505,7 +505,7 @@ test('initial admitted reply history stays silent after loading and reopening', 
   await run(page, 'mount', { pastReplies: true });
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
   const live = page.locator('.tmt-ui-notification-status');
-  await expect(page.locator('.reply-announcement')).toHaveText('');
+  await expect(page.locator('.reply-announcement')).toHaveCount(0);
   await expect(live).toHaveCount(1);
   await expect(live).toHaveText('');
   await (await pageAction(page, 'Chat')).click();

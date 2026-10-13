@@ -299,7 +299,7 @@ Comments, Chat, Source, Share and settings panels.
 ### BrowserNotifications
 
 Transient reply cards below the header at the right, separate from persistent
-discussion state. Shipped Colab destinations are **Chat** and **Thread**; the
+discussion state. Shipped Colab destinations are **Chat**, **Thread**, **Answer** and **Proposal**; the
 visible text tag names the destination, with the quoted passage for Thread.
 
 - Opaque square cards, one thin edge, no shadow or motion. Use an 8 px header/right
@@ -314,6 +314,8 @@ visible text tag names the destination, with the quoted passage for Thread.
   Escape dismisses only that card. Escape/Dismiss returns focus to its connected,
   visible prior element; Open leaves destination focus to the host. The surface
   has no catching backdrop; controls require trusted activation.
+- Answer/Proposal Open reveals and focuses the existing block. Its arrival outline
+  uses the focus token and clears on blur or the next pointer/key interaction.
 - One persistent polite status announces each newly displayed reply once. Queue
   counts and timer changes do not reannounce cards. Clamp display text to two lines
   while retaining the full accessible text.

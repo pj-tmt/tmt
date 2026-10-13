@@ -1,5 +1,7 @@
 /** Page/Remote doubles for real parent chrome; no production import or native stores. */
 import { mount as mountPage, notificationSources, discussionProof } from './ask-page-browser.js';
+// Read the mounted module's state even when Vite gives its dependency a timestamp.
+export { proof, agentResolves, seenProof, discussionProof } from './ask-page-browser.js';
 import { id, selection } from './ask-fixtures.js';
 import type { PageAsk } from '../src/ask-panel.js';
 import type { ThreadView } from '../src/thread-records.js';
@@ -90,7 +92,7 @@ export async function mount() {
   publish();
 }
 export function arrive(options: {
-  destination: 'Chat' | 'Thread';
+  destination: 'Chat' | 'Thread' | 'Answer' | 'Proposal';
   human?: boolean;
   foreign?: boolean;
   pending?: boolean;
@@ -100,7 +102,13 @@ export function arrive(options: {
   // attachment preview triggers) when appending the next admitted arrival.
   threads = [...(discussionProof() ?? [])];
   const t = threads.find((value) =>
-    options.destination === 'Chat' ? value.anchor === null : value.anchor !== null,
+    options.destination === 'Chat'
+      ? value.anchor === null && !value.proposal
+      : options.destination === 'Proposal'
+        ? !!value.proposal
+        : options.destination === 'Answer'
+          ? value.anchor?.exact === 'Question for you?'
+          : value.anchor?.exact === 'Exact selected text',
   )!;
   const index = next++;
   const body = options.body ?? `${options.destination} reply ${index}\nSecond reply line`;
@@ -184,4 +192,57 @@ export function history(destination: 'Chat' | 'Thread') {
 }
 export function snapshot() {
   return structuredClone({ threads, asks });
+}
+
+/** Admitted block projections, separate from transport and Send results. */
+export async function mountBlocks(
+  options: { detached?: boolean; folded?: boolean; grouped?: boolean } = {},
+) {
+  await mount();
+  const answer = thread(false);
+  answer.threadId = id(91);
+  answer.ref = { writer: own, id: answer.threadId };
+  answer.anchor = { exact: 'Question for you?', prefix: '', suffix: '' };
+  answer.comments = [
+    {
+      ...answer.comments[0],
+      thread: answer.ref,
+      body: 'Answer to “Question for you?”: My answer',
+      deviceAuthor: true,
+    },
+  ];
+  const proposal = thread(false);
+  proposal.threadId = id(81);
+  proposal.ref = { writer: own, id: proposal.threadId };
+  proposal.anchor = null;
+  proposal.comments = [
+    {
+      ...proposal.comments[0],
+      thread: proposal.ref,
+      messageId: id(82),
+      ref: { writer: own, id: id(82) },
+      body: 'My proposal follow-up',
+    },
+  ];
+  proposal.proposal = {
+    proposalId: proposal.threadId,
+    title: 'A proposal for the page',
+    body: 'Please review this proposal.',
+    proposer: { machineId: id(5), agentId: id(6), label: 'Atlas' },
+  };
+  proposal.resolved = !!options.folded;
+  threads = [thread(true), thread(false), answer, proposal];
+  notificationSources({
+    threads,
+    asks,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif}tmt-question,tmt-proposal{display:block}</style><p id="selected">Exact selected text</p><div style="height:1100px">Page context above the blocks.</div>${options.grouped ? `<tmt-questions data-id="${id(88)}"><p data-title>Two questions</p><tmt-question data-id="${id(89)}" data-kind="short"><p data-question>First unanswered question</p></tmt-question>` : ''}<tmt-question data-id="${id(90)}" data-kind="short"><p data-question>Question for you?</p></tmt-question>${options.grouped ? '</tmt-questions>' : ''}<div style="height:500px">Between blocks</div>${options.detached ? '' : `<tmt-proposal data-id="${id(81)}"></tmt-proposal>`}<div style="height:1000px">Page context below the blocks.</div>`,
+  });
+}
+export function withdrawBlock(destination: 'Answer' | 'Proposal') {
+  threads = [...(discussionProof() ?? [])].map((t) =>
+    (destination === 'Proposal' ? !!t.proposal : t.anchor?.exact === 'Question for you?')
+      ? { ...t, deleted: true }
+      : t,
+  );
+  publish();
 }
