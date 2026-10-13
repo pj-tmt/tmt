@@ -1,14 +1,8 @@
 import type { ReplyNotification } from './reply-notifications.js';
 import type { ComposerConnectionPresentation } from './router.js';
-import { BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
-import { QuestionCard } from './components/question-card.js';
-import {
-  canonicalQuestionThread,
-  currentAnswer,
-  type Question,
-  type QuestionGroup,
-} from './questions.js';
+import { QuestionGroupCard } from './components/question-group-card.js';
+import { type Question, type QuestionGroup } from './questions.js';
 import type { PageSnapshot, PageView } from './transport.js';
 import type { AnchorPosition, QuestionAnchor, RenderState, mountRenderer } from './renderer.js';
 
@@ -53,27 +47,10 @@ export function useQuestionLayer({
       ),
     [anchors, threads],
   );
-  const answers = useMemo(
-    () =>
-      new Set(
-        questions
-          .filter((question) =>
-            currentAnswer(
-              question,
-              canonicalQuestionThread(question, associated(question.id))?.comments ?? [],
-            ),
-          )
-          .map((question) => question.id),
-      ),
-    [questions, associated],
-  );
-  const answered = (question: Question) => answers.has(question.id);
   const selected = useCallback(
     (group: QuestionGroup) =>
-      group.questions.includes(active[group.id])
-        ? active[group.id]
-        : (group.questions.find((id) => !answers.has(id)) ?? group.questions[0]),
-    [active, answers],
+      group.questions.includes(active[group.id]) ? active[group.id] : group.questions[0],
+    [active],
   );
   const renderedGroups = JSON.stringify(
     groups.map((group) => ({ ...group, active: selected(group) })),
@@ -131,59 +108,6 @@ export function useQuestionLayer({
           const current = selected(group);
           const slot = slots.find((slot) => slot.id === group.id);
           const attached = !!slot && slot.descriptionHeight !== undefined;
-          const count = members.filter(answered).length;
-          const tabs: BrowserTab[] = members.map((question, index) => ({
-            id: question.id,
-            tabId: `question-tab-${question.id}`,
-            panelId: `question-panel-${question.id}`,
-            label: question.label ?? `Q${index + 1}`,
-            state: answered(question)
-              ? { mark: '✓', word: 'Answered', tone: 'working' }
-              : { mark: '◆', word: 'Waiting', tone: 'waiting' },
-          }));
-          const card = (question: Question) => (
-            <QuestionCard
-              connectionPresentation={connectionPresentation}
-              key={question.id}
-              readOnly={view.archived}
-              question={question}
-              selector={
-                attached
-                  ? anchors?.find((anchor) => anchor.id === question.id)?.selector
-                  : undefined
-              }
-              threads={associated(question.id)}
-              discussion={snapshot.binding?.discussion}
-              ask={snapshot.binding?.ask}
-              asks={view.asks ?? []}
-              title={view.title || snapshot.title}
-              blocked={blocked}
-              descriptionHeight={slot?.descriptionHeight ?? 0}
-              sendNext={members.some((member) => member.id !== question.id && !answered(member))}
-              onVerified={() => {
-                // A committed verified device answer, never a callback success or frame claim, advances.
-                if (group.questions.includes(active[group.id]) && active[group.id] !== question.id)
-                  return;
-                const index = members.findIndex((member) => member.id === question.id);
-                const next = [...members.slice(index + 1), ...members.slice(0, index)].find(
-                  (member) => !answered(member),
-                );
-                if (next) {
-                  const tab = document.getElementById(`question-tab-${question.id}`);
-                  const ownsFocus = tab
-                    ?.closest('[data-question-group]')
-                    ?.contains(document.activeElement);
-                  setActive((previous) => ({ ...previous, [group.id]: next.id }));
-                  if (ownsFocus)
-                    queueMicrotask(() =>
-                      document
-                        .getElementById(`question-tab-${next.id}`)
-                        ?.focus({ preventScroll: true }),
-                    );
-                }
-              }}
-            />
-          );
           return (
             <div
               key={group.id}
@@ -225,21 +149,28 @@ export function useQuestionLayer({
                 }
               }}
             >
-              {members.length > 1 ? (
-                <BrowserTabs
-                  label={group.title ?? 'Questions'}
-                  tabs={tabs}
-                  selected={current}
-                  status={`${count}/${members.length} answered`}
-                  onSelect={(id, _reason, event) => {
-                    if (event.isTrusted) setActive((previous) => ({ ...previous, [group.id]: id }));
-                  }}
-                >
-                  {(tab) => card(members.find((question) => question.id === tab.id)!)}
-                </BrowserTabs>
-              ) : (
-                <div className="question-group-card">{card(members[0])}</div>
-              )}
+              <QuestionGroupCard
+                key={`${snapshot.id}:${group.id}`}
+                group={group}
+                members={members}
+                selected={current}
+                onSelect={(id) => setActive((previous) => ({ ...previous, [group.id]: id }))}
+                associated={associated}
+                selectors={
+                  new Map(
+                    attached ? (anchors ?? []).map((anchor) => [anchor.id, anchor.selector]) : [],
+                  )
+                }
+                attached={attached}
+                placement={slot}
+                discussion={snapshot.binding?.discussion}
+                ask={snapshot.binding?.ask}
+                asks={view.asks ?? []}
+                title={view.title || snapshot.title}
+                blocked={blocked}
+                readOnly={view.archived}
+                connectionPresentation={connectionPresentation}
+              />
             </div>
           );
         })}

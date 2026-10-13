@@ -1063,7 +1063,8 @@ removed or moved spacers and inner-scroll fallback detach cards into Comments.
 The parent leaves a transparent description gap between its trusted bands; authored text
 stays in the frame. Parent ResizeObserver measurement coalesces to one update per animation frame and
 only sends changed integer heights. Height requests retain admitted positions and
-composer focus until a valid reply detaches a slot. Cosmetic top convergence stops after three
+composer focus until a valid reply detaches a slot. Changed normalized parent-owned slot dimensions restart the viewport-growth baseline; identical requests and frame reports do not.
+Cosmetic top convergence stops after three
 changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
@@ -2057,26 +2058,45 @@ admitted author choice children are hidden while the trusted parent draws contro
 and current answer, with conversation history and agent replies expanded. Groups use
 the shared controlled BrowserTabs leaf: Arrow keys wrap, Home/End select endpoints,
 and native Enter/Space activates a tab. Inactive trusted panels remain mounted to retain
-drafts. Answered/waiting marks include state words, with an answered/total count.
-The group heading inherits authored ink; its `Q:` prefix uses currentColor at 45%.
-The card, tabs and controls retain the pinned light palette; selected controls and
-primary actions use the existing link color role. It resolves the untrusted
-agent name through the existing mention directory. A unique match preselects its
-bound identity; absent or ambiguous names use the normal recipient field. Send
-has visible text `Send & next` when another question is unanswered and `Send answer`
-otherwise. Its accessible name starts with that visible text, followed by
-` · to <recipient>` or ` · to thread only` when there is no recipient. Question/choice
-text cannot add recipients. Only trusted explicit Send,
-or Enter in a short-answer field, publishes
-one plain-text comment, `Answer to “<question>”: <answer>`, followed by page title
-and the visible recipient text, then attempts the existing Ask. Multiple choices
-retain authored order; Other uses `Other: <text>`. Delivery failure retains the
-comment and uses existing unadopted/uncertain retry rules; render, reload and sync
-never send. Enter in a long-answer field inserts a newline. Digits select choice tiles
-only from a tablist, panel or tile, never while typing in a text or recipient control.
-The next unanswered question is selected only after the recorded message appears as
-the current verified device answer; a local send callback or frame claim cannot advance.
-An explicit tab choice made while verification is pending is retained.
+in-tab drafts. Answered/waiting marks include state words. `N of M answered` counts
+complete unsent drafts plus questions with a verified device answer; only completed
+unsent drafts enter Send. A local callback or frame claim cannot provide a verified
+current answer. The group heading inherits authored ink; its `Q:` prefix uses
+currentColor at 45%. The card, tabs and controls retain the pinned light palette;
+selected controls and primary actions use the existing link color role.
+
+The group owns one footer and visible recipient chips using BrowserChips. Asking
+agent names resolve through the existing directory: one default chip for each
+uniquely resolved identity, in tab order, deduplicated within the cap of eight.
+Removing a default is intentional and directory refresh never restores it. The
+same directory/UUID recipient policy rechecks explicit chips; absent or ambiguous
+asking names add no recipient. Empty chips allow comment-only Send and show
+`Stays on the page, no one is asked`; at eight, Add is disabled with `At most 8`.
+Question/choice text cannot add recipients. The primary label is `Send <N> answers`,
+singular `Send 1 answer` when one is eligible in a multi-question group, or
+`Send answer` for a group of one. Its accessible name starts with that visible text,
+followed by ` · to <recipients>` or ` · to thread only`.
+
+Only trusted explicit Send publishes complete unsent drafts, in tab order, through
+`sendAnswers`; one-question short-answer Enter uses the same one-answer path.
+Choosing answers, changing tabs, render, reload and sync publish nothing. Each
+answer is one plain-text comment, `Answer to “<question>”: <answer>`, followed by page
+title and the visible recipient text. Multiple choices retain authored order;
+Other uses `Other: <text>`. Partial Sends retain untouched and failed drafts.
+Sending freezes the answer/selector/thread/recipient snapshot, holds its controls
+and keeps the selected tab; tabs remain available for reading. Long-answer Enter
+inserts a newline. Digits select choice tiles only from a tablist, panel or tile,
+never while typing in a text or recipient control. A composed-cap refusal shows
+`These answers are too long to send together. Send fewer answers.` with no effects.
+
+An admitted multi-answer Ask shows `Asked <recipients> with <N> answers.` on its
+participating questions; a single answer keeps `Asked <recipients>`. Replies render
+once in the canonical first-recorded question's conversation. Other participating
+questions with a reply show `Open reply`, named `Open reply · <canonical question
+label>`, which selects that tab and focuses its reply after current placement is
+admitted. Recipient retries retain the same recorded batch, per recipient, using
+the existing AskAgainAction; they never republish its comments or appear under
+every participating question. Change answer is an ordinary one-question follow-up.
 
 The renderer's existing text-map owner produces a normal QuoteSelector for the
 rendered question text and its surrounding context. The UUID never appears as a
@@ -2096,7 +2116,6 @@ Removed markup leaves its ordinary annotation in Comments; removal of quote text
 detaches it through normal annotation resolution. Parent `inline-slots.ts` owns
 one proposal/question measurement batch, preserving sibling positions and focus.
 Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
-The tab count summarizes verified answers within each admitted group.
 
 The existing `colab.render.questions` parent request is a closed
 `{type,renderId,requestId,blocks,threads,groups}` object, at most 256 KiB.
@@ -2259,8 +2278,12 @@ twice; otherwise nothing is asked. The frozen message is the ordinary frame (pag
 `Quote:` the canonical thread's anchor text) whose `Comment:` is `Answers to <N> questions:`
 and one `<question>: <answer>` line per answer in tab order, without each answer's page and
 recipient lines, and with no earlier conversation. A message over the 64 KiB cap is refused
-before any comment is published. A question whose comment was not recorded is not in the
-Ask and goes in a later Send; one recorded answer is the single-comment Ask above. The
+before any comment is published. A failed comment means not confirmed recorded, including
+an error before publication or a lost acknowledgement; it is excluded from this Ask and
+its draft remains for a later explicit Send, which publishes it again. A late first
+comment may leave an extra record superseded by `currentAnswer`, but no agent is asked
+about that failed outcome. There is no same-ID recovery handle. One recorded answer is
+the single-comment Ask above. The
 reservation key and the `retryOf` check use the sorted message-ID set (the single-comment
 key is its one-element case, unchanged), so a failed or uncertain batch Ask is retried as
 the same batch for that recipient, never split and never per question. `conversationAsks`

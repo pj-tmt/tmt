@@ -35,7 +35,7 @@ export function destination(): AskDestination {
 export class RemoteDouble implements RemoteClient {
   sends: SendInput[] = [];
   reads: string[] = [];
-  mode: 'accepted' | 'held' | 'throw' | 'wrong_id' = 'accepted';
+  mode: 'accepted' | 'held' | 'refused' | 'throw' | 'wrong_id' = 'accepted';
   async context() {
     return {
       machineId: id(5),
@@ -52,6 +52,12 @@ export class RemoteDouble implements RemoteClient {
   async send(input: SendInput): Promise<SendState> {
     this.sends.push({ ...input });
     if (this.mode === 'throw') throw new Error('Lost transport response with secret diagnostics');
+    if (this.mode === 'refused')
+      return {
+        state: 'refused',
+        operationId: input.operationId,
+        reason: 'REMOTE_SCOPE_DENIED',
+      };
     if (this.mode === 'held') return { state: 'held', operationId: input.operationId };
     return {
       state: 'accepted',

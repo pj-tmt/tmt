@@ -13,14 +13,14 @@ async function mount(page: Page, question = {}, options = {}) {
   await run(page, 'mount', options);
   await run(page, 'question', question);
   await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
-  const card = page.locator('.question-card');
+  const card = page.locator('.question-group-card');
   await expect(
     card.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
   ).toBeVisible();
   return card;
 }
 async function send(page: Page) {
-  const card = page.locator('.question-card');
+  const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
   await expect(card.locator('.question-state')).toContainText('answered');
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
@@ -80,13 +80,13 @@ test('question/choice mentions never add destinations; unknown asking agent uses
   await run(page, 'mount');
   await run(page, 'question', { agent: 'Missing agent' });
   await expect(
-    page.locator('.question-card').getByRole('combobox', { name: 'Answer recipient' }),
-  ).toBeEmpty();
+    page.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
+  ).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: 'Send answer · to thread only', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
-  await page.locator('.question-card').getByLabel('Keep it', { exact: true }).check();
+  await page.locator('.question-group-card').getByLabel('Keep it', { exact: true }).check();
   await send(page);
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
@@ -109,7 +109,7 @@ test('near-limit text admits while an over-limit answer and malformed markup ref
     { choices: Array.from({ length: 21 }, (_, i) => `Choice ${i}`) },
   ]) {
     await run(page, 'question', options);
-    await expect(page.locator('.question-card')).toHaveCount(0);
+    await expect(page.locator('.question-group-card')).toHaveCount(0);
   }
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
@@ -161,6 +161,114 @@ test('answered canonical threads resist empty siblings and agent provenance pres
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
 });
 
+for (const change of [false, true]) {
+  test(`a verified answer before Ask completion releases its recorded draft (Change answer ${change})`, async ({
+    page,
+  }) => {
+    const card = await mount(page);
+    await card.getByLabel('Keep it', { exact: true }).check();
+    if (change) {
+      await send(page);
+      await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+      await card.getByLabel('Change it', { exact: true }).check();
+    }
+    await run(page, 'pausePrepare');
+    await card.getByRole('button', { name: /^Send answer/ }).click();
+    await expect(card.locator('.question-answer')).toHaveText(change ? 'Change it' : 'Keep it');
+    await expect(card.getByText('Sending…', { exact: true })).toBeVisible();
+    const recorded = await run(page, 'discussionProof');
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].comments).toHaveLength(change ? 2 : 1);
+    expect((await run(page, 'proof')).sends).toHaveLength(change ? 1 : 0);
+    await run(page, 'resumePrepare');
+    await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(change ? 2 : 1);
+    await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
+    expect(await run(page, 'discussionProof')).toEqual(recorded);
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toBeDisabled();
+  });
+}
+
+test('ordinary answer history growth keeps the inline card in window scrolling', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  const frame = page.locator('#ask-page-fixture iframe');
+  for (let index = 0; index < 6; index++) {
+    const oldHeight = await frame.evaluate((node) => node.getBoundingClientRect().height);
+    await run(page, 'questionSibling', {
+      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(4),
+      sequence: String(index + 1),
+      device: false,
+      index,
+    });
+    await expect(card.locator('.question-history article')).toHaveCount(index + 2);
+    await expect
+      .poll(() => frame.evaluate((node) => node.getBoundingClientRect().height))
+      .toBeGreaterThan(oldHeight);
+    await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
+    await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
+    await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
+  }
+  await expect(card.locator('.question-answer')).toHaveText('Keep it');
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+});
+
+test('repeated Change answer keeps growing history attached in window scrolling', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  for (let index = 0; index < 6; index++) {
+    await card.getByRole('button', { name: 'Change answer', exact: true }).click();
+    await card.getByLabel(index % 2 ? 'Keep it' : 'Change it', { exact: true }).check();
+    await send(page);
+    await expect(card.locator('.question-history article')).toHaveCount(index + 2);
+    await expect(page.locator('#ask-page-fixture iframe')).toHaveAttribute(
+      'data-scroll-mode',
+      'window',
+    );
+    await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
+  }
+  const threads = await run(page, 'discussionProof');
+  expect(threads).toHaveLength(1);
+  expect(threads[0].comments).toHaveLength(7);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(7);
+});
+
+test('authored viewport feedback still detaches a question card while its history grows', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  await page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('body')
+    .evaluate((body) => {
+      const growth = body.ownerDocument.createElement('div');
+      growth.style.height = 'calc(100vh + 120px)';
+      growth.textContent = 'Authored viewport feedback';
+      body.append(growth);
+    });
+  await run(page, 'questionSibling', {
+    body: 'An ordinary follow-up grows the trusted conversation during authored viewport feedback.',
+    sequence: '1',
+    device: false,
+    index: 0,
+  });
+  await expect(card.locator('.question-history article')).toHaveCount(2);
+  const frame = page.locator('#ask-page-fixture iframe');
+  await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
+  await expect(frame).toHaveAttribute('scrolling', 'auto');
+  await expect(page.locator('[data-inline-question]')).toHaveAttribute('data-detached', 'true');
+  await expect(page.locator('.question-group-card')).not.toBeVisible();
+  expect(await run(page, 'discussionProof')).toHaveLength(2);
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+});
+
 test('uncertain delivery keeps the answer and never resends automatically', async ({ page }) => {
   const card = await mount(page);
   await card.getByLabel('Keep it', { exact: true }).check();
@@ -192,7 +300,7 @@ test('removed markup leaves a normal annotation accessible in Comments', async (
   await card.getByLabel('Keep it', { exact: true }).check();
   await send(page);
   await run(page, 'change', '<p>The question was removed.</p>');
-  await expect(page.locator('.question-card')).toHaveCount(0);
+  await expect(page.locator('.question-group-card')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
   await expect(page.getByTestId('annotation-row')).toContainText('Which heading should we use?');
   expect((await run(page, 'proof')).sends).toHaveLength(1);
