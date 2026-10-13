@@ -8,7 +8,7 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 the root and named references. `tmt colab skill` prints the exact root bytes;
-`tmt colab skill <name>` reads a compile-time key (`attachments`, `links`, `page-style`, `questions`), never a path. Both work without core, state or a checkout.
+`tmt colab skill <name>` reads a compile-time key (`attachments`, `editing`, `links`, `page-style`, `questions`), never a path. Both work without core, state or a checkout.
 The Page look starter in `references/page-style.md` is generated from `design/tokens/tokens.json`. After changing
 those tokens or the starter generator, run
 `node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.

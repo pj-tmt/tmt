@@ -23,6 +23,10 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/attachments.md"),
     ),
     (
+        "editing",
+        include_str!("../../../skills/tmt-colab/references/editing.md"),
+    ),
+    (
         "links",
         include_str!("../../../skills/tmt-colab/references/links.md"),
     ),
@@ -234,7 +238,7 @@ fn grammar() -> Command {
             note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject. The source is checked first, as page check does: findings print as warnings (JSON: warnings), and --strict refuses before anything is written. The result's update:{count,bytes,minimal} reports what the write cost. Write the whole source when most of the page changes; for a small change read only the lines you need (page read --lines or --grep) and use page patch, which moves only that part and merges concurrent edits elsewhere. Never answer a patch conflict (COLAB_PATCH_CONFLICT) with a whole-source write built from an earlier copy: it would discard the concurrent edit.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -350,13 +354,15 @@ fn grammar() -> Command {
                                     .long("file")
                                     .required(true)
                                     .value_name("path|-")
-                                    .value_parser(clap::value_parser!(std::path::PathBuf)),
+                                    .value_parser(clap::value_parser!(std::path::PathBuf))
+                                    .help("The complete new source (UTF-8; - reads stdin)"),
                             )
                             .arg(
                                 Arg::new("expected-revision")
                                     .long("expected-revision")
                                     .value_name("revision")
-                                    .value_parser(revision_token),
+                                    .value_parser(revision_token)
+                                    .help("Refuse unless the page is still at this revision from page read"),
                             ),
                     )
                     .subcommand(cli_patch::command()),

@@ -6278,6 +6278,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "page-style",
             include_bytes!("../../../skills/tmt-colab/references/page-style.md").as_slice(),
         ),
+        (
+            "editing",
+            include_bytes!("../../../skills/tmt-colab/references/editing.md").as_slice(),
+        ),
     ] {
         let reference = invoke(&["skill", name]);
         assert!(reference.status.success(), "{reference:?}");
@@ -6298,7 +6302,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
         assert!(!refused.status.success(), "{name}");
         assert!(refused.stdout.is_empty());
         let message = String::from_utf8(refused.stderr).unwrap();
-        for valid in ["links", "page-style", "questions", "attachments"] {
+        for valid in ["links", "page-style", "questions", "attachments", "editing"] {
             assert!(message.contains(valid), "{message}");
         }
     }
@@ -6325,6 +6329,85 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     );
     // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}
+
+/// #2842: the shipped skill teaches only flags and error codes the CLI and the contract define, so
+/// guidance and `--help` cannot drift apart unnoticed. Help is pure clap output and needs no state.
+#[test]
+fn the_skill_and_its_editing_reference_name_only_flags_and_codes_the_cli_ships() {
+    let help = |args: &[&str]| -> String {
+        let output = Command::new(BINARY)
+            .env_clear()
+            .args(args)
+            .arg("--help")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let editing = [
+        "page read",
+        "page write",
+        "page patch",
+        "page compact",
+        "export",
+        "page create",
+    ]
+    .map(|name| (name, help(&name.split(' ').collect::<Vec<_>>())));
+    let contract = include_str!("../../../contracts/colab-v1.md");
+    let sources = [
+        (
+            "SKILL.md",
+            include_str!("../../../skills/tmt-colab/SKILL.md"),
+        ),
+        (
+            "editing.md",
+            include_str!("../../../skills/tmt-colab/references/editing.md"),
+        ),
+    ];
+    for (name, text) in sources {
+        let tokens = || {
+            text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .filter(|token| token.len() > 2)
+        };
+        for code in tokens().filter(|token| token.starts_with("COLAB_")) {
+            assert!(
+                contract.contains(code),
+                "{name} names {code}, which the contract does not define"
+            );
+        }
+        // A command line in a fenced block that names a page subcommand lists only its flags.
+        let mut fenced = false;
+        for line in text.lines() {
+            if line.starts_with("```") {
+                fenced = !fenced;
+                continue;
+            }
+            let words: Vec<&str> = line.split_whitespace().collect();
+            if !fenced || words.len() < 4 || words[..3] != ["tmt", "colab", "page"] {
+                continue;
+            }
+            let shown = help(&["page", words[3]]);
+            for word in words.iter().filter(|word| word.starts_with("--")) {
+                assert!(
+                    shown.contains(word),
+                    "{name}: `{line}` uses {word}, which `page {} --help` does not show",
+                    words[3]
+                );
+            }
+        }
+    }
+    // Every flag the editing reference mentions is one of these commands' own.
+    let (_, editing_text) = sources[1];
+    for flag in editing_text
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+        .filter(|token| token.starts_with("--") && token.len() > 2)
+    {
+        assert!(
+            editing.iter().any(|(_, shown)| shown.contains(flag)),
+            "editing.md names {flag}, which no editing command's --help shows"
+        );
+    }
 }
 
 // --- Background serve (#2383): the launcher starts a detached worker and returns once it is ready.
