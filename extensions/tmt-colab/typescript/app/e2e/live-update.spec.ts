@@ -226,7 +226,13 @@ for (const width of [1440, 390]) {
       );
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-updated.png` });
       expect(Math.abs(after.x - position.x)).toBeLessThan(2);
-      expect(Math.abs(after.y - position.y)).toBeLessThan(2);
+      expect(
+        Math.abs(
+          width === 390
+            ? after.y + after.height - position.y - position.height
+            : after.y - position.y,
+        ),
+      ).toBeLessThan(2);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
       expect((await run(page, 'proof')).sends).toEqual([]);
       await input.press('Enter');
@@ -362,7 +368,12 @@ for (const width of [1440, 390]) {
       await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       expect((await run(page, 'proof')).sends).toHaveLength(0);
       expect(Math.abs((await dialog.boundingBox())!.x - before.x)).toBeLessThan(2);
-      expect(Math.abs((await dialog.boundingBox())!.y - before.y)).toBeLessThan(2);
+      const sent = (await dialog.boundingBox())!;
+      expect(
+        Math.abs(
+          width === 390 ? sent.y + sent.height - before.y - before.height : sent.y - before.y,
+        ),
+      ).toBeLessThan(2);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
       await annotationInput(dialog, 'Agent 1');
       await input.fill('@Agent 1 Second turn from the same window.');
@@ -374,8 +385,9 @@ for (const width of [1440, 390]) {
       ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
-      const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
-      expect(editorBox.y - labelBox.y - labelBox.height).toBeGreaterThanOrEqual(8);
+      await expect(dialog.locator('.annotation-reply-label')).toBeHidden();
+      const hintBox = (await dialog.locator('.annotation-anchor-note').boundingBox())!;
+      expect(hintBox.y).toBeGreaterThan(editorBox.y + editorBox.height);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
       // Shared top-layer menus fit the viewport, independently of the history scroller.
       const latestTurn = thread.getByTestId('comment-entry').last();

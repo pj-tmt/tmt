@@ -229,6 +229,17 @@ function SelectionAnnotation({
           8
         : innerHeight - 8;
       const placementHeight = expanded ? Math.min(480, edge - inset - 4) : 38;
+      if (expanded && innerWidth <= 640) {
+        setPosition({
+          left: 12,
+          bottom: Math.max(8, innerHeight - edge),
+          maxHeight: Math.max(
+            0,
+            edge - Math.max(inset, notice?.getBoundingClientRect().bottom ?? inset) - 8,
+          ),
+        });
+        return;
+      }
       if (!frame || !rectangle) {
         // Keep the failure notice readable while retaining the mounted draft.
         const belowNotice = notice?.getBoundingClientRect().bottom;
@@ -263,14 +274,6 @@ function SelectionAnnotation({
       const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(edge, value));
       const top = expanded ? clampAnchor(selectionTop) : selectionTop;
       const bottom = expanded ? clampAnchor(selectionBottom) : selectionBottom;
-      if (expanded && innerWidth <= 640) {
-        setPosition({
-          left: 12,
-          bottom: Math.max(8, innerHeight - edge),
-          maxHeight: Math.max(0, edge - inset - 8),
-        });
-        return;
-      }
       const beside = right + width + 24 <= Math.min(frame.right, innerWidth - 8);
       const besideLeft = !beside && expanded && left - width - 24 >= Math.max(frame.left, 8);
       const below = bottom + placementHeight + 8 <= edge;

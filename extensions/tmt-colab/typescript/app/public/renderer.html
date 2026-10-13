@@ -374,6 +374,11 @@
               event.shiftKey
             )
               return;
+            // Number badges own their exact target, even over overlapping range text.
+            if (event.target instanceof Node && markers?.contains(event.target)) {
+              gesture = undefined;
+              return;
+            }
             if (completedSelection) {
               completedSelection = false;
               return;
