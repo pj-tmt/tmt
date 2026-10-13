@@ -64,8 +64,17 @@ type Inventory = {
 describe('read-only candidate inventory and guarded add', () => {
   it('discovers an unmarked server, retains literal titles, and binds only an explicitly guarded pane', async () => {
     await withE2EFixture(async (fixture) => {
-      const title = 'literal #{run-shell:never} $(never)\nnew row\tstill one title';
-      fixture.tmux(['select-pane', '-t', fixture.pane, '-T', title]);
+      // select-pane -T expands formats and rejects actual LF/TAB in titles.
+      // Expanding an option once supplies literal format-like text and escapes.
+      const requestedTitle = String.raw`literal #{run-shell:never} $(never)\nnew row\tstill one title`;
+      fixture.tmux(['set-option', '-p', '-t', fixture.pane, '@discovery-title', requestedTitle]);
+      fixture.tmux(['select-pane', '-t', fixture.pane, '-T', '#{@discovery-title}']);
+      fixture.tmux(['set-option', '-p', '-t', fixture.pane, '-u', '@discovery-title']);
+      // tmux versions differ in title backslash sanitization. Compare discovery
+      // with the independently observed native value, retaining literal syntax.
+      const title = fixture.paneTitle();
+      expect(title).toContain('literal #{run-shell:never} $(never)');
+      expect(title).toMatch(/\\+nnew row\\+tstill one title$/);
       const serverId = () => fixture.tmux(['display-message', '-p', '#{@tmt.server-id}']).trim();
       expect(serverId()).toBe('');
       const scan = await fixture.runJsonCli<Inventory>([
@@ -77,6 +86,7 @@ describe('read-only candidate inventory and guarded add', () => {
       expect(scan.json!.truncated).toBe(false);
       const candidate = scan.json!.candidates.find((c) => c.pane === fixture.pane)!;
       expect(candidate.display.title).toBe(title);
+      expect(fixture.paneTitle()).toBe(title);
       expect(candidate.identity).toBe(null);
       expect(candidate.adoptable).toBe(true);
       expect(candidate.expect).toMatch(/^[0-9a-f]{64}$/);
