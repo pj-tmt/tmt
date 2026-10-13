@@ -1153,7 +1153,7 @@
             const editing =
               event.target instanceof HTMLElement &&
               (event.target.isContentEditable ||
-                !!event.target.closest('input,textarea,select,[role="textbox"]'));
+                !!event.target.closest('input,textarea,select,[role="textbox"],[role="combobox"]'));
             if (
               !event.isTrusted ||
               event.defaultPrevented ||
@@ -1161,6 +1161,29 @@
               event.keyCode === 229
             )
               return;
+            if (
+              !editing &&
+              !event.repeat &&
+              event.key.toLowerCase() === 'k' &&
+              !event.altKey &&
+              !event.shiftKey &&
+              event.ctrlKey !== event.metaKey
+            ) {
+              event.preventDefault();
+              parent.postMessage(
+                {
+                  type: 'colab.render.key',
+                  renderId,
+                  key: 'K',
+                  ctrlKey: event.ctrlKey,
+                  metaKey: event.metaKey,
+                  altKey: false,
+                  shiftKey: false,
+                },
+                '*',
+              );
+              return;
+            }
             if (
               (event.shiftKey &&
                 [

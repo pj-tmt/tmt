@@ -19,6 +19,8 @@ export type { BrowserTabsProps, BrowserTab, BrowserTabSelectReason } from './tab
 export type { BrowserNoticeTone, BrowserActionVariant, BrowserAnnouncement } from './static';
 export { BrowserDrawer } from './drawer.js';
 export type { BrowserDrawerProps, BrowserDrawerDismissReason } from './drawer.js';
+export { BrowserDialog } from './dialog.js';
+export type { BrowserDialogProps, BrowserDialogDismissReason } from './dialog.js';
 export { BrowserMenu } from './menu.js';
 export type { BrowserMenuProps, BrowserMenuItem } from './menu.js';
 export { BrowserNotifications } from './notifications.js';

@@ -1,6 +1,7 @@
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
+import { switcherModifiers, type SwitcherKeyRequest } from './quick-switcher-key.js';
 import {
   DocumentImages,
   IMAGE_REFERENCE,
@@ -76,7 +77,7 @@ export async function mountRenderer(
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
     /** Closed-set cosmetic key request; only trusted chrome decides its admitted action. */
-    onKey?(key: 'Escape' | '@'): void;
+    onKey?(key: 'Escape' | '@' | SwitcherKeyRequest): void;
     onOpenThread?(id: string): void;
     /** Checked is true only for an admitted resolution response, false while pending. */
     onAnchors?(resolved: string[], checked?: boolean): void;
@@ -302,6 +303,32 @@ export async function mountRenderer(
       (value.key === 'Escape' || value.key === '@')
     ) {
       options.onKey?.(value.key);
+      return;
+    }
+    if (
+      ready &&
+      Object.keys(value).length === 7 &&
+      value.type === 'colab.render.key' &&
+      value.renderId === snapshot.renderId &&
+      value.key === 'K' &&
+      typeof value.ctrlKey === 'boolean' &&
+      typeof value.metaKey === 'boolean' &&
+      value.altKey === false &&
+      value.shiftKey === false &&
+      switcherModifiers({
+        ctrlKey: value.ctrlKey,
+        metaKey: value.metaKey,
+        altKey: false,
+        shiftKey: false,
+      })
+    ) {
+      options.onKey?.({
+        key: 'K',
+        ctrlKey: value.ctrlKey,
+        metaKey: value.metaKey,
+        altKey: false,
+        shiftKey: false,
+      });
       return;
     }
     if (
