@@ -28,7 +28,7 @@ fn oversized_provider_page_is_refused_before_fields_are_copied_or_parsed() {
         Err(SyncError::CatchUpRequired)
     );
 }
-struct Auth;
+pub(super) struct Auth;
 impl AuthPort for Auth {
     fn identity(&self) -> AuthIdentity {
         AuthIdentity {

@@ -241,17 +241,33 @@ impl Drop for Reservation<'_> {
 pub(super) struct Signal {
     event: Mutex<()>,
     changed: Condvar,
+    #[cfg(test)]
+    before_wake: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 impl Signal {
     pub(super) fn new() -> Self {
         Self {
             event: Mutex::new(()),
             changed: Condvar::new(),
+            #[cfg(test)]
+            before_wake: Mutex::new(None),
         }
     }
     pub(super) fn wake(&self) {
+        #[cfg(test)]
+        if let Some(observer) = self.before_wake.lock().unwrap().as_ref() {
+            let _ = observer.send(());
+        }
         let _event = self.event.lock().unwrap_or_else(|p| p.into_inner());
         self.changed.notify_all();
+    }
+    #[cfg(test)]
+    pub(super) fn observe_wake(&self, observer: std::sync::mpsc::Sender<()>) {
+        *self.before_wake.lock().unwrap() = Some(observer);
+    }
+    #[cfg(test)]
+    pub(super) fn hold_event(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.event.lock().unwrap()
     }
     pub(super) fn wait<T>(
         &self,
