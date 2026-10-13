@@ -411,6 +411,23 @@ for (const [width, theme] of [
             }),
           )
           .toBe(true);
+        await expect
+          .poll(async () => {
+            const box = await group.boundingBox(),
+              below = await page
+                .frameLocator('#ask-page-fixture iframe')
+                .locator('#after-question')
+                .boundingBox();
+            // This fixture has a normal paragraph margin after the reserved slot.
+            // Await both growth and shrinkage before recording its presentation.
+            return (
+              !!box &&
+              !!below &&
+              below.y >= box.y + box.height - 1 &&
+              below.y <= box.y + box.height + 40
+            );
+          })
+          .toBe(true);
         const directory = process.env.COLAB_QUESTION_CAPTURE_DIR;
         if (directory) {
           mkdirSync(directory, { recursive: true });
