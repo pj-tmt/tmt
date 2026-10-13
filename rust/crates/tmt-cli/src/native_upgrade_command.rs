@@ -122,7 +122,15 @@ pub fn execute_with_schema_consent(
     let database = failure
         .is_none()
         .then(|| database::run(&report.installation.active_executable, &UnixCommandRunner));
-    finish(&report, skills, failure, yes, ran_from_moved_prefix, database, mode)
+    finish(
+        &report,
+        skills,
+        failure,
+        yes,
+        ran_from_moved_prefix,
+        database,
+        mode,
+    )
 }
 
 fn finish(
