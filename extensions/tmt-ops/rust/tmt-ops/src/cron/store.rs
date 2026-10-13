@@ -172,6 +172,71 @@ impl Jobs {
         self.jobs.push(job);
         Ok(format!("c{id}"))
     }
+    /// Pause departure jobs in the same store transaction. A pre-existing pause
+    /// retains its author/time; only explicit service Resume can clear it.
+    pub fn pause_owner(
+        &mut self,
+        room_id: &str,
+        identity_id: &str,
+        now_ms: i64,
+    ) -> Result<Vec<String>, Error> {
+        let mut paused = Vec::new();
+        for job in &mut self.jobs {
+            if job.room_id != room_id || job.owner_id.as_deref() != Some(identity_id) {
+                continue;
+            }
+            if job.pause.is_none() {
+                job.revision = job
+                    .revision
+                    .checked_add(1)
+                    .ok_or_else(|| corrupt("Job revision space exhausted."))?;
+                job.pause = Some(Pause {
+                    by: identity_id.into(),
+                    at_ms: now_ms,
+                });
+            }
+            paused.push(job.id());
+        }
+        Ok(paused)
+    }
+
+    /// Called under Store::update after the room CAS. Retain deleted-job counters
+    /// as well as live job IDs. A destination namespace is never silently merged.
+    /// Repeating the completed step is a no-op for the explicit repair path.
+    pub fn rename_squad(&mut self, old: &str, new: &str, room_id: &str) -> Result<bool, Error> {
+        if old == new {
+            return Ok(false);
+        }
+        if self
+            .jobs
+            .iter()
+            .any(|job| job.squad == old && job.room_id != room_id)
+        {
+            return Err(Error::new(
+                "SQUAD_CRON_ROOM_CONFLICT",
+                "The old timer namespace belongs to a different room.",
+            ));
+        }
+        if !self.counters.contains_key(old) && !self.jobs.iter().any(|job| job.squad == old) {
+            return Ok(false);
+        }
+        if self.counters.contains_key(new) || self.jobs.iter().any(|job| job.squad == new) {
+            return Err(Error::new(
+                "SQUAD_CRON_NAMESPACE_CONFLICT",
+                "The destination timer namespace already exists; choose a different squad name.",
+            ));
+        }
+        if let Some(counter) = self.counters.remove(old) {
+            self.counters.insert(new.into(), counter);
+        }
+        for job in &mut self.jobs {
+            if job.squad == old {
+                job.squad = new.into();
+            }
+        }
+        Ok(true)
+    }
+
     pub fn document(&self) -> Value {
         json!({"version":1,"counters":self.counters,"jobs":self.jobs.iter().map(Job::document).collect::<Vec<_>>()})
     }

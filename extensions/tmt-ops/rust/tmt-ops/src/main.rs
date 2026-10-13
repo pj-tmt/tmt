@@ -613,6 +613,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
                 )
             })
             .collect(),
+        "rm" if document["removed"].is_null() => String::new(),
         "rm" => {
             let cleared = fields(&document["cleared"]);
             done(
@@ -665,6 +666,31 @@ fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String
                 )
             })
             .collect(),
+        "rm" if document.get("failed").is_some() => {
+            let paused = document["pausedTimers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            vec![(
+                format!(
+                    "Removal {} at {}: {}{} Refresh membership before another attempt.",
+                    document["failed"]["status"].as_str().unwrap_or("Unknown"),
+                    document["failed"]["stage"]
+                        .as_str()
+                        .unwrap_or("unknown stage"),
+                    text(&document["failed"]["error"]),
+                    if paused.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" Timers {paused} are paused.")
+                    }
+                ),
+                None,
+            )]
+        }
         "set" if document.get("failed").is_some() => {
             let skipped = document["notAttempted"]
                 .as_array()

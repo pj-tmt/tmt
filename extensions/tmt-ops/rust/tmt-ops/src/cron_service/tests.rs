@@ -280,3 +280,143 @@ fn schedule_text_round_trips_through_the_editor_grammar() {
         );
     }
 }
+
+#[test]
+fn departure_pause_survives_readd_and_reassign_until_explicit_resume() {
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    let job = f.add(&user, WORKER).unwrap().job.job;
+    assert_eq!(
+        pause_departing_owner(&f.core, ROOM, WORKER, 500).unwrap(),
+        [job.id()]
+    );
+    f.change_model(|model| model["rosterWithout"] = json!([WORKER]));
+    let stored = store(&f.core).unwrap().0.read().unwrap().jobs()[0].clone();
+    assert_eq!(stored.state(), "paused");
+    f.change_model(|model| model["rosterWithout"] = json!([]));
+    let seen = show_job(&f.core, &f.config, &JobKey::of(&stored), 600).unwrap();
+    assert_eq!(seen.job.state(), "paused");
+    assert!(seen.next_ms.is_empty());
+    let reassigned = f
+        .mutate(
+            &user,
+            &stored,
+            Mutation::Reassign {
+                owner_id: LEAD.into(),
+            },
+        )
+        .unwrap()
+        .job
+        .job;
+    assert_eq!(reassigned.pause, stored.pause);
+    assert_eq!(reassigned.state(), "paused");
+    let resumed = f
+        .mutate(&user, &reassigned, Mutation::Resume)
+        .unwrap()
+        .job
+        .job;
+    assert_eq!(resumed.state(), "on");
+}
+
+#[test]
+fn membership_service_pauses_before_leave_and_keeps_other_metadata() {
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    f.add(&user, WORKER).unwrap();
+    f.change_model(|model| {
+        model["members"][2]["metadata"] = json!({"squad.product.state":"working", "squad.other.task":"kept", "task":"identity field"});
+    });
+    let selected = Squad::resolve(&f.core, Some("product")).unwrap();
+    let result = crate::membership::remove(&f.core, &selected, WORKER).unwrap();
+    assert!(result.complete);
+    assert_eq!(result.document["pausedTimers"], json!(["c1"]));
+    assert_eq!(f.model()["jobsAtLeave"]["jobs"][0]["state"], "paused");
+    assert_eq!(result.document["cleared"], json!(["state"]));
+    assert_eq!(
+        store(&f.core).unwrap().0.read().unwrap().jobs()[0].state(),
+        "paused"
+    );
+    assert_eq!(
+        f.model()["members"][2]["metadata"],
+        json!({"squad.other.task":"kept", "task":"identity field"})
+    );
+}
+
+#[test]
+fn failed_pause_publication_refuses_membership_leave() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    // A real store lock failure must happen before the public leave command.
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(f.directory.join("ops/cron/jobs.lock"))
+        .unwrap();
+    let _held = nix::fcntl::Flock::lock(file, nix::fcntl::FlockArg::LockExclusive).unwrap();
+    let selected = Squad {
+        name: "product".into(),
+        room_id: ROOM.into(),
+    };
+    let error = crate::membership::remove(&f.core, &selected, WORKER)
+        .err()
+        .unwrap();
+    assert_eq!(error.code, "SQUAD_CRON_STORE_BUSY");
+    assert!(f.model()["rosterWithout"].as_array().unwrap().is_empty());
+    assert!(
+        !f.model()["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|call| call["command"][0] == "room" && call["command"][1] == "leave")
+    );
+}
+
+#[test]
+fn lost_leave_response_keeps_pause_and_reports_unknown_without_replaying() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    f.change_model(|model| model["loseLeaveResponse"] = json!(true));
+    let selected = Squad {
+        name: "product".into(),
+        room_id: ROOM.into(),
+    };
+    let outcome = crate::membership::remove(&f.core, &selected, WORKER).unwrap();
+    assert!(!outcome.complete);
+    assert_eq!(outcome.document["failed"]["status"], "Unknown");
+    assert!(outcome.document["removed"].is_null());
+    assert_eq!(outcome.document["pausedTimers"], json!(["c1"]));
+    assert_eq!(
+        f.model()["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|call| call["command"][0] == "room" && call["command"][1] == "leave")
+            .count(),
+        1
+    );
+    assert_eq!(
+        store(&f.core).unwrap().0.read().unwrap().jobs()[0].state(),
+        "paused"
+    );
+}
+
+#[test]
+fn metadata_failure_after_leave_reports_the_confirmed_removal_and_retained_pause() {
+    let f = Fixture::new();
+    f.add(&f.actor(USER), WORKER).unwrap();
+    f.change_model(|model| {
+        model["members"][2]["metadata"] = json!({"squad.product.state":"working"});
+        model["metaRemoveFailure"] = json!("STORAGE_UNAVAILABLE");
+    });
+    let selected = Squad {
+        name: "product".into(),
+        room_id: ROOM.into(),
+    };
+    let outcome = crate::membership::remove(&f.core, &selected, WORKER).unwrap();
+    assert!(!outcome.complete);
+    assert_eq!(outcome.document["removed"]["id"], WORKER);
+    assert_eq!(outcome.document["failed"]["stage"], "metadata clear");
+    assert_eq!(outcome.document["failed"]["status"], "Unknown");
+    assert_eq!(outcome.document["pausedTimers"], json!(["c1"]));
+    assert_eq!(f.model()["rosterWithout"], json!([WORKER]));
+}

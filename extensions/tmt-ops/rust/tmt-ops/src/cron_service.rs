@@ -270,6 +270,29 @@ fn project(core: &Core, job: Job, count: usize, now_ms: i64) -> Result<JobView, 
         warnings: vec![],
     })
 }
+/// The membership service calls this before committing a leave/move. This is
+/// departure admission, not a manual pause command; it cannot resume any job.
+pub fn pause_departing_owner(
+    core: &Core,
+    room_id: &str,
+    identity_id: &str,
+    now_ms: i64,
+) -> Result<Vec<String>, SquadError> {
+    let (store, _migration) = store(core)?;
+    // A squad without jobs needs no new cron files merely because a member left.
+    if !store
+        .read()?
+        .jobs()
+        .iter()
+        .any(|job| job.room_id == room_id && job.owner_id.as_deref() == Some(identity_id))
+    {
+        return Ok(Vec::new());
+    }
+    store
+        .update(|jobs| jobs.pause_owner(room_id, identity_id, now_ms))
+        .map_err(Into::into)
+}
+
 pub fn list_jobs(
     core: &Core,
     config: &Config,

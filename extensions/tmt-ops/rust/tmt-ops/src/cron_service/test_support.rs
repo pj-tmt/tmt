@@ -115,8 +115,29 @@ if a[0]=='api':
  else: fail('API_INPUT_INVALID')
  save(m); print(json.dumps(out))
 elif a[0]=='config': print(json.dumps({'paths':{'global':str(p/'config.toml')}}))
+elif a[0]=='room' and a[1]=='leave':
+ m['calls'].append({'command':a})
+ jobs=p/'ops/cron/jobs.json'
+ m['jobsAtLeave']=json.loads(jobs.read_text()) if jobs.exists() else {'jobs':[]}
+ if m.get('leaveFailure'): save(m); fail(m['leaveFailure'])
+ id=a[a.index('--identity')+1]
+ if id not in m['rosterWithout']: m['rosterWithout'].append(id)
+ save(m)
+ if m.get('loseLeaveResponse'): print('interrupted'); sys.exit(0)
+ print(json.dumps({}))
 elif a[0]=='room' and a[1]=='show': print(json.dumps({'room':{'id':m['room']}}))
 elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':'squad-product'}]}))
+elif a[0]=='identity' and a[1]=='meta':
+ id=a[a.index('--identity')+1]
+ x=next((x for x in m['members'] if x['id']==id and id not in m['retired']),None)
+ if x is None: fail('NAME_NOT_FOUND')
+ m['calls'].append({'command':a})
+ if a[2]=='list': out={'metadata':x['metadata']}
+ elif a[2]=='rm':
+  if m.get('metaRemoveFailure'): save(m); fail(m['metaRemoveFailure'])
+  x['metadata'].pop(a[3],None); out={}
+ else: fail('UNKNOWN_COMMAND')
+ save(m); print(json.dumps(out))
 elif a[0]=='identity':
  x=next((x for x in m['members'] if a[2] in [x['id'],x['name']] and x['id'] not in m['retired']),None)
  if x is None: fail('NAME_NOT_FOUND')
