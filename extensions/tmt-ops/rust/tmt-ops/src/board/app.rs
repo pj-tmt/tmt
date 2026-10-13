@@ -977,19 +977,33 @@ impl App {
         })
     }
 
+    /// Stable acquired squad order for aggregate usage and counter identity.
+    /// Search admission stays shared with the source document; cursor-only
+    /// attention, lead and timer entries never participate in this projection.
+    fn home_usage_squads(&self) -> impl Iterator<Item = &str> {
+        self.view.iter().flat_map(move |view| {
+            view.home
+                .iter()
+                .flat_map(|home| &home.squads)
+                .filter(move |squad| {
+                    view.document["sections"][0]["rows"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|row| row["squad"] == squad.squad && matches(row, &self.search))
+                })
+                .map(|squad| squad.squad.as_str())
+        })
+    }
+
     pub(super) fn home_header_usage(&self, now: Instant) -> Option<HomeHeaderUsage<'_>> {
         let view = self.view.as_ref()?;
         let windows = view.home.as_ref()?.windows;
         // Stable displayed squad order decides equal-evidence UUID collisions.
-        let shown = self.home_entries();
         let mut enabled = false;
         let mut identities = BTreeMap::new();
         let mut members: Vec<HeaderMember<'_>> = Vec::new();
-        for entry in shown
-            .iter()
-            .filter(|entry| entry.target.section == "squads")
-        {
-            let squad = &entry.target.squad;
+        for squad in self.home_usage_squads() {
             let Some(rate) = view
                 .home_rate
                 .get(squad)
@@ -1125,10 +1139,8 @@ impl App {
     pub(super) fn home_header_counter_keys(&self) -> [String; 3] {
         let view = self.view.as_ref().expect("HOME header has a view");
         let owners = self
-            .home_entries()
-            .into_iter()
-            .filter(|entry| entry.target.section == "squads")
-            .filter_map(|entry| view.home_rate.get(&entry.target.squad))
+            .home_usage_squads()
+            .filter_map(|squad| view.home_rate.get(squad))
             .filter(|rate| rate.settings.enabled)
             .map(|rate| {
                 (
@@ -5642,10 +5654,15 @@ mod token_window_tests {
             "pending and request state are immutable"
         );
         assert_eq!(app.selected, selection);
-        app.go("product".into());
+        app.workspace_action(crate::action::OpsUiAction::Agents);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| super::super::view::render(frame, &app))
+            .unwrap();
         assert!(
             app.home_counters.borrow().wait(start).is_none(),
-            "leaving HOME drops all animation wakeups"
+            "an Agents frame drops invisible Overview animation wakeups"
         );
     }
 
