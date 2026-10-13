@@ -42,7 +42,13 @@
   a 5 s limit, one read in flight, every 5 s. A document that is not version 1, has no
   member list or has a malformed row leaves that source or row unavailable; unknown additive
   fields are ignored; a label's `choose` action is checked by `labels/action.rs` and carried with the label. A failing source backs off to 60 s; its
-  last good rows stand in for 30 s, then drop. The reader sends `BoardEvent::Labels` only
+  last good rows stand in for 30 s, then drop. The same acquired snapshot carries
+  `labels::digest::Status`, the typed projection of published Digest status fields;
+  it never performs a second acquisition or reads Digest files. Unsupported or
+  malformed typed fields leave that projection unavailable without discarding valid
+  generic labels. Null counts/timestamps remain null, and source observations are
+  never replaced by retry time. A retained snapshot marks itself stale after a failed
+  read and clears that mark on recovery. The reader sends `BoardEvent::Labels` only
   when the combined result changed, `App` replaces `labels` wholesale, and painters read
   it through `board/row_chips.rs`. Supplied text never depends on the clock;
   visible digest-policy countdowns use the frame clock registry owned by

@@ -14,7 +14,7 @@ const VECTORS: &str = concat!(
 );
 const NAMESPACE: &str = "digest";
 
-fn vectors() -> Value {
+pub(super) fn vectors() -> Value {
     serde_json::from_slice(&fs::read(VECTORS).expect("the supplier's vectors")).unwrap()
 }
 
@@ -222,7 +222,53 @@ fn a_changed_answer_is_delivered_again() {
     scratch.status(&vectors()["status"][2]["response"]);
     let second = next(&received);
     assert_ne!(first, second);
-    assert_eq!(second, Supplied(vec![(NAMESPACE.into(), Rows::new())]));
+    assert!(second.0[0].1.rows.is_empty());
+    assert!(second.digest().unwrap().0.members.is_empty());
+}
+
+#[test]
+fn one_read_supplies_labels_and_typed_status_and_numeric_changes_are_delivered() {
+    let scratch = Scratch::new();
+    let mut document = vectors()["status"][0]["response"].clone();
+    scratch.status(&document);
+    let timing = Timing {
+        every: Duration::from_secs(3600),
+        ..quick()
+    };
+    let (reader, received) = reader(&scratch.fake(""), timing);
+    let first = next(&received);
+    assert_eq!(scratch.calls().len(), 1);
+    let (status, stale) = first.digest().unwrap();
+    assert!(!stale);
+    let id = document["members"][0]["identityId"].as_str().unwrap();
+    assert_eq!(status.members[id].held_count, Some(0));
+    assert_eq!(first.of(id).next().unwrap().1.text, "Auto");
+    // A new source observation matters even when the labels are identical.
+    document["observedAtMs"] = json!(status.observed_at_ms + 1);
+    scratch.status(&document);
+    reader.refresher().now();
+    let second = next(&received);
+    assert_eq!(scratch.calls().len(), 2);
+    assert_eq!(
+        second.digest().unwrap().0.observed_at_ms,
+        status.observed_at_ms + 1
+    );
+    assert_eq!(first.0[0].1.rows, second.0[0].1.rows);
+    assert!(
+        scratch
+            .calls()
+            .iter()
+            .all(|call| call.ends_with("digest status --json"))
+    );
+}
+
+#[test]
+fn invalid_typed_status_does_not_invent_fields_or_discard_valid_generic_labels() {
+    let mut document = vectors()["status"][0]["response"].clone();
+    document["members"][0]["heldCount"] = json!("unknown");
+    let snapshot = Snapshot::parse(NAMESPACE, &document).unwrap();
+    assert!(snapshot.digest.is_none());
+    assert!(!snapshot.rows.is_empty());
 }
 
 #[test]
@@ -293,6 +339,9 @@ fn failures_back_off_and_the_last_good_answer_stands_in_only_briefly() {
             .is_some()
     );
     fs::write(scratch.path("down"), "").unwrap();
+    let stale = next(&received);
+    assert!(stale.digest().unwrap().1);
+    assert_eq!(stale.digest().unwrap().0, good.digest().unwrap().0);
     let gone = next(&received);
     assert_eq!(
         gone,

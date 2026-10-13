@@ -1,6 +1,6 @@
 //! Labels a tmt extension supplies for member rows. Ops asks each configured source
 //! `tmt <source> status --json` off the paint path and shows what comes back: it
-//! recalculates nothing a source decided and names no source itself. A source that
+//! recalculates nothing a source decided. Typed projections share that same read. A source that
 //! is absent, slow, failing or malformed leaves its labels unavailable.
 use crate::{core::Core, runner::Cancellation};
 use serde_json::Value;
@@ -12,6 +12,7 @@ use std::{
 use tmt_cli_style::Role;
 
 mod action;
+pub mod digest;
 
 pub use action::Choose;
 
@@ -34,21 +35,67 @@ pub type Rows = BTreeMap<String, Vec<Label>>;
 
 /// The labels of every source that is currently available, in configuration order.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Supplied(Vec<(String, Rows)>);
+pub struct Supplied(Vec<(String, Snapshot)>);
+
+/// Labels and optional typed evidence from one acquisition, with one lifetime.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Snapshot {
+    rows: Rows,
+    digest: Option<digest::Status>,
+    stale: bool,
+}
+
+impl Snapshot {
+    fn parse(source: &str, document: &Value) -> Option<Self> {
+        let rows = parse(source, document)?;
+        let digest = digest::Status::from_source(source, document, &rows);
+        Some(Self {
+            rows,
+            digest,
+            stale: false,
+        })
+    }
+}
 
 impl Supplied {
     #[cfg(test)]
     pub fn from_rows(sources: Vec<(String, Rows)>) -> Self {
-        Self(sources)
+        Self(
+            sources
+                .into_iter()
+                .map(|(source, rows)| {
+                    (
+                        source,
+                        Snapshot {
+                            rows,
+                            ..Snapshot::default()
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// An identity's labels, each with the source that supplied it.
     pub fn of<'a>(&'a self, identity: &'a str) -> impl Iterator<Item = (&'a str, &'a Label)> {
-        self.0.iter().flat_map(move |(source, rows)| {
-            rows.get(identity)
+        self.0.iter().flat_map(move |(source, snapshot)| {
+            snapshot
+                .rows
+                .get(identity)
                 .into_iter()
                 .flatten()
                 .map(move |label| (source.as_str(), label))
+        })
+    }
+
+    /// The Digest projection and whether it is retained after a failed read.
+    /// Its timestamps remain the source's observations, never the retry time.
+    pub fn digest(&self) -> Option<(&digest::Status, bool)> {
+        self.0.iter().find_map(|(_, snapshot)| {
+            snapshot
+                .digest
+                .as_ref()
+                .map(|status| (status, snapshot.stale))
         })
     }
 }
@@ -161,7 +208,7 @@ impl Reader {
         let core = core.cancellable(cancellation.clone());
         let (signals, wake) = mpsc::channel::<Signal>();
         let thread = std::thread::spawn(move || {
-            let mut last: Vec<Option<(Rows, Instant)>> = vec![None; sources.len()];
+            let mut last: Vec<Option<(Snapshot, Instant)>> = vec![None; sources.len()];
             let mut sent = Supplied::default();
             let mut wait = timing.every;
             loop {
@@ -170,11 +217,14 @@ impl Reader {
                     let read = core
                         .json_within(&[source, "status"], timing.deadline)
                         .ok()
-                        .and_then(|document| parse(source, &document));
+                        .and_then(|document| Snapshot::parse(source, &document));
                     match read {
                         Some(rows) => *last = Some((rows, Instant::now())),
                         None => {
                             failed = true;
+                            if let Some((snapshot, _)) = last.as_mut() {
+                                snapshot.stale = true;
+                            }
                             if last
                                 .as_ref()
                                 .is_some_and(|(_, at)| at.elapsed() > timing.keep)
