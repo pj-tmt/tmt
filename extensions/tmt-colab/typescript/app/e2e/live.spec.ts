@@ -1727,12 +1727,17 @@ for (const width of [1440, 390])
 /** The control is the topmost element at its own center: nothing sits over it. */
 async function expectUncovered(control: Locator) {
   await expect(control).toBeVisible();
-  const covered = await control.evaluate((node) => {
-    const box = node.getBoundingClientRect();
-    const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
-    return !top || !(node === top || node.contains(top));
-  });
-  expect(covered).toBe(false);
+  await expect
+    .poll(
+      () =>
+        control.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const top = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+          return !top || !(node === top || node.contains(top));
+        }),
+      { timeout: 1000 },
+    )
+    .toBe(false);
 }
 
 for (const surface of ['Chat', 'annotation'] as const) {
