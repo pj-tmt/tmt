@@ -1,7 +1,6 @@
-//! HOME's three strips outside the body: the summary under the tab line, the
-//! usage line under it and the key line in the footer. Each is a literal template
-//! whose named width steps and content fit are projected here before painting.
-//! Member names shrink and whole hints drop according to the same held data.
+//! Overview summary and usage strips over held data. Named width steps and
+//! content budgets are projected here before shared scene painting. Footer
+//! actions are generated separately from Config's effective scoped key table.
 use super::{
     Home,
     scene::{self, Kept, Key, Painted, Part},
@@ -410,92 +409,6 @@ pub(super) fn usage_in(
     };
     slot.get(key, |key| lines(paint(key, FILE, template)))
         .clone()
-}
-
-/// The key line: whole hints drop from the end until the line and the two exit
-/// hints fit (a fit, not a step).
-fn key_line(width: usize, overflow: bool, view_reply: bool) -> String {
-    if (usize::from(super::COMPACT)..usize::from(super::SM.cells)).contains(&width) {
-        let mut keys = vec!["↑↓", "⏎", "t", "e", "/"];
-        if view_reply {
-            keys.push("v");
-        }
-        if overflow {
-            keys.push("s");
-        }
-        keys.extend(["? more", "q"]);
-        return keys.join("  ");
-    }
-    // The other keys (tabs, cron, refresh, ...) are in `?` help;
-    // `s switch` comes back only while the tab line hides tabs.
-    let mut optional = vec!["↑↓ move", "⏎ open", "t talk", "e expand", "/ search"];
-    if view_reply {
-        optional.insert(4, "v view");
-    }
-    if overflow {
-        optional.push("s switch");
-    }
-    loop {
-        let text = optional
-            .iter()
-            .copied()
-            .chain(["? more", "q quit"])
-            .collect::<Vec<_>>()
-            .join("  ");
-        if text.width() <= width || optional.is_empty() {
-            return text;
-        }
-        optional.pop();
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn hints(width: usize, overflow: bool) -> String {
-    hints_in(&mut Kept::default(), width, overflow, true, false)
-}
-
-/// The key line, painted again only when its key changed.
-pub(super) fn hints_in(
-    slot: &mut Kept<String>,
-    width: usize,
-    overflow: bool,
-    _receiving: bool,
-    view_reply: bool,
-) -> String {
-    static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
-    const FILE: &str = "squad.home.keys.xml";
-    let template = TEMPLATE.get_or_init(|| {
-        scene::compile(
-            FILE,
-            r#"<tmt-view version="1"><tmt-text id="line" bind="$.line" token="muted" class="w-full h-1"/></tmt-view>"#,
-            &Schema::Object(BTreeMap::from([("line".to_owned(), Schema::Scalar)])),
-        )
-    });
-    let width = width.min(usize::from(u16::MAX)) as u16;
-    let key = Key {
-        width,
-        look: Look::default(),
-        selected: None,
-        data: json!({"line": key_line(usize::from(width), overflow,view_reply)}),
-    };
-    slot.get(key, |key| {
-        let painted = scene::paint(FILE, template, &key.data, key.width, &mut |_| {
-            (Style::new(), Align::Left)
-        });
-        painted
-            .lines
-            .first()
-            .map(|line| {
-                line.spans
-                    .iter()
-                    .map(|span: &Span<'_>| span.content.as_ref())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .unwrap_or_default()
-    })
-    .clone()
 }
 
 /// Numeric cells of the admitted header branch, before viewport placement.

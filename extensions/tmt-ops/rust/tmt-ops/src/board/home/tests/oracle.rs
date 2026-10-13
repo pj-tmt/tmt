@@ -1,24 +1,20 @@
-//! The decoded HOME oracle: every cell's symbol and style, every hit, the row
-//! starts and the input band of whole frames, plus the squads table and the
-//! header usage line, at the breakpoint boundaries in three looks. It was
-//! generated from the painter that built HOME from ratatui spans, and the
-//! markup migration (#1723) must keep it unchanged apart from the changes the
-//! PR lists. The seams that feed it (`render_frame`, `tiles::paint`,
-//! `paint::usage`) are glue only; the fixture does not depend on them.
-use super::interaction::{board, keys, press};
+//! The single decoded Ops workspace oracle: actual frame cells, styles, clipped
+//! hits, stable targets and input geometry across the new shell. Literal fixtures
+//! share the same owner as private workspace captures; no alternate painter runs.
+//! Normal tests never write frozen bytes. Review decoded differences before the
+//! explicitly ignored record command, then regenerate in a separate commit.
+use super::interaction::board;
 use super::*;
 use crate::board::{
-    app::{App, RowFeedback, RowTarget},
+    app::App,
+    app::workspace::tests::{MEMBER, ROOM, capture_case},
     cronboard::{TEST_NOW, test_cron, test_view},
-    home::paint,
     home_leads::{Kind, LeadPreview},
 };
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, crossterm::event::KeyCode::*};
+use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 use std::collections::BTreeMap;
 use tmt_ops::cron::ClockStatus;
 
-/// Tall enough to hold the whole HOME stream of the rich model at every width.
-const HEIGHT: u16 = 60;
 const DAY: u64 = 86_400_000;
 
 /// Ages are relative to the real clock the painter reads; whole days keep the
@@ -157,130 +153,6 @@ fn oracle_leads_follow_production_exchange_order() {
     );
 }
 
-fn select(app: &mut App, section: &str, squad: &str) {
-    let index = app
-        .home_entries()
-        .iter()
-        .position(|entry| entry.target.section == section && entry.target.squad == squad)
-        .unwrap_or_else(|| panic!("no {section}/{squad} entry"));
-    app.select(index);
-}
-
-fn sent_on(app: &mut App, section: &str, squad: &str) {
-    select(app, section, squad);
-    let target = app.home_entries()[app.selected].target.clone();
-    app.sent = Some(RowFeedback {
-        mark: Some("sent"),
-        target: RowTarget::Home(target),
-        home: None,
-    });
-}
-
-/// Each state names the keys and selection that produce it.
-const STATES: &[&str] = &[
-    "base",
-    "lead-selected",
-    "squad-selected",
-    "replies-hidden",
-    "cron-selected",
-    "all-leads-selected",
-    "composer-blocked",
-    "composer-lead",
-    "composer-squad",
-    "sent-blocked",
-    "sent-lead",
-    "sent-squad",
-    "read-lead",
-    "searching",
-    "no-user",
-    "cron-failed",
-    "cron-stale",
-    "narrow",
-];
-
-/// The widths each state is captured at in the `tmt` look: every boundary for
-/// the states that change with width, the narrowest and widest for the rest.
-fn widths(state: &str) -> &'static [u16] {
-    match state {
-        "base" | "replies-hidden" => &[160, 140, 139, 120, 100, 99, 80, 79],
-        "squad-selected" => &[160, 100, 99, 80],
-        // Narrower than any supported width, where the cron line falls back.
-        "narrow" => &[60, 50],
-        "cron-failed" | "cron-stale" => &[160, 100, 80, 60],
-        _ => &[160, 80],
-    }
-}
-
-/// The other looks repeat the states whose styles differ the most.
-const LOOK_STATES: &[&str] = &["base", "lead-selected", "composer-lead", "read-lead"];
-
-fn state(name: &str) -> App {
-    let mut app = rich();
-    match name {
-        "base" => (),
-        "lead-selected" => select(&mut app, "leads", "beta"),
-        "squad-selected" => select(&mut app, "squads", "gamma"),
-        "replies-hidden" => {
-            press(&mut app, Char('t'));
-            select(&mut app, "leads", "alpha");
-        }
-        "cron-selected" => {
-            let index = app
-                .home_entries()
-                .iter()
-                .position(|entry| entry.target.section == super::super::CRON)
-                .unwrap();
-            app.select(index);
-        }
-        "all-leads-selected" => {
-            let index = app
-                .home_entries()
-                .iter()
-                .position(|entry| entry.target.section == super::super::ALL_LEADS)
-                .unwrap();
-            app.select(index);
-        }
-        "composer-blocked" => {
-            select(&mut app, "blocked", "alpha");
-            press(&mut app, Char('a'));
-        }
-        "composer-lead" => {
-            select(&mut app, "leads", "alpha");
-            press(&mut app, Char('a'));
-        }
-        "composer-squad" => {
-            select(&mut app, "squads", "beta");
-            press(&mut app, Char('a'));
-        }
-        "sent-blocked" => sent_on(&mut app, "blocked", "alpha"),
-        "sent-lead" => sent_on(&mut app, "leads", "beta"),
-        "sent-squad" => sent_on(&mut app, "squads", "gamma"),
-        "read-lead" => {
-            select(&mut app, "leads", "alpha");
-            press(&mut app, Char('e'));
-            assert!(app.input.is_none());
-            assert!(
-                app.row_details
-                    .contains(&crate::board::row_detail::Target::Row(
-                        app.row_target(app.selected).unwrap()
-                    ))
-            );
-        }
-        "searching" => {
-            keys(&mut app, &[Char('/'), Char('l'), Char('e'), Char('a')]);
-        }
-        "no-user" => app.view.as_mut().unwrap().me = None,
-        "cron-failed" => {
-            app.cron = Default::default();
-            app.cron.replace(Err("storage unreachable".into()));
-        }
-        "cron-stale" => app.cron.replace(Err("boom".into())),
-        "narrow" => (),
-        other => panic!("unknown state {other}"),
-    }
-    app
-}
-
 /// Style identities are interned: a frame lists style ids, not repeated debug text.
 #[derive(Default)]
 struct Styles(BTreeMap<String, String>);
@@ -322,255 +194,188 @@ fn buffer_json(buffer: &Buffer, styles: &mut Styles) -> Value {
     json!({"lines": lines, "styles": runs})
 }
 
-fn looks() -> [(&'static str, crate::look::Look); 3] {
+fn looks() -> [(&'static str, crate::look::Look); 4] {
     use tmt_cli_style::{Depth, Theme, theme::Base};
-    let look = |base, depth| crate::look::Look {
-        theme: Theme::new(Base::parse(base).unwrap()),
-        depth,
-    };
     [
-        ("tmt", look("tmt", Depth::TrueColor)),
-        ("tmt-light", look("tmt-light", Depth::TrueColor)),
-        ("NO_COLOR", look("tmt", Depth::None)),
+        ("tmt", Base::Tmt, Depth::TrueColor),
+        ("tmt-light", Base::TmtLight, Depth::TrueColor),
+        ("terminal", Base::Terminal, Depth::Ansi16),
+        ("NO_COLOR", Base::Tmt, Depth::None),
     ]
+    .map(|(name, base, depth)| {
+        (
+            name,
+            crate::look::Look {
+                theme: Theme::new(base),
+                depth,
+            },
+        )
+    })
 }
 
-fn frame(
-    app: &App,
-    width: u16,
-    usage: Option<ratatui::text::Line<'static>>,
-    styles: &mut Styles,
-) -> Value {
-    app.hits.borrow_mut().clear();
-    let mut terminal = Terminal::new(TestBackend::new(width, HEIGHT)).unwrap();
-    terminal
-        .draw(|frame| crate::board::view::render_frame(frame, app, usage, Vec::new()))
-        .unwrap();
-    let mut captured = buffer_json(terminal.backend().buffer(), styles);
-    captured["hits"] = json!(
-        app.hits
-            .borrow()
-            .iter()
-            .map(|hit| format!("{}:{}+{}#{}", hit.y, hit.x, hit.width, hit.row().unwrap()))
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
-    captured["starts"] = json!(*app.row_starts.borrow());
-    captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
-    captured["input"] = json!(format!("{:?}", app.input_band.get()));
-    captured
-}
-
-fn usage_line(app: &App, width: u16) -> Option<ratatui::text::Line<'static>> {
-    paint::usage(&super::interaction::header_usage(), width, app.look())
-}
-
-fn tiles(width: u16, look: crate::look::Look, styles: &mut Styles) -> Vec<Value> {
+/// Existing runtime history and provider-limit fixture observations. The reader
+/// is not called, and no savings, forecast or missing reading is synthesized.
+fn metered(look: crate::look::Look) -> App {
     use crate::board::{
-        app::{HomeUsage, UsageShare},
-        home::tiles::{self, TileItem},
-        rate::Reading,
-    };
-    let counts = |waiting, blocked, review, working, idle, members| Counts {
-        members,
-        waiting,
-        blocked,
-        review,
-        working,
-        idle,
-    };
-    let squads = [
-        SquadLine {
-            squad: "alpha".into(),
-            lead: Some(json!({"name": "lead-a"})),
-            counts: counts(2, 1, 0, 0, 0, 4),
-            members: counts(2, 1, 0, 0, 0, 3),
+        app::RateView,
+        limits::{Provider, Reading, Standing, Trend, Window},
+        rate::{
+            Input,
+            tests::{fixture_seeds, history_fixture},
         },
-        SquadLine {
-            squad: "delta-with-a-long-squad-name".into(),
-            lead: Some(json!({"name": "lead-delta-with-a-long-name"})),
-            counts: counts(0, 1, 1, 3, 2, 7),
-            members: counts(0, 1, 1, 3, 2, 7),
-        },
-        SquadLine {
-            squad: "quiet".into(),
-            lead: None,
-            counts: counts(0, 0, 0, 0, 0, 0),
-            members: counts(0, 0, 0, 0, 0, 0),
-        },
-        SquadLine {
-            squad: "custom".into(),
-            lead: Some(json!({"name": "lead-c"})),
-            counts: counts(0, 0, 0, 1, 0, 5),
-            members: counts(0, 0, 0, 1, 0, 5),
-        },
-    ];
-    let reading = |tokens, partial| {
-        Some(Reading {
-            tokens,
-            partial,
-            span: 60_000,
-        })
     };
-    let uniform = crate::config::TokenWindow::DEFAULTS;
-    let other = ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
-    let usage = |windows, lead, share| HomeUsage {
-        lead_model: Some("claude-opus-4-6"),
-        windows,
-        lead,
-        squad: [None; 3],
-        share,
-    };
-    let share = |fraction, partial| Some(UsageShare { fraction, partial });
-    let cases: Vec<(&str, Vec<Option<HomeUsage<'static>>>)> = vec![
-        ("none", vec![None, None, None, None]),
-        (
-            "uniform",
-            vec![
-                Some(usage(
-                    uniform,
-                    [
-                        reading(1_000, false),
-                        reading(2_000_000, true),
-                        reading(0, false),
-                    ],
-                    share(0.375, true),
-                )),
-                Some(usage(
-                    uniform,
-                    [None, reading(1_500, false), reading(9_000, false)],
-                    None,
-                )),
-                Some(usage(uniform, [None; 3], None)),
-                None,
-            ],
-        ),
-        (
-            "mixed",
-            vec![
-                Some(usage(
-                    uniform,
-                    [
-                        reading(1_000, false),
-                        reading(2_000, false),
-                        reading(3_000, false),
-                    ],
-                    share(0.5, false),
-                )),
-                Some(usage(
-                    other,
-                    [
-                        reading(4_000, true),
-                        reading(5_000, false),
-                        reading(6_000, false),
-                    ],
-                    share(0.25, false),
-                )),
-                None,
-                None,
-            ],
-        ),
-    ];
-    let mut frames = Vec::new();
-    for (name, usages) in cases {
-        let items = squads
-            .iter()
-            .zip(usages)
-            .map(|(squad, usage)| TileItem {
-                squad,
-                members: &squad.members,
-                lead_model: Some("claude-opus-4-6"),
-                usage,
-            })
-            .collect::<Vec<_>>();
-        for selected in [None, Some(1)] {
-            let painted = tiles::paint(&items, width, look, selected);
-            let mut buffer = Buffer::empty(ratatui::layout::Rect::new(
-                0,
-                0,
-                width,
-                painted.lines.len() as u16,
-            ));
-            for (y, line) in painted.lines.iter().enumerate() {
-                tmt_tui::components::strip::paint_left(
-                    &mut buffer,
-                    ratatui::layout::Rect::new(0, y as u16, width, 1),
-                    line.clone(),
-                );
-            }
-            let mut captured = buffer_json(&buffer, styles);
-            captured["case"] = json!(name);
-            captured["selected"] = json!(selected);
-            captured["width"] = json!(width);
-            captured["heading"] = json!(
-                painted
-                    .head
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-            );
-            captured["regions"] = json!(format!("{:?}", painted.regions));
-            frames.push(captured);
-        }
+    use crate::config::TokenRate;
+    const NOW: u64 = 1_791_600_000_000;
+    const HOUR: u64 = 3_600_000;
+    let mut app = capture_case("overview", look);
+    let mut seed = fixture_seeds(&history_fixture())
+        .remove("a")
+        .unwrap()
+        .unwrap();
+    let offset = NOW / 5_000 * 5_000 - 25_000;
+    seed.from += offset;
+    seed.through += offset;
+    seed.available = seed.available.map(|at| at + offset);
+    seed.sampled = seed.sampled.map(|at| at + offset);
+    for bucket in &mut seed.buckets {
+        bucket.from_ms += offset;
+        bucket.to_ms += offset;
     }
-    frames
+    let view = app.view.as_mut().unwrap();
+    let home = view.home.as_mut().unwrap();
+    let row = home.workspace.rows[&crate::board::workspace::OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: MEMBER.into(),
+    }]
+        .clone();
+    home.workspace.roster.squads[0].lead = Some(MEMBER.into());
+    let mut public_row = row.clone();
+    public_row["squad"] = json!("product");
+    view.document["sections"] = json!([{"rows":[public_row]}]);
+    home.squads = vec![SquadLine {
+        squad: "product".into(),
+        lead: Some(row),
+        counts: Counts {
+            members: 1,
+            working: 1,
+            ..Default::default()
+        },
+        members: Counts::default(),
+    }];
+    view.home_rate.insert(
+        "product".into(),
+        RateView {
+            input: Input {
+                room: ROOM.into(),
+                resumes: BTreeMap::from([(MEMBER.into(), seed.latest.clone())]),
+                names: BTreeMap::from([(MEMBER.into(), "worker".into())]),
+            },
+            settings: TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            history: Some(BTreeMap::from([(MEMBER.into(), Some(seed))])),
+        },
+    );
+    let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
+    snapshot.tabs = app.tabs.clone();
+    snapshot.view = Ok(app.view.take().unwrap());
+    app.apply(snapshot);
+    app.set_limits(vec![
+        Standing {
+            provider: Provider::named("claude"),
+            latest: Some(Reading {
+                observed_at_ms: NOW - 60_000,
+                weekly: Window {
+                    left: 44.0,
+                    resets_at_ms: NOW + 87 * HOUR,
+                },
+                short: Some(Window {
+                    left: 94.0,
+                    resets_at_ms: NOW + 3 * HOUR,
+                }),
+            }),
+            burn: Some(1.1),
+            trend: Some(Trend::Up),
+        },
+        Standing {
+            provider: Provider::named("codex"),
+            latest: Some(Reading {
+                observed_at_ms: NOW - 60_000,
+                weekly: Window {
+                    left: 5.0,
+                    resets_at_ms: NOW + 83 * HOUR,
+                },
+                short: None,
+            }),
+            burn: Some(1.5),
+            trend: Some(Trend::Same),
+        },
+    ]);
+    app
 }
 
 fn captures() -> Value {
-    let mut styles = Styles::default();
-    let mut frames = Vec::new();
-    for (look_name, look) in looks() {
-        for name in STATES {
-            let widths: &[u16] = match look_name {
-                "tmt" => widths(name),
-                _ if LOOK_STATES.contains(name) => &[160, 80],
-                _ => &[],
-            };
-            for &width in widths {
-                let mut app = state(name);
-                app.view.as_mut().unwrap().look = look;
-                let mut frame = frame(&app, width, None, &mut styles);
-                frame["state"] = json!(name);
-                frame["look"] = json!(look_name);
-                frame["width"] = json!(width);
-                frames.push(frame);
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut styles = Styles::default();
+        let mut frames = Vec::new();
+        for (look_name, look) in looks() {
+            for state in [
+                "overview",
+                "agents",
+                "digest",
+                "empty",
+                "pool",
+                "dense",
+                "squads-eight",
+                "squads-thirty-six",
+                "partial",
+                "stale",
+                "help",
+                "review",
+                "result",
+                "conversation",
+                "header-usage",
+            ] {
+                for width in [160, 100, 80, 60] {
+                    for height in [36, 8] {
+                        let app = if state == "header-usage" {
+                            metered(look)
+                        } else {
+                            capture_case(state, look)
+                        };
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        let mut captured = buffer_json(terminal.backend().buffer(), &mut styles);
+                        captured["state"] = json!(state);
+                        captured["look"] = json!(look_name);
+                        captured["width"] = json!(width);
+                        captured["height"] = json!(height);
+                        captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
+                        captured["actions"] =
+                            json!(format!("{:?}", app.workspace_action_hits.borrow()));
+                        captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
+                        captured["starts"] = json!(*app.row_starts.borrow());
+                        captured["selected"] = json!(format!("{:?}", app.workspace.selected));
+                        captured["selectionState"] =
+                            json!(format!("{:?}", app.workspace_selection_state()));
+                        captured["focus"] = json!(format!("{:?}", app.focused_pane()));
+                        captured["input"] = json!(format!("{:?}", app.input_band.get()));
+                        frames.push(captured);
+                    }
+                }
             }
         }
-        // The header usage row and the key line's own widths.
-        for width in if look_name == "tmt" {
-            &[160, 140, 139, 100, 99, 80][..]
-        } else {
-            &[160, 80][..]
-        } {
-            let width = *width;
-            let mut app = state("base");
-            app.view.as_mut().unwrap().look = look;
-            let line = usage_line(&app, width);
-            let mut frame = frame(&app, width, line, &mut styles);
-            frame["state"] = json!("header-usage");
-            frame["look"] = json!(look_name);
-            frame["width"] = json!(width);
-            frames.push(frame);
-        }
-    }
-    let tmt = looks()[0].1;
-    let mut table = Vec::new();
-    for width in [160, 140, 139, 120, 100, 99, 80] {
-        table.extend(tiles(width, tmt, &mut styles));
-    }
-    let hints = [
-        160usize, 140, 139, 118, 117, 110, 109, 100, 99, 95, 94, 86, 85, 80, 79, 55, 20,
-    ]
-    .into_iter()
-    .flat_map(|width| [false, true].map(|cron| (width, cron, paint::hints(width, cron))))
-    .map(|(width, cron, text)| json!({"width": width, "cron": cron, "text": text}))
-    .collect::<Vec<_>>();
-    let styles = styles
-        .0
-        .into_iter()
-        .map(|(text, id)| (id, text))
-        .collect::<BTreeMap<_, _>>();
-    json!({"styles": styles, "frames": frames, "tiles": table, "hints": hints, "approved": approved_matrix(false)})
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(text, id)| (id, text))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles": styles, "frames": frames})
+    })
 }
 
 #[test]
@@ -584,32 +389,64 @@ fn home_oracle_keeps_every_cell_style_and_hit() {
 #[test]
 fn no_home_frame_stacks_two_rules() {
     let captured = captures();
-    for frame in captured["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .chain(captured["approved"]["frames"].as_array().unwrap())
-    {
-        let lines: Vec<String> = frame["lines"]
+    for frame in captured["frames"].as_array().unwrap() {
+        let lines = frame["lines"]
             .as_array()
             .unwrap()
             .iter()
             .map(|line| line.as_str().unwrap().to_owned())
-            .collect();
+            .collect::<Vec<_>>();
         assert_eq!(
             crate::test_support::stacked_rules(&lines),
             None,
-            "{} / {} at {}\n{}",
+            "{} / {} at {}x{}\n{}",
             frame["state"],
             frame["look"],
             frame["width"],
+            frame["height"],
             lines.join("\n")
         );
     }
 }
 
 #[test]
-#[ignore = "regenerates the HOME oracle; an own commit approved by the Squad lead"]
+fn overview_history_and_quota_keep_existing_observations_and_unknown_windows_distinct() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let app = metered(looks()[0].1);
+        let usage = app
+            .home_usage("product", std::time::Instant::now())
+            .unwrap();
+        assert_eq!(usage.lead[2].unwrap().tokens, 21);
+        assert!(usage.lead[2].unwrap().partial);
+        let limits = app.limits.as_ref().unwrap();
+        assert_eq!(limits[0].latest.as_ref().unwrap().weekly.left, 44.0);
+        assert_eq!(
+            limits[0]
+                .latest
+                .as_ref()
+                .unwrap()
+                .short
+                .as_ref()
+                .unwrap()
+                .left,
+            94.0
+        );
+        assert!(limits[1].latest.as_ref().unwrap().short.is_none());
+        assert_eq!(limits[0].burn, Some(1.1));
+        assert_eq!(limits[1].burn, Some(1.5));
+        for width in [160, 100, 80, 60] {
+            let hidden = crate::board::home::hidden_limits(limits, 1_791_600_000_000, width);
+            assert!(
+                hidden
+                    .iter()
+                    .any(|(_, text)| text.contains("no reading") || text.contains("not available"))
+            );
+        }
+    });
+}
+
+#[test]
+#[ignore = "regenerates the HOME oracle; separate commit after owning-lead decoded-diff approval"]
 fn record_home_oracle() {
     fs::write(
         concat!(
@@ -622,187 +459,12 @@ fn record_home_oracle() {
 }
 
 #[test]
-#[ignore = "writes the current captures to $HOME_ORACLE_OUT, for diffing against oracle.json"]
+#[ignore = "writes current captures to $HOME_ORACLE_OUT without touching frozen bytes"]
 fn dump_home_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
     fs::write(
-        std::env::var("HOME_ORACLE_OUT").expect("HOME_ORACLE_OUT"),
+        path,
         serde_json::to_string_pretty(&captures()).unwrap() + "\n",
     )
     .unwrap();
-}
-
-/// Whole HOME through the ordinary frame owner, with admitted public-history
-/// fixture bytes and provider observations; no terminal or provider state is read.
-fn approved_matrix(expanded: bool) -> Value {
-    use crate::board::{
-        app::RateView,
-        limits::{Provider, Reading, Standing, Trend, Window},
-        rate::{
-            Input,
-            tests::{fixture_seeds, history_fixture},
-        },
-    };
-    use crate::config::TokenRate;
-    const NOW: u64 = 1_791_600_000_000;
-    const HOUR: u64 = 3_600_000;
-    crate::status::with_now_ms(NOW, || {
-        let mut styles = Styles::default();
-        let mut frames = Vec::new();
-        for (name, look) in looks() {
-            for width in [160, 100, 80, 60] {
-                let mut app = rich();
-                app.set_body_width(width);
-                let mut seed = fixture_seeds(&history_fixture())
-                    .remove("a")
-                    .unwrap()
-                    .unwrap();
-                let offset = NOW / 5_000 * 5_000 - 25_000;
-                seed.from += offset;
-                seed.through += offset;
-                seed.available = seed.available.map(|at| at + offset);
-                seed.sampled = seed.sampled.map(|at| at + offset);
-                for bucket in &mut seed.buckets {
-                    bucket.from_ms += offset;
-                    bucket.to_ms += offset;
-                }
-                let view = app.view.as_mut().unwrap();
-                view.look = look;
-                for squad in &view.home.as_ref().unwrap().squads {
-                    let lead = squad.lead.as_ref().unwrap();
-                    let id = lead["id"].as_str().unwrap();
-                    view.home_rate.insert(
-                        squad.squad.clone(),
-                        RateView {
-                            input: Input {
-                                room: format!("fixture-{}", squad.squad),
-                                resumes: BTreeMap::from([(id.into(), seed.latest.clone())]),
-                                names: BTreeMap::from([(
-                                    id.into(),
-                                    lead["name"].as_str().unwrap().into(),
-                                )]),
-                            },
-                            settings: TokenRate {
-                                enabled: true,
-                                ..Default::default()
-                            },
-                            history: Some(BTreeMap::from([(id.into(), Some(seed.clone()))])),
-                        },
-                    );
-                }
-                let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
-                snapshot.tabs = app.tabs.clone();
-                snapshot.view = Ok(app.view.take().unwrap());
-                app.apply(snapshot);
-                app.set_limits(vec![
-                    Standing {
-                        provider: Provider::named("claude"),
-                        latest: Some(Reading {
-                            observed_at_ms: NOW - 60_000,
-                            weekly: Window {
-                                left: 44.0,
-                                resets_at_ms: NOW + 87 * HOUR,
-                            },
-                            short: Some(Window {
-                                left: 94.0,
-                                resets_at_ms: NOW + 3 * HOUR,
-                            }),
-                        }),
-                        burn: Some(1.1),
-                        trend: Some(Trend::Up),
-                    },
-                    Standing {
-                        provider: Provider::named("codex"),
-                        latest: Some(Reading {
-                            observed_at_ms: NOW - 60_000,
-                            weekly: Window {
-                                left: 5.0,
-                                resets_at_ms: NOW + 83 * HOUR,
-                            },
-                            short: None,
-                        }),
-                        burn: Some(1.5),
-                        trend: Some(Trend::Same),
-                    },
-                ]);
-                if expanded {
-                    app.select(0);
-                    assert_eq!(press(&mut app, Char('e')), crate::board::app::Effect::None);
-                    assert!(app.detail_read().is_none());
-                }
-                app.hits.borrow_mut().clear();
-                let mut terminal = Terminal::new(TestBackend::new(width, HEIGHT)).unwrap();
-                terminal
-                    .draw(|frame| crate::board::view::render(frame, &app))
-                    .unwrap();
-                let mut captured = buffer_json(terminal.backend().buffer(), &mut styles);
-                captured["state"] = json!("approved-overview");
-                captured["look"] = json!(name);
-                captured["width"] = json!(width);
-                captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
-                captured["starts"] = json!(*app.row_starts.borrow());
-                frames.push(captured);
-            }
-        }
-        let styles = styles
-            .0
-            .into_iter()
-            .map(|(text, id)| (id, text))
-            .collect::<BTreeMap<_, _>>();
-        json!({"styles":styles,"frames":frames})
-    })
-}
-
-#[test]
-fn every_hidden_overview_item_is_reachable_through_usage_detail_at_narrow_widths() {
-    let folded = approved_matrix(false);
-    let expanded = approved_matrix(true);
-    let flat = |frame: &Value| {
-        frame["lines"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|line| line.as_str().unwrap())
-            .collect::<String>()
-            .chars()
-            .filter(|ch| !ch.is_whitespace() && *ch != '│')
-            .collect::<String>()
-    };
-    for (before, after) in folded["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .zip(expanded["frames"].as_array().unwrap())
-    {
-        let width = before["width"].as_u64().unwrap();
-        let folded = flat(before);
-        let expanded = flat(after);
-        let mut hidden = vec!["1m", "5m", "withoutdata", "5h94%", "5hreadingnotavailable"];
-        if width == 60 {
-            hidden.push("lead-a~20%");
-        }
-        for value in hidden {
-            assert!(
-                !folded.contains(value),
-                "value was already visible: {width} {value}"
-            );
-            assert!(
-                expanded.contains(value),
-                "hidden value missing after e: {width} {value}\n{expanded}"
-            );
-        }
-        for value in [
-            "Claude44%",
-            "Codex5%",
-            "~1.1%/h",
-            "~1.5%/h",
-            "3d15h",
-            "3d11h",
-        ] {
-            assert_eq!(
-                folded.matches(value).count(),
-                expanded.matches(value).count(),
-                "visible reading repeated in detail: {width} {value}"
-            );
-        }
-    }
 }

@@ -1122,6 +1122,212 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
     }
 }
 
+#[test]
+fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
+    for width in [160, 100, 80, 60] {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('t'));
+        let lines = paint(&app, width, 36);
+        assert!(app.input_band.get().is_some());
+        assert!(lines.iter().any(|line| line.contains("Enter send")));
+        assert!(
+            lines.last().unwrap().trim().is_empty(),
+            "{width}: {:?}",
+            lines.last()
+        );
+        key(&mut app, KeyCode::Char('j'));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "j");
+        key(&mut app, KeyCode::Esc);
+        assert!(app.input.is_none());
+        let lines = paint(&app, width, 36);
+        assert!(lines.last().unwrap().contains("Nothing sent."));
+        // Escape keeps the selected conversation focused. Tab restores the
+        // list and its effective action hints, after clearing the notice.
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(app.focused_pane(), Some(Pane::Rows));
+        let lines = paint(&app, width, 36);
+        assert!(
+            lines.last().unwrap().contains("j jump"),
+            "{width}: {:?}",
+            lines.last()
+        );
+    }
+}
+
+#[test]
+fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_conversation() {
+    for width in [160, 100, 80, 60] {
+        let mut app = board();
+        app.shell.tab = OpsTab::Overview;
+        paint(&app, width, 36);
+        let selected = app.workspace.selected.clone();
+        key(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.focused_pane(), Some(Pane::Replies));
+        assert_eq!(
+            app.shell.tab,
+            if width >= 140 {
+                OpsTab::Overview
+            } else {
+                OpsTab::Agents
+            }
+        );
+        let lines = paint(&app, width, 36);
+        assert!(app.input_band.get().is_some());
+        assert!(lines.iter().any(|line| line.contains("→ worker (product)")));
+        assert_eq!(app.workspace.selected, selected);
+        key(&mut app, KeyCode::Char('2')); // Message input owns digits.
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");
+        assert_eq!(
+            app.shell.tab,
+            if width >= 140 {
+                OpsTab::Overview
+            } else {
+                OpsTab::Agents
+            }
+        );
+    }
+}
+
+#[test]
+fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
+    let mut app = board();
+    app.shell.tab = OpsTab::Overview;
+    app.set_body_width(160);
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    let selected = app.workspace.selected.clone();
+    app.invalidate_frame_geometry();
+    app.set_body_width(160);
+    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    app.set_body_width(80);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    paint(&app, 80, 36);
+    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(app.workspace.selected, selected);
+}
+
+/// One literal fixture owner for private capture packets and the frozen HOME oracle.
+/// It configures only an isolated test model; rendering stays on the actual App path.
+pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
+    let mut app = match scene {
+        "squads-eight" => populated_board(8, 150),
+        "squads-thirty-six" => populated_board(36, 150),
+        _ => board(),
+    };
+    let view = app.view.as_mut().unwrap();
+    view.look = look;
+    let home = view.home.as_mut().unwrap();
+    for squad in &home.workspace.roster.squads {
+        home.workspace
+            .squad_looks
+            .insert(squad.room_id.clone(), look);
+    }
+    match scene {
+        "overview" => app.shell.tab = OpsTab::Overview,
+        "digest" => app.shell.tab = OpsTab::Digest,
+        "empty" => {
+            home.summary = Default::default();
+            home.workspace.roster.members.clear();
+            home.workspace.roster.squads.clear();
+            home.workspace.rows.retain(|key, _| *key == OpsTarget::Pool);
+            app.workspace.selected = Some(OpsTarget::Pool);
+        }
+        "pool" => {
+            home.workspace.roster.squads[0].members.clear();
+            home.workspace.rows.insert(
+                OpsTarget::Member {
+                    room_id: None,
+                    identity_id: MEMBER.into(),
+                },
+                json!({"id":MEMBER,"name":"worker","state":"working"}),
+            );
+            app.workspace.pool_expanded = true;
+            app.workspace.selected = Some(OpsTarget::Member {
+                room_id: None,
+                identity_id: MEMBER.into(),
+            });
+        }
+        "dense" => {
+            for ordinal in 1..=150 {
+                let id = format!("44444444-4444-4444-8444-{ordinal:012}");
+                let name = format!("worker-{ordinal:03}");
+                home.workspace.roster.members.insert(
+                    id.clone(),
+                    OpsMember {
+                        id: id.clone(),
+                        name: name.clone(),
+                        state: Some("idle".into()),
+                        waiting: false,
+                        presence: Some(true),
+                        usage: None,
+                    },
+                );
+                home.workspace.roster.squads[0].members.push(id.clone());
+                home.workspace.roster.squads[0].member_states.insert(
+                    id.clone(),
+                    crate::board::workspace::OpsMembershipState {
+                        state: Some("idle".into()),
+                        waiting: false,
+                        rank: None,
+                    },
+                );
+                home.workspace.rows.insert(
+                    OpsTarget::Member {
+                        room_id: Some(ROOM.into()),
+                        identity_id: id.clone(),
+                    },
+                    json!({"id":id,"name":name,"state":"idle"}),
+                );
+            }
+            home.summary.members = 151;
+            home.summary.idle = 150;
+            app.workspace.selected = Some(OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: "44444444-4444-4444-8444-000000000150".into(),
+            });
+        }
+        "partial" => {
+            home.workspace.roster.observation = OpsObservation::Partial;
+            home.workspace.roster.membership_complete = false;
+            home.workspace.roster.squads[0].observation = OpsObservation::Partial;
+            app.shell.tab = OpsTab::Overview;
+        }
+        "stale" => {
+            home.workspace.roster.observation = OpsObservation::Stale;
+            app.error = Some("Roster read failed; retained data is stale".into());
+        }
+        _ => {}
+    }
+    app.workspace_reconcile();
+    match scene {
+        "help" => {
+            key(&mut app, KeyCode::Char('?'));
+        }
+        "review" | "result" => {
+            app.workspace_begin(Kind::Remove);
+            if scene == "result" {
+                app.workspace_form.as_mut().unwrap().stage = Stage::Result("Source timers paused. Membership removal was not confirmed. Refresh before another operation; no automatic retry.".into());
+            }
+        }
+        "conversation" => {
+            let target = app.workspace.selected.clone().unwrap();
+            let send = app
+                .send_target(RowTarget::Workspace(target), false)
+                .unwrap();
+            app.compose_row(send, crate::action::Verb::Talk, "product".into());
+            app.input.as_mut().unwrap().text =
+                "Draft remains with the exact recipient while the workspace resizes.".into();
+        }
+        _ => {}
+    }
+    app
+}
+
 /// Explicit, read-only evidence capture. This never rewrites a frozen fixture
 /// and never calls Core, tmux, the filesystem-backed services or the action lane.
 #[test]
@@ -1153,122 +1359,13 @@ fn capture_workspace_packet() {
                     ("terminal", tmt_cli_style::Depth::Ansi16),
                     ("tmt", tmt_cli_style::Depth::None),
                 ] {
-                    let mut app = match scene {
-                        "squads-eight" => populated_board(8, 150),
-                        "squads-thirty-six" => populated_board(36, 150),
-                        _ => board(),
-                    };
                     let look = crate::look::Look {
                         theme: tmt_cli_style::Theme::new(
                             tmt_cli_style::theme::Base::parse(base).unwrap(),
                         ),
                         depth,
                     };
-                    let view = app.view.as_mut().unwrap();
-                    view.look = look;
-                    let home = view.home.as_mut().unwrap();
-                    for squad in &home.workspace.roster.squads {
-                        home.workspace
-                            .squad_looks
-                            .insert(squad.room_id.clone(), look);
-                    }
-                    match scene {
-                        "overview" => app.shell.tab = OpsTab::Overview,
-                        "digest" => app.shell.tab = OpsTab::Digest,
-                        "empty" => {
-                            home.summary = Default::default();
-                            home.workspace.roster.members.clear();
-                            home.workspace.roster.squads.clear();
-                            home.workspace.rows.retain(|key, _| *key == OpsTarget::Pool);
-                            app.workspace.selected = Some(OpsTarget::Pool);
-                        }
-                        "pool" => {
-                            home.workspace.roster.squads[0].members.clear();
-                            home.workspace.rows.insert(
-                                OpsTarget::Member {
-                                    room_id: None,
-                                    identity_id: MEMBER.into(),
-                                },
-                                json!({"id":MEMBER,"name":"worker","state":"working"}),
-                            );
-                            app.workspace.pool_expanded = true;
-                            app.workspace.selected = Some(OpsTarget::Member {
-                                room_id: None,
-                                identity_id: MEMBER.into(),
-                            });
-                        }
-                        "dense" => {
-                            for ordinal in 1..=150 {
-                                let id = format!("44444444-4444-4444-8444-{ordinal:012}");
-                                let name = format!("worker-{ordinal:03}");
-                                home.workspace.roster.members.insert(
-                                    id.clone(),
-                                    OpsMember {
-                                        id: id.clone(),
-                                        name: name.clone(),
-                                        state: Some("idle".into()),
-                                        waiting: false,
-                                        presence: Some(true),
-                                        usage: None,
-                                    },
-                                );
-                                home.workspace.roster.squads[0].members.push(id.clone());
-                                home.workspace.roster.squads[0].member_states.insert(
-                                    id.clone(),
-                                    crate::board::workspace::OpsMembershipState {
-                                        state: Some("idle".into()),
-                                        waiting: false,
-                                        rank: None,
-                                    },
-                                );
-                                home.workspace.rows.insert(
-                                    OpsTarget::Member {
-                                        room_id: Some(ROOM.into()),
-                                        identity_id: id.clone(),
-                                    },
-                                    json!({"id":id,"name":name,"state":"idle"}),
-                                );
-                            }
-                            home.summary.members = 151;
-                            home.summary.idle = 150;
-                            app.workspace.selected = Some(OpsTarget::Member {
-                                room_id: Some(ROOM.into()),
-                                identity_id: "44444444-4444-4444-8444-000000000150".into(),
-                            });
-                        }
-                        "partial" => {
-                            home.workspace.roster.observation = OpsObservation::Partial;
-                            home.workspace.roster.membership_complete = false;
-                            home.workspace.roster.squads[0].observation = OpsObservation::Partial;
-                            app.shell.tab = OpsTab::Overview;
-                        }
-                        "stale" => {
-                            home.workspace.roster.observation = OpsObservation::Stale;
-                            app.error = Some("Roster read failed; retained data is stale".into());
-                        }
-                        _ => {}
-                    }
-                    app.workspace_reconcile();
-                    match scene {
-                        "help" => {
-                            key(&mut app, KeyCode::Char('?'));
-                        }
-                        "review" | "result" => {
-                            app.workspace_begin(Kind::Remove);
-                            if scene == "result" {
-                                app.workspace_form.as_mut().unwrap().stage = Stage::Result("Source timers paused. Membership removal was not confirmed. Refresh before another operation; no automatic retry.".into());
-                            }
-                        }
-                        "conversation" => {
-                            let target = app.workspace.selected.clone().unwrap();
-                            let send = app
-                                .send_target(RowTarget::Workspace(target), false)
-                                .unwrap();
-                            app.compose_row(send, crate::action::Verb::Talk, "product".into());
-                            app.input.as_mut().unwrap().text = "Draft remains with the exact recipient while the workspace resizes.".into();
-                        }
-                        _ => {}
-                    }
+                    let app = capture_case(scene, look);
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     terminal
                         .draw(|frame| crate::board::view::render(frame, &app))

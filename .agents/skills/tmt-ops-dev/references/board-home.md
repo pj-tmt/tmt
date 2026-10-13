@@ -37,13 +37,21 @@ retains scroll length and row indices for selection and hit mapping. WP1 retains
 conversation, editor, drafts, reply reader and send authority.
 Overview owns global attention/usage/limits. Agents and Digest use the selected
 squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
-not a second editor or a revival of factory board views.
+not a second editor or a revival of factory board views. An explicit message
+focuses the selected agent's conversation: compact Overview opens Agents, while
+wide Overview retains its shared pane. A retained Reader moves to Agents when
+Overview can no longer fit its conversation; refresh/resize never converts its
+scroll keys into list/Host actions. Logical placement survives clearing pointer
+rectangles. With fewer than three content rows, the tree omits its outline and
+keeps usable target rows.
 
 The retired HOME attention/audience/cron body painters and their caches are
 removed. `home::paint` retains the shared summary, usage and quota strips; fitted
 hidden-value projections retain their data owners. Cache equality tests render
 actual workspace frames, including pointer hits and composer geometry, rather
-than maintaining a second HOME renderer.
+than maintaining a second HOME renderer. The single decoded HOME oracle and
+private workspace capture packet share literal fixtures and the actual frame
+entry point; source changes do not authorize frozen regeneration.
 
 Config projects one effective table per list/Reader scope for dispatch, help and
 footer. Reader defaults scroll responses with `j/k`; compatible explicit
@@ -52,7 +60,8 @@ actually run. Retired notebook-pane actions are reported for explicit migration
 without rewriting the authored file or redirecting to a different recipient.
 Before a snapshot arrives, the same Config-owned defaults drive the three shell
 tabs; no named-squad tab or old-key fallback is admitted. Text, search, completion, overlays and conversation take their keys before shell
-shortcuts. Tab moves between the tree and conversation; arrows expand/collapse
+shortcuts. A composer with an in-pane key legend suppresses the base list
+legend; a draft-close notice keeps its footer priority until the next key. Tab moves between the tree and conversation; arrows expand/collapse
 squads in the tree. Exact painted rectangles own pointer actions and are cleared
 on resize/model replacement and shell changes by `App::invalidate_frame_geometry`.
 Offsets and drafts survive; only repaint grants fresh pointer geometry. Single-line

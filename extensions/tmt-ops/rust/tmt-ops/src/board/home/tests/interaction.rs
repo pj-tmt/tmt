@@ -68,22 +68,6 @@ pub(super) fn waiting() -> Value {
 }
 
 #[test]
-fn home_footer_keeps_search_after_row_actions_when_it_fits() {
-    for width in [160, 100, 80] {
-        let hints = paint::hints(width, false);
-        assert!(unicode_width::UnicodeWidthStr::width(hints.as_str()) <= width);
-        // Talk stays at rank 1; search follows row actions.
-        assert!(!hints.contains("t replies"), "{width}: {hints}");
-        if width >= 100 {
-            assert!(
-                hints.starts_with("↑↓ move  ⏎ open  t talk  e expand  / search"),
-                "{width}: {hints}"
-            );
-        }
-    }
-}
-
-#[test]
 fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     let mut app = board(&[("a", waiting())]);
     app.view
@@ -119,7 +103,6 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
             "Tab uses board focus, not row navigation"
         );
     }
-    assert!(!paint::hints(200, true).contains("tab section"));
     let navigation = crate::board::help::model(&app).sections.remove(0);
     assert!(
         navigation
@@ -1007,16 +990,6 @@ fn overview_is_first_in_traversal_but_does_not_replace_initial_focus() {
                 .iter()
                 .all(|entry| entry.target.section != crate::board::home::USAGE)
         );
-    }
-}
-
-#[test]
-fn compact_home_footer_keeps_the_approved_actions_and_discoverable_overflow() {
-    for (overflow, expected) in [
-        (false, "↑↓  ⏎  t  e  /  ? more  q"),
-        (true, "↑↓  ⏎  t  e  /  s  ? more  q"),
-    ] {
-        assert_eq!(paint::hints(60, overflow), expected);
     }
 }
 

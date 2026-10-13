@@ -174,12 +174,6 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// The board's own `/ search` hint sits right after `back`.
-pub const FOOTER_SEARCH_RANK: u8 = 6;
-/// The last footer rank of a row action; the oldest-waiting label may take
-/// space only if every hint up to here still fits.
-pub const FOOTER_ROW_ACTIONS_END: u8 = 6;
-
 impl Action {
     /// Where the action sits in a list of choices, by what people do: the
     /// selected row's actions first, then the board's. It orders the action menu,
@@ -216,47 +210,6 @@ impl Action {
             Verb::Back => 18,
             Verb::Menu | Verb::NextPane | Verb::TokenWindow => 19,
         }
-    }
-
-    /// Where the action sits in the base footer, which is also the order whole
-    /// hints drop from the end when width runs short: lowest first, `None` for
-    /// actions the footer never lists (they stay bound and appear in `?` help).
-    /// The footer names the way in: open and expand, then search.
-    /// The match is exhaustive so a new verb must choose.
-    pub fn footer_rank(&self) -> Option<u8> {
-        if let Verb::Ui(action) = self.verb {
-            return Some(action.spec().rank);
-        }
-        let lead = self.args.first().and_then(Template::literal) == Some("lead");
-        Some(match self.verb {
-            Verb::Ui(_) => unreachable!("UI action handled above"),
-            Verb::Jump if !lead => 0,
-            Verb::Menu | Verb::Tab => 0,
-            Verb::Reply => 2,
-            Verb::Talk => 1,
-            Verb::HomeMessage => 4,
-            Verb::ViewReply => 5,
-            // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
-            Verb::Jump
-            | Verb::Annotate
-            | Verb::Digest
-            | Verb::AskLead
-            | Verb::Back
-            | Verb::Open
-            | Verb::Copy
-            | Verb::Toggle
-            | Verb::NextPane
-            | Verb::Refresh
-            | Verb::View
-            | Verb::Theme
-            | Verb::TokenWindow
-            | Verb::Notes
-            | Verb::PickTab
-            | Verb::Settings
-            | Verb::Run
-            | Verb::HomeWrite
-            | Verb::HomePick => return None,
-        })
     }
 
     /// Plain-language binding wording shared by help and settings. Describing an

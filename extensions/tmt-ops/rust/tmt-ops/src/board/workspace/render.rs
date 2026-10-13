@@ -170,8 +170,14 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         border: look.role(Role::Dim),
         title_style: look.role(Role::Muted),
     };
-    outline.paint_flat(area, frame.buffer_mut());
-    let inside = outline.inner(area);
+    // Decoration cannot consume the last available content rows. The shell
+    // already names the destination; short terminals keep target navigation.
+    let inside = if area.height >= 3 && area.width >= 3 {
+        outline.paint_flat(area, frame.buffer_mut());
+        outline.inner(area)
+    } else {
+        area
+    };
     let rows = app.workspace_rows();
 
     *app.row_starts.borrow_mut() = (0..rows.len()).collect();

@@ -73,25 +73,9 @@ pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>>
     )
 }
 
-pub(crate) fn hints_of(
-    view: &View,
-    width: usize,
-    overflow: bool,
-    receiving: bool,
-    view_reply: bool,
-) -> String {
-    super::bar::hints_in(
-        &mut view.derived.borrow_mut().home.hints,
-        width,
-        overflow,
-        receiving,
-        view_reply,
-    )
-}
-
 /// The strips painted from nothing, for tests of the strips themselves.
 #[cfg(test)]
-pub(crate) use super::bar::{hints, summary, usage};
+pub(crate) use super::bar::{summary, usage};
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {
     format!(

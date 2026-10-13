@@ -2180,10 +2180,22 @@ impl App {
         collapsed
     }
 
+    /// Logical placement survives invalidating pointer rectangles. A refresh
+    /// must not turn a retained Reader focus into a list/Host key scope.
+    fn conversation_area(&self) -> ratatui::layout::Rect {
+        let mut area = self.conversation.borrow().area;
+        if self.body_width > 0 {
+            area.width = self.body_width;
+        }
+        area
+    }
+
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
         if self.workspace_snapshot().is_none()
             || (self.shell.tab == super::shell::OpsTab::Overview
-                && self.conversation.borrow().pane.is_none())
+                && super::conversation::layout::overview(self.conversation_area())
+                    .conversation
+                    .is_none())
         {
             [Pane::Replies].into()
         } else {
@@ -2233,6 +2245,20 @@ impl App {
 
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
+        if self.workspace_snapshot().is_some() {
+            self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
+            if self.focus == 1
+                && self.shell.tab == super::shell::OpsTab::Overview
+                && super::conversation::layout::overview(self.conversation_area())
+                    .conversation
+                    .is_none()
+            {
+                self.shell.tab = super::shell::OpsTab::Agents;
+                self.invalidate_frame_geometry();
+            }
+            return;
+        }
+
         if self.jobs_focus || self.focused_pane().is_some() {
             return;
         }
@@ -2998,6 +3024,7 @@ impl App {
             input.row_send = Some(send);
             input.prompt = input.header();
         }
+        self.workspace_focus_conversation();
         self.follow = true;
     }
 

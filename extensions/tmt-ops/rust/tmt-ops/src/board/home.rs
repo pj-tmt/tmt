@@ -299,14 +299,13 @@ pub(super) struct Scenes {
     summary: scene::Kept<ratatui::text::Line<'static>>,
     usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
     limits: scene::Kept<Vec<ratatui::text::Line<'static>>>,
-    hints: scene::Kept<String>,
 }
 
 impl Scenes {
     /// How many scenes were solved and painted since the view began.
     #[cfg(test)]
     pub(super) fn builds(&self) -> usize {
-        self.summary.builds + self.usage.builds + self.limits.builds + self.hints.builds
+        self.summary.builds + self.usage.builds + self.limits.builds
     }
 }
 

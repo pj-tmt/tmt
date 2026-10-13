@@ -83,6 +83,32 @@ impl App {
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => Some(squad.clone()),
         }
     }
+    /// An explicit message action focuses its selected agent's conversation.
+    /// Compact Overview retains its monitor, so the editor opens in Agents;
+    /// wide Overview keeps its existing shared conversation placement.
+    pub(super) fn workspace_focus_conversation(&mut self) {
+        let Some(selected) = self.workspace_selected_member().cloned() else {
+            return;
+        };
+        let target = RowTarget::Workspace(selected);
+        if self
+            .input
+            .as_ref()
+            .and_then(|input| input.row_send.as_ref())
+            .is_none_or(|send| send.target != target)
+        {
+            return;
+        }
+        if self.shell.tab == OpsTab::Overview
+            && crate::board::conversation::layout::overview(self.conversation_area())
+                .conversation
+                .is_none()
+        {
+            self.shell.tab = OpsTab::Agents;
+        }
+        self.focus = 1;
+        self.invalidate_frame_geometry();
+    }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
             return crate::config::workspace_defaults(self.workspace_scope());
