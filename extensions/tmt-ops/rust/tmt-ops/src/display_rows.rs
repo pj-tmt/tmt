@@ -1,10 +1,8 @@
-//! The one display order of a squad document's rows: the lead first, a members
-//! rule, then the sections as authored. The board's cursor, sizing, paint and
-//! hits and the text `ls` all read this projection; `--json` documents keep the
-//! lead outside `sections` and never see it.
+//! Independent squad-document row order: lead first, then authored sections.
+//! Text `ls` consumes this projection; JSON keeps the lead outside `sections`.
+//! Interactive workspace geometry uses UUID roster targets instead.
 
 use serde_json::Value;
-use std::collections::BTreeSet;
 
 /// Where a displayed row came from. Section slots are authored layout scopes,
 /// not member positions; the lead has one occurrence of its own.
@@ -20,33 +18,6 @@ impl RowOrigin {
         match self {
             Self::Lead => None,
             Self::Section(index) => Some(index),
-        }
-    }
-
-    /// The stable scope of the row's admitted occurrence.
-    pub fn scope(self) -> String {
-        match self {
-            Self::Lead => "lead".into(),
-            Self::Section(index) => format!("section-{index}"),
-        }
-    }
-}
-
-/// The rule between the lead and the members.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rule {
-    /// Distinct members shown, the lead excluded.
-    pub members: usize,
-    /// The squad has no member at all (a search never causes this).
-    pub none_yet: bool,
-}
-
-impl Rule {
-    pub fn label(&self) -> String {
-        if self.none_yet {
-            "members · 0 · none yet".into()
-        } else {
-            format!("members · {}", self.members)
         }
     }
 }
@@ -68,13 +39,11 @@ pub fn each_row(document: &mut Value, mut visit: impl FnMut(&mut Value)) {
 pub enum Item<'a> {
     /// An authored section starts, with its title when it has one.
     Section(Option<&'a str>),
-    Rule(Rule),
     Row(RowOrigin, &'a Value),
 }
 
-/// Rows `keep` admits in display order. A squad with a lead shows it first and
-/// the rule after it, even when the search hides the lead or every member; a
-/// squad without a lead keeps its sections as they are.
+/// Rows `keep` admits in source order. Filter the lead independently and retain
+/// authored section headers even when their admitted rows are empty.
 pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<Item<'a>> {
     let mut items = Vec::new();
     let lead = &document["squad"]["lead"];
@@ -82,10 +51,6 @@ pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<It
     if has_lead && keep(lead) {
         items.push(Item::Row(RowOrigin::Lead, lead));
     }
-    let rule = items.len();
-    let mut shown = BTreeSet::new();
-    let mut unnamed = 0;
-    let mut members = 0;
     for (index, section) in document["sections"]
         .as_array()
         .into_iter()
@@ -96,26 +61,10 @@ pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<It
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        members += rows.len();
         items.push(Item::Section(section["title"].as_str()));
         for row in rows.iter().filter(|row| keep(row)) {
-            match row["id"].as_str() {
-                Some(id) => {
-                    shown.insert(id);
-                }
-                None => unnamed += 1,
-            }
             items.push(Item::Row(RowOrigin::Section(index), row));
         }
-    }
-    if has_lead {
-        items.insert(
-            rule,
-            Item::Rule(Rule {
-                members: shown.len() + unnamed,
-                none_yet: members == 0,
-            }),
-        );
     }
     items
 }
@@ -134,7 +83,6 @@ mod tests {
             .iter()
             .filter_map(|item| match item {
                 Item::Section(title) => title.map(|title| format!("# {title}")),
-                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
                 Item::Row(slot, row) => Some(format!("{slot:?} {}", row["name"].as_str().unwrap())),
             })
             .collect()
@@ -145,7 +93,39 @@ mod tests {
     }
 
     #[test]
-    fn the_lead_comes_first_then_the_rule_then_the_sections() {
+    fn mutation_visits_lead_and_each_authored_occurrence_without_rewriting_membership() {
+        let mut document = document(
+            json!({"id":"lead","name":"sol"}),
+            json!([
+                {"title":"first","rows":[{"id":"a","name":"amy"}]},
+                {"title":"second","rows":[{"id":"a","name":"amy"}]},
+            ]),
+        );
+        let mut visits = 0;
+        each_row(&mut document, |row| {
+            visits += 1;
+            row["visited"] = json!(visits);
+        });
+        assert_eq!(visits, 3);
+        assert_eq!(document["squad"]["lead"]["visited"], 1);
+        assert_eq!(document["sections"][0]["rows"][0]["visited"], 2);
+        assert_eq!(document["sections"][1]["rows"][0]["visited"], 3);
+        assert_eq!(
+            shape(&project(&document, all)),
+            [
+                "Lead sol",
+                "# first",
+                "Section(0) amy",
+                "# second",
+                "Section(1) amy"
+            ]
+        );
+        assert_eq!(document["sections"][0]["rows"][0]["id"], "a");
+        assert_eq!(document["sections"][1]["rows"][0]["id"], "a");
+    }
+
+    #[test]
+    fn the_lead_comes_first_then_the_authored_sections() {
         let document = document(
             json!({"id": "s", "name": "sol"}),
             json!([
@@ -157,7 +137,6 @@ mod tests {
             shape(&project(&document, all)),
             [
                 "Lead sol",
-                "-- members · 2",
                 "# busy",
                 "Section(0) amy",
                 "Section(0) bob",
@@ -176,32 +155,23 @@ mod tests {
     }
 
     #[test]
-    fn a_lead_with_no_members_says_so() {
+    fn a_lead_with_no_members_remains_a_source_row() {
         let document = document(
             json!({"id": "s", "name": "sol"}),
             json!([{"title": null, "rows": []}]),
         );
-        assert_eq!(
-            shape(&project(&document, all)),
-            ["Lead sol", "-- members · 0 · none yet"]
-        );
+        assert_eq!(shape(&project(&document, all)), ["Lead sol"]);
     }
 
     #[test]
-    fn a_search_filters_the_lead_too_but_keeps_the_rule() {
+    fn a_search_filters_lead_and_members_without_reordering_sections() {
         let document = document(
             json!({"id": "s", "name": "sol"}),
             json!([{"title": null, "rows": [{"id": "a", "name": "amy"}]}]),
         );
         let only = |name: &'static str| move |row: &Value| row["name"] == name;
-        assert_eq!(
-            shape(&project(&document, only("amy"))),
-            ["-- members · 1", "Section(0) amy"]
-        );
-        assert_eq!(
-            shape(&project(&document, only("sol"))),
-            ["Lead sol", "-- members · 0"]
-        );
-        assert_eq!(shape(&project(&document, |_| false)), ["-- members · 0"]);
+        assert_eq!(shape(&project(&document, only("amy"))), ["Section(0) amy"]);
+        assert_eq!(shape(&project(&document, only("sol"))), ["Lead sol"]);
+        assert!(shape(&project(&document, |_| false)).is_empty());
     }
 }

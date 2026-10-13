@@ -766,8 +766,8 @@ impl App {
             .collect()
     }
 
-    /// The lead, the members rule, section headers and the rows matching the
-    /// search, in board order. The single default section has no header.
+    /// Independent source rows: lead, authored section headers and admitted
+    /// members. Interactive workspace rows are projected from the roster.
     pub fn items(&self) -> Vec<Item<'_>> {
         let Some(view) = &self.view else {
             return Vec::new();
@@ -782,7 +782,7 @@ impl App {
                 .iter()
                 .map(|member| (member.id(), member))
                 .collect();
-            // Keep lead/rule/authored sections in place; only member order changes.
+            // Keep lead/authored sections in place; only member order changes.
             let mut start = 0;
             while start < items.len() {
                 if !matches!(items[start], Item::Row(RowOrigin::Section(_), _)) {
@@ -3547,7 +3547,6 @@ pub(crate) mod tests {
             .iter()
             .filter_map(|item| match item {
                 Item::Section(title) => *title,
-                Item::Rule(_) => Some("--"),
                 Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
@@ -4985,65 +4984,6 @@ mod lead_row_tests {
         view.me = Some("Ben".into());
         app.apply(loaded);
         app
-    }
-
-    fn shape(app: &App) -> Vec<String> {
-        app.items()
-            .iter()
-            .filter_map(|item| match item {
-                Item::Section(title) => title.map(|title| format!("# {title}")),
-                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
-                Item::Row(_, row) => Some(row["name"].as_str().unwrap().to_owned()),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn the_lead_is_the_first_row_and_the_cursor_starts_on_it() {
-        let mut app = board(&["amy", "bob"]);
-        assert_eq!(shape(&app), ["sol", "-- members · 2", "amy", "bob"]);
-        assert_eq!(app.selected_row().unwrap()["name"], "sol");
-        // The rule is not a row: one step goes from the lead to the first member.
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.selected_row().unwrap()["name"], "amy");
-        press(&mut app, KeyCode::Up);
-        assert_eq!(app.selected_row().unwrap()["name"], "sol");
-    }
-
-    #[test]
-    fn showing_another_squad_puts_the_cursor_on_its_lead() {
-        let mut app = board(&["amy", "bob"]);
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.selected_row().unwrap()["name"], "bob");
-        app.current = Some("infra".into());
-        let mut other = snapshot("infra", json!([{"title": null, "rows": [member("cai")]}]));
-        other.view.as_mut().unwrap().document["squad"]["lead"] =
-            json!({"id": "M", "name": "mia", "fields": {}});
-        app.apply(other);
-        assert_eq!(app.selected_row().unwrap()["name"], "mia");
-    }
-
-    #[test]
-    fn a_lead_with_no_members_and_a_squad_without_a_lead() {
-        let app = board(&[]);
-        assert_eq!(shape(&app), ["sol", "-- members · 0 · none yet"]);
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
-            "product",
-            json!([{"title": null, "rows": [member("amy")]}]),
-        ));
-        assert_eq!(shape(&app), ["amy"]);
-        assert_eq!(app.selected_row().unwrap()["name"], "amy");
-    }
-
-    #[test]
-    fn search_matches_the_lead_and_keeps_the_rule() {
-        let mut app = board(&["amy", "bob"]);
-        app.search = "sol".into();
-        assert_eq!(shape(&app), ["sol", "-- members · 0"]);
-        app.search = "bob".into();
-        assert_eq!(shape(&app), ["-- members · 1", "bob"]);
     }
 
     #[test]
