@@ -372,6 +372,7 @@ for (const width of [1440, 390])
         if (captures) {
           mkdirSync(captures, { recursive: true });
           await page.screenshot({
+            fullPage: true,
             path: `${captures}/question-open-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
         }
@@ -399,6 +400,7 @@ for (const width of [1440, 390])
         await settledSlots();
         if (captures)
           await page.screenshot({
+            fullPage: true,
             path: `${captures}/question-answered-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
       });

@@ -37,6 +37,54 @@ async function recorded(page: Page, count: number) {
     .toBe(count);
 }
 
+test('empty and recorded groups keep the lone label and omit a zero count for several questions', async ({
+  page,
+}) => {
+  for (const count of [1, 3]) {
+    const group = await mount(page, { count }, { agents: [] });
+    const emptyLabel = count === 1 ? 'Send answer' : 'Send answers';
+    const empty = group.getByRole('button', {
+      name: `${emptyLabel} · to thread only`,
+      exact: true,
+    });
+    await expect(empty).toHaveText(emptyLabel);
+    await expect(empty).toBeDisabled();
+    await card(page).getByLabel('Keep it', { exact: true }).check();
+    const label = count === 1 ? 'Send answer' : 'Send 1 answer';
+    const send = group.getByRole('button', { name: `${label} · to thread only`, exact: true });
+    await expect(send).toBeEnabled();
+    await send.click();
+    await recorded(page, 1);
+    await expect(
+      card(page).getByRole('button', { name: 'Change answer', exact: true }),
+    ).toBeVisible();
+    await expect(empty).toHaveText(emptyLabel);
+    await expect(empty).toBeDisabled();
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+  }
+});
+
+test('a lone question keeps Send answer while its publication is in flight', async ({ page }) => {
+  const group = await mount(page, { count: 1 });
+  const send = group.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true });
+  await expect(send).toBeDisabled();
+  await card(page).getByLabel('Keep it', { exact: true }).check();
+  await expect(send).toBeEnabled();
+  await run(page, 'pausePrepare');
+  await send.click();
+  await expect(send).toBeDisabled();
+  await expect(send).toHaveText('Send answer');
+  await recorded(page, 1);
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await run(page, 'resumePrepare');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  await expect(
+    card(page).getByRole('button', { name: 'Change answer', exact: true }),
+  ).toBeVisible();
+  await expect(send).toBeDisabled();
+  await expect(send).toHaveText('Send answer');
+});
+
 test('three comments make one Ask per distinct recipient; only the canonical tab renders replies, including after reload', async ({
   page,
 }) => {
@@ -210,7 +258,7 @@ test('partial Send publishes only complete drafts; a later Send leaves earlier c
   expect(after).toHaveLength(2);
   await group.getByRole('tab').nth(1).click();
   await expect(card(page).getByLabel('Your answer', { exact: true })).toHaveValue('');
-  await expect(group.getByRole('button', { name: /^Send 0 answers/ })).toBeDisabled();
+  await expect(group.getByRole('button', { name: /^Send answers · to/ })).toBeDisabled();
 });
 
 for (const recordBeforeFail of [false, true]) {
@@ -455,9 +503,11 @@ for (const [width, theme] of [
           })
           .toBe(true);
         const directory = process.env.COLAB_QUESTION_CAPTURE_DIR;
-        if (directory) {
+        const states = process.env.COLAB_BATCH_CAPTURE_STATES?.split(',');
+        if (directory && (!states || states.includes(state))) {
           mkdirSync(directory, { recursive: true });
           await page.screenshot({
+            fullPage: true,
             path: `${directory}/batch-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
           });
         }

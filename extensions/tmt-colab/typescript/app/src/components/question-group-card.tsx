@@ -174,7 +174,9 @@ export function QuestionGroupCard({
   const sendLabel =
     members.length === 1
       ? 'Send answer'
-      : `Send ${sendingCount} ${sendingCount === 1 ? 'answer' : 'answers'}`;
+      : sendingCount === 0
+        ? 'Send answers'
+        : `Send ${sendingCount} ${sendingCount === 1 ? 'answer' : 'answers'}`;
   const disabled = blocked || readOnly || !!sending.length || !discussion;
   async function send() {
     if (busy.current || disabled || !decision.allowed || !pending.length || !attached) return;

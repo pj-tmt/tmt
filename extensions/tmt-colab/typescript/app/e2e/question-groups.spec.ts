@@ -235,9 +235,11 @@ for (const width of [1440, 390])
               );
             })
             .toBe(true);
-          if (captures) {
+          const captureStates = process.env.COLAB_GROUP_CAPTURE_STATES?.split(',');
+          if (captures && (!captureStates || captureStates.includes(state))) {
             mkdirSync(captures, { recursive: true });
             await page.screenshot({
+              fullPage: true,
               path: `${captures}/groups-${state}-${width}-${theme}-page-${darkPage ? 'dark' : 'light'}.png`,
             });
           }

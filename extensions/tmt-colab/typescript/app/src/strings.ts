@@ -462,7 +462,7 @@ export const text = {
     saveFullBudget:
       'This page is full, and combining cannot free room. Export it and continue in a new page.',
     saveFullReader: 'An editor must compact this page.',
-    compactedSaveAgain: 'Compacted. Save again to keep your edit.',
+    compactedSaveAgain: 'Save again to keep your edit.',
     stateCompacted: 'Compacted',
   },
   saveUnknown: (operationId: string) =>

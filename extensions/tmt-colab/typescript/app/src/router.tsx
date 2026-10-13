@@ -1613,8 +1613,6 @@ function Page() {
         onDismiss={() => setPanel(null)}
       >
         <div className="source">
-          {/* A refused Save already says the page is full and carries the way out. */}
-          {!editError?.full && <PageSizeNotice size={size} exportPage={() => setPanel('export')} />}
           <span>
             <label htmlFor="source-edit">{text.source}</label>
             {snapshot.binding && !archived && (
@@ -1626,7 +1624,8 @@ function Page() {
               </button>
             )}
           </span>
-          {editError && (
+          {/* Save problems take priority over routine usage in this one notice slot. */}
+          {editError ? (
             <SaveNotice
               problem={editError}
               actions={
@@ -1664,6 +1663,8 @@ function Page() {
                 ) : undefined
               }
             />
+          ) : (
+            <PageSizeNotice size={size} exportPage={() => setPanel('export')} />
           )}
           {merged && !editError && (
             <div className="source-notice">
