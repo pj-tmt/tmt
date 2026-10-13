@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tmt_core::identity_hooks::{IdentityHook, IdentityHookState, valid_hook_consumer};
 
-/// Bound on one pending page; matches the Office consumer's batch.
+/// Fixed bound on one pending consumer page.
 const HOOK_PAGE_LIMIT: usize = 16;
 
 #[derive(Deserialize)]

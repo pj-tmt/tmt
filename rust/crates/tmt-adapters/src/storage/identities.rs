@@ -136,7 +136,7 @@ impl Storage {
         identity_by_id(self.connection()?, id)
     }
 
-    /// Office revalidates the originally selected UUID across separate calls;
+    /// Callers revalidate the originally selected UUID across separate calls;
     /// a same-name replacement must never inherit a pending proof or credential.
     pub fn find_active_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
         active_identity_by_id(self.connection()?, id)

@@ -1,4 +1,4 @@
-//! CLI projection of the shared room owner. No Office process or pane routing.
+//! CLI projection of the shared room owner. No extension process or pane routing.
 
 mod dispatch;
 
