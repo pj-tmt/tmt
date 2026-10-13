@@ -8,7 +8,10 @@ pub struct PollCadence {
 }
 impl PollCadence {
     pub fn activity(&mut self, now_monotonic_ms: u64) {
-        self.last_activity_ms = Some(now_monotonic_ms);
+        self.last_activity_ms = Some(
+            self.last_activity_ms
+                .map_or(now_monotonic_ms, |last| last.max(now_monotonic_ms)),
+        );
     }
     pub fn failed(&mut self) {
         self.failures = self.failures.saturating_add(1);

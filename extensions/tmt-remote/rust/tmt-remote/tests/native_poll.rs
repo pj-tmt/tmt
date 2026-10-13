@@ -30,3 +30,14 @@ fn jitter_never_polls_faster_and_failure_backoff_is_capped() {
     cadence.succeeded();
     assert_eq!(cadence.delay_ms(0, |_| 0), 5_000);
 }
+
+#[test]
+fn an_older_publication_cannot_erase_a_newer_received_change() {
+    let mut cadence = PollCadence::default();
+    cadence.activity(0);
+    cadence.activity(120_000);
+    // Subscription sampling also observes the shared last-publication time.
+    cadence.activity(0);
+    assert_eq!(cadence.delay_ms(240_000, |_| 0), 5_000);
+    assert_eq!(cadence.delay_ms(240_001, |_| 0), 10_000);
+}
