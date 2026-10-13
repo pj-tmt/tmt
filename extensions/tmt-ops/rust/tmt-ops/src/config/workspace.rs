@@ -1,4 +1,4 @@
-//! The effective list action table. Dispatch, footer and help consume the same
+//! The effective workspace action table. Dispatch, footer and help consume the same
 //! result after default/global/host/section precedence, never independent hints.
 use super::*;
 use crate::action::{Action, Verb};
@@ -44,6 +44,7 @@ pub enum OpsKeyScope {
     Squad,
     Member,
     Pool,
+    Reader,
 }
 
 pub struct WorkspaceKeys {
@@ -52,30 +53,53 @@ pub struct WorkspaceKeys {
 }
 
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
-    let mut entries = vec![
-        ("1", "overview"),
-        ("2", "agents"),
-        ("3", "digest-dashboard"),
-        ("up", "previous"),
-        ("down", "next"),
-        ("left", "fold"),
-        ("right", "expand"),
-        ("pageup", "page-up"),
-        ("pagedown", "page-down"),
-        ("home", "first"),
-        ("end", "last"),
-        ("enter", "inspect"),
-        ("double-click", "inspect"),
-        ("/", "search"),
-        ("?", "help"),
-        ("q", "quit"),
-        ("tab", "next-pane"),
-        ("ctrl-r", "refresh"),
-        (",", "settings"),
-        ("c", "timers"),
-        ("n", "create-squad"),
-    ];
+    let mut entries = if scope == OpsKeyScope::Reader {
+        vec![
+            ("up", "scroll-up"),
+            ("k", "scroll-up"),
+            ("down", "scroll-down"),
+            ("j", "scroll-down"),
+            ("pageup", "scroll-page-up"),
+            ("pagedown", "scroll-page-down"),
+            ("home", "scroll-top"),
+            ("end", "scroll-bottom"),
+            ("tab", "next-pane"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("ctrl-r", "refresh"),
+            (",", "settings"),
+            ("t", "talk"),
+            ("o", "open"),
+            ("D", "digest"),
+            ("c", "timers"),
+        ]
+    } else {
+        vec![
+            ("1", "overview"),
+            ("2", "agents"),
+            ("3", "digest-dashboard"),
+            ("up", "previous"),
+            ("down", "next"),
+            ("left", "fold"),
+            ("right", "expand"),
+            ("pageup", "page-up"),
+            ("pagedown", "page-down"),
+            ("home", "first"),
+            ("end", "last"),
+            ("enter", "inspect"),
+            ("double-click", "inspect"),
+            ("/", "search"),
+            ("?", "help"),
+            ("q", "quit"),
+            ("tab", "next-pane"),
+            ("ctrl-r", "refresh"),
+            (",", "settings"),
+            ("c", "timers"),
+            ("n", "create-squad"),
+        ]
+    };
     match scope {
+        OpsKeyScope::Reader => {}
         OpsKeyScope::Overview => entries.extend([
             ("t", "talk"),
             ("j", "jump"),
@@ -122,9 +146,10 @@ fn check(action: &Action, path: &str) -> Result<(), SquadError> {
             | Verb::HomePick
             | Verb::PickTab
             | Verb::View
+            | Verb::Notes
     ) {
         return Err(invalid(format!(
-            "`{path}`: '{}' belongs to the retired squad-tab/HOME layout. Select a squad or named lead/member in the workspace; choose a new binding explicitly.",
+            "`{path}`: '{}' belongs to the retired squad-tab/HOME/notebook layout. Select a squad or named lead/member in the workspace; choose a new binding explicitly.",
             action.text
         )));
     }
@@ -316,7 +341,7 @@ impl Config {
             configured.extend(section.clone());
         }
         for (key, action) in configured {
-            if key == "w" {
+            if key == "w" && scope != OpsKeyScope::Reader {
                 notices.push("`bind.w`: w is reserved for Workspace snapshots in list scopes; move this binding to another key explicitly.".into());
                 continue;
             }
@@ -372,6 +397,49 @@ mod tests {
         }
     }
     #[test]
+    fn reader_defaults_and_explicit_overrides_use_the_same_precedence() {
+        let plain = config("")
+            .workspace_keys(OpsKeyScope::Reader, None, None)
+            .unwrap();
+        for (event, name) in [
+            ("j", "scroll-down"),
+            ("k", "scroll-up"),
+            ("pageup", "scroll-page-up"),
+            ("end", "scroll-bottom"),
+        ] {
+            assert_eq!(plain.bindings[event].text, name);
+        }
+        for key in ["1", "2", "3", "left", "right", "enter", "s", "p", "x"] {
+            assert!(!plain.bindings.contains_key(key), "{key}");
+        }
+        let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");
+        let section: Bindings = [("j".into(), Action::parse("run /usr/bin/true").unwrap())].into();
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Reader, None, None)
+                .unwrap()
+                .bindings["j"]
+                .verb,
+            Verb::Copy
+        );
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Reader, Some("tmux"), None)
+                .unwrap()
+                .bindings["j"]
+                .verb,
+            Verb::Open
+        );
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Reader, Some("tmux"), Some(&section))
+                .unwrap()
+                .bindings["j"]
+                .verb,
+            Verb::Run
+        );
+    }
+    #[test]
     fn every_approved_scope_has_its_real_keys_without_legacy_fallbacks() {
         let config = config("");
         let overview = config
@@ -410,6 +478,7 @@ mod tests {
             "s='home-pick'",
             "L='jump lead'",
             "V='view'",
+            "N='notes'",
         ] {
             let config = config(&format!("[bind]\n{binding}"));
             let before = config.document.to_string();

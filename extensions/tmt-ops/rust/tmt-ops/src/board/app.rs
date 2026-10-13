@@ -2436,31 +2436,7 @@ impl App {
                 self.notice = Some("Refreshing…".into());
                 return Effect::Refresh;
             }
-            Verb::Notes => {
-                if self.effective_board().is_some_and(|board| board.members) {
-                    return self.toggle_panes(&[Pane::Notes]);
-                }
-                let position = self
-                    .effective_board()
-                    .and_then(|board| board.panes.iter().position(|p| *p == Pane::Notes));
-                return match position {
-                    Some(position) => {
-                        if self.loading() && self.collapsed_panes().contains(&Pane::Notes) {
-                            return self.say(format!(
-                                "Loading {}…",
-                                self.current.clone().unwrap_or_default()
-                            ));
-                        }
-                        if self.collapsed_panes().contains(&Pane::Notes) {
-                            self.toggle_panes(&[Pane::Notes]);
-                        }
-                        self.jobs_focus = false;
-                        self.focus = position;
-                        Effect::None
-                    }
-                    None => self.say("The notes pane is not on this board; add it to panes."),
-                };
-            }
+            Verb::Notes => return self.say("The old lead notebook pane is retired. The binding is preserved in Config for explicit migration; it does not change the selected agent."),
             Verb::Back => return Effect::Act(Request::Back),
             Verb::Jump if action.args.first().and_then(|arg| arg.literal()) == Some("lead") => {
                 return match self.lead() {

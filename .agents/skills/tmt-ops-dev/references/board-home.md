@@ -39,7 +39,11 @@ Overview owns global attention/usage/limits. Agents and Digest use the selected
 squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views.
 
-The App resolves one effective workspace key table for dispatch, help and footer.
+Config projects one effective table per list/Reader scope for dispatch, help and
+footer. Reader defaults scroll responses with `j/k`; compatible explicit
+bindings keep global/host/section precedence, so hints name the action that will
+actually run. Retired notebook-pane actions are reported for explicit migration
+without rewriting the authored file or redirecting to a different recipient.
 Before a snapshot arrives, the same Config-owned defaults drive the three shell
 tabs; no named-squad tab or old-key fallback is admitted. Text, search, completion, overlays and conversation take their keys before shell
 shortcuts. Tab moves between the tree and conversation; arrows expand/collapse

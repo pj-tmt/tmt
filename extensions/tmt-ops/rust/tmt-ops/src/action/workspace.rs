@@ -25,6 +25,12 @@ pub enum OpsUiAction {
     CreateSquad,
     RemoveMembership,
     MoveMembership,
+    ScrollUp,
+    ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollTop,
+    ScrollBottom,
 }
 
 pub struct OpsUiSpec {
@@ -46,6 +52,48 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        ScrollUp,
+        "scroll-up",
+        "scroll up",
+        "scroll the focused response one line up",
+        21
+    ),
+    spec!(
+        ScrollDown,
+        "scroll-down",
+        "scroll down",
+        "scroll the focused response one line down",
+        21
+    ),
+    spec!(
+        ScrollPageUp,
+        "scroll-page-up",
+        "page up",
+        "scroll the focused response one page up",
+        23
+    ),
+    spec!(
+        ScrollPageDown,
+        "scroll-page-down",
+        "page down",
+        "scroll the focused response one page down",
+        23
+    ),
+    spec!(
+        ScrollTop,
+        "scroll-top",
+        "top",
+        "scroll to the start of the focused response",
+        23
+    ),
+    spec!(
+        ScrollBottom,
+        "scroll-bottom",
+        "bottom",
+        "scroll to the end of the focused response",
+        23
+    ),
     spec!(Overview, "overview", "Overview", "show Overview", 20),
     spec!(Agents, "agents", "Agents", "show the squad workspace", 20),
     spec!(

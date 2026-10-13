@@ -151,6 +151,10 @@ fn workspace_hints(app: &App, width: usize) -> String {
                             | OpsUiAction::Last
                             | OpsUiAction::PageUp
                             | OpsUiAction::PageDown
+                            | OpsUiAction::ScrollTop
+                            | OpsUiAction::ScrollBottom
+                            | OpsUiAction::ScrollPageUp
+                            | OpsUiAction::ScrollPageDown
                     )
                 )
                 && row_allows(app, action)

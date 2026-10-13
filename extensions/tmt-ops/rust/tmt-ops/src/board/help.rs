@@ -122,20 +122,18 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "workspace navigation",
             &[
                 (
-                    "1 / 2 / 3",
-                    "Overview / Agents / Digest; editors, search and popups own input first",
+                    "shell",
+                    "effective bindings above select Overview / Agents / Digest; editors, search, readers and popups own input first",
                 ),
                 (
-                    "Left/Right",
-                    "collapse/expand the selected squad; no squad-tab switching",
+                    "tree",
+                    "effective bindings above collapse/expand the selected squad; no squad-tab switching",
                 ),
                 (
                     "Shift-Left/Right",
                     "old tab reorder is removed; use squad pins/sort instead",
                 ),
                 ("w", "reserved for Workspace snapshots; no list binding"),
-                ("S", "reverse Overview sort"),
-                ("D", "member Digest; timers keep their own job keys"),
                 (
                     "wheel",
                     "scroll the pane under the pointer without moving the selected target",
@@ -147,17 +145,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "conversation reader",
             &[
                 (
-                    "arrows / j k",
-                    "scroll the focused response; j does not jump from reader focus",
-                ),
-                (
-                    "PgUp / PgDn / Home / End",
-                    "page or move to the beginning/end of the focused response",
+                    "scoped keys",
+                    "Reader uses its own effective bindings above; defaults scroll without jumping, and explicit compatible overrides win",
                 ),
                 ("Esc", "return focus to the list"),
                 (
-                    "Tab",
-                    "change focus between visible list and conversation panes",
+                    "pane focus",
+                    "use the effective next-pane binding to move between visible list and conversation panes",
                 ),
             ],
         ),

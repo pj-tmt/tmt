@@ -514,6 +514,60 @@ fn retired_shift_arrows_cannot_run_the_unmodified_fold_binding() {
 }
 
 #[test]
+fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides() {
+    let mut app = board();
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Tab);
+    let target = app.workspace.selected.clone();
+    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    assert!(!app.bindings().contains_key("2"));
+    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(app.workspace.selected, target);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    let keys = app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .keys
+        .get_mut(&OpsKeyScope::Reader)
+        .unwrap();
+    keys.insert("j".into(), Action::parse("copy $name").unwrap());
+    keys.insert("k".into(), Action::parse("jump").unwrap());
+    let help = crate::board::help::model(&app);
+    let bindings = help
+        .sections
+        .iter()
+        .find(|section| section.id == "bindings")
+        .unwrap();
+    assert!(
+        bindings.entries.iter().any(
+            |entry| entry.keys == "j" && entry.description == app.bindings()["j"].description()
+        )
+    );
+    assert!(
+        bindings.entries.iter().any(
+            |entry| entry.keys == "k" && entry.description == app.bindings()["k"].description()
+        )
+    );
+    let rendered = paint(&app, 160, 36).join("\n");
+    assert!(rendered.contains("j copy"), "{rendered}");
+    assert!(rendered.contains("k jump"), "{rendered}");
+    assert!(matches!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Copy { .. })
+    ));
+    assert_eq!(
+        key(&mut app, KeyCode::Char('k')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
+    assert_eq!(app.workspace.selected, target);
+}
+
+#[test]
 fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
     let mut app = board();
     paint(&app, 160, 36);

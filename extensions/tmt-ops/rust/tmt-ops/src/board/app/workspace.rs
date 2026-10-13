@@ -53,6 +53,9 @@ impl App {
         })
     }
     fn workspace_scope(&self) -> OpsKeyScope {
+        if self.focused_pane() == Some(Pane::Replies) {
+            return OpsKeyScope::Reader;
+        }
         if self.shell.tab == OpsTab::Overview {
             return OpsKeyScope::Overview;
         }
@@ -176,6 +179,21 @@ impl App {
                 self.invalidate_frame_geometry();
                 return Effect::None;
             }
+            ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+                if self.focused_pane() == Some(Pane::Replies) {
+                    let step = match action {
+                        ScrollUp => Step::Lines(-1),
+                        ScrollDown => Step::Lines(1),
+                        ScrollPageUp => Step::Pages(-1),
+                        ScrollPageDown => Step::Pages(1),
+                        ScrollTop => Step::Top,
+                        ScrollBottom => Step::Bottom,
+                        _ => unreachable!(),
+                    };
+                    self.scroll_pane(Pane::Replies, step);
+                }
+                return Effect::None;
+            }
             _ => {}
         }
         if self.loading() || self.cached_display().is_some() {
@@ -264,7 +282,8 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | Help | Quit => {
+            Overview | Agents | DigestDashboard | Help | Quit | ScrollUp | ScrollDown
+            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
@@ -301,18 +320,6 @@ impl App {
             return Effect::None;
         }
         if self.focused_pane() == Some(Pane::Replies) {
-            let step = match key.code {
-                KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
-                KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
-                KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End => {
-                    Some(page_step(key.code))
-                }
-                _ => None,
-            };
-            if let Some(step) = step {
-                self.scroll_pane(Pane::Replies, step);
-                return Effect::None;
-            }
             if key.code == KeyCode::Esc {
                 self.focus = 0;
                 return Effect::None;
