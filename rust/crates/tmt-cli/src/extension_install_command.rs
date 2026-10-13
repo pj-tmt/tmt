@@ -357,11 +357,9 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             let product = extension(&name)?;
             let prefix = prefix(selected.as_deref())?;
             let global = global_dir()?;
-            let environment = skill_installation::ProviderEnvironment::capture()
-                .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
             // Every skill the extension's owner holds goes with its commands:
             // a skill that points at a removed command is broken guidance.
-            let owned = skill_installation::owned_by(Some(&environment), &global, product.as_str())
+            let owned = skill_installation::owned_by(&global, product.as_str())
                 .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
             let affects = native_install::affected(&prefix, product, None);
             let mut question =
@@ -386,7 +384,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             }
             let changed = native_install::uninstall_extension(&prefix, product)
                 .map_err(|error| failure("EXTENSION_UNINSTALL_FAILED", error))?;
-            let skills = skill_installation::remove_owned(Some(&environment), &global, product.as_str(), None)
+            let skills = skill_installation::remove_owned( &global, product.as_str(), None)
                 .map_err(|failure| {
                     Failure::new(
                         "EXTENSION_SKILLS_FAILED",
