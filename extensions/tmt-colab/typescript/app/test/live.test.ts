@@ -45,6 +45,7 @@ const connectionPlans = vi.hoisted(
       closed(error?: Error): void;
     }[],
 );
+const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
 const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
@@ -94,6 +95,10 @@ vi.mock('../src/connection.js', () => ({
       ownSigningKey: () => undefined,
       statusWriter: () => false,
       revision: async () => 'v1:revision',
+      hasUnseenCut: () => unseen.cuts.has(this),
+    };
+    attachmentSnapshot = async () => {
+      throw new Error('reached the snapshot');
     };
     ready = Promise.resolve({ source: 'verified', title: 'Page' });
     constructor(
@@ -104,6 +109,7 @@ vi.mock('../src/connection.js', () => ({
       readonly failed: (error: Error) => void,
     ) {
       connections.push(this);
+      if (unseen.startUnseen) unseen.cuts.add(this);
       const plan = connectionPlans.shift();
       if (plan) {
         this.ready = plan.ready;
@@ -287,6 +293,115 @@ it('exports admitted committed view/head and denies blocked, missing-key and clo
   await expect(live.export()).rejects.toThrow();
 });
 
+async function liveWithUnseenCut(startUnseen = false) {
+  unseen.cuts.clear();
+  unseen.startUnseen = false;
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  await live.snapshot();
+  const first = connections.at(-1)!;
+  unseen.cuts.add(first);
+  // Connections opened from here on start with the cut unseen too, if the serve still lies.
+  unseen.startUnseen = startUnseen;
+  return { live, first };
+}
+const documentRead = {
+  kind: 'document-current',
+  attachmentId: '00000000-0000-4000-8000-0000000000a1',
+  descriptorHash: 'a'.repeat(64),
+  contentRevision: `v1:${'b'.repeat(64)}`,
+} as never;
+it('a read fenced by the page revision reopens once when the serve holds a checkpoint this connection has not recorded', async () => {
+  const { live, first } = await liveWithUnseenCut();
+  try {
+    const before = connections.length;
+    // The reopened connection has caught up, so it holds the cut: the read gets to its snapshot.
+    await expect(live.discussion.attachments.read(documentRead)).rejects.toThrow(
+      'reached the snapshot',
+    );
+    expect(connections).toHaveLength(before + 1);
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(unseen.cuts.has(connections.at(-1)!)).toBe(false);
+    // Settled: the next read opens nothing.
+    await expect(live.discussion.attachments.read(documentRead)).rejects.toThrow(
+      'reached the snapshot',
+    );
+    expect(connections).toHaveLength(before + 1);
+  } finally {
+    unseen.cuts.clear();
+    live.close();
+  }
+});
+it('settling before a read reopens once, and a settled connection is left alone', async () => {
+  const { live, first } = await liveWithUnseenCut();
+  try {
+    const before = connections.length;
+    await live.discussion.attachments.settle();
+    expect(connections).toHaveLength(before + 1);
+    expect(first.close).toHaveBeenCalledOnce();
+    await live.discussion.attachments.settle();
+    expect(connections).toHaveLength(before + 1);
+  } finally {
+    unseen.cuts.clear();
+    live.close();
+  }
+});
+it('a cut still unseen after the one reopen is a change the read reports, with no second reopen', async () => {
+  const { live } = await liveWithUnseenCut(true);
+  try {
+    const before = connections.length;
+    await expect(live.discussion.attachments.read(documentRead)).rejects.toMatchObject({
+      reason: 'changed',
+    });
+    expect(connections).toHaveLength(before + 1);
+    // The next read settles again, once: no loop and no timer-driven reopen in between.
+    await expect(live.discussion.attachments.read(documentRead)).rejects.toMatchObject({
+      reason: 'changed',
+    });
+    expect(connections).toHaveLength(before + 2);
+  } finally {
+    unseen.cuts.clear();
+    unseen.startUnseen = false;
+    live.close();
+  }
+});
+it('export and a message attachment read leave a connection alone unless a document revision is needed', async () => {
+  const { live, first } = await liveWithUnseenCut();
+  try {
+    const before = connections.length;
+    // A message attachment is fenced by authority, never by the page revision.
+    await expect(
+      live.discussion.attachments.read({
+        kind: 'message',
+        writerId: '00000000-0000-4000-8000-0000000000a3',
+        messageId: '00000000-0000-4000-8000-0000000000a2',
+        messageRevision: '1',
+        attachmentId: '00000000-0000-4000-8000-0000000000a1',
+        descriptorHash: 'a'.repeat(64),
+      } as never),
+    ).rejects.toThrow('reached the snapshot');
+    expect(connections).toHaveLength(before);
+    expect(first.close).not.toHaveBeenCalled();
+    // Export takes the page revision with its view: it reopens once and exports the new view.
+    const bundle = await live.export();
+    expect(await bundle.blob('page.html').text()).toBe('verified');
+    expect(connections).toHaveLength(before + 1);
+    expect(first.close).toHaveBeenCalledOnce();
+  } finally {
+    unseen.cuts.clear();
+    live.close();
+  }
+});
 it('slow Ask verification keeps one latest view while source export reads the committed decoder state', async () => {
   asks.project.mockClear();
   const live = new Live(

@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import { attachment, digest, equal, frame, text } from '@tmt/colab-client';
+import { sortedJson } from './sorted-json.js';
 import {
   BASELINE_UPDATE_BYTES,
   CONTENT_CHUNK_BYTES,
@@ -75,14 +76,6 @@ function projectOwn(doc: Y.Doc, complete: boolean) {
         ),
       ];
     }),
-  );
-}
-/** JSON with every object's keys sorted: a map's entry order is not part of its value. */
-function sortedJson(value: unknown): string {
-  return JSON.stringify(value, (_key, item: unknown) =>
-    item !== null && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
-      : item,
   );
 }
 /** A device's checkpoint over its own stream is the state encoding of the one document that

@@ -349,7 +349,7 @@ impl Registration {
         chain: &[u8],
         now: u64,
         combine_until: std::time::Instant,
-    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+    ) -> crate::Result<crate::sync::Commit> {
         let committed = crate::page::commit_publication(
             &mut self.store,
             &self.keyring,
@@ -358,6 +358,7 @@ impl Registration {
             chain,
             now,
         )?;
+        let mut combined = None;
         if committed.accepted == crate::store::Accepted::New
             && matches!(
                 committed.record.outcome,
@@ -367,18 +368,28 @@ impl Registration {
             // Combining this device's own tail is best effort: the write is already durable, and
             // the next write tries again.
             let page = &job.manifest.page_id;
-            let _ = self.engine.decoder(page).and_then(|decoder| {
-                crate::page::compact::compact(
-                    &mut self.store,
-                    &self.keyring,
-                    page,
-                    decoder,
-                    crate::page::compact::Trigger {
-                        until: Some(combine_until),
-                        ..Default::default()
-                    },
-                )
-            });
+            combined = self
+                .engine
+                .decoder(page)
+                .and_then(|decoder| {
+                    crate::page::compact::compact(
+                        &mut self.store,
+                        &self.keyring,
+                        page,
+                        decoder,
+                        crate::page::compact::Trigger {
+                            until: Some(combine_until),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .ok()
+                .flatten()
+                .zip(self.keyring.local_writer().ok())
+                .map(|(done, (stream, ..))| crate::sync::Combined {
+                    stream,
+                    through: done.through,
+                });
         }
         // The sync mutex is held, so no other writer can move the page between the combine and
         // this read: the revision is the one this write's reply reports.
@@ -388,7 +399,11 @@ impl Registration {
         )
         .then(|| crate::page::revision(&self.store, &self.keyring, &job.manifest.page_id).ok())
         .flatten();
-        Ok((committed, revision))
+        Ok(crate::sync::Commit {
+            committed,
+            revision,
+            combined,
+        })
     }
     /// A requested combine of this device's own stream, reported to whoever asked. The caller
     /// holds the sync mutex first, so no write moves the page between its reads and its combine.
@@ -921,7 +936,7 @@ impl crate::sync::Admission for OwnerAdmission {
         chain: &[u8],
         now: u64,
         combine_until: std::time::Instant,
-    ) -> crate::Result<(crate::page::PublicationCommitted, Option<String>)> {
+    ) -> crate::Result<crate::sync::Commit> {
         self.0
             .lock()
             .map_err(|_| crate::page::Fault::Unavailable)?

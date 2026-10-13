@@ -11,6 +11,7 @@ import { FrozenAttachmentUpload, ATTACHMENT_CHUNK_BYTES } from './attachment-cha
 import type { AttachmentObjectOutcome, UsageDetails } from './attachment-channel.js';
 import {
   AdmittedAttachmentRead,
+  AttachmentReadError,
   currentBase,
   prepareAttachmentPublication,
 } from './attachments.js';
@@ -88,6 +89,10 @@ export interface AttachmentBinding {
   ): Promise<StoredAttachment>;
   /** Best effort release of the same original; failure is not reported as removal. */
   discard(original: FrozenAttachmentUpload): Promise<void>;
+  /** Bring the connection to a state a read fenced by the page revision can start from. A
+   * reopen changes the disclosure scope, which ends any read under way, so a read settles first
+   * and takes its scope after. */
+  settle?(): Promise<void>;
   /** The verified plaintext of one attachment of this page or of a message in it. */
   open(
     reference: AttachmentReference,
@@ -97,6 +102,10 @@ export interface AttachmentBinding {
 
 export interface AttachmentServiceOptions {
   connection(): Promise<Connection>;
+  /** The connection to take the page revision from, with a checkpoint the serve announced
+   * recorded: the owner of the connection reopens it, once, when it has not. Without it a
+   * read can only report that the cut is still unseen. */
+  settled?(): Promise<Connection>;
   available(): boolean;
   sharing: string | readonly string[];
   scope?(): string;
@@ -121,6 +130,20 @@ export class AttachmentService implements AttachmentBinding {
     const c = await this.options.connection();
     requireValue(c.active);
     return c;
+  }
+  /** The connection a read fenced by the page revision takes that revision from. The revision
+   * counts every checkpoint the serve holds, and a combine another device made is announced to
+   * this connection as a notice only. A cut still unseen after the owner settled it once is a
+   * change this read cannot get past. */
+  async #fenced() {
+    requireValue(this.options.available());
+    const c = this.options.settled ? await this.options.settled() : await this.options.connection();
+    requireValue(c.active);
+    if (c.objects.hasUnseenCut()) throw new AttachmentReadError('changed');
+    return c;
+  }
+  async settle() {
+    await this.options.settled?.();
   }
   #bound(ms = REQUEST_MS) {
     return performance.now() + ms;
@@ -340,7 +363,7 @@ export class AttachmentService implements AttachmentBinding {
     return records;
   }
   async open(reference: AttachmentReference, descriptor: attachment.AttachmentDescriptor) {
-    const c = await this.#channel(),
+    const c = reference.kind === 'document' ? await this.#fenced() : await this.#channel(),
       d = attachment.attachmentDescriptor(descriptor),
       descriptorHash = hex(await attachment.attachmentHash(d)),
       selector = attachment.attachmentSelector(
@@ -366,7 +389,7 @@ export class AttachmentService implements AttachmentBinding {
   /** The verified plaintext of one exact reference under the authority in force now. Failures
    * are `AttachmentReadError`s; anything else is unavailable. */
   async read(selector: attachment.AttachmentSelector) {
-    const c = await this.#channel(),
+    const c = selector.kind === 'document-current' ? await this.#fenced() : await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
       deadline = this.#bound(READ_MS),
       admitted = await AdmittedAttachmentRead.capture(
