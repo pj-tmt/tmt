@@ -1817,6 +1817,141 @@ fn a_patch_changes_only_the_addressed_text_and_refuses_when_its_anchor_moved() {
     }
 }
 #[test]
+fn an_offline_replace_combines_a_retained_own_tail_before_admitting_the_next_write() {
+    use tmt_colab::{
+        decoder::{ContentEdit, Decoder},
+        keyring::{Keyring, Layout},
+        page::{self, PublicationPreparation},
+        store::Store,
+    };
+    const SIZE: usize = 1_536 * 1024;
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("source.html");
+    fs::write(&file, varied_source(1, SIZE)).unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Retained tail",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let second = varied_source(2, SIZE);
+    // Retain a real committed write without its best-effort combine. This is the exact
+    // durable state left when that combine cannot finish; no timing race is needed.
+    {
+        let layout = Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        let _lock = layout.serve_lock().unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        let mut store = Store::write_existing(&layout).unwrap();
+        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let PublicationPreparation::Write(frozen) = page::prepare_publication(
+            &store,
+            &key,
+            id,
+            ContentEdit {
+                source: &second,
+                publisher_agent: None,
+                attachments: None,
+            },
+            None,
+            &mut decoder,
+            now,
+        )
+        .unwrap() else {
+            panic!("replacement must prepare a write")
+        };
+        page::commit_publication(
+            &mut store,
+            &key,
+            frozen.job(),
+            frozen.packet(),
+            frozen.chain(),
+            now,
+        )
+        .unwrap();
+        store.close().unwrap();
+    }
+    let before = pilot.call(&["page", "read", id, "--json"]);
+    assert_eq!(before["source"], second);
+    let retained = before["usage"]["tailBytes"].as_u64().unwrap();
+    assert!(retained > 3 * 1024 * 1024, "{before}");
+    assert_eq!(before["usage"]["checkpointBytes"], 0);
+    fs::write(&file, &second).unwrap();
+    let noop = pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(noop["changed"], false);
+    assert_eq!(noop["revision"], before["revision"]);
+    assert_eq!(noop["usage"]["tailBytes"], retained);
+    fs::write(&file, varied_source(3, SIZE)).unwrap();
+    let stale = format!("v1:{}", "0".repeat(64));
+    failure(
+        &pilot,
+        &[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--expected-revision",
+            &stale,
+            "--json",
+        ],
+        "COLAB_STALE_BASE",
+    );
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["revision"],
+        before["revision"]
+    );
+    let written = pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--expected-revision",
+        before["revision"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(written["changed"], true);
+    let after = pilot.call(&["page", "read", id, "--json"]);
+    assert_eq!(after["source"], varied_source(3, SIZE));
+    assert_eq!(after["revision"], written["revision"]);
+    assert!(after["usage"]["checkpointBytes"].as_u64().unwrap() > 0);
+    assert!(after["usage"]["tailBytes"].as_u64().unwrap() < retained);
+    // The following write fences on the committed checkpoint-inclusive revision.
+    fs::write(&file, varied_source(4, SIZE)).unwrap();
+    pilot.call(&[
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--expected-revision",
+        after["revision"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        varied_source(4, SIZE)
+    );
+}
+
+#[test]
 fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
     const SIZE: usize = 1_536 * 1024;
     for serving in [false, true] {

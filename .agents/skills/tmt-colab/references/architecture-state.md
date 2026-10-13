@@ -44,7 +44,7 @@ ignore original-creator current expiry, matching native folds; issuedAt, issuer/
 membership and revocation cuts still apply. Fresh `author()` and the actual caller
 `validateRead()` retain expiry checks.
 
-- Run Rust gates with your own `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS=2`. Add
+- Run Rust gates in the worktree's `rust/target` (no external `CARGO_TARGET_DIR`), with `CARGO_BUILD_JOBS=2`. Add
   `--no-fail-fast` when judging `cargo test -p tmt-colab`: Cargo stops at the first failing
   test binary and hides the rest. Timing-sensitive decoder tests can fail under load; rerun
   them alone before treating one as a regression.
