@@ -26,7 +26,9 @@ distinct. Per-squad rank/state never becomes a global identity state.
 one snapshot. Pool remains first; pinned squads precede the selected sort order.
 A collapsed squad keeps its worst observed child state, prioritizing attention.
 Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
-anchor disables actions rather than selecting its neighbour.
+anchor disables actions rather than selecting its neighbour. A filter with no
+observed matches keeps Common pool and adds a non-interactive message in the
+tree viewport; it does not replace the selection or claim a complete roster.
 
 ## Shell, geometry and input
 

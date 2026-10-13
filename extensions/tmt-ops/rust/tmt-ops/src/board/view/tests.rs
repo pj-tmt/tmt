@@ -915,18 +915,34 @@ fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
 }
 
 #[test]
-fn fit_truncates_by_display_width_and_selection_scrolls_into_view() {
+fn fit_truncates_by_display_width_and_selected_workspace_targets_scroll_into_view() {
+    // Wide Unicode fixture verifies cell width rather than byte or scalar count.
     assert_eq!(fit("整理安装指南", 7), "整理安…");
     assert_eq!(fit("abc", 5), "abc  ");
     assert_eq!(fit("abcdef", 4), "abc…");
-    let rows: Vec<Value> = (0..20)
-        .map(|i| row(&format!("m{i:02}"), "working", "", json!({})))
-        .collect();
-    let mut app = board(json!([{"title": null, "rows": rows}]));
-    app.selected = 15;
-    let screen = draw(&app, 40, 8);
-    assert!(screen.iter().any(|line| line.contains("m15")), "{screen:?}");
-    assert!(!screen.iter().any(|line| line.contains("m00")));
+    let mut app = crate::board::app::workspace::tests::populated_board(0, 20);
+    let target = crate::board::workspace::OpsTarget::Member {
+        room_id: None,
+        identity_id: "66666666-6666-4666-8666-000000000015".into(),
+    };
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    app.select(index);
+    let screen = draw(&app, 80, 12);
+    assert!(
+        screen.iter().any(|line| line.contains("agent-00015")),
+        "{screen:?}"
+    );
+    assert!(!screen.iter().any(|line| line.contains("agent-00000")));
+    assert!(app.scrolls.offset(Pane::Rows) > 0);
+    assert!(app.hits.borrow().iter().any(|hit| matches!(hit.target, crate::board::app::HitTarget::Row(row) if app.row_target(row) == Some(crate::board::app::RowTarget::Workspace(target.clone())))));
+    app.select(0);
+    let screen = draw(&app, 80, 12);
+    assert!(screen.iter().any(|line| line.contains("Common pool")));
+    assert_eq!(app.scrolls.offset(Pane::Rows), 0);
 }
 
 #[test]
@@ -951,28 +967,44 @@ fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
 }
 
 #[test]
-fn search_help_and_errors_use_the_footer_and_overlay() {
-    let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
-    app.searching = true;
-    app.search = "zz".into();
-    let screen = draw(&app, 40, 6);
+fn workspace_search_help_and_errors_use_the_footer_and_overlay() {
+    let mut app = workspace_board();
+    let selected = app.workspace.selected.clone();
+    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for character in "zz".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    let screen = draw(&app, 80, 12);
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("(no matching members)"))
+            .any(|line| line.contains("No matches in this view")),
+        "{screen:?}"
     );
-    assert_eq!(screen[5], "/zz▏");
-    app.searching = false;
-    app.search.clear();
-    app.help = true;
+    assert!(screen.iter().any(|line| line.contains("Common pool")));
+    assert_eq!(screen[11], "/zz▏");
+    assert_eq!(
+        app.workspace.selected, selected,
+        "filtering cannot replace identity"
+    );
     assert!(
-        draw(&app, 60, 12)
+        app.hits.borrow().iter().all(
+            |hit| !matches!(hit.target, crate::board::app::HitTarget::Row(index) if index > 0)
+        ),
+        "the empty message has no click target"
+    );
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(!app.searching);
+    assert!(app.search.is_empty());
+    app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    assert!(
+        draw(&app, 80, 12)
             .iter()
             .any(|line| line.contains("↑↓ scroll"))
     );
-    let mut failed = App::new(Some("product".into()));
-    failed.error = Some("tmt did not finish in time".into());
-    assert_eq!(draw(&failed, 40, 4)[3], "tmt did not finish in time");
+    app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+    app.error = Some("tmt did not finish in time".into());
+    assert_eq!(draw(&app, 80, 12)[11], "tmt did not finish in time");
 }
 
 fn paned(board: crate::config::Board, notes: Notes) -> App {
@@ -1550,30 +1582,31 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
 }
 
 #[test]
-fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scroll() {
-    let mut app = board(json!([]));
-    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol", "id": "LEAD", "lifetime": "saved", "fields": {"task": "", "model": "", "cap": ""}});
-    let buffer = entity_detail_buffer(&app, 100, 20);
-    assert_eq!(
-        buffer_text(&buffer),
-        ["sol  lead", "no row fields set · tmt ops sq set sol task=…",]
-    );
-    assert_eq!(
-        buffer[(0, 1)].fg,
-        app.look().role(Role::Dim).fg.unwrap_or_default()
-    );
-    app.view.as_mut().unwrap().document["squad"]["lead"]["fields"]["task"] =
-        json!("one\ntwo\t\u{1b}[31m long task to wrap");
-    let text = buffer_text(&entity_detail_buffer(&app, 12, 20)).join("");
-    assert!(text.contains("task:"));
-    assert!(!text.contains('\u{1b}') && !text.contains("no row fields set"));
-    entity_detail_buffer(&app, 12, 3);
-    app.scrolls
-        .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
+fn workspace_field_preview_omits_empty_values_and_clamps_safe_wrapped_text() {
+    let mut app = workspace_board();
+    workspace_row(&mut app)["fields"] = json!({"task":"", "model":"", "link":""});
+    let target = app.row_target(app.selected).unwrap();
+    let detail = app.row_detail(&target, &[]).unwrap();
+    assert!(detail.fields.is_empty());
+    let text = buffer_text(&entity_detail_buffer(&app, 100, 20));
+    assert!(text.iter().any(|line| line.contains("no reply yet")));
     assert!(
-        buffer_text(&entity_detail_buffer(&app, 12, 3))
-            .join("")
-            .contains("wrap")
+        !text
+            .iter()
+            .any(|line| line.contains("task") || line.contains("model") || line.contains("links"))
+    );
+    workspace_row(&mut app)["fields"]["task"] =
+        json!("one\ntwo\t\u{1b}[31m long task that wraps over several preview lines");
+    let text = buffer_text(&entity_detail_buffer(&app, 18, 20));
+    assert!(text.iter().any(|line| line.contains("task")));
+    assert!(text.iter().any(|line| line.contains('…')));
+    assert!(
+        text.iter()
+            .all(|line| line.width() <= 18 && !line.contains('\u{1b}'))
+    );
+    assert!(
+        text.len() <= 4,
+        "three task preview lines and the reply placeholder: {text:?}"
     );
     entity_detail_buffer(&app, 0, 0);
     entity_detail_buffer(&app, 1, 1);
@@ -1999,7 +2032,7 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
                 theme: tmt_cli_style::Theme::new(base),
                 depth,
             };
-            let mut app = App::new(Some("product".into()));
+            let mut app = App::new(Some(crate::board::ALL.into()));
             app.initial_look = Some(look);
             app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
             let line = summary_line(&app);
@@ -2007,18 +2040,31 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
             assert_eq!(line.spans[1].style, look.role(Role::Muted));
             assert_eq!(line.spans[2].style, look.role(Role::Text));
             assert_eq!(
-                super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
-                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+                super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).spans[1].style,
+                look.role(Role::Accent)
+                    .patch(look.selection())
+                    .add_modifier(Modifier::BOLD)
+            );
+            let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let buffer = terminal.backend().buffer();
+            assert!(buffer[(10, 0)].modifier.contains(Modifier::BOLD));
+            assert_eq!(
+                buffer[(0, 1)].fg,
+                look.role(Role::Dim).fg.unwrap_or_default()
+            );
+            assert_eq!(
+                buffer[(3, 1)].fg,
+                look.role(Role::Muted).fg.unwrap_or_default()
             );
         }
     }
 }
 
 #[test]
-fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
-    let mut app = board(json!([]));
+fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
+    let mut app = App::new(Some(crate::board::ALL.into()));
     let started = std::time::Instant::now();
-    app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     app.loading_since = Some(started);
     assert_eq!(
         spinner_frame(
@@ -2032,14 +2078,16 @@ fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
         spinner_frame(&app, started + SPINNER_DELAY + SPINNER_TICK),
         Some(1)
     );
-    app.apply(crate::board::app::tests::snapshot("reviews", json!([])));
-    app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-    assert!(!app.loading());
-    assert_eq!(spinner_frame(&app, std::time::Instant::now()), None);
+    let screen = draw(&app, 80, 8);
+    assert!(screen[0].contains("1 Overview") && screen[0].contains("2 Agents"));
+    assert!(screen.iter().any(|line| line.contains("Opening")));
+    let settled = workspace_board();
+    assert!(!settled.loading());
+    assert_eq!(spinner_frame(&settled, std::time::Instant::now()), None);
     assert!(
-        draw(&app, 60, 8)
+        !draw(&settled, 80, 8)
             .iter()
-            .all(|line| !line.contains("loading"))
+            .any(|line| line.contains("Opening"))
     );
 }
 

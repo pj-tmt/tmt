@@ -179,6 +179,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         area
     };
     let rows = app.workspace_rows();
+    let no_matches =
+        !app.workspace.query.is_empty() && rows.iter().all(|row| row.target == OpsTarget::Pool);
+    let content = rows.len() + usize::from(no_matches);
 
     *app.row_starts.borrow_mut() = (0..rows.len()).collect();
     if app.follow
@@ -187,13 +190,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
     {
         app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, inside, rows.len());
+            .reveal_range(Pane::Rows, index..index + 1, inside, content);
     }
     app.scrolls.show_paint(
         frame,
         Pane::Rows,
         inside,
-        rows.len(),
+        content,
         look,
         |frame, viewport, offset| {
             for (line, tree) in rows
@@ -243,6 +246,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     width: row.width,
                     target: HitTarget::Row(offset + line),
                 });
+            }
+            // Common pool remains a navigable virtual target while the filter
+            // has no observed matches. The message has no target or click hit.
+            if no_matches
+                && rows.len() >= offset
+                && rows.len() - offset < usize::from(viewport.height)
+            {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        viewport.x,
+                        viewport.y + (rows.len() - offset) as u16,
+                        viewport.width,
+                        1,
+                    ),
+                    Line::styled("No matches in this view", look.role(Role::Muted)),
+                );
             }
         },
     );

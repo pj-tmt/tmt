@@ -100,7 +100,7 @@ pub(in crate::board) fn board() -> App {
     app
 }
 // Literal observed fixtures for captures and the real-render cost harness.
-fn populated_board(squads: usize, agents: usize) -> App {
+pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
     let mut app = board();
     let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
     home.workspace.roster.members.clear();
