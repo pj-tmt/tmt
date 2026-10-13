@@ -2386,8 +2386,12 @@ authority.
 
 ### Page Chat (#1645)
 
-The header Chat action replaces the standalone Ask action. Chat opens a fixed right
-parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
+Discussion → Chat and the floating Chat icon beside the selection-mode control
+open the same retained Chat drawer without resizing or reflowing the page.
+The floating Chat control hides while selection mode or an annotation window is open;
+Close/Escape or a backdrop press returns focus to its opener. No press sends a message.
+At compact widths the modal drawer covers the floating action: Close/Escape dismisses;
+at wide widths a press at the exposed floating location dismisses through the backdrop.
 Messages scroll inside it; one shared plaintext message input remains at the bottom.
 Chat uses the same shared history owner and scroll policy as inline annotation
 conversations: it opens at the bottom and follows new record identities within
@@ -2402,6 +2406,15 @@ explicitly captures, freezes, signs and sends;
 there is no confirmation screen or automatic send. Composed text remains in the
 conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to
 everyone with page access.
+
+Eligible verified replies in this device's Chat conversations carry a persistent
+mark plus `Unread`, without a count, on the floating control; the Chat menu entry
+also reads `Chat · Unread`.
+The device-local seen position records reply identities, scoped to space, page,
+epoch and viewer device; it is presentation only, not a signed read receipt.
+Only a visible Chat history at its end advances that position. Closing, reload,
+notification expiry/dismissal and reading older history do not acknowledge replies.
+Other people's conversations and this device's own comments do not raise the mark.
 
 Each asking device uses one designated null-anchor discussion thread in the existing
 page/epoch own stream: `threadId` equals its writer device UUID. Creation batches the

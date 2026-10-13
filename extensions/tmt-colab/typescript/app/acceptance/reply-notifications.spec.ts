@@ -19,6 +19,54 @@ import { captureResponsive } from './harness/captures.js';
 
 test.afterEach(disposeActiveWorlds);
 
+test('Chat unread remains after dismissing its toast, clears at the visible end, and stays cleared after reload', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('chat-unread-agent', { gated: true });
+    const author = await pairBrowser(world, 'chat-unread-author', { talk: true });
+    const viewer = await pairBrowser(world, 'chat-unread-viewer');
+    const created = createPage(world, 'Chat unread', '<p>Chat unread fixture.</p>');
+    const page = await openPage(door, author, created);
+    const other = await openPage(door, viewer, created);
+    const button = page
+      .locator('.page-floating-actions')
+      .getByRole('button', { name: /^Chat(?: · Unread)?$/ });
+    const peerButton = other
+      .locator('.page-floating-actions')
+      .getByRole('button', { name: /^Chat(?: · Unread)?$/ });
+    const ask = await sendChat(page, await composeChat(page, agent, 'One verified reply.'));
+    await until(() => agent.received().length === 1, 'one unread Ask');
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+    const request = agent.received()[0].requestId as string;
+    writeFileSync(path.join(agent.gate, `${request}.release`), '');
+    await until(() => agent.rows().some((row) => row.event === 'replied'), 'durable unread reply');
+    await expect(button).toHaveAccessibleName('Chat · Unread');
+    await expect(peerButton).toHaveAccessibleName('Chat');
+    await page.getByRole('button', { name: 'Dismiss Chat reply', exact: true }).click();
+    await expect(page.locator('.tmt-ui-notification')).toHaveCount(0);
+    await expect(button).toHaveAccessibleName('Chat · Unread');
+    await captureResponsive(page, 'chat-unread-persistent');
+    await button.click();
+    await expect(page.getByTestId('chat-panel').getByTestId('ask-reply')).toBeVisible();
+    await expect(page.locator('.page-floating-actions .chat-unread')).toHaveCount(0);
+    await captureResponsive(page, 'chat-unread-open');
+    await page.keyboard.press('Escape');
+    await expect(button).toBeFocused();
+    await captureResponsive(page, 'chat-unread-cleared');
+    await page.reload();
+    await expect(page.locator('.status.live')).toBeVisible();
+    await expect(button).toHaveAccessibleName('Chat');
+    await button.click();
+    await expect(
+      page.locator(`[data-operation-id="${ask.operationId}"]`).getByTestId('ask-reply'),
+    ).toBeVisible();
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+  });
+});
+
 test('own admitted Chat final notifies once, opens its exact turn, and survives reload without replay', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

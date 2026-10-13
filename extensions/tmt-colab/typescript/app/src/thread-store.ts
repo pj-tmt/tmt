@@ -58,6 +58,8 @@ export interface AnswerBatchContext {
 }
 export interface ThreadBinding {
   readonly deviceId: string;
+  /** Current admitted document scope, never derived from page HTML. */
+  readonly scope?: DiscussionScope;
   /** Absent where this binding cannot upload or open attachments. */
   readonly attachments?: AttachmentBinding;
   create(
@@ -114,6 +116,10 @@ export class ThreadStore implements ThreadBinding {
   }
   get deviceId() {
     return this.options.deviceId();
+  }
+  get scope(): DiscussionScope {
+    const { spaceId, pageId, epoch } = this.options;
+    return { spaceId, pageId, epoch };
   }
   async #admit() {
     const c = await this.options.connection();

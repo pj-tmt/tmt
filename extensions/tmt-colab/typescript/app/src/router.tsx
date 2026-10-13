@@ -7,7 +7,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ArrowUpRight, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
+import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -81,18 +81,26 @@ import { compactOffered } from './page-usage.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 
 /** The control belongs to trusted chrome; only mode is projected into author content. */
-function SelectionMode({
+function PageFloatingActions({
   host,
   enabled,
   discussionOpen,
   panel,
   toggle,
+  chatUnread,
+  chatButton,
+  toggleChat,
+  canSelect,
 }: {
   host: HTMLDivElement | null;
   enabled: boolean;
   discussionOpen: boolean;
   panel: PageHeaderAction | null;
   toggle(): void;
+  chatUnread: boolean;
+  chatButton: Ref<HTMLButtonElement>;
+  toggleChat(): void;
+  canSelect: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -143,27 +151,54 @@ function SelectionMode({
       {enabled && !discussionOpen && (
         <p className="selection-mode-hint">{text.selectionModeHint}</p>
       )}
-      <BrowserIconAction
-        type="button"
-        variant="primary"
-        label={text.selectionMode}
-        buttonRef={button}
-        pressed={enabled}
-        icon={
-          <>
-            <MousePointer2 />
-            {enabled && (
+      <div className="page-floating-actions">
+        {!enabled && !discussionOpen && (
+          <BrowserIconAction
+            type="button"
+            variant="primary"
+            label={chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat}
+            buttonRef={chatButton}
+            hasPopup="dialog"
+            expanded={panel === 'chat'}
+            icon={
               <>
-                <span>{text.selecting}</span>
-                <kbd>Esc</kbd>
+                <MessageCircle />
+                {chatUnread && (
+                  <span className="chat-unread">
+                    <span aria-hidden="true">•</span> {text.chatUnread}
+                  </span>
+                )}
               </>
-            )}
-          </>
-        }
-        onActivate={(event) => {
-          if (event.isTrusted) toggle();
-        }}
-      />
+            }
+            onActivate={(event) => {
+              if (event.isTrusted) toggleChat();
+            }}
+          />
+        )}
+        {canSelect && (
+          <BrowserIconAction
+            type="button"
+            variant="primary"
+            label={text.selectionMode}
+            buttonRef={button}
+            pressed={enabled}
+            icon={
+              <>
+                <MousePointer2 />
+                {enabled && (
+                  <>
+                    <span>{text.selecting}</span>
+                    <kbd>Esc</kbd>
+                  </>
+                )}
+              </>
+            }
+            onActivate={(event) => {
+              if (event.isTrusted) toggle();
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -721,6 +756,7 @@ function Page() {
   const toolbar = useRef<HTMLElement>(null);
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
+  const floatingChat = useRef<HTMLButtonElement>(null);
   const [chatActivation, setChatActivation] = useState<{ id: string; insertMention: boolean }>();
   const activateChat = useRef<() => boolean>(() => false);
   useEffect(() => {
@@ -1343,6 +1379,7 @@ function Page() {
     snapshot.binding?.discussion?.deviceId ?? '',
   ]);
   const notificationClassification = { questionThreads: questionLayer.notificationThreads };
+  const chatScope = snapshot.binding?.discussion?.scope;
   const notifications = useReplyNotifications({
     pageKey: notificationScope,
     observer: replyObserver,
@@ -1350,6 +1387,15 @@ function Page() {
     deviceId: snapshot.binding?.discussion?.deviceId,
     classification: notificationClassification,
     blocked: archived || !!endedError,
+    chatReadingAllowed: panel === 'chat' && !quickSwitcher?.open && !recoveryRequired,
+    chatScope: chatScope
+      ? JSON.stringify([
+          chatScope.spaceId,
+          chatScope.pageId,
+          chatScope.epoch,
+          snapshot.binding?.discussion?.deviceId,
+        ])
+      : undefined,
     activate: (event) => {
       if (
         panel ||
@@ -1442,6 +1488,7 @@ function Page() {
             comments={openThreads}
             files={fileCount}
             unseen={unseenThreads}
+            chatUnread={notifications.chatUnread}
             readOnly={archived}
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
@@ -1516,13 +1563,17 @@ function Page() {
           )}
         </div>
       </div>
-      {canSelect && (
-        <SelectionMode
+      {(canSelect || (state === 'ready' && !liveError)) && (
+        <PageFloatingActions
           host={host.current}
           enabled={selectionMode}
           discussionOpen={!!annotation}
           panel={panel}
           toggle={() => toggleSelectionMode.current()}
+          chatUnread={notifications.chatUnread}
+          chatButton={floatingChat}
+          toggleChat={() => toggle('chat')}
+          canSelect={canSelect}
         />
       )}
       {snapshot.binding?.discussion &&
@@ -1819,7 +1870,10 @@ function Page() {
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserDrawer
           notice={archived ? endedNotice : undefined}
-          focusFallback={() => document.querySelector<HTMLButtonElement>('.tmt-ui-header button')}
+          focusFallback={() =>
+            floatingChat.current ??
+            document.querySelector<HTMLButtonElement>('.tmt-ui-header button')
+          }
           open={panel === 'chat'}
           title="Chat"
           panel="chat"

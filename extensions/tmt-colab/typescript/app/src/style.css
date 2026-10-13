@@ -1581,6 +1581,20 @@ footer {
   min-height: 40px;
   border: 1px solid var(--c-text);
 }
+.page-floating-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-floating-actions .tmt-ui-icon-action-control[aria-haspopup='dialog'] {
+  width: auto;
+  min-width: 40px;
+  padding: 0 10px;
+}
+.chat-unread {
+  color: var(--c-waiting);
+  font-size: 12px;
+}
 .selection-mode .tmt-ui-icon-action-control[aria-pressed='true'] {
   width: auto;
   padding: 0 12px;
@@ -1663,7 +1677,7 @@ footer {
   padding: 0 3px;
 }
 @media (max-height: 500px) {
-  .selection-mode .tmt-ui-icon-action-icon > span,
+  .selection-mode [aria-pressed] .tmt-ui-icon-action-icon > span,
   .selection-mode kbd {
     display: none;
   }
