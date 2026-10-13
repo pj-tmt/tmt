@@ -77,6 +77,7 @@ pub fn load(
     squads: &[Squad],
     order: &[String],
     me: Option<&Me>,
+    listed: &Result<Value, SquadError>,
 ) -> Result<
     (
         Document,
@@ -88,12 +89,11 @@ pub fn load(
     let settings = config.tabs()?;
     let squads = squads.iter().collect::<Vec<_>>();
     // Models are public session observations, independent of token sampling.
-    let listed = core.json(&["ls"]);
     let mut acquired = tab_view::home_sources(core, config, &squads, me);
     acquired.digest(core);
     let public = tab_view::document(config, &settings, order, ALL, &acquired)?;
     let resumes = match listed {
-        Ok(listed) => super::rate::Input::resumes(&listed),
+        Ok(listed) => super::rate::Input::resumes(listed),
         Err(error) => {
             let mut failure = error.to_json();
             failure["source"] = json!("models");

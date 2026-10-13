@@ -1442,6 +1442,7 @@ mod tests {
             );
 
             let failed = crate::board::app::Snapshot {
+                references: Default::default(),
                 timing: None,
                 squad_keys: Vec::new(),
                 tabs: Vec::new(),

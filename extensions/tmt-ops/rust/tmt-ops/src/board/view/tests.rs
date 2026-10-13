@@ -4,14 +4,12 @@ use super::{
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
     overlays::render_switcher,
-    replies::reply_lines,
     tabs::{pane_tab, tab},
 };
 use crate::board::app::Switcher;
 use crate::{
     attention::Attention,
     config::{NotesRender, TabColors},
-    requests::{BODIES, age},
     rows::Rows,
 };
 use ratatui::widgets::Paragraph;
@@ -141,7 +139,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             assert!(
                 prompt
                     .iter()
-                    .any(|line| line.contains("Enter send · Esc cancel"))
+                    .any(|line| line.contains("Enter send · Esc keep draft"))
             );
             assert!(
                 prompt
@@ -503,6 +501,7 @@ pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
 pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
+        references: Default::default(),
         timing: None,
         squad_keys: Vec::new(),
         tabs: vec!["product".into(), "reviews".into()],
@@ -1304,6 +1303,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
     let bindings = crate::action::with_action_keys(crate::action::preset(true, &board.panes));
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
+            references: Default::default(),
             timing: None,
             squad_keys: Vec::new(),
             tabs: vec!["product".into()],
@@ -2552,281 +2552,6 @@ fn split_panes_follow_direction_and_sizes() {
 }
 
 #[test]
-fn replies_show_recipient_age_prompt_full_sanitized_body_and_result_hints() {
-    assert_eq!(age(100_000, 55_000), "45s");
-    assert_eq!(age(3_600_000, 0), "1h");
-    assert_eq!(age(200_000_000, 0), "2d");
-    assert_eq!(
-        age(0, 5_000),
-        "0s",
-        "a clock behind the final is not negative"
-    );
-    let body = "```text\nline 1\n\u{1b}[31mred\u{1b}[0m\n3\n4\n5\n6\n7\n8\n```";
-    let mut replies = vec![
-        json!({"requestId": "r1", "to": "sol", "prompt": "[product · auth-fix] split", "status": "retained", "submittedAtMs": 40_000, "response": body}),
-        json!({"requestId": "r2", "to": "docs", "prompt": "check", "status": "expired", "submittedAtMs": 30_000, "response": null}),
-    ];
-    for index in 0..BODIES {
-        replies.push(json!({"requestId": format!("old{index}"), "to": "sol", "prompt": "p", "status": "retained", "submittedAtMs": 0, "response": null}));
-    }
-    let lines: Vec<String> = reply_lines(
-        crate::look::Look::default(),
-        &replies,
-        40,
-        100_000,
-        &mut Default::default(),
-    )
-    .iter()
-    .map(|line| {
-        line.spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect::<String>()
-            .trim_end()
-            .to_owned()
-    })
-    .collect();
-    assert_eq!(lines[0], "sol · 1m");
-    assert_eq!(lines[1], "  › [product · auth-fix] split");
-    assert_eq!(
-        lines[2..12],
-        [
-            "  ```text",
-            "  line 1",
-            "  red",
-            "  3",
-            "  4",
-            "  5",
-            "  6",
-            "  7",
-            "  8",
-            "  ```"
-        ],
-        "the full code source survives and escapes are removed"
-    );
-    assert!(!lines.iter().any(|line| line.contains('…')));
-    assert!(lines.contains(&"  (final expired)".to_owned()));
-    assert!(
-        lines.contains(&format!("  tmt result old{}", BODIES - 1)),
-        "older finals point to tmt result"
-    );
-    assert!(!lines.iter().any(|line| line.contains('\u{1b}')));
-}
-
-fn reply_text(lines: &[Line<'_>]) -> Vec<String> {
-    lines
-        .iter()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
-        .collect()
-}
-
-fn long_reply() -> Value {
-    json!({
-        "requestId": "long-reply", "to": "lead", "submittedAtMs": 0,
-        "prompt": format!("Please review {} PROMPT-END", "the complete implementation and verification evidence ".repeat(5)),
-        "response": format!("# Full reply\n\n- **First** item with `code`\n- second item\n\n```text\n{}\n```\n\nFINAL-SENTINEL", (1..=40).map(|n| format!("line {n:02}")).collect::<Vec<_>>().join("\n"))
-    })
-}
-
-#[test]
-fn full_markdown_replies_wrap_prompts_and_neutralize_hostile_input_at_all_widths() {
-    for width in [40, 80, 120] {
-        let mut reply = long_reply();
-        let body = reply["response"]
-            .as_str()
-            .unwrap()
-            .replace("Full reply", "\u{1b}]0;bad\u{7}Full reply\u{202e}")
-            .replace("First", "\u{9b}31mFirst\u{0}");
-        reply["response"] = json!(body);
-        let mut derived = Default::default();
-        let lines = reply_lines(
-            crate::look::Look::default(),
-            &[reply],
-            width,
-            60_000,
-            &mut derived,
-        );
-        let text = reply_text(&lines);
-        let all = text.join("\n");
-        for expected in [
-            "Full reply",
-            "• First item with code",
-            "• second item",
-            "```text",
-            "line 40",
-            "FINAL-SENTINEL",
-            "PROMPT-END",
-        ] {
-            assert!(all.contains(expected), "{width}: missing {expected}: {all}");
-        }
-        assert!(!all.contains('…'));
-        assert!(
-            !all.chars()
-                .any(|c| (c.is_control() && c != '\n') || c == '\u{202e}')
-        );
-        assert!(text.iter().all(|line| line.width() <= width));
-        let prompt_end = text
-            .iter()
-            .position(|line| line.contains("PROMPT-END"))
-            .unwrap();
-        assert!(prompt_end > 1);
-        assert!(
-            text[2..=prompt_end]
-                .iter()
-                .all(|line| line.starts_with("    "))
-        );
-        let heading = lines
-            .iter()
-            .find(|line| reply_text(std::slice::from_ref(line))[0].contains("Full reply"))
-            .unwrap();
-        assert_eq!(heading.spans[0].content, "  ");
-        assert!(
-            heading
-                .spans
-                .iter()
-                .any(|span| span.style.add_modifier.contains(Modifier::BOLD))
-        );
-        assert!(
-            lines
-                .iter()
-                .flat_map(|line| &line.spans)
-                .any(|span| span.content == "code"
-                    && span.style == crate::look::Look::default().role(Role::Accent))
-        );
-    }
-}
-
-#[test]
-fn replies_scroll_with_keys_pages_and_wheel_to_the_complete_end() {
-    for width in [40, 80, 120] {
-        let mut app = board(json!([]));
-        let view = app.view.as_mut().unwrap();
-        view.board = crate::config::Board::simple(
-            BoardMode::Tabs,
-            Direction::LeftRight,
-            vec![Pane::Replies],
-            &[],
-        );
-        view.replies = vec![long_reply()];
-        let top = draw(&app, width, 16).join("\n");
-        assert!(top.contains("Please review"), "{top}");
-        assert!(!top.contains("FINAL-SENTINEL"));
-        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-        assert_eq!(app.scrolls.offset(Pane::Replies), 1);
-        app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
-        assert!(app.scrolls.offset(Pane::Replies) > 1);
-        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
-        assert_eq!(app.scrolls.offset(Pane::Replies), 0);
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::ScrollDown,
-                column: 1,
-                row: 5,
-                modifiers: KeyModifiers::NONE,
-            },
-            std::time::Instant::now(),
-        );
-        assert_eq!(
-            app.scrolls.offset(Pane::Replies),
-            crate::board::scroll::WHEEL_LINES
-        );
-        app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
-        // Without the footer line: its `↑↓ move` is not a scroll mark.
-        let screen = draw(&app, width, 16);
-        let bottom = screen[..screen.len() - 1].join("\n");
-        assert!(bottom.contains("FINAL-SENTINEL"), "{bottom}");
-        assert!(bottom.contains("↑ "));
-        assert!(!bottom.contains("↓ "));
-        app.key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
-        assert!(!draw(&app, width, 16).join("\n").contains("FINAL-SENTINEL"));
-    }
-}
-
-#[test]
-fn reply_bodies_reuse_cache_while_ages_change_and_invalidate_on_width_look_and_view() {
-    let replies = vec![long_reply()];
-    let look = crate::look::Look::default();
-    let mut derived = super::super::derived::Derived::default();
-    let first = reply_lines(look, &replies, 80, 60_000, &mut derived);
-    let cached = derived.replies.as_ref().unwrap().bodies["long-reply"].as_ptr();
-    let later = reply_lines(look, &replies, 80, 120_000, &mut derived);
-    assert_ne!(first[0], later[0], "ages remain live");
-    assert_eq!(
-        cached,
-        derived.replies.as_ref().unwrap().bodies["long-reply"].as_ptr(),
-        "age repaint reuses Markdown"
-    );
-    assert_eq!(first[1..], later[1..]);
-    let narrow = reply_lines(look, &replies, 40, 120_000, &mut derived);
-    assert_eq!(derived.replies.as_ref().unwrap().width, 40);
-    assert_ne!(narrow.len(), later.len());
-    let mut light = look;
-    light.theme = tmt_cli_style::Theme::new(tmt_cli_style::Base::TmtLight);
-    let light_lines = reply_lines(light, &replies, 40, 120_000, &mut derived);
-    assert_eq!(derived.replies.as_ref().unwrap().look, light);
-    assert_ne!(light_lines, narrow);
-    let mut app = board(json!([]));
-    app.view.as_mut().unwrap().derived.replace(derived);
-    app.apply(crate::board::app::tests::snapshot("product", json!([])));
-    assert!(
-        app.view
-            .as_ref()
-            .unwrap()
-            .derived
-            .borrow()
-            .replies
-            .is_none()
-    );
-}
-
-#[test]
-fn reply_empty_hints_and_consecutive_body_headings_keep_their_meaning() {
-    let mut app = board(json!([]));
-    app.view.as_mut().unwrap().board = crate::config::Board::simple(
-        BoardMode::Tabs,
-        Direction::LeftRight,
-        vec![Pane::Replies],
-        &[],
-    );
-    assert!(
-        draw(&app, 120, 16)
-            .join("\n")
-            .contains("(tmt ops squad me <name> shows the replies to your requests)")
-    );
-    app.view.as_mut().unwrap().me = Some("user".into());
-    assert!(
-        draw(&app, 120, 16)
-            .join("\n")
-            .contains("(no replies to your squad requests yet)")
-    );
-    for ending in ["- final item", "```text\nlast code\n```"] {
-        let replies = vec![
-            json!({"requestId":"first", "to":"first lead", "response":ending}),
-            json!({"requestId":"second", "to":"second lead", "response":"# Body heading"}),
-        ];
-        let lines = reply_lines(
-            crate::look::Look::default(),
-            &replies,
-            40,
-            0,
-            &mut Default::default(),
-        );
-        let text = reply_text(&lines);
-        let header = text.iter().position(|line| line == "second lead").unwrap();
-        assert_eq!(text[header - 1], "");
-        assert_eq!(text[header + 2], "  Body heading");
-        assert!(text[header - 2].starts_with("  "));
-    }
-}
-
-#[test]
 fn every_row_is_one_line_cut_by_display_width_at_any_width() {
     let long = "rotate session tokens without logging everyone out of every device";
     let mut app = board(json!([{"title": null, "rows": [
@@ -3043,6 +2768,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
     view.rows = crate::rows::Rows::leads();
     let mut app = App::new(Some(crate::board::LEADS.into()));
     app.apply(Snapshot {
+        references: Default::default(),
         timing: None,
         squad_keys: Vec::new(),
         tabs: vec!["product".into(), crate::board::LEADS.into()],
@@ -3239,6 +2965,8 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
         &[],
     );
     let mut app = paned(tabs, Notes::Missing);
+    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("auth-fix");
+    app.selected = 1;
     let screen = draw(&app, 70, 11);
     assert!(
         screen[2].starts_with("rows  replies   notes"),
@@ -3258,7 +2986,7 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("tmt ops squad me <name> shows the replies"))
+            .any(|line| line.contains("Conversation · auth-fix"))
     );
     tab(&mut app);
     assert!(
@@ -4324,7 +4052,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                     .position(|line| line.contains("member-3"))
                     .unwrap();
                 app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-                app.input.as_mut().unwrap().text = "x".repeat(30);
+                app.input.as_mut().unwrap().text = "x".repeat(30).into();
                 let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
                 terminal.draw(|frame| render(frame, &app)).unwrap();
                 let buffer = terminal.backend().buffer();
@@ -4336,10 +4064,17 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                     "{base}/{width}/{tab}: {header}"
                 );
                 assert_eq!(band.height, 6);
-                assert!(screen[usize::from(band.y + 3)].contains(&format!("{}▏", "x".repeat(30))));
+                assert!(screen[usize::from(band.y + 3)].contains(&"x".repeat(30)));
+                let (editor, offset) = app.input_viewport.get().unwrap();
+                assert_eq!(offset, 0);
+                assert_eq!(editor.y, band.y + 3);
+                assert_eq!(
+                    app.input.as_ref().unwrap().text.layout(editor.width).cursor,
+                    (0, 30)
+                );
                 assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
                 assert!(screen[usize::from(band.y + 2)].contains('…'));
-                assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
+                assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc keep draft"));
                 assert_eq!(screen[usize::from(band.y)], "─".repeat(usize::from(width)));
                 assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
                 for y in band.y..band.bottom() {
@@ -5194,7 +4929,14 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
                 app.labels = supplied_chips(&["worker", "lead", "other"]);
                 let buffer = board_buffer(&app, width, 20);
                 let screen = detail_text(&buffer).join("\n");
-                let shown = screen.matches("Auto · 3 held · Due now").count();
+                let narrow_monitor = home && width == 160;
+                let shown = screen
+                    .matches(if narrow_monitor {
+                        "Auto · 3 held"
+                    } else {
+                        "Auto · 3 held · Due now"
+                    })
+                    .count();
                 assert_eq!(shown, 2, "{members} {home} {width}: {screen}");
                 assert!(
                     !screen.contains("digest 30m"),
@@ -5208,7 +4950,8 @@ fn supplied_labels_replace_the_policy_chip_on_every_surface_with_their_roles() {
                 };
                 let (waiting, muted) = (color("Due now"), color("3 held"));
                 assert!(
-                    waiting.contains(&look.role(Role::Waiting).fg.unwrap()),
+                    narrow_monitor && waiting.is_empty()
+                        || waiting.contains(&look.role(Role::Waiting).fg.unwrap()),
                     "{members} {home} {width}: {waiting:?}"
                 );
                 assert!(muted.contains(&look.role(Role::Muted).fg.unwrap()));

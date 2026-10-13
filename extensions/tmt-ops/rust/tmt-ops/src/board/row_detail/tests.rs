@@ -307,3 +307,192 @@ fn grid_fields_use_each_rows_actual_budget_including_wrap_and_request_age() {
         json!([{ "preparedAtMs": crate::status::now_ms() - 600_000, "preview": question }]);
     assert!(text(&draw(&app, 80, 30)).contains("│pending"));
 }
+
+#[test]
+fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging() {
+    let mut app = fixture();
+    let source = "line one\n漢字 e\u{301} \x1b[31m\nline three";
+    let view = app.view.as_mut().unwrap();
+    view.me = Some("Ben".into());
+    view.me_id = Some("user".into());
+    view.replies = vec![json!({"recipientId":"u1","requestId":"r1","response":source})];
+    let before = view.document.clone();
+    press(&mut app, KeyCode::Char('v'));
+    press(&mut app, KeyCode::Char('s'));
+    draw(&app, 60, 18);
+    let area = app
+        .row_details
+        .reader
+        .as_ref()
+        .unwrap()
+        .source_area
+        .get()
+        .unwrap();
+    for (kind, column) in [
+        (
+            ratatui::crossterm::event::MouseEventKind::Down(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            area.x,
+        ),
+        (
+            ratatui::crossterm::event::MouseEventKind::Drag(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            area.x + 4,
+        ),
+    ] {
+        assert_eq!(
+            app.mouse(
+                ratatui::crossterm::event::MouseEvent {
+                    kind,
+                    column,
+                    row: area.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+    }
+    assert_eq!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .selection
+            .as_ref()
+            .unwrap()
+            .quote()
+            .unwrap()
+            .text,
+        "line"
+    );
+    app.invalidate_overlay_frames();
+    assert!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .source_area
+            .get()
+            .is_none()
+    );
+    draw(&app, 100, 24);
+    assert_eq!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .selection
+            .as_ref()
+            .unwrap()
+            .quote()
+            .unwrap()
+            .range,
+        0..4
+    );
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+        Effect::None
+    );
+    assert!(
+        matches!(press(&mut app,KeyCode::Char('y')),Effect::Act(app::Request::Copy { text,.. }) if text==source)
+    );
+    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert!(app.row_details.reader.is_none());
+    let quote = &app.input.as_ref().unwrap().response_quotes[0];
+    assert_eq!(quote.key.request, "r1");
+    assert_eq!(quote.key.lead, "u1");
+    assert_eq!(quote.range, 0..source.len());
+    assert_eq!(quote.text, source);
+    assert_eq!(app.view.as_ref().unwrap().document, before);
+    press(&mut app, KeyCode::Esc);
+    press(&mut app, KeyCode::Char('t'));
+    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
+    app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+}
+
+#[test]
+fn failed_or_replaced_response_source_cannot_be_attached() {
+    let mut app = fixture();
+    app.view.as_mut().unwrap().me = Some("Ben".into());
+    app.view.as_mut().unwrap().me_id = Some("user".into());
+    app.view.as_mut().unwrap().replies = vec![json!({"recipientId":"u1","requestId":"r1"})];
+    press(&mut app, KeyCode::Char('v'));
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Err("Unavailable".into()));
+    press(&mut app, KeyCode::Char('s'));
+    assert!(app.row_details.reader.as_ref().unwrap().selection.is_none());
+    app.apply_message(&key, Ok("exact source".into()));
+    press(&mut app, KeyCode::Char('s'));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.view.as_mut().unwrap().replies[0]["requestId"] = json!("replacement");
+    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert!(app.input.is_none());
+    assert!(app.notice.as_deref().unwrap().contains("source changed"));
+    app.view.as_mut().unwrap().replies.clear();
+    app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
+    app.reconcile_row_details();
+    assert!(text(&draw(&app, 80, 24)).contains("exact source"));
+    assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
+    assert!(app.input.is_none(), "a vanished agent is never retargeted");
+    assert!(matches!(
+        press(&mut app, KeyCode::Char('y')),
+        Effect::Act(app::Request::Copy { text, .. }) if text == "exact source"
+    ));
+    press(&mut app, KeyCode::Esc);
+    assert!(app.row_details.reader.is_none());
+}
+
+#[test]
+fn reader_reuses_markdown_during_scroll_and_rebuilds_on_width_or_body_change() {
+    let mut app = fixture();
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":"u1", "requestId":"r1", "response":"**reading**  \n".repeat(80)
+    })];
+    press(&mut app, KeyCode::Char('v'));
+    draw(&app, 80, 24);
+    let cached = app
+        .row_details
+        .reader
+        .as_ref()
+        .unwrap()
+        .rendered
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .lines
+        .as_ptr();
+    press(&mut app, KeyCode::PageDown);
+    draw(&app, 80, 24);
+    assert_eq!(
+        cached,
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .rendered
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .lines
+            .as_ptr()
+    );
+    draw(&app, 60, 24);
+    assert!(
+        app.row_details
+            .reader
+            .as_ref()
+            .unwrap()
+            .rendered
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .width
+            < 60
+    );
+    app.view.as_mut().unwrap().replies[0]["response"] = json!("replacement body");
+    assert!(text(&draw(&app, 60, 24)).contains("replacement body"));
+}

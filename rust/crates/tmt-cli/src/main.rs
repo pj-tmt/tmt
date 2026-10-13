@@ -61,6 +61,7 @@ mod workspace_command;
 mod workspace_hook;
 mod workspace_restore_command;
 mod workspace_show_command;
+mod workspace_snapshot_command;
 
 #[cfg(test)]
 mod cli_style_tests;
@@ -107,15 +108,9 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     }
     // A driver's pane IDs and targets are known once its syntax is registered.
     // Recovery inspection never participates in optional learning/delivery effects.
-    if let Invocation::WorkspaceShow { socket } = &parsed.invocation {
-        return workspace_show_command::execute(socket.as_deref(), parsed.mode);
-    }
-    if let Invocation::WorkspaceRestore {
-        socket,
-        layout_only,
-    } = &parsed.invocation
-    {
-        return workspace_restore_command::execute(socket.as_deref(), *layout_only, parsed.mode);
+    if workspace_snapshot_command::eligible(&parsed.invocation) {
+        tmt_adapters::host::external::register_approved();
+        return workspace_snapshot_command::execute(&parsed.invocation, parsed.mode);
     }
     // The updater's frozen skill-refresh protocol owns its own path admission
     // and output. Driver registration would discover configuration first and
@@ -226,14 +221,12 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Config(request) => {
             return config_command::execute(request, parsed.mode);
         }
-        Invocation::WorkspaceRestore {
-            socket,
-            layout_only,
-        } => {
-            return workspace_restore_command::execute(socket.as_deref(), layout_only, parsed.mode);
-        }
-        Invocation::WorkspaceShow { socket } => {
-            return workspace_show_command::execute(socket.as_deref(), parsed.mode);
+        request @ (Invocation::WorkspaceRestore { .. }
+        | Invocation::WorkspaceShow { .. }
+        | Invocation::WorkspaceSave { .. }
+        | Invocation::WorkspaceList { .. }
+        | Invocation::WorkspaceRemove { .. }) => {
+            return workspace_snapshot_command::execute(&request, parsed.mode);
         }
         Invocation::ExtensionInstall(request) => {
             return extension_install_command::execute(request, parsed.mode);

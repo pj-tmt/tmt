@@ -526,8 +526,9 @@ Enter go to the owner (open the squad, in the list), `n` new, `e` expand/collaps
 keeps its binding. New, edit and reassign use the input line one step at a time: owner
 (member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
 `mon,thu 10:00` or five cron fields); Esc cancels and nothing is written. The message is sent as
-typed, and an edit leaves untouched fields as stored; a message with several lines is kept and
-only its owner and schedule can be changed there (use `tmt ops sq cron edit --message`). Changes
+typed, and an edit leaves untouched fields as stored. Multiline messages use the shared
+editor below; messages above its 1 MiB editing limit remain intact while owner and schedule
+can still be changed. Changes
 use the same permission and revision checks as the commands: only the recorded user or the
 squad's lead can change jobs, and a job that changed since you looked is refused, not
 overwritten. Failures are shown and never retried. `x` sends once, like `tmt ops sq cron send`.
@@ -826,6 +827,53 @@ Reading works without recording yourself; writing requires `tmt ops sq me`.
 Choose `team` from the `,` settings menu's View row for the previous detail/replies
 side panes; `members` restores the grouped list.
 Hand-written `board.layout` or `panes` keeps its configured composition.
+
+## Conversation and message editing
+
+The Replies pane shows the selected agent's conversation. A wide HOME dashboard
+uses the same conversation beside its monitor. Both share response, reading position
+and composer by agent UUID, so renaming an agent or changing its membership does not
+create another draft. Runtime is the observed runtime name, not the model's vendor;
+missing runtime/model evidence is shown as unavailable.
+
+A two-pane `rows`/`replies` workspace uses terminal cells without blank row padding.
+Its automatic layout is side by side when wide, stacked at medium widths, and focused
+single-pane when narrow or low. An explicit side/stack preference degrades safely.
+The wheel scrolls the pane under the pointer without changing the message recipient.
+PgUp/PgDn/Home/End act on the focused pane. Reading older response text pauses follow;
+new output is labelled until End resumes follow. A replaced response stays visible
+while paused. A vanished source is labelled separately, not presented as new output.
+
+Talk, reply and annotation use a multiline editor. Left/Right and Home/End move the
+caret; Shift with movement selects; Backspace/Delete remove selected text or a
+grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
+a newline on terminals that report it distinctly; Ctrl-N is the portable fallback.
+Esc leaves input without sending. Direct-message drafts and their quote/paste
+attachments are session-only: they survive view/layout/resize and membership changes,
+but do not survive restarting the TUI. A successful send clears only the submitted
+draft; a failed or uncertain send keeps it.
+
+Bracketed paste never submits. Message text is limited to 1 MiB, with exact text and
+newlines preserved. Paste over 500 characters or eight lines folds into one labelled
+range; Ctrl-P previews or folds it at the caret, and deletion removes that range.
+Name/configuration/search fields keep their smaller bounds and do not gain message
+completion. The status reason keeps its 4,000-byte bound and explicit Apply step.
+
+Type `@` in a message, status reason or cron message body to search acquired agents
+and squads. Arrows select a candidate; Enter/Tab inserts it, Esc dismisses, and a
+click selects it. Mentions are plain text only. The displayed direct recipient stays
+unchanged; `@squad` never broadcasts or chooses a lead. Cron stores the literal text,
+and later renames do not rewrite it. Colab addressing has its own semantics; a page
+link in the conversation does not authorize native page/thread writes.
+
+In the full response reader, `s` opens exact source selection. Shift with movement
+or mouse drag selects a range; `y` copies and `a` attaches it to an annotation draft
+without sending. The quote carries the response/request identity and source byte
+range. Selecting text never acknowledges a request. If the source changes or the
+agent disappears, the retained text can still be read/copied but cannot be attached
+to another response. Alt-Backspace removes the most recent quote from the composer.
+For terminal-native selection, use the terminal's mouse-capture bypass modifier
+(commonly Shift); the exact modifier belongs to the terminal.
 
 ## Fold board panes
 

@@ -232,10 +232,11 @@ bindings (`identity`, `ls`, `add`, `name`/`this`, `marked`, `whoami`, `unbind`,
 `workspace`); `focus`; local extension interfaces (`api`, `mcp`); native
 installation (`upgrade`/`update`, `uninstall`, `extension`, `driver`); and the
 frozen `office` facade. Hidden internal commands are not a public surface.
-Workspace recovery keeps geometry in Core, snapshot IO and fenced creation in
-adapters, and CLI composition/output. Full restore uses ordinary resume and
-external dispatch in created panes; layout-only grants no launch authority.
-Output uses one typed result for human and JSON projections; `identity show`
+Core owns workspace geometry/names/cap, adapters IO/fenced creation, CLI output.
+Named save copies per-socket latest under its lock; guarded restore pins previewed
+bytes. Full restore uses ordinary resume/external dispatch in created panes;
+layout-only grants no launch authority.
+One typed result serves human and JSON output; `identity show`
 without a name uses the shared verified-caller selector and never falls back to
 a working directory, active pane or sole identity.
 
@@ -560,9 +561,8 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
 channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
-Firestore deploy CLI. `firebase_auth` owns credentials/refresh; `native_sync` owns REST
-polling and read budgets. Page hints retain no progress; Colab owns catch-up cursors.
-Neither adds Core state or a carrier.
+Firestore deploy CLI. `firebase_auth` owns credentials; `native_sync` owns REST polling
+and read budgets. Colab owns cursors; neither adds Core state or a carrier.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve

@@ -1,16 +1,11 @@
 //! Two-phase recovery reuses ordinary resume and generic external dispatch.
 
-use crate::{invocation::OutputMode, output::Failure, workspace_show_command::selected_socket};
+use crate::{invocation::OutputMode, output::Failure};
 use std::{
     io::{self, Write},
     time::{Duration, Instant},
 };
-use tmt_adapters::{
-    config::ConfigPaths,
-    host::{CallerEnvironment, Host},
-    storage::Storage,
-    workspace,
-};
+use tmt_adapters::{config::ConfigPaths, host::Host, storage::Storage, workspace};
 use tmt_core::workspace::{
     StoredIdentity, WorkspaceSnapshot,
     plan::{WorkspacePaneAction, restore_plan},
@@ -240,18 +235,24 @@ fn revive(
         .collect()
 }
 
-pub fn execute(socket: Option<&str>, layout_only: bool, mode: OutputMode) -> io::Result<u8> {
+pub fn execute(
+    socket: Option<&str>,
+    name: Option<&tmt_core::workspace::SnapshotName>,
+    expect: Option<&str>,
+    layout_only: bool,
+    mode: OutputMode,
+) -> io::Result<u8> {
     let outcome: Result<_, Failure> = (|| {
-        let caller = CallerEnvironment::current();
-        let socket = selected_socket(socket, &caller)?;
-        let paths = ConfigPaths::discover().map_err(Failure::from)?;
-        let snapshot = workspace::read_snapshot(&paths, &socket).map_err(|error| {
-            Failure::new(
-                "WORKSPACE_RESTORE_UNAVAILABLE",
-                format!("Could not read workspace recovery input: {error}"),
-                1,
-            )
-        })?;
+        let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
+        let document =
+            workspace::saved::acquire(&paths, &socket, name, expect).map_err(|error| {
+                crate::workspace_snapshot_command::failure(
+                    error,
+                    "WORKSPACE_RESTORE_UNAVAILABLE",
+                    name.is_none(),
+                )
+            })?;
+        let snapshot = document.snapshot;
         let identities = if layout_only {
             Vec::new()
         } else {
@@ -269,7 +270,6 @@ pub fn execute(socket: Option<&str>, layout_only: bool, mode: OutputMode) -> io:
             .filter(|pane| pane.argv.is_some())
             .map(|pane| pane.recorded.clone())
             .collect::<Vec<_>>();
-        let host = Host::for_caller(&caller);
         let result = host
             .workspace_restore_layout(
                 &snapshot,
@@ -295,16 +295,16 @@ pub fn execute(socket: Option<&str>, layout_only: bool, mode: OutputMode) -> io:
         } else {
             revive(&paths, &snapshot, &host, &result, prepared)
         };
-        Ok((socket, result, revival))
+        Ok((socket, document.digest, result, revival))
     })();
-    let (socket, result, revival) = match outcome {
+    let (socket, digest, result, revival) = match outcome {
         Ok(result) => result,
         Err(error) => return error.publish(mode),
     };
     let mut output = tmt_cli_style::stream::stdout(mode.json);
     let partial = result.partial() || revival.iter().any(|pane| pane.failed);
     if mode.json {
-        let mut document = serde_json::json!({"version": 1, "socket": socket, "layoutOnly": layout_only,
+        let mut document = serde_json::json!({"version": 1, "socket": socket, "name": name.map(|name| name.as_str()), "digest": digest, "layoutOnly": layout_only,
             "status": if partial { "partial" } else { "completed" }, "sessions": result.sessions,
             "windows": result.windows, "panes": result.panes, "failures": result.failures});
         if !layout_only {
@@ -353,6 +353,7 @@ pub fn execute(socket: Option<&str>, layout_only: bool, mode: OutputMode) -> io:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tmt_adapters::host::CallerEnvironment;
     use tmt_core::{
         binding::{
             BindingEntry,

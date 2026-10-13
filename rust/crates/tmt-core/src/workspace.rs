@@ -11,6 +11,40 @@ pub const VERSION: u64 = 1;
 pub const MAX_PANES: usize = 1024;
 pub const MAX_BYTES: usize = 1024 * 1024;
 
+/// Named recovery documents are bounded independently of the automatic latest.
+pub const MAX_SAVED_SNAPSHOTS: usize = 16;
+
+/// A validated filename component; identity names are a different namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotName(String);
+
+impl SnapshotName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::str::FromStr for SnapshotName {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let bytes = value.as_bytes();
+        if bytes.is_empty()
+            || bytes.len() > 64
+            || !bytes[0].is_ascii_lowercase() && !bytes[0].is_ascii_digit()
+            || !bytes.iter().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+            })
+            || value == "latest"
+        {
+            return Err(
+                "Snapshot names require 1–64 lowercase ASCII letters, digits, underscores or hyphens, starting with a letter or digit; latest is reserved.",
+            );
+        }
+        Ok(Self(value.to_owned()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceSnapshot {
     pub captured_at_ms: u64,

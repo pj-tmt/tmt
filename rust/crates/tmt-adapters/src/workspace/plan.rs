@@ -7,17 +7,21 @@ use tmt_core::workspace::{StoredIdentity, WorkspaceSnapshot, plan::restore_plan}
 
 pub struct WorkspacePlanInput {
     pub snapshot: WorkspaceSnapshot,
+    pub name: Option<tmt_core::workspace::SnapshotName>,
+    pub digest: String,
     pub identities: Vec<StoredIdentity>,
     pub current_sessions: Option<Vec<String>>,
 }
 
-pub fn read<R: CommandRunner + Clone>(
+pub fn read_document<R: CommandRunner + Clone>(
     paths: &ConfigPaths,
     socket: &str,
     host: &Host<R>,
     deadline: Instant,
+    name: Option<tmt_core::workspace::SnapshotName>,
+    document: super::saved::Document,
 ) -> io::Result<WorkspacePlanInput> {
-    let snapshot = super::read_snapshot(paths, socket)?;
+    let snapshot = document.snapshot;
     let ids: Vec<&str> = snapshot
         .panes
         .iter()
@@ -39,6 +43,8 @@ pub fn read<R: CommandRunner + Clone>(
     };
     Ok(WorkspacePlanInput {
         snapshot,
+        name,
+        digest: document.digest,
         identities,
         current_sessions,
     })
@@ -55,7 +61,7 @@ pub fn document(input: &WorkspacePlanInput) -> io::Result<Value> {
     let snapshot: Value =
         serde_json::from_slice(&super::encode(&input.snapshot)?).map_err(io::Error::other)?;
     Ok(json!({
-        "version": 1, "snapshot": snapshot,
+        "version": 1, "name": input.name.as_ref().map(|name| name.as_str()), "digest": input.digest, "snapshot": snapshot,
         "sessions": plan.sessions.iter().map(|(id, action)| json!({"session": id, "action": action.as_str()})).collect::<Vec<_>>(),
         "panes": plan.panes.iter().map(|pane| json!({
             "pane": pane.pane, "action": pane.action.as_str(),
@@ -82,6 +88,17 @@ mod tests {
         },
         identity::{Lifetime, create_or_resolve},
     };
+
+    fn read<R: CommandRunner + Clone>(
+        paths: &ConfigPaths,
+        socket: &str,
+        host: &Host<R>,
+        deadline: Instant,
+    ) -> io::Result<WorkspacePlanInput> {
+        let document =
+            super::super::saved::acquire(paths, socket, None, None).map_err(io::Error::other)?;
+        read_document(paths, socket, host, deadline, None, document)
+    }
 
     #[derive(Clone)]
     struct PlanRunner(std::rc::Rc<ScriptedRunner>);

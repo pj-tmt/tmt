@@ -24,7 +24,7 @@ pub(super) enum Target {
 pub(super) struct State {
     pub expanded: Vec<Target>,
     /// Bodies belong to active rows and exact request identities, never row positions.
-    bodies: Vec<(MessageKey, String)>,
+    bodies: Vec<(MessageKey, Result<String, String>)>,
     pub reader: Option<Reader>,
 }
 
@@ -44,17 +44,24 @@ impl State {
         if self
             .reader
             .as_ref()
-            .is_some_and(|reader| !alive.contains(&reader.target))
+            .is_some_and(|reader| reader.frozen.is_none() && !alive.contains(&reader.target))
         {
             self.reader = None;
         }
         self.bodies.retain(|(key, _)| keys.contains(key));
     }
+    fn body_failed(&self, key: &MessageKey) -> bool {
+        self.bodies
+            .iter()
+            .any(|(current, body)| current == key && body.is_err())
+    }
     fn body(&self, key: &MessageKey) -> Option<&str> {
         self.bodies
             .iter()
             .find(|(current, _)| current == key)
-            .map(|(_, body)| body.as_str())
+            .map(|(_, body)| match body {
+                Ok(text) | Err(text) => text.as_str(),
+            })
     }
 }
 
@@ -72,6 +79,8 @@ pub(super) struct Reply {
     pub body: String,
     pub key: Option<MessageKey>,
     pub acquired: bool,
+    /// Only successful exact bodies may produce source-range attachments.
+    pub source: bool,
 }
 
 #[derive(Clone, Default)]
@@ -273,12 +282,13 @@ impl App {
             }
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
-        if let Some(reply) = (if home_member || home_lead {
-            Some(&self.home_leads.replies)
-        } else {
-            self.view.as_ref().map(|view| &view.replies)
-        })
-        .and_then(|replies| replies.iter().find(|reply| reply["recipientId"] == id))
+        if let Some(reply) = self
+            .home_leads
+            .replies
+            .iter()
+            .chain(self.view.iter().flat_map(|view| &view.replies))
+            .filter(|reply| reply["recipientId"] == id)
+            .max_by_key(|reply| (reply["submittedAtMs"].as_u64(), reply["requestId"].as_str()))
         {
             let key = sender
                 .zip(reply["requestId"].as_str())
@@ -296,6 +306,11 @@ impl App {
                 from: row["name"].as_str().unwrap_or("–").into(),
                 age: age(reply["submittedAtMs"].as_u64(), now),
                 body: body.unwrap_or("(reading reply…)").into(),
+                source: body.is_some()
+                    && (reply["response"].is_string()
+                        || key
+                            .as_ref()
+                            .is_none_or(|key| !self.row_details.body_failed(key))),
                 key,
                 acquired: body.is_some(),
             });
@@ -324,6 +339,10 @@ impl App {
                     from: lead.name().into(),
                     age: age(exchange.since_ms, now),
                     body: body.unwrap_or("(reading reply…)").into(),
+                    source: body.is_some()
+                        && key
+                            .as_ref()
+                            .is_none_or(|key| !self.row_details.body_failed(key)),
                     key,
                     acquired: body.is_some(),
                 });
@@ -427,13 +446,24 @@ impl App {
         Effect::None
     }
     pub(super) fn detail_value(&self, row: usize, visible: &[&str]) -> Value {
-        self.row_target(row)
+        if self.row_details.expanded.is_empty() {
+            return Value::Null;
+        }
+        self.detail_target_value(self.row_target(row), visible)
+    }
+    pub(super) fn detail_target_value(&self, target: Option<RowTarget>, visible: &[&str]) -> Value {
+        target
             .filter(|target| self.row_details.contains(&Target::Row(target.clone())))
             .and_then(|target| self.row_detail(&target, visible))
             .map_or(Value::Null, |detail| detail.value())
     }
     fn active_detail_targets(&self) -> Vec<Target> {
         let mut targets = self.row_details.expanded.clone();
+        if self.scrolls.visible(crate::config::Pane::Replies)
+            && let Some(target) = self.conversation_target()
+        {
+            targets.push(Target::Row(target));
+        }
         if let Some(reader) = &self.row_details.reader {
             targets.push(reader.target.clone());
         }
@@ -441,9 +471,11 @@ impl App {
     }
     pub(super) fn reconcile_row_details(&mut self) {
         if self.row_details.reader.as_ref().is_some_and(|reader| {
-            self.detail(&reader.target)
-                .and_then(|detail| detail.reply)
-                .is_none()
+            reader.frozen.is_none()
+                && self
+                    .detail(&reader.target)
+                    .and_then(|detail| detail.reply)
+                    .is_none()
         }) {
             self.row_details.reader = None;
         }
@@ -483,7 +515,7 @@ impl App {
             .retain(|(current, _)| current != key);
         self.row_details.bodies.push((
             key.clone(),
-            body.unwrap_or_else(|error| {
+            body.map_err(|error| {
                 format!("(reply unavailable: {})", super::notes::sanitize(&error))
             }),
         ));
@@ -493,10 +525,10 @@ impl App {
             self.detail(target)
                 .is_some_and(|detail| detail.reply.is_some())
         }) {
-            self.row_details.reader = Some(Reader {
+            self.row_details.reader = Some(Reader::new(
                 target,
-                scroll: Default::default(),
-            });
+                self.conversation_reply().filter(|reply| reply.acquired),
+            ));
         }
         Effect::None
     }
@@ -779,8 +811,62 @@ pub(super) fn more_hit(
 }
 
 pub(super) struct Reader {
+    /// A paused conversation opens exactly the response it currently displays.
+    pub frozen: Option<Reply>,
+    pub selection: Option<super::response::Selection>,
+    pub source_area: std::cell::Cell<Option<Rect>>,
     pub target: Target,
     pub scroll: std::cell::RefCell<tmt_tui::components::ScrollState>,
+    rendered: std::cell::RefCell<Option<ReaderRender>>,
+}
+
+struct ReaderRender {
+    source: String,
+    width: u16,
+    look: Look,
+    lines: Vec<Line<'static>>,
+}
+
+impl Reader {
+    pub fn new(target: Target, frozen: Option<Reply>) -> Self {
+        Self {
+            target,
+            frozen,
+            selection: None,
+            source_area: Default::default(),
+            scroll: Default::default(),
+            rendered: Default::default(),
+        }
+    }
+
+    fn prepare(&self, reply: &Reply, width: u16, look: Look) {
+        let mut rendered = self.rendered.borrow_mut();
+        if rendered.as_ref().is_some_and(|cached| {
+            cached.source == reply.body && cached.width == width && cached.look == look
+        }) {
+            return;
+        }
+        *rendered = Some(ReaderRender {
+            source: reply.body.clone(),
+            width,
+            look,
+            lines: super::markdown::render(
+                &super::notes::sanitize(&reply.body),
+                usize::from(width),
+                look,
+            ),
+        });
+    }
+}
+
+impl App {
+    pub(super) fn reader_reply(&self) -> Option<Reply> {
+        let reader = self.row_details.reader.as_ref()?;
+        reader
+            .frozen
+            .clone()
+            .or_else(|| self.detail(&reader.target)?.reply)
+    }
 }
 
 pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
@@ -788,7 +874,7 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
     let Some(reader) = &app.row_details.reader else {
         return;
     };
-    let Some(reply) = app.detail(&reader.target).and_then(|detail| detail.reply) else {
+    let Some(reply) = app.reader_reply() else {
         return;
     };
     let look = app.look();
@@ -798,39 +884,67 @@ pub(super) fn render_reader(frame: &mut ratatui::Frame, app: &App, body: Rect) {
     };
     let areas = modal.areas(body, [body.width, body.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    let lines = super::markdown::render(
-        &super::notes::sanitize(&reply.body),
-        usize::from(areas.content.width),
-        look,
-    );
+    reader.source_area.set(Some(areas.content));
     let mut scroll = reader.scroll.borrow_mut();
-    scroll.update(areas.content, lines.len(), None);
-    for (index, line) in lines
-        .iter()
-        .skip(scroll.offset())
-        .take(usize::from(areas.content.height))
-        .enumerate()
-    {
-        strip::paint_left(
+    if let Some(selection) = &reader.selection {
+        let layout = selection.source.layout(areas.content.width);
+        scroll.update(areas.content, layout.lines.len(), None);
+        if let Some(caret) = layout.paint(
             frame.buffer_mut(),
-            Rect::new(
-                areas.content.x,
-                areas.content.y + index as u16,
-                areas.content.width,
-                1,
-            ),
-            line.clone().style(look.role(Role::Text)),
-        );
+            areas.content,
+            scroll.offset(),
+            selection.source.selection(),
+            look.role(Role::Text),
+            look.role(Role::Text)
+                .add_modifier(ratatui::style::Modifier::REVERSED),
+        ) {
+            frame.set_cursor_position(caret);
+        }
+    } else {
+        reader.prepare(&reply, areas.content.width, look);
+        let rendered = reader.rendered.borrow();
+        let lines = &rendered.as_ref().unwrap().lines;
+        scroll.update(areas.content, lines.len(), None);
+        for (index, line) in lines
+            .iter()
+            .skip(scroll.offset())
+            .take(usize::from(areas.content.height))
+            .enumerate()
+        {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(
+                    areas.content.x,
+                    areas.content.y + index as u16,
+                    areas.content.width,
+                    1,
+                ),
+                line.clone().style(look.role(Role::Text)),
+            );
+        }
     }
     strip::paint_left(
         frame.buffer_mut(),
         areas.position,
-        Line::styled(scroll.position(), look.role(Role::Muted)),
+        Line::styled(
+            reader.selection.as_ref().map_or_else(
+                || scroll.position(),
+                |selection| format!("source {} · {}", selection.key.request, scroll.position()),
+            ),
+            look.role(Role::Muted),
+        ),
     );
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,
-        super::view::footer::hint_line("↑↓ scroll  PgUp/PgDn page  Esc close", look),
+        super::view::footer::hint_line(
+            if reader.selection.is_some() {
+                "Shift-arrows / drag select · y copy · a annotate · Esc close"
+            } else {
+                "↑↓ scroll · PgUp/PgDn page · s select source · Esc close"
+            },
+            look,
+        ),
     );
 }
 

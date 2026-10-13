@@ -170,6 +170,7 @@ pub(crate) mod tests {
         assert_eq!(grammar.name(), "herdr");
         assert!(grammar.is_pane_id("term_1") && !grammar.is_pane_id("%1"));
         assert!(grammar.is_target("w1:p2"));
+        assert!(grammar.is_target("wA:p2E") && !grammar.is_target("w1:p2e"));
         assert_eq!(
             grammar.host(),
             &HostGrammar::new("herdr", "term_", Some("w{n}:p{n}")).unwrap()

@@ -495,7 +495,7 @@ pub(super) fn text(output: &mut impl Write, terminal: Terminal, report: &Report)
             // reads as one of its pane targets.
             match rows
                 .iter()
-                .find(|row| tmt_core::names::is_pane_target(&row.presence.identity.name))
+                .find(|row| tmt_core::names::names_pane_target(&row.presence.identity.name))
             {
                 Some(row) => message::hint(
                     output,

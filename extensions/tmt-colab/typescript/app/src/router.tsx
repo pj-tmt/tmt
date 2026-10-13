@@ -20,6 +20,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type Ref,
 } from 'react';
 import {
   createHashHistory,
@@ -427,35 +428,45 @@ function composerConnection(state: ConnectionState): ComposerConnectionPresentat
 
 const root = createRootRouteWithContext<{ transport: PageTransport; space?: string }>()({
   component: Shell,
-  errorComponent: ({ error }) => (
-    <>
-      <AppHeader title={text.error} />
-      <main>
-        <NoticeCard
-          state="blocked"
-          eyebrow={text.product}
-          title={text.error}
-          actions={
-            <Link className={ui.action} data-variant="text" to="/">
-              {text.retry}
-            </Link>
-          }
-        >
-          <p>
-            {error instanceof Error ? (
-              error.message === text.reconnectFailed ? (
-                <ReconnectFailure />
+  errorComponent: function RootError({ error }) {
+    const header = useRef<HTMLElement>(null);
+    useLayoutEffect(() => {
+      const title = header.current?.querySelector('h1');
+      if (title) {
+        title.tabIndex = -1;
+        title.focus({ preventScroll: true });
+      }
+    }, []);
+    return (
+      <>
+        <AppHeader title={text.error} headerRef={header} />
+        <main>
+          <NoticeCard
+            state="blocked"
+            eyebrow={text.product}
+            title={text.error}
+            actions={
+              <Link className={ui.action} data-variant="text" to="/">
+                {text.retry}
+              </Link>
+            }
+          >
+            <p>
+              {error instanceof Error ? (
+                error.message === text.reconnectFailed ? (
+                  <ReconnectFailure />
+                ) : (
+                  error.message
+                )
               ) : (
-                error.message
-              )
-            ) : (
-              text.blocked
-            )}
-          </p>
-        </NoticeCard>
-      </main>
-    </>
-  ),
+                text.blocked
+              )}
+            </p>
+          </NoticeCard>
+        </main>
+      </>
+    );
+  },
   notFoundComponent: () => (
     <>
       <NoticeCard
@@ -578,14 +589,17 @@ export function AppHeader({
   linked = true,
   title = text.pages,
   remote,
+  headerRef,
 }: {
   linked?: boolean;
   title?: string;
   remote?: { deviceName?: string };
+  headerRef?: Ref<HTMLElement>;
 }) {
   return (
     <ColabHeader
       title={title}
+      headerRef={headerRef}
       remote={remote}
       home={
         linked

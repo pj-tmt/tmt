@@ -6,21 +6,31 @@ use std::{
     time::Instant,
 };
 use tmt_adapters::{
-    config::ConfigPaths,
-    host::{CallerEnvironment, Host},
+    host::CallerEnvironment,
     workspace::{self, plan},
 };
 
-pub fn execute(socket: Option<&str>, mode: OutputMode) -> io::Result<u8> {
+pub fn execute(
+    socket: Option<&str>,
+    name: Option<&tmt_core::workspace::SnapshotName>,
+    mode: OutputMode,
+) -> io::Result<u8> {
     let outcome: Result<_, Failure> = (|| {
-        let caller = CallerEnvironment::current();
-        let socket = selected_socket(socket, &caller)?;
-        let paths = ConfigPaths::discover().map_err(Failure::from)?;
-        let input = plan::read(
+        let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
+        let document = workspace::saved::acquire(&paths, &socket, name, None).map_err(|error| {
+            crate::workspace_snapshot_command::failure(
+                error,
+                "WORKSPACE_PLAN_UNAVAILABLE",
+                name.is_none(),
+            )
+        })?;
+        let input = plan::read_document(
             &paths,
             &socket,
-            &Host::for_caller(&caller),
+            &host,
             Instant::now() + workspace::CAPTURE_BUDGET,
+            name.cloned(),
+            document,
         )
         .map_err(|error| {
             Failure::new(

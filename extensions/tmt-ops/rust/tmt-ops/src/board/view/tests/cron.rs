@@ -417,7 +417,7 @@ mod controls {
         assert!(input.prompt.contains("edit product c0 · message"));
         let footer = draw(&app, 100, 24).pop().unwrap();
         assert!(
-            footer.starts_with("edit product c0 · message › job for u1▏"),
+            footer.starts_with("edit product c0 · message › job for u1"),
             "{footer}"
         );
         // Nothing changed at either step: nothing is written.
@@ -467,13 +467,17 @@ mod controls {
     }
 
     #[test]
-    fn a_multi_line_message_is_kept_as_stored_and_only_the_schedule_is_edited() {
+    fn multiline_message_is_editable_and_unchanged_submission_preserves_it() {
         let (mut app, _) = focused();
         app.cron.cron.as_mut().unwrap().jobs[0].job.message = "one\ntwo".into();
         press(&mut app, KeyCode::Char('E'));
         let input = app.input.as_ref().unwrap();
-        assert!(input.prompt.ends_with("schedule"), "{}", input.prompt);
-        assert!(input.hint.as_ref().unwrap().text.contains("several lines"));
+        assert!(input.prompt.ends_with("message"), "{}", input.prompt);
+        assert_eq!(input.text, "one\ntwo");
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert!(app.input.as_ref().unwrap().prompt.ends_with("schedule"));
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert!(app.notice.as_deref().unwrap().contains("nothing written"));
     }
 
     #[test]

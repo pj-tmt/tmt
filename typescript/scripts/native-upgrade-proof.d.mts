@@ -1,5 +1,6 @@
 export const HANDOFF_PROBE: string[];
 export function hasInstallerHandoff(sourceRoot: URL): boolean;
+export function hasMovedInstallerHandoff(sourceRoot: URL): boolean;
 interface Options {
   cwd: string;
   env: NodeJS.ProcessEnv;
@@ -11,6 +12,11 @@ export function installerProtocol(
   execute?: Execute
 ): 'handoff' | 'legacy';
 export function requireInstallerProtocol(
+  executable: string,
+  options: Options,
+  execute?: Execute
+): void;
+export function requireMovedInstallerProtocol(
   executable: string,
   options: Options,
   execute?: Execute
@@ -34,6 +40,7 @@ export function proveSourceBootstrap(input: {
   manifest: string;
   previousArchive: string;
   previousManifest: string;
+  sourceRoot: URL;
   expectedMigrations: number;
   report?: (message: string) => void;
 }): void;

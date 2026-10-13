@@ -18,13 +18,21 @@ pub(super) struct Draft {
     pub clear_pending: bool,
     pub replace_state: bool,
     pub state: String,
-    pub reason: String,
+    pub reason: tmt_tui::components::Editor,
     pub focus: usize,
     pub scroll: Option<usize>,
     pub error: Option<String>,
     pub outcome: Option<Outcome>,
 }
 impl Draft {
+    pub(super) fn editable_reason(&self) -> bool {
+        self.focus == 2
+            && !matches!(
+                self.outcome,
+                Some(Outcome::Applied { .. } | Outcome::Unknown(_))
+            )
+    }
+
     pub fn loaded(&mut self, result: Result<Preview, String>) {
         match result {
             Ok(preview) => {
@@ -176,6 +184,23 @@ impl App {
             }
             return Effect::None;
         }
+        if draft.focus == 2
+            && (key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT)
+                || key.code == KeyCode::Char('n') && key.modifiers.contains(KeyModifiers::CONTROL))
+        {
+            draft.reason.insert("\n", super::app::INPUT_LIMIT);
+            return Effect::None;
+        }
+        if draft.focus == 2
+            && !matches!(
+                key.code,
+                KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Tab
+            )
+        {
+            let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
+            draft.reason.key(key, width, super::app::INPUT_LIMIT);
+            return Effect::None;
+        }
         let max = 3 + open.len();
         match key.code {
             KeyCode::Up => {
@@ -201,7 +226,7 @@ impl App {
                         preview: preview.clone(),
                         clear_pending: draft.clear_pending,
                         state: draft.replace_state.then(|| draft.state.clone()),
-                        reason: draft.reason.clone(),
+                        reason: draft.reason.as_str().to_owned(),
                     }))));
                 }
                 n => {
@@ -224,24 +249,19 @@ impl App {
                     return effect;
                 }
             },
-            KeyCode::Backspace => match draft.focus {
-                1 => {
+            KeyCode::Backspace => {
+                if draft.focus == 1 {
                     draft.state.pop();
                 }
-                2 => {
-                    draft.reason.pop();
-                }
-                _ => {}
-            },
+            }
             KeyCode::Char(c)
                 if !c.is_control() && !key.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                let text = match draft.focus {
-                    1 => &mut draft.state,
-                    2 => &mut draft.reason,
-                    _ => return Effect::None,
-                };
-                if text.chars().count() < super::app::INPUT_LIMIT {
+                if draft.focus != 1 {
+                    return Effect::None;
+                }
+                let text = &mut draft.state;
+                if text.len().saturating_add(c.len_utf8()) <= super::app::INPUT_LIMIT {
                     text.push(c);
                 }
             }
@@ -313,11 +333,11 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         }
         lines.push((
             Some(2),
-            format!(
-                "Reason: {}{}",
-                draft.reason,
-                if draft.focus == 2 { "▏" } else { "" }
-            ),
+            if draft.focus == 2 {
+                "Reason:".into()
+            } else {
+                format!("Reason: {}", draft.reason)
+            },
         ));
         let button = match &draft.outcome {
             Some(Outcome::Applied {
@@ -437,6 +457,21 @@ mod tests {
         preview
     }
     #[test]
+    fn status_reason_accepts_portable_and_distinct_newlines_without_submitting() {
+        let mut app = app();
+        ready(&mut app);
+        app.status_draft.as_mut().unwrap().focus = 2;
+        for (code, modifiers) in [
+            (KeyCode::Char('n'), KeyModifiers::CONTROL),
+            (KeyCode::Enter, KeyModifiers::SHIFT),
+        ] {
+            assert_eq!(app.key(KeyEvent::new(code, modifiers)), Effect::None);
+        }
+        assert_eq!(app.status_draft.as_ref().unwrap().reason.as_str(), "\n\n");
+        assert!(app.status_draft.as_ref().unwrap().outcome.is_none());
+    }
+
+    #[test]
     fn no_preselected_changes_reason_bound_and_message_draft_are_independent() {
         let mut app = app();
         let opening = ready(&mut app);
@@ -471,7 +506,8 @@ mod tests {
         assert!(submit.clear_pending);
         assert_eq!(submit.state, None);
         assert_eq!(submit.reason, "Approved");
-        app.status_draft.as_mut().unwrap().reason = "x".repeat(super::super::app::INPUT_LIMIT);
+        app.status_draft.as_mut().unwrap().reason =
+            "x".repeat(super::super::app::INPUT_LIMIT).into();
         app.status_draft.as_mut().unwrap().focus = 2;
         press(&mut app, KeyCode::Char('z'));
         assert_eq!(

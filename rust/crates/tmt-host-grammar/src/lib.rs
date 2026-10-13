@@ -185,7 +185,8 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// Literals are `[a-z:]` and the template starts with a letter, so a target
-/// is never a number, a pane ID of any host, or tmux's `window.pane`.
+/// is never a number, a pane ID of any host, or tmux's `window.pane`. A
+/// number is 1-9 of `[0-9A-Z]`, which no literal is.
 fn parse_template(template: &str) -> Result<Vec<Token>, GrammarError> {
     let error = || {
         GrammarError::new(
@@ -227,7 +228,12 @@ fn matches(tokens: &[Token], value: &str) -> bool {
                 None => return false,
             },
             Token::Number => {
-                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                // A host may number in a base above ten (Herdr's `p2E`). No
+                // literal is uppercase, so a number ends at the next literal.
+                let digits = rest
+                    .bytes()
+                    .take_while(|byte| byte.is_ascii_digit() || byte.is_ascii_uppercase())
+                    .count();
                 if !(1..=DIGITS_MAX).contains(&digits) {
                     return false;
                 }
@@ -257,10 +263,29 @@ mod tests {
         }
         assert!(grammar.is_pane_id(&format!("term_{}", "a".repeat(64))));
         assert!(!grammar.is_pane_id(&format!("term_{}", "a".repeat(65))));
-        assert!(grammar.is_target("w1:p23"));
-        for target in ["w:p1", "w1:p", "w1:p2x", "W1:p2", "w1234567890:p1"] {
+        // Herdr numbers workspaces and panes with digits and uppercase
+        // letters; `0` follows `Z`.
+        for target in ["w1:p23", "w1:p2E", "wA:pG", "w1:p0", "wZZZZZZZZZ:p1"] {
+            assert!(grammar.is_target(target), "{target}");
+        }
+        for target in [
+            "w:p1",
+            "w1:p",
+            "w1:p2x",
+            "w1:p2e",
+            "W1:p2",
+            "w1:P2",
+            "w1234567890:p1",
+            "wAAAAAAAAAA:p1",
+            "w1:pZZZZZZZZZZ",
+        ] {
             assert!(!grammar.is_target(target), "{target}");
         }
+        assert!(grammar.is_target("w1:pZZZZZZZZZ"));
+        // A number ends at a lowercase literal as it does at `:`.
+        let joined = HostGrammar::new("joined", "jn-", Some("w{n}p{n}")).unwrap();
+        assert!(joined.is_target("wApG"));
+        assert!(!joined.is_target("wApGx"));
         assert_eq!(grammar.sample_target().as_deref(), Some("w1:p1"));
         assert_eq!(grammar.target_numbered("42").as_deref(), Some("w42:p42"));
         let untargeted = HostGrammar::new("plain", "pane-", None).unwrap();
@@ -295,6 +320,9 @@ mod tests {
         let other =
             |prefix: &str, target: Option<&str>| HostGrammar::new("other", prefix, target).unwrap();
         assert_eq!(herdr.conflict(&other("pane-", Some("t{n}"))), None);
+        // A number never reads a literal, so different literals stay apart.
+        assert_eq!(herdr.conflict(&other("pane-", Some("w{n}:q{n}"))), None);
+        assert_eq!(herdr.conflict(&other("pane-", Some("w{n}"))), None);
         assert!(herdr.conflict(&other("term_", None)).is_some());
         assert!(herdr.conflict(&other("pane-", Some("w{n}:p{n}"))).is_some());
         assert!(herdr.conflict(&herdr.clone()).is_some(), "same name");

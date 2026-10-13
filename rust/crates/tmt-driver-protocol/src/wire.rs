@@ -21,7 +21,7 @@ pub struct Capabilities {
     pub ops: Vec<String>,
     pub pane_id: PaneIdSyntax,
     /// How a user names one of its panes, as a template where `{n}` stands
-    /// for 1–9 digits (`w{n}:p{n}`); `None` when panes have no public name.
+    /// for 1–9 of `[0-9A-Z]` (`w{n}:p{n}`); `None` when panes have no public name.
     #[serde(default)]
     pub target: Option<String>,
     /// The environment variables `caller` reads; core passes only these.

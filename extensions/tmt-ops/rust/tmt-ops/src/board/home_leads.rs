@@ -1,5 +1,5 @@
-//! HOME's latest exchanges are a deferred projection of public request reads.
-//! Submitted replies use the originator results view; pending asks use one
+//! Latest exchanges are a deferred projection shared by conversation placements.
+//! Submitted replies use the originator results view; HOME pending asks use one
 //! bounded recipient-history page per distinct lead, never a room scan.
 
 use crate::{
@@ -56,6 +56,14 @@ pub struct MessageKey {
 }
 
 impl MessageKey {
+    /// A squad is presentation/dispatch context, not response provenance.
+    pub(super) fn same_source(&self, other: &Self) -> bool {
+        self.sender == other.sender
+            && self.lead == other.lead
+            && self.request == other.request
+            && self.kind == other.kind
+    }
+
     pub(super) fn read(&self, core: &Core) -> Result<String, SquadError> {
         self.body(crate::requests::show_request(core, &self.request)?)
     }
@@ -88,16 +96,24 @@ impl MessageKey {
         match part["status"].as_str() {
             Some("retained") => part[field]
                 .as_str()
-                .map(super::notes::sanitize)
+                // Acquisition keeps exact bytes for source-range annotations.
+                // Every painter escapes independently; a display string cannot
+                // stand in for the response's source offsets.
+                .map(str::to_owned)
                 .ok_or_else(|| {
                     SquadError::new(
                         "SQUAD_CORE_UNAVAILABLE",
                         "The retained message body is unavailable.",
                     )
                 }),
-            Some("expired") => Ok("(message expired)".into()),
-            Some("not_submitted") => Ok("(reply not submitted)".into()),
-            _ => Ok("(message unavailable)".into()),
+            status => Err(SquadError::new(
+                "SQUAD_RESPONSE_UNAVAILABLE",
+                match status {
+                    Some("expired") => "The message expired.",
+                    Some("not_submitted") => "The reply has not been submitted.",
+                    _ => "The message is unavailable.",
+                },
+            )),
         }
     }
 }
@@ -159,6 +175,14 @@ fn roster(home: &super::home::Home) -> Vec<Lead> {
 }
 
 impl Fetch {
+    /// The same originator result page outside HOME, without lead-history reads.
+    pub fn results(sender: Option<Me>) -> Self {
+        Self {
+            sender,
+            leads: Vec::new(),
+        }
+    }
+
     pub fn new(home: &super::home::Home, sender: Option<Me>) -> Self {
         Self {
             sender,
@@ -222,6 +246,15 @@ impl Fetch {
 }
 
 impl State {
+    pub fn set_sender(&mut self, sender: Option<&str>) {
+        if self.sender.as_deref() != sender {
+            self.sender = sender.map(str::to_owned);
+            self.replies.clear();
+            self.leads.clear();
+            self.failure = None;
+        }
+    }
+
     /// Refreshes the roster while retaining observations only for the same user
     /// and lead occurrence. Replaced leads cannot inherit another lead's message.
     pub fn reconcile(&mut self, home: &super::home::Home, sender: Option<&str>) {

@@ -626,6 +626,12 @@ mod tests {
             "an unasked pane"
         );
         assert!(snapshot.within(None));
+        // A target's numbers may hold uppercase letters.
+        let mut lettered = pane("term_1");
+        lettered["target"] = json!("wA:p2E");
+        let lettered = bytes(json!({"ok": {"panes": [lettered]}}));
+        let snapshot: SnapshotResponse = decode(&grammar(), &lettered).unwrap().unwrap();
+        assert_eq!(snapshot.panes[0].target.as_deref(), Some("wA:p2E"));
 
         let bad = |edit: fn(&mut serde_json::Value)| {
             let mut value = pane("term_1");
@@ -635,6 +641,7 @@ mod tests {
         for edit in [
             (|p: &mut serde_json::Value| p["id"] = json!("%1")) as fn(&mut serde_json::Value),
             |p| p["target"] = json!("1.2"),
+            |p| p["target"] = json!("w1:p2e"),
             |p| p["cwd"] = json!("relative"),
             |p| p["command"] = json!("cl\u{1b}aude"),
             |p| p["panePid"] = json!(0),

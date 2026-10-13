@@ -16,9 +16,12 @@ import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
 import {
   hasInstallerHandoff,
+  hasMovedInstallerHandoff,
   proveSourceBootstrap,
   requireInstallerProtocol,
+  requireMovedInstallerProtocol,
 } from './native-upgrade-proof.mjs';
+import { CLI_NAMESPACE, readCliLayout } from './native-install-layout.mjs';
 
 const { values } = parseArgs({
   options: Object.fromEntries(
@@ -84,8 +87,11 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assertMacOsArchitecture(installer, values.target, options);
       assertMacOsArchitecture(path.join(oldSource, 'tmt'), values.target, options);
       if (values.bootstrap) {
-        if (hasInstallerHandoff(sourceRoot)) requireInstallerProtocol(installer, options);
-        else
+        if (hasInstallerHandoff(sourceRoot)) {
+          requireInstallerProtocol(installer, options);
+          if (hasMovedInstallerHandoff(sourceRoot))
+            requireMovedInstallerProtocol(installer, options);
+        } else
           console.log(
             'Candidate source predates installer handoff; protocol gate not applicable (historical proof).'
           );
@@ -100,6 +106,7 @@ await withNativeArtifact(values.archive, current, async (source) => {
           previousArchive: values['previous-archive'],
           previousManifest: values['previous-manifest'],
           expectedMigrations: expectedMigrations(sourceRoot),
+          sourceRoot,
         });
       }
       assert.equal(runPackedCommand(installer, ['--version'], options).trim(), current.version);
@@ -108,7 +115,6 @@ await withNativeArtifact(values.archive, current, async (source) => {
         previous.version
       );
       const managed = path.join(prefix, 'bin/tmt');
-      const pointer = path.join(prefix, 'lib/tmux-team/current');
       const run = (args) => runPackedCommand(managed, args, options);
       const install = (archive, manifest, flags = [], expectedStatus = 0) =>
         JSON.parse(
@@ -131,6 +137,20 @@ await withNativeArtifact(values.archive, current, async (source) => {
           )
         );
       const initial = install(values['previous-archive'], values['previous-manifest'], ['--pin']);
+      const initialLayout = readCliLayout(prefix);
+      const pointer = initialLayout.current;
+      if (hasMovedInstallerHandoff(sourceRoot)) {
+        assert.equal(
+          initialLayout.namespace,
+          CLI_NAMESPACE,
+          'Fresh install did not use the CLI namespace.'
+        );
+        for (const command of ['tmt', 'tmux-team'])
+          assert.equal(
+            fs.readlinkSync(path.join(prefix, 'bin', command)),
+            `../${CLI_NAMESPACE}/current/tmt`
+          );
+      }
       assertMacOsArchitecture(managed, values.target, options);
       assert.equal(initial.changed, true);
       assert.equal(run(['--version']).trim(), previous.version);
@@ -160,9 +180,10 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.deepEqual(fs.readFileSync(database), originalDatabase);
 
       const upgraded = install(values.archive, values.manifest, ['--unpin']);
+      const upgradedLayout = readCliLayout(prefix);
       assertMacOsArchitecture(managed, values.target, options);
       assert.equal(upgraded.changed, true);
-      assert.notEqual(fs.readlinkSync(pointer), originalPointer);
+      assert.notEqual(upgradedLayout.executable, initialLayout.executable);
       assert.equal(run(['--version']).trim(), current.version);
       assert.equal(run(['learn', '--skill']), fs.readFileSync(values.skill, 'utf8'));
       assert.equal(
@@ -197,13 +218,13 @@ await withNativeArtifact(values.archive, current, async (source) => {
         [],
         `The candidate did not migrate the state ${previous.version} wrote cleanly`
       );
-      const oldExecutable = path.join(prefix, 'lib/tmux-team', originalPointer, 'tmt');
+      const oldExecutable = initialLayout.executable;
       assert.equal(
         runPackedCommand(oldExecutable, ['--version'], options).trim(),
         previous.version
       );
 
-      const activePointer = fs.readlinkSync(pointer);
+      const activePointer = fs.readlinkSync(upgradedLayout.current);
       assert.equal(install(values.archive, values.manifest).changed, false);
       const downgrade = install(
         values['previous-archive'],
@@ -212,9 +233,9 @@ await withNativeArtifact(values.archive, current, async (source) => {
         1
       );
       assert.match(downgrade.error.message, /downgrade/);
-      assert.equal(fs.readlinkSync(pointer), activePointer);
+      assert.equal(fs.readlinkSync(readCliLayout(prefix).current), activePointer);
       assert.equal(run(['--version']).trim(), current.version);
-      assert.equal(fs.readdirSync(path.join(prefix, 'lib/tmux-team/releases')).length, 2);
+      assert.equal(fs.readdirSync(path.join(readCliLayout(prefix).root, 'releases')).length, 2);
       console.log(
         `Managed native lifecycle verified: ${previous.version} -> ${current.version} (${values.target})`
       );
