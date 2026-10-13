@@ -85,40 +85,36 @@ Offline and instant. It lists question blocks and groups the browser would silen
 `page create` and `page write` run the same check and report `warnings`; `--strict`
 refuses to publish while any remain.
 
-## Read before writing
+## Edit a page
+
+Read only the part you need and patch only that part:
 
 ```sh
-tmt colab page read PAGE --json
+tmt colab page read PAGE --grep 'quoted text' --context 3 --json
+tmt colab page patch PAGE --find 'quoted text' --replace 'new text' --json
 ```
 
-Edit its exact `source`; retain the opaque `revision` and write:
+`--lines A:B` reads a range; an annotation's quote makes a good `--find`. See
+[references/editing.md](references/editing.md) or `tmt colab skill editing` (forms,
+conflicts, page design). On `COLAB_PATCH_CONFLICT` read again and rebuild the patch;
+never overwrite with a whole-page write.
+
+To replace most of the page, edit the `source` of `page read PAGE --json` and write:
 
 ```sh
 tmt colab page write PAGE --file page.html --expected-revision REVISION --json
 ```
 
-Use the returned token. `update` reports cost (`count`, `bytes`; zero for no-op);
-title and discussion stay. Read `--lines A:B`, or literal `--grep TEXT --context N`.
-`--out FILE` writes exact whole/range bytes to a new private, unencrypted file.
-Small edits: `page patch PAGE --find T --replace T --json` (`--help`).
-On `COLAB_STALE_BASE`, reread, merge edits and use the new token;
-never blindly retry the old replacement. After a timeout or uncertainty, read back
-and compare the intended source before writing; for uncertain creates inspect `ls`,
-never duplicate pages.
+`revision` is opaque; use the returned token. `update` reports cost (`count`, `bytes`;
+zero for no-op); title and discussion stay. On `COLAB_STALE_BASE`, reread, merge and use
+the new token; never blindly retry. After a timeout or uncertainty, read back and
+compare before writing; for uncertain creates inspect `ls`, never duplicate pages.
 
-Page source, updates and history have size limits; keep pages compact
+Page source, updates and history have size limits
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
 `page read` reports `usage`. On `COLAB_CAPACITY`, read the named limit; if it offers
-`page compact PAGE`, run it, then write again. If still full, export the page and create a fresh one:
-
-```sh
-tmt colab export PAGE --dir EXISTING_DIRECTORY --json
-tmt colab page create --title "Weekly plan" --file EXPORTED_DIRECTORY/page.html --json
-```
-
-Use the export directory the first command returns, not its parent.
-Exports are unencrypted and include discussions; keep them private. The new page has a new identity and inherits no discussions or
-sharing. Do not delete the original to clear a limit.
+`page compact PAGE`, run it, then write again. If still full, export the page and create a
+fresh one (see the editing reference); never delete the original to clear a limit.
 
 ## Page look
 
