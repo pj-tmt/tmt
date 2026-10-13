@@ -20,7 +20,7 @@ pub(in crate::grammar) fn workspace() -> Command {
     ])).arg(socket()).arg(name(true)))
     .subcommand(storage(spec!("ls", "List latest and named snapshots for one socket", [
         "List recovery snapshots" => "tmt workspace ls --json",
-    ])).arg(socket()))
+    ])).alias("list").arg(socket()))
     .subcommand(storage(spec!("rm", "Remove one named workspace snapshot", [
         "Remove a saved snapshot" => "tmt workspace rm work",
     ])).arg(socket()).arg(name(true)))

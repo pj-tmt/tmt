@@ -90,6 +90,10 @@ fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
         Invocation::WorkspaceList { socket: None }
     );
     assert_eq!(
+        parsed(&["workspace", "list"]).invocation,
+        parsed(&["workspace", "ls"]).invocation
+    );
+    assert_eq!(
         parsed(&["workspace", "show", "work-1"]).invocation,
         Invocation::WorkspaceShow {
             socket: None,
@@ -136,7 +140,6 @@ fn workspace_snapshot_selection_and_digest_are_parsed_before_effects() {
         );
     }
     for args in [
-        vec!["workspace", "list"],
         vec!["workspace", "save"],
         vec!["workspace", "rm", "latest"],
         vec!["workspace", "show", "--expect", &"a".repeat(64)],

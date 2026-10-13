@@ -50,8 +50,8 @@ and a full socket returns `WORKSPACE_SNAPSHOT_LIMIT` (exit 1). Named bytes remai
 immutable until explicit removal; names may then be reused. Removal refuses
 malformed or symlinked input and never removes latest or foreign files.
 
-`tmt workspace ls [--socket PATH] [--json]` performs bounded enumeration without
-capture or initialization. Version 1 JSON is `{version,socket,snapshots}`, with
+`tmt workspace ls [--socket PATH] [--json]` (hidden alias `list`) performs bounded
+enumeration without capture or initialization. Version 1 JSON is `{version,socket,snapshots}`, with
 latest first (`name:null`) followed by named entries sorted by name. Each entry
 has `name`, `digest` and `capturedAtMs`; no available documents means an empty
 list. Invalid recognized documents fail the operation rather than appearing as

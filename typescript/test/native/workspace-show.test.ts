@@ -177,6 +177,9 @@ describe('named workspace snapshots', () => {
       const updated = { ...snapshot(socket), capturedAtMs: 2 };
       fs.writeFileSync(latest, JSON.stringify(updated));
       const listed = await cli(['ls']);
+      const alias = await cli(['list']);
+      expect(alias.status).toBe(0);
+      expect(JSON.parse(alias.stdout)).toEqual(JSON.parse(listed.stdout));
       expect(listed.status).toBe(0);
       expect(JSON.parse(listed.stdout)).toEqual({
         version: 1,
@@ -260,7 +263,6 @@ describe('named workspace snapshots', () => {
         ['save', '../escape'],
         ['rm', 'latest'],
         ['restore', '--expect', 'invalid'],
-        ['list'],
       ]) {
         const result = await runCli(sandbox, ['workspace', ...args, '--json']);
         expect(result.status).toBe(1);
