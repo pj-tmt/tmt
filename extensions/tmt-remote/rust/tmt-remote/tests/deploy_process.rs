@@ -640,6 +640,11 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
 
 #[test]
 fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history() {
+    use std::{
+        io::Write,
+        os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+    };
+
     let root = Root::new();
     available(&root);
     let layout = root.layout();
@@ -661,12 +666,27 @@ fn project_selection_is_local_opt_in_and_catalog_changes_never_rewrite_history()
             "ad2fb77d-b5e8-4a32-bf35-413f2220d909",
         ),
     ] {
-        let mut writer =
-            tmt_remote::deploy_record::DeployRecordStore::open_for_target(&layout, project, region)
-                .unwrap();
-        writer.bind_target(project, region).unwrap();
-        writer
-            .persist(&tmt_remote::deploy_run::DeployRecord::new(id))
+        // Seed selector inputs without a writer descriptor that sibling test forks can inherit.
+        // Writer admission and sequential-project persistence are covered by deploy_record.rs.
+        let directory = layout.directory.join("deployments").join(project);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "version": 2,
+            "record": tmt_remote::deploy_run::DeployRecord::new(id),
+            "target": { "project": project, "region": region },
+        }))
+        .unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(directory.join("deploy.json"))
+            .unwrap()
+            .write_all(&bytes)
             .unwrap();
     }
     let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
