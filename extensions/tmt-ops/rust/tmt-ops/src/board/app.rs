@@ -2472,24 +2472,32 @@ impl App {
         {
             return self.say("Who is sending? Record yourself with tmt ops squad me <name>, or open the board from your named pane.");
         }
-        let rows = self.rows();
-        let index = rows
-            .get(self.selected)
-            .filter(|(_, candidate)| *candidate == row)
-            .map(|_| self.selected)
-            .or_else(|| rows.iter().position(|(_, candidate)| *candidate == row));
-        let target = index.and_then(|index| self.row_target(index)).or_else(|| {
-            let view = self.view.as_ref()?;
-            (row == &view.document["squad"]["lead"])
-                .then(|| {
-                    Some(RowTarget::Lead {
-                        tab: self.shown_tab()?.to_owned(),
-                        squad: self.current.clone()?,
-                        id: row["id"].as_str()?.to_owned(),
+        // Workspace selection already owns the exact membership. Do not infer
+        // its target from a filtered flat row index or equal row payload.
+        let target = if self.workspace_snapshot().is_some() {
+            self.workspace_selected_member()
+                .cloned()
+                .map(RowTarget::Workspace)
+        } else {
+            let rows = self.rows();
+            let index = rows
+                .get(self.selected)
+                .filter(|(_, candidate)| *candidate == row)
+                .map(|_| self.selected)
+                .or_else(|| rows.iter().position(|(_, candidate)| *candidate == row));
+            index.and_then(|index| self.row_target(index)).or_else(|| {
+                let view = self.view.as_ref()?;
+                (row == &view.document["squad"]["lead"])
+                    .then(|| {
+                        Some(RowTarget::Lead {
+                            tab: self.shown_tab()?.to_owned(),
+                            squad: self.current.clone()?,
+                            id: row["id"].as_str()?.to_owned(),
+                        })
                     })
-                })
-                .flatten()
-        });
+                    .flatten()
+            })
+        };
         if action.verb == Verb::Annotate
             && matches!(
                 target,
@@ -4598,22 +4606,37 @@ pub(crate) mod tests {
         );
     }
 
+    fn composer_bindings(app: &mut App, text: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "ops-composer-bindings-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn t_opens_talk_on_a_squad_tab_and_user_bindings_still_override_it() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         app.view.as_mut().unwrap().me = Some("Ben".into());
-        app.select(0);
+        app.workspace_reconcile();
         assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"
         );
         app.input = None;
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("t".into(), crate::action::Action::parse("menu").unwrap());
+        composer_bindings(&mut app, "[bind]\nt = 'menu'\n");
         press(&mut app, KeyCode::Char('t'));
         assert!(app.input.is_none() && app.menu.is_some());
     }
@@ -4625,13 +4648,12 @@ pub(crate) mod tests {
 
     #[test]
     fn tab_cycles_answer_note_talk_for_the_modes_the_row_allows() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
         // Nothing waits: `a` opens the note; Tab reaches talk and back.
-        app.select(1);
-        press(&mut app, KeyCode::Char('a'));
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             modes_of(&app),
             (
@@ -4664,9 +4686,9 @@ pub(crate) mod tests {
         ));
         // Something waits: answer, note, talk in that cycle; a talk start
         // (a user's own `talk` binding) cycles on to answer, then note.
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(app.view.as_mut().unwrap(), super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId": "q", "preview": "Ship?"}]);
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             modes_of(&app),
             (
@@ -4675,11 +4697,7 @@ pub(crate) mod tests {
             )
         );
         press(&mut app, KeyCode::Esc);
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        composer_bindings(&mut app, "[bind]\nx = 'talk'\n");
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -4704,14 +4722,19 @@ pub(crate) mod tests {
 
     #[test]
     fn a_row_without_a_lead_or_request_can_cycle_talk_and_status() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
-        app.view.as_mut().unwrap().me = Some("Ben".into());
+        let mut app = workspace_composer();
         app.view
             .as_mut()
             .unwrap()
-            .bindings
-            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
-        app.select(0);
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = None;
+        composer_bindings(&mut app, "[bind]\nx = 'talk'\n");
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
@@ -4728,17 +4751,13 @@ pub(crate) mod tests {
 
     #[test]
     fn an_explicit_member_note_binding_cycles_note_talk_status() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId": "q", "preview": "Ship?"}]);
-        view.bindings.insert(
-            "x".into(),
-            crate::action::Action::parse("annotate member").unwrap(),
-        );
-        app.select(1);
+        composer_bindings(&mut app, "[bind]\nx = 'annotate member'\n");
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
@@ -4751,17 +4770,30 @@ pub(crate) mod tests {
 
     #[test]
     fn composer_anchors_the_selected_occurrence_and_explicit_member_notes_stay_notes() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
-        let view = app.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        let mut duplicate = member("auth-fix", json!({}));
-        duplicate["waitingOnYou"] = json!([{"requestId":"q", "preview":"Choose?"}]);
-        view.document["sections"] = json!([
-            {"rows":[duplicate.clone()]}, {"rows":[duplicate]}
-        ]);
-        app.selected = 1;
-        press(&mut app, KeyCode::Char('a'));
+        use super::super::workspace::OpsTarget;
+        use super::workspace::tests::MEMBER;
+        const OTHER_ROOM: &str = "55555555-5555-4555-8555-555555555555";
+        let mut app = workspace_composer();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut squad = snapshot.roster.squads[0].clone();
+        squad.room_id = OTHER_ROOM.into();
+        squad.name = "other-product".into();
+        snapshot.roster.squads.push(squad);
+        let selected = OpsTarget::Member {
+            room_id: Some(OTHER_ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        let mut row = snapshot.rows[&OpsTarget::Member {
+            room_id: Some(super::workspace::tests::ROOM.into()),
+            identity_id: MEMBER.into(),
+        }]
+            .clone();
+        row["waitingOnYou"] = json!([{"requestId":"q", "preview":"Choose?"}]);
+        snapshot.rows.insert(selected.clone(), row);
+        app.workspace.expanded.insert(OTHER_ROOM.into());
+        app.workspace.selected = Some(selected.clone());
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(
             app.input
                 .as_ref()
@@ -4770,59 +4802,88 @@ pub(crate) mod tests {
                 .as_ref()
                 .unwrap()
                 .target,
-            app.row_target(1).unwrap()
+            RowTarget::Workspace(selected.clone())
         );
         press(&mut app, KeyCode::Esc);
-        let note = Action::parse("annotate member").unwrap();
-        app.perform(&note);
+        app.perform(&Action::parse("annotate member").unwrap());
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "→ auth-fix (product) · note"
+            "→ auth-fix (other-product) · note"
         );
         typed(&mut app, "context");
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref squad, ref to, ref row, .. }) if squad == "other-product" && to == "auth-fix" && row == "auth-fix")
         );
+        assert_eq!(app.workspace.selected, Some(selected));
     }
 
     #[test]
     fn row_composer_follows_identity_on_refresh_and_refuses_changed_authority() {
-        for change in ["reorder", "sender", "lead", "request", "identity", "tab"] {
-            let mut app = crew(crate::action::preset(true, &[]), vec![]);
-            let view = app.view.as_mut().unwrap();
-            view.me = Some("Ben".into());
-            view.document["squad"]["lead"] = json!({"name":"sol"});
-            view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        use super::workspace::tests::MEMBER;
+        for change in [
+            "reorder", "sender", "lead", "request", "identity", "loading",
+        ] {
+            let mut app = workspace_composer();
+            composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] =
                 json!([{"requestId":"q", "preview":"Choose?"}]);
-            app.select(1);
-            press(&mut app, KeyCode::Char('a'));
+            app.perform(&Action::parse("annotate").unwrap());
+            let target = app
+                .input
+                .as_ref()
+                .unwrap()
+                .row_send
+                .as_ref()
+                .unwrap()
+                .target
+                .clone();
             typed(&mut app, "yes");
             if change == "lead" {
                 press(&mut app, KeyCode::Tab);
             }
             match change {
-                "reorder" => app.view.as_mut().unwrap().document["sections"][0]["rows"]
-                    .as_array_mut()
-                    .unwrap()
-                    .insert(0, member("before", json!({}))),
+                "reorder" => {
+                    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    snapshot.roster.members.get_mut(COMPOSER_DOCS).unwrap().name =
+                        "a-before".into();
+                    composer_row(app.view.as_mut().unwrap(), COMPOSER_DOCS)["name"] =
+                        json!("a-before");
+                }
                 "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
                 "lead" => {
-                    app.view.as_mut().unwrap().document["squad"]["lead"]["name"] = json!("other")
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .members
+                        .get_mut(COMPOSER_LEAD)
+                        .unwrap()
+                        .name = "other".into()
                 }
                 "request" => {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
-                        json!([])
+                    composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] = json!([])
                 }
                 "identity" => {
-                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] =
-                        json!("replacement")
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .members
+                        .remove(MEMBER);
                 }
-                _ => app.current = Some("infra".into()),
+                _ => app.current = Some("unloaded".into()),
             }
             app.clamp();
             let effect = press(&mut app, KeyCode::Enter);
             if change == "reorder" {
-                assert_eq!(app.selected, 2);
+                assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
                 assert!(
                     matches!(effect, Effect::Act(Request::Reply { ref request, ref from, .. }) if request == "q" && from == "auth-fix")
                 );

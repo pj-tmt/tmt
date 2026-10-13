@@ -56,7 +56,9 @@ is indicated without replacing the displayed request until End resumes follow.
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.
 
-`RowSend` retains the observed sender UUID and squad-note recipient identity.
+The composer opens the selected workspace UUID and room directly; flat row
+indices or equal payloads never choose a different membership. `RowSend`
+retains the observed sender UUID and squad-note recipient identity.
 Submission rechecks the current roster membership, sender and recipient before
 producing an effect; a matching name cannot authorize a replacement UUID.
 Retained row text alone grants no authority after its membership disappears.
