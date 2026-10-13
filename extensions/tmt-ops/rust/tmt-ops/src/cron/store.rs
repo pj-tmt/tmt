@@ -7,9 +7,12 @@ use std::{
     io::{Read, Write},
     os::unix::fs::{DirBuilderExt, OpenOptionsExt},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 const LIMIT: u64 = 16 * 1024 * 1024;
+const READ_LOCK_WAIT: Duration = Duration::from_secs(1);
+const READ_LOCK_STEP: Duration = Duration::from_millis(25);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pause {
@@ -251,10 +254,28 @@ impl Store {
         if !file.metadata().map_err(io)?.is_file() {
             return Err(io("Cron lock is not a regular file."));
         }
-        // Nonblocking keeps both the CLI and future clock bounded.
-        Flock::lock(file, FlockArg::LockExclusiveNonblock)
-            .map(Some)
-            .map_err(|(_, e)| Error::new("SQUAD_CRON_STORE_BUSY", e.to_string()))
+        // Readers may overlap. Only a contended read waits; mutations still fail
+        // immediately rather than replaying a write after another owner finishes.
+        let mode = if create {
+            FlockArg::LockExclusiveNonblock
+        } else {
+            FlockArg::LockSharedNonblock
+        };
+        let deadline = Instant::now() + READ_LOCK_WAIT;
+        let mut file = file;
+        loop {
+            match Flock::lock(file, mode) {
+                Ok(lock) => return Ok(Some(lock)),
+                Err((unlocked, error)) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if create || error != nix::errno::Errno::EWOULDBLOCK || remaining.is_zero() {
+                        return Err(Error::new("SQUAD_CRON_STORE_BUSY", error.to_string()));
+                    }
+                    file = unlocked;
+                    std::thread::sleep(READ_LOCK_STEP.min(remaining));
+                }
+            }
+        }
     }
     fn read_locked(&self) -> Result<Jobs, Error> {
         let file = OpenOptions::new()
