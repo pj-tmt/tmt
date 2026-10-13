@@ -50,6 +50,11 @@ owns moves and the tracked-file guard. Handbook language exceptions belong to
 `tmt-ux-lead` owns shared visual tokens and the private browser leaf;
 [its contracts](design/gui-components.md) own generation and consumer boundaries.
 [Drawer/Menu/Dialog/notifications](design/browser-ui/README.md) are presentation-only.
+The separate `@tmt/browser-ui/ui` foundation admits Radix/cmdk only inside its own
+React graph, with island-scoped tokens/utilities and originating-island portals.
+Its checked UI stylesheet and later-slice barrels/fixture fragments are leaf-owned;
+existing Browser entries/static CSS and the React-free static boundary are unchanged.
+Component implementation and consumer adoption remain separate stages in the leaf contract.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
