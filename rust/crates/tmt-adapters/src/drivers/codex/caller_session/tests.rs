@@ -335,6 +335,41 @@ fn configured_sqlite_home_precedes_environment_and_unsupported_shapes_refuse() {
 }
 
 #[test]
+fn sqlite_config_read_is_bounded_regular_and_no_follow() {
+    let directory = TestDirectory::new();
+    let config = directory.path.join("config.toml");
+    let environment = ProviderEnvironment::from_parts(
+        &directory.path,
+        &directory.path,
+        vec![],
+        [("CODEX_HOME", directory.path.clone())],
+    );
+    assert_eq!(sqlite_home(&environment), Some(directory.path.clone()));
+    assert!(!config.exists(), "missing config is never created");
+
+    let mut exact = b"# bounded configuration\n".to_vec();
+    exact.resize(64 * 1024, b' ');
+    fs::write(&config, &exact).unwrap();
+    assert_eq!(sqlite_home(&environment), Some(directory.path.clone()));
+    assert_eq!(fs::read(&config).unwrap(), exact);
+    exact.push(b' ');
+    fs::write(&config, &exact).unwrap();
+    assert_eq!(sqlite_home(&environment), None);
+
+    fs::remove_file(&config).unwrap();
+    let target = directory.path.join("target.toml");
+    fs::write(&target, b"# readable config\n").unwrap();
+    std::os::unix::fs::symlink(&target, &config).unwrap();
+    assert_eq!(sqlite_home(&environment), None);
+    assert_eq!(fs::read(&target).unwrap(), b"# readable config\n");
+    assert_eq!(fs::read_link(&config).unwrap(), target);
+
+    fs::remove_file(&config).unwrap();
+    fs::create_dir(&config).unwrap();
+    assert_eq!(sqlite_home(&environment), None);
+}
+
+#[test]
 fn verified_direct_caller_can_resume_a_different_thread_in_the_same_process() {
     use crate::runtime::lifecycle::{HostEvidence, RuntimeLifecycle};
     use tmt_core::{

@@ -139,6 +139,15 @@ fn missing_corrupt_changed_oversized_and_nonregular_cache_are_misses() {
     let key = key();
     assert_eq!(cache.lookup(&key, 100), None);
     assert!(!cache.path.exists(), "a read never creates the cache");
+    cache.remember(key.clone(), "binding", 100);
+    let mut exact = fs::read(&cache.path).unwrap();
+    exact.resize(BYTES as usize, b' ');
+    fs::write(&cache.path, &exact).unwrap();
+    assert_eq!(cache.lookup(&key, 100).as_deref(), Some("binding"));
+    assert_eq!(fs::read(&cache.path).unwrap(), exact);
+    exact.push(b' ');
+    fs::write(&cache.path, exact).unwrap();
+    assert_eq!(cache.lookup(&key, 100), None);
     for bytes in [
         b"broken".to_vec(),
         br#"{"version":2,"entries":[]}"#.to_vec(),
