@@ -208,3 +208,24 @@ test('closed current-frame K requests reject malformed messages and can never ch
   await expect(dialog(page)).toHaveCount(0);
   expect((await proof(page)).pageReads).toEqual(before.pageReads);
 });
+
+test('a Shadow DOM editor in the real frame retains its own search shortcut', async ({ page }) => {
+  await mount(page, 'page');
+  const frame = page.frameLocator('iframe[title="Page content"]');
+  await expect(frame.getByText('Page content', { exact: true })).toBeVisible();
+  await frame.locator('body').evaluate((body) => {
+    const host = body.ownerDocument.createElement('div');
+    body.append(host);
+    const root = host.attachShadow({ mode: 'open' });
+    const input = body.ownerDocument.createElement('input');
+    input.setAttribute('aria-label', 'Shadow link editor');
+    root.append(input);
+  });
+  const editor = frame.getByRole('textbox', { name: 'Shadow link editor' });
+  await editor.focus();
+  await page.keyboard.press(await shortcut(page));
+  await page.keyboard.type('Still editing inside the frame');
+  await expect(editor).toHaveValue('Still editing inside the frame');
+  await expect(dialog(page)).toHaveCount(0);
+  expect((await proof(page)).pageReads).toEqual(['c0000001-1111-4111-8111-000000000001']);
+});

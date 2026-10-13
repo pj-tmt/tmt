@@ -1150,10 +1150,14 @@
             !event.ctrlKey &&
             !event.metaKey;
           const annotate = (event) => {
-            const editing =
-              event.target instanceof HTMLElement &&
-              (event.target.isContentEditable ||
-                !!event.target.closest('input,textarea,select,[role="textbox"],[role="combobox"]'));
+            const editing = event
+              .composedPath()
+              .some(
+                (node) =>
+                  node instanceof HTMLElement &&
+                  (node.isContentEditable ||
+                    !!node.closest('input,textarea,select,[role="textbox"],[role="combobox"]')),
+              );
             if (
               !event.isTrusted ||
               event.defaultPrevented ||
