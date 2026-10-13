@@ -1,6 +1,15 @@
 /// Maximum work budget accepted by the private lifecycle worker protocol.
 pub const MAXIMUM_HOOK_WORK_BUDGET_MS: u64 = 2_000;
 
+/// Default and cap the private worker's supplied remainder without renewing it.
+pub fn hook_worker_duration(work_budget_ms: Option<u64>) -> std::time::Duration {
+    std::time::Duration::from_millis(
+        work_budget_ms
+            .unwrap_or(MAXIMUM_HOOK_WORK_BUDGET_MS)
+            .min(MAXIMUM_HOOK_WORK_BUDGET_MS),
+    )
+}
+
 /// The launcher selects one channel policy, independent of provider names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ChannelMode {

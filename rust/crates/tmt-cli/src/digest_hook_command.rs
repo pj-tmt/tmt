@@ -30,11 +30,7 @@ pub fn execute(
     work_budget_ms: Option<u64>,
     legacy_name: bool,
 ) -> io::Result<u8> {
-    let deadline = Instant::now()
-        + work_budget_ms
-            .map(Duration::from_millis)
-            .unwrap_or(BUDGET)
-            .min(BUDGET);
+    let deadline = Instant::now() + crate::invocation::hook_worker_duration(work_budget_ms);
     let result = (|| -> Result<(), ()> {
         let registry = RuntimeRegistry::first_party();
         let harness = HarnessId::new(provider).map_err(|_| ())?;
