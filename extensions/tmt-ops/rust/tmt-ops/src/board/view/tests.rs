@@ -20,7 +20,7 @@ mod meter;
 mod parity;
 mod rules;
 use super::*;
-use crate::board::app::{Effect, Notes, Snapshot, View};
+use crate::board::app::{Effect, Snapshot, View};
 use crate::config::{BoardMode, Direction, Pane};
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -453,7 +453,6 @@ pub(super) fn board(sections: Value) -> App {
                 vec![crate::config::Pane::Rows],
                 &[100],
             ),
-            notes: crate::board::app::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             opener: None,
@@ -998,55 +997,6 @@ fn workspace_search_help_and_errors_use_the_footer_and_overlay() {
     assert_eq!(draw(&app, 80, 12)[11], "tmt did not finish in time");
 }
 
-fn paned(board: crate::config::Board, notes: Notes) -> App {
-    let bindings = crate::action::with_action_keys(crate::action::preset(true, &board.panes));
-    let mut app = App::new(Some("product".into()));
-    app.apply(Snapshot {
-            references: Default::default(),
-            timing: None,
-            squad_keys: Vec::new(),
-            tabs: vec!["product".into()],
-            hidden: Vec::new(),
-            pinned: 0,
-            attention: Default::default(),
-            squad: Some("product".into()),
-            view: Ok(View {
-                history_pending: false,
-                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-                token_rate: None,
-                home_rate: Default::default(),
-            exchanges: Vec::new(),
-                home: None,
-            derived: Default::default(),
-                document: json!({"squad": {"name": "product", "lead": {"id": "LEAD", "name": "sol", "fields": {}}}, "sections": [
-                    {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
-                        "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",
-                        "pane": {"target": "crew:2.0", "cwd": "/w/app-3"}
-                    }))]}
-                ]}),
-                rows: columns(),
-                refresh: None,
-                board,
-                notes,
-                render: NotesRender::Markdown,
-                bindings,
-
-
-                opener: None,
-                clipboard: None,
-
-                    look: Default::default(),
-                theme_notice: None,
-                me: None,
-                me_id: None,
-                replies: Vec::new(),
-            }),
-        });
-    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["fields"]["pr_link"] =
-        json!("https://example.com/pull/412");
-    app
-}
-
 fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
     crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
 }
@@ -1498,79 +1448,6 @@ fn stale_rows_and_notes_are_quiet_and_say_how_old() {
 }
 
 #[test]
-fn stale_lead_notes_say_so_on_the_pane_title() {
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text("ship it".into()),
-    );
-    let title = |app: &App| draw(app, 70, 8)[2].clone();
-    assert!(!title(&app).contains("stale"), "unknown notes: no mark");
-    app.view.as_mut().unwrap().document["squad"]["notesStaleness"] =
-        json!({"state": "stale", "ageMs": 2 * 3_600_000});
-    let line = title(&app);
-    assert!(line.contains("notes · sol · stale 2h"), "{line}");
-    let mut terminal = Terminal::new(TestBackend::new(70, 8)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let at = line[..line.find("stale 2h").unwrap()].chars().count() as u16;
-    assert_eq!(
-        Some(buffer[(at, 2)].fg),
-        app.look().role(Role::Waiting).fg,
-        "the notes' age asks for attention"
-    );
-}
-
-#[test]
-fn nested_splits_draw_rows_beside_detail_over_notes() {
-    use crate::split::{Size, Split};
-    let board = crate::config::Board {
-        members: false,
-        mode: BoardMode::Split,
-        collapsed: Default::default(),
-        fold_below: None,
-        panes: vec![Pane::Rows, Pane::Detail, Pane::Notes],
-        split: Split::Group {
-            direction: Direction::LeftRight,
-            children: vec![
-                (Size::Percent(60), Split::Pane(Pane::Rows)),
-                (
-                    Size::Percent(40),
-                    Split::simple(
-                        Direction::TopBottom,
-                        &[Pane::Detail, Pane::Notes],
-                        &[40, 60],
-                    ),
-                ),
-            ],
-        },
-    };
-    let mut app = paned(board, Notes::Text("## Now\n- tokens".into()));
-    // The cursor starts on the lead; the member is the next row.
-    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    let screen = draw(&app, 100, 23);
-    // Rows take 60 of 100 columns; detail sits over notes in the rest.
-    let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("── Focus: rows"), "{screen:#?}");
-    assert!(right(&screen[2]).starts_with("── detail"), "{screen:#?}");
-    let notes_top = screen
-        .iter()
-        .position(|line| right(line).starts_with("── notes · sol"))
-        .expect("notes block");
-    // 40% of the 20 body lines is detail: notes start 8 lines below it.
-    assert_eq!(notes_top, 2 + 8, "{screen:#?}");
-    assert!(screen.iter().any(|line| right(line).contains("auth-fix")));
-    // Tab walks the panes in reading order.
-    for expected in [Pane::Detail, Pane::Notes, Pane::Rows] {
-        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        assert_eq!(app.focused(), expected);
-    }
-}
-
-#[test]
 fn workspace_field_preview_omits_empty_values_and_clamps_safe_wrapped_text() {
     let mut app = workspace_board();
     workspace_row(&mut app)["fields"] = json!({"task":"", "model":"", "link":""});
@@ -1618,61 +1495,6 @@ fn the_footer_shows_no_board_key_hints_while_an_overlay_owns_input() {
     app.help = false;
     app.notice = None;
     assert!(footer(&app).contains("q quit"));
-}
-
-#[test]
-fn split_panes_follow_direction_and_sizes() {
-    let app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![60, 40],
-        ),
-        Notes::Text("## Now\n- tokens: waiting on Ben".into()),
-    );
-    let screen = draw(&app, 100, 11);
-    // 60% of 100 columns: the notes block starts at column 60.
-    let notes_at = screen[2].find("── notes · sol").expect("notes block title");
-    assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("── Focus: rows"));
-    assert!(
-        screen.iter().any(|line| line.contains("   Now")),
-        "markdown heading"
-    );
-    assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
-
-    let mut app = paned(
-        split(
-            Direction::TopBottom,
-            vec![Pane::Rows, Pane::Detail],
-            vec![50, 50],
-        ),
-        Notes::NotShown,
-    );
-    // The cursor starts on the lead; the member is the next row.
-    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    let screen = draw(&app, 70, 23);
-    let detail_row = screen
-        .iter()
-        .position(|line| line.starts_with("── detail"))
-        .unwrap();
-    assert_eq!(
-        detail_row, 12,
-        "detail starts halfway down the 20-line body"
-    );
-    let detail = screen[detail_row..].join("\n");
-    assert!(
-        !detail.contains("needs a call"),
-        "retired note stays hidden"
-    );
-    for expected in [
-        "waiting on you: approve the plan",
-        "active · blocked · crew:2.0 · /w/app-3",
-        "task: rotate tokens",
-        "links: pr_link https://example.com/pull/412",
-    ] {
-        assert!(detail.contains(expected), "{expected}\n{detail}");
-    }
 }
 
 #[test]
@@ -1764,48 +1586,6 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     assert!(!during.iter().any(|line| line.contains("Loading…")));
 }
 
-#[test]
-fn tabs_show_one_pane_and_tab_moves_focus() {
-    let tabs = crate::config::Board::simple(
-        BoardMode::Tabs,
-        Direction::LeftRight,
-        vec![Pane::Rows, Pane::Replies, Pane::Notes],
-        &[],
-    );
-    let mut app = paned(tabs, Notes::Missing);
-    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("auth-fix");
-    app.selected = 1;
-    let screen = draw(&app, 70, 11);
-    assert!(
-        screen[2].starts_with("rows  replies   notes"),
-        "{screen:#?}"
-    );
-    assert!(screen.iter().any(|line| line.contains("auth-fix")));
-    let tab = |app: &mut App| {
-        app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    };
-    tab(&mut app);
-    let screen = draw(&app, 70, 11);
-    // The selected pane loses only its brackets; other pane padding stays.
-    assert!(
-        screen[2].starts_with(" rows  replies  notes"),
-        "{screen:#?}"
-    );
-    assert!(
-        screen
-            .iter()
-            .any(|line| line.contains("Conversation · auth-fix"))
-    );
-    tab(&mut app);
-    assert!(
-        draw(&app, 70, 10)
-            .iter()
-            .any(|line| line.contains("(no notes yet)"))
-    );
-    tab(&mut app);
-    assert_eq!(app.focused(), Pane::Rows, "focus wraps around");
-}
-
 fn wheel(app: &mut App, column: u16, row: u16, down: bool) {
     use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
     app.mouse(
@@ -1821,46 +1601,6 @@ fn wheel(app: &mut App, column: u16, row: u16, down: bool) {
         },
         std::time::Instant::now(),
     );
-}
-
-#[test]
-fn the_wheel_scrolls_the_pane_under_the_pointer_whichever_is_focused() {
-    let text = (1..=30)
-        .map(|n| format!("line {n:02}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text(text),
-    );
-    app.view.as_mut().unwrap().render = NotesRender::Plain;
-    let before = draw(&app, 60, 11);
-    assert!(before.iter().any(|line| line.contains("line 01")));
-    assert!(
-        before.iter().any(|line| line.contains("25 more ↓")),
-        "an overflowing pane says how much is below: {before:#?}"
-    );
-    // Rows is focused; the wheel over the notes (right half) moves them.
-    wheel(&mut app, 45, 5, true);
-    wheel(&mut app, 45, 5, true);
-    let after = draw(&app, 60, 11);
-    assert!(
-        !after.iter().any(|line| line.contains("line 06")),
-        "{after:#?}"
-    );
-    assert!(after.iter().any(|line| line.contains("line 07")));
-    assert!(after.iter().any(|line| line.contains("↑ 6  19 more ↓")));
-    wheel(&mut app, 45, 5, false);
-    assert!(
-        draw(&app, 60, 11)
-            .iter()
-            .any(|line| line.contains("line 04"))
-    );
-    assert_eq!(app.selected, 0, "the rows' selection never moves");
 }
 
 #[test]
@@ -1914,34 +1654,6 @@ fn a_bound_paging_key_runs_its_binding_instead_of_scrolling() {
     );
 }
 
-#[test]
-fn focused_notes_scroll_while_rows_keep_their_selection() {
-    let text = (1..=30)
-        .map(|n| format!("line {n:02}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut app = paned(
-        split(
-            Direction::LeftRight,
-            vec![Pane::Rows, Pane::Notes],
-            vec![50, 50],
-        ),
-        Notes::Text(text),
-    );
-    // Plain rendering keeps one note line per display line to scroll by.
-    app.view.as_mut().unwrap().render = NotesRender::Plain;
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    for _ in 0..5 {
-        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    }
-    let screen = draw(&app, 60, 10);
-    assert!(
-        screen.iter().any(|line| line.contains("line 06")),
-        "{screen:#?}"
-    );
-    assert!(!screen.iter().any(|line| line.contains("line 01")));
-    assert_eq!(app.selected, 0);
-}
 #[test]
 fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
     for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
@@ -2104,40 +1816,6 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
     });
 }
 
-#[test]
-fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
-    let mut app = paned(
-        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
-        Notes::NotShown,
-    );
-    assert!(!hints(&app, usize::MAX).contains("d detail"));
-    app.view.as_mut().unwrap().board = split(
-        Direction::TopBottom,
-        vec![Pane::Rows, Pane::Detail],
-        vec![60, 40],
-    );
-    let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
-    // Folding keys are in help only, whatever the panes.
-    assert!(!hints(&app, usize::MAX).contains("d detail"));
-    assert!(help_lines(&app).iter().any(|line| line.starts_with("d  ")));
-    assert!(!draw(&app, 120, 12)[11].contains("A ask lead"));
-    assert!(help_lines(&app).iter().any(|line| line.starts_with("A  ")));
-    app.view
-        .as_mut()
-        .unwrap()
-        .bindings
-        .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-    // Refresh is help-only, on either key.
-    let shown = hints(&app, usize::MAX);
-    assert!(!shown.contains("refresh"), "{shown}");
-    assert!(
-        help_lines(&app)
-            .iter()
-            .any(|line| line.trim_end() == "d  refresh the board now")
-    );
-}
-
 fn help_lines(app: &App) -> Vec<String> {
     crate::board::help::model(app)
         .sections
@@ -2157,7 +1835,6 @@ fn boxed_members(sections: Value) -> App {
     .unwrap();
     let view = app.view.as_mut().unwrap();
     view.board = config.board("product").unwrap();
-    view.notes = Notes::Text("Squad coordination notes".into());
     view.me = Some("Ben".into());
     view.me_id = Some("USER".into());
     view.exchanges =
@@ -2213,64 +1890,6 @@ fn boxed_member_order_preserves_lead_and_authored_sections_and_uses_home_exchang
     let screen = draw(&app, 80, 40).join("\n");
     assert!(screen.find("First").unwrap() < screen.find("old-wait").unwrap());
     assert!(screen.find("Second").unwrap() > screen.find("empty-z").unwrap());
-}
-
-#[test]
-fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
-    let mut app =
-        board(json!([{"title":null,"rows":[row("selected","working","task",json!({}))]}]));
-    assert_eq!(hints(&app, 27), "↑↓ move  ? more  q quit");
-    assert!(!hints(&app, 26).contains("Focus:"));
-    assert!(hints(&app, 26).ends_with("? more  q quit"));
-    app.view.as_mut().unwrap().board = split(
-        Direction::LeftRight,
-        vec![Pane::Rows, Pane::Notes],
-        vec![60, 40],
-    );
-    app.view.as_mut().unwrap().notes = Notes::Text("coordination".into());
-    let outlined = draw(&app, 80, 20);
-    assert!(outlined.iter().any(|line| line.contains("Focus: rows")));
-    assert!(!outlined.last().unwrap().contains("Focus:"));
-    app.focus = 1;
-    let unfocused = draw(&app, 80, 20);
-    assert!(unfocused.iter().any(|line| line.contains("Focus: notes")));
-    assert!(!unfocused.iter().any(|line| line.contains("Focus: rows")));
-    let y = unfocused
-        .iter()
-        .position(|line| line.contains("  selected"))
-        .unwrap() as u16;
-    let buffer = board_buffer(&app, 80, 20);
-    assert_eq!(buffer[(1, y)].symbol(), " ");
-    assert_eq!(
-        buffer[(2, y)].bg,
-        app.look().selection().bg.unwrap_or_default()
-    );
-    assert_eq!(
-        buffer[(2, y)].modifier.contains(Modifier::REVERSED),
-        app.look().selection().bg.is_none()
-    );
-    app.focus = 0;
-    app.help = true;
-    assert!(!hints(&app, 80).contains("Focus:"));
-    app.help = false;
-    app.searching = true;
-    assert!(
-        !draw(&app, 80, 20)
-            .iter()
-            .any(|line| line.contains("Focus:"))
-    );
-    app.searching = false;
-    app.notice = Some("Notice owns the footer".into());
-    assert_eq!(
-        draw(&app, 80, 20).last().unwrap().trim(),
-        "Notice owns the footer"
-    );
-    app.notice = None;
-    app.error = Some("Error owns the footer".into());
-    assert_eq!(
-        draw(&app, 80, 20).last().unwrap().trim(),
-        "Error owns the footer"
-    );
 }
 
 fn digest_app(members: bool, _home: bool, held: u64, until: u64, look: crate::look::Look) -> App {

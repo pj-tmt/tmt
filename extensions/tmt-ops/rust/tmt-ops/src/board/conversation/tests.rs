@@ -533,6 +533,62 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
+fn response_wheel_uses_painted_viewport_independently_of_keyboard_focus() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    for layout in [
+        crate::config::OpsLayout::Side,
+        crate::config::OpsLayout::Stack,
+    ] {
+        for focus in [0, 1] {
+            let mut app = workspace_fixture();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .layout = layout;
+            app.focus = focus;
+            workspace(&mut app, 160, 36);
+            let selected = app.workspace.selected.clone();
+            let keyboard = app.focused_pane();
+            let rows = app.scrolls.offset(Pane::Rows);
+            let pane = app.conversation.borrow().pane.unwrap();
+            let latest = app.scrolls.offset(Pane::Replies);
+            assert!(latest > 0);
+            let wheel = |app: &mut App, kind| {
+                app.mouse(
+                    MouseEvent {
+                        kind,
+                        column: pane.x + 1,
+                        row: pane.y + 1,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    std::time::Instant::now(),
+                )
+            };
+            assert_eq!(wheel(&mut app, MouseEventKind::ScrollUp), app::Effect::None);
+            workspace(&mut app, 160, 36);
+            let older = app.scrolls.offset(Pane::Replies);
+            assert!(older < latest);
+            assert_eq!(app.scrolls.offset(Pane::Rows), rows);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.focused_pane(), keyboard);
+            assert_eq!(
+                wheel(&mut app, MouseEventKind::ScrollDown),
+                app::Effect::None
+            );
+            workspace(&mut app, 160, 36);
+            assert!(app.scrolls.offset(Pane::Replies) > older);
+            assert_eq!(app.workspace.selected, selected);
+            assert_eq!(app.focused_pane(), keyboard);
+        }
+    }
+}
+
+#[test]
 fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
     let mut app = workspace_fixture();

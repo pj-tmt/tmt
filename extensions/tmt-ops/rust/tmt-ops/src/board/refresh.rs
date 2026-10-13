@@ -5,9 +5,8 @@
 
 use super::{
     ALL, LEADS,
-    app::{Notes, Snapshot, View},
+    app::{Snapshot, View},
     changes::{Changes, Stamp},
-    notes::sanitize,
     tabs, timing,
 };
 use crate::{
@@ -1029,7 +1028,7 @@ fn squad_view(
     let crate::observe::Projected {
         mut document,
         sent,
-        notes,
+        notes: _,
     } = timing::measure(trace, "observation.document", || {
         observation.document(
             core,
@@ -1069,11 +1068,6 @@ fn squad_view(
         ids,
         replies: unread,
     });
-    let notes = if shows_notes {
-        lead_notes(notes)
-    } else {
-        Notes::NotShown
-    };
     let view = View {
         history_pending: false,
         home: None,
@@ -1094,7 +1088,6 @@ fn squad_view(
         replies,
         refresh: config.refresh(&squad.name)?,
         board,
-        notes,
         document,
     };
     Ok((view, attention, enrich))
@@ -1151,7 +1144,6 @@ fn member_view(
             vec![Pane::Rows],
             &[100],
         ),
-        notes: Notes::NotShown,
         document: loaded.document,
     };
     Ok((view, loaded.attention))
@@ -1197,30 +1189,9 @@ fn all_view(
             vec![Pane::Rows, Pane::Replies],
             &[40, 60],
         ),
-        notes: Notes::NotShown,
         document: loaded.document,
     };
     Ok((view, loaded.attention))
-}
-
-fn member_notes(read: Result<Value, crate::core::SquadError>) -> Notes {
-    match read {
-        Err(error) if error.code == "NOTEBOOK_SAVED_IDENTITY_REQUIRED" => {
-            Notes::Failed("(temporary identity: no notebook)".into())
-        }
-        other => lead_notes(Some(other)),
-    }
-}
-
-/// The lead's notebook, from the `notes.read` the observation made: bounded,
-/// read-only, and never creating a missing notebook.
-fn lead_notes(read: Option<Result<Value, crate::core::SquadError>>) -> Notes {
-    match read {
-        None => Notes::NoLead,
-        Some(Ok(note)) => Notes::Text(sanitize(note["content"].as_str().unwrap_or_default())),
-        Some(Err(error)) if error.code == "NOTEBOOK_NOT_FOUND" => Notes::Missing,
-        Some(Err(error)) => Notes::Failed(sanitize(&error.to_string())),
-    }
 }
 
 #[cfg(test)]
@@ -1661,26 +1632,6 @@ printf '%s\n' '{{}}'
     }
 
     #[test]
-    fn acquired_note_status_preserves_missing_saved_requirement_and_sanitization() {
-        for (code, expected) in [
-            ("NOTEBOOK_NOT_FOUND", Notes::Missing),
-            (
-                "NOTEBOOK_SAVED_IDENTITY_REQUIRED",
-                Notes::Failed("(temporary identity: no notebook)".into()),
-            ),
-        ] {
-            assert_eq!(
-                member_notes(Err(crate::core::SquadError::new(code, "ignored"))),
-                expected
-            );
-        }
-        assert_eq!(
-            member_notes(Ok(json!({"content":"## Now\n\u{1b}[31mSafe"}))),
-            Notes::Text("## Now\nSafe".into())
-        );
-    }
-
-    #[test]
     fn built_in_board_documents_equal_ls_tab_documents() {
         let root = std::env::temp_dir().join(format!("squad-tab-parity-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -2050,7 +2001,7 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
     }
 
     #[test]
-    fn saved_views_acquire_notes_from_effective_board_without_changing_workflow() {
+    fn source_view_settings_preserve_observation_document_and_single_note_read() {
         let root = std::env::temp_dir().join(format!("squad-view-notes-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let executable = root.join("tmt");
@@ -2089,10 +2040,6 @@ esac
                 .unwrap()
                 .0;
             assert!(baseline.board.members);
-            assert!(
-                matches!(baseline.notes, Notes::Text(_)),
-                "default members view keeps the lead notebook below the list"
-            );
             config
                 .set_view(
                     &crate::view::ViewScope::Squad("product".into()),
@@ -2106,10 +2053,6 @@ esac
                 view.document, baseline.document,
                 "workflow projection stays identical"
             );
-            assert_eq!(
-                view.notes,
-                Notes::Text("# Lead notebook\nFinal notebook sentinel".into())
-            );
             assert!(view.board.panes.contains(&Pane::Notes));
             assert_eq!(config.layout("product").unwrap().as_str(), workflow);
         }
@@ -2119,7 +2062,7 @@ esac
                 .lines()
                 .count(),
             4,
-            "one read for each effective notes pane or explicit preview request"
+            "independent source observation reuses one note read per acquisition"
         );
         std::fs::remove_dir_all(root).unwrap();
     }

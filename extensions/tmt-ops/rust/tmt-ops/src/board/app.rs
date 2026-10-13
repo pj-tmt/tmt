@@ -94,7 +94,6 @@ pub struct View {
     pub board: Board,
     /// The full-reload interval; `None` reloads only on ctrl-r and actions.
     pub refresh: Option<std::time::Duration>,
-    pub notes: Notes,
     pub render: NotesRender,
     /// The host preset overridden by `[bind]`.
     pub bindings: Bindings,
@@ -109,18 +108,6 @@ pub struct View {
     pub look: crate::look::Look,
     /// Why the board uses the default theme, when the global one is wrong.
     pub theme_notice: Option<String>,
-}
-
-/// The lead's notebook, already sanitized for display.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Notes {
-    /// The notes pane is not shown, so nothing was read.
-    NotShown,
-    NoLead,
-    /// The lead has no notebook yet; the board never creates one.
-    Missing,
-    Text(String),
-    Failed(String),
 }
 
 pub struct Snapshot {
@@ -3383,7 +3370,6 @@ pub(crate) mod tests {
                 vec![crate::config::Pane::Rows],
                 &[100],
             ),
-            notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
             bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             opener: None,

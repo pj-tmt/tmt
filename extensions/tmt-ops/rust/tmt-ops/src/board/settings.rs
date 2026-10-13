@@ -1058,7 +1058,6 @@ mod tests {
         let view = snapshot.view.as_mut().unwrap();
         view.board = config.board("product").unwrap();
         view.rows = config.rows("product").unwrap();
-        view.notes = crate::board::app::Notes::Text("# lead notebook".into());
         view.bindings = config.bindings(true, &view.board.panes).unwrap();
         (snapshot.tabs, snapshot.pinned) =
             crate::tabs::arrange(&snapshot.squad_keys, &config.tabs().unwrap());
