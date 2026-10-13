@@ -55,6 +55,7 @@ function LayerGallery() {
   const [denied, setDenied] = useState(0);
   const [dialogEntries, setDialogEntries] = useState(0);
   const [sheetEntries, setSheetEntries] = useState(0);
+  const [menuCloseFocusEvents, setMenuCloseFocusEvents] = useState(0);
   const [lastClose, setLastClose] = useState('none');
   const [checked, setChecked] = useState(false);
   const [choice, setChoice] = useState('one');
@@ -140,6 +141,7 @@ function LayerGallery() {
           denied,
           dialogEntries,
           sheetEntries,
+          menuCloseFocusEvents,
           lastClose,
           mounted,
         })}
@@ -157,6 +159,7 @@ function LayerGallery() {
               onCloseAutoFocus={(event) => {
                 dialogHandoff.onCloseAutoFocus(event);
                 sheetHandoff.onCloseAutoFocus(event);
+                setMenuCloseFocusEvents((count) => count + 1);
               }}
               aria-busy={busy || uncertain}
             >
@@ -175,6 +178,20 @@ function LayerGallery() {
                 Admitted fixture action
               </DropdownMenuItem>
               <DropdownMenuItem disabled>Unavailable action</DropdownMenuItem>
+              <DropdownMenuCheckboxItem
+                checked={busy}
+                onCheckedChange={setBusy}
+                onSelect={(event) => event.preventDefault()}
+              >
+                Menu busy close veto
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={uncertain}
+                onCheckedChange={setUncertain}
+                onSelect={(event) => event.preventDefault()}
+              >
+                Menu uncertain close veto
+              </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem checked={checked} onCheckedChange={setChecked}>
                 Checked fixture value
               </DropdownMenuCheckboxItem>
