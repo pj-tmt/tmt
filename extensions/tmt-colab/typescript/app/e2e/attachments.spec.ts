@@ -318,6 +318,11 @@ for (const surface of ['chat', 'thread'] as const)
         ]);
         const shot = (name: string) =>
           page.screenshot({ path: `${captures}/1854-${surface}-${name}-${width}-${scheme}.png` });
+        await expect(panel.getByTestId('attachment-chip')).toHaveCount(3);
+        await expect(panel.getByTestId('attachment-chip').last()).toHaveAttribute(
+          'data-state',
+          'ready',
+        );
         await shot('chips-ready');
         await page.evaluate(async (path) => (await import(path)).pauseAttachmentUploads(), fixture);
         await send(page).click();
@@ -335,6 +340,7 @@ for (const surface of ['chat', 'thread'] as const)
           'data-state',
           'refused',
         );
+        await panel.getByTestId('attachment-chip').last().scrollIntoViewIfNeeded();
         await shot('chips-refused');
         await panel.getByRole('button', { name: text.attachRemove }).last().click();
         await send(page).click();

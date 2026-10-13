@@ -168,20 +168,11 @@
 }
 .message-file {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
   font-size: 13px;
-}
-.attachment-type {
-  display: grid;
-  place-items: center;
-  height: 40px;
-  background: var(--c-sheet);
-  color: var(--c-muted);
-  font-size: 10px;
-  overflow: hidden;
 }
 .message-file .attachment-name {
   display: block;
@@ -257,6 +248,9 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+.attachment-label > span {
   min-width: 0;
 }
 .attachment-label > svg {
