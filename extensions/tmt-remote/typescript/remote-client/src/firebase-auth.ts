@@ -6,9 +6,16 @@ import {
   type PublicWebConfig,
 } from './firebase-bootstrap.js';
 import { verifyHostedDeclaration, type HostedDeclaration } from './firebase-declaration.js';
+import { bindSyncContext, type SealedSyncPort, type SyncAuthPort } from './sealed-sync.js';
+import { createSealedSync, type SyncWakePort } from './firebase-sealed-sync.js';
+import type { SyncAdmissionGuard } from './firebase-sync-http.js';
+export type { SyncAdmissionGuard, SyncAdmissionCost } from './firebase-sync-http.js';
 import { ClientError, RefusalError } from './operations.js';
 
 export interface FirebaseAuthPort {
+  syncAuth?(uid: string): SyncAuthPort;
+  assertSyncIdentity?(uid: string): void;
+  wake?: SyncWakePort;
   signInAnonymous(): Promise<string>;
   signOut(): Promise<void>;
   close(): Promise<void>;
@@ -17,10 +24,13 @@ export interface FirebaseClientModule {
   initialize(config: PublicWebConfig): Promise<FirebaseAuthPort>;
 }
 export interface HostedAuth {
+  sealedSync(space: string, guard: SyncAdmissionGuard): Promise<SealedSyncPort>;
   signInAnonymous(): Promise<string>;
   signOut(): Promise<void>;
   close(): Promise<void>;
 }
+// All hosted owners in this page share its interest cap.
+const hostedPage = { listeners: 0 };
 interface Dependencies {
   origin: string;
   fetch: typeof fetch;
@@ -58,10 +68,13 @@ export async function connectHosted(
   deps: Dependencies,
 ): Promise<HostedAuth> {
   let port: FirebaseAuthPort;
+  let verifiedConfig!: PublicWebConfig;
+  const frozenDeclaration = { ...declaration };
   try {
     port = await bounded(async (signal) => {
-      await verifyHostedDeclaration(declaration);
+      await verifyHostedDeclaration(frozenDeclaration);
       const config = await verifyHostedLink(link, deps.origin);
+      verifiedConfig = config;
       await confirmHostedConfig(config, deps.origin, deps.fetch, signal);
       if (signal.aborted) throw new ClientError('timeout', 'Hosted bootstrap timed out.');
       const module = await deps.load().catch(() => {
@@ -79,27 +92,57 @@ export async function connectHosted(
     throw mapped(error);
   }
   let closed = false;
+  let uid: string | undefined;
+  let generation = 0;
+  const syncOwners = new Set<SealedSyncPort>();
   let pending: Promise<string> | undefined;
   let closing: Promise<void> | undefined;
   const live = () => {
     if (closed) throw new RefusalError('REMOTE_CLOSED');
   };
-  return {
+  return Object.freeze({
+    async sealedSync(space: string, guard: SyncAdmissionGuard) {
+      live();
+      if (!uid || !port.syncAuth || !port.wake) throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
+      if (!guard || typeof guard.admit !== 'function')
+        throw new RefusalError('REMOTE_INPUT_INVALID');
+      const identity = uid,
+        stamp = generation;
+      const fence = () => {
+        live();
+        if (stamp !== generation || uid !== identity)
+          throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
+        port.assertSyncIdentity?.(identity);
+      };
+      const context = await bindSyncContext(
+        verifiedConfig,
+        frozenDeclaration,
+        space,
+        port.syncAuth(identity),
+      );
+      fence();
+      const bound = createSealedSync(context, guard, deps.fetch, port.wake, fence, hostedPage, () =>
+        syncOwners.delete(bound),
+      );
+      syncOwners.add(bound);
+      return bound;
+    },
     signInAnonymous() {
       live();
       if (!pending)
         pending = bounded(async (signal) => {
           try {
-            const uid = await port.signInAnonymous();
+            const signedIn = await port.signInAnonymous();
             live();
             if (signal.aborted)
               throw new ClientError('timeout', 'Firebase authentication check timed out.');
-            if (typeof uid !== 'string' || uid.length === 0 || uid.length > 128)
+            if (typeof signedIn !== 'string' || signedIn.length === 0 || signedIn.length > 128)
               throw new ClientError(
                 'unverifiable_response',
                 'Firebase identity could not be confirmed.',
               );
-            return uid;
+            uid = signedIn;
+            return signedIn;
           } catch (error) {
             throw mapped(error);
           }
@@ -111,6 +154,10 @@ export async function connectHosted(
     async signOut() {
       live();
       if (pending) throw new RefusalError('REMOTE_STATE_UNAVAILABLE');
+      generation++;
+      uid = undefined;
+      for (const owner of syncOwners) owner.close();
+      syncOwners.clear();
       try {
         await bounded(() => port.signOut());
         live();
@@ -120,10 +167,14 @@ export async function connectHosted(
     },
     close() {
       closed = true;
+      generation++;
+      uid = undefined;
+      for (const owner of syncOwners) owner.close();
+      syncOwners.clear();
       closing ??= port.close().catch((error) => {
         throw mapped(error);
       });
       return closing;
     },
-  };
+  });
 }

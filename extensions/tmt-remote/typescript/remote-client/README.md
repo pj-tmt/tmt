@@ -377,8 +377,8 @@ revocation evidence. No Google popup/redirect resolver, Auth iframe or GAPI scri
 The local SDK never loads Firebase unless this explicit hosted entry is called. Hosting
 serves `/sdk/remote-v1.js`, lazy `/sdk/remote-firebase-v1.js` and the separate
 `/sdk/THIRD-PARTY-NOTICES-remote.txt`. The door does not embed the lazy asset; attempting hosted
-bootstrap where it is absent returns `REMOTE_STATE_UNAVAILABLE`. This slice exposes Auth
-only, not Firestore document transport or remote agent operations.
+bootstrap where it is absent returns `REMOTE_STATE_UNAVAILABLE`. Firestore is also confined
+to that lazy asset; local pairing and agent-operation paths remain unchanged.
 
 ## Browser remote references
 
@@ -408,12 +408,22 @@ Settings keeps foreign Open disabled during a request, an unknown original outco
 unsent device name; Add and Manage remain available. Default selection/projection and a
 bound-client factory are not part of this static consumer.
 
-## Sealed-document ports (transport not implemented)
+## Browser sealed-document transport
 
 `SyncContext`, `SyncAuthPort` and `SealedSyncPort` describe extension-scoped reads,
 subscriptions as coalesced wake hints and one declared-target create/put/delete publication. `bindSyncContext`,
 `syncDocumentPath` and `verifySealedObject` perform pure validation only; they do
 not create a Firebase client or enable cloud attachments. Caller-supplied public
 configuration must already be bootstrap-verified. Injected Auth never changes uid
-silently. The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+silently. After `signInAnonymous()`, `auth.sealedSync(space, guard)` returns a frozen bound
+port over the verified declaration. Data uses REST; one memory-only Web SDK listener per
+page interest emits coalesced hints, never content or cursor progress. The caller owns
+positions and same-target reconciliation, and supplies `guard.admit(cost)` before each
+REST read/query/commit or listener start. That guard reserves cost durably or throws the
+frozen budget refusal; no budget ledger is added here. Metadata counts the matching
+listener tail, deliveries including the writer's own, three Rules lookups per delivered
+document, separate REST catch-up and fresh-query reconnect cost. `reads: null` means an unbounded matching initial
+listener tail, never zero reads. Native transport/credentials and Colab's relay remain
+separate slices; this API enables neither agent operations nor cloud attachment glue.
+The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
 owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.

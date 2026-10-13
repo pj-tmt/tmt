@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test, vi } from 'vite-plus/test';
 import { base64url } from '../src/canonical-bytes.js';
 import { verifyHostedLink } from '../src/firebase-bootstrap.js';
@@ -255,4 +256,106 @@ test('resource kinds and index directions reject array coercion before provider 
     await assert.rejects(connectHosted(link, { bytes, digest }, f.deps));
     assert.deepEqual(f.calls, []);
   }
+});
+
+test('sealed sync requires an established anonymous identity and never signs in implicitly', async () => {
+  const f = fake();
+  const remote = await connectHosted(link, declaration, f.deps);
+  const factory = Reflect.get(remote, 'sealedSync') as
+    | ((space: string, guard: { admit(cost: unknown): Promise<void> }) => Promise<unknown>)
+    | undefined;
+  assert.equal(typeof factory, 'function', 'the verified hosted Auth owner supplies sealedSync');
+  await assert.rejects(
+    factory!('space-1', { async admit() {} }),
+    (error: unknown) =>
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'REMOTE_STATE_UNAVAILABLE',
+  );
+  assert.equal(f.calls.includes('sign-in'), false);
+  await remote.close();
+});
+
+test('sealed sync factory binds the verified declaration and closes its generation on sign-out', async () => {
+  const f = fake();
+  f.port.syncAuth = (uid) => ({
+    identity: { projectId: config.projectId, uid },
+    async token() {
+      throw Error('no I/O during binding');
+    },
+  });
+  f.port.wake = {
+    async listen() {
+      throw Error('no listener during binding');
+    },
+  };
+  const auth = await connectHosted(link, declaration, f.deps);
+  await auth.signInAnonymous();
+  const sync = await auth.sealedSync('space-1', { async admit() {} });
+  assert.ok(Object.isFrozen(sync));
+  assert.ok(Object.isFrozen(sync.context));
+  assert.equal(sync.context.declarationDigest, declaration.digest);
+  assert.equal(sync.context.uid, 'anonymous-profile-uid');
+  assert.equal(sync.context.config.projectId, config.projectId);
+  await auth.signOut();
+  await assert.rejects(
+    auth.sealedSync('space-1', { async admit() {} }),
+    (error: unknown) => error instanceof RefusalError && error.code === 'REMOTE_STATE_UNAVAILABLE',
+  );
+  await auth.close();
+});
+
+test('the page interest cap is shared across hosted Auth owners, not reset by another factory', async () => {
+  const f = fake();
+  f.port.syncAuth = (uid) => ({
+    identity: { projectId: config.projectId, uid },
+    async token() {
+      return {
+        projectId: config.projectId,
+        uid,
+        token: 'TOKEN_CANARY',
+        expiresAtMs: Date.now() + 60000,
+      };
+    },
+  });
+  let started = 0;
+  f.port.wake = {
+    async listen() {
+      started++;
+      return () => {};
+    },
+  };
+  const vector = JSON.parse(
+    readFileSync(
+      new URL('../../../rust/tmt-remote/tests/fixtures/sealed_sync/codec-v1.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { declaration: string; declarationDigest: string };
+  const supplied = { bytes: vector.declaration, digest: vector.declarationDigest };
+  const a = await connectHosted(link, supplied, f.deps),
+    b = await connectHosted(link, supplied, f.deps);
+  await a.signInAnonymous();
+  await b.signInAnonymous();
+  const guard = { async admit() {} };
+  const one = await a.sealedSync('fixture-space', guard),
+    two = await b.sealedSync('fixture-space', guard);
+  const interest = { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } };
+  const call = () => ({ signal: new AbortController().signal, deadlineAtMs: Date.now() + 10000 });
+  await one.subscribe(interest, call());
+  await two.subscribe(interest, call());
+  await two.subscribe(interest, call());
+  await assert.rejects(
+    two.subscribe(interest, call()),
+    (error: unknown) =>
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'REMOTE_RATE_LIMITED',
+  );
+  assert.equal(started, 3);
+  await a.close();
+  await two.subscribe(interest, call());
+  assert.equal(started, 4);
+  await b.close();
 });

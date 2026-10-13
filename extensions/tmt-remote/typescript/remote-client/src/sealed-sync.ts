@@ -1,4 +1,4 @@
-/** Proposed extension-scoped sealed-document ports. No provider, credentials or factory. */
+/** Extension-scoped sealed-document ports and pure binding. No credential storage. */
 import { parsePublicWebConfig, type PublicWebConfig } from './firebase-bootstrap.js';
 import { verifyHostedDeclaration, type HostedDeclaration } from './firebase-declaration.js';
 import { parseSyncMapping, type SyncMapping } from './sealed-sync-mapping.js';
@@ -127,7 +127,7 @@ export type SyncPublish =
   | { readonly kind: 'confirmed' }
   | { readonly kind: 'already-present' }
   | { readonly kind: 'unknown' };
-/** Later browser/native transports implement this bound port; no operations authority. */
+/** Browser/native transports implement this bound port; no operations authority. */
 export interface SealedSyncPort {
   readonly context: SyncContext;
   read(target: SyncTarget, call: SyncCall): Promise<SealedDocument | undefined>;

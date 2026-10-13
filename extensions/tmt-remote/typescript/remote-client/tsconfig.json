@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
     "rootDir": ".",

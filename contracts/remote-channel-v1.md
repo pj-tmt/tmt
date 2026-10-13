@@ -1937,7 +1937,7 @@ Hosting copies `/sdk/remote-v1.js`, `/sdk/remote-firebase-v1.js` and
 `/sdk/THIRD-PARTY-NOTICES-remote.txt` byte-for-byte; the generated asset/notices have reviewed
 build pins. Scripts stay same-origin. A hosted page that calls `connect` must allow
 `https://identitytoolkit.googleapis.com` and `https://securetoken.googleapis.com` in its
-`connect-src`; `https://firestore.googleapis.com` is required once document transport ships.
+`connect-src`; `https://firestore.googleapis.com` is required for sealed-document transport.
 Colab owns the hosted shell policy; these are requirements, not its current headers.
 The local door's pairing and session path never implicitly loads Firebase.
 Firestore document transport, cloud agent operations and a machine connector are not shipped
@@ -1945,7 +1945,9 @@ by this bootstrap.
 
 ### Proposal: extension-scoped sealed-document client
 
-The SDK and native types define one bound client port, not an implemented transport or factory.
+The SDK and native types define one bound client port. The browser factory
+`HostedAuth.sealedSync(space, guard)` binds it to the existing verified anonymous Auth owner;
+native transport and credentials are separate slices.
 Its context contains verified public Firebase configuration, extension, exact declaration digest,
 declared resources, space and authenticated uid. Binding validates the entire declaration before
 accepting any resource; digest or context disagreement refuses before provider access. The public
@@ -1961,7 +1963,30 @@ I/O and must not log, persist or place the token in an original ID, receipt or a
 failure is `REMOTE_STATE_UNAVAILABLE` with state `expired`, `sign-in-needed`, `unavailable` or
 `cancelled`. Offline does not prove expiry; a refused refresh cannot silently mint a new uid.
 The port defines neither credential storage nor refresh policy. Browser implementation shares
-one bootstrap App/Auth; native credentials and transport are later slices.
+one bootstrap App/Auth, refuses binding before anonymous sign-in, and rechecks token aud/project,
+sub/uid, anonymous provider and expiry before I/O. Sign-out/close invalidate its bound clients;
+no implicit sign-in replaces an admitted uid. Clearing site data requires pairing again.
+
+Browser document data uses fixed-project default-database REST get/runQuery/single-write commit,
+with redirects refused and no mutation retry or offline queue. An acknowledged create collision
+reads only the same target to distinguish identical bytes from conflict; this is not a preparation
+read. Before every REST attempt and listener start, the caller-supplied `guard.admit(cost)` reserves
+cost or refuses with `REMOTE_BUDGET_EXHAUSTED {resetAtMs,retryAfterMs}`. The caller owns the shipped
+[budget model](#free-plan-budget-guard) and durable reservations; this client adds no quota ledger.
+Cost metadata bounds REST reads, names three Rules lookups per delivered document, and marks the
+listener's full matching initial tail, all deliveries including the writer's own, and additional
+consumer REST catch-up. Memory-only listener reconnects cost a fresh query
+([Firebase pricing](https://firebase.google.com/docs/firestore/pricing#listening_to_query_results));
+the caller reserves that cost too. Listener tail size is not reported as zero or as measured project usage;
+conservative active-hour estimates include both push delivery and REST catch-up, not plain twice
+the append model, which excludes the writer's own listener.
+
+Browser wake uses one Web SDK onSnapshot per page interest, with only its declared equality scope,
+memoryLocalCache and no persistent cache. Metadata-only changes after the initial server snapshot
+are ignored. Snapshots carry coalesced hints, never document delivery or cursor progress; listeners
+cover empty pages, new writers and later writes in existing streams. Cancellation, unsubscribe,
+sign-out and close fence late callbacks. Listener failure is unavailable, never a device-revocation
+proof. Firestore is confined to the lazy Firebase asset; the loopback door does not import it.
 
 The port offers bounded read, query, subscribe, publish and close. A document target names one
 resource and an opaque ID, resolved only within that declared collection under `x/<extension>`.
@@ -1973,7 +1998,7 @@ other Value kinds are refused before I/O. Integers are canonical decimal strings
 2^53-1, nullValue is null, and bytesValue is canonical padded standard base64. Timestamps
 are valid RFC 3339 UTC with Z and the shortest exact 0/3/6-digit fraction: other precision
 is refused, never rounded. Firestore stores only microseconds; the SDK adapter must preserve
-these bytes through native SDK types while native REST uses the same fields map. Keys are
+these bytes unchanged through REST; Web SDK listener filters preserve the same exact values. Keys are
 sorted, whitespace omitted and every field is declared by sync.fields. Remote checks the
 space binding on field-bearing reads/create/put, publisher uid on create/put, exact scope filters and SHA-256;
 it never decrypts the sealed envelope field. Payload fields are otherwise extension-owned.
@@ -2233,7 +2258,7 @@ read. Missing declarations are unavailable, never substituted. Colab's
 `tmt colab deploy-declaration --json` command shipped in #2516 with compiled-in immutable bytes;
 its [declaration section](../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration)
 owns that contract. Installed end-to-end acceptance and real-project proof (#2166) still require
-separate owner authorization; no cloud relay, machine connector or Firestore transport is shipped (deploy
+separate owner authorization; no cloud relay or machine connector is shipped (deploy
 provisions only the project, Rules, sign-in providers and Hosting). The adapter
 resolves firebase-tools from
 the installed `firebase` executable's realpath and Node from its supported launcher; both
