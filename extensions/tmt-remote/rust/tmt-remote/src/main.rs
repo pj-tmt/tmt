@@ -1,4 +1,5 @@
 mod serve;
+mod sync_cli;
 
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
@@ -130,7 +131,7 @@ const REVOKE: CommandSpec = CommandSpec {
         note: "The client ID is shown by tmt remote devices",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Revoking a revoked device reports it again. Pair again to trust the device anew.",
+    details: "Revoking a revoked device reports it again. Pair again to trust the device anew.\nTo revoke this machine's Firestore sign-in instead, use tmt remote sync revoke.",
 };
 const RENAME: CommandSpec = CommandSpec {
     name: "rename",
@@ -199,6 +200,7 @@ fn grammar() -> Command {
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
+        .subcommand(sync_cli::command())
         .subcommand(
             tmt_cli_style::command(&SERVE)
                 .arg(
@@ -264,7 +266,7 @@ fn grammar() -> Command {
                         .help("Show which Firestore layers are enabled and what is missing"),
                 )
                 .arg(
-                    Arg::new("project").long("project").requires("layers").help("Project deployed from this machine"),
+                    Arg::new("project").long("project").conflicts_with_all(["objects", "machine", "budget"]).help("Assert the selected Firebase project id"),
                 )
                 .arg(
                     Arg::new("budget")
@@ -364,7 +366,11 @@ fn grammar() -> Command {
 fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     let (name, arguments) = matches.subcommand().expect("required subcommand");
     let explicit = matches.get_one::<String>("remote").map(String::as_str);
-    if !(matches!(name, "link" | "deploy") || name == "status" && arguments.get_flag("layers"))
+    if !(matches!(name, "link" | "deploy" | "sync")
+        || name == "status"
+            && !arguments.get_flag("objects")
+            && !arguments.get_flag("machine")
+            && !arguments.get_flag("budget"))
         && explicit.is_some()
     {
         let root = discovery_root()?;
@@ -373,6 +379,10 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if matches!(name, "add" | "ls" | "rm") {
         return remotes_command(name, arguments);
+    }
+    if name == "sync" {
+        let layout = Layout::open(&discovery_root()?)?;
+        return sync_cli::run(&layout, explicit, arguments);
     }
     if name == "link" {
         return link_command(
@@ -704,6 +714,22 @@ fn status(
         },
     };
     let mut recorded_summary = None;
+    let sign_in = if projection == StatusProjection::Ordinary {
+        let layout = Layout::existing(&root)?;
+        Some(sync_cli::status(
+            layout.as_ref(),
+            explicit,
+            selected_project,
+        )?)
+    } else {
+        None
+    };
+    if let Some(sign_in) = &sign_in {
+        answer["signIn"] = sign_in.value.clone();
+        if let Some(notice) = sign_in.notice {
+            answer["notices"] = json!([notice]);
+        }
+    }
     if projection == StatusProjection::Layers {
         let layout = Layout::existing(&root)?;
         let evidence = match layout {
@@ -795,6 +821,14 @@ fn status(
                         line.hint.as_deref(),
                     )?;
                 }
+            }
+        }
+        if let Some(sign_in) = sign_in {
+            if let Some(line) = sign_in.line {
+                writeln!(output, "{line}")?;
+            }
+            if let Some(notice) = sign_in.notice {
+                writeln!(output, "{notice}")?;
             }
         }
     }
@@ -1404,6 +1438,9 @@ fn main() -> ExitCode {
     match run(&matches) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
+            if error.code == "REMOTE_SYNC_REPORTED" {
+                return ExitCode::FAILURE;
+            }
             if wants_json(&matches) && error.code != "REMOTE_READY_OUTPUT" {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
@@ -1435,6 +1472,47 @@ mod cli_style_allowlist;
 #[cfg(test)]
 mod tests {
     use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
+
+    #[test]
+    fn sync_commands_use_the_shipped_selector_and_have_no_browser_flags() {
+        for action in ["sign-in", "revoke"] {
+            let words = [
+                "tmt-remote",
+                "--remote",
+                "tenant",
+                "sync",
+                action,
+                "--project",
+                "demo-remote-1",
+                "--json",
+            ];
+            let matches = grammar().try_get_matches_from(words).unwrap();
+            assert_eq!(matches.get_one::<String>("remote").unwrap(), "tenant");
+            let action_matches = matches.subcommand().unwrap().1.subcommand().unwrap().1;
+            assert_eq!(
+                action_matches.get_one::<String>("project").unwrap(),
+                "demo-remote-1"
+            );
+            assert!(action_matches.get_flag("json"));
+            assert!(
+                grammar()
+                    .try_get_matches_from(["tmt-remote", "sync", action, "--no-open"])
+                    .is_err()
+            );
+        }
+        let mut command = grammar();
+        let mut help = Vec::new();
+        command
+            .find_subcommand_mut("sync")
+            .unwrap()
+            .find_subcommand_mut("sign-in")
+            .unwrap()
+            .write_long_help(&mut help)
+            .unwrap();
+        let help = String::from_utf8(help).unwrap();
+        assert!(help.contains("active sign-in is reused"));
+        assert!(help.contains("tmt remote devices revoke"));
+    }
 
     #[test]
     fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {

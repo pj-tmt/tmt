@@ -541,14 +541,12 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` is a separate executable run as `tmt remote`. It reaches core only
-through the public process/JSON API (fixed `api`, `list --json`, `identity list --json` and
-`check <name> --json` subprocesses of the supplied absolute `TMT_EXECUTABLE`, run by
-`tmt-invoke`) and owns the private `<dataRoot>/remote/` subtree through the
-[shared extension state layout](#shared-extension-state-layout). Core never owns a listener or
-Remote state and only registers Remote as an installable product; its archive embeds the static
-browser pages, checked shared CSS plus host styles, SDK and wordlist, with no companions or
-skills. Publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+`extensions/tmt-remote` builds `tmt remote`. It reaches Core only through fixed public
+process/JSON calls via absolute `TMT_EXECUTABLE` and `tmt-invoke`; the module reference below
+lists them. Remote owns `<dataRoot>/remote/` through the [shared state leaf](#shared-extension-state-layout).
+Core only registers the installable product, never its listener or state. Its archive embeds
+static browser pages, checked shared/host CSS, SDK and wordlist, with no companions or skills;
+publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
 sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
@@ -562,7 +560,9 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
 channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
-Firestore deploy CLI. [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
+Firestore deploy CLI. `firebase_auth` owns ordinary-user credentials/refresh; `native_sync` owns REST polling
+and read budgets. Neither adds Core state or a cross-extension carrier.
+[Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve
 lifecycle, status and management implementation; the background start it shares with Colab
