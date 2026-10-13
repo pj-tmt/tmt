@@ -370,7 +370,7 @@ pub(super) fn inline_prompt(
                     input.response_quotes.len(),
                     quote.label()
                 ),
-                usize::from(areas.content.width).saturating_sub(hint.len() + 1),
+                usize::from(areas.content.width).saturating_sub(hint.len() + 3),
             );
             strip::paint_left(
                 frame.buffer_mut(),
@@ -380,7 +380,7 @@ pub(super) fn inline_prompt(
                     ..areas.content
                 },
                 Line::styled(
-                    format!("{} {hint}", source.trim_end()),
+                    format!("{} · {hint}", source.trim_end()),
                     look.role(Role::Muted),
                 ),
             );

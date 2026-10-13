@@ -43,6 +43,48 @@ use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 #[test]
+fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint() {
+    let mut app = board(json!([]));
+    app.ask(
+        String::new(),
+        crate::board::app::Compose::Talk { to: "agent".into() },
+        "product".into(),
+    );
+    let request = "req_1a2b3c4d-1234-4567-89ab-0123456789ab";
+    app.input
+        .as_mut()
+        .unwrap()
+        .response_quotes
+        .push(crate::board::response::Quote {
+            key: crate::board::home_leads::MessageKey {
+                sender: "owner".into(),
+                lead: "agent".into(),
+                squad: "product".into(),
+                request: request.into(),
+                kind: crate::board::home_leads::Kind::Reply,
+            },
+            range: 0..6,
+            text: "source".into(),
+        });
+    app.input_band.set(Some(Rect::new(0, 0, 40, 6)));
+    let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+    terminal
+        .draw(|frame| waiting::inline_prompt(frame, &app, frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let line = (0..8)
+        .map(|y| (0..40).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+        .find(|line| line.contains("Alt-Backspace removes"))
+        .expect("whole removal hint at 40 cells");
+    assert!(line.contains("… · Alt-Backspace removes"), "{line}");
+    assert!(line.contains("1 quote(s)"), "{line}");
+    assert!(
+        !line.contains(request),
+        "source display must be the truncated part"
+    );
+}
+
+#[test]
 fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
         let mut app = board(json!([]));
