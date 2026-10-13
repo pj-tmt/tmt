@@ -26,7 +26,8 @@ const as = (uid) => ({
 });
 const NOBODY = { "content-type": "application/json" };
 const typed = (value) =>
-  value instanceof Date ? { timestampValue: value.toISOString() }
+  value === null ? { nullValue: null }
+  : value instanceof Date ? { timestampValue: value.toISOString() }
   : typeof value === "boolean" ? { booleanValue: value }
   : typeof value === "number" ? { integerValue: String(value) }
   : { stringValue: String(value) };
@@ -96,7 +97,7 @@ const entry = (t, seq, extra = {}) => ({
   space: t.space, page: t.page, epoch: 1, stream: t.stream, seq, uid: t.writer, hash: HASH, envelope: "ZW52ZWxvcGU", expiresAt: sooner, ...extra,
 });
 const chunk = (t, index, extra = {}) => ({
-  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, count: 513, uid: t.writer, bytes: "Ynl0ZXM", expiresAt: sooner, ...extra,
+  space: t.space, page: t.page, epoch: 1, object: "c".repeat(64), index, seq: index + 1, count: 513, uid: t.writer, bytes: "Ynl0ZXM", expiresAt: sooner, ...extra,
 });
 const chunkId = (t, index) => `${sp(t)}_1_${"c".repeat(64)}_${index}`;
 
@@ -107,7 +108,7 @@ async function seedWorld() {
     await seed(`spaces/${t.space}`, { space: t.space, owner: `owner${name}` });
     await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "open", expiresAt: future });
     for (const [uid, role] of [[`owner${name}`, "editor"], [`writer${name}`, "commenter"], [`peer${name}`, "commenter"], [`viewer${name}`, "viewer"]]) {
-      await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role });
+      await seed(`members/${sp(t)}_${uid}`, { space: t.space, page: t.page, uid, role, link: null, token: null });
     }
     await seed(`links/${sp(t)}_${t.link}`, { space: t.space, page: t.page, link: t.link, role: "viewer", token: name === "A" ? TOKEN_A : TOKEN_B });
     await seed(`log/${logId(t, 1, t.stream, 1)}`, entry(t, 1));
@@ -273,7 +274,7 @@ test("links and members: an owner enrolls members; a link holder enrolls only by
   await boot();
   const t = T.A;
   const holder = as("holder1");
-  const row = (uid, role, extra = {}) => ({ space: t.space, page: t.page, uid, role, ...extra });
+  const row = (uid, role, extra = {}) => ({ space: t.space, page: t.page, uid, role, link: null, token: null, ...extra });
   const enrol = (over = {}) => row("holder1", "viewer", { link: t.link, token: TOKEN_A, ...over });
   const id = (uid) => `members/${sp(t)}_${uid}`;
 
@@ -529,4 +530,139 @@ test("payload admission refuses multibyte ciphertext", async () => {
   assert.equal(await set(log, entry(t, 2), writer), 200);
   assert.equal(await set(checkpoint, chunk(t, 1, { bytes: "é" }), writer), 403);
   assert.equal(await set(checkpoint, chunk(t, 1), writer), 200);
+});
+
+test("members: one six-field shape distinguishes owner nulls from link enrollment", async () => {
+  await boot();
+  const t = T.A, path = `members/${sp(t)}_newMember`;
+  const row = { space: t.space, page: t.page, uid: "newMember", role: "viewer", link: null, token: null };
+  const legacy = { ...row };
+  delete legacy.link;
+  delete legacy.token;
+  assert.equal(await set(path, legacy, as("ownerA")), 403, "no four-field shape");
+  assert.equal(await set(path, { ...row, token: TOKEN_A }, as("ownerA")), 403, "owner requires the null pair");
+  assert.equal(await set(path, row, as("ownerA")), 200);
+  const enrolled = { ...row, uid: "newHolder", link: t.link, token: TOKEN_A };
+  const enrolPath = `members/${sp(t)}_newHolder`;
+  assert.equal(await set(enrolPath, { ...enrolled, token: null }, as("newHolder")), 403, "null is not an enrollment secret");
+  assert.equal(await set(enrolPath, { ...enrolled, link: null }, as("newHolder")), 403, "non-null link required");
+  assert.equal(await set(enrolPath, enrolled, as("newHolder")), 200);
+  assert.equal(await get(`log/${logId(t, 1, t.stream, 1)}`, as("newHolder")), 200, "viewer reads");
+  assert.equal(await set(`log/${logId(t, 1, t.stream, 2)}`, entry(t, 2, { uid: "newHolder" }), as("newHolder")), 403, "enrollment never grants viewer writes");
+});
+
+test("checkpoints: positive chunk sequence is exactly zero-based index plus one", async () => {
+  await boot();
+  const t = T.A, path = `checkpoints/${chunkId(t, 1)}`;
+  for (const seq of [0, 1, 3, "2"]) {
+    assert.equal(await set(path, chunk(t, 1, { seq }), as(t.writer)), 403, `wrong seq ${seq}`);
+  }
+  const missing = chunk(t, 1);
+  delete missing.seq;
+  assert.equal(await set(path, missing, as(t.writer)), 403, "seq is required");
+  assert.equal(await set(path, chunk(t, 1), as(t.writer)), 200);
+  assert.equal(await get(path, as("viewerA")), 200);
+});
+
+// These are opaque signed-record transport stand-ins. Rules do not verify signatures;
+// the existing Colab verifier remains responsible for complete bytes and authority.
+const authority = (t, kind, extra = {}) => ({
+  space: t.space, page: t.page, epoch: 1, kind, subject: "a".repeat(64),
+  seq: 1, count: 1, uid: t === T.A ? "ownerA" : "ownerB", recipient: kind === "wrap" ? t.writer : "",
+  bytes: "c2lnbmVk", expiresAt: sooner, ...extra,
+});
+const authorityId = (row) => `${row.space}_${row.page}_${row.epoch}_${row.kind}_${row.subject}_${row.seq}`;
+const authorityPath = (row) => `authority/${authorityId(row)}`;
+const authorityScope = (row) => Object.fromEntries(["space", "page", "epoch", "kind", "recipient"].map((key) => [key, row[key]]));
+
+test("authority: owner-only immutable records bind page, epoch, kind and subject", async () => {
+  await boot();
+  const t = T.A, owner = as("ownerA");
+  for (const kind of ["membership", "chain", "wrap"]) {
+    const row = authority(t, kind), path = authorityPath(row);
+    for (const uid of [null, "writerA", "viewerA", "ownerB"]) {
+      assert.equal(await set(path, { ...row, uid: uid ?? row.uid }, uid ? as(uid) : NOBODY), 403, `owner-only ${kind}`);
+    }
+    for (const [key, value] of [
+      ["epoch", 2], ["kind", "baseline"], ["subject", "short"], ["uid", "writerA"],
+      ["seq", 0], ["count", 0], ["expiresAt", past], ["bytes", "é"],
+      ["bytes", "A".repeat(43692)], ["extra", 1],
+    ]) {
+      assert.equal(await set(path, { ...row, [key]: value }, owner), 403, `${kind} invalid ${key}`);
+    }
+    assert.equal(await set(`${path}x`, row, owner), 403, "ID binds fields");
+    assert.equal(await set(path, row, owner), 200);
+    const response = await fetch(`${documents}/${ROOT}/${path}`, { headers: ADMIN });
+    assert.deepEqual((await response.json()).fields, fields(row), "original record and routing preserved");
+    assert.equal(await set(path, { ...row, bytes: "Y2hhbmdlZA" }, owner), 403, "no ciphertext replacement");
+    assert.equal(await set(path, { ...row, expiresAt: future }, owner), 403, "no mutable signed record");
+    assert.equal(await remove(path, owner), 403, "live record preserved");
+  }
+  const row = authority(t, "membership", { subject: "b".repeat(64) });
+  assert.equal(await set(authorityPath(row), { ...row, recipient: "writerA" }, owner), 403, "membership is not recipient-specific");
+  const chain = authority(t, "chain", { subject: "b".repeat(64) });
+  assert.equal(await set(authorityPath(chain), { ...chain, recipient: "writerA" }, owner), 403, "chain uses the empty recipient");
+  const wrap = authority(t, "wrap", { subject: "b".repeat(64), recipient: "" });
+  assert.equal(await set(authorityPath(wrap), wrap, owner), 403, "wrap must name its recipient");
+  await seed(`pages/${sp(t)}`, { space: t.space, page: t.page, epoch: 1, state: "archived", expiresAt: future });
+  assert.equal(await set(authorityPath(row), row, owner), 403, "archive refuses new records");
+});
+
+test("authority: discovery is page-scoped and wraps disclose only to their recipient", async () => {
+  await boot();
+  for (const t of [T.A, T.B]) {
+    for (const kind of ["membership", "chain", "wrap"]) {
+      const row = authority(t, kind);
+      assert.equal(await set(authorityPath(row), row, as(row.uid)), 200);
+    }
+  }
+  for (const kind of ["membership", "chain"]) {
+    const row = authority(T.A, kind), path = authorityPath(row), scope = authorityScope(row);
+    for (const uid of ["ownerA", "writerA", "viewerA"]) {
+      assert.equal(await get(path, as(uid)), 200);
+      assert.deepEqual(await list("authority", scope, as(uid)), { status: 200, found: 1 });
+    }
+    assert.equal(await get(path, as("ownerB")), 403, "other tenant");
+    assert.equal((await list("authority", { ...scope, page: T.B.page }, as("writerA"))).status, 403);
+    assert.equal((await list("authority", {}, as("writerA"))).status, 403, "scope omitted");
+  }
+  const wrap = authority(T.A, "wrap"), path = authorityPath(wrap), scope = authorityScope(wrap);
+  assert.equal(await get(path, as("writerA")), 200);
+  assert.deepEqual(await list("authority", scope, as("writerA")), { status: 200, found: 1 });
+  for (const uid of ["ownerA", "peerA", "viewerA", "ownerB"]) {
+    assert.equal(await get(path, as(uid)), 403, `${uid} is not the recipient`);
+    assert.equal((await list("authority", scope, as(uid))).status, 403);
+  }
+  assert.equal((await list("authority", { ...scope, recipient: "peerA" }, as("writerA"))).status, 403, "another recipient query");
+  assert.equal((await list("authority", { ...scope, recipient: "" }, as("writerA"))).status, 403, "empty recipient query");
+  const { recipient: _recipient, ...omitted } = scope;
+  assert.equal((await list("authority", omitted, as("writerA"))).status, 403, "recipient omitted");
+  const own = authority(T.A, "wrap", { subject: "b".repeat(64), recipient: "ownerA" });
+  assert.equal(await set(authorityPath(own), own, as("ownerA")), 200);
+  assert.equal(await get(authorityPath(own), as("ownerA")), 200, "owner is this wrap's recipient");
+  await remove(`members/${sp(T.A)}_writerA`, as("ownerA"));
+  assert.equal(await get(path, as("writerA")), 403, "recipient must still be admitted");
+});
+
+test("authority: chunks retain one original count and recipient; only owner cleans expired records", async () => {
+  await boot();
+  const first = authority(T.A, "membership", { count: 2 }), second = { ...first, seq: 2 };
+  assert.equal(await set(authorityPath(second), second, as("ownerA")), 403, "missing first chunk");
+  assert.equal(await set(authorityPath(first), first, as("ownerA")), 200);
+  assert.equal(await set(authorityPath(second), { ...second, count: 3 }, as("ownerA")), 403, "cannot change count mid-record");
+  assert.equal(await set(authorityPath(second), second, as("ownerA")), 200);
+  assert.deepEqual(await list("authority", authorityScope(first), as("viewerA")), { status: 200, found: 2 });
+  const tooMany = authority(T.A, "membership", { subject: "b".repeat(64), count: 12 });
+  assert.equal(await set(authorityPath(tooMany), tooMany, as("ownerA")), 403, "statement chunk bound");
+  for (const kind of ["chain", "wrap"]) {
+    const row = authority(T.A, kind, { count: 2 });
+    assert.equal(await set(authorityPath(row), row, as("ownerA")), 403, "small records stay within one chunk");
+  }
+  await seed(authorityPath(first), { ...first, expiresAt: past });
+  assert.equal(await get(authorityPath(first), as("viewerA")), 403, "expired");
+  assert.equal(await remove(authorityPath(first), as("writerA")), 403, "member cannot clean up");
+  assert.equal(await remove(authorityPath(first), as("ownerB")), 403, "other tenant cannot clean up");
+  assert.equal(await remove(authorityPath(first), as("ownerA")), 200);
+  await remove(`pages/${sp(T.A)}`, as("ownerA"));
+  assert.equal(await remove(authorityPath(second), as("ownerA")), 200, "deleted page cleanup");
 });

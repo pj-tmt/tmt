@@ -90,12 +90,13 @@ match /members/{id} {
     && id == request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.uid
     && request.resource.data.role in ['viewer', 'commenter', 'editor', 'bridge']
     && ext.exists(/pages/$(request.resource.data.space + '_' + request.resource.data.page))
-    && ((request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role'])
-        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token'])
+    && ((request.resource.data.link == null && request.resource.data.token == null
         && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid)
       || (request.method == 'create'
-        && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token'])
-        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token'])
+        && request.resource.data.link is string
+        && request.resource.data.token is string
         && request.resource.data.uid == request.auth.uid
         && ext.get(/links/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link)).data.token == request.resource.data.token
         && ext.get(/links/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link)).data.role == request.resource.data.role));
@@ -157,13 +158,15 @@ match /checkpoints/{id} {
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'seq', 'count', 'uid', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'seq', 'count', 'uid', 'bytes', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && request.resource.data.epoch is int
     && request.resource.data.object.matches('[0-9a-f]{64}')
     && request.resource.data.index is int
+    && request.resource.data.seq is int
+    && request.resource.data.seq == request.resource.data.index + 1
     && request.resource.data.count is int
     && request.resource.data.index >= 0
     && request.resource.data.index < request.resource.data.count
@@ -187,6 +190,60 @@ match /checkpoints/{id} {
     && request.resource.data.expiresAt is timestamp
     && request.resource.data.expiresAt > request.time
     && request.resource.data.expiresAt <= request.time + duration.value(365, 'd');
+  allow delete: if request.auth != null
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
+    && (resource.data.expiresAt <= request.time
+      || !ext.exists(/pages/$(resource.data.space + '_' + resource.data.page))
+      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time);
+}
+
+// Exact signed records, split without reserialization. Consumers verify the complete
+// record digest, signatures and membership; routing fields grant no cryptographic authority.
+match /authority/{id} {
+  allow get: if request.auth != null
+    && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
+    && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time
+    && resource.data.expiresAt > request.time
+    && ((resource.data.kind in ['membership', 'chain'] && resource.data.recipient == '')
+      || (resource.data.kind == 'wrap' && resource.data.recipient == request.auth.uid));
+  allow list: if request.auth != null
+    && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
+    && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time
+    && ((resource.data.kind in ['membership', 'chain'] && resource.data.recipient == '')
+      || (resource.data.kind == 'wrap' && resource.data.recipient == request.auth.uid));
+  allow create: if request.auth != null
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'kind', 'subject', 'seq', 'count', 'uid', 'recipient', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'kind', 'subject', 'seq', 'count', 'uid', 'recipient', 'bytes', 'expiresAt'])
+    && request.resource.data.space.matches('[a-z2-7]{32}')
+    && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
+    && request.resource.data.epoch is int
+    && request.resource.data.epoch >= 1
+    && request.resource.data.kind in ['membership', 'wrap', 'chain']
+    && request.resource.data.subject.matches('[0-9a-f]{64}')
+    && request.resource.data.seq is int
+    && request.resource.data.count is int
+    && request.resource.data.seq >= 1
+    && request.resource.data.seq <= request.resource.data.count
+    && request.resource.data.count <= (request.resource.data.kind == 'membership' ? 11 : 1)
+    && request.resource.data.uid == request.auth.uid
+    && request.resource.data.recipient is string
+    && (request.resource.data.kind == 'wrap'
+      ? request.resource.data.recipient.size() >= 1 && request.resource.data.recipient.size() <= 128
+      : request.resource.data.recipient == '')
+    && request.resource.data.bytes is string
+    && request.resource.data.bytes.matches('[A-Za-z0-9_-]+')
+    && request.resource.data.bytes.size() <= 43691
+    && id == request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.kind + '_' + request.resource.data.subject + '_' + string(request.resource.data.seq)
+    && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
+    && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.state == 'open'
+    && ext.get(/pages/$(request.resource.data.space + '_' + request.resource.data.page)).data.epoch == request.resource.data.epoch
+    && request.resource.data.expiresAt is timestamp
+    && request.resource.data.expiresAt > request.time
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
+    && (request.resource.data.seq == 1
+      || (ext.getAfter(/authority/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.kind + '_' + request.resource.data.subject + '_1')).data.uid == request.auth.uid
+        && ext.getAfter(/authority/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.kind + '_' + request.resource.data.subject + '_1')).data.count == request.resource.data.count
+        && ext.getAfter(/authority/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.kind + '_' + request.resource.data.subject + '_1')).data.recipient == request.resource.data.recipient));
   allow delete: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && (resource.data.expiresAt <= request.time

@@ -7,54 +7,204 @@
       "name": "spaces",
       "kind": "checkpoint",
       "path": "spaces",
-      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 1048576, "maxEntries": 256 },
+      "limits": {
+        "maxObjectBytes": 4096,
+        "maxNamespaceBytes": 1048576,
+        "maxEntries": 256
+      },
       "ttlField": null,
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": ["space", "owner"],
+        "spaceField": "space",
+        "uidField": "owner",
+        "query": null,
+        "writeModes": ["create"]
+      }
     },
     {
       "name": "pages",
       "kind": "checkpoint",
       "path": "pages",
-      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "limits": {
+        "maxObjectBytes": 4096,
+        "maxNamespaceBytes": 4194304,
+        "maxEntries": 1024
+      },
       "ttlField": null,
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": ["space", "page", "epoch", "state", "expiresAt"],
+        "spaceField": "space",
+        "uidField": null,
+        "query": null,
+        "writeModes": ["create", "put", "delete"]
+      }
     },
     {
       "name": "links",
       "kind": "checkpoint",
       "path": "links",
-      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "limits": {
+        "maxObjectBytes": 4096,
+        "maxNamespaceBytes": 4194304,
+        "maxEntries": 1024
+      },
       "ttlField": null,
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": ["space", "page", "link", "role", "token"],
+        "spaceField": "space",
+        "uidField": null,
+        "query": null,
+        "writeModes": ["create", "delete"]
+      }
     },
     {
       "name": "members",
       "kind": "checkpoint",
       "path": "members",
-      "limits": { "maxObjectBytes": 4096, "maxNamespaceBytes": 4194304, "maxEntries": 1024 },
+      "limits": {
+        "maxObjectBytes": 4096,
+        "maxNamespaceBytes": 4194304,
+        "maxEntries": 1024
+      },
       "ttlField": null,
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": ["space", "page", "uid", "role", "link", "token"],
+        "spaceField": "space",
+        "uidField": null,
+        "query": null,
+        "writeModes": ["create", "put", "delete"]
+      }
     },
     {
       "name": "log",
       "kind": "log",
       "path": "log",
-      "limits": { "maxObjectBytes": 393216, "maxNamespaceBytes": 67108864, "maxEntries": 1024 },
+      "limits": {
+        "maxObjectBytes": 393216,
+        "maxNamespaceBytes": 67108864,
+        "maxEntries": 1024
+      },
       "ttlField": "expiresAt",
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": [
+          "space",
+          "page",
+          "epoch",
+          "stream",
+          "seq",
+          "uid",
+          "hash",
+          "envelope",
+          "expiresAt"
+        ],
+        "spaceField": "space",
+        "uidField": null,
+        "query": {
+          "scopeFields": ["space", "page", "epoch", "stream"],
+          "streamField": "stream",
+          "seqField": "seq",
+          "order": "asc",
+          "discovery": {
+            "name": "writers",
+            "scopeFields": ["space", "page", "epoch"],
+            "seqEquals": null
+          }
+        },
+        "writeModes": ["create", "delete"]
+      }
     },
     {
       "name": "checkpoints",
       "kind": "checkpoint",
       "path": "checkpoints",
-      "limits": { "maxObjectBytes": 65536, "maxNamespaceBytes": 67108864, "maxEntries": 1024 },
+      "limits": {
+        "maxObjectBytes": 65536,
+        "maxNamespaceBytes": 67108864,
+        "maxEntries": 1024,
+        "chunkBytes": 32768
+      },
       "ttlField": "expiresAt",
-      "indexes": []
+      "indexes": [],
+      "sync": {
+        "fields": [
+          "space",
+          "page",
+          "epoch",
+          "object",
+          "index",
+          "seq",
+          "count",
+          "uid",
+          "bytes",
+          "expiresAt"
+        ],
+        "spaceField": "space",
+        "uidField": null,
+        "query": {
+          "scopeFields": ["space", "page", "epoch", "object"],
+          "streamField": "object",
+          "seqField": "seq",
+          "order": "asc",
+          "discovery": {
+            "name": "objects",
+            "scopeFields": ["space", "page", "epoch"],
+            "seqEquals": null
+          }
+        },
+        "writeModes": ["create", "put", "delete"]
+      }
+    },
+    {
+      "name": "authority",
+      "kind": "checkpoint",
+      "path": "authority",
+      "limits": {
+        "maxObjectBytes": 65536,
+        "maxNamespaceBytes": 67108864,
+        "maxEntries": 1024,
+        "chunkBytes": 32768
+      },
+      "ttlField": "expiresAt",
+      "indexes": [],
+      "sync": {
+        "fields": [
+          "space",
+          "page",
+          "epoch",
+          "kind",
+          "subject",
+          "seq",
+          "count",
+          "uid",
+          "recipient",
+          "bytes",
+          "expiresAt"
+        ],
+        "spaceField": "space",
+        "uidField": null,
+        "query": {
+          "scopeFields": ["space", "page", "epoch", "kind", "recipient", "subject"],
+          "streamField": "subject",
+          "seqField": "seq",
+          "order": "asc",
+          "discovery": {
+            "name": "records",
+            "scopeFields": ["space", "page", "epoch", "kind", "recipient"],
+            "seqEquals": null
+          }
+        },
+        "writeModes": ["create", "delete"]
+      }
     }
   ],
   "admission": {
     "artifact": "firestore/admission.rules",
-    "digest": "d404c137cdae7c924dafd03d3b3128354502c1eceafdd78087117d43c4b9aa18",
+    "digest": "9ab5b2f4409f5e1b6f7d62c8dad51a2838d39dcda8ef8a49b2293ae8150e5b87",
     "entryPoint": "colabAdmitted"
   }
 }
