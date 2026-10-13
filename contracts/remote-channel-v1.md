@@ -2086,7 +2086,7 @@ is written before notices are enabled. Notices are
 is `{notice:"changed"}` or `{notice:"terminal",error}`. Notice sequence increases within
 one interest. Only a pending Changed flag and a reserved terminal refusal are retained;
 there is no document queue. Changed is level-triggered, may be spurious and is never lost.
-Only a successful bounded provider probe proving absence may suppress it. Colab performs
+The provider owns suppression under the [Subscribe rule](#subscribe). Colab performs
 ordinary queries from its own positions and alone advances them; empty finite results
 preserve the input cursor. Gaps/compaction/oversized pages return catch-up-required.
 
@@ -2178,6 +2178,9 @@ generation and deadline. A mismatched token or continuation after close/deadline
 before I/O. No continuation means the run is complete; otherwise it is incomplete. There is no
 run ledger. Repeated runs discover arrivals missed by a prior run; pruning requires rebootstrap.
 Native poll interval/read costs are defined by the native transport, not this type boundary.
+
+#### Subscribe
+
 Subscribe takes a page-level `SyncInterest {resource,scope}`: exact query-mapping scope minus
 the stream field, without requiring discovery. It has no seed stream, cursor, continuation or
 provider-held delivery progress; one page interest counts once toward the listener caps.
