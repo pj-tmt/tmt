@@ -1675,74 +1675,112 @@ fn a_write_after_a_requested_compaction_lands_in_the_tail_and_the_next_one_keeps
 
 #[test]
 fn writes_racing_requested_compactions_are_never_lost() {
-    // The product serializes a combine with every write (the sync mutex, or the lifecycle lock),
-    // so this is the harder case: a second connection writes at any moment. Whatever the
-    // interleaving, every write that committed is in the page, and the page never reads back
-    // anything but the last source written.
-    let mut f = Fixture::new();
-    let mut source = String::from("old 🐈\r\n");
-    for i in 0..3 {
-        source.push_str(&format!("<p>{i}</p>"));
-        f.write(&source);
-    }
-    let layout = Layout::existing(&f.root).unwrap().unwrap();
-    let start = source.clone();
-    let writer = std::thread::spawn(move || {
-        let key = Keyring::read(&layout).unwrap();
-        let mut store = Store::write_existing(&layout).unwrap();
-        let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
-        let mut source = start;
-        for i in 0..10 {
-            source.push_str(&format!("<b>{i}</b>"));
-            // A combine moves the revision, so a write prepared before it is stale: prepare again.
-            loop {
-                let prepared = page::prepare_publication(
-                    &store,
-                    &key,
-                    PAGE,
-                    tmt_colab::decoder::ContentEdit {
-                        source: &source,
-                        publisher_agent: None,
-                        attachments: None,
-                    },
-                    None,
-                    &mut decoder,
-                    NOW,
-                )
-                .unwrap();
-                let page::PublicationPreparation::Write(frozen) = prepared else {
-                    panic!("each write changes the source")
-                };
-                let committed = page::commit_publication(
-                    &mut store,
-                    &key,
-                    frozen.job(),
-                    frozen.packet(),
-                    frozen.chain(),
-                    NOW,
-                )
-                .unwrap();
-                if matches!(
-                    committed.record.outcome,
-                    tmt_colab::publication::Outcome::Committed { .. }
-                ) {
-                    break;
-                }
-            }
+    use std::sync::mpsc;
+    use tmt_colab::publication::{Outcome, Rejection};
+
+    // One round also covers the valid schedule with fewer than three nonempty compactions.
+    // Timed channel barriers bound coordination even if the other connection fails.
+    for rounds in [1, 10] {
+        let mut f = Fixture::new();
+        let mut source = String::from("old 🐈\r\n");
+        for i in 0..3 {
+            source.push_str(&format!("<p>{i}</p>"));
+            f.write(&source);
         }
-        source
-    });
-    let mut combined = 0;
-    while !writer.is_finished() || combined < 3 {
+        let layout = Layout::existing(&f.root).unwrap().unwrap();
+        let (prepared_tx, prepared_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (compacted_tx, compacted_rx) = mpsc::channel();
+        let (written_tx, written_rx) = mpsc::channel();
+        let mut combined = 0;
+        let last = std::thread::scope(|scope| {
+            let writer = scope.spawn(move || {
+                let key = Keyring::read(&layout).unwrap();
+                let mut store = Store::write_existing(&layout).unwrap();
+                let mut decoder =
+                    Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+                for i in 0..rounds {
+                    source.push_str(&format!("<b>{i}</b>"));
+                    let mut committed = false;
+                    // Only this round's one compaction can stale the first preparation.
+                    for attempt in 0..2 {
+                        let prepared = page::prepare_publication(
+                            &store,
+                            &key,
+                            PAGE,
+                            tmt_colab::decoder::ContentEdit {
+                                source: &source,
+                                publisher_agent: None,
+                                attachments: None,
+                            },
+                            None,
+                            &mut decoder,
+                            NOW,
+                        )
+                        .unwrap();
+                        let page::PublicationPreparation::Write(frozen) = prepared else {
+                            panic!("each write changes the source")
+                        };
+                        if attempt == 0 {
+                            prepared_tx.send(()).unwrap();
+                            release_rx.recv_timeout(support::DECODER_DEADLINE).unwrap();
+                        }
+                        let result = page::commit_publication(
+                            &mut store,
+                            &key,
+                            frozen.job(),
+                            frozen.packet(),
+                            frozen.chain(),
+                            NOW,
+                        )
+                        .unwrap();
+                        if attempt == 0 {
+                            compacted_rx
+                                .recv_timeout(support::DECODER_DEADLINE)
+                                .unwrap();
+                        }
+                        match result.record.outcome {
+                            Outcome::Committed { .. } => {
+                                committed = true;
+                                break;
+                            }
+                            Outcome::Rejected {
+                                code: Rejection::StaleBase,
+                                ..
+                            } if attempt == 0 => {}
+                            outcome => panic!("unexpected write outcome: {outcome:?}"),
+                        }
+                    }
+                    assert!(
+                        committed,
+                        "the write commits after the one competing compaction"
+                    );
+                    written_tx.send(source.clone()).unwrap();
+                }
+                source
+            });
+            for _ in 0..rounds {
+                prepared_rx.recv_timeout(support::DECODER_DEADLINE).unwrap();
+                // Release the prepared write and request a compaction on another connection.
+                release_tx.send(()).unwrap();
+                combined += usize::from(request_compaction(&mut f).compacted);
+                compacted_tx.send(()).unwrap();
+                let committed_source = written_rx.recv_timeout(support::DECODER_DEADLINE).unwrap();
+                assert_eq!(f.read().source, committed_source);
+            }
+            writer.join().unwrap()
+        });
         combined += usize::from(request_compaction(&mut f).compacted);
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(combined > 0, "at least one request combined stored changes");
+        if rounds == 1 {
+            assert!(
+                combined < 3,
+                "completion does not require three nonempty compactions"
+            );
+        }
+        assert_eq!(f.read().source, last);
+        assert!(!request_compaction(&mut f).compacted);
     }
-    let last = writer.join().unwrap();
-    assert_eq!(f.read().source, last);
-    // Once writes stop, one more combine leaves the same source and a second finds nothing.
-    request_compaction(&mut f);
-    assert_eq!(f.read().source, last);
-    assert!(!request_compaction(&mut f).compacted);
 }
 
 /// A measurement, not a gate: how large the checkpoint grows when a page is rewritten over and
