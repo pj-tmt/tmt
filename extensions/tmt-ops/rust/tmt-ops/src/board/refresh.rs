@@ -1178,9 +1178,8 @@ fn member_view(
     Ok((view, loaded.attention))
 }
 
-/// The built-in `all` tab: one row per squad with its lead, member count
-/// and attention, in tab order. Enter opens that squad's tab; the rows are
-/// squads, not members, so no member binding applies here.
+/// The workspace's acquired aggregate source and global action programs.
+/// Member/host/section key admission belongs to the workspace snapshot.
 fn all_view(
     core: &Core,
     config: &Config,
@@ -1209,8 +1208,8 @@ fn all_view(
         section_bindings: Vec::new(),
         configured_bindings: Default::default(),
         host_bindings: Default::default(),
-        opener: None,
-        clipboard: None,
+        opener: config.program("opener")?,
+        clipboard: config.program("clipboard")?,
         links: Default::default(),
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
@@ -2155,13 +2154,13 @@ esac
         fs::write(root.join(".ops-paths-v1"), "{}").unwrap();
         fs::write(
             root.join("ops.toml"),
-            "[squad.product]\nrefresh = \"off\"\n[board.token_rate]\nenabled = false\n",
+            "opener = [\"fixture-browser\", \"--keep-args\"]\nclipboard = [\"fixture-clipboard\"]\n[squad.product]\nrefresh = \"off\"\n[board.token_rate]\nenabled = false\n",
         )
         .unwrap();
         let fake = root.join("tmt");
         let configured = json!({"paths":{"global":root.join("config.json")}});
         let listed = json!({"rooms":[{"id":ROOM,"name":"squad-product"}]});
-        let roster = json!({"members":[{"id":"22222222-2222-4222-8222-222222222222","name":"alice","lifetime":"saved","metadata":{"squad.product.task":"ship"}}]});
+        let roster = json!({"members":[{"id":"22222222-2222-4222-8222-222222222222","name":"alice","lifetime":"saved","metadata":{"squad.product.task":"ship","squad.product.pr_link":"https://example.test/pull/42"}}]});
         crate::test_support::write_ready_executable(
             &fake,
             &format!(
@@ -2206,6 +2205,36 @@ printf '%s\n' '{{}}'
         assert!(!cancellation.cancelled());
         assert_eq!(snapshot.squad.as_deref(), Some(ALL));
         assert!(snapshot.view.as_ref().unwrap().home.is_some());
+        let mut app = super::super::app::App::new(Some(ALL.into()));
+        app.apply(*snapshot);
+        app.workspace.expanded.insert(ROOM.into());
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| {
+                matches!(&row.target,
+            super::super::workspace::OpsTarget::Member { identity_id, room_id:Some(room) }
+            if identity_id=="22222222-2222-4222-8222-222222222222" && room==ROOM)
+            })
+            .unwrap();
+        app.select(index);
+        assert_eq!(
+            app.key(ratatui::crossterm::event::KeyEvent::new(
+                ratatui::crossterm::event::KeyCode::Char('o'),
+                ratatui::crossterm::event::KeyModifiers::NONE,
+            )),
+            super::super::app::Effect::Act(super::super::app::Request::Open {
+                link: "https://example.test/pull/42".into(),
+                opener: Some(vec!["fixture-browser".into(), "--keep-args".into()]),
+            })
+        );
+        assert_eq!(
+            app.perform(&crate::action::Action::parse("copy {task}").unwrap()),
+            super::super::app::Effect::Act(super::super::app::Request::Copy {
+                text: "ship".into(),
+                program: Some(vec!["fixture-clipboard".into()]),
+            })
+        );
         drop(worker);
         assert!(
             fs::symlink_metadata(&legacy)
