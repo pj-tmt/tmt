@@ -200,6 +200,15 @@ describe('native runtime proof boundary', () => {
       expect(valid.status).toBe(1);
       expect(valid.stderr).toContain('--executable is required');
       expect(valid.stderr).not.toContain('ERR_MODULE_NOT_FOUND');
+      // The database observer is part of the same minimal runtime import closure.
+      const observer = path.join(sandbox.root, 'typescript/scripts/native-database-layout.mjs');
+      const observerBytes = readFileSync(observer);
+      unlinkSync(observer);
+      const missingObserver = await invoke();
+      expect(missingObserver.status).toBe(1);
+      expect(missingObserver.stderr).toContain('ERR_MODULE_NOT_FOUND');
+      expect(missingObserver.stderr).toContain('native-database-layout.mjs');
+      writeFileSync(observer, observerBytes);
       // The exact prior eager-import defect must fail in this same valid image closure.
       const proof = path.join(sandbox.root, 'typescript/scripts/native-runtime-proof.mjs');
       writeFileSync(proof, `${readFileSync(proof, 'utf8')}\nimport './colab-runtime-proof.mjs';\n`);

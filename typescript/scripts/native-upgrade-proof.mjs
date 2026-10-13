@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readCoreDatabase } from './native-database-layout.mjs';
 import { bootstrapTools } from './native-bootstrap-proof.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertMacOsArchitecture } from './native-runtime-proof.mjs';
@@ -145,7 +146,7 @@ export function proveSourceBootstrap({
   const protocol = installerProtocol(installed, options);
   const run = (args) => runPackedCommand(installed, args, options);
   const ids = writePriorState(run);
-  const database = path.join(state, 'tmux-team.db');
+  const database = readCoreDatabase(state);
   const databaseBytes = fs.readFileSync(database);
   const before = snapshotState(database, ids);
   assert.deepEqual(before.missing, []);
@@ -198,7 +199,7 @@ export function proveSourceBootstrap({
     );
   }
   assert(
-    fs.readFileSync(database).equals(databaseBytes),
+    fs.readFileSync(readCoreDatabase(state)).equals(databaseBytes),
     'Source installer changed application state'
   );
   const tools = bootstrapTools(root);
@@ -250,14 +251,17 @@ export function proveSourceBootstrap({
     );
   }
   assertMacOsArchitecture(installed, current.target, options);
-  assert(fs.readFileSync(database).equals(databaseBytes), 'Bootstrap changed application state');
+  assert(
+    fs.readFileSync(readCoreDatabase(state)).equals(databaseBytes),
+    'Bootstrap changed application state'
+  );
   const oldExecutable = originalLayout.executable;
   assert(fs.readFileSync(oldExecutable).equals(priorBytes), 'Bootstrap lost old executable');
   run(['identity', 'ls', '--json']);
   assert.deepEqual(
     checkMigratedState({
       before,
-      after: snapshotState(database, ids),
+      after: snapshotState(readCoreDatabase(state), ids),
       expected: expectedMigrations,
     }),
     []

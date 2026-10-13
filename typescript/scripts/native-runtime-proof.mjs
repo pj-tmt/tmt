@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { assertNoCoreDatabase, readCoreDatabase } from './native-database-layout.mjs';
 import { spawn } from 'node:child_process';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
@@ -486,8 +487,7 @@ export async function verifyNativeRuntime({
       sources,
       'Repeat install and refresh must preserve exact bundle ownership'
     );
-    const database = path.join(globalRoot, 'tmux-team.db');
-    assert(!fs.existsSync(database), 'Skill installation must not initialize SQLite');
+    assertNoCoreDatabase(globalRoot, 'Skill installation must not initialize SQLite');
     const created = json(['identity', 'create', 'artifact-proof']);
     assert.equal(created.created, true);
     assert.equal(created.identity.name, 'artifact-proof');
@@ -497,6 +497,7 @@ export async function verifyNativeRuntime({
     const profile = json(['role', '--identity', 'artifact-proof', 'set', profileContent]);
     assert.equal(profile.role.content, profileContent);
     assert.deepEqual(json(['role', '--identity', 'artifact-proof', 'show']), profile);
+    const database = readCoreDatabase(globalRoot);
     const descriptor = fs.openSync(database, 'r');
     try {
       const header = Buffer.alloc(16);

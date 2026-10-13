@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vite-plus/test';
+import { readCoreDatabase } from '../../scripts/native-database-layout.mjs';
+import { snapshotState } from '../../scripts/migrated-state.mjs';
 
 const {
   HANDOFF_PROBE,
@@ -32,6 +35,38 @@ const legacy = () => {
 };
 
 describe('native installer protocol and legacy recovery controls', () => {
+  it('snapshots the selected prior and current store through the existing observation-copy seam', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'database-snapshot-')));
+    const former = path.join(root, 'tmux-team.db');
+    const current = path.join(root, 'tmt.db');
+    const database = new DatabaseSync(former);
+    try {
+      database.exec(
+        'CREATE TABLE _migrations (id INTEGER); INSERT INTO _migrations VALUES (1);' +
+          "CREATE TABLE identities (id TEXT); INSERT INTO identities VALUES ('preserved');"
+      );
+    } finally {
+      database.close();
+    }
+    try {
+      const beforeBytes = fs.readFileSync(former);
+      const before = snapshotState(readCoreDatabase(root), ['preserved']);
+      expect(before.missing).toEqual([]);
+      expect(fs.readFileSync(former)).toEqual(beforeBytes);
+      // A fixture layout change exercises observation, not the public upgrade or rename engine.
+      fs.renameSync(former, current);
+      fs.symlinkSync('tmt.db', former);
+      expect(snapshotState(readCoreDatabase(root), ['preserved'])).toEqual(before);
+      expect(fs.readFileSync(current)).toEqual(beforeBytes);
+      fs.writeFileSync(current, 'corrupt selected store');
+      expect(() => snapshotState(readCoreDatabase(root), ['preserved'])).toThrow(
+        'invalid SQLite header'
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('requires both source-declared moved protocols without treating malformed declarations as historical', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'installer-move-source-'));
     const directory = path.join(root, 'rust/crates/tmt-adapters/src/native_install');
