@@ -24,36 +24,28 @@
 // A list query is admitted by membership and the page's expiry only: Firestore cannot compare
 // a document's own expiresAt with request.time in a query, so a query may return an entry past
 // its own expiresAt while the page is still live. A single-document get also checks the
-// entry's expiresAt. Clients drop expired entries; physical removal is TTL and cleanup.
+// entry's expiresAt. Clients drop expired entries; rows leave only on owner deletion (no free-plan TTL).
 // Entry expiry has its own 365-day ceiling, independent of the page deadline.
-// A page refresh changes only its data row plus atomic accounting counters.
-// Charged payload strings are ASCII: Rules string.size() then equals encoded bytes.
+// Refreshing the page needs one write; entries refresh only near their own expiry.
 // Owners may update only expiry, and delete expired entries or entries
 // of an expired/deleted page. Ciphertext and routing facts remain immutable.
 
 match /spaces/{space} {
   allow get: if request.auth != null && resource.data.owner == request.auth.uid;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'owner', 'quotaUid', 'quotaBytes'])
-    && request.resource.data.keys().hasAll(['space', 'owner', 'quotaUid', 'quotaBytes'])
+    && request.resource.data.keys().hasOnly(['space', 'owner'])
+    && request.resource.data.keys().hasAll(['space', 'owner'])
     && space.matches('[a-z2-7]{32}')
     && request.resource.data.space == space
-    && request.resource.data.owner == request.auth.uid
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'spaces' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == space && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'spaces' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == space && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+    && request.resource.data.owner == request.auth.uid;
 }
 
 match /pages/{id} {
   allow get: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
   allow create, update: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'state', 'expiresAt', 'quotaUid', 'quotaBytes'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'state', 'expiresAt', 'quotaUid', 'quotaBytes'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'state', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'state', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && id == request.resource.data.space + '_' + request.resource.data.page
@@ -64,49 +56,25 @@ match /pages/{id} {
     && request.resource.data.expiresAt > request.time
     && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
-    && (request.method == 'create' || request.resource.data.epoch >= resource.data.epoch)
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'pages' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'pages' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+    && (request.method == 'create' || request.resource.data.epoch >= resource.data.epoch);
   allow delete: if request.auth != null
-    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
-    && ((ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'pages' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'pages' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes - resource.data.quotaBytes && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries - 1));
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
 }
 
 match /links/{id} {
   allow get, list: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'link', 'role', 'token', 'quotaUid', 'quotaBytes'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'link', 'role', 'token', 'quotaUid', 'quotaBytes'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'link', 'role', 'token'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'link', 'role', 'token'])
     && request.resource.data.link.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && id == request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link
     && request.resource.data.role in ['viewer', 'commenter', 'editor']
     && request.resource.data.token.matches('[A-Za-z0-9_-]{43}')
     && ext.exists(/pages/$(request.resource.data.space + '_' + request.resource.data.page))
-    && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'links' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'links' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+    && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid;
   allow delete: if request.auth != null
-    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
-    && ((ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'links' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'links' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes - resource.data.quotaBytes && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries - 1));
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
 }
 
 match /members/{id} {
@@ -122,29 +90,17 @@ match /members/{id} {
     && id == request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.uid
     && request.resource.data.role in ['viewer', 'commenter', 'editor', 'bridge']
     && ext.exists(/pages/$(request.resource.data.space + '_' + request.resource.data.page))
-    && ((request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'quotaUid', 'quotaBytes'])
-        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'quotaUid', 'quotaBytes'])
+    && ((request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role'])
+        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role'])
         && ext.get(/spaces/$(request.resource.data.space)).data.owner == request.auth.uid)
       || (request.method == 'create'
-        && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token', 'quotaUid', 'quotaBytes'])
-        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token', 'quotaUid', 'quotaBytes'])
+        && request.resource.data.keys().hasOnly(['space', 'page', 'uid', 'role', 'link', 'token'])
+        && request.resource.data.keys().hasAll(['space', 'page', 'uid', 'role', 'link', 'token'])
         && request.resource.data.uid == request.auth.uid
         && ext.get(/links/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link)).data.token == request.resource.data.token
-        && ext.get(/links/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link)).data.role == request.resource.data.role))
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'members' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'members' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+        && ext.get(/links/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.resource.data.link)).data.role == request.resource.data.role));
   allow delete: if request.auth != null
-    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
-    && ((ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'members' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'members' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes - resource.data.quotaBytes && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries - 1));
+    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
 }
 
 match /log/{id} {
@@ -156,8 +112,8 @@ match /log/{id} {
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt', 'quotaUid', 'quotaBytes'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt', 'quotaUid', 'quotaBytes'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'stream', 'seq', 'uid', 'hash', 'envelope', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && request.resource.data.stream.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
@@ -178,38 +134,18 @@ match /log/{id} {
     && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.seq == 1
-      || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid)
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == request.resource.data.envelope.size() + 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'log' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'log' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+      || ext.getAfter(/log/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.stream + '_' + string(request.resource.data.seq - 1))).data.uid == request.auth.uid);
   allow update: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
     && request.resource.data.expiresAt is timestamp
     && request.resource.data.expiresAt > request.time
-    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.envelope.matches('[\\x00-\\x7F]*'))
-    && (request.resource.data.quotaBytes == request.resource.data.envelope.size() + 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'log' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'log' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd');
   allow delete: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && (resource.data.expiresAt <= request.time
       || !ext.exists(/pages/$(resource.data.space + '_' + resource.data.page))
-      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time)
-    && ((ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'log' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'log' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes - resource.data.quotaBytes && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries - 1));
+      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time);
 }
 
 match /checkpoints/{id} {
@@ -221,8 +157,8 @@ match /checkpoints/{id} {
     && ext.exists(/members/$(resource.data.space + '_' + resource.data.page + '_' + request.auth.uid))
     && ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt > request.time;
   allow create: if request.auth != null
-    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt', 'quotaUid', 'quotaBytes'])
-    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt', 'quotaUid', 'quotaBytes'])
+    && request.resource.data.keys().hasOnly(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
+    && request.resource.data.keys().hasAll(['space', 'page', 'epoch', 'object', 'index', 'count', 'uid', 'bytes', 'expiresAt'])
     && request.resource.data.space.matches('[a-z2-7]{32}')
     && request.resource.data.page.matches('[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
     && request.resource.data.epoch is int
@@ -244,96 +180,16 @@ match /checkpoints/{id} {
     && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
     && ext.get(/members/$(request.resource.data.space + '_' + request.resource.data.page + '_' + request.auth.uid)).data.role != 'viewer'
     && (request.resource.data.index == 0
-      || ext.getAfter(/checkpoints/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.object + '_0')).data.uid == request.auth.uid)
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.quotaBytes == request.resource.data.bytes.size() + 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'checkpoints' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'checkpoints' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+      || ext.getAfter(/checkpoints/$(request.resource.data.space + '_' + request.resource.data.page + '_' + string(request.resource.data.epoch) + '_' + request.resource.data.object + '_0')).data.uid == request.auth.uid);
   allow update: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['expiresAt'])
     && request.resource.data.expiresAt is timestamp
     && request.resource.data.expiresAt > request.time
-    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd')
-    && (request.resource.data.quotaUid is string)
-    && (request.resource.data.bytes.matches('[\\x00-\\x7F]*'))
-    && (request.resource.data.quotaBytes == request.resource.data.bytes.size() + 256)
-    && ((request.method == 'create' ? request.resource.data.quotaUid == request.auth.uid : request.resource.data.quotaUid == resource.data.quotaUid))
-    && ((ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetKind == 'checkpoints' && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(request.resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetKind == 'checkpoints' && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(request.resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(request.resource.data.space)) || ext.getAfter(/space-budgets/$(request.resource.data.space)).data.diff(ext.get(/space-budgets/$(request.resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations']))));
+    && request.resource.data.expiresAt <= request.time + duration.value(365, 'd');
   allow delete: if request.auth != null
     && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
     && (resource.data.expiresAt <= request.time
       || !ext.exists(/pages/$(resource.data.space + '_' + resource.data.page))
-      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time)
-    && ((ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'checkpoints' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == request.method)
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'checkpoints' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == request.method)
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.chargedBytes - resource.data.quotaBytes && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries == ext.get(/uid-budgets/$(resource.data.space + '_' + resource.data.quotaUid)).data.entries - 1));
-}
-
-// Atomic allocation/rate accounting. These constants are Colab policy, not provider usage.
-// Every commit has one charged target; initial counter rows cost 256 bytes and one
-// space entry each. An empty uid row may be retired only after its rate window.
-
-match /uid-budgets/{id} {
-  allow get: if request.auth != null && (resource.data.uid == request.auth.uid || ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid);
-  allow create, update: if request.auth != null
-    && (request.resource.data.keys().hasOnly(['space', 'chargedBytes', 'entries', 'windowStart', 'mutations', 'targetKind', 'targetId', 'action', 'actor', 'uid']))
-    && (request.resource.data.keys().hasAll(['space', 'chargedBytes', 'entries', 'windowStart', 'mutations', 'targetKind', 'targetId', 'action', 'actor', 'uid']))
-    && (request.resource.data.space.matches('[a-z2-7]{32}'))
-    && (request.resource.data.targetKind in ['spaces', 'pages', 'links', 'members', 'log', 'checkpoints', 'uid-budgets'])
-    && (request.resource.data.targetId is string)
-    && (request.resource.data.actor == request.auth.uid)
-    && (request.resource.data.action in ['create', 'update', 'delete'])
-    && (request.resource.data.chargedBytes is int)
-    && (request.resource.data.entries is int)
-    && (request.resource.data.chargedBytes >= 256)
-    && (request.resource.data.entries >= 1)
-    && (request.resource.data.chargedBytes <= 26214400)
-    && (request.resource.data.entries <= 2000)
-    && ((request.method == 'create' || request.resource.data.space == resource.data.space))
-    && (request.resource.data.uid is string)
-    && (id == request.resource.data.space + '_' + request.resource.data.uid)
-    && ((request.method == 'create' || request.resource.data.uid == resource.data.uid))
-    && (((request.resource.data.action == 'create' && !ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == request.auth.uid) || (request.resource.data.action == 'update' && ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes == ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.diff(ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data).affectedKeys().size() > 0) || (request.resource.data.action == 'delete' && ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && !ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space)))
-    && ((request.resource.data.uid == request.auth.uid ? (request.resource.data.mutations is int && request.resource.data.mutations >= 1 && request.resource.data.mutations <= 120 && request.resource.data.windowStart is timestamp && ((!(request.method != 'create') && request.resource.data.windowStart == request.time && request.resource.data.mutations == 1) || ((request.method != 'create') && ((request.resource.data.windowStart == resource.data.windowStart && request.resource.data.mutations == resource.data.mutations + 1 && request.time < resource.data.windowStart + duration.value(60, 's')) || (request.time >= resource.data.windowStart + duration.value(60, 's') && request.resource.data.windowStart == request.time && request.resource.data.mutations == 1))))) : (request.resource.data.action == 'delete' && request.resource.data.targetKind != 'uid-budgets' && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == request.resource.data.uid && request.method == 'update' && request.resource.data.windowStart == resource.data.windowStart && request.resource.data.mutations == resource.data.mutations)))
-    && (((request.resource.data.action == 'create' && request.resource.data.uid == request.auth.uid && request.resource.data.chargedBytes == (request.method == 'create' ? (request.resource.data.targetKind == 'spaces' ? 512 : 256) : resource.data.chargedBytes) + ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes && request.resource.data.entries == (request.method == 'create' ? (request.resource.data.targetKind == 'spaces' ? 2 : 1) : resource.data.entries) + 1) || (request.resource.data.action == 'update' && request.method == 'update' && request.resource.data.uid == request.auth.uid && request.resource.data.chargedBytes == resource.data.chargedBytes && request.resource.data.entries == resource.data.entries) || (request.resource.data.action == 'delete' && request.method == 'update' && (request.resource.data.targetKind != 'uid-budgets' && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == request.resource.data.uid ? (request.resource.data.chargedBytes == resource.data.chargedBytes - ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes && request.resource.data.entries == resource.data.entries - 1) : (request.resource.data.uid == request.auth.uid && request.resource.data.chargedBytes == resource.data.chargedBytes && request.resource.data.entries == resource.data.entries)))));
-  allow delete: if request.auth != null
-    && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid
-    && resource.data.entries == 1 && resource.data.chargedBytes == 256
-    && request.time >= resource.data.windowStart + duration.value(60, 's')
-    && (ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.actor == request.auth.uid && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetKind == 'uid-budgets' && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.targetId == id && ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.action == 'delete')
-    && (ext.getAfter(/space-budgets/$(resource.data.space)).data.actor == request.auth.uid && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetKind == 'uid-budgets' && ext.getAfter(/space-budgets/$(resource.data.space)).data.targetId == id && ext.getAfter(/space-budgets/$(resource.data.space)).data.action == 'delete')
-    && ((!ext.exists(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)) || ext.getAfter(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data.diff(ext.get(/uid-budgets/$(resource.data.space + '_' + request.auth.uid)).data).affectedKeys().hasAny(['windowStart', 'mutations'])))
-    && ((!ext.exists(/space-budgets/$(resource.data.space)) || ext.getAfter(/space-budgets/$(resource.data.space)).data.diff(ext.get(/space-budgets/$(resource.data.space)).data).affectedKeys().hasAny(['windowStart', 'mutations'])));
-}
-
-match /space-budgets/{id} {
-  allow get: if request.auth != null && ext.get(/spaces/$(resource.data.space)).data.owner == request.auth.uid;
-  allow create, update: if request.auth != null
-    && (request.resource.data.keys().hasOnly(['space', 'chargedBytes', 'entries', 'windowStart', 'mutations', 'targetKind', 'targetId', 'action', 'actor']))
-    && (request.resource.data.keys().hasAll(['space', 'chargedBytes', 'entries', 'windowStart', 'mutations', 'targetKind', 'targetId', 'action', 'actor']))
-    && (request.resource.data.space.matches('[a-z2-7]{32}'))
-    && (request.resource.data.targetKind in ['spaces', 'pages', 'links', 'members', 'log', 'checkpoints', 'uid-budgets'])
-    && (request.resource.data.targetId is string)
-    && (request.resource.data.actor == request.auth.uid)
-    && (request.resource.data.action in ['create', 'update', 'delete'])
-    && (request.resource.data.chargedBytes is int)
-    && (request.resource.data.entries is int)
-    && (request.resource.data.chargedBytes >= 256)
-    && (request.resource.data.entries >= 1)
-    && (request.resource.data.chargedBytes <= 262144000)
-    && (request.resource.data.entries <= 20000)
-    && ((request.method == 'create' || request.resource.data.space == resource.data.space))
-    && (id == request.resource.data.space)
-    && (((request.resource.data.action == 'create' && !ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == request.auth.uid) || (request.resource.data.action == 'update' && ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid == ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaUid && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes == ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes && ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.diff(ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data).affectedKeys().size() > 0) || (request.resource.data.action == 'delete' && ext.exists(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && !ext.existsAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)) && ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.space == request.resource.data.space)))
-    && (request.resource.data.mutations is int && request.resource.data.mutations >= 1 && request.resource.data.mutations <= 600 && request.resource.data.windowStart is timestamp && ((!(request.method != 'create') && request.resource.data.windowStart == request.time && request.resource.data.mutations == 1) || ((request.method != 'create') && ((request.resource.data.windowStart == resource.data.windowStart && request.resource.data.mutations == resource.data.mutations + 1 && request.time < resource.data.windowStart + duration.value(60, 's')) || (request.time >= resource.data.windowStart + duration.value(60, 's') && request.resource.data.windowStart == request.time && request.resource.data.mutations == 1)))))
-    && (((request.resource.data.action == 'create' && request.resource.data.chargedBytes == (request.method == 'create' ? 256 : resource.data.chargedBytes) + ext.getAfter(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes + (ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) ? 0 : 256) && request.resource.data.entries == (request.method == 'create' ? 1 : resource.data.entries) + 1 + (ext.exists(/uid-budgets/$(request.resource.data.space + '_' + request.auth.uid)) ? 0 : 1)) || (request.resource.data.action == 'update' && request.method == 'update' && request.resource.data.chargedBytes == resource.data.chargedBytes && request.resource.data.entries == resource.data.entries) || (request.resource.data.action == 'delete' && request.method == 'update' && request.resource.data.chargedBytes == resource.data.chargedBytes - (request.resource.data.targetKind == 'uid-budgets' ? 256 : ext.get(/$(request.resource.data.targetKind)/$(request.resource.data.targetId)).data.quotaBytes) && request.resource.data.entries == resource.data.entries - 1)));
+      || ext.get(/pages/$(resource.data.space + '_' + resource.data.page)).data.expiresAt <= request.time);
 }
