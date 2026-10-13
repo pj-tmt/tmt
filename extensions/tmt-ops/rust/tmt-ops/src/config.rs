@@ -2315,12 +2315,18 @@ mod tests {
     fn link_handlers_are_explicit_validated_run_bindings() {
         let path = temp("links");
         fs::write(&path, "[links]\ngh='run gh issue view {path}'").unwrap();
+        let handlers = Config::read(path.clone()).unwrap().links().unwrap();
+        let handler = &handlers["gh"];
+        assert_eq!(
+            handler
+                .argv(&serde_json::json!({"fields":{"path":"a b;$(id)"}}))
+                .unwrap(),
+            ["gh", "issue", "view", "a b;$(id)"]
+        );
         assert!(
-            Config::read(path.clone())
-                .unwrap()
-                .links()
-                .unwrap()
-                .contains_key("gh")
+            handler
+                .argv(&serde_json::json!({"fields":{"path":"--repo=evil"}}))
+                .is_err()
         );
         for value in [
             "gh='open {path}'",

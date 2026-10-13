@@ -129,15 +129,12 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// The last eight selected identities, with one rendered body per notebook.
-/// Public notes.read owns the same 1 MiB bound as the lead pane.
 /// A response source anchor survives wrapping and refreshed content; Scrolls owns the viewport.
 #[derive(Default)]
 pub(super) struct NotesCursor {
     pub source: usize,
     part: usize,
     anchor: Option<String>,
-    pub follow: bool,
 }
 
 impl NotesCursor {

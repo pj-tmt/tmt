@@ -221,12 +221,72 @@ fn malicious_response_remains_inert_and_full_source_is_available() {
                 .chars()
                 .any(|ch| ch.is_control() && ch != '\n' || ch == '\u{202e}')
         );
-        assert_eq!(mapped.links[0].target, "https://example.test/page");
+        let link = mapped
+            .lines
+            .iter()
+            .flat_map(|line| &line.spans)
+            .find(|span| span.content.contains("Colab"))
+            .unwrap();
+        assert!(
+            link.style
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED)
+        );
+        assert_eq!(mapped.lines.len(), mapped.sources.len());
         assert_eq!(
             session.reply.as_ref().unwrap().body,
             raw,
             "escaping does not rewrite quote source"
         );
+    }
+}
+
+#[test]
+fn clicking_response_links_does_not_open_or_execute_destinations() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for target in [
+        "https://example.test/page",
+        "tmt:jump/other",
+        "javascript:alert(1)",
+    ] {
+        let mut app = workspace_fixture();
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(format!("[InertLink]({target})"));
+        let selected = app.workspace.selected.clone();
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                let line: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                line.find("InertLink")
+                    .map(|x| (u16::try_from(line[..x].width()).unwrap(), y))
+            })
+            .expect("the response label is visibly painted");
+        let pane = app.conversation.borrow().pane.expect("response pane");
+        assert!(pane.contains((x, y).into()));
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: x,
+                    row: y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now()
+            ),
+            app::Effect::None,
+            "{target}"
+        );
+        assert_eq!(app.workspace.selected, selected);
+        assert!(app.input.is_none());
+        assert!(app.menu.is_none());
     }
 }
 

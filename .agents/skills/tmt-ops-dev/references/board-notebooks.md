@@ -25,10 +25,12 @@ as source. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
 
-The `links` classifier, custom-handler admission and Markdown source mapping stay
-inert during parsing/painting. The selected agent's attached URL uses existing
-Open/opener effects; a compatible explicit binding defines its own action. The
-removed notebook adapter does not supply navigation or execution authority.
+Markdown keeps styled text and source-line mapping; it retains no link destinations
+or activation hits. Built-in destination recognition grants only a text style;
+custom handlers remain authored Config data with migration notices. The selected
+agent's attached URL uses existing Open/opener effects and global argv settings;
+a compatible explicit binding defines its own action. The removed notebook
+adapter does not supply navigation or execution authority.
 Legacy note tags and their request projection remain independent source data;
 workspace response annotations use exact request IDs and raw source ranges.
 
