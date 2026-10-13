@@ -403,13 +403,16 @@ test('paired writers retain anchored annotation conversations, direct exact send
     for (const batch of traffic) {
       expect(batch).not.toContain(opening.split('\n')[0].slice(0, 32));
       for (const anchor of JSON.parse(batch))
-        expect(Object.keys(anchor).sort()).toEqual(['id', 'selector']);
+        expect(Object.keys(anchor).sort()).toEqual(['id', 'ordinal', 'selector']);
     }
     await expect(first.getByTestId('annotation-row').first()).toHaveAttribute(
       'title',
       opening.split('\n')[0].slice(0, 32),
     );
-    await expect(marker).toHaveAttribute('title', 'An & 🌍 exact quote for review.');
+    await expect(marker).toHaveAttribute(
+      'title',
+      `Thread ${await marker.textContent()}: An & 🌍 exact quote for review.`,
+    );
     await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
     await marker.click();
     await expect(t1).toBeVisible();
