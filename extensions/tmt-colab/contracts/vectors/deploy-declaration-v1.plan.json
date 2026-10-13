@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "planDigest": "157681c30e92ab548053e9c921260ecc2e08bca4680c628abea2afd612ef6535",
-  "declarationDigest": "001770e924117f9f8d48b544d61891fb98816d1c465dd45820234dc9fcf351da",
-  "artifactDigest": "8bdcfc9180dcc91688062c56bde0156297cab174ac51c35b5aa55e5d77ef447f",
+  "planDigest": "38d5f1d4a54470ced8015ee5ffd56e618ee7efecb339ea9b71ee0b8fb10c0332",
+  "declarationDigest": "76d566a7425b295462f645d6cb666ce7cee1a675ab3b1ef68e78917de994fd3b",
+  "artifactDigest": "d404c137cdae7c924dafd03d3b3128354502c1eceafdd78087117d43c4b9aa18",
   "plan": {
     "version": 1,
     "profile": "sharing",
@@ -13,9 +13,9 @@
     "extensions": [
       {
         "name": "colab",
-        "declarationDigest": "001770e924117f9f8d48b544d61891fb98816d1c465dd45820234dc9fcf351da",
+        "declarationDigest": "76d566a7425b295462f645d6cb666ce7cee1a675ab3b1ef68e78917de994fd3b",
         "admission": {
-          "artifactDigest": "8bdcfc9180dcc91688062c56bde0156297cab174ac51c35b5aa55e5d77ef447f",
+          "artifactDigest": "d404c137cdae7c924dafd03d3b3128354502c1eceafdd78087117d43c4b9aa18",
           "entryPoint": "colabAdmitted"
         },
         "resources": [
@@ -85,19 +85,6 @@
             "indexes": []
           },
           {
-            "name": "space-budgets",
-            "kind": "checkpoint",
-            "path": "x/colab/space-budgets",
-            "limits": {
-              "maxObjectBytes": 4096,
-              "maxNamespaceBytes": 1048576,
-              "maxEntries": 256
-            },
-            "ttlField": null,
-            "ttl": "none",
-            "indexes": []
-          },
-          {
             "name": "spaces",
             "kind": "checkpoint",
             "path": "x/colab/spaces",
@@ -105,19 +92,6 @@
               "maxObjectBytes": 4096,
               "maxNamespaceBytes": 1048576,
               "maxEntries": 256
-            },
-            "ttlField": null,
-            "ttl": "none",
-            "indexes": []
-          },
-          {
-            "name": "uid-budgets",
-            "kind": "checkpoint",
-            "path": "x/colab/uid-budgets",
-            "limits": {
-              "maxObjectBytes": 4096,
-              "maxNamespaceBytes": 4194304,
-              "maxEntries": 1024
             },
             "ttlField": null,
             "ttl": "none",
