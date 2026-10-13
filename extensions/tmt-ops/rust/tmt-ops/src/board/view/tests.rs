@@ -1018,36 +1018,78 @@ fn painted_at(
 
 #[test]
 fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
-    let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
-    let look = crate::look::Look::default();
-    for state in ["blocked", "blocked-on-ci"] {
-        let draw_row = |colors: Value| {
-            let mut app = board(json!([{"title": null, "rows": [
-                {"name": "x", "pending": null, "fields": {"state": state}, "colors": colors}
-            ]}]));
-            let view = app.view.as_mut().unwrap();
-            view.rows = rows.clone();
-            view.look = look;
-            app.selected = 1;
-            board_buffer(&app, 30, 8)
-        };
-        let colored = draw_row(json!({"state": "review"}));
-        let plain = draw_row(json!({}));
-        let y = (0..8u16)
-            .find(|y| {
-                (0..30u16)
-                    .map(|x| colored[(x, *y)].symbol())
-                    .collect::<String>()
-                    .contains(state)
-            })
-            .unwrap();
-        for x in 2..2 + state.len() as u16 {
-            assert_eq!(
-                painted_at(&colored, x, y),
-                painted(look.named("review")),
-                "{state}"
-            );
-            assert_eq!(painted_at(&plain, x, y), painted(Style::new()), "{state}");
+    use crate::board::app::workspace::tests::{MEMBER, ROOM};
+    use crate::board::workspace::OpsTarget;
+    for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            for state in ["blocked", "blocked-on-ci", "waiting"] {
+                for selected in [false, true] {
+                    let mut app = workspace_board();
+                    app.shell.tab = crate::board::shell::OpsTab::Overview;
+                    app.view.as_mut().unwrap().look = look;
+                    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    snapshot.roster.members.get_mut(MEMBER).unwrap().state = Some(state.into());
+                    snapshot.roster.squads[0]
+                        .member_states
+                        .get_mut(MEMBER)
+                        .unwrap()
+                        .state = Some(state.into());
+                    let target = OpsTarget::Member {
+                        room_id: Some(ROOM.into()),
+                        identity_id: MEMBER.into(),
+                    };
+                    snapshot.rows.get_mut(&target).unwrap()["colors"] = json!({"state":"review"});
+                    let index = app
+                        .workspace_rows()
+                        .iter()
+                        .position(|row| row.target == target)
+                        .unwrap();
+                    app.select(if selected { index } else { 0 });
+                    let buffer = board_buffer(&app, 160, 24);
+                    let hit = *app
+                        .hits
+                        .borrow()
+                        .iter()
+                        .find(|hit| hit.row() == Some(index))
+                        .unwrap();
+                    let cells: Vec<_> = (hit.x..hit.x + hit.width)
+                        .map(|x| buffer[(x, hit.y)].symbol())
+                        .collect();
+                    let at = (0..cells.len())
+                        .find(|start| cells[*start..].concat().starts_with(state))
+                        .unwrap();
+                    let token = if state == "waiting" {
+                        look.role(Role::Waiting)
+                    } else {
+                        look.named("review")
+                    };
+                    let mut expected = if selected {
+                        look.selection().patch(look.row_span(true, token, true))
+                    } else {
+                        token
+                    };
+                    // The finished-frame selection policy keeps semantic words
+                    // readable on real backgrounds; reverse fallback keeps bold.
+                    if selected && look.selection().bg.is_some() {
+                        expected = expected.fg(look.role(Role::Text).fg.unwrap());
+                    }
+                    for x in hit.x + at as u16..hit.x + at as u16 + state.len() as u16 {
+                        assert_eq!(
+                            painted_at(&buffer, x, hit.y),
+                            painted(expected),
+                            "{base:?}/{depth:?}/{state}/selected={selected}"
+                        );
+                    }
+                }
+            }
         }
     }
 }
