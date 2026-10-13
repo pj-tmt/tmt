@@ -96,3 +96,12 @@ h2 {
   bottom: var(--tmt-ui-toggle-gap);
   right: var(--tmt-ui-header-gap);
 }
+
+.fixture-chips {
+  display: grid;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+}
+.fixture-chips output {
+  overflow-wrap: anywhere;
+}

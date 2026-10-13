@@ -23,3 +23,11 @@ export { BrowserMenu } from './menu.js';
 export type { BrowserMenuProps, BrowserMenuItem } from './menu.js';
 export { BrowserNotifications } from './notifications.js';
 export type { BrowserNotification, BrowserNotificationsProps } from './notifications.js';
+
+export { BrowserChips, BrowserChip } from './chips.js';
+export type {
+  BrowserChipsProps,
+  BrowserChipProps,
+  BrowserChipItem,
+  BrowserChipOption,
+} from './chips.js';

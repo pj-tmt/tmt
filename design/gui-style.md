@@ -250,6 +250,19 @@ inline flex). Kinds: **status** (mark plus word), **driver** (`claude`,
 outlines; interactive ones are buttons with a focus ring. Height 20 px, filter
 24 px. Basis: own.
 
+### BrowserChips
+
+A removable list uses shared BrowserChips/BrowserChip: square 1px chips with a
+centered one-line label and an explicit remove control. Wrap the list at narrow
+widths; keep the full accessible name when a long label ellipsizes. A trailing
+`＋` opens a search combobox/listbox. Arrow keys move, Enter adds, Escape returns
+focus, Tab closes, and Backspace in an empty non-composing field removes the last
+chip, when enabled. Recipients use `Remove @name` and `Add recipient`; selected agents are not
+offered again. The host owns values, filtering, limits, status and trusted effects.
+At its cap Add is disabled with a visible reason; empty/loading/error copy stays
+host-owned. Page-list label tokens use the same item inside their existing editor.
+The [leaf contract](browser-ui/README.md#chips) owns the API, focus and static entries.
+
 ### Tag
 
 A square outline label in mono type for audience and kind (`Private`,

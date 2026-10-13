@@ -26,8 +26,9 @@ embed the same checked static asset without requiring a React runtime.
 Colab uses `BrowserMenu` for choice/action menus and `BrowserDrawer` for shared
 page drawers. The leaf's [Drawer and Menu contract](browser-ui/README.md#drawer-and-menu)
 owns their presentation, placement and dismissal. Colab retains commands,
-checked values, admission and draft lifetimes. Input autocomplete remains a
-Colab-owned [listbox](../extensions/tmt-colab/typescript/app/src/components/listbox.css);
+checked values, admission and draft lifetimes. The [Chips contract](browser-ui/README.md#chips) owns removable items and their
+scoped search popup; page-list tokens reuse its item inside the host editor. Other
+input autocomplete remains a Colab-owned [listbox](../extensions/tmt-colab/typescript/app/src/components/listbox.css);
 specialized transactional and attachment-viewer dialogs retain their product
 owners. These surfaces use flat styling and thin edges without hard shadows.
 

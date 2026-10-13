@@ -42,6 +42,11 @@ function fixture(document?: object) {
   );
   const ownerDocument = document ?? {
     defaultView: {
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        callback(0);
+        return 0;
+      },
+      cancelAnimationFrame() {},
       innerWidth: 1440,
       innerHeight: 900,
       addEventListener() {},
