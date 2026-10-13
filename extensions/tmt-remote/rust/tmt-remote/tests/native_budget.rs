@@ -98,3 +98,24 @@ fn discovery_guard_table_charges_each_single_document_page_and_completion_probe(
     assert!(modeled_discovery_reads_per_hour(257, 60_000).is_err());
     assert!(modeled_discovery_reads_per_hour(1, 5_000).is_err());
 }
+
+#[test]
+fn page_probe_guard_table_includes_every_wake_triggered_query_page() {
+    // Q includes empty completion pages and consumer-issued discovery pages.
+    // Each bounded request shares the same three-read charge; no second pool.
+    for (queries, active, idle) in [
+        (0, 2160, 180),
+        (1, 4320, 360),
+        (8, 19440, 1620),
+        (256, 555120, 46260),
+    ] {
+        assert_eq!(
+            modeled_poll_reads_per_hour(1, 5000).unwrap() * (1 + queries),
+            active
+        );
+        assert_eq!(
+            modeled_poll_reads_per_hour(1, 60000).unwrap() * (1 + queries),
+            idle
+        );
+    }
+}

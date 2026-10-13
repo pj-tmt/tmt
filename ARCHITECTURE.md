@@ -560,8 +560,9 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 Remote's lease-bound object service owns `objects` and the `rust/crates/tmt-extension-objects`
 wire leaf; [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns
 channels, backends and quotas. Pure declaration, Rules and Hosting composition feeds the
-Firestore deploy CLI. `firebase_auth` owns ordinary-user credentials/refresh; `native_sync` owns REST polling
-and read budgets. Neither adds Core state or a cross-extension carrier.
+Firestore deploy CLI. `firebase_auth` owns credentials/refresh; `native_sync` owns REST
+polling and read budgets. Page hints retain no progress; Colab owns catch-up cursors.
+Neither adds Core state or a carrier.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md)
 own the module table and per-module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns serve

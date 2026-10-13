@@ -215,25 +215,39 @@ Polling has a 5 s floor for 120 s after local publication or received change, de
 overlap within an interest. For the one-document page, the pessimistic read cost is
 2,160/hour at the active floor or 180/hour idle, before discovery. Provider quota exhaustion
 retains unknown mutation outcomes and stops subsequent effects until the same reset.
-Every 60 s an interest runs the declared page-scoped discovery shape, with equality scope
-and optional declared seq equality, no logical cursor. Signed stateless positions bind the
-last document, scope, shape, client generation and original deadline; malformed, changed,
-closed or expired runs refuse before I/O. Each continuation clips Auth/provider work to
-the original run deadline, even when the next caller offers more time. A run admits at most 256 records and 257 pages,
-including the empty completion probe. Only a completed run updates the known stream set;
-pruned streams or capacity produce catch-up-required. Interests sample all known streams,
-retain bounded fingerprints and emit coalesced Changed/CatchUpRequired hints, not documents.
-Only Colab's public query input advances its logical cursor. Closing fences late results
-and releases the 3-consumer/12-serving interest cap. There is no document event queue.
+A page interest uses the regular declared equality scope minus the stream field; it needs
+no seed, stream position or discovery declaration. Its one-document probe has no stream or
+seq filter, so it covers initially empty pages and later writes on existing streams. Only
+a successful bounded absence observation suppresses Changed; a retained first row still
+emits the level-triggered hint even when unchanged. No fingerprints, stream cursors or
+provider-held delivery progress are retained. Colab alone owns its per-stream query
+positions. An empty finite query preserves its input cursor (including None).
+When discovery is declared, the interest also runs it every 60 s with no logical cursor.
+Signed stateless positions bind the last document, scope, shape, client generation and
+original deadline. Every continuation clips Auth/provider work to that original deadline.
+A run admits at most 256 records and 257 one-document pages including empty completion;
+successful completion emits Changed even if the first-seq rows are unchanged. Closing
+fences late results and releases the 3-consumer/12-serving page-interest cap. One page
+interest counts once regardless of writers; there is no document event queue.
 
-Pessimistic reads per interest/hour, before mutation traffic and backoff:
+Pessimistic reads per page interest/hour, before mutation traffic and backoff. Q is the
+number of one-document query pages a consumer requests per wake, including finite-query
+empty completions and any consumer-issued discovery. Each wake query adds the same
+three-read charge to the shared guard. The table uses the existing
+`modeled_poll_reads_per_hour(1, interval) * (1 + Q)`; it introduces no new quota formula.
 
-| Known streams | Active tails (5 s) | Idle tails (60 s) | Discovery (60 s, with completion) |
-| ------------- | -----------------: | ----------------: | --------------------------------: |
-| 1             |              2,160 |               180 |                               360 |
-| 2             |              4,320 |               360 |                               540 |
-| 8             |             17,280 |             1,440 |                             1,620 |
-| 256           |            552,960 |            46,080 |                            46,260 |
+| Q per wake | Active probe + wake queries (5 s) | Idle probe + wake queries (60 s) |
+| ---------- | --------------------------------: | -------------------------------: |
+| 0          |                             2,160 |                              180 |
+| 1          |                             4,320 |                              360 |
+| 8          |                            19,440 |                            1,620 |
+| 256        |                           555,120 |                           46,260 |
+
+Optional provider discovery adds `modeled_discovery_reads_per_hour(N, 60000)`: for
+N = 0/1/2/8/256 records, the respective charges are 180/360/540/1,620/46,260 per hour,
+including every empty completion. It is absent when no discovery shape is declared.
+Initial catch-up and any extra consumer queries also add their actual precharged maxima;
+no request, wake or discovery result refunds reads.
 
 The shared guard refuses before these worst cases can spend the modeled allowance; this
 table grants no extra quota or claim about Google's measured usage. Native vectors pin

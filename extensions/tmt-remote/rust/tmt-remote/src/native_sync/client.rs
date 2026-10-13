@@ -1,6 +1,6 @@
 //! No SDK, Admin authority or hidden write replay. Each consumer retains one
 //! bounded provider page; its serving owner shares request caps and read costs.
-use super::{NativeBudgetFile, subscription::Interest};
+use super::NativeBudgetFile;
 use crate::{
     declaration::Resource,
     deploy_plan::sha256_hex,
@@ -13,16 +13,16 @@ use crate::{
     objects::{BackendError, IoBudget},
     sealed_sync::{
         Document, DocumentAccess, Mutation, Page, Pending, Published, Query, SealedSyncPort,
-        Subscription, SyncContext, SyncCursor, SyncError, SyncQueryPage, SyncQueryRequest, Target,
-        validate_document, validate_mutation, validate_query,
+        Subscription, SyncContext, SyncCursor, SyncError, SyncInterest, SyncQueryPage,
+        SyncQueryRequest, Target, validate_document, validate_mutation, validate_query,
     },
     wire,
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     sync::{
-        Arc, Mutex, OnceLock, Weak,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Instant,
@@ -139,7 +139,6 @@ pub(super) struct Consumer {
     model: Model,
     pub(super) closed: AtomicBool,
     pub(super) subscriptions: Mutex<usize>,
-    pub(super) interests: Mutex<Vec<Weak<Mutex<Interest>>>>,
     pub(super) activity: AtomicU64,
     pub(super) retry_after_ms: AtomicU64,
     pub(super) discovery_key: OnceLock<Result<[u8; 32], SyncError>>,
@@ -153,7 +152,6 @@ impl NativeClient {
             model,
             closed: AtomicBool::new(false),
             subscriptions: Mutex::new(0),
-            interests: Mutex::new(Vec::new()),
             activity: AtomicU64::new(0),
             retry_after_ms: AtomicU64::new(0),
             discovery_key: OnceLock::new(),
@@ -329,42 +327,6 @@ impl Consumer {
         }
         response.map(Some).map_err(|_| SyncError::Unavailable)
     }
-    fn note_cursor(&self, query: &Query) -> Result<(), SyncError> {
-        let spec = self
-            .resource(&query.resource)?
-            .sync
-            .as_ref()
-            .and_then(|s| s.query.as_ref())
-            .ok_or(SyncError::Unavailable)?;
-        let scope: BTreeMap<_, _> = query
-            .scope
-            .iter()
-            .filter(|(key, _)| *key != &spec.stream_field)
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
-        for interest in self
-            .interests
-            .lock()
-            .map_err(|_| SyncError::Unavailable)?
-            .iter()
-            .filter_map(Weak::upgrade)
-        {
-            let mut interest = interest.lock().map_err(|_| SyncError::Unavailable)?;
-            if interest.closed || interest.resource != query.resource || interest.scope != scope {
-                continue;
-            }
-            if !interest.cursors.contains_key(&query.stream)
-                && interest.cursors.len() >= limits::NATIVE_SYNC_PAGE_DOCUMENTS
-            {
-                interest.catch_up = true;
-                continue;
-            }
-            let cursor = interest.cursors.entry(query.stream.clone()).or_default();
-            *cursor = (*cursor).max(query.cursor.as_ref().map_or(0, |c| c.seq));
-        }
-        Ok(())
-    }
-
     pub(super) fn parse_document(
         &self,
         value: &Value,
@@ -568,7 +530,6 @@ impl SealedSyncPort for NativeClient {
             match query {
                 SyncQueryRequest::Stream(query) => {
                     let page = self.0.query(query, io).await?;
-                    self.0.note_cursor(query)?;
                     Ok(SyncQueryPage::Stream(page))
                 }
                 SyncQueryRequest::Discovery(query) => super::discovery::query(&self.0, query, io)
@@ -699,12 +660,12 @@ impl SealedSyncPort for NativeClient {
     }
     fn subscribe<'a>(
         &'a self,
-        query: &'a Query,
+        interest: &'a SyncInterest,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Box<dyn Subscription>> {
         Box::pin(super::subscription::create_subscription(
             self.0.clone(),
-            query,
+            interest,
             io,
         ))
     }

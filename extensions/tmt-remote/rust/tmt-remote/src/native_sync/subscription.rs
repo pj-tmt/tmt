@@ -1,28 +1,33 @@
-//! Bounded polling interests and coalesced wake notices. Colab owns cursors.
+//! Page-level polling hints. No stream positions, document queue or delivery progress.
 use super::{
     PollCadence,
     client::{CallCancellation, Consumer},
 };
 use crate::{
-    deploy_plan::sha256_hex,
+    firebase_auth::Operation,
+    firestore_budget::READ_LOOKUPS,
     limits,
     objects::IoBudget,
-    sealed_sync::{Change, Pending, Query, Subscription, SyncCursor, SyncError, validate_query},
+    sealed_sync::{
+        Change, DiscoveryQuery, Pending, Subscription, SyncError, SyncInterest, validate_interest,
+    },
+    wire,
 };
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
 pub(super) async fn create_subscription(
     consumer: Arc<Consumer>,
-    query: &Query,
+    interest: &SyncInterest,
     io: &IoBudget<'_>,
 ) -> Result<Box<dyn Subscription>, SyncError> {
     consumer.check(io)?;
-    validate_query(&consumer.context, query)?;
+    validate_interest(&consumer.context, interest)?;
+    // Validate the carrier-page bound before reserving an interest slot.
+    consumer.limit(consumer.resource(&interest.resource)?)?;
     let mut count = consumer
         .subscriptions
         .lock()
@@ -42,90 +47,39 @@ pub(super) async fn create_subscription(
     caps.subscriptions += 1;
     drop(caps);
     drop(count);
-    let spec = consumer
-        .resource(&query.resource)?
-        .sync
-        .as_ref()
-        .and_then(|s| s.query.as_ref())
-        .ok_or(SyncError::Unavailable)?;
-    let interest = Arc::new(Mutex::new(Interest {
-        resource: query.resource.clone(),
-        scope: query
-            .scope
-            .iter()
-            .filter(|(key, _)| *key != &spec.stream_field)
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect(),
-        cursors: BTreeMap::from([(
-            query.stream.clone(),
-            query.cursor.as_ref().map_or(0, |c| c.seq),
-        )]),
-        catch_up: false,
-        closed: false,
-    }));
-    let subscription = NativeSubscription {
-        consumer: consumer.clone(),
-        interest: interest.clone(),
-        query: Query {
-            resource: query.resource.clone(),
-            scope: query.scope.clone(),
-            stream: query.stream.clone(),
-            cursor: query.cursor.clone(),
+    Ok(Box::new(NativeSubscription {
+        interest: SyncInterest {
+            resource: interest.resource.clone(),
+            scope: interest.scope.clone(),
         },
-        cadence: PollCadence::default(),
-        samples: BTreeMap::new(),
-        discovered: BTreeMap::new(),
-        next_ms: 0,
         next_discovery_ms: consumer
             .runtime
             .clock
             .now()
             .monotonic_ms
             .saturating_add(limits::NATIVE_DISCOVERY_MS),
-        poll_index: 0,
+        consumer,
+        cadence: PollCadence::default(),
+        next_ms: 0,
         terminal: false,
         registered: true,
-    };
-    {
-        let mut interests = consumer
-            .interests
-            .lock()
-            .map_err(|_| SyncError::Unavailable)?;
-        interests.retain(|i| {
-            i.upgrade()
-                .is_some_and(|i| i.lock().is_ok_and(|i| !i.closed))
-        });
-        interests.push(Arc::downgrade(&interest));
-    }
-    Ok(Box::new(subscription) as Box<dyn Subscription>)
+    }))
 }
 
-pub(super) struct Interest {
-    pub(super) resource: String,
-    pub(super) scope: BTreeMap<String, Value>,
-    pub(super) cursors: BTreeMap<String, u64>,
-    pub(super) catch_up: bool,
-    pub(super) closed: bool,
-}
 struct NativeSubscription {
     consumer: Arc<Consumer>,
-    interest: Arc<Mutex<Interest>>,
-    query: Query,
+    interest: SyncInterest,
     cadence: PollCadence,
-    samples: BTreeMap<String, String>,
-    discovered: BTreeMap<String, String>,
     next_ms: u64,
     next_discovery_ms: u64,
-    poll_index: usize,
     terminal: bool,
     registered: bool,
 }
 impl NativeSubscription {
-    async fn discover(&mut self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
-        use crate::sealed_sync::DiscoveryQuery;
+    async fn discover(&self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
         let spec = self
             .consumer
-            .resource(&self.query.resource)?
+            .resource(&self.interest.resource)?
             .sync
             .as_ref()
             .and_then(|s| s.query.as_ref())
@@ -133,115 +87,106 @@ impl NativeSubscription {
         let Some(shape) = spec.discovery.as_ref() else {
             return Ok(false);
         };
-        let stream_field = spec.stream_field.clone();
         let mut request = DiscoveryQuery {
-            resource: self.query.resource.clone(),
+            resource: self.interest.resource.clone(),
             shape: shape.name.clone(),
-            scope: self
-                .interest
-                .lock()
-                .map_err(|_| SyncError::Unavailable)?
-                .scope
-                .clone(),
+            scope: self.interest.scope.clone(),
             continuation: None,
         };
-        let mut discovered: BTreeMap<String, String> = BTreeMap::new();
+        let mut records = 0usize;
         for _ in 0..limits::NATIVE_DISCOVERY_RUN_PAGES {
             let page = super::discovery::query(&self.consumer, &request, io).await?;
-            for document in page.documents {
-                let fields = crate::sealed_sync::validate_fields(&document.bytes)?;
-                let stream = fields[&stream_field]["stringValue"]
-                    .as_str()
-                    .ok_or(SyncError::Unavailable)?;
-                if !discovered.contains_key(stream)
-                    && discovered.len() >= limits::NATIVE_SYNC_PAGE_DOCUMENTS
-                {
-                    return Err(SyncError::CatchUpRequired);
-                }
-                let previous = discovered.entry(stream.into()).or_default();
-                *previous = sha256_hex(format!("{previous}{}", document.digest).as_bytes());
+            records += page.documents.len();
+            if records > limits::NATIVE_SYNC_PAGE_DOCUMENTS {
+                return Err(SyncError::CatchUpRequired);
             }
             request.continuation = page.continuation;
             if request.continuation.is_none() {
-                if self.discovered.keys().any(|s| !discovered.contains_key(s)) {
-                    return Err(SyncError::CatchUpRequired);
-                }
-                let mut interest = self.interest.lock().map_err(|_| SyncError::Unavailable)?;
-                for stream in discovered.keys() {
-                    if !interest.cursors.contains_key(stream)
-                        && interest.cursors.len() >= limits::NATIVE_SYNC_PAGE_DOCUMENTS
-                    {
-                        return Err(SyncError::CatchUpRequired);
-                    }
-                    interest.cursors.entry(stream.clone()).or_default();
-                }
-                let changed = self.discovered != discovered;
-                self.discovered = discovered;
-                return Ok(changed);
+                // A first-seq discovery row may stay unchanged while its stream grows.
+                // Completion is a level-triggered wake, never a delivery acknowledgment.
+                return Ok(true);
             }
         }
         Err(SyncError::CatchUpRequired)
     }
-    async fn poll(&mut self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
-        let spec = self
+    async fn poll(&self, io: &IoBudget<'_>) -> Result<bool, SyncError> {
+        let resource = self.consumer.resource(&self.interest.resource)?;
+        let limit = self.consumer.limit(resource)?;
+        let filters: Vec<Value> = self
+            .interest
+            .scope
+            .iter()
+            .map(|(key, value)| {
+                json!({
+                    "fieldFilter":{"field":{"fieldPath":key},"op":"EQUAL","value":value}
+                })
+            })
+            .collect();
+        let (parent, collection) = resource
+            .path
+            .rsplit_once('/')
+            .unwrap_or(("", &resource.path));
+        let path = format!(
+            "{}/x/{}{}",
+            self.consumer.root(),
+            self.consumer.context.extension(),
+            if parent.is_empty() {
+                String::new()
+            } else {
+                format!("/{parent}")
+            }
+        );
+        let body = json!({"structuredQuery":{
+            "from":[{"collectionId":collection}],
+            "where":{"compositeFilter":{"op":"AND","filters":filters}},
+            "orderBy":[{"field":{"fieldPath":"__name__"},"direction":"ASCENDING"}],
+            "limit":limit
+        }});
+        let response = self
             .consumer
-            .resource(&self.query.resource)?
-            .sync
-            .as_ref()
-            .and_then(|s| s.query.as_ref())
+            .send(
+                Operation::Query,
+                format!("https://firestore.googleapis.com/v1/{path}:runQuery"),
+                body.to_string().into_bytes(),
+                limit as u64 + READ_LOOKUPS,
+                io,
+            )
+            .await?
             .ok_or(SyncError::Unavailable)?;
-        let stream_field = spec.stream_field.clone();
-        let streams: Vec<_> = {
-            let interest = self.interest.lock().map_err(|_| SyncError::Unavailable)?;
-            if interest.catch_up {
+        super::client::status(response.status)?;
+        if response.body.len() > limits::NATIVE_SYNC_PAGE_BYTES {
+            return Err(SyncError::CatchUpRequired);
+        }
+        let reply = wire::strict_json(&response.body).ok_or(SyncError::Unavailable)?;
+        let mut found = false;
+        for row in reply.as_array().ok_or(SyncError::Unavailable)? {
+            let Some(value) = row.get("document") else {
+                if !row.get("readTime").is_some_and(Value::is_string) {
+                    return Err(SyncError::Unavailable);
+                }
+                continue;
+            };
+            if found {
                 return Err(SyncError::CatchUpRequired);
             }
-            interest
-                .cursors
-                .iter()
-                .map(|(s, c)| (s.clone(), *c))
-                .collect()
-        };
-        for _ in 0..streams.len() {
-            let (stream, seq) = &streams[self.poll_index % streams.len()];
-            self.poll_index = self.poll_index.wrapping_add(1);
-            let mut scope = self.query.scope.clone();
-            scope.insert(stream_field.clone(), json!({"stringValue":stream}));
-            let query = Query {
-                resource: self.query.resource.clone(),
-                scope,
-                stream: stream.clone(),
-                cursor: Some(SyncCursor {
-                    stream: stream.clone(),
-                    seq: *seq,
-                }),
-            };
-            let page = self.consumer.query(&query, io).await?;
-            let fingerprint = sha256_hex(
-                &page
-                    .documents
-                    .iter()
-                    .flat_map(|d| d.digest.as_bytes().iter().copied())
-                    .collect::<Vec<_>>(),
-            );
-            let previous = self.samples.insert(stream.clone(), fingerprint.clone());
-            let changed = previous.map_or(!page.documents.is_empty(), |previous| {
-                previous != fingerprint
-            });
-            // A public query may have advanced Colab's cursor during this probe;
-            // preserve a wake hint and resample that new caller position next time.
-            let raced = self
+            let document = self
+                .consumer
+                .parse_document(value, &self.interest.resource)?;
+            let fields = crate::sealed_sync::validate_fields(&document.bytes)?;
+            if self
                 .interest
-                .lock()
-                .map_err(|_| SyncError::Unavailable)?
-                .cursors
-                .get(stream)
-                != Some(seq);
-            if changed || raced {
-                return Ok(true);
+                .scope
+                .iter()
+                .any(|(key, value)| fields.get(key) != Some(value))
+            {
+                return Err(SyncError::Denied);
             }
+            found = true;
         }
-        Ok(false)
+        self.consumer.check(io)?;
+        // Only a successful bounded absence observation suppresses Changed.
+        // A retained first row is insufficient evidence about later writes.
+        Ok(found)
     }
 }
 impl Subscription for NativeSubscription {
@@ -352,11 +297,6 @@ impl Subscription for NativeSubscription {
     }
     fn close(&mut self) {
         self.terminal = true;
-        if let Ok(mut interest) = self.interest.lock() {
-            interest.closed = true;
-        }
-        self.samples.clear();
-        self.discovered.clear();
         if self.registered {
             self.registered = false;
             if let Ok(mut count) = self.consumer.subscriptions.lock()

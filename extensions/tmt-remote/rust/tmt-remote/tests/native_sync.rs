@@ -22,7 +22,7 @@ use tmt_remote::{
     sealed_sync::{
         AuthFailure, AuthIdentity, AuthPort, AuthToken, Change, DiscoveryContinuation,
         DiscoveryQuery, Document, Mutation, Published, Query, SealedSyncPort, SyncContext,
-        SyncCursor, SyncError, SyncQueryPage, SyncQueryRequest, Target,
+        SyncCursor, SyncError, SyncInterest, SyncQueryPage, SyncQueryRequest, Target,
     },
 };
 const NOW: u64 = 1_800_000_000_000;
@@ -218,6 +218,12 @@ fn stream(seq: u64) -> Query {
             stream: "writer-stream".into(),
             seq,
         }),
+    }
+}
+fn interest() -> SyncInterest {
+    SyncInterest {
+        resource: "rows".into(),
+        scope: BTreeMap::from([("tenant".into(), json!({"stringValue":"fixture-space"}))]),
     }
 }
 fn query(seq: u64) -> SyncQueryRequest {
@@ -441,7 +447,7 @@ fn close_and_cancel_after_possible_write_preserve_unknown() {
     assert_eq!(script.requests.lock().unwrap().len(), 1);
 }
 #[test]
-fn polling_returns_catchup_on_gap_and_denial_ends_the_subscription() {
+fn page_probe_does_not_interpret_stream_gaps_and_denial_ends_the_subscription() {
     let script = Arc::new(Script::new(vec![
         Ok(response(200, json!([{"document":remote_document(3)}]))),
         Ok(response(
@@ -452,13 +458,13 @@ fn polling_returns_catchup_on_gap_and_denial_ends_the_subscription() {
     let (client, _) = native_client(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&stream(1), &io)).unwrap();
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
     assert!(matches!(
         ready(subscription.next(&io)).unwrap(),
-        Change::CatchUpRequired
+        Change::Changed
     ));
     subscription.close();
-    let mut denied = ready(client.subscribe(&stream(1), &io)).unwrap();
+    let mut denied = ready(client.subscribe(&interest(), &io)).unwrap();
     assert_eq!(ready(denied.next(&io)).err(), Some(SyncError::Denied));
     assert!(ready(denied.next(&io)).is_err());
     assert_eq!(script.requests.lock().unwrap().len(), 2);
@@ -506,14 +512,14 @@ fn subscription_capacity_refuses_before_http_and_close_releases_it() {
     let io = io(&cancel);
     let mut subscriptions = Vec::new();
     for _ in 0..3 {
-        subscriptions.push(ready(client.subscribe(&stream(0), &io)).unwrap());
+        subscriptions.push(ready(client.subscribe(&interest(), &io)).unwrap());
     }
     assert_eq!(
-        ready(client.subscribe(&stream(0), &io)).err(),
+        ready(client.subscribe(&interest(), &io)).err(),
         Some(SyncError::RateLimited)
     );
     subscriptions[0].close();
-    let mut replacement = ready(client.subscribe(&stream(0), &io)).unwrap();
+    let mut replacement = ready(client.subscribe(&interest(), &io)).unwrap();
     client.close();
     assert!(ready(replacement.next(&io)).is_err());
     assert!(script.requests.lock().unwrap().is_empty());
@@ -546,7 +552,7 @@ fn idle_poll_wait_stops_at_the_caller_deadline_without_a_second_request() {
     let (client, budget) = native_client(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&stream(0), &io)).unwrap();
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
     assert_eq!(
         ready(subscription.next(&io)).err(),
         Some(SyncError::Deadline)
@@ -738,7 +744,7 @@ fn discovery_position_expires_or_belongs_to_another_generation_before_http() {
 }
 
 #[test]
-fn notice_is_coalesced_and_sampling_does_not_advance_colabs_cursor() {
+fn repeated_first_row_keeps_a_level_triggered_notice_for_later_writes() {
     let script = Arc::new(Script::new(vec![
         Ok(response(200, json!([{"document":remote_document(1)}]))),
         Ok(response(200, json!([{"document":remote_document(1)}]))),
@@ -746,7 +752,7 @@ fn notice_is_coalesced_and_sampling_does_not_advance_colabs_cursor() {
     let (client, budget) = native_client(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let first_io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&stream(0), &first_io)).unwrap();
+    let mut subscription = ready(client.subscribe(&interest(), &first_io)).unwrap();
     assert!(matches!(
         ready(subscription.next(&first_io)).unwrap(),
         Change::Changed
@@ -755,28 +761,27 @@ fn notice_is_coalesced_and_sampling_does_not_advance_colabs_cursor() {
         deadline: Instant::now() + Duration::from_secs(6),
         cancelled: &cancel,
     };
-    // The repeated sample of seq 1 produces no second hint and remains anchored
-    // at Colab's supplied seq 0, rather than advancing on the first wake hint.
-    assert_eq!(
-        ready(subscription.next(&next_io)).err(),
-        Some(SyncError::Deadline)
-    );
+    // The first row can stay unchanged while later records are appended. It
+    // must still wake the consumer, which owns all per-stream catch-up positions.
+    assert!(matches!(
+        ready(subscription.next(&next_io)).unwrap(),
+        Change::Changed
+    ));
     assert_eq!(budget.reads(), 6);
     let requests = script.requests.lock().unwrap();
     for request in requests.iter() {
         let filters = request.2["structuredQuery"]["where"]["compositeFilter"]["filters"]
             .as_array()
             .unwrap();
-        let seq = filters
-            .iter()
-            .find(|f| f["fieldFilter"]["op"] == "GREATER_THAN")
-            .unwrap();
-        assert_eq!(seq["fieldFilter"]["value"]["integerValue"], "0");
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
+        assert_eq!(filters[0]["fieldFilter"]["op"], "EQUAL");
+        assert_eq!(request.2["structuredQuery"]["limit"], 1);
     }
 }
 
 #[test]
-fn periodic_page_discovery_notices_a_new_writer_at_seq_one() {
+fn periodic_page_discovery_remains_bounded_and_notices_a_new_writer() {
     let mut arrival = remote_document(1);
     arrival["name"] =
         json!("projects/demo-remote-1/databases/(default)/documents/x/notes/rows/new-writer+1");
@@ -788,7 +793,7 @@ fn periodic_page_discovery_notices_a_new_writer_at_seq_one() {
     let (client, budget, clock) = native_with_clock(script.clone(), auth());
     let cancel = AtomicBool::new(false);
     let first_io = io(&cancel);
-    let mut subscription = ready(client.subscribe(&stream(900), &first_io)).unwrap();
+    let mut subscription = ready(client.subscribe(&interest(), &first_io)).unwrap();
     clock.0.store(60_000, Ordering::SeqCst);
     assert!(matches!(
         ready(subscription.next(&first_io)).unwrap(),
@@ -809,6 +814,222 @@ fn periodic_page_discovery_notices_a_new_writer_at_seq_one() {
         requests[0].2["structuredQuery"]["orderBy"][0]["field"]["fieldPath"],
         "__name__"
     );
+}
+
+#[test]
+fn an_empty_page_without_discovery_notices_a_new_writer() {
+    let mut declaration: Value =
+        serde_json::from_str(fixture()["declaration"].as_str().unwrap()).unwrap();
+    declaration["resources"][0]["sync"]["query"]
+        .as_object_mut()
+        .unwrap()
+        .remove("discovery");
+    let declaration = declaration.to_string();
+    let mut arrival = remote_document(900);
+    arrival["name"] =
+        json!("projects/demo-remote-1/databases/(default)/documents/x/notes/rows/new-writer+900");
+    arrival["fields"]["streamKey"] = json!({"stringValue":"new-writer"});
+    let script = Arc::new(Script::new(vec![
+        Ok(response(200, json!([{"readTime":"2026-10-13T00:00:00Z"}]))),
+        Ok(response(200, json!([{"document":arrival}]))),
+    ]));
+    let (client, budget, _) =
+        native_with_declaration(script.clone(), auth(), declaration.as_bytes());
+    let cancel = AtomicBool::new(false);
+    let short = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(1),
+        cancelled: &cancel,
+    };
+    let mut subscription = ready(client.subscribe(&interest(), &short)).unwrap();
+    assert_eq!(
+        ready(subscription.next(&short)).err(),
+        Some(SyncError::Deadline)
+    );
+    let later = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(120),
+        cancelled: &cancel,
+    };
+    assert!(matches!(
+        ready(subscription.next(&later)).unwrap(),
+        Change::Changed
+    ));
+    assert_eq!(budget.reads(), 6);
+    let requests = script.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests.iter() {
+        assert_eq!(request.2["structuredQuery"]["limit"], 1);
+        let filters = request.2["structuredQuery"]["where"]["compositeFilter"]["filters"]
+            .as_array()
+            .unwrap();
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0]["fieldFilter"]["field"]["fieldPath"], "tenant");
+    }
+}
+
+#[test]
+fn page_probe_and_wake_triggered_catchup_queries_share_the_same_guard() {
+    let script = Arc::new(Script::new(vec![
+        Ok(response(200, json!([{"document":remote_document(1)}]))),
+        Ok(response(200, json!([{"document":remote_document(1)}]))),
+        Ok(response(200, json!([{"document":remote_document(1)}]))),
+    ]));
+    let (client, budget) = native_client(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    let SyncQueryPage::Stream(page) = ready(client.query(&query(0), &io)).unwrap() else {
+        panic!("stream page expected")
+    };
+    assert_eq!(page.cursor.unwrap().seq, 1);
+    // Query output and supplied positions never suppress the page-level hint.
+    assert!(matches!(
+        ready(subscription.next(&io)).unwrap(),
+        Change::Changed
+    ));
+    assert_eq!(budget.reads(), 9);
+    assert_eq!(script.requests.lock().unwrap().len(), 3);
+}
+
+#[test]
+fn a_malformed_probe_cannot_prove_absence_or_emit_a_changed_notice() {
+    let script = Arc::new(Script::new(vec![Ok(response(200, json!([{}])))]));
+    let (client, budget) = native_client(script.clone(), auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert_eq!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::Unavailable)
+    );
+    assert_eq!(budget.reads(), 3);
+}
+
+#[test]
+fn empty_tail_preserves_the_callers_optional_cursor() {
+    let script = Arc::new(Script::new(vec![
+        Ok(response(200, json!([{"readTime":"2026-10-13T00:00:00Z"}]))),
+        Ok(response(200, json!([{"readTime":"2026-10-13T00:00:00Z"}]))),
+    ]));
+    let (client, _) = native_client(script, auth());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    for cursor in [
+        None,
+        Some(SyncCursor {
+            stream: "writer-stream".into(),
+            seq: 900,
+        }),
+    ] {
+        let mut request = stream(0);
+        request.cursor = cursor.clone();
+        let SyncQueryPage::Stream(page) =
+            ready(client.query(&SyncQueryRequest::Stream(request), &io)).unwrap()
+        else {
+            panic!("stream page expected")
+        };
+        assert!(page.documents.is_empty());
+        assert_eq!(page.cursor, cursor);
+    }
+}
+
+#[test]
+fn invalid_page_interest_refuses_without_auth_http_or_capacity_reservation() {
+    let script = Arc::new(Script::new(vec![]));
+    let auth = auth();
+    let (client, _) = native_client(script.clone(), auth.clone());
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut extra = interest();
+    extra
+        .scope
+        .insert("streamKey".into(), json!({"stringValue":"writer-stream"}));
+    assert_eq!(
+        ready(client.subscribe(&extra, &io)).err(),
+        Some(SyncError::Invalid)
+    );
+    let mut denied = interest();
+    denied
+        .scope
+        .insert("tenant".into(), json!({"stringValue":"other-space"}));
+    assert_eq!(
+        ready(client.subscribe(&denied, &io)).err(),
+        Some(SyncError::Denied)
+    );
+    let subscriptions: Vec<_> = (0..3)
+        .map(|_| ready(client.subscribe(&interest(), &io)).unwrap())
+        .collect();
+    assert_eq!(subscriptions.len(), 3);
+    assert!(script.requests.lock().unwrap().is_empty());
+    assert_eq!(auth.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn cancellation_after_a_page_probe_fences_the_late_notice() {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut script = Script::new(vec![Ok(response(
+        200,
+        json!([{"document":remote_document(1)}]),
+    ))]);
+    script.cancel = Some(cancel.clone());
+    let script = Arc::new(script);
+    let (client, budget) = native_client(script.clone(), auth());
+    let io = io(&cancel);
+    let mut subscription = ready(client.subscribe(&interest(), &io)).unwrap();
+    assert_eq!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::Cancelled)
+    );
+    cancel.store(false, Ordering::SeqCst);
+    assert_eq!(
+        ready(subscription.next(&io)).err(),
+        Some(SyncError::Unavailable)
+    );
+    assert_eq!(budget.reads(), 3);
+    assert_eq!(script.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn serving_capacity_counts_page_interests_once_across_consumers() {
+    let script = Arc::new(Script::new(vec![]));
+    let budget = Arc::new(MemoryNativeBudget::new(NOW));
+    let runtime = Arc::new(NativeRuntime::new(
+        script.clone(),
+        Arc::new(WorldClock(AtomicUsize::new(0))),
+        Arc::new(NoJitter),
+        budget,
+    ));
+    let declaration = fixture()["declaration"]
+        .as_str()
+        .unwrap()
+        .as_bytes()
+        .to_vec();
+    let digest = sha2::Sha256::digest(&declaration)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let clients: Vec<_> = (0..5).map(|_| {
+        let context = SyncContext::bind(json!({"apiKey":"public","appId":"1:123:web:fixture","projectId":"demo-remote-1","authDomain":"demo-remote-1.firebaseapp.com"}), &declaration, &digest, "fixture-space", auth()).unwrap();
+        NativeClient::new(context, runtime.clone(), Model::new(1, 1).unwrap())
+    }).collect();
+    let cancel = AtomicBool::new(false);
+    let io = io(&cancel);
+    let mut subscriptions = Vec::new();
+    for client in &clients[..4] {
+        for _ in 0..3 {
+            subscriptions.push(ready(client.subscribe(&interest(), &io)).unwrap());
+        }
+    }
+    assert_eq!(
+        ready(clients[4].subscribe(&interest(), &io)).err(),
+        Some(SyncError::RateLimited)
+    );
+    clients[0].close();
+    let _replacement = ready(clients[4].subscribe(&interest(), &io)).unwrap();
+    assert!(script.requests.lock().unwrap().is_empty());
 }
 
 #[test]
