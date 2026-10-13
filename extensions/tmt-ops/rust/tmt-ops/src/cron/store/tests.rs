@@ -124,6 +124,100 @@ fn rejected_edits_and_corruption_preserve_the_published_bytes() {
 }
 
 #[test]
+fn shared_readers_overlap_without_admitting_a_writer() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let before = fs::read(store.directory.join("jobs.json")).unwrap();
+    let reader = store.lock(false).unwrap().unwrap();
+    let root = f.0.clone();
+    let concurrent =
+        std::thread::spawn(move || Store::new(&root.join("ops")).unwrap().read().unwrap());
+    assert_eq!(store.read_locked().unwrap().jobs().len(), 1);
+    assert_eq!(concurrent.join().unwrap().jobs().len(), 1);
+    assert_eq!(
+        store
+            .update(|jobs| jobs.insert(job("product")))
+            .unwrap_err()
+            .code,
+        "SQUAD_CRON_STORE_BUSY"
+    );
+    assert_eq!(fs::read(store.directory.join("jobs.json")).unwrap(), before);
+    drop(reader);
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("product"))).unwrap(),
+        "c2"
+    );
+}
+
+#[test]
+fn a_read_waits_for_a_writer_then_observes_its_publication() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let (ready, waiting) = mpsc::channel();
+    let (release, hold) = mpsc::channel();
+    let root = f.0.clone();
+    let writer = std::thread::spawn(move || {
+        Store::new(&root.join("ops")).unwrap().update(|jobs| {
+            ready.send(()).unwrap();
+            hold.recv().unwrap();
+            jobs.insert(job("product"))
+        })
+    });
+    waiting.recv().unwrap();
+    let (done, result) = mpsc::channel();
+    let root = f.0.clone();
+    let reader = std::thread::spawn(move || {
+        done.send(Store::new(&root.join("ops")).unwrap().read())
+            .unwrap();
+    });
+    // An immediate BUSY would complete this channel, rather than remain pending.
+    assert!(matches!(
+        result.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap().unwrap(), "c2");
+    assert_eq!(
+        result
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap()
+            .unwrap()
+            .jobs()
+            .len(),
+        2
+    );
+    reader.join().unwrap();
+}
+
+#[test]
+fn a_read_returns_busy_after_its_budget_without_changing_state() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let before = fs::read(store.directory.join("jobs.json")).unwrap();
+    let writer = store.lock(true).unwrap().unwrap();
+    let root = f.0.clone();
+    let (done, result) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let start = Instant::now();
+        let read = Store::new(&root.join("ops")).unwrap().read();
+        done.send((read, start.elapsed())).unwrap();
+    });
+    let (read, elapsed) = result.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(read.unwrap_err().code, "SQUAD_CRON_STORE_BUSY");
+    assert!(
+        elapsed >= READ_LOCK_WAIT,
+        "read failed before its retry budget: {elapsed:?}"
+    );
+    assert_eq!(fs::read(store.directory.join("jobs.json")).unwrap(), before);
+    reader.join().unwrap();
+    drop(writer);
+    assert_eq!(store.read().unwrap().jobs().len(), 1);
+}
+
+#[test]
 fn a_live_lock_refuses_competing_edits_and_an_abandoned_temp_is_replaced() {
     let f = Fixture::new();
     let store = f.store();
