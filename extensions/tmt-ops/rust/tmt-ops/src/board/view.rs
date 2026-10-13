@@ -8,7 +8,6 @@ pub(in crate::board) mod member_list;
 mod notes;
 mod overlays;
 mod panes;
-mod replies;
 pub(in crate::board) mod row_paint;
 mod rows;
 pub(in crate::board) mod scene;
@@ -113,6 +112,8 @@ pub(in crate::board) fn render_frame(
 ) {
     let look = app.look();
     app.input_band.set(None);
+    app.input_viewport.set(None);
+    app.conversation.borrow_mut().pane = None;
     app.stable
         .borrow_mut()
         .begin(app.shown_tab().unwrap_or_default(), frame.area().width);
@@ -146,6 +147,7 @@ pub(in crate::board) fn render_frame(
         home_usage.is_some(),
         home_limits.len().min(usize::from(u16::MAX)) as u16,
     );
+    app.conversation.borrow_mut().area = body;
     strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     if boundary.height > 0 {
         strip::paint_left(
@@ -229,6 +231,7 @@ pub(in crate::board) fn render_frame(
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
+    super::mentions::render(frame, app);
     look.selected_words(frame.buffer_mut());
     header::finish_meter_styles(frame, app, summary);
 }

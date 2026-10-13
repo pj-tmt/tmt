@@ -264,12 +264,21 @@ remain bound and discoverable in help/menus, without default footer hints.
   `board::glyph_guard` checks these labels and HOME/cron text. Tail fitting and
   appearance rules belong to the interaction owner linked above.
 - `App::input` is the shared talk/answer/annotation/status/ask-lead/HOME-audience composer.
-  `RowSend` retains occurrence and opening sender; a chosen request, quoted preview,
-  note recipient and draft survive mode changes; the status draft keeps its own field choices and reason. Several requests use
-  an explicit picker. Submission revalidates sender, occurrence, actual lead or
-  chosen open request against acquired data before the existing public send effect.
-  Pending-only Reply opens an annotation to that member (`note_member`), never
-  clears pending or acknowledges it. Empty submission and cancellation send nothing.
+  `RowSend` freezes the occurrence and opening sender. `composer` retains session-only
+  drafts, folded paste and response quotes by saved sender/recipient UUID across
+  view and membership changes. Successful delivery clears only the submitted
+  revision; failed or uncertain delivery retains it. Restart persistence is not
+  promised. Submission revalidates sender, occurrence, actual lead or chosen open
+  request before invoking existing public send effects. Several open requests use
+  an explicit picker; empty submission and cancellation send nothing.
+- Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
+  editing, source-preserving bracketed paste and cached cell geometry. Enter
+  submits, distinct Shift+Enter or portable Ctrl+N inserts a newline, and Escape
+  retains the draft. Terminals own IME preedit; committed Unicode enters the same
+  editor. Large paste folds retain exact text and can be previewed or removed.
+  `mentions` supplies the shared completion component with acquired agent UUIDs
+  and squad IDs. Inserting a reference never changes recipients or broadcasts;
+  cron stores literal text. Name, configuration and search fields do not complete.
 - `board/status_update` owns the status form in that composer, measured wrapped
   lines and focus/scroll. Each wrapped field line reserves two columns for the `›`
   focus cue, independent of color and checked mutation choices. `SelectedRead::Status` acquires raw roster metadata through
@@ -286,10 +295,10 @@ remain bound and discoverable in help/menus, without default footer hints.
   Applied retains only a frozen announcement for explicit notification-only retry;
   focus returns to the first field so queued submit keys cannot retry a notification.
   Unanswered requests remain separate and use the existing one-request composer.
-- Row painters reserve input beneath the complete target in the same line stream
-  used for starts, reveal and hits. `view::waiting` places the current-frame opaque
-  band across the body, or the HOME lead box's inner width, and removes covered
-  hits. Headers derive from actual `Compose` recipients/subjects. Unanchored input
+- A visible conversation reserves its composer inside that pane. Otherwise row
+  painters reserve input beneath the complete target in the same line stream used
+  for starts, reveal and hits. `view::waiting` removes only hits covered by the
+  current opaque band, preserving independent pointer scrolling in other panes. Headers derive from actual `Compose` recipients/subjects. Unanchored input
   keeps the footer path; ask-lead keeps a docked band and opening sender/squad/lead
   fences. Read-only detail belongs to `row_detail`, outside the composer.
 - `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag

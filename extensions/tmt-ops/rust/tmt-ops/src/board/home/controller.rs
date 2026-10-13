@@ -330,8 +330,10 @@ impl App {
             self.home_target = Some(target.clone());
         }
         self.input = Some(Input {
+            draft_key: None,
+            response_quotes: Vec::new(),
             prompt: format!("→ {name}"),
-            text: String::new(),
+            text: Default::default(),
             squad: String::new(),
             compose: Compose::Leads {
                 sender,

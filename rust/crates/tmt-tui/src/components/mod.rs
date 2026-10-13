@@ -1,6 +1,10 @@
 //! Application-neutral components implementing the Full-screen interaction
 //! contract in `design/cli-style.md`. Markup is admitted by `surface::compile`.
 pub mod collection;
+mod completion;
+pub use completion::{Candidate, Completion};
+
+mod editor;
 mod key_help;
 mod list;
 mod modal;
@@ -20,3 +24,5 @@ pub use status::{StatusLabel, StatusSlot};
 pub use collection::Table;
 pub use list::{ListEvent, ListFrame, ListRow, ListState, RowGeometry};
 pub use picker::{MAX_QUERY_BYTES, Picker, PickerEvent, PickerField, PickerInput};
+
+pub use editor::{Editor, EditorCell, EditorLayout, EditorLine, Fold};

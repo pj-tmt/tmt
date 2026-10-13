@@ -34,6 +34,12 @@ pub(super) fn board_resuming(
         .collect::<Vec<String>>();
     let mut snapshot = crate::board::app::tests::snapshot(ALL, json!([]));
     let view = snapshot.view.as_mut().unwrap();
+    view.board = crate::config::Board::simple(
+        crate::config::BoardMode::Split,
+        crate::config::Direction::LeftRight,
+        vec![crate::config::Pane::Rows, crate::config::Pane::Replies],
+        &[40, 60],
+    );
     view.document = tab_view::all_document(
         &order,
         &acquired.documents,
@@ -305,6 +311,7 @@ fn refresh_and_search_reconcile_the_stable_target() {
         .insert(0, first);
     let refreshed = board(&[("a", doc)]);
     app.apply(Snapshot {
+        references: Default::default(),
         timing: None,
         squad_keys: vec!["a".into()],
         tabs: app.tabs.clone(),
@@ -540,14 +547,21 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 .collect::<Vec<_>>();
             assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a) · answer"));
             assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
-            assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
-            assert!(lines[usize::from(band.bottom())].contains("worker-3"));
-            assert!(
-                !app.hits
-                    .borrow()
-                    .iter()
-                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
-            );
+            assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc keep draft"));
+            if band.x == 0 {
+                assert!(lines[usize::from(band.bottom())].contains("worker-3"));
+            } else {
+                assert_eq!(
+                    band.intersection(app.conversation.borrow().pane.unwrap()),
+                    band
+                );
+                assert!(lines.iter().any(|line| line.contains("worker-3")));
+            }
+            assert!(!app.hits.borrow().iter().any(|hit| {
+                !band
+                    .intersection(Rect::new(hit.x, hit.y, hit.width, 1))
+                    .is_empty()
+            }));
             press(&mut app, Tab);
             assert_eq!(
                 app.input.as_ref().unwrap().header(),
@@ -573,6 +587,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             answered["sections"][0]["rows"][2]["waitingOnYou"] = json!([]);
             let refreshed = board(&[("a", answered)]);
             app.apply(Snapshot {
+                references: Default::default(),
                 timing: None,
                 squad_keys: vec!["a".into()],
                 tabs: app.tabs.clone(),
