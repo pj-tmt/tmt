@@ -47,9 +47,8 @@ are outside the tracked-file map. The [layout skill](.agents/skills/tmt-layout/S
 owns moves and the tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
-`tmt-ux-lead` owns shared visual tokens and the private browser leaf;
-[its contracts](design/gui-components.md) own generation and consumer boundaries.
-[Drawer/Menu/Dialog/notifications](design/browser-ui/README.md) are presentation-only.
+`tmt-ux-lead` owns shared visual tokens and [private browser UI](design/browser-ui/README.md).
+`./ui` isolates React/Radix/cmdk CSS/themes/portals; legacy/static unchanged; no domain state.
 [Release procedures](.agents/skills/tmt-release/SKILL.md) include the archive’s
 product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 

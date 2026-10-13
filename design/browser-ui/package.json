@@ -6,12 +6,14 @@
   "exports": {
     "./static.css": "./generated/static.css",
     "./static": "./src/static.ts",
-    "./react": "./src/react.ts"
+    "./react": "./src/react.ts",
+    "./ui": "./src/ui/index.ts",
+    "./ui.css": "./generated/ui.css"
   },
   "scripts": {
-    "generate": "node scripts/generate-static-css.mjs --write",
-    "check:generated": "node scripts/generate-static-css.mjs --check",
-    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test && vp fmt --config vitest.config.ts --check .",
+    "generate": "node scripts/generate-static-css.mjs --write && node scripts/generate-ui-css.mjs --write",
+    "check:generated": "node scripts/generate-static-css.mjs --check && node scripts/generate-ui-css.mjs --check",
+    "check": "pnpm check:generated && tsc --noEmit && vp lint --config vitest.config.ts --deny-warnings --react-plugin src test scripts/generate-ui-css.mjs scripts/ui-source-policy.mjs && vp fmt --config vitest.config.ts --check .",
     "test": "vp test run --config vitest.config.ts"
   },
   "peerDependencies": {
@@ -33,6 +35,14 @@
     "@types/react-dom": "^19.2.0",
     "@types/node": "^25.0.3",
     "typescript": "^5.3.0",
-    "vite-plus": "1.0.0"
+    "vite-plus": "1.0.0",
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "cmdk": "1.1.1",
+    "radix-ui": "1.8.1",
+    "tailwind-merge": "3.7.0"
   }
 }
