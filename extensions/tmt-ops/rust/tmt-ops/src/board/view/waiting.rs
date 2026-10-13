@@ -20,6 +20,38 @@ pub(super) fn age(row: &Value, now: u64) -> Option<String> {
     (since > 0 && since <= now).then(|| crate::requests::age(now, since))
 }
 
+/// Shared viewport for every message composer. Paint and pointer use the same
+/// editor projection; the current frame publishes only its clipped rectangle.
+pub(super) fn editor(
+    frame: &mut ratatui::Frame,
+    app: &crate::board::app::App,
+    area: ratatui::layout::Rect,
+) {
+    use ratatui::style::Modifier;
+    use tmt_cli_style::Role;
+    let Some(input) = app.input.as_ref() else {
+        return;
+    };
+    if area.is_empty() {
+        return;
+    }
+    let text = app.reference_editor().unwrap_or(&input.text);
+    let layout = text.layout(area.width);
+    let skip = layout.reveal(0, area.height);
+    let look = app.look();
+    if let Some(caret) = layout.paint(
+        frame.buffer_mut(),
+        area,
+        skip,
+        text.selection(),
+        look.role(Role::Text),
+        look.role(Role::Text).add_modifier(Modifier::REVERSED),
+    ) {
+        frame.set_cursor_position(caret);
+    }
+    app.input_viewport.set(Some((area, skip)));
+}
+
 /// Ask-lead uses the shared opaque docked prompt chrome.
 pub(super) fn prompt(
     frame: &mut ratatui::Frame,
@@ -71,28 +103,12 @@ pub(super) fn prompt(
         height: areas.content.height.saturating_sub(1) + areas.position.height,
         ..areas.content
     };
-    let lines = tmt_tui::text::lines(
-        &format!("{}▏", input.text),
-        content.width,
-        tmt_tui::style::TextFlow::Wrap,
-    );
-    let skip = lines.len().saturating_sub(usize::from(content.height));
-    for (index, line) in lines.iter().skip(skip).enumerate() {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect {
-                y: content.y + index as u16,
-                height: 1,
-                ..content
-            },
-            Line::styled(line.as_str(), look.role(tmt_cli_style::Role::Text)),
-        );
-    }
+    editor(frame, app, content);
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,
         Line::styled(
-            "Enter send · Esc cancel",
+            "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste",
             look.role(tmt_cli_style::Role::Muted),
         ),
     );
@@ -106,11 +122,39 @@ pub(in crate::board) fn reserved_lines(
     row: usize,
     area: ratatui::layout::Rect,
 ) -> Option<usize> {
-    let input = app.input.as_ref()?;
-    let target = app.row_target(row)?;
-    if input.target()? != &target {
+    app.input.as_ref()?;
+    if app.conversation_input_area().is_some() {
         return None;
     }
+    let target = app.row_target(row)?;
+    reserved_target_lines(app, &target, area)
+}
+
+pub(in crate::board) fn reserved_target_lines(
+    app: &crate::board::app::App,
+    target: &crate::board::app::RowTarget,
+    area: ratatui::layout::Rect,
+) -> Option<usize> {
+    if app.input.as_ref()?.target()? != target {
+        return None;
+    }
+    let demand = input_lines(app, area);
+    let margin = if app.effective_board().is_some_and(|board| board.members)
+        || matches!(target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
+    {
+        3
+    } else {
+        2
+    };
+    Some(demand.min(usize::from(area.height.saturating_sub(margin))))
+}
+
+/// Both inline rows and the conversation reserve the same compact editor band.
+pub(in crate::board) fn input_lines(
+    app: &crate::board::app::App,
+    area: ratatui::layout::Rect,
+) -> usize {
+    let Some(input) = &app.input else { return 0 };
     let demand = match input.compose {
         crate::board::app::Compose::Status => {
             super::super::status_update::lines(app, area.width.saturating_sub(4))
@@ -118,17 +162,24 @@ pub(in crate::board) fn reserved_lines(
                 .saturating_add(3)
                 .max(5)
         }
-        crate::board::app::Compose::Reply { .. } => 6,
-        _ => 5,
+        crate::board::app::Compose::Reply { .. } => {
+            5 + input
+                .text
+                .layout(area.width.saturating_sub(4))
+                .lines
+                .len()
+                .clamp(1, 6)
+        }
+        _ => {
+            4 + input
+                .text
+                .layout(area.width.saturating_sub(4))
+                .lines
+                .len()
+                .clamp(1, 6)
+        }
     };
-    let margin = if app.effective_board().is_some_and(|board| board.members)
-        || matches!(&target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
-    {
-        3
-    } else {
-        2
-    };
-    Some(demand.min(usize::from(area.height.saturating_sub(margin))))
+    demand + usize::from(!input.response_quotes.is_empty())
 }
 
 /// Reserve visual lines in a line stream (the home painter's).
@@ -179,7 +230,8 @@ pub(super) fn inline_prompt(
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };
-    let inset = app.effective_board().is_some_and(|board| board.members)
+    let inset = app.conversation_input_area().is_some()
+        || app.effective_board().is_some_and(|board| board.members)
         || input.row_send.as_ref().is_some_and(|send| {
             matches!(&send.target,
         crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
@@ -225,6 +277,28 @@ pub(super) fn inline_prompt(
             .take(usize::from(content.height))
             .enumerate()
         {
+            if field == Some(2) && focus == 2 {
+                let row = Rect {
+                    y: content.y + index as u16,
+                    height: 1,
+                    ..content
+                };
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    row,
+                    Line::styled("› Reason: ", look.role(Role::Accent)),
+                );
+                editor(
+                    frame,
+                    app,
+                    Rect {
+                        x: row.x + 10.min(row.width),
+                        width: row.width.saturating_sub(10),
+                        ..row
+                    },
+                );
+                continue;
+            }
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect {
@@ -282,19 +356,39 @@ pub(super) fn inline_prompt(
                 ]),
             );
         }
-        // Fit the tail so the cursor remains visible even for a long draft.
-        let text = tmt_tui::text::lines(
-            &format!("{}▏", input.text),
-            areas.position.width,
-            tmt_tui::style::TextFlow::Wrap,
-        );
-        strip::paint_left(
-            frame.buffer_mut(),
-            areas.position,
-            Line::styled(
-                text.last().map(String::as_str).unwrap_or("▏"),
-                look.role(Role::Text),
-            ),
+        let mut header_lines = if matches!(input.compose, crate::board::app::Compose::Reply { .. })
+        {
+            2
+        } else {
+            1
+        };
+        if let Some(quote) = input.response_quotes.last() {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    y: areas.content.y + header_lines,
+                    height: 1,
+                    ..areas.content
+                },
+                Line::styled(
+                    format!(
+                        "{} quote(s) · {} · Alt-Backspace remove",
+                        input.response_quotes.len(),
+                        quote.label()
+                    ),
+                    look.role(Role::Muted),
+                ),
+            );
+            header_lines += 1;
+        }
+        editor(
+            frame,
+            app,
+            Rect {
+                y: areas.content.y + header_lines,
+                height: (areas.content.height + areas.position.height).saturating_sub(header_lines),
+                ..areas.content
+            },
         );
     }
     let hint = if matches!(input.compose, crate::board::app::Compose::Status) {
@@ -307,9 +401,12 @@ pub(super) fn inline_prompt(
             }
         )
     } else if !input.others.is_empty() {
-        format!("Enter send · Esc cancel · Tab {}", input.modes().join("/"))
+        format!(
+            "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste · Tab {}",
+            input.modes().join("/")
+        )
     } else {
-        "Enter send · Esc cancel".into()
+        "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste".into()
     };
     strip::paint_left(
         frame.buffer_mut(),
@@ -319,7 +416,7 @@ pub(super) fn inline_prompt(
     let covered = |area: &Rect| !area.intersection(band).is_empty();
     app.hits
         .borrow_mut()
-        .retain(|hit| !(band.y..band.bottom()).contains(&hit.y));
+        .retain(|hit| !covered(&Rect::new(hit.x, hit.y, hit.width, 1)));
     app.note_hits
         .borrow_mut()
         .retain(|(area, _)| !covered(area));

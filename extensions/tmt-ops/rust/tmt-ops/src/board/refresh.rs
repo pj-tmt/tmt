@@ -889,6 +889,7 @@ fn load(
         Ok(squads) => squads,
         Err(error) => {
             return Loaded::only(Snapshot {
+                references: Default::default(),
                 timing: None,
                 squad_keys: Vec::new(),
                 tabs: Vec::new(),
@@ -947,6 +948,7 @@ fn load(
     };
     let Some(key) = chosen else {
         return Loaded::only(Snapshot {
+            references: Default::default(),
             timing: None,
             squad_keys: names,
             tabs,
@@ -967,6 +969,8 @@ fn load(
         adopt(&key, &rooms);
         Ok::<_, ()>(())
     });
+    let listed = timing::measure(trace, "identity_references", || core.json(&["ls"]));
+    let references = super::inventory::Inventory::from_listed(&squads, &listed);
     let mut attention = BTreeMap::new();
     let mut deferred = None;
     let mut enrich = None;
@@ -978,7 +982,7 @@ fn load(
             leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
             timing::measure(trace, "all_view", || {
-                all_view(core, config, &squads, &tabs, me.clone())
+                all_view(core, config, &squads, &tabs, me.clone(), &listed)
             })?
         } else if tabs::user_name(&key).is_some() {
             member_view(core, tmux, config, &squads, &tabs, me.clone(), &key)?
@@ -1007,6 +1011,8 @@ fn load(
             && let Some(home) = &view.home
         {
             home_leads = Some(super::home_leads::Fetch::new(home, me));
+        } else if view.board.members || view.board.panes.contains(&Pane::Replies) {
+            home_leads = Some(super::home_leads::Fetch::results(me));
         }
         attention = found;
         Ok(view)
@@ -1038,6 +1044,7 @@ fn load(
     Loaded {
         rooms,
         snapshot: Snapshot {
+            references,
             timing: None,
             squad_keys: names,
             tabs,
@@ -1274,11 +1281,13 @@ fn all_view(
     squads: &[Squad],
     tabs: &[String],
     me: Option<crate::me::Me>,
+    listed: &Result<Value, crate::core::SquadError>,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let (loaded, home, home_rate) = super::home::load(core, config, squads, tabs, me.as_ref())?;
+    let (loaded, home, home_rate) =
+        super::home::load(core, config, squads, tabs, me.as_ref(), listed)?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         history_pending: false,
@@ -1308,8 +1317,8 @@ fn all_view(
         board: Board::simple(
             BoardMode::Split,
             Direction::LeftRight,
-            vec![Pane::Rows],
-            &[100],
+            vec![Pane::Rows, Pane::Replies],
+            &[40, 60],
         ),
         notes: Notes::NotShown,
         document: loaded.document,
@@ -1860,7 +1869,9 @@ esac
                     .unwrap()
                     .0
             } else {
-                all_view(&core, &config, &squads, &tabs, None).unwrap().0
+                all_view(&core, &config, &squads, &tabs, None, &core.json(&["ls"]))
+                    .unwrap()
+                    .0
             };
             let mut listed = crate::ls_tab_document(&core, &mut config, name)
                 .unwrap()
@@ -2319,11 +2330,11 @@ printf '%s\n' '{{}}'
             );
             // Attention is deferred behind cache publication and enrichment.
             assert!(
-                (0..3).any(|_| matches!(
+                (0..4).any(|_| matches!(
                     input.recv_timeout(Duration::from_secs(30)).unwrap(),
                     super::super::BoardEvent::Attention { .. }
                 )),
-                "deferred attention follows cron/cache work"
+                "deferred attention follows conversation, cron and cache work"
             );
             drop(worker);
             let records = records.lock().unwrap();
@@ -3106,7 +3117,10 @@ printf '%s\n' '{{}}'
                     .bindings;
                 assert_eq!(leads_bindings["ctrl-r"].verb, leads);
                 assert!(!leads_bindings.contains_key("f5"));
-                let all_bindings = all_view(&core, &config, &[], &[], None).unwrap().0.bindings;
+                let all_bindings = all_view(&core, &config, &[], &[], None, &core.json(&["ls"]))
+                    .unwrap()
+                    .0
+                    .bindings;
                 assert_eq!(all_bindings["ctrl-r"].verb, all);
                 assert!(!all_bindings.contains_key("f5"));
             }

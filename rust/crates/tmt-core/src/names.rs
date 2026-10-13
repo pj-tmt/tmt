@@ -54,26 +54,40 @@ pub(crate) fn ecmascript_space(character: char) -> bool {
 }
 
 pub fn normalize_name(value: &str) -> String {
-    let trimmed = value.trim_matches(ecmascript_space);
-    let normalized = ComposingNormalizer::new_nfkc().normalize(trimmed);
     // The root locale is intentional: environment locale must not change keys.
     CaseMapper::new()
-        .lowercase_to_string(&normalized, &LanguageIdentifier::UNKNOWN)
+        .lowercase_to_string(&target_text(value), &LanguageIdentifier::UNKNOWN)
+        .into_owned()
+}
+
+/// Text as a host reads it for target syntax: trimmed and composed like a
+/// key, with its case kept. A host's literals are lowercase and its numbers
+/// may be uppercase (Herdr's `w1:p2E`), so a lowercased key would hide them.
+pub fn target_text(value: &str) -> String {
+    let trimmed = value.trim_matches(ecmascript_space);
+    ComposingNormalizer::new_nfkc()
+        .normalize(trimmed)
         .into_owned()
 }
 
 /// Text that any host reads as one of its pane targets; such text is never a
 /// name. Each host owns its syntax ([`HostKind::is_target`]).
 pub fn is_pane_target(value: &str) -> bool {
-    let canonical = normalize_name(value);
-    HostKind::all().any(|host| host.is_target(&canonical))
+    let text = target_text(value);
+    HostKind::all().any(|host| host.is_target(&text))
 }
 
-/// A name a new identity (or a rename) may take: never text that a host
-/// reads as a pane target.
+/// Whether a name's text or its key reads as a pane target. A name is found
+/// by its key, so `W1:P2` would answer for the pane `w1:p2`.
+pub fn names_pane_target(value: &str) -> bool {
+    is_pane_target(value) || is_pane_target(&normalize_name(value))
+}
+
+/// A name a new identity (or a rename) may take: never one whose text or key
+/// a host reads as a pane target.
 pub fn validate_name(value: &str) -> Result<ValidatedName, NameError> {
     let name = validate_existing_name(value)?;
-    if is_pane_target(&name.canonical_name) {
+    if names_pane_target(value) {
         return Err(NameError::PaneTarget);
     }
     Ok(name)

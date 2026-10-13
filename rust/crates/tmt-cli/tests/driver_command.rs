@@ -624,3 +624,60 @@ fn host_refusal_names_the_conflict_and_stale_grammar_does_not_block_approval() {
     assert_eq!(stored["drivers"].as_array().unwrap().len(), 2);
     assert_eq!(stored["drivers"][0], document["drivers"][0]);
 }
+
+#[test]
+fn workspace_recovery_refuses_an_external_caller_but_explicit_socket_selects_tmux() {
+    let fixture = Fixture::new("workspace-unsupported");
+    let directory = fixture.root.join("workspace-driver");
+    fs::create_dir(&directory).unwrap();
+    let driver = directory.join("tmt-driver");
+    let capabilities = capabilities("fake", "fake-", "f{n}");
+    let script = format!(
+        r#"#!/bin/sh
+case "$3" in
+  capabilities) printf '%s' '{}' ;;
+  caller) cat >/dev/null; printf '{{"ok":{{"pane":{{"id":"fake-1","socket":"/fake/socket","shellPid":%s}}}}}}' "$PPID" ;;
+  *) printf '{{"error":{{"code":"unsupported","message":"fixture has no workspace port"}}}}' ;;
+esac
+"#,
+        capabilities
+    );
+    tmt_test_support::write_executable(&driver, script.as_bytes(), 0o755).unwrap();
+    let installed = fixture.tmt(&["driver", "install", path(&driver), "--yes", "--json"]);
+    assert!(installed.status.success(), "{installed:?}");
+    let registry = fs::read(fixture.registry()).unwrap();
+    for args in [
+        vec!["workspace", "ls", "--json"],
+        vec!["workspace", "show", "--json"],
+        vec!["workspace", "save", "work", "--json"],
+        vec!["workspace", "rm", "work", "--json"],
+        vec!["workspace", "restore", "--layout-only", "--json"],
+    ] {
+        let output = fixture.tmt_with(&args, &[("FAKE_PANE_ID", "fake-1")]);
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert_eq!(
+            value["error"]["code"], "WORKSPACE_HOST_UNSUPPORTED",
+            "{output:?}"
+        );
+        assert!(!fixture.root.join("state/workspace").exists());
+        assert!(!fixture.root.join("state/tmux-team.db").exists());
+        assert_eq!(fs::read(fixture.registry()).unwrap(), registry);
+    }
+    // Explicit recovery input is independent of the caller's active host.
+    let output = fixture.tmt_with(
+        &[
+            "workspace",
+            "ls",
+            "--socket",
+            "/absent/task-owned/socket",
+            "--json",
+        ],
+        &[("FAKE_PANE_ID", "fake-1")],
+    );
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["snapshots"], serde_json::json!([]));
+    assert!(!fixture.root.join("state/workspace").exists());
+    assert_eq!(fs::read(fixture.registry()).unwrap(), registry);
+}

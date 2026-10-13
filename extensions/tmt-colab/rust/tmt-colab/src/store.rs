@@ -113,6 +113,20 @@ impl std::error::Error for Fault {
         }
     }
 }
+/// Whether `error` or one of its causes is SQLite reporting the database busy or locked: a store
+/// that could not be read, which says nothing about the request that needed it (#2956).
+pub(crate) fn contended(error: &(dyn std::error::Error + 'static)) -> bool {
+    std::iter::successors(Some(error), |error| error.source()).any(|error| {
+        matches!(
+            error.downcast_ref::<rusqlite::Error>(),
+            Some(rusqlite::Error::SqliteFailure(failure, _))
+                if matches!(
+                    failure.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                )
+        )
+    })
+}
 impl From<rusqlite::Error> for Fault {
     fn from(e: rusqlite::Error) -> Self {
         Self::Sql(e)

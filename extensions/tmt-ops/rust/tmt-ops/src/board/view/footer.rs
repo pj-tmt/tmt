@@ -314,6 +314,55 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
+    if let Some(input) = app.input.as_ref().filter(|input| {
+        !matches!(
+            input.compose,
+            crate::board::app::Compose::AskLead { .. } | crate::board::app::Compose::Status
+        ) && app.input_band.get().is_none()
+    }) {
+        let hint = input
+            .hint
+            .as_ref()
+            .filter(|hint| hint.error || input.text.is_empty())
+            .map(|hint| {
+                (
+                    hint.text.as_str(),
+                    if hint.error { Role::Waiting } else { Role::Dim },
+                )
+            })
+            .or_else(|| app.notice.as_deref().map(|notice| (notice, Role::Waiting)));
+        let hint_width = hint.map_or(0, |(text, _)| {
+            (text.width() + 2).min(usize::from(footer.width / 3)) as u16
+        });
+        let prompt = format!("{} › ", input.prompt);
+        let width = prompt.width().min(usize::from(footer.width / 3)) as u16;
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect { width, ..footer },
+            Line::styled(prompt, look.role(Role::Accent)),
+        );
+        super::waiting::editor(
+            frame,
+            app,
+            Rect {
+                x: footer.x + width,
+                width: footer.width.saturating_sub(width + hint_width),
+                ..footer
+            },
+        );
+        if let Some((text, role)) = hint {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    x: footer.right() - hint_width,
+                    width: hint_width,
+                    ..footer
+                },
+                Line::styled(format!("  {text}"), look.role(role)),
+            );
+        }
+        return;
+    }
     let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()

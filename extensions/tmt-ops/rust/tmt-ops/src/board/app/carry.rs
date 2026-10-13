@@ -17,6 +17,7 @@ impl App {
             || self.in_flight > 0
             || self.pending_send.is_some()
             || self.input.is_some()
+            || self.composer.has_drafts()
             || self.status_draft.is_some()
             || self.cron_draft.is_some()
             || self.searching
@@ -191,6 +192,8 @@ mod tests {
         let cases: [(&str, Open); 7] = [
             ("a composer", |app| {
                 app.input = Some(crate::board::app::Input {
+                    draft_key: None,
+                    response_quotes: Vec::new(),
                     row_send: None,
                     others: Vec::new(),
                     quote: None,
@@ -212,10 +215,10 @@ mod tests {
                 app.loading_since = Some(Instant::now());
             }),
             ("a reply being read", |app| {
-                app.row_details.reader = Some(crate::board::row_detail::Reader {
-                    target: Detail::Job("c1".into()),
-                    scroll: Default::default(),
-                });
+                app.row_details.reader = Some(crate::board::row_detail::Reader::new(
+                    Detail::Job("c1".into()),
+                    None,
+                ));
             }),
             ("carried state not yet applied", |app| {
                 app.carry(Resume {

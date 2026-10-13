@@ -1,5 +1,5 @@
 //! Cron controls and the staged forms behind them. A form is a typed draft whose
-//! steps use the board's one-line input; nothing is written until the last step,
+//! steps use the shared editor; nothing is written until the last step,
 //! and the service revalidates actor, room, owner and revision when it applies.
 
 use super::{CronRequest, Op, rows::key_of, rows::row_id};
@@ -9,8 +9,6 @@ use crate::{
 };
 use tmt_ops::cron::Schedule;
 
-/// Longest message the one-line input can hold; longer ones are kept as stored.
-const LINE_LIMIT: usize = 4000;
 const FORMS: &str = "every 3h · daily 09:00 · weekdays 09:00 · mon,thu 10:00 · cron 0 */3 * * *";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +42,10 @@ pub struct Draft {
 }
 
 impl Draft {
+    pub(in crate::board) fn message_field(&self) -> bool {
+        self.step == Step::Message
+    }
+
     fn prompt(&self) -> String {
         let step = match self.step {
             Step::Owner => "owner",
@@ -154,8 +156,7 @@ impl App {
                     .unwrap_or("UTC")
                     .to_owned();
                 let message = job.job.message.clone();
-                let editable =
-                    !message.chars().any(char::is_control) && message.chars().count() <= LINE_LIMIT;
+                let editable = message.len() <= super::super::app::MESSAGE_LIMIT;
                 let draft = Draft {
                     kind: if key == 'E' {
                         Kind::Edit
@@ -184,7 +185,7 @@ impl App {
                     Step::Schedule => draft.original.as_ref().expect("edit").1.clone(),
                 };
                 let note = (key == 'E' && !editable).then(|| {
-                    "the message has several lines or is long: kept as stored, use tmt ops sq cron edit --message".to_owned()
+                    "the message exceeds the 1 MiB editor limit: kept as stored, use tmt ops sq cron edit --message".to_owned()
                 });
                 self.cron_ask(draft, prefill, note.map(|text| Hint { text, error: false }))
             }
@@ -234,13 +235,29 @@ impl App {
     }
 
     fn cron_ask(&mut self, draft: Draft, text: String, hint: Option<Hint>) -> Effect {
+        let mut editor = tmt_tui::components::Editor::default();
+        if draft.message_field() && (text.chars().count() > 500 || text.lines().count() > 8) {
+            editor.insert_folded(
+                &text,
+                format!(
+                    "[message · {} bytes · {} lines]",
+                    text.len(),
+                    text.lines().count()
+                ),
+                super::super::app::MESSAGE_LIMIT,
+            );
+        } else {
+            editor = text.into();
+        }
         self.input = Some(Input {
+            draft_key: None,
+            response_quotes: Vec::new(),
             row_send: None,
             others: Vec::new(),
             quote: None,
             link: None,
             prompt: draft.prompt(),
-            text,
+            text: editor,
             compose: Compose::Cron,
             squad: draft.squad.clone(),
             hint: hint.or_else(|| {
@@ -256,12 +273,14 @@ impl App {
 
     fn cron_retry(&mut self, draft: Draft, text: String, why: String) -> Effect {
         self.input = Some(Input {
+            draft_key: None,
+            response_quotes: Vec::new(),
             row_send: None,
             others: Vec::new(),
             quote: None,
             link: None,
             prompt: draft.prompt(),
-            text,
+            text: text.into(),
             compose: Compose::Cron,
             squad: draft.squad.clone(),
             hint: Some(Hint {

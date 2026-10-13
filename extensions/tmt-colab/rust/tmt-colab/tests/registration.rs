@@ -1891,3 +1891,59 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
     drop(store);
     drop(key);
 }
+
+// #2956: a store that cannot be read is not an access verdict. A second connection holds the
+// database past the 2 s busy timeout, so every admission read fails with a SQLite busy error;
+// the peer must be told to resync, while a device the store really refuses stays `DENIED`.
+#[test]
+fn a_store_that_cannot_be_read_asks_for_a_resync_and_a_real_refusal_stays_denied() {
+    use tmt_colab::{
+        registration::OwnerAdmission,
+        sync::{Access, Admission, Code as SyncCode, SyncScope},
+    };
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    let key = Keyring::read(&f.layout).unwrap();
+    let store = Store::open(&f.layout).unwrap();
+    let admission = OwnerAdmission(Arc::new(Mutex::new(f.service.take().unwrap())));
+    let scope = SyncScope {
+        space: key.space_id.clone(),
+        page: OTHER.into(),
+        epoch: "1".into(),
+    };
+    // Controls: an unknown device and a foreign space are real refusals.
+    assert_eq!(
+        admission.authorize(OTHER, &scope, Access::Read),
+        Err(SyncCode::Denied)
+    );
+    let foreign = SyncScope {
+        space: "00000000".into(),
+        ..scope.clone()
+    };
+    assert_eq!(
+        admission.authorize(DEVICE, &foreign, Access::Read),
+        Err(SyncCode::Denied)
+    );
+    let holder = f.oracle();
+    holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    assert_eq!(
+        admission.authorize(DEVICE, &scope, Access::Read),
+        Err(SyncCode::ResyncRequired)
+    );
+    assert!(matches!(
+        admission.catchup_context(DEVICE, &scope, &store),
+        Err(SyncCode::ResyncRequired)
+    ));
+    holder.execute_batch("ROLLBACK").unwrap();
+    // Released, the same call reaches the real answer again (no such page here).
+    assert_ne!(
+        admission.authorize(DEVICE, &scope, Access::Read),
+        Err(SyncCode::ResyncRequired)
+    );
+}

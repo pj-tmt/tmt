@@ -220,10 +220,22 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["api"] => Invocation::Api,
         ["workspace", "restore"] => Invocation::WorkspaceRestore {
             socket: text(m, "socket"),
+            name: m.get_one::<tmt_core::workspace::SnapshotName>("name").cloned(),
+            expect: text(m, "expect"),
             layout_only: flag(m, "layout-only"),
         },
         ["workspace", "show"] => Invocation::WorkspaceShow {
             socket: text(m, "socket"),
+            name: m.get_one::<tmt_core::workspace::SnapshotName>("name").cloned(),
+        },
+        ["workspace", "save"] => Invocation::WorkspaceSave {
+            socket: text(m, "socket"),
+            name: m.get_one::<tmt_core::workspace::SnapshotName>("name").expect("required name").clone(),
+        },
+        ["workspace", "ls"] => Invocation::WorkspaceList { socket: text(m, "socket") },
+        ["workspace", "rm"] => Invocation::WorkspaceRemove {
+            socket: text(m, "socket"),
+            name: m.get_one::<tmt_core::workspace::SnapshotName>("name").expect("required name").clone(),
         },
         ["mcp"] => Invocation::Mcp {
             identity: required(m, "identity"),

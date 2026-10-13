@@ -2517,6 +2517,9 @@ the latest paired prefix checkpoint and retained tail.
 If compaction invalidates a cursor during catchup, catchup stops with
 `RESYNC_REQUIRED` instead of silently skipping data. Store preserves the durable
 receipt ledger, so pruning never permits accepting a sequence again.
+An admission check or catchup that cannot read the store because SQLite stays busy or locked past
+its 2 s timeout answers `RESYNC_REQUIRED`, never `DENIED` (#2956): it says nothing about the
+device, and the client resyncs. A refusal the store answered keeps its code.
 
 `append.seq` is positive canonical decimal text. `streamId` equals the principal
 and signed author. `envelopeHash` is canonical base64url hash32. `envelope` is either

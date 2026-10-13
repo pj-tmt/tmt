@@ -40,6 +40,14 @@ One spelling per value kind; anything else fails admission with a located error:
 
 ## Components
 
+- `components::Editor` owns exact source, grapheme caret/selection, atomic folded
+  ranges and cached width-dependent display geometry. Painting escapes control
+  content without changing send/copy source. Callers supply byte limits and own
+  submit policy, session drafts, focus and effects.
+- `components::Completion` owns the active source token, stable candidate
+  selection and replacement. Callers provide candidate identities and decide
+  which fields admit completion; the component grants no routing authority.
+
 - `components::surface::compile` lowers `tmt-modal`, `tmt-scroll` and `tmt-key-help`
   into primitive templates and checks depth/node budgets and schemas eagerly. A
   surface has one literal-ID modal, one literal-ID scroll body and optional

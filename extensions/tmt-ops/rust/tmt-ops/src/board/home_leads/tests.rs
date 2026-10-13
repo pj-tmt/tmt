@@ -37,6 +37,36 @@ fn occurrences(leads: &[Lead]) -> Vec<(&str, &str)> {
 }
 
 #[test]
+fn conversation_results_use_one_originator_page_without_room_or_lead_scans() {
+    let mut calls = 0;
+    let read = Fetch::results(Some(Me {
+        id: "me".into(),
+        name: "user".into(),
+    }))
+    .read(
+        |input| {
+            calls += 1;
+            assert_eq!(
+                input,
+                json!({"originatorId":"me","view":"results","limit":50})
+            );
+            Ok(json!({"items":[reply("cross-room", "a", 20, Some("latest"))],"nextBefore":null}))
+        },
+        30,
+    );
+    assert_eq!(calls, 1);
+    assert!(read.leads.is_empty());
+    let mut state = State::default();
+    state.set_sender(Some("me"));
+    state.replace(read);
+    assert_eq!(state.replies[0]["requestId"], "cross-room");
+    state.set_sender(Some("other"));
+    assert!(state.replies.is_empty());
+    let read = Fetch::results(None).read(|_| panic!("no sender must not read history"), 30);
+    assert_eq!(read.calls, 0);
+}
+
+#[test]
 fn questions_precede_newer_exchanges_and_the_longest_wait_comes_first() {
     let mut oldest = lead("z", "oldest-question");
     oldest.row["waitingOnYou"] =
@@ -478,7 +508,7 @@ fn full_messages_use_the_chosen_body_and_verify_participants_without_acknowledgi
     detail["prompt"] = json!({"status":"retained","message":"original ask"});
     assert_eq!(
         message(Kind::Reply).body(detail.clone()).unwrap(),
-        "first\nsecond\nthird"
+        "first\nsecond\n\x1b[31mthird\x1b[0m"
     );
     assert_eq!(
         message(Kind::Asked).body(detail.clone()).unwrap(),
@@ -499,9 +529,12 @@ fn full_messages_use_the_chosen_body_and_verify_participants_without_acknowledgi
 fn full_message_expiry_and_missing_body_are_honest() {
     let mut detail = reply("id", "a", 20, None);
     detail["final"]["status"] = json!("expired");
-    assert_eq!(
-        message(Kind::Reply).body(detail.clone()).unwrap(),
-        "(message expired)"
+    assert!(
+        message(Kind::Reply)
+            .body(detail.clone())
+            .unwrap_err()
+            .to_string()
+            .contains("expired")
     );
     detail["final"]["status"] = json!("retained");
     assert!(message(Kind::Reply).body(detail).is_err());

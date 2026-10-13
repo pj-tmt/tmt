@@ -149,6 +149,7 @@ pub enum Notes {
 }
 
 pub struct Snapshot {
+    pub(super) references: super::inventory::Inventory,
     pub(super) timing: Option<super::timing::Load>,
     /// Squad names in core list order, before tab policy.
     pub squad_keys: Vec<String>,
@@ -453,16 +454,18 @@ impl RowSend {
     }
 }
 
-/// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
+/// Shared message editor; the application owns submission and recipient fences.
 pub struct Input {
+    pub(super) draft_key: Option<(String, String)>,
     pub(super) row_send: Option<RowSend>,
     /// The row composer's other modes in cycle order (answer, note, talk): Tab
     /// makes the first one current and sends the current one to the back.
     pub(super) others: Vec<Compose>,
     pub(super) quote: Option<String>,
+    pub(super) response_quotes: Vec<super::response::Quote>,
     pub link: Option<LinkSend>,
     pub prompt: String,
-    pub text: String,
+    pub text: tmt_tui::components::Editor,
     pub compose: Compose,
     /// The squad the text is sent in: the row's own on the leads tab.
     pub squad: String,
@@ -527,8 +530,10 @@ impl Compose {
     }
 }
 
-/// Longest text the composer accepts, in characters.
+/// Small form field budget, in UTF-8 bytes.
 pub(super) const INPUT_LIMIT: usize = 4000;
+/// Session message limit, in UTF-8 bytes; reject oversized insertions atomically.
+pub(super) const MESSAGE_LIMIT: usize = 1024 * 1024;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -689,6 +694,7 @@ pub struct App {
     /// The `c` list of every squad's jobs, while open.
     pub(super) cron_list: Option<super::cronboard::List>,
     pub(super) row_details: super::row_detail::State,
+    pub(super) conversation: RefCell<super::conversation::State>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -713,6 +719,9 @@ pub struct App {
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
+    pub(super) composer: super::composer::State,
+    pub(super) mentions: super::mentions::State,
+    pub(super) references: super::inventory::Inventory,
     /// Last successful row send; cleared on the next user action.
     pub(super) sent: Option<RowFeedback>,
     pub(super) pending_send: Option<RowFeedback>,
@@ -720,6 +729,8 @@ pub struct App {
     pub(super) in_flight: usize,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
+    /// Current-frame editor geometry; cleared before paint and on resize.
+    pub(super) input_viewport: std::cell::Cell<Option<(ratatui::layout::Rect, usize)>>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
     /// Every pane's scroll position, from one owner.
@@ -1504,6 +1515,7 @@ impl App {
         if let Some(overlay) = &mut self.settings {
             overlay.squad_keys = snapshot.squad_keys.clone();
         }
+        self.references = snapshot.references;
         self.squad_keys = snapshot.squad_keys;
 
         self.invalidate_overlay_frames();
@@ -1543,6 +1555,7 @@ impl App {
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
+                self.home_leads.set_sender(view.me_id.as_deref());
                 if let Some(home) = &view.home {
                     self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
@@ -2099,6 +2112,13 @@ impl App {
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
         let mut folds = self.folds_at(self.body_width);
+        if self.view.as_ref().is_some_and(|view| view.home.is_some())
+            && super::conversation::layout::overview(self.conversation.borrow().area)
+                .conversation
+                .is_none()
+        {
+            folds.insert(Pane::Replies);
+        }
         if let Some(board) = self.effective_board()
             && let Some(view) = &self.view
             && let Some(cache) = &*view.composition.borrow()
@@ -2132,8 +2152,7 @@ impl App {
     /// Focuses the pane drawn under the pointer, if any.
     fn focus_at(&mut self, column: u16, row: u16) {
         let Some(pane) = self
-            .scrolls
-            .pane_at(column, row)
+            .pointer_pane(column, row)
             .filter(|pane| !self.collapsed_panes().contains(pane))
         else {
             return;
@@ -2526,22 +2545,34 @@ impl App {
             Compose::AskLead { to, sender },
             squad,
         );
-        self.input.as_mut().unwrap().text = text;
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| input.text.is_empty())
+        {
+            self.input.as_mut().unwrap().text = text.into();
+        }
         Effect::None
     }
 
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
+        self.remember_draft();
+        self.mentions = Default::default();
         self.input = Some(Input {
+            draft_key: None,
+            response_quotes: Vec::new(),
             row_send: None,
             others: Vec::new(),
             quote: None,
             link: None,
             prompt,
-            text: String::new(),
+            text: Default::default(),
             compose,
             squad,
             hint: None,
         });
+        self.bind_draft();
+        self.restore_draft();
         Effect::None
     }
 
@@ -2577,6 +2608,11 @@ impl App {
                 .map(|entry| RowTarget::Home(entry.target.clone()));
         }
         let (slot, row) = *self.rows().get(index)?;
+        self.projected_row_target(slot, row)
+    }
+
+    /// Reuse an already projected row when visiting the row stream.
+    pub(super) fn projected_row_target(&self, slot: RowOrigin, row: &Value) -> Option<RowTarget> {
         let tab = self.shown_tab()?.to_owned();
         let squad = row["squad"].as_str().unwrap_or(&tab).to_owned();
         let id = row["id"].as_str()?.to_owned();
@@ -2646,7 +2682,7 @@ impl App {
         self.send_target(target, member_note)
     }
 
-    fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
+    pub(super) fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
         let sender = self.view.as_ref()?.me.clone()?;
         let name = self.target_row(&target)?["name"].as_str()?.to_owned();
         let to = if member_note {
@@ -2872,6 +2908,18 @@ impl App {
 
     /// Tab in a row composer: the next of answer, note and talk, keeping the text.
     pub(super) fn cycle_mode(&mut self) {
+        self.remember_draft();
+        if self.input.as_ref().is_some_and(|input| {
+            input
+                .row_send
+                .as_ref()
+                .is_some_and(|send| !send.valid(self, input))
+        }) {
+            self.notice = Some(
+                "The composer target changed; close and reopen it before changing mode.".into(),
+            );
+            return;
+        }
         let Some(input) = self.input.as_mut().filter(|input| !input.others.is_empty()) else {
             return;
         };
@@ -2891,7 +2939,7 @@ impl App {
                     title: format!("answer {}", send.name),
                     row_send: Some(send),
                     link: None,
-                    prefill: input.text,
+                    prefill: input.text.into_string(),
                     entries,
                     selected: 0,
                     surface: Default::default(),
@@ -2913,6 +2961,7 @@ impl App {
         if let Some(input) = &mut self.input {
             input.quote = quote;
         }
+        self.bind_draft();
     }
 
     /// The next token window of the summary meter, when the squad samples one.
@@ -3135,7 +3184,7 @@ impl App {
                         let action = Action::parse(verb.name()).expect("built-in verb");
                         let effect = self.compose(&action, &row);
                         if let Some(input) = &mut self.input {
-                            input.text = text.clone();
+                            input.text = text.clone().into();
                             input.link = Some(LinkSend {
                                 member: member.clone(),
                                 sender: sender.clone(),
@@ -3173,7 +3222,58 @@ impl App {
             .move_by(text, sources, step, self.scrolls.page_lines(Pane::Notes));
     }
 
+    pub(super) fn paste(&mut self, text: &str) -> Effect {
+        if self.checklist_shown() {
+            return self
+                .overlay_event(&Event::Paste(text.to_owned()))
+                .unwrap_or(Effect::None);
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+        {
+            if let Some(editor) = self.reference_editor_mut()
+                && !editor.insert(text, INPUT_LIMIT)
+            {
+                return self.say("Status reason exceeds 4,000 bytes; unchanged.");
+            }
+            self.update_mentions();
+            return Effect::None;
+        }
+        let message = self.message_field();
+        let limit = if message { MESSAGE_LIMIT } else { INPUT_LIMIT };
+        if let Some(input) = self.input.as_mut()
+            && !matches!(input.compose, Compose::Status)
+        {
+            // Terminals may deliver CR, LF or CRLF inside bracketed paste. Count
+            // display lines without changing the exact source retained for send.
+            let lines = text
+                .replace("\r\n", "\n")
+                .replace('\r', "\n")
+                .lines()
+                .count();
+            let inserted = if message && (text.chars().count() > 500 || lines > 8) {
+                input.text.insert_folded(
+                    text,
+                    format!("[paste · {} bytes · {} lines]", text.len(), lines),
+                    limit,
+                )
+            } else {
+                input.text.insert(text, limit)
+            };
+            if !inserted {
+                return self.say(format!("Paste exceeds {limit} bytes; draft unchanged."));
+            }
+        }
+        self.update_mentions();
+        Effect::None
+    }
+
     fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
+            self.remember_draft();
+        }
         if self
             .input
             .as_ref()
@@ -3181,6 +3281,8 @@ impl App {
         {
             return self.status_key(key);
         }
+        let message = self.message_field();
+        let limit = if message { MESSAGE_LIMIT } else { INPUT_LIMIT };
         let Some(input) = &mut self.input else {
             return Effect::None;
         };
@@ -3199,24 +3301,38 @@ impl App {
                 }
                 return self.say("Nothing sent.");
             }
+            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
+                input.response_quotes.pop();
+                return Effect::None;
+            }
             KeyCode::Tab => {
                 self.cycle_mode();
                 return Effect::None;
             }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                if message {
+                    input.text.insert("\n", limit);
+                }
+                return Effect::None;
+            }
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if message {
+                    input.text.toggle_fold();
+                }
+                return Effect::None;
+            }
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if message {
+                    input.text.insert("\n", limit);
+                }
+                return Effect::None;
+            }
             KeyCode::Enter => {}
-            KeyCode::Backspace => {
-                input.text.pop();
+            _ => {
+                let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
+                input.text.key(key, width, limit);
                 return Effect::None;
             }
-            KeyCode::Char(character)
-                if !character.is_control()
-                    && !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && input.text.chars().count() < INPUT_LIMIT =>
-            {
-                input.text.push(character);
-                return Effect::None;
-            }
-            _ => return Effect::None,
         }
         if self.in_flight > 0 {
             return self
@@ -3225,12 +3341,18 @@ impl App {
         let input = self.input.take().expect("composing");
         if matches!(input.compose, Compose::Cron) {
             // A job message is stored exactly as typed: no trim, unlike talk.
-            return self.cron_submit(input.text);
+            return self.cron_submit(input.text.into_string());
         }
         if let Compose::Digest(granted) = input.compose {
             return self.digest_submit(*granted, &input.text);
         }
-        let text = input.text.trim().to_owned();
+        let mut text = input.text.as_str().to_owned();
+        for quote in &input.response_quotes {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(&quote.reference());
+        }
         if input
             .row_send
             .as_ref()
@@ -3273,13 +3395,19 @@ impl App {
                 return self.say("The link target or request changed; nothing sent.");
             }
         }
-        let squad = input.squad;
+
         let Some(me) = self.view.as_ref().and_then(|view| view.me.clone()) else {
             return Effect::None;
         };
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return self.say("Nothing sent.");
         }
+        if text.len() > MESSAGE_LIMIT {
+            return self
+                .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
+        }
+        self.sending_draft(&input);
+        let squad = input.squad;
         self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
@@ -3416,7 +3544,9 @@ impl App {
                 to: send.name.clone(),
             });
             self.ask(String::new(), compose, squad.clone());
-            self.input.as_mut().unwrap().text = prefill;
+            if !prefill.is_empty() {
+                self.input.as_mut().unwrap().text = prefill.into();
+            }
             self.attach_row(send, squad);
             return Effect::None;
         }
@@ -3456,7 +3586,9 @@ impl App {
         self.menu = None;
         let effect = chosen.map_or(Effect::None, |choice| self.choose(choice));
         if let Some(input) = &mut self.input {
-            input.text = prefill;
+            if !prefill.is_empty() {
+                input.text = prefill.into();
+            }
             input.link = link;
         }
         if let Some(send) = row_send {
@@ -3544,21 +3676,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
-            Overlay::ReplyReader => {
-                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'v')))
-                {
-                    self.row_details.reader = None;
-                    self.reconcile_row_details();
-                } else {
-                    self.row_details
-                        .reader
-                        .as_ref()?
-                        .scroll
-                        .borrow_mut()
-                        .input(event);
-                }
-                Some(Effect::None)
-            }
+            Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -3662,7 +3780,13 @@ impl App {
             return self.perform(&action);
         }
         if self.input.is_some() {
-            return self.input_key(key);
+            self.update_mentions();
+            if let Some(effect) = self.mention_key(key) {
+                return effect;
+            }
+            let effect = self.input_key(key);
+            self.update_mentions();
+            return effect;
         }
         if self.menu.is_some() {
             return self.menu_key(key);
@@ -3748,17 +3872,17 @@ impl App {
             }
             // Any pane but rows scrolls its text; rows moves the selection.
             KeyCode::Up | KeyCode::Char('k') if self.focused() != Pane::Rows => {
-                self.scrolls.scroll(self.focused(), Step::Lines(-1));
+                self.scroll_pane(self.focused(), Step::Lines(-1));
             }
             KeyCode::Down | KeyCode::Char('j') if self.focused() != Pane::Rows => {
-                self.scrolls.scroll(self.focused(), Step::Lines(1));
+                self.scroll_pane(self.focused(), Step::Lines(1));
             }
             // Paging keys scroll unless the user bound them (then the
             // binding runs, below).
             KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
                 if self.focused() != Pane::Rows && !self.bound(key) =>
             {
-                self.scrolls.scroll(self.focused(), page_step(key.code));
+                self.scroll_pane(self.focused(), page_step(key.code));
             }
             KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
             KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
@@ -3883,6 +4007,13 @@ impl App {
     }
 
     pub(super) fn invalidate_overlay_frames(&self) {
+        self.input_viewport.set(None);
+        self.conversation.borrow_mut().pane = None;
+        self.scrolls.begin_frame();
+        self.mentions.invalidate();
+        if let Some(reader) = &self.row_details.reader {
+            reader.source_area.set(None);
+        }
         if let Some(checklist) = &self.checklist {
             checklist.invalidate();
         }
@@ -3973,6 +4104,49 @@ impl App {
         changed
     }
 
+    fn pointer_pane(&self, column: u16, row: u16) -> Option<Pane> {
+        if self
+            .conversation
+            .borrow()
+            .pane
+            .is_some_and(|area| area.contains((column, row).into()))
+        {
+            Some(Pane::Replies)
+        } else {
+            self.scrolls.pane_at(column, row)
+        }
+    }
+
+    fn scroll_pointer(&mut self, event: MouseEvent) -> bool {
+        let lines = match event.kind {
+            MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),
+            MouseEventKind::ScrollDown => Some(WHEEL_LINES as isize),
+            _ => None,
+        };
+        if let Some(lines) = lines {
+            if let Some(pane) = self
+                .pointer_pane(event.column, event.row)
+                .filter(|pane| !self.collapsed_panes().contains(pane))
+            {
+                self.scroll_pane(pane, Step::Lines(lines));
+                if pane == Pane::Notes
+                    && let Some(key) = self.shown_tab()
+                {
+                    self.note_cursors
+                        .borrow_mut()
+                        .entry(key.to_owned())
+                        .or_default()
+                        .follow = false;
+                }
+                if pane == Pane::Rows {
+                    self.follow = false;
+                }
+            }
+            return true;
+        }
+        false
+    }
+
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
             self.move_pointer(event);
@@ -3989,7 +4163,51 @@ impl App {
         if self.menu.is_some() {
             return self.menu_mouse(event);
         }
+        if self.mention_mouse(event) {
+            return Effect::None;
+        }
         if self.input.is_some() {
+            if self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.draft_key.is_some())
+                && self
+                    .input_band
+                    .get()
+                    .is_none_or(|area| !area.contains((event.column, event.row).into()))
+                && self.scroll_pointer(event)
+            {
+                return Effect::None;
+            }
+
+            if let Some((area, offset)) = self.input_viewport.get()
+                && area.contains((event.column, event.row).into())
+                && matches!(
+                    event.kind,
+                    MouseEventKind::Down(MouseButton::Left)
+                        | MouseEventKind::Drag(MouseButton::Left)
+                )
+            {
+                let text = if self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| matches!(input.compose, Compose::Status))
+                {
+                    self.reference_editor_mut()
+                } else {
+                    self.input.as_mut().map(|input| &mut input.text)
+                };
+                if let Some(text) = text {
+                    text.place(
+                        area.width,
+                        offset + usize::from(event.row - area.y),
+                        usize::from(event.column - area.x),
+                        matches!(event.kind, MouseEventKind::Drag(_))
+                            || event.modifiers.contains(KeyModifiers::SHIFT),
+                    );
+                }
+                self.update_mentions();
+            }
             return Effect::None;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
@@ -4014,10 +4232,7 @@ impl App {
                 self.detail(target)
                     .is_some_and(|detail| detail.reply.is_some())
             }) {
-                self.row_details.reader = Some(super::row_detail::Reader {
-                    target,
-                    scroll: Default::default(),
-                });
+                self.row_details.reader = Some(super::row_detail::Reader::new(target, None));
                 return Effect::None;
             }
         }
@@ -4033,31 +4248,7 @@ impl App {
         if let Some(effect) = self.jobs_mouse(event) {
             return effect;
         }
-        let lines = match event.kind {
-            MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),
-            MouseEventKind::ScrollDown => Some(WHEEL_LINES as isize),
-            _ => None,
-        };
-        if let Some(lines) = lines {
-            if let Some(pane) = self
-                .scrolls
-                .pane_at(event.column, event.row)
-                .filter(|pane| !self.collapsed_panes().contains(pane))
-            {
-                self.scrolls.scroll(pane, Step::Lines(lines));
-                if pane == Pane::Notes
-                    && let Some(key) = self.shown_tab()
-                {
-                    self.note_cursors
-                        .borrow_mut()
-                        .entry(key.to_owned())
-                        .or_default()
-                        .follow = false;
-                }
-                if pane == Pane::Rows {
-                    self.follow = false;
-                }
-            }
+        if self.scroll_pointer(event) {
             return Effect::None;
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
@@ -4599,6 +4790,7 @@ pub(crate) mod tests {
 
     pub(crate) fn snapshot(squad: &str, sections: Value) -> Snapshot {
         Snapshot {
+            references: Default::default(),
             timing: None,
             squad_keys: vec!["infra".into(), "product".into()],
             tabs: vec!["infra".into(), "product".into()],
@@ -4791,6 +4983,7 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Right);
             assert!(app.meter.is_none() && app.meters.contains_key("product"));
             app.apply(Snapshot {
+                references: Default::default(),
                 timing: None,
                 squad_keys: Vec::new(),
                 tabs: vec!["product".into(), "infra".into()],
@@ -5127,6 +5320,7 @@ pub(crate) mod tests {
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
+            view.me_id = Some("ben-id".into());
             view.document["squad"]["lead"] = json!({"id": "L", "name": "sol"});
             view.document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
                 {"requestId": "q2", "preview": "approve the plan?"},
@@ -5154,6 +5348,8 @@ pub(crate) mod tests {
             })
         );
         assert!(app.input.is_none());
+        app.finish_draft(true);
+        app.finished(Ok("sent".into()));
 
         press(&mut app, KeyCode::Char('t'));
         typed(&mut app, "   ");
@@ -5172,6 +5368,7 @@ pub(crate) mod tests {
             app.input.as_ref().unwrap().prompt,
             "→ sol (product) · note · about auth-fix"
         );
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
         typed(&mut app, "split the job");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -5194,6 +5391,8 @@ pub(crate) mod tests {
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · answer"
         );
+        assert!(app.input.as_ref().unwrap().text.contains("draft"));
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
         typed(&mut app, "postgres");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -5598,6 +5797,8 @@ pub(crate) mod tests {
                 },
             ] {
                 app.input = Some(Input {
+                    draft_key: None,
+                    response_quotes: Vec::new(),
                     row_send: None,
                     others: Vec::new(),
                     quote: None,
@@ -5897,6 +6098,7 @@ pub(crate) mod tests {
             json!([{"title": null, "rows": [row("a", "")]}]),
         ));
         app.apply(Snapshot {
+            references: Default::default(),
             timing: None,
             squad_keys: Vec::new(),
             tabs: vec!["product".into()],
@@ -7132,12 +7334,14 @@ mod token_window_tests {
             },
         ] {
             app.input = Some(Input {
+                draft_key: None,
+                response_quotes: Vec::new(),
                 row_send: None,
                 others: Vec::new(),
                 quote: None,
                 link: None,
                 prompt: "message".into(),
-                text: String::new(),
+                text: Default::default(),
                 compose,
                 squad: "x".into(),
                 hint: None,

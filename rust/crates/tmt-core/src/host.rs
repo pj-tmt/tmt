@@ -141,22 +141,24 @@ impl HostKind {
         }
     }
 
-    /// Whether canonical text addresses a pane of this host rather than
-    /// naming an identity.
-    pub fn is_target(self, canonical: &str) -> bool {
+    /// Whether text addresses a pane of this host rather than naming an
+    /// identity. The text is trimmed and composed
+    /// ([`crate::names::target_text`]); an external host's syntax is
+    /// case-sensitive, and tmux's does not depend on case.
+    pub fn is_target(self, text: &str) -> bool {
         match self {
             Self::Tmux => {
-                if self.is_pane_id(canonical) || window_pane(canonical) {
+                if self.is_pane_id(text) || window_pane(text) {
                     return true;
                 }
-                canonical.split_once(':').is_some_and(|(session, pane)| {
+                text.split_once(':').is_some_and(|(session, pane)| {
                     !session.is_empty()
                         && !session.chars().any(ecmascript_space)
                         && window_pane(pane)
                 })
             }
             Self::External(name) => {
-                external_grammar(name).is_some_and(|grammar| grammar.is_target(canonical))
+                external_grammar(name).is_some_and(|grammar| grammar.is_target(text))
             }
         }
     }

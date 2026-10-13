@@ -205,7 +205,8 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                     app.look().selection().bg.is_none()
                 );
                 for y in 2..39 {
-                    for x in 0..width {
+                    let list_width = app.conversation.borrow().pane.map_or(width, |pane| pane.x);
+                    for x in 0..list_width {
                         assert_eq!(selected[(x, y)].symbol(), attention[(x, y)].symbol());
                     }
                 }
