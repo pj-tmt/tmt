@@ -25,6 +25,7 @@ mod sourced;
 mod states;
 mod workspace;
 pub use states::{Rank, States};
+pub(crate) use workspace::defaults as workspace_defaults;
 pub use workspace::{OpsKeyScope, OpsLayout, OpsPreferences, OpsSort};
 
 const FILE_LIMIT: u64 = 1024 * 1024;

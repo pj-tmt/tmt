@@ -22,7 +22,7 @@ use std::{
 };
 
 mod carry;
-mod workspace;
+pub(in crate::board) mod workspace;
 
 /// What the refresh worker loaded for one squad.
 pub struct RateView {
@@ -1563,7 +1563,7 @@ impl App {
         self.references = snapshot.references;
         self.squad_keys = snapshot.squad_keys;
 
-        self.invalidate_overlay_frames();
+        self.invalidate_frame_geometry();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         // A failed inventory read has no keys, including no built-ins. Keep
@@ -1680,10 +1680,7 @@ impl App {
                             .collect()
                     })
                     .unwrap_or_default();
-                let panes = self
-                    .view_picker
-                    .as_ref()
-                    .map_or(view.board.panes.len(), |picker| picker.board().panes.len());
+                let panes = self.focus_panes().len();
                 self.focus = self.focus.min(panes.saturating_sub(1));
                 let changed = self.loading() || self.view.is_none();
                 if let Some(overlay) = &mut self.settings {
@@ -1821,7 +1818,7 @@ impl App {
         self.tab_hits.borrow_mut().clear();
         self.unpicked_hit.set(None);
         self.dragging = None;
-        self.invalidate_overlay_frames();
+        self.invalidate_frame_geometry();
         let effect = if self.current.as_ref() == Some(&key) && !self.picks.contains(&key) {
             let position = self.tabs.iter().position(|tab| tab == &key).unwrap_or(0);
             let next = self
@@ -2184,30 +2181,14 @@ impl App {
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
-        if self.workspace_snapshot().is_some() {
-            return if self.shell.tab == super::shell::OpsTab::Overview
-                && self.conversation.borrow().pane.is_none()
-            {
-                [Pane::Replies].into()
-            } else {
-                BTreeSet::new()
-            };
-        }
-        let mut folds = self.folds_at(self.body_width);
-        if self.view.as_ref().is_some_and(|view| view.home.is_some())
-            && super::conversation::layout::overview(self.conversation.borrow().area)
-                .conversation
-                .is_none()
+        if self.workspace_snapshot().is_none()
+            || (self.shell.tab == super::shell::OpsTab::Overview
+                && self.conversation.borrow().pane.is_none())
         {
-            folds.insert(Pane::Replies);
+            [Pane::Replies].into()
+        } else {
+            BTreeSet::new()
         }
-        if let Some(board) = self.effective_board()
-            && let Some(view) = &self.view
-            && let Some(cache) = &*view.composition.borrow()
-        {
-            folds.extend(cache.derived_folds(board, &folds, self.body_width));
-        }
-        folds
     }
 
     pub(super) fn body_width(&self) -> u16 {
@@ -2220,12 +2201,7 @@ impl App {
     }
 
     fn focus_panes(&self) -> &[Pane] {
-        if self.workspace_snapshot().is_some() {
-            &[Pane::Rows, Pane::Replies]
-        } else {
-            self.effective_board()
-                .map_or(&[], |board| board.panes.as_slice())
-        }
+        &[Pane::Rows, Pane::Replies]
     }
 
     pub fn focused_pane(&self) -> Option<Pane> {
@@ -2370,34 +2346,7 @@ impl App {
     /// The selected row's section overrides its host table, which overrides the
     /// tab/global bindings and the preset.
     pub fn bindings(&self) -> Bindings {
-        if self.workspace_snapshot().is_some() {
-            return self.workspace_bindings();
-        }
-        let Some(view) = &self.view else {
-            return Bindings::new();
-        };
-        let section = self
-            .rows()
-            .get(self.selected)
-            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?));
-        let enabled = view
-            .token_rate
-            .as_ref()
-            .is_some_and(|rate| rate.settings.enabled)
-            || self
-                .meter
-                .as_ref()
-                .is_some_and(|meter| meter.settings.enabled);
-        let mut bindings = view.bindings.clone();
-        // Core's published host for the row's pane picks the table; no host, no table.
-        if let Some(host) = self
-            .selected_row()
-            .and_then(|row| row["pane"]["location"]["host"].as_str())
-            .and_then(|host| view.host_bindings.get(host))
-        {
-            bindings.extend(host.clone());
-        }
-        crate::action::effective_bindings(bindings, section, enabled)
+        self.workspace_bindings()
     }
 
     pub(super) fn say(&mut self, notice: impl Into<String>) -> Effect {
@@ -4018,117 +3967,7 @@ impl App {
             self.clamp();
             return Effect::None;
         }
-        if self.workspace_snapshot().is_some() {
-            return self.workspace_key(key);
-        }
-        if self.focused_pane().is_none()
-            && !self.bound(key)
-            && matches!(
-                key.code,
-                KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::Char('j' | 'k')
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End
-            )
-        {
-            return Effect::None;
-        }
-        if self.focused_pane() == Some(Pane::Notes) && !self.help {
-            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab | KeyCode::Enter)
-                && let Some(action) = self.note_binding(key)
-            {
-                return self.perform(&action);
-            }
-            if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
-                return self.select_link(if key.code == KeyCode::BackTab { -1 } else { 1 });
-            }
-            if key.code == KeyCode::Enter && self.note_link.is_some() {
-                return self.activate_link();
-            }
-            if key.code == KeyCode::Esc && self.note_link.take().is_some() {
-                return Effect::None;
-            }
-            let step = match key.code {
-                KeyCode::Up | KeyCode::Char('k') => Some(Step::Lines(-1)),
-                KeyCode::Down | KeyCode::Char('j') => Some(Step::Lines(1)),
-                KeyCode::PageUp => Some(Step::Pages(-1)),
-                KeyCode::PageDown => Some(Step::Pages(1)),
-                KeyCode::Home | KeyCode::Char('g') => Some(Step::Top),
-                KeyCode::End | KeyCode::Char('G') => Some(Step::Bottom),
-                _ => None,
-            };
-            if let Some(step) = step {
-                if let Some(action) =
-                    event_name(key).and_then(|event| self.bindings().remove(&event))
-                {
-                    return self.perform(&action);
-                }
-                self.note_link = None;
-                self.move_note(step);
-                return Effect::None;
-            }
-        }
-        match key.code {
-            KeyCode::Char('q') => return Effect::Quit,
-            KeyCode::Esc if self.search.is_empty() && !self.help => return Effect::Quit,
-            KeyCode::Esc => {
-                self.help = false;
-                self.search.clear();
-                self.clamp();
-            }
-            // Any pane but rows scrolls its text; rows moves the selection.
-            KeyCode::Up | KeyCode::Char('k') if self.focused() != Pane::Rows => {
-                self.scroll_pane(self.focused(), Step::Lines(-1));
-            }
-            KeyCode::Down | KeyCode::Char('j') if self.focused() != Pane::Rows => {
-                self.scroll_pane(self.focused(), Step::Lines(1));
-            }
-            // Paging keys scroll unless the user bound them (then the
-            // binding runs, below).
-            KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End
-                if self.focused() != Pane::Rows && !self.bound(key) =>
-            {
-                self.scroll_pane(self.focused(), page_step(key.code));
-            }
-            KeyCode::Up | KeyCode::Char('k') => self.select(self.selected.saturating_sub(1)),
-            KeyCode::Down | KeyCode::Char('j') => self.select(self.selected + 1),
-            KeyCode::PageUp if !self.bound(key) => {
-                self.page_rows(-1);
-            }
-            KeyCode::PageDown if !self.bound(key) => self.page_rows(1),
-            KeyCode::Home if !self.bound(key) => self.select(0),
-            KeyCode::End if !self.bound(key) => self.select(usize::MAX),
-            KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                return self.move_current(-1);
-            }
-            KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                return self.move_current(1);
-            }
-            KeyCode::Left => return self.switch(-1),
-            KeyCode::Right => return self.switch(1),
-            KeyCode::Char('/') => self.searching = true,
-            // The switcher's key, unless the user bound `s` to something.
-            KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
-            // Every squad's jobs, unless the user bound `c` to something.
-            KeyCode::Char('c') if !self.bound(key) && self.cron_shown() => {
-                return self.open_cron_list(None);
-            }
-            KeyCode::Char('?') => {
-                self.help_state.borrow_mut().open();
-                self.help = true;
-            }
-            _ => {
-                if let Some(action) =
-                    event_name(key).and_then(|event| self.bindings().remove(&event))
-                {
-                    return self.perform(&action);
-                }
-            }
-        }
-        Effect::None
+        self.workspace_key(key)
     }
 
     /// Every tab the switcher offers: the tab line's, then hidden ones.
@@ -4215,8 +4054,19 @@ impl App {
         Some(Effect::None)
     }
 
-    pub(super) fn invalidate_overlay_frames(&self) {
+    /// Refuse pointer and viewport authority from a superseded frame. Offsets
+    /// and drafts survive; only a new paint can publish interactive geometry.
+    pub(super) fn invalidate_frame_geometry(&self) {
         self.input_viewport.set(None);
+        self.input_band.set(None);
+        self.hits.borrow_mut().clear();
+        self.row_starts.borrow_mut().clear();
+        self.tab_hits.borrow_mut().clear();
+        self.unpicked_hit.set(None);
+        self.title_hits.borrow_mut().clear();
+        self.detail_more_hits.borrow_mut().clear();
+        self.note_hits.borrow_mut().clear();
+        self.link_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.chip_hits.borrow_mut().clear();
         if let Some(draft) = &self.workspace_form {
@@ -4498,35 +4348,20 @@ impl App {
             self.reconcile_switcher(false);
             return Effect::None;
         }
-        // A press on a tab shows it; releasing it over another tab moves it
-        // there and saves the order.
+        // Shell tabs are navigation only, including before the first snapshot.
+        // They never address the old name-based squad tab inventory.
         let tab = self.tab_hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        match (event.kind, tab) {
-            (MouseEventKind::Down(MouseButton::Left), Some(hit)) => {
-                if self.workspace_snapshot().is_some() {
-                    let action = match hit.tab {
-                        0 => crate::action::OpsUiAction::Overview,
-                        1 => crate::action::OpsUiAction::Agents,
-                        2 => crate::action::OpsUiAction::DigestDashboard,
-                        _ => return Effect::None,
-                    };
-                    return self.workspace_action(action);
-                }
-                self.dragging = Some(hit.tab);
-                return match self.tabs.get(hit.tab).cloned() {
-                    Some(key) => self.go(key),
-                    None => Effect::None,
-                };
-            }
-            (MouseEventKind::Up(MouseButton::Left), hit) => {
-                return match (self.dragging.take(), hit) {
-                    (Some(from), Some(to)) => self.move_tab(from, to.tab),
-                    _ => Effect::None,
-                };
-            }
-            _ => {}
+        if let (MouseEventKind::Down(MouseButton::Left), Some(hit)) = (event.kind, tab) {
+            let action = match hit.tab {
+                0 => crate::action::OpsUiAction::Overview,
+                1 => crate::action::OpsUiAction::Agents,
+                2 => crate::action::OpsUiAction::DigestDashboard,
+                _ => return Effect::None,
+            };
+            self.focus = 0;
+            return self.workspace_action(action);
         }
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Effect::None;

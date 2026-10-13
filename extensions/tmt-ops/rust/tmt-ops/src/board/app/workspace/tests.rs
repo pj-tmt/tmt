@@ -6,10 +6,10 @@ use crate::board::workspace::{
 use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 use serde_json::json;
 
-const ROOM: &str = "11111111-1111-4111-8111-111111111111";
-const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
+pub(in crate::board) const ROOM: &str = "11111111-1111-4111-8111-111111111111";
+pub(in crate::board) const MEMBER: &str = "22222222-2222-4222-8222-222222222222";
 
-fn board() -> App {
+pub(in crate::board) fn board() -> App {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
     loaded.tabs.push(crate::board::ALL.into());
@@ -186,6 +186,357 @@ fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect()
 }
+
+#[test]
+fn workspace_shell_is_available_before_data_at_every_theme_depth() {
+    for base in tmt_cli_style::Base::ALL {
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let mut app = App::new(Some(crate::board::ALL.into()));
+            app.tabs = vec!["private-squad".into()];
+            app.initial_look = Some(crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            });
+            let lines = paint(&app, 80, 8);
+            assert!(lines[0].starts_with("OPS / UI"), "{base:?} {depth:?}");
+            for label in ["1 Overview", "2 Agents", "3 Digest"] {
+                assert!(lines[0].contains(label), "{base:?} {depth:?}: {label}");
+            }
+            assert!(!lines[0].contains("private-squad"));
+            let hits = app.tab_hits.borrow();
+            assert_eq!(
+                hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(),
+                [0, 1, 2]
+            );
+            assert!(hits.iter().all(|hit| hit.y == 0 && hit.x + hit.width <= 80));
+        }
+    }
+}
+
+#[test]
+fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
+    let mut app = App::new(Some(crate::board::ALL.into()));
+    app.tabs = vec!["private-squad".into()];
+    for (digit, expected) in [
+        ('2', OpsTab::Agents),
+        ('3', OpsTab::Digest),
+        ('1', OpsTab::Overview),
+    ] {
+        assert_eq!(key(&mut app, KeyCode::Char(digit)), Effect::None);
+        assert_eq!(app.shell.tab, expected);
+        paint(&app, 80, 8);
+        let hit = app
+            .tab_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.tab == 1)
+            .copied()
+            .unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hit.x,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.shell.tab, OpsTab::Agents);
+        assert_eq!(app.current.as_deref(), Some(crate::board::ALL));
+        assert!(app.workspace.selected.is_none());
+        assert!(app.input.is_none());
+        assert!(app.dragging.is_none());
+    }
+    for code in ['t', 'j', 'x', 'm', 'n', 'o', 'c', 'D'] {
+        let effect = key(&mut app, KeyCode::Char(code));
+        assert!(!matches!(effect, Effect::Act(_)), "{code}");
+        assert!(app.input.is_none(), "{code}");
+        assert!(app.workspace_form.is_none(), "{code}");
+    }
+    assert_eq!(key(&mut app, KeyCode::Char('s')), Effect::None);
+    assert!(
+        app.switcher.is_none(),
+        "old switcher is never a startup fallback"
+    );
+}
+
+#[test]
+fn refreshed_or_resized_rows_have_no_pointer_authority_until_repaint() {
+    let mut app = board();
+    paint(&app, 160, 36);
+    let selected = app.workspace.selected.clone();
+    let hit = *app
+        .hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.row() == Some(app.selected))
+        .unwrap();
+    let pointer = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: hit.x,
+        row: hit.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    let mut replacement = board();
+    let snapshot = &mut replacement
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace;
+    const OTHER: &str = "66666666-6666-4666-8666-666666666666";
+    let mut member = snapshot.roster.members[MEMBER].clone();
+    member.id = OTHER.into();
+    member.name = "a-new-member".into();
+    snapshot.roster.members.insert(OTHER.into(), member);
+    snapshot.roster.squads[0].members.push(OTHER.into());
+    let target = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: OTHER.into(),
+    };
+    snapshot.rows.insert(
+        target.clone(),
+        json!({"id":OTHER,"name":"a-new-member","state":"working"}),
+    );
+    let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    loaded.tabs.push(crate::board::ALL.into());
+    loaded.view = Ok(replacement.view.take().unwrap());
+    app.apply(loaded);
+    assert_eq!(app.workspace.selected, selected);
+    assert!(app.hits.borrow().is_empty());
+    assert_eq!(app.mouse(pointer, Instant::now()), Effect::None);
+    assert_eq!(
+        app.workspace.selected, selected,
+        "old index must not select the newly inserted member"
+    );
+    paint(&app, 160, 36);
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == target)
+        .unwrap();
+    let next = *app
+        .hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.row() == Some(index))
+        .unwrap();
+    assert_eq!(
+        app.mouse(
+            MouseEvent {
+                column: next.x,
+                row: next.y,
+                ..pointer
+            },
+            Instant::now()
+        ),
+        Effect::None
+    );
+    assert_eq!(app.workspace.selected, Some(target));
+    app.invalidate_frame_geometry(); // The production Resize event uses this same owner.
+    let selected = app.workspace.selected.clone();
+    assert_eq!(app.mouse(pointer, Instant::now()), Effect::None);
+    assert_eq!(app.workspace.selected, selected);
+    assert!(!app.scrolls.visible(Pane::Rows));
+}
+
+#[test]
+fn explicit_shell_click_can_leave_reader_but_a_guarded_digit_cannot() {
+    let mut app = board();
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    let selected = app.workspace.selected.clone();
+    assert_eq!(app.workspace_action(OpsUiAction::Overview), Effect::None);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    assert_eq!(app.workspace.selected, selected);
+    let hit = *app
+        .tab_hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.tab == 0)
+        .unwrap();
+    assert_eq!(
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            Instant::now()
+        ),
+        Effect::None
+    );
+    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.workspace.selected, selected);
+}
+
+#[test]
+fn workspace_names_are_inert_display_text_and_tree_never_discloses_waiting_previews() {
+    for name in [
+        "2024".to_owned(),
+        "tab\there\nnext\u{1b}[31m".into(),
+        "padded ".into(),
+        "界".repeat(300),
+    ] {
+        let mut app = board();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.roster.squads[0].name = name.clone();
+        snapshot.roster.members.get_mut(MEMBER).unwrap().name = name.clone();
+        let member = OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        let raw = snapshot.rows.get_mut(&member).unwrap();
+        raw["name"] = json!(name);
+        raw["waitingOnYou"] = json!([{"requestId":"question","preview":"PRIVATE_WAITING_PREVIEW"}]);
+        let squad = OpsTarget::Squad(ROOM.into());
+        snapshot.rows.get_mut(&squad).unwrap()["name"] = json!(name);
+        app.workspace.selected = Some(squad.clone());
+        for base in tmt_cli_style::Base::ALL {
+            for depth in [
+                tmt_cli_style::Depth::TrueColor,
+                tmt_cli_style::Depth::Ansi16,
+                tmt_cli_style::Depth::None,
+            ] {
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                // Keep the global theme selected; the selected squad has its own observation.
+                app.shell.tab = OpsTab::Overview;
+                for width in [160, 100, 80, 60] {
+                    let lines = paint(&app, width, 36);
+                    assert!(lines.iter().all(|line| !line.contains('\n')
+                        && !line.contains('\t')
+                        && !line.contains('\u{1b}')));
+                    assert!(!lines.join(" ").contains("PRIVATE_WAITING_PREVIEW"));
+                    assert_eq!(app.workspace.selected, Some(squad.clone()));
+                    assert!(app.workspace_rows().iter().any(|row| row.target == member));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn workspace_authored_labels_use_registered_glyphs_at_each_width() {
+    let app = board(); // All dynamic fixture text is ASCII.
+    for width in [160, 100, 80, 60] {
+        for line in paint(&app, width, 36) {
+            assert_eq!(
+                crate::board::glyph_guard::glyph_error(&line),
+                None,
+                "{width}: {line}"
+            );
+        }
+    }
+}
+
+#[test]
+fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
+    let app = App::new(Some(crate::board::ALL.into()));
+    let help = crate::board::help::model(&app);
+    let bindings = help
+        .sections
+        .iter()
+        .find(|section| section.id == "bindings")
+        .unwrap();
+    for (key, action) in app.bindings() {
+        assert!(
+            bindings
+                .entries
+                .iter()
+                .any(|entry| entry.keys == key && entry.description == action.description())
+        );
+    }
+    assert!(
+        !help
+            .sections
+            .iter()
+            .any(|section| section.id == "board-picks")
+    );
+    let editor = help
+        .sections
+        .iter()
+        .find(|section| section.id == "editor")
+        .unwrap();
+    let text = editor
+        .entries
+        .iter()
+        .map(|entry| entry.description.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    for required in [
+        "Enter/Tab insert",
+        "bracketed paste never sends",
+        "session-only",
+        "request and byte range",
+        "mentions are text only",
+    ] {
+        assert!(text.contains(required), "{required}");
+    }
+}
+
+#[test]
+fn retired_shift_arrows_cannot_run_the_unmodified_fold_binding() {
+    let mut app = board();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    let expanded = app.workspace.expanded.clone();
+    for code in [KeyCode::Left, KeyCode::Right] {
+        assert_eq!(
+            app.key(KeyEvent::new(code, KeyModifiers::SHIFT)),
+            Effect::None
+        );
+        assert_eq!(app.workspace.expanded, expanded);
+        assert!(
+            app.notice
+                .as_deref()
+                .unwrap()
+                .contains("tab reorder is retired")
+        );
+    }
+    key(&mut app, KeyCode::Left);
+    assert!(!app.workspace.expanded.contains(ROOM));
+    key(&mut app, KeyCode::Right);
+    assert!(app.workspace.expanded.contains(ROOM));
+}
+
+#[test]
+fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
+    let mut app = board();
+    paint(&app, 160, 36);
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    let selected = app.workspace.selected.clone();
+    let mut fresh = board();
+    fresh.view.as_mut().unwrap().board = crate::config::Board::simple(
+        crate::config::BoardMode::Split,
+        crate::config::Direction::LeftRight,
+        vec![Pane::Rows],
+        &[100],
+    );
+    let mut loaded = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    loaded.tabs.push(crate::board::ALL.into());
+    loaded.view = Ok(fresh.view.take().unwrap());
+    app.apply(loaded);
+    paint(&app, 160, 36);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(app.workspace.selected, selected);
+}
+
 #[test]
 fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     let mut app = board();
@@ -228,7 +579,7 @@ fn resized_or_clipped_confirmation_has_no_stale_pointer_or_key_authority() {
     app.workspace_begin(Kind::Remove);
     paint(&app, 80, 24);
     let apply = app.workspace_form.as_ref().unwrap().controls.get()[1].unwrap();
-    app.invalidate_overlay_frames();
+    app.invalidate_frame_geometry();
     let event = Event::Mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: apply.x,

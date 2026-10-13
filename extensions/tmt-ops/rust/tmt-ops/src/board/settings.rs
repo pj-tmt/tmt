@@ -1242,7 +1242,7 @@ mod tests {
             Some("board.sizes")
         );
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
-        f.app.invalidate_overlay_frames();
+        f.app.invalidate_frame_geometry();
         let old = f
             .app
             .settings

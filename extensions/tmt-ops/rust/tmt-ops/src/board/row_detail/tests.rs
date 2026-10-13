@@ -368,7 +368,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
             .text,
         "line"
     );
-    app.invalidate_overlay_frames();
+    app.invalidate_frame_geometry();
     assert!(
         app.row_details
             .reader

@@ -47,23 +47,6 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
     ))
 }
 
-/// The footer's word for the toggle: detail and replies together are the side
-/// panel; no state glyph, whose width terminals disagree on.
-fn toggle_word(app: &App, action: &crate::action::Action) -> Option<String> {
-    let panes = toggle_panes(app, action);
-    match panes.as_slice() {
-        [] => None,
-        [Pane::Detail, Pane::Replies] | [Pane::Replies, Pane::Detail] => Some("side panel".into()),
-        panes => Some(
-            panes
-                .iter()
-                .map(|pane| pane.title())
-                .collect::<Vec<_>>()
-                .join("+"),
-        ),
-    }
-}
-
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
 fn hint_word(action: &crate::action::Action) -> &'static str {
@@ -148,118 +131,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if app.jobs_focus {
         return crate::board::cronboard::jobs_hints(width, app.jobs_selected().is_some());
     }
-    if app.workspace_snapshot().is_some() {
-        return workspace_hints(app, width);
-    }
-    if let Some(view) = app
-        .view
-        .as_ref()
-        .filter(|view| view.home.is_some() && app.workspace_snapshot().is_none())
-    {
-        return crate::board::home::hints_of(
-            view,
-            width,
-            app.tabs_overflow.get(),
-            super::panes::receiving_pane(app) == Some(Pane::Rows),
-            app.reply_hint(),
-        );
-    }
-    let bindings = app.bindings();
-    // One hint per action the effective bindings give the footer, ranked by
-    // `Action::footer_rank`; its key is the first one bound to it. A disabled
-    // meter and a row action the selected row does not allow show nothing.
-    let mut ranked: Vec<(u8, String)> = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
-    // `enter` first, so a second key for the same action never replaces it.
-    let mut events: Vec<_> = bindings.iter().collect();
-    events.sort_by_key(|(event, _)| event.as_str() != "enter");
-    for (event, action) in events {
-        let Some(rank) = action.footer_rank() else {
-            continue;
-        };
-        if matches!(event.as_str(), "click" | "double-click") || seen.contains(&action.text) {
-            continue;
-        }
-        if action.verb == crate::action::Verb::TokenWindow
-            && !app
-                .meter
-                .as_ref()
-                .is_some_and(|meter| meter.settings.enabled)
-        {
-            continue;
-        }
-        if !row_allows(app, action) {
-            continue;
-        }
-        let word = if action.verb == crate::action::Verb::Toggle {
-            match toggle_word(app, action) {
-                Some(label) => label,
-                None => continue,
-            }
-        } else {
-            hint_word(action).to_owned()
-        };
-        seen.insert(&action.text);
-        ranked.push((rank, format!("{} {word}", key_label(event))));
-    }
-    ranked.push((crate::action::FOOTER_SEARCH_RANK, "/ search".into()));
-    ranked.sort_by_key(|(rank, _)| *rank);
-    // The oldest-waiting label may take space only if every row action still fits.
-    let row_actions = ranked
-        .iter()
-        .filter(|(rank, _)| *rank <= crate::action::FOOTER_ROW_ACTIONS_END)
-        .count()
-        + 1;
-    let mut hints: Vec<String> = std::iter::once("↑↓ move".to_owned())
-        .chain(ranked.into_iter().map(|(_, hint)| hint))
-        .collect();
-    // The other keys are in `?` help; the switcher returns only while tabs overflow.
-    if app.tabs_overflow.get() && !bindings.contains_key("s") {
-        hints.push("s switch".into());
-    }
-    if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
-        hints.push(crate::status::UNKNOWN_YOU.to_owned());
-    }
-    let reserved = ["? more", "q quit"];
-    let tail = reserved.join("  ");
-    if let Some(waiting) = waiting_summary(app) {
-        let minimum = std::iter::once(waiting.base.as_str())
-            .chain(hints.iter().take(row_actions).map(String::as_str))
-            .chain(reserved)
-            .collect::<Vec<_>>()
-            .join("  ")
-            .width();
-        let summary = waiting
-            .oldest
-            .filter(|oldest| minimum + oldest.width().saturating_sub(waiting.base.width()) <= width)
-            .unwrap_or(waiting.base);
-        hints.insert(0, summary);
-    }
-    if width < tail.width() {
-        // Below both reserved hints: `? more` first, then nothing.
-        return if width < reserved[0].width() {
-            String::new()
-        } else {
-            reserved[0].to_owned()
-        };
-    }
-    let mut shown = String::new();
-    for hint in hints {
-        let next = if shown.is_empty() {
-            hint
-        } else {
-            format!("{shown}  {hint}")
-        };
-        if next.width() + "  ".width() + tail.width() > width {
-            break;
-        }
-        shown = next;
-    }
-    if shown.is_empty() {
-        tail
-    } else {
-        format!("{shown}  {tail}")
-    }
+    workspace_hints(app, width)
 }
 
 fn workspace_hints(app: &App, width: usize) -> String {
@@ -332,48 +204,6 @@ fn workspace_hints(app: &App, width: usize) -> String {
         shown = chosen.join("  ");
     }
     shown
-}
-
-struct Waiting {
-    base: String,
-    oldest: Option<String>,
-}
-
-/// `◆ N waiting`, with the oldest request's member and age when known.
-fn waiting_summary(app: &App) -> Option<Waiting> {
-    let view = app.view.as_ref().filter(|_| {
-        app.current
-            .as_deref()
-            .is_some_and(|key| !crate::tabs::aggregate(key))
-    })?;
-    let count = crate::attention::Attention::of(&view.document).waiting;
-    if count == 0 {
-        return None;
-    }
-    let base = format!("◆ {count} waiting");
-    let now = crate::status::now_ms();
-    let oldest = view.document["squad"]["lead"]
-        .as_object()
-        .map(|_| &view.document["squad"]["lead"])
-        .into_iter()
-        .chain(
-            view.document["sections"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|section| section["rows"].as_array().into_iter().flatten()),
-        )
-        .filter_map(|row| Some((row, super::waiting::oldest(row)?["preparedAtMs"].as_u64()?)))
-        .filter(|(_, since)| *since > 0 && *since <= now)
-        .min_by_key(|(_, since)| *since)
-        .map(|(row, since)| {
-            format!(
-                "{base} · oldest {} {}",
-                row["name"].as_str().unwrap_or_default(),
-                crate::requests::age(now, since)
-            )
-        });
-    Some(Waiting { base, oldest })
 }
 
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.

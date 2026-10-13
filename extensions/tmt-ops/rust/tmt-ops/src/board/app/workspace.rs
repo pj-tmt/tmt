@@ -82,7 +82,7 @@ impl App {
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
         let Some(snapshot) = self.workspace_snapshot() else {
-            return Bindings::new();
+            return crate::config::workspace_defaults(self.workspace_scope());
         };
         let scope = self.workspace_scope();
         if let Some(keys) = self
@@ -168,10 +168,12 @@ impl App {
                     Agents => '2',
                     _ => '3',
                 };
-                self.shell.select_digit(digit, self.workspace_input_owner());
+                if !self.shell.select_digit(digit, self.workspace_input_owner()) {
+                    return Effect::None;
+                }
                 self.jobs_focus = false;
                 self.focus = 0;
-                self.invalidate_overlay_frames();
+                self.invalidate_frame_geometry();
                 return Effect::None;
             }
             _ => {}
@@ -319,13 +321,13 @@ impl App {
                 return Effect::None;
             }
         }
-        if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name)) {
-            return self.perform(&action);
-        }
         if key.modifiers.contains(KeyModifiers::SHIFT)
             && matches!(key.code, KeyCode::Left | KeyCode::Right)
         {
             return self.say("Squad tab reorder is retired; pin or sort squads in the workspace.");
+        }
+        if let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name)) {
+            return self.perform(&action);
         }
         if key.code == KeyCode::Esc {
             return Effect::Quit;
@@ -538,4 +540,4 @@ fn operation_results(document: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::board) mod tests;

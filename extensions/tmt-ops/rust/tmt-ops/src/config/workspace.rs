@@ -51,7 +51,7 @@ pub struct WorkspaceKeys {
     pub notices: Vec<String>,
 }
 
-fn defaults(scope: OpsKeyScope) -> Bindings {
+pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     let mut entries = vec![
         ("1", "overview"),
         ("2", "agents"),

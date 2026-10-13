@@ -5,7 +5,6 @@
 mod act;
 mod controller;
 mod forms;
-mod half;
 mod hints;
 mod line;
 mod list;
@@ -19,7 +18,6 @@ use tmt_ops::cron::ClockStatus;
 
 pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
-pub(super) use half::{render as render_half, wanted as half_wanted};
 pub(super) use hints::{help as help_keys, jobs as jobs_hints};
 #[cfg(test)]
 pub(super) use line::line as home_line;

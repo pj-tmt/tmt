@@ -733,7 +733,7 @@ fn session(
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 app.meter_hover = None;
-                app.invalidate_overlay_frames();
+                app.invalidate_frame_geometry();
                 dirty = true;
                 Effect::None
             }
@@ -1072,171 +1072,297 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::sync::{atomic::Ordering, mpsc::channel};
 
+    /// A broken scripted input/expected-action chain must fail, not leave the
+    /// test runner waiting forever on its own still-open event sender. The
+    /// production stop fence ends the session; completion wakes the watchdog.
+    #[allow(clippy::too_many_arguments)] // Match the existing injected session seam.
+    fn session(
+        app: &mut App,
+        stop: &AtomicUsize,
+        input: &Receiver<BoardEvent>,
+        request: impl Fn(Option<String>, bool, bool),
+        selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
+        checklist: impl Fn(checklist::load::Task),
+        io: impl Fn(lane::Job),
+        draw: impl FnMut(&mut App) -> io::Result<()>,
+    ) -> io::Result<Option<i32>> {
+        let expired = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let (complete, completion) = channel::<()>();
+            let expired = &expired;
+            scope.spawn(move || {
+                if completion.recv_timeout(Duration::from_secs(10))
+                    == Err(RecvTimeoutError::Timeout)
+                {
+                    expired.store(true, Ordering::SeqCst);
+                    stop.store(signal_hook::consts::SIGTERM as usize, Ordering::SeqCst);
+                }
+            });
+            let result = super::session(
+                app,
+                stop,
+                input,
+                request,
+                selected_read,
+                checklist,
+                io,
+                draw,
+            );
+            drop(complete);
+            assert!(
+                !expired.load(Ordering::SeqCst),
+                "scripted session did not complete its input/action chain within 10 seconds"
+            );
+            result
+        })
+    }
+
+    fn theme_board() -> App {
+        let mut app = app::workspace::tests::board();
+        app.shell.tab = shell::OpsTab::Overview;
+        app.view.as_mut().unwrap().refresh = None;
+        for bindings in app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .keys
+            .values_mut()
+        {
+            bindings.insert("T".into(), crate::action::Action::parse("theme").unwrap());
+        }
+        app
+    }
+
     #[test]
-    fn selected_notebooks_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
-        let mut app = App::new(Some("product".into()));
-        let mut snapshot = app::tests::snapshot(
-            "product",
-            serde_json::json!([{"rows":[
-            {"id":"A", "name":"a", "lifetime":"saved"}, {"id":"B", "name":"b", "lifetime":"saved"}]}]),
-        );
-        snapshot.view.as_mut().unwrap().refresh = None;
-        snapshot.view.as_mut().unwrap().board = crate::config::Board::simple(
-            crate::config::BoardMode::Split,
-            crate::config::Direction::LeftRight,
-            vec![crate::config::Pane::Rows, crate::config::Pane::Detail],
-            &[50, 50],
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.bindings =
-            crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
-        view.document["squad"]["lead"] =
-            serde_json::json!({"id":"LEAD", "name":"lead", "lifetime":"saved"});
-        app.apply(snapshot);
-        let (events, input) = mpsc::channel();
-        // The first frame selects the lead; only moving to a member may read a notebook.
-        events.send(key(KeyCode::Down)).unwrap();
+    fn selected_responses_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
+        use workspace::OpsTarget;
+        const SECOND: &str = "77777777-7777-4777-8777-777777777777";
+        let loaded = || {
+            let mut app = app::workspace::tests::board();
+            let view = app.view.as_mut().unwrap();
+            view.refresh = None;
+            view.replies = vec![
+                serde_json::json!({"recipientId":app::workspace::tests::MEMBER,"requestId":"req-a","submittedAtMs":20,"response":null}),
+                serde_json::json!({"recipientId":SECOND,"requestId":"req-b","submittedAtMs":30,"response":null}),
+            ];
+            let home = view.home.as_mut().unwrap();
+            home.summary.members = 2;
+            home.summary.working = 2;
+            let snapshot = &mut home.workspace;
+            let first = snapshot
+                .roster
+                .members
+                .get_mut(app::workspace::tests::MEMBER)
+                .unwrap();
+            first.name = "alpha".into();
+            let mut second = first.clone();
+            second.id = SECOND.into();
+            second.name = "beta".into();
+            snapshot.roster.members.insert(SECOND.into(), second);
+            snapshot.roster.squads[0].members.push(SECOND.into());
+            let state =
+                snapshot.roster.squads[0].member_states[app::workspace::tests::MEMBER].clone();
+            snapshot.roster.squads[0]
+                .member_states
+                .insert(SECOND.into(), state);
+            snapshot
+                .rows
+                .get_mut(&OpsTarget::Squad(app::workspace::tests::ROOM.into()))
+                .unwrap()["memberIds"] = serde_json::json!([app::workspace::tests::MEMBER, SECOND]);
+            for (identity, name) in [(app::workspace::tests::MEMBER, "alpha"), (SECOND, "beta")] {
+                snapshot.rows.insert(OpsTarget::Member {room_id:Some(app::workspace::tests::ROOM.into()), identity_id:identity.into()},
+                    serde_json::json!({"id":identity,"name":name,"squad":"product","state":"working","lifetime":"saved"}));
+            }
+            app.select(app.selected);
+            app
+        };
+        let mut app = loaded();
+        let (events, input) = channel();
         let reads = std::cell::RefCell::new(Vec::new());
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _| {},
+            |revision, selected| {
+                let Some(refresh::SelectedRead::Message(key)) = selected else {
+                    return;
+                };
+                reads.borrow_mut().push(key.clone());
+                let result = |key, revision, text: &str| BoardEvent::Message {
+                    cancellation: Default::default(),
+                    key,
+                    revision,
+                    body: Ok(text.into()),
+                };
+                if key.lead == app::workspace::tests::MEMBER {
+                    events.send(self::key(KeyCode::Down)).unwrap();
+                    events.send(result(key, revision, "OLD A")).unwrap();
+                } else if reads.borrow().len() == 2 {
+                    let mut fresh = loaded();
+                    let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+                    snapshot.tabs.push(ALL.into());
+                    snapshot.view = Ok(fresh.view.take().unwrap());
+                    events.send(snapshot_event(snapshot)).unwrap();
+                    events
+                        .send(result(key, revision, "BEFORE REFRESH"))
+                        .unwrap();
+                } else {
+                    events
+                        .send(result(reads.borrow()[0].clone(), revision, "WRONG ID"))
+                        .unwrap();
+                    events
+                        .send(result(key.clone(), revision - 1, "OLD REFRESH"))
+                        .unwrap();
+                    events.send(result(key, revision, "CURRENT B")).unwrap();
+                    events.send(self::key(KeyCode::Char('q'))).unwrap();
+                }
+            },
+            |_| {},
+            no_io,
+            |app| {
+                app.set_body_width(160);
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
+        let targets = reads
+            .borrow()
+            .iter()
+            .map(|key| key.lead.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(targets, [app::workspace::tests::MEMBER, SECOND, SECOND]);
+        let target = |identity| {
+            row_detail::Target::Row(app::RowTarget::Workspace(OpsTarget::Member {
+                room_id: Some(app::workspace::tests::ROOM.into()),
+                identity_id: identity,
+            }))
+        };
+        let current = app.detail(&target(SECOND.into())).unwrap().reply.unwrap();
+        assert_eq!(current.body, "CURRENT B");
+        assert!(current.acquired && current.source);
+        let old = app
+            .detail(&target(app::workspace::tests::MEMBER.into()))
+            .unwrap()
+            .reply
+            .unwrap();
+        assert!(
+            !old.acquired,
+            "a result for the selection left behind is never admitted"
+        );
+        app.shell.tab = shell::OpsTab::Overview;
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
+            .unwrap();
+        terminal.draw(|frame| view::render(frame, &app)).unwrap();
+        assert_eq!(
+            app.selected_read(),
+            None,
+            "hidden source surfaces start no background body read"
+        );
+        assert_eq!(
+            app.notebook_identity(),
+            None,
+            "the retired notebook pane starts no read"
+        );
+    }
+
+    #[test]
+    fn workspace_layout_saves_once_on_the_lane_and_refreshes_before_host_navigation() {
+        let directory = std::env::temp_dir().join(format!(
+            "tmt-workspace-layout-session-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("ops.toml");
+        std::fs::write(&path, "# intact\n").unwrap();
+        let (events, input) = channel();
+        let mut app = app::workspace::tests::board();
+        for code in [KeyCode::Char(','), KeyCode::Down, KeyCode::Enter] {
+            events.send(key(code)).unwrap();
+        }
+        let saves = std::cell::Cell::new(0);
+        let jumps = std::cell::Cell::new(0);
+        let reloads = std::cell::RefCell::new(Vec::new());
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
         session(
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
-            |revision, identity| {
-                let Some(refresh::SelectedRead::Notebook(identity)) = identity else { return };
-                reads.borrow_mut().push(identity.clone());
-                let result = |id, rev, text: &str| BoardEvent::Notebook {
-                    cancellation: Default::default(),
-                    identity: id,
-                    revision: rev,
-                    notes: app::Notes::Text(text.into()),
-                };
-                if identity == "A" {
-                    events.send(key(KeyCode::Down)).unwrap();
-                    events.send(result(identity, revision, "OLD A")).unwrap();
-                } else if reads.borrow().len() == 2 {
-                    let mut fresh = app::tests::snapshot("product", serde_json::json!([{"rows":[
-                        {"id":"A", "name":"a", "lifetime":"saved"}, {"id":"B", "name":"b", "lifetime":"saved"}]}]));
-                    let view = fresh.view.as_mut().unwrap();
-                    view.refresh = None;
-                    view.board = crate::config::Board::simple(crate::config::BoardMode::Split,
-                        crate::config::Direction::LeftRight, vec![crate::config::Pane::Rows, crate::config::Pane::Detail], &[50,50]);
-                    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
-                    events.send(snapshot_event(fresh)).unwrap();
-                    events.send(result(identity, revision, "BEFORE REFRESH")).unwrap();
-                } else {
-                    events
-                        .send(result("A".into(), revision, "WRONG ID"))
-                        .unwrap();
-                    events
-                        .send(result(identity.clone(), revision - 1, "OLD REFRESH"))
-                        .unwrap();
-                    events
-                        .send(result(identity, revision, "CURRENT B"))
-                        .unwrap();
-                    events.send(key(KeyCode::Char('q'))).unwrap();
-                }
-            },
-                |_| {},
-            no_io,
-            |app| {
-                terminal
-                    .draw(|frame| {
-                        app.set_body_width(100);
-                        view::render(frame, app);
-                    })
+            |owner, preempt, preview| {
+                reloads.borrow_mut().push((owner.clone(), preempt, preview));
+                let mut fresh = app::workspace::tests::board();
+                fresh
+                    .view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .configure(&Config::read(path.clone()).unwrap())
                     .unwrap();
-                Ok(())
+                let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+                snapshot.tabs.push(ALL.into());
+                snapshot.view = Ok(fresh.view.take().unwrap());
+                events.send(snapshot_event(snapshot)).unwrap();
             },
-        )
-        .unwrap();
-        assert_eq!(*reads.borrow(), ["A", "B", "B"]);
-        let mut cache = app.notebooks.borrow_mut();
-        let text = cache.lines("B", 80, app.look(), crate::config::NotesRender::Plain);
-        assert_eq!(text[0].to_string(), "CURRENT B");
-        assert!(
-            cache.lines("A", 80, app.look(), crate::config::NotesRender::Plain)[0]
-                .to_string()
-                .contains("loading")
-        );
-        drop(cache);
-        app.key(ratatui::crossterm::event::KeyEvent::new(
-            KeyCode::Char('d'),
-            ratatui::crossterm::event::KeyModifiers::NONE,
-        ));
-        assert_eq!(app.notebook_identity(), None);
-        app.key(ratatui::crossterm::event::KeyEvent::new(
-            KeyCode::Char('d'),
-            ratatui::crossterm::event::KeyModifiers::NONE,
-        ));
-        app.view.as_mut().unwrap().board.mode = crate::config::BoardMode::Tabs;
-        app.focus = 0;
-        assert_eq!(app.notebook_identity(), None);
-        app.focus = 1;
-        assert_eq!(app.notebook_identity().as_deref(), Some("B"));
-        app.view.as_mut().unwrap().document["sections"][0]["rows"][1]["lifetime"] =
-            "temporary".into();
-        assert_eq!(app.notebook_identity(), None);
-    }
-
-    #[test]
-    fn view_confirm_saves_once_and_preview_requests_end_with_the_existing_fence() {
-        let directory =
-            std::env::temp_dir().join(format!("tmt-view-session-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let path = directory.join("ops.toml");
-        std::fs::write(&path, "# intact\n").unwrap();
-        let (events, input) = channel();
-        let mut app = App::new(Some("product".into()));
-        let mut snapshot = app::tests::snapshot(
-            "product",
-            serde_json::json!([{ "rows": [{ "name": "coder" }] }]),
-        );
-        snapshot.view.as_mut().unwrap().board = Config::read(path.clone())
-            .unwrap()
-            .board("product")
-            .unwrap();
-        app.apply(snapshot);
-        events.send(key(KeyCode::Char('l'))).unwrap();
-        let reads = std::cell::Cell::new(0);
-        let actions = std::cell::Cell::new(0);
-        let reloads = std::cell::RefCell::new(Vec::new());
-        session(
-            &mut app,
-            &AtomicUsize::new(0),
-            &input,
-            |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
             |_, _| {},
             |_| {},
             |job| match job {
-                lane::Job::Open(opening) => {
-                    reads.set(reads.get() + 1);
-                    let config = Config::read(path.clone()).map_err(|error| error.message);
-                    events.send(BoardEvent::Opened { opening, config }).unwrap();
-                    for code in [KeyCode::Down, KeyCode::Down, KeyCode::Enter, KeyCode::Enter] {
-                        events.send(key(code)).unwrap();
-                    }
+                lane::Job::Act(Request::WorkspacePreferences { expected, next }) => {
+                    assert_eq!(expected.layout, crate::config::OpsLayout::Auto);
+                    assert_eq!(next.layout, crate::config::OpsLayout::Side);
+                    saves.set(saves.get() + 1);
+                    Config::read(path.clone())
+                        .unwrap()
+                        .save_workspace_preferences(&expected, &next)
+                        .unwrap();
+                    events
+                        .send(acted(false, true, Ok("Workspace preferences saved.")))
+                        .unwrap();
+                    events.send(key(KeyCode::Char('j'))).unwrap();
                 }
-                lane::Job::Act(request) => {
-                    assert_eq!(request, Request::Jump("coder".into()));
-                    actions.set(actions.get() + 1);
+                lane::Job::Act(Request::Jump(identity)) => {
+                    assert_eq!(identity, app::workspace::tests::MEMBER);
+                    jumps.set(jumps.get() + 1);
                     events.send(acted(true, false, Ok("Jumped"))).unwrap();
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
                 other => panic!("unexpected {other:?}"),
             },
-            |_| Ok(()),
+            |app| {
+                app.set_body_width(100);
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
         )
         .unwrap();
-        assert_eq!((reads.get(), actions.get()), (1, 1));
-        assert_eq!(*reloads.borrow(), [(true, true), (true, false)]);
-        assert!(app.view_picker.is_none());
+        assert_eq!((saves.get(), jumps.get()), (1, 1));
+        assert_eq!(*reloads.borrow(), [(Some(ALL.into()), false, false)]);
         assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            "[board]\nview = \"focus\"\n# intact\n"
+            app.workspace_snapshot().unwrap().preferences.layout,
+            crate::config::OpsLayout::Side
         );
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("# intact"));
+        assert_eq!(
+            Config::read(path)
+                .unwrap()
+                .workspace_preferences()
+                .unwrap()
+                .layout,
+            crate::config::OpsLayout::Side
+        );
+        assert!(app.menu.is_none() && app.view_picker.is_none());
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1248,11 +1374,7 @@ mod tests {
         let path = directory.join("ops.toml");
         std::fs::write(&path, "# kept\n[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
-        let mut app = App::new(Some("product".into()));
-        app.apply(app::tests::snapshot(
-            "product",
-            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
-        ));
+        let mut app = theme_board();
         events.send(key(KeyCode::Char('T'))).unwrap();
         let reads = std::cell::Cell::new(0);
         let actions = std::cell::Cell::new(0);
@@ -1269,12 +1391,12 @@ mod tests {
                     reads.set(reads.get() + 1);
                     let config = Config::read(path.clone()).map_err(|error| error.message);
                     events.send(BoardEvent::Opened { opening, config }).unwrap();
-                    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Enter] {
+                    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Char('j')] {
                         events.send(key(code)).unwrap();
                     }
                 }
                 lane::Job::Act(request) => {
-                    assert_eq!(request, Request::Jump("coder".into()));
+                    assert_eq!(request, Request::Jump(app::workspace::tests::MEMBER.into()));
                     actions.set(actions.get() + 1);
                     events.send(acted(true, false, Ok("Jumped"))).unwrap();
                     events.send(key(KeyCode::Char('q'))).unwrap();
@@ -1295,14 +1417,13 @@ mod tests {
     }
 
     #[test]
-    fn user_tab_theme_picker_cannot_save_a_squad_scope() {
+    fn overview_theme_picker_cannot_save_a_squad_scope() {
         let directory = std::env::temp_dir().join(format!("tmt-user-theme-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("ops.toml");
-        std::fs::write(&path, "[tabs.needs-me]\n").unwrap();
+        std::fs::write(&path, "# Overview has no squad scope\n").unwrap();
         let (events, input) = channel();
-        let mut app = App::new(Some("@tab:needs-me".into()));
-        app.apply(app::tests::snapshot("@tab:needs-me", serde_json::json!([])));
+        let mut app = theme_board();
         events.send(key(KeyCode::Char('T'))).unwrap();
         let mut checked = false;
         session(
@@ -1351,8 +1472,7 @@ mod tests {
         let path = directory.join("ops.toml");
         std::fs::write(&path, "[board.theme]\nbase = \"tmt\"\n").unwrap();
         let (events, input) = channel();
-        let mut app = App::new(Some("product".into()));
-        app.apply(app::tests::snapshot("product", serde_json::json!([])));
+        let mut app = theme_board();
         events.send(key(KeyCode::Char('T'))).unwrap();
         let mut changed = false;
         let mut failure_shown = false;
@@ -1422,19 +1542,12 @@ mod tests {
             &fake,
             "#!/bin/sh\nsleep 0.5\necho '{\"requestId\":\"req_1\",\"status\":\"sent\"}'\n",
         );
-        let mut app = App::new(Some("product".into()));
-        let mut snapshot = app::tests::snapshot(
-            "product",
-            serde_json::json!([{"title":null,"rows":[{"name":"auth-fix"}]}]),
-        );
-        let view = snapshot.view.as_mut().unwrap();
-        view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = serde_json::json!({"name": "sol"});
-        view.bindings =
-            crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
-        app.apply(snapshot);
+        let mut app = app::workspace::tests::board();
         let (events, input) = channel();
-        events.send(key(KeyCode::Char('A'))).unwrap();
+        events.send(key(KeyCode::Char('t'))).unwrap();
+        events
+            .send(BoardEvent::Input(Event::Paste("hello".into())))
+            .unwrap();
         events.send(key(KeyCode::Enter)).unwrap();
         let lane = lane::Lane::spawn(Core::at(fake), None, events.clone());
         let started = Instant::now();
@@ -1452,7 +1565,7 @@ mod tests {
                 if app
                     .notice
                     .as_deref()
-                    .is_some_and(|notice| notice.starts_with("Message sent to sol"))
+                    .is_some_and(|notice| notice.starts_with("Message sent to worker"))
                 {
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
@@ -1471,18 +1584,14 @@ mod tests {
             placeholder.0
         );
         let done = notices.last().unwrap();
-        assert_eq!(done.1.as_deref(), Some("Message sent to sol (req_1)."));
+        assert_eq!(done.1.as_deref(), Some("Message sent to worker (req_1)."));
         assert!(done.0 >= Duration::from_millis(450));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
     fn an_overlay_is_requested_once_while_its_config_is_still_loading() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(app::tests::snapshot(
-            "product",
-            serde_json::json!([{"title":null,"rows":[{"name":"coder"}]}]),
-        ));
+        let mut app = theme_board();
         let (events, input) = channel();
         for code in [KeyCode::Char('T'), KeyCode::Char('T'), KeyCode::Char('q')] {
             events.send(key(code)).unwrap();
@@ -1616,15 +1725,9 @@ mod tests {
     fn a_popup_closes_after_a_successful_jump_and_stays_otherwise() {
         let run = |popup: bool, outcome: Result<String, String>| {
             let (events, input) = channel();
-            let mut app = App::new(Some("product".into()));
+            let mut app = app::workspace::tests::board();
             app.popup = popup;
-            events
-                .send(snapshot_event(app::tests::snapshot(
-                    "product",
-                    serde_json::json!([{"title": null, "rows": [{"name": "auth-fix"}]}]),
-                )))
-                .unwrap();
-            events.send(key(KeyCode::Enter)).unwrap();
+            events.send(key(KeyCode::Char('j'))).unwrap();
             let jumps = std::cell::Cell::new(0);
             let ended = session(
                 &mut app,
@@ -1637,7 +1740,7 @@ mod tests {
                     let lane::Job::Act(request) = job else {
                         panic!("unexpected {job:?}")
                     };
-                    assert_eq!(request, Request::Jump("auth-fix".into()));
+                    assert_eq!(request, Request::Jump(app::workspace::tests::MEMBER.into()));
                     jumps.set(jumps.get() + 1);
                     events
                         .send(BoardEvent::Acted {
@@ -1761,10 +1864,9 @@ mod tests {
         let (events, input) = channel();
         let (painted, frames) = channel();
         let session = std::thread::spawn(move || {
-            let mut app = App::new(Some("product".into()));
-            let mut snapshot = app::tests::snapshot("product", serde_json::json!([]));
-            snapshot.view.as_mut().unwrap().refresh = None;
-            app.apply(snapshot);
+            let mut app = app::workspace::tests::board();
+            app.view.as_mut().unwrap().refresh = None;
+            app.select(0);
             super::session(
                 &mut app,
                 &AtomicUsize::new(0),
@@ -1789,12 +1891,13 @@ mod tests {
         );
         let document =
             serde_json::json!([{"title": null, "rows": [{"name":"first"}, {"name":"second"}]}]);
-        events
-            .send(snapshot_event(app::tests::snapshot(
-                "product",
-                document.clone(),
-            )))
-            .unwrap();
+        let mut replacement = app::workspace::tests::board();
+        let mut snapshot = app::tests::snapshot(ALL, document.clone());
+        replacement.view.as_mut().unwrap().refresh = None;
+        replacement.view.as_mut().unwrap().document["sections"] = document.clone();
+        snapshot.view = Ok(replacement.view.take().unwrap());
+        snapshot.tabs.push(ALL.into());
+        events.send(snapshot_event(snapshot)).unwrap();
         let (_, fresh) = frames.recv_timeout(Duration::from_secs(2)).unwrap();
         assert_eq!(
             fresh["sections"], document,

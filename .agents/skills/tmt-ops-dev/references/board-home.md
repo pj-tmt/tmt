@@ -40,10 +40,14 @@ squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views.
 
 The App resolves one effective workspace key table for dispatch, help and footer.
-Text, search, completion, overlays and conversation take their keys before shell
+Before a snapshot arrives, the same Config-owned defaults drive the three shell
+tabs; no named-squad tab or old-key fallback is admitted. Text, search, completion, overlays and conversation take their keys before shell
 shortcuts. Tab moves between the tree and conversation; arrows expand/collapse
 squads in the tree. Exact painted rectangles own pointer actions and are cleared
-on resize/model replacement. Clipped controls publish no action authority.
+on resize/model replacement and shell changes by `App::invalidate_frame_geometry`.
+Offsets and drafts survive; only repaint grants fresh pointer geometry. Single-line
+labels escape sanitized display text without promoting names to target identities.
+Clipped controls publish no action authority.
 
 `workspace::manage::Draft` freezes typed operations, UUIDs/revisions and observed
 timer impact for review. The shared modal starts on Cancel and offers a scrollable

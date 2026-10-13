@@ -8,6 +8,15 @@ use ratatui::crossterm::event::{
 };
 use tmt_tui::components::ListEvent;
 
+/// Room context retained by a named public Squad projection, when present.
+pub(super) fn projected_room(app: &App) -> Option<&str> {
+    app.view
+        .as_ref()?
+        .document
+        .pointer("/squad/roomId")?
+        .as_str()
+}
+
 impl App {
     /// The home cron line and `c` need a read, or at least its failure to show.
     pub(in crate::board) fn cron_shown(&self) -> bool {
@@ -67,7 +76,7 @@ impl App {
     }
 
     fn jobs_room(&self) -> Option<String> {
-        super::half::room(self).map(str::to_owned)
+        projected_room(self).map(str::to_owned)
     }
 
     /// The jobs half is a base-layer field of the shared focus stack: its keys

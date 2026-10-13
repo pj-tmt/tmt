@@ -18,7 +18,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Outline, Placement, strip};
 
 fn safe(text: &str) -> String {
-    crate::board::notes::sanitize(text)
+    tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let look = app.look();

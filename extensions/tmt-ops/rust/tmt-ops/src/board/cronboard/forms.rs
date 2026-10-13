@@ -220,7 +220,7 @@ impl App {
                         .map(|squad| (squad.name.clone(), squad.room_id.clone())),
                     _ => None,
                 }),
-            None => super::half::room(self)
+            None => super::controller::projected_room(self)
                 .zip(self.current.clone())
                 .map(|(room, name)| (name, room.to_owned())),
         };

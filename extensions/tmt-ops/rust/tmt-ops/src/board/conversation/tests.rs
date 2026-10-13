@@ -410,7 +410,7 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     app.paste("draft 界 e\u{301}\nsecond line");
     let key = app.input.as_ref().unwrap().draft_key.clone();
     for (width, height) in [(160, 36), (100, 36), (80, 24), (60, 18), (140, 44)] {
-        app.invalidate_overlay_frames();
+        app.invalidate_frame_geometry();
         workspace(&mut app, width, height);
         let (editor, _) = app
             .input_viewport
