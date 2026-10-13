@@ -1,4 +1,11 @@
-export { bindSyncContext, syncDocumentPath, verifySealedObject } from './sealed-sync.js';
+export {
+  bindSyncContext,
+  syncDocumentPath,
+  verifySealedObject,
+  validateSyncDocument,
+  validateSyncFields,
+  validateSyncQuery,
+} from './sealed-sync.js';
 export type {
   SyncIdentity,
   SyncToken,
@@ -11,10 +18,15 @@ export type {
   SyncTarget,
   SealedDocument,
   SyncCursor,
+  SyncQuery,
+  SyncValue,
+  SyncMapping,
+  SyncQueryMapping,
   SyncPage,
   SyncChange,
   SyncSubscription,
   SyncPublish,
+  SyncFailure,
   SealedSyncPort,
   SealedObjectManifest,
 } from './sealed-sync.js';

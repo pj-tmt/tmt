@@ -114,3 +114,78 @@ fn bound_targets_refuse_context_mismatch_without_auth_io() {
         Err(SyncError::Denied)
     ));
 }
+
+#[test]
+fn codec_mapping_and_exact_scope_are_shared_frozen_data() {
+    use std::collections::BTreeMap;
+    let v: Value =
+        serde_json::from_str(include_str!("fixtures/sealed_sync/codec-v1.json")).unwrap();
+    for bytes in v["valid"].as_array().unwrap() {
+        validate_fields(bytes.as_str().unwrap().as_bytes()).unwrap();
+    }
+    for bytes in v["invalid"].as_array().unwrap() {
+        assert!(
+            validate_fields(bytes.as_str().unwrap().as_bytes()).is_err(),
+            "{}",
+            bytes
+        );
+    }
+    let config = serde_json::json!({"apiKey":"public", "appId":"1:123:web:fixture", "projectId":"demo-remote-1", "authDomain":"demo-remote-1.firebaseapp.com"});
+    let context = SyncContext::bind(
+        config,
+        v["declaration"].as_str().unwrap().as_bytes(),
+        v["declarationDigest"].as_str().unwrap(),
+        "fixture-space",
+        Arc::new(Auth {
+            project: "demo-remote-1".into(),
+        }),
+    )
+    .unwrap();
+    let document = Document {
+        target: Target {
+            resource: "rows".into(),
+            id: "writer-stream+1".into(),
+        },
+        bytes: v["document"].as_str().unwrap().as_bytes().to_vec(),
+        digest: v["documentDigest"].as_str().unwrap().into(),
+    };
+    validate_document(&context, &document, DocumentAccess::Publish).unwrap();
+    let mut query = Query {
+        resource: "rows".into(),
+        scope: BTreeMap::from([
+            (
+                "tenant".into(),
+                serde_json::json!({"stringValue":"fixture-space"}),
+            ),
+            (
+                "streamKey".into(),
+                serde_json::json!({"stringValue":"writer-stream"}),
+            ),
+        ]),
+        stream: "writer-stream".into(),
+        cursor: Some(SyncCursor {
+            stream: "writer-stream".into(),
+            seq: 1,
+        }),
+    };
+    validate_query(&context, &query).unwrap();
+    query.scope.insert(
+        "tenant".into(),
+        serde_json::json!({"stringValue":"another-space"}),
+    );
+    assert_eq!(validate_query(&context, &query), Err(SyncError::Denied));
+    let mut changed: Value = serde_json::from_str(v["declaration"].as_str().unwrap()).unwrap();
+    changed["resources"][0]["sync"]["query"]["seqField"] = serde_json::json!("undeclared");
+    assert!(tmt_remote::declaration::parse(&serde_json::to_vec(&changed).unwrap()).is_err());
+}
+
+#[test]
+fn budget_refusal_keeps_existing_code_and_reset_fields() {
+    let refusal = tmt_remote::firestore_budget::Refusal {
+        reset_at_ms: 123,
+        retry_after_ms: 45,
+    };
+    let error = SyncError::BudgetExhausted(refusal);
+    assert_eq!(error.code(), "REMOTE_BUDGET_EXHAUSTED");
+    assert_eq!(error, SyncError::BudgetExhausted(refusal));
+}

@@ -17,12 +17,16 @@ pub enum SyncError {
     Unavailable,
     Cancelled,
     Deadline,
+    BudgetExhausted(crate::firestore_budget::Refusal),
+    RateLimited,
 }
 impl SyncError {
     pub fn code(self) -> &'static str {
         match self {
             Self::Invalid => "REMOTE_INPUT_INVALID",
             Self::Denied => "REMOTE_SCOPE_DENIED",
+            Self::BudgetExhausted(_) => "REMOTE_BUDGET_EXHAUSTED",
+            Self::RateLimited => "REMOTE_RATE_LIMITED",
             Self::Unavailable | Self::Cancelled | Self::Deadline => "REMOTE_STATE_UNAVAILABLE",
         }
     }
@@ -175,7 +179,7 @@ pub struct Target {
     pub resource: String,
     pub id: String,
 }
-/// Opaque application envelope containing sealed content; the client does not decrypt it.
+/// Canonical restricted REST Document.fields bytes; sealed content stays encrypted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
     pub target: Target,
@@ -184,13 +188,19 @@ pub struct Document {
 }
 /// Last observed declared per-stream sequence; never a clock or lexical document-ID position.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Cursor {
+pub struct SyncCursor {
     pub stream: String,
     pub seq: u64,
 }
+pub struct Query {
+    pub resource: String,
+    pub scope: std::collections::BTreeMap<String, Value>,
+    pub stream: String,
+    pub cursor: Option<SyncCursor>,
+}
 pub struct Page {
     pub documents: Vec<Document>,
-    pub cursor: Option<Cursor>,
+    pub cursor: Option<SyncCursor>,
 }
 pub enum Change {
     Document(Document),
@@ -212,20 +222,13 @@ pub trait SealedSyncPort: Send + Sync {
         target: &'a Target,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Option<Document>>;
-    fn query<'a>(
-        &'a self,
-        resource: &'a str,
-        stream: &'a str,
-        cursor: Option<&'a Cursor>,
-        io: &'a IoBudget<'a>,
-    ) -> Pending<'a, Page>;
+    fn query<'a>(&'a self, query: &'a Query, io: &'a IoBudget<'a>) -> Pending<'a, Page>;
     fn subscribe<'a>(
         &'a self,
-        resource: &'a str,
-        stream: &'a str,
-        cursor: Option<&'a Cursor>,
+        query: &'a Query,
         io: &'a IoBudget<'a>,
     ) -> Pending<'a, Box<dyn Subscription>>;
+    /// Only pre-effect refusal is Err; a possibly applied write returns Unknown, even on cancellation.
     fn publish<'a>(
         &'a self,
         document: &'a Document,
@@ -278,3 +281,6 @@ pub fn verify_object(
     }
     Ok(())
 }
+
+mod codec;
+pub use codec::{DocumentAccess, validate_document, validate_fields, validate_query};

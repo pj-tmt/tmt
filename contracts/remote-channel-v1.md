@@ -1772,9 +1772,18 @@ operation route name (`append`, `subscribe`, `ack`, `pair`) or the mount segment
 have equal or nested paths. Limits specify positive JSON integers `maxObjectBytes`, `maxNamespaceBytes` and
 `maxEntries` (each below 2^53, `maxObjectBytes` not above `maxNamespaceBytes`), bounded by Remote's advertised
 backend limits. Optional `limits.chunkBytes` is a positive integer below 2^53 and not above
-`maxObjectBytes`; absence preserves existing declarations without an inferred chunk size. TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
+`maxObjectBytes`; absence preserves existing declarations without an inferred chunk size.
+Optional resource `sync` is `{fields,spaceField,uidField,query}`: 1..64 unique field names
+using the index-field grammar, a declared string-valued space binding, and a declared
+string-valued publisher uid binding or null. Query is null or
+`{scopeFields,streamField,seqField,order}`: 1..8 unique exact-match scope fields,
+including spaceField and streamField; seqField is distinct and excluded from scope,
+all names are declared in fields, and order is `asc`. Stream is string-valued and seq
+is integer-valued. No nested selector, expression or runtime mapping is accepted.
+Missing sync means document transport is unavailable for that resource, not an inferred mapping.
+TtlField is null or a field name (a letter, then letters or digits, at most 64 bytes); indexes
 contain at most 64 distinct `{field,direction}` entries, where direction is `asc` or `desc` and field uses the same
-name grammar. The fields a kind stores belong to its Rules and indexes, not to the declaration. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
+name grammar. Field semantics and admission belong to Rules; sync declares transported names and query bindings, never grants. Awareness is ephemeral, with no stored objects, TTL field or indexes. Page membership,
 epoch/writer checks and expiry policy remain extension-owned; declarations cannot redefine grants,
 signed operations or the machine journal.
 
@@ -1938,7 +1947,7 @@ declared resources, space and authenticated uid. Binding validates the entire de
 accepting any resource; digest or context disagreement refuses before provider access. The public
 configuration is verified by the bootstrap above (native callers use their explicitly selected
 project); pure binding cannot attest an origin or grant admission. Colab owns membership, page/epoch
-and writer admission in its [Firestore contract](../extensions/tmt-colab/contracts/colab-v1.md#firestore-deployment-declaration).
+and writer admission in its [sync/admission contract](../extensions/tmt-colab/contracts/colab-v1.md#sync-and-backend-admission).
 There is no agent-operation, owner-device or Admin authority and no fallback to another remote.
 
 `SyncAuthPort` (native `AuthPort`) supplies an already authenticated `{projectId,uid}` identity
@@ -1953,8 +1962,18 @@ one bootstrap App/Auth; native credentials and transport are later slices.
 The port offers bounded read, query, subscribe, publish and close. A document target names one
 resource and an opaque ID, resolved only within that declared collection under `x/<extension>`.
 Space/uid IDs use ASCII letters, digits, `_`, `+` or `-`, 1..128 bytes; document IDs use the same
-alphabet, 1..256 bytes. Remote carries opaque sealed application-envelope bytes and their SHA-256,
-never decrypts them. A publish creates exactly one immutable data target; no preparation read or
+alphabet, 1..256 bytes. Document.bytes is canonical UTF-8 JSON of the Firestore REST `Document.fields` map,
+not one opaque ciphertext field or a second envelope. Each field has exactly one of
+`stringValue`, `integerValue`, `booleanValue`, `nullValue`, `timestampValue` or `bytesValue`;
+other Value kinds are refused before I/O. Integers are canonical decimal strings within
+2^53-1, nullValue is null, and bytesValue is canonical padded standard base64. Timestamps
+are valid RFC 3339 UTC with Z and the shortest exact 0/3/6-digit fraction: other precision
+is refused, never rounded. Firestore stores only microseconds; the SDK adapter must preserve
+these bytes through native SDK types while native REST uses the same fields map. Keys are
+sorted, whitespace omitted and every field is declared by sync.fields. Remote checks the
+space binding on reads and writes, publisher uid on writes, exact scope filters and SHA-256;
+it never decrypts the sealed envelope field. Payload fields are otherwise extension-owned.
+Ports capture frozen document bytes before asynchronous token acquisition. A publish creates exactly one immutable data target; no preparation read or
 accounting companion is required. Changed bytes under an existing original ID are refused, never
 an overwrite. An acknowledged write is confirmed; a possibly applied write is unknown. Recovery
 reads the SAME immutable ID and compares its exact frozen bytes before an explicit same-create
@@ -1963,8 +1982,8 @@ Admission refusal uses `REMOTE_SCOPE_DENIED`, unavailable state uses `REMOTE_STA
 provider exhaustion follows the [budget guard](#free-plan-budget-guard), including unknown writes.
 
 Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
-identifying the admitted uid stream and seq the last observed contiguous nonnegative integer
-below 2^53. Colab Rules enforce contiguous seq per uid. Neither a global clock nor lexical document
+identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer
+below 2^53. Colab Rules enforce contiguous seq within a stream owned by its initial uid. Neither a global clock nor lexical document
 ID orders catch-up. A gap, compaction or listener overflow returns `catch-up-required`, never a
 silent drop or a false complete page. Cursor use cannot change the bound resource/space/identity.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.

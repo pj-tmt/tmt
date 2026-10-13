@@ -8,7 +8,9 @@ use crate::{
     limits, mount, routes, wire,
 };
 use serde_json::{Map, Value};
+mod sync;
 use std::collections::BTreeSet;
+pub use sync::{SyncMapping, SyncQueryMapping};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Backend {
@@ -44,6 +46,7 @@ pub struct Index {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Resource {
+    pub sync: Option<SyncMapping>,
     pub name: String,
     pub kind: Kind,
     /// Relative to the extension's namespace root; validated segments, joined by `/`.
@@ -94,6 +97,7 @@ pub enum Reason {
     Digest,
     EntryPoint,
     Hosting(HostingRefusal),
+    SyncMapping,
 }
 impl Reason {
     pub fn code(self) -> &'static str {
@@ -121,6 +125,7 @@ impl Reason {
             Self::Digest => "digest",
             Self::EntryPoint => "entry-point",
             Self::Hosting(_) => "hosting",
+            Self::SyncMapping => "sync-mapping",
         }
     }
 }
@@ -221,10 +226,12 @@ fn resource(position: usize, value: &Value) -> Result<Resource> {
     resource_inner(value).map_err(at)
 }
 fn resource_inner(value: &Value) -> Result<Resource> {
-    let top = members(
+    let top = optional_members(
         value,
         &["name", "kind", "path", "limits", "ttlField", "indexes"],
+        &["sync"],
     )?;
+    let sync = top.get("sync").map(sync::parse).transpose()?;
     let name = text(&top["name"], Reason::ResourceName)?;
     if !canonical::extension_name(name) {
         return refuse(Reason::ResourceName);
@@ -236,6 +243,9 @@ fn resource_inner(value: &Value) -> Result<Resource> {
         "awareness" => Kind::Awareness,
         _ => return refuse(Reason::Kind),
     };
+    if kind == Kind::Awareness && sync.is_some() {
+        return refuse(Reason::AwarenessStores);
+    }
     let path = namespace_path(text(&top["path"], Reason::Path)?)?;
     let bounds = bounds(&top["limits"])?;
     let ttl_field = match &top["ttlField"] {
@@ -282,6 +292,7 @@ fn resource_inner(value: &Value) -> Result<Resource> {
         return refuse(Reason::AwarenessStores);
     }
     Ok(Resource {
+        sync,
         name: name.to_owned(),
         kind,
         path,
@@ -292,18 +303,11 @@ fn resource_inner(value: &Value) -> Result<Resource> {
 }
 
 fn bounds(value: &Value) -> Result<ResourceLimits> {
-    let keys = ["maxObjectBytes", "maxNamespaceBytes", "maxEntries"];
-    let top = value.as_object().ok_or(DeclarationError {
-        resource: None,
-        reason: Reason::Shape,
-    })?;
-    if !keys.iter().all(|key| top.contains_key(*key))
-        || top
-            .keys()
-            .any(|key| !keys.contains(&key.as_str()) && key != "chunkBytes")
-    {
-        return refuse(Reason::Shape);
-    }
+    let top = optional_members(
+        value,
+        &["maxObjectBytes", "maxNamespaceBytes", "maxEntries"],
+        &["chunkBytes"],
+    )?;
     let positive = |value: &Value| -> Result<u64> {
         // `as_u64` is None for fractions, exponents, signs and values beyond u64.
         match value.as_u64() {
@@ -356,6 +360,24 @@ fn admission(value: &Value) -> Result<Admission> {
 }
 
 /// An object holding exactly `keys`: a missing or extra member is a shape error.
+fn optional_members<'a>(
+    value: &'a Value,
+    keys: &[&str],
+    optional: &[&str],
+) -> Result<&'a Map<String, Value>> {
+    let top = value.as_object().ok_or(DeclarationError {
+        resource: None,
+        reason: Reason::Shape,
+    })?;
+    if !keys.iter().all(|key| top.contains_key(*key))
+        || top
+            .keys()
+            .any(|key| !keys.contains(&key.as_str()) && !optional.contains(&key.as_str()))
+    {
+        return refuse(Reason::Shape);
+    }
+    Ok(top)
+}
 fn members<'a>(value: &'a Value, keys: &[&str]) -> Result<&'a Map<String, Value>> {
     match value.as_object() {
         Some(object)
@@ -424,4 +446,9 @@ fn entry_point_name(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Shared field-name grammar for the restricted document codec and declaration mappings.
+pub fn sync_field_name(value: &str) -> bool {
+    field_name(value)
 }

@@ -1,0 +1,35 @@
+{
+  "declaration": "{\"admission\":{\"artifact\":\"admission.rules\",\"digest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"entryPoint\":\"admitted\"},\"backend\":\"firestore\",\"extension\":\"notes\",\"resources\":[{\"indexes\":[],\"kind\":\"log\",\"limits\":{\"maxEntries\":513,\"maxNamespaceBytes\":12582912,\"maxObjectBytes\":393216},\"name\":\"rows\",\"path\":\"rows\",\"sync\":{\"fields\":[\"actor\",\"counter\",\"deadline\",\"envelope\",\"flag\",\"nothing\",\"streamKey\",\"tenant\"],\"query\":{\"order\":\"asc\",\"scopeFields\":[\"tenant\",\"streamKey\"],\"seqField\":\"counter\",\"streamField\":\"streamKey\"},\"spaceField\":\"tenant\",\"uidField\":\"actor\"},\"ttlField\":null}],\"version\":1}",
+  "declarationDigest": "3b34cd78bdf5529309414fb327f869a3aaf9bdf7f109be8e75b0d2dc3381cce1",
+  "document": "{\"actor\":{\"stringValue\":\"fixture-user\"},\"counter\":{\"integerValue\":\"1\"},\"deadline\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"},\"envelope\":{\"bytesValue\":\"AAE=\"},\"flag\":{\"booleanValue\":true},\"nothing\":{\"nullValue\":null},\"streamKey\":{\"stringValue\":\"writer-stream\"},\"tenant\":{\"stringValue\":\"fixture-space\"}}",
+  "documentDigest": "aac92e8581c7caed69561d072112202ad9df6a7cd5d23c7bdbb272655ae68d41",
+  "valid": [
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03Z\"}}",
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123Z\"}}",
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123456Z\"}}",
+    "{\"value\":{\"integerValue\":\"9007199254740991\"}}",
+    "{\"value\":{\"integerValue\":\"-9007199254740991\"}}",
+    "{\"value\":{\"bytesValue\":\"\"}}",
+    "{\"value\":{\"stringValue\":\"Unicode 雪\"}}"
+  ],
+  "invalid": [
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123456789Z\"}}",
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03.123000Z\"}}",
+    "{\"value\":{\"timestampValue\":\"2026-02-29T01:02:03Z\"}}",
+    "{\"value\":{\"timestampValue\":\"2026-10-13T01:02:03+00:00\"}}",
+    "{\"value\":{\"integerValue\":\"9007199254740992\"}}",
+    "{\"value\":{\"integerValue\":\"01\"}}",
+    "{\"value\":{\"integerValue\":\"-0\"}}",
+    "{\"value\":{\"bytesValue\":\"AAE\"}}",
+    "{\"value\":{\"bytesValue\":\"AAE_\"}}",
+    "{\"value\":{\"doubleValue\":1.5}}",
+    "{\"value\":{\"mapValue\":{}}}",
+    "{\"value\":{\"arrayValue\":{}}}",
+    "{\"value\":{\"referenceValue\":\"other/project\"}}",
+    "{\"value\":{\"geoPointValue\":{}}}",
+    "{\"value\":{\"integerValue\":\"1\",\"stringValue\":\"1\"}}",
+    "{\"value\":{\"integerValue\":\"1\"},\"value\":{\"integerValue\":\"2\"}}",
+    " {\"value\":{\"integerValue\":\"1\"}}",
+    "{\"value\":{\"stringValue\":\"\\ud800\"}}"
+  ]
+}

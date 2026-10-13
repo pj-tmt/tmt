@@ -1,6 +1,8 @@
 /** Proposed extension-scoped sealed-document ports. No provider, credentials or factory. */
 import { parsePublicWebConfig, type PublicWebConfig } from './firebase-bootstrap.js';
 import { verifyHostedDeclaration, type HostedDeclaration } from './firebase-declaration.js';
+import { parseSyncMapping, type SyncMapping } from './sealed-sync-mapping.js';
+export type { SyncMapping, SyncQueryMapping } from './sealed-sync-mapping.js';
 import { RefusalError } from './operations.js';
 
 export interface SyncIdentity {
@@ -27,6 +29,7 @@ export interface SyncCall {
   readonly deadlineAtMs: number;
 }
 export interface SyncResource {
+  readonly sync?: SyncMapping;
   readonly name: string;
   readonly path: string;
   readonly maxObjectBytes: number;
@@ -45,7 +48,7 @@ export interface SyncTarget {
   readonly resource: string;
   readonly id: string;
 }
-/** Opaque application envelope containing sealed content; Remote never decrypts it. */
+/** Canonical restricted REST Document.fields bytes; sealed content stays encrypted. */
 export interface SealedDocument {
   readonly target: SyncTarget;
   readonly bytes: Uint8Array;
@@ -54,6 +57,19 @@ export interface SealedDocument {
 export interface SyncCursor {
   readonly stream: string;
   readonly seq: number;
+}
+export type SyncValue =
+  | { readonly stringValue: string }
+  | { readonly integerValue: string }
+  | { readonly booleanValue: boolean }
+  | { readonly nullValue: null }
+  | { readonly timestampValue: string }
+  | { readonly bytesValue: string };
+export interface SyncQuery {
+  readonly resource: string;
+  readonly scope: Readonly<Record<string, SyncValue>>;
+  readonly stream: string;
+  readonly cursor?: SyncCursor;
 }
 export interface SyncPage {
   readonly documents: readonly SealedDocument[];
@@ -66,23 +82,28 @@ export interface SyncSubscription {
   next(call: SyncCall): Promise<SyncChange>;
   close(): void;
 }
+export type SyncFailure =
+  | {
+      readonly code:
+        | 'REMOTE_INPUT_INVALID'
+        | 'REMOTE_SCOPE_DENIED'
+        | 'REMOTE_STATE_UNAVAILABLE'
+        | 'REMOTE_RATE_LIMITED';
+    }
+  | {
+      readonly code: 'REMOTE_BUDGET_EXHAUSTED';
+      readonly resetAtMs: number;
+      readonly retryAfterMs: number;
+    };
+/** Rejections use SyncFailure codes; they are not machine-signed device proofs. */
 export type SyncPublish = { readonly kind: 'confirmed' } | { readonly kind: 'unknown' };
 /** Later browser/native transports implement this bound port; no operations authority. */
 export interface SealedSyncPort {
   readonly context: SyncContext;
   read(target: SyncTarget, call: SyncCall): Promise<SealedDocument | undefined>;
-  query(
-    resource: string,
-    stream: string,
-    cursor: SyncCursor | undefined,
-    call: SyncCall,
-  ): Promise<SyncPage>;
-  subscribe(
-    resource: string,
-    stream: string,
-    cursor: SyncCursor | undefined,
-    call: SyncCall,
-  ): Promise<SyncSubscription>;
+  query(query: SyncQuery, call: SyncCall): Promise<SyncPage>;
+  subscribe(query: SyncQuery, call: SyncCall): Promise<SyncSubscription>;
+  /** Only pre-effect refusal rejects; a possibly applied write is unknown, including cancellation. */
   publish(document: SealedDocument, call: SyncCall): Promise<SyncPublish>;
   close(): void;
 }
@@ -108,6 +129,7 @@ export async function bindSyncContext(
       name: string;
       path: string;
       limits: { maxObjectBytes: number; chunkBytes?: number };
+      sync?: unknown;
     }[];
   };
   for (const [i, resource] of row.resources.entries()) {
@@ -129,6 +151,7 @@ export async function bindSyncContext(
       name: r.name,
       path: r.path,
       maxObjectBytes: r.limits.maxObjectBytes,
+      ...(r.sync === undefined ? {} : { sync: parseSyncMapping(r.sync) }),
       ...(r.limits.chunkBytes === undefined ? {} : { chunkBytes: r.limits.chunkBytes }),
     }),
   );
@@ -197,3 +220,9 @@ export async function verifySealedObject(
   ).join('');
   valid(digest === manifest.digest);
 }
+
+export {
+  validateSyncDocument,
+  validateSyncFields,
+  validateSyncQuery,
+} from './sealed-sync-codec.js';

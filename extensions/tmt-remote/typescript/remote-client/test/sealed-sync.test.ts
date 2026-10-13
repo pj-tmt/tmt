@@ -115,3 +115,76 @@ test('pure context binding and declared targets perform no token or provider cal
     }),
   ).rejects.toMatchObject({ code: 'REMOTE_SCOPE_DENIED' });
 });
+
+import { validateSyncFields, validateSyncDocument, validateSyncQuery } from '../src/sealed-sync.js';
+const codec = JSON.parse(
+  readFileSync(
+    new URL('../../../rust/tmt-remote/tests/fixtures/sealed_sync/codec-v1.json', import.meta.url),
+    'utf8',
+  ),
+) as {
+  declaration: string;
+  declarationDigest: string;
+  document: string;
+  documentDigest: string;
+  valid: string[];
+  invalid: string[];
+};
+test('codec, declaration mapping, and scope use one cross-language corpus', async () => {
+  const encode = (s: string) => new TextEncoder().encode(s);
+  for (const bytes of codec.valid) validateSyncFields(encode(bytes));
+  for (const bytes of codec.invalid) expect(() => validateSyncFields(encode(bytes))).toThrow();
+  const config = {
+    apiKey: 'public',
+    appId: '1:123:web:fixture',
+    projectId: 'demo-remote-1',
+    authDomain: 'demo-remote-1.firebaseapp.com',
+  };
+  const auth: SyncAuthPort = {
+    identity: { projectId: config.projectId, uid: 'fixture-user' },
+    token() {
+      throw Error('no token call');
+    },
+  };
+  const context = await bindSyncContext(
+    config,
+    { bytes: codec.declaration, digest: codec.declarationDigest },
+    'fixture-space',
+    auth,
+  );
+  await validateSyncDocument(
+    context,
+    {
+      target: { resource: 'rows', id: 'writer-stream+1' },
+      bytes: encode(codec.document),
+      digest: codec.documentDigest,
+    },
+    'publish',
+  );
+  const query = {
+    resource: 'rows',
+    scope: {
+      tenant: { stringValue: 'fixture-space' },
+      streamKey: { stringValue: 'writer-stream' },
+    },
+    stream: 'writer-stream',
+    cursor: { stream: 'writer-stream', seq: 1 },
+  };
+  validateSyncQuery(context, query);
+  expect(() =>
+    validateSyncQuery(context, {
+      ...query,
+      scope: { ...query.scope, tenant: { stringValue: 'another-space' } },
+    }),
+  ).toThrow();
+  const changed = JSON.parse(codec.declaration);
+  changed.resources[0].sync.query.seqField = 'undeclared';
+  const bytes = JSON.stringify(changed);
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', encode(bytes))),
+    (b) => b.toString(16).padStart(2, '0'),
+  ).join('');
+  await expect(verifyHostedDeclaration({ bytes, digest })).rejects.toMatchObject({
+    code: 'REMOTE_INPUT_INVALID',
+  });
+});

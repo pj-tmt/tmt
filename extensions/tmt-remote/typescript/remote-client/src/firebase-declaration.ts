@@ -1,4 +1,5 @@
 /** Release-supplied data, bound to its exact bytes; no extension-specific resource names. */
+import { parseSyncMapping } from './sealed-sync-mapping.js';
 import { RefusalError } from './operations.js';
 export interface HostedDeclaration {
   readonly bytes: string;
@@ -45,7 +46,17 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
     require(Array.isArray(row.resources) && row.resources.length <= 64);
     const names = new Set<string>();
     for (const value of row.resources) {
-      const r = members(value, ['name', 'kind', 'path', 'limits', 'ttlField', 'indexes']);
+      require(typeof value === 'object' && value !== null);
+      const r = members(value, [
+        'name',
+        'kind',
+        'path',
+        'limits',
+        'ttlField',
+        'indexes',
+        ...(Object.hasOwn(value, 'sync') ? ['sync'] : []),
+      ]);
+      if (r.sync !== undefined) parseSyncMapping(r.sync);
       require(typeof r.name === 'string' && name.test(r.name) && !names.has(r.name));
       names.add(r.name);
       require(
@@ -87,7 +98,10 @@ export async function verifyHostedDeclaration(input: HostedDeclaration): Promise
         require(!indexes.has(key));
         indexes.add(key);
       }
-      require(r.kind !== 'awareness' || (r.ttlField === null && r.indexes.length === 0));
+      require(
+        r.kind !== 'awareness' ||
+          (r.ttlField === null && r.indexes.length === 0 && r.sync === undefined),
+      );
     }
     const admission = members(row.admission, ['artifact', 'digest', 'entryPoint']);
     require(
