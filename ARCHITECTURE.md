@@ -311,7 +311,7 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 exact final submission, waiter release, attention revisions and bounded retention
 housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
 `request::digest` owns [delivery/history](contracts/extension-api.md#digest-policy-and-checklist); `request::flow` owns [content-free aggregates](contracts/request-response-v1.md#content-free-exchange-flow).
-Adapters admit idle handoff; Digest owns timing, longer history and savings. Clocks sample at transaction entry;
+Adapters admit idle handoff; extensions schedule. Clocks sample at transaction entry;
 no transaction spans transport, and uncertainty never authorizes replay. Finals are
 immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
@@ -405,7 +405,7 @@ requires consent; install and upgrade accept `--to`. Retention, discovery, recei
 build, publication and verification procedures are in the
 [tmt-release skill](.agents/skills/tmt-release/SKILL.md).
 
-Digest’s [contract](extensions/tmt-digest/contracts/digest-v1.md) lives in `extensions/tmt-digest`.
+Digest owns [settings, history and status](extensions/tmt-digest/contracts/digest-v1.md).
 
 ## Ops extension
 
