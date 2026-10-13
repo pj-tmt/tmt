@@ -241,6 +241,11 @@ footer {
   width: auto;
   margin: 0;
 }
+.source-notice > p,
+.source-notice .tmt-ui-notice-actions [role='status'] {
+  margin: 0;
+  font: 400 13px/1.5 var(--tmt-ui-font-body);
+}
 .source-notice .tmt-ui-notice-heading {
   margin: 6px 0 0;
   font: 400 13px/1.5 var(--tmt-ui-font-body);

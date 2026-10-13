@@ -138,6 +138,7 @@ const binding: PageBinding = {
   },
   async edit() {
     writes++;
+    return { merged: false };
   },
   async export() {
     throw new Error('Unexpected export');

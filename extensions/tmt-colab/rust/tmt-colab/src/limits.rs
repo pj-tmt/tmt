@@ -113,6 +113,9 @@ pub const SAVE_CHUNKS: usize = crate::decoder::BASELINE_BYTES.div_ceil(CHUNK_BYT
 /// How long a Save may take to arrive, from its first frame to its last chunk. An append keeps
 /// `ACQUISITION`: a whole source is up to `SAVE_CHUNKS` frames rather than one envelope.
 pub const SAVE_UPLOAD: Duration = Duration::from_secs(10);
+/// A save carrying hunks is evaluated again on a page that moved after its last evaluation, this
+/// many more times, as `page patch` does.
+pub const SAVE_EVALUATIONS: usize = 3;
 /// Serialized update envelope reserve including base64 expansion and JSON syntax.
 pub const UPDATE_BYTES: usize = (CONTENT_UPDATE_BYTES + 2048) * 4 / 3 + 2048;
 /// Exact signed statement JSON cap, including base64 expansion and framing.

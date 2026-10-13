@@ -325,6 +325,41 @@ pub(crate) struct SaveJob {
     scope: SyncScope,
     principal: String,
     save: crate::page::save::Save,
+    /// The editor's change as anchored hunks, evaluated when the page moved since its base.
+    hunks: Option<Vec<crate::page::patch::Hunk>>,
+}
+/// Whether a save's turn under the lock replied, or its hunks are to be evaluated once more on
+/// a page that moved after they were.
+enum SaveFinish {
+    Replied,
+    Retry,
+}
+/// Hunks as the editor sent them. The list type bounds their number and the frame limit bounds
+/// their text; each must anchor on some old text, at a 1-based line.
+fn save_hunks(
+    hunks: Option<tmt_colab_model::bounded::List<wire::WireHunk, 64>>,
+) -> Result<Option<Vec<crate::page::patch::Hunk>>, Code> {
+    let Some(hunks) = hunks else {
+        return Ok(None);
+    };
+    let hunks = hunks.as_slice();
+    if hunks.is_empty()
+        || hunks
+            .iter()
+            .any(|hunk| hunk.old.is_empty() || hunk.old_start == 0)
+    {
+        return Err(Code::Invalid);
+    }
+    Ok(Some(
+        hunks
+            .iter()
+            .map(|hunk| crate::page::patch::Hunk {
+                old_start: hunk.old_start as usize,
+                old: hunk.old.clone(),
+                new: hunk.new.clone(),
+            })
+            .collect(),
+    ))
 }
 /// What an assembling upload becomes when its last chunk arrives.
 enum Upload {
@@ -336,6 +371,8 @@ struct SaveIntent {
     operation_id: String,
     base: [u8; 32],
     attachments: Option<tmt_colab_model::attachment::DocumentChange>,
+    /// The editor's change as anchored hunks, used only when the page moved since its base.
+    hunks: Option<Vec<crate::page::patch::Hunk>>,
 }
 impl Upload {
     /// Bytes the whole object may hold, the chunks it may take and how long it may take.
@@ -960,6 +997,7 @@ impl<A: Admission> State<A> {
                 source_sha256,
                 source,
                 attachments,
+                hunks,
                 ..
             } => {
                 if self.peers[&id].incoming.is_some() {
@@ -968,6 +1006,7 @@ impl<A: Admission> State<A> {
                 values::generated_id(&operation_id)?;
                 let base = wire::hash(&base_sha256)?;
                 wire::hash(&source_sha256)?;
+                let hunks = save_hunks(hunks)?;
                 match source {
                     wire::Payload::Inline(text) => {
                         let bytes = values::binary(&text, crate::decoder::BASELINE_BYTES)?;
@@ -979,6 +1018,7 @@ impl<A: Admission> State<A> {
                                     operation_id,
                                     base,
                                     attachments,
+                                    hunks,
                                 },
                                 &source_sha256,
                                 bytes,
@@ -993,6 +1033,7 @@ impl<A: Admission> State<A> {
                                 operation_id,
                                 base,
                                 attachments,
+                                hunks,
                             }),
                             hash: source_sha256,
                             object_id: reference.object_id,
@@ -1059,6 +1100,7 @@ impl<A: Admission> State<A> {
             operation_id,
             base,
             attachments,
+            hunks,
         } = intent;
         if wire::hash(source_sha256)? != crypto::digest(&bytes) {
             return Err(Code::Invalid);
@@ -1069,6 +1111,10 @@ impl<A: Admission> State<A> {
             change
                 .validate(&crypto::digest(source.as_bytes()))
                 .map_err(|_| Code::Invalid)?;
+        }
+        // An attachment change is bound to the editor's own source, which a merge replaces.
+        if hunks.is_some() && attachments.is_some() {
+            return Err(Code::Invalid);
         }
         let open = self.admission.save_source().ok_or(Code::Denied)?;
         *self
@@ -1086,6 +1132,7 @@ impl<A: Admission> State<A> {
                 source,
                 attachments,
             },
+            hunks,
         })
     }
     /// The save is no longer preparing; its outcome, if any, is in the store.
@@ -1139,20 +1186,19 @@ impl<A: Admission> State<A> {
     fn finish_save(
         &mut self,
         id: u64,
-        job: SaveJob,
-        prepared: crate::Result<crate::page::save::Prepared>,
+        job: &SaveJob,
+        prepared: crate::Result<(crate::page::save::Prepared, Option<[u8; 32]>)>,
         now_ms: u64,
-    ) -> Result<(), Code> {
+        may_retry: bool,
+    ) -> Result<SaveFinish, Code> {
         use crate::page::save::{Prepared, SaveResult};
-        // Under this lock hold the commit and the removal are one step for a status request.
-        self.unsave(&job);
         let operation = job.save.operation_id.clone();
         let done = (|| -> crate::Result<(SaveResult, Option<_>)> {
-            let write = match prepared? {
-                Prepared::Unchanged(receipt) => {
+            let (write, merged) = match prepared? {
+                (Prepared::Unchanged(receipt), _) => {
                     return Ok((SaveResult::unchanged(&operation, receipt.revision), None));
                 }
-                Prepared::Write(frozen) => frozen,
+                (Prepared::Write(frozen), merged) => (frozen, merged),
             };
             self.admission
                 .authorize(&job.principal, &job.scope, Access::Publish)
@@ -1177,20 +1223,38 @@ impl<A: Admission> State<A> {
                     committed.record.outcome,
                     crate::publication::Outcome::Committed { .. }
                 );
+            let revision = revision.unwrap_or(receipt.revision);
             Ok((
-                SaveResult::committed(&operation, revision.unwrap_or(receipt.revision)),
+                match merged {
+                    Some(digest) => {
+                        SaveResult::merged(&operation, revision, values::encode_binary(&digest))
+                    }
+                    None => SaveResult::committed(&operation, revision),
+                },
                 fan_out.then_some(outputs),
             ))
         })();
         let (reply, outputs) = match done {
             Ok(done) => done,
+            // A page that moved after the hunks were evaluated is evaluated against again.
+            Err(error)
+                if may_retry
+                    && matches!(
+                        error.downcast_ref::<crate::page::Fault>(),
+                        Some(crate::page::Fault::StaleBase)
+                    ) =>
+            {
+                return Ok(SaveFinish::Retry);
+            }
             Err(error) => (SaveResult::rejected(&operation, error.as_ref()), None),
         };
+        // Under this lock hold the commit and the removal are one step for a status request.
+        self.unsave(job);
         self.reply_save(id, &job.scope, &reply)?;
         if let Some((scope, delivery)) = outputs {
             self.fanout_delivery(&scope, delivery);
         }
-        Ok(())
+        Ok(SaveFinish::Replied)
     }
     fn resolve(&self, scope: &SyncScope, cursor: &wire::SyncCursor) -> Result<(), Code> {
         self.store.resolve_cursor(
@@ -1636,16 +1700,30 @@ impl<S: Read + Write, A: Admission> Connection<S, A> {
     /// an edit that landed meanwhile turns this save into a stale-base reply.
     fn run_save(&self, job: SaveJob) -> Result<(), Code> {
         let clock = || crate::registration::now_ms().map_err(|_| Code::Denied);
-        let prepared = crate::page::save::prepare(&job.open, &job.save, &|| {
-            clock().map_err(|_| crate::page::Fault::Unavailable.into())
-        });
-        let now = clock();
-        let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
-        match now {
-            Ok(now) => state.finish_save(self.id, job, prepared, now),
-            Err(code) => {
-                state.unsave(&job);
-                Err(code)
+        let mut evaluations = 0;
+        loop {
+            let read_clock = || clock().map_err(|_| crate::page::Fault::Unavailable.into());
+            let prepared = match &job.hunks {
+                Some(hunks) => {
+                    crate::page::save::prepare_merging(&job.open, &job.save, hunks, &read_clock)
+                }
+                None => crate::page::save::prepare(&job.open, &job.save, &read_clock)
+                    .map(|prepared| (prepared, None)),
+            };
+            let now = clock();
+            let mut state = self.server.0.lock().map_err(|_| Code::Denied)?;
+            match now {
+                Ok(now) => {
+                    let may_retry = job.hunks.is_some() && evaluations < limits::SAVE_EVALUATIONS;
+                    match state.finish_save(self.id, &job, prepared, now, may_retry)? {
+                        SaveFinish::Replied => return Ok(()),
+                        SaveFinish::Retry => evaluations += 1,
+                    }
+                }
+                Err(code) => {
+                    state.unsave(&job);
+                    return Err(code);
+                }
             }
         }
     }

@@ -11,16 +11,25 @@ import { statusNotificationForAsk } from './thread-status-notification.js';
 import { projectThreadPresentation } from './thread-status-presentation.js';
 import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
-import { attachment, digest, requireValue, text as bytesOf } from '@tmt/colab-client';
+import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import { ReopenFailedError, type Registration } from './registration.js';
-import type { PageBinding, PageSnapshot, PageView } from './transport.js';
+import type { PageBinding, PageSnapshot, PageView, SaveOutcome } from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer, type OwnCompaction } from './writer.js';
-import { SaveOutcomeUnknown, SaveTooLarge, settled, type SaveResult } from './save.js';
+import {
+  SaveConflict,
+  SaveOutcomeUnknown,
+  SaveRefused,
+  SaveTooLarge,
+  conflictAt,
+  settled,
+  type SaveResult,
+} from './save.js';
+import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
 import { gatherAttachments } from './export-attachments.js';
 import { text } from './strings.js';
@@ -665,12 +674,20 @@ export class Live implements PageBinding {
       });
     return this.#recovering;
   }
-  /** Save the whole source through native publication. A lost reply is settled by exactly one
-   * status request on the reopened connection; the save is never sent again. */
-  async edit(source: string, base: string, attachments?: attachment.DocumentChange) {
+  /** Save the source through native publication. `base` is the source the editor opened. While
+   * the page is still that source, the whole `source` is saved. When the page moved meanwhile, the
+   * serve merges the edit, sent as anchored hunks, into the page as it is now, or refuses it as a
+   * `SaveConflict` when the text it anchors to changed; a typed attachment change has no such
+   * merge and needs the admitted source as its base. A lost reply is settled by exactly one status
+   * request on the reopened connection; the save is never sent again. */
+  async edit(
+    source: string,
+    base: string,
+    attachments?: attachment.DocumentChange,
+  ): Promise<SaveOutcome> {
     if (this.#closed || this.#error) throw new Error('Page editing unavailable');
     const c = await this.#current;
-    requireValue(base === this.#admitted.source);
+    requireValue(attachments === undefined || base === this.#admitted.source);
     // The list this save must produce, decided by the same rules native preparation applies.
     const change = attachments === undefined ? undefined : attachment.documentChange(attachments);
     const expected =
@@ -681,16 +698,36 @@ export class Live implements PageBinding {
             hex(await digest(bytesOf(source))),
           )
         : undefined;
+    const hunks = change === undefined ? hunksOf(base, source) : undefined;
     const operationId = crypto.randomUUID();
     let result: SaveResult;
+    let recovered = false;
     try {
-      result = await c.save(operationId, base, source, ...(change ? [change] : []));
+      result = await c.save(operationId, base, source, change, hunks);
     } catch (error) {
       if (!(error instanceof Error) || error instanceof SaveTooLarge || c.active) throw error;
       result = await this.#settleLost(c, operationId);
+      recovered = true;
     }
-    settled(result);
-    await this.#shows(source, expected);
+    try {
+      settled(result);
+    } catch (error) {
+      const conflicts = error instanceof SaveRefused ? (error.conflicts ?? []) : [];
+      const named = conflicts.filter((at) => at < (hunks?.length ?? 0));
+      // The first hunk that does not fit is named from the base the editor holds.
+      if (hunks && named.length > 0)
+        throw new SaveConflict(named.length, conflictAt(hunks[named[0]]));
+      throw error;
+    }
+    // The record of a recovered save does not say whether it merged, so its revision is the other
+    // way to tell that the page shows it.
+    await this.#shows(
+      source,
+      expected,
+      result.merged ? result.sourceSha256 : undefined,
+      hunks && recovered ? result.revision : undefined,
+    );
+    return { merged: result.merged === true };
   }
   /** The serve counts every device but its own as "other". This device's own changes are not
    * other devices': it can combine them itself, so the page-size surface counts them as its own. */
@@ -761,14 +798,25 @@ export class Live implements PageBinding {
     }
     throw new Error('Page connection unavailable');
   }
-  /** The admitted page shows the saved source, so the editor's base moves with it. */
-  async #shows(source: string, attachments?: readonly attachment.AttachmentDescriptor[]) {
+  /** The admitted page shows the saved source, so the editor's base moves with it. A merged save
+   * is saved as a source the editor never held: it is shown once the page holds the digest the
+   * serve named, or, for a save whose reply was lost, the revision its record names. */
+  async #shows(
+    source: string,
+    attachments?: readonly attachment.AttachmentDescriptor[],
+    mergedDigest?: string,
+    revision?: string,
+  ) {
     const deadline = Date.now() + SAVE_REOPEN_MS;
-    const shown = () =>
-      this.#admitted.source === source &&
-      (attachments === undefined ||
-        JSON.stringify(this.#admitted.attachments ?? []) === JSON.stringify(attachments));
-    while (!shown() && !this.#closed && !this.#error) {
+    const shown = async () =>
+      mergedDigest !== undefined
+        ? encodeBinary(await digest(bytesOf(this.#admitted.source))) === mergedDigest
+        : (this.#admitted.source === source &&
+            (attachments === undefined ||
+              JSON.stringify(this.#admitted.attachments ?? []) === JSON.stringify(attachments))) ||
+          (revision !== undefined &&
+            (await this.#connection?.objects.revision().catch(() => null)) === revision);
+    while (!(await shown()) && !this.#closed && !this.#error) {
       if (Date.now() >= deadline) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }

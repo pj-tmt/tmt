@@ -29,7 +29,7 @@ export interface DocumentFilesOptions {
   /** The admitted source a save is based on. */
   source(): string;
   publish(records: OwnRecord[]): Promise<void>;
-  edit(source: string, base: string, change: attachment.DocumentChange): Promise<void>;
+  edit(source: string, base: string, change: attachment.DocumentChange): Promise<unknown>;
 }
 
 export class LiveDocumentFiles implements DocumentFiles {

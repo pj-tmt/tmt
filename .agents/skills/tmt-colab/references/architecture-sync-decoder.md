@@ -130,6 +130,13 @@ and `limits.rs`; do not restate them.
   `commit_publication` (through `Admission::commit_save` and the same combine as a CLI write), the one
   `saveresult` and the shared fan-out. The browser's `Connection.save` paces the chunks and holds one
   request in flight; `Live.edit` settles a lost reply with one `savestatus` and never resends.
+  A `save` may carry the editor's change as `hunks` (`save-hunks.ts` `hunksOf`, no evaluator in the
+  browser): `page::save::prepare_merging` runs `prepare` first and, only when the page moved
+  (`COLAB_STALE_BASE`), places the hunks with `page/patch.rs` on the page as it now is and prepares that
+  source; `run_save` evaluates again, at most `limits::SAVE_EVALUATIONS` more times, when the commit
+  finds the page moved after the evaluation. A conflict is `rejected` with `conflicts` (the hunk
+  indices) and nothing written; a merge is `committed` with `merged` and the digest of the source it holds,
+  which the browser waits to see admitted before it moves its base.
 - `export.rs` snapshots exact source, title and optional creation/latest display labels through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md`, the attachments it could read
   and `manifest.json` (format and disclosure: colab-v1). `export/attachments.rs` lists the

@@ -71,6 +71,8 @@ static NEXT: AtomicUsize = AtomicUsize::new(0);
 type SaveGate = Arc<Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>>;
 struct Running {
     save_gate: SaveGate,
+    /// Parks a save after its snapshot is taken, so the page can move under the snapshot.
+    snapshot_gate: SaveGate,
     replacement: Arc<AtomicBool>,
     registration: Arc<Mutex<Registration>>,
     root: PathBuf,
@@ -113,6 +115,8 @@ impl Running {
         store.create_page(PAGE).unwrap();
         let save_gate: SaveGate = Arc::default();
         let gate = Arc::clone(&save_gate);
+        let snapshot_gate: SaveGate = Arc::default();
+        let after_snapshot = Arc::clone(&snapshot_gate);
         let save_root = root.clone();
         let observes_rekey = rekey_probe.is_some();
         let mut registration = Registration::with_decoder_config(
@@ -131,10 +135,15 @@ impl Running {
                 entered.send(()).unwrap();
                 release.recv_timeout(Duration::from_secs(30)).unwrap();
             }
-            tmt_colab::page::save::open_source(
+            let source = tmt_colab::page::save::open_source(
                 &save_root,
                 support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
-            )
+            );
+            if let Some((entered, release)) = after_snapshot.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+            source
         }));
         for id in [DEVICE, OTHER] {
             registration
@@ -172,6 +181,7 @@ impl Running {
         });
         Self {
             save_gate,
+            snapshot_gate,
             replacement,
             registration,
             root,
@@ -4476,6 +4486,178 @@ fn a_concurrent_edit_is_not_blocked_by_a_large_prepare_and_the_save_then_reports
     assert_eq!(result["state"], "rejected", "{result}");
     assert_eq!(result["code"], "COLAB_STALE_BASE", "{result}");
     assert_eq!(native_source(&layout, &key), "<p>Someone else's edit</p>");
+}
+
+const FIVE: &str = "one\ntwo\nthree\nfour\nfive\n";
+
+fn hunk(old_start: u32, old: &str, new: &str) -> Value {
+    json!({"oldStart":old_start,"old":old,"new":new})
+}
+
+impl Running {
+    /// One save that also carries the editor's change as hunks, for a page that moved.
+    fn save_merging(
+        &self,
+        peer: &mut WebSocket<UnixStream>,
+        operation: &str,
+        base: &str,
+        source: &str,
+        hunks: Value,
+    ) -> Value {
+        let mut frames = self.save_frames(operation, base, source);
+        frames[0]["hunks"] = hunks;
+        for frame in frames {
+            send(peer, frame);
+        }
+        receive_until(peer, "saveresult").0
+    }
+}
+
+#[test]
+fn a_save_with_hunks_merges_into_a_page_that_moved_and_refuses_hunks_that_no_longer_fit() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (first, _) = server.save(&mut peer, SAVE_ONE, "", FIVE);
+    assert_eq!(first["state"], "committed", "{first}");
+    assert!(first.get("merged").is_none(), "{first}");
+    // Someone else edits the last line meanwhile.
+    let elsewhere = "one\ntwo\nthree\nfour\nFIVE elsewhere\n";
+    let moved = prepare_write(&layout, &key, elsewhere);
+    tmt_colab::page::ipc::publish(&layout, &key, &moved)
+        .unwrap()
+        .expect("the server answered");
+    // The editor opened FIVE and changed the first line: that merges into the page as it is now.
+    let draft = "ONE\ntwo\nthree\nfour\nfive\n";
+    let merged = server.save_merging(
+        &mut peer,
+        SAVE_TWO,
+        FIVE,
+        draft,
+        json!([hunk(1, "one\ntwo\n", "ONE\ntwo\n")]),
+    );
+    assert_eq!(merged["state"], "committed", "{merged}");
+    assert_eq!(merged["merged"], true, "{merged}");
+    let combined = "ONE\ntwo\nthree\nfour\nFIVE elsewhere\n";
+    assert_eq!(native_source(&layout, &key), combined);
+    // The editor never held this source, so the reply names it by digest.
+    assert_eq!(merged["sourceSha256"], sha(combined.as_bytes()), "{merged}");
+    let store = Store::read(&layout).unwrap();
+    assert_eq!(
+        tmt_colab::page::revision(&store, &key, PAGE).unwrap(),
+        merged["revision"]
+    );
+    store.close().unwrap();
+    // The same operation asked again is the same answer, not a second commit.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":SAVE_TWO})),
+    );
+    let (status, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+    // The editor changed the line that someone else changed: the hunk's text is no longer there.
+    // Nothing is written; the reply names the hunk that does not fit (the second of two).
+    let conflicting = server.save_merging(
+        &mut peer,
+        "50000000-0000-4000-8000-000000000004",
+        FIVE,
+        "1\ntwo\nthree\nfour\n5\n",
+        json!([
+            hunk(1, "one\ntwo\n", "1\ntwo\n"),
+            hunk(4, "four\nfive\n", "four\n5\n")
+        ]),
+    );
+    assert_eq!(conflicting["state"], "rejected", "{conflicting}");
+    assert_eq!(conflicting["code"], "COLAB_PATCH_CONFLICT", "{conflicting}");
+    assert_eq!(conflicting["conflicts"], json!([0, 1]), "{conflicting}");
+    assert!(conflicting.get("merged").is_none(), "{conflicting}");
+    assert_eq!(native_source(&layout, &key), combined);
+    // A page that is still the source the editor opened is saved as written, hunks unused.
+    let plain = server.save_merging(
+        &mut peer,
+        "50000000-0000-4000-8000-000000000005",
+        combined,
+        "ONE\ntwo\nthree\nfour\nFIVE\n",
+        json!([hunk(5, "no such text\n", "x\n")]),
+    );
+    assert_eq!(plain["state"], "committed", "{plain}");
+    assert!(plain.get("merged").is_none(), "{plain}");
+    assert!(plain.get("sourceSha256").is_none(), "{plain}");
+    assert_eq!(
+        native_source(&layout, &key),
+        "ONE\ntwo\nthree\nfour\nFIVE\n"
+    );
+}
+
+#[test]
+fn a_save_whose_page_moves_after_the_snapshot_evaluates_its_hunks_again() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    let (first, _) = server.save(&mut peer, SAVE_ONE, "", FIVE);
+    assert_eq!(first["state"], "committed", "{first}");
+    let (entered, parked) = std::sync::mpsc::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    *server.snapshot_gate.lock().unwrap() = Some((entered, wait));
+    let mut frames = server.save_frames(SAVE_TWO, FIVE, "ONE\ntwo\nthree\nfour\nfive\n");
+    frames[0]["hunks"] = json!([hunk(1, "one\ntwo\n", "ONE\ntwo\n")]);
+    for frame in frames {
+        send(&mut peer, frame);
+    }
+    // The save holds a snapshot that is still FIVE, so its source commits cleanly... until the
+    // page moves under it. The commit then finds a stale base and the hunks are evaluated again.
+    parked.recv_timeout(Duration::from_secs(10)).unwrap();
+    let moved = prepare_write(&layout, &key, "one\ntwo\nthree\nfour\nFIVE elsewhere\n");
+    tmt_colab::page::ipc::publish(&layout, &key, &moved)
+        .unwrap()
+        .expect("the server answered while a save was preparing");
+    release.send(()).unwrap();
+    let (result, _) = receive_until(&mut peer, "saveresult");
+    assert_eq!(result["state"], "committed", "{result}");
+    assert_eq!(result["merged"], true, "{result}");
+    let combined = "ONE\ntwo\nthree\nfour\nFIVE elsewhere\n";
+    assert_eq!(native_source(&layout, &key), combined);
+    assert_eq!(result["sourceSha256"], sha(combined.as_bytes()), "{result}");
+}
+
+#[test]
+fn a_save_with_hunks_outside_the_bounds_or_with_attachments_is_a_protocol_violation() {
+    let oracle: Value = serde_json::from_str(include_str!(
+        "../../../contracts/vectors/attachment-change-v1.json"
+    ))
+    .unwrap();
+    let many: Vec<Value> = (0..65)
+        .map(|n| hunk(1, &format!("line {n}\n"), "x\n"))
+        .collect();
+    let cases: Vec<(&str, Value, Option<Value>)> = vec![
+        ("too many", json!(many), None),
+        ("empty list", json!([]), None),
+        ("empty anchor", json!([hunk(1, "", "x\n")]), None),
+        ("line zero", json!([hunk(0, "a\n", "x\n")]), None),
+        (
+            "with attachments",
+            json!([hunk(1, "a\n", "x\n")]),
+            Some(json!({"remove":[oracle["descriptors"]["a"]["attachmentId"]]})),
+        ),
+    ];
+    for (name, hunks, attachments) in cases {
+        let (server, layout, key, mut peer) = publish_fixture();
+        let mut frames = server.save_frames(SAVE_ONE, "", "a\n");
+        frames[0]["hunks"] = hunks;
+        if let Some(attachments) = attachments {
+            frames[0]["attachments"] = attachments;
+        }
+        for frame in frames {
+            send(&mut peer, frame);
+        }
+        loop {
+            let message = peer.read().unwrap();
+            if message.is_close()
+                || message
+                    .to_text()
+                    .is_ok_and(|text| text.contains("\"type\":\"error\""))
+            {
+                break;
+            }
+        }
+        assert_eq!(native_source(&layout, &key), "", "{name}");
+    }
 }
 
 #[test]

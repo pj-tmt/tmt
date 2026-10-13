@@ -86,6 +86,7 @@ export function mountPageSize(first: Partial<PageSizeScript> = {}) {
       script.calls.edit++;
       if (script.refuseSave)
         throw new SaveRefused('COLAB_CAPACITY', 'Page is full: nothing was deleted.');
+      return { merged: false };
     },
     async export() {
       script.calls.exported++;

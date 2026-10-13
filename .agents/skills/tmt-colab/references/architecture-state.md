@@ -404,6 +404,8 @@ original-ID observation, no resend and fresh explicit Send after recovery.
   also uses, so limits, the markup check, the no-op and lost-reply replay are shared. The
   evaluated base is fenced by `PublishOptions::base_source_sha256`; a stale base or commit
   re-evaluates on the page as it is, at most 3 more times, unless `--expected-revision` fences.
+  The browser Save's merge uses the same evaluator (`apply_hunks`, `conflicting_hunks`), so a
+  hunk places by the same rules in both front doors.
 - `PageUsage` (`page.rs`) is the page's usage: the tail count and bytes the write path refuses
   at, the checkpoints, and the whole state with its gzipped size from 256 KiB. `fold.rs` counts
   them once (`UsageCounts::add`, `MaterializationInput::usage`) for the refusal and for the

@@ -2,7 +2,10 @@
 //! the source, prepares it natively from a snapshot of its own outside every lock, and commits
 //! the frozen publication like `page write`, signing as the root-local writer. Nothing here
 //! decodes, signs or stores: it names the pieces and the reply.
-use super::{Fault, FrozenPublication, PublicationRecord, PublishOptions, SourceTooLarge};
+use super::{
+    Fault, FrozenPublication, PublicationRecord, PublishOptions, SourceTooLarge,
+    patch::{Hunk, PatchFault, apply_hunks, conflicting_hunks},
+};
 use crate::{
     decoder::{ContentEdit, Decoder},
     keyring::Keyring,
@@ -111,6 +114,61 @@ pub fn prepare(
         PublicationPreparation::Write(frozen) => Prepared::Write(frozen),
     })
 }
+/// A save's hunks could not be placed on the page as it now is: the text they anchor to moved or
+/// changed. Nothing is written. `hunks` are the indices, as the editor sent them, that conflict.
+#[derive(Debug)]
+pub struct HunkConflict {
+    pub hunks: Vec<usize>,
+    fault: PatchFault,
+}
+impl std::fmt::Display for HunkConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fault.fmt(f)
+    }
+}
+impl std::error::Error for HunkConflict {}
+
+/// Prepare a save that also carries the editor's change as anchored hunks. While the page is
+/// still the source the editor opened, this is exactly `prepare`. When it moved, the hunks are
+/// evaluated on the page as it now is, with the same rules as `page patch --diff`: each must match
+/// exactly once and all apply or none does, and the result is prepared against that source, so a
+/// page that moves again turns it into a stale-base refusal for the caller to evaluate once more.
+/// When the page the editor saw had changed, the result is a merge and its digest says which source
+/// the commit holds.
+pub fn prepare_merging(
+    open: &SourceOpener,
+    save: &Save,
+    hunks: &[Hunk],
+    clock: &dyn Fn() -> crate::Result<u64>,
+) -> crate::Result<(Prepared, Option<[u8; 32]>)> {
+    match prepare(open, save, clock) {
+        Err(error) if matches!(error.downcast_ref::<Fault>(), Some(Fault::StaleBase)) => {
+            let mut view = open()?;
+            let current =
+                super::read(&view.store, &view.keyring, &save.page, &mut view.decoder)?.source;
+            let merged = match apply_hunks(&current, hunks) {
+                Ok(merged) => merged,
+                Err(fault @ PatchFault::Conflict(_)) => {
+                    return Err(Box::new(HunkConflict {
+                        hunks: conflicting_hunks(&current, hunks),
+                        fault,
+                    }));
+                }
+                Err(other) => return Err(Box::new(other)),
+            };
+            let merged_digest = tmt_colab_model::crypto::digest(merged.as_bytes());
+            let merged_save = Save {
+                page: save.page.clone(),
+                operation_id: save.operation_id.clone(),
+                base_sha256: tmt_colab_model::crypto::digest(current.as_bytes()),
+                source: merged,
+                attachments: None,
+            };
+            Ok((prepare(open, &merged_save, clock)?, Some(merged_digest)))
+        }
+        other => Ok((other?, None)),
+    }
+}
 /// The one reply to a save or a status request. `absent` means the operation never reached a
 /// terminal outcome, so nothing was committed and the person may save again from a fresh view.
 #[derive(Serialize)]
@@ -124,6 +182,15 @@ pub struct SaveResult {
     pub code: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Committed only: the page had changed since the editor opened it and the save was merged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merged: Option<bool>,
+    /// Merged only: the digest of the source the commit holds, which the editor never had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_sha256: Option<String>,
+    /// Rejected only: the hunks (as sent, 0-based) whose anchors moved or changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflicts: Option<Vec<usize>>,
 }
 impl SaveResult {
     fn state(operation_id: &str, state: &'static str) -> Self {
@@ -133,12 +200,23 @@ impl SaveResult {
             revision: None,
             code: None,
             message: None,
+            merged: None,
+            source_sha256: None,
+            conflicts: None,
         }
     }
     pub fn committed(operation_id: &str, revision: String) -> Self {
         Self {
             revision: Some(revision),
             ..Self::state(operation_id, "committed")
+        }
+    }
+    /// A commit whose source is the editor's change merged into a page that had moved.
+    pub fn merged(operation_id: &str, revision: String, source_sha256: String) -> Self {
+        Self {
+            merged: Some(true),
+            source_sha256: Some(source_sha256),
+            ..Self::committed(operation_id, revision)
         }
     }
     pub fn unchanged(operation_id: &str, revision: String) -> Self {
@@ -160,6 +238,9 @@ impl SaveResult {
         Self {
             code: Some(code),
             message: Some(message),
+            conflicts: error
+                .downcast_ref::<HunkConflict>()
+                .map(|conflict| conflict.hunks.clone()),
             ..Self::state(operation_id, "rejected")
         }
     }
@@ -185,6 +266,9 @@ fn refusal(error: &(dyn std::error::Error + 'static)) -> (&'static str, String) 
     }
     if let Some(fault) = error.downcast_ref::<Fault>() {
         return (fault.code(), error.to_string());
+    }
+    if let Some(conflict) = error.downcast_ref::<HunkConflict>() {
+        return (conflict.fault.code(), error.to_string());
     }
     // The operation ID was used before with different bytes: that save is not this one.
     if error.downcast_ref::<OwnerFault>() == Some(&OwnerFault::Conflict) {

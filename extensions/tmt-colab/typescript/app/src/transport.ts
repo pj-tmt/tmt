@@ -43,6 +43,10 @@ export interface PageSnapshot extends PageSummary {
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
+/** What a Save did: `merged` when the page had changed meanwhile and the edit was merged into it. */
+export interface SaveOutcome {
+  merged: boolean;
+}
 export interface PageBinding {
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
@@ -52,8 +56,9 @@ export interface PageBinding {
   markThreadStatusSeen?(thread: DiscussionRef): void;
   reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
-  /** Save the whole source; a typed change also sets or removes document attachment references. */
-  edit(source: string, base: string, attachments?: attachment.DocumentChange): Promise<void>;
+  /** Save the source the editor opened as `base` changed into `source`, merging it into a page
+   * that moved meanwhile; a typed change also sets or removes document attachment references. */
+  edit(source: string, base: string, attachments?: attachment.DocumentChange): Promise<SaveOutcome>;
   /** How full the page is, from the serve. Present only where this device may save. */
   usage?(): Promise<PageUsage>;
   /** Combine this serve's own stream and report what changed. Present only where `usage` is. */
