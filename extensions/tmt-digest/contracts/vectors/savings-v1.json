@@ -1,0 +1,428 @@
+{
+  "contract": "../digest-v1.md#savings",
+  "events": [
+    {
+      "name": "ordered-example",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 3,
+        "retainedCount": 3,
+        "membershipComplete": true,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1000,
+            "contextObservedAtMs": 800
+          },
+          {
+            "sequence": 2,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1200,
+            "contextObservedAtMs": 800
+          },
+          {
+            "sequence": 3,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1500,
+            "contextObservedAtMs": 800
+          }
+        ]
+      },
+      "expected": {
+        "tokens": 2700,
+        "avoided": 2,
+        "gap": null
+      }
+    },
+    {
+      "name": "unknown-first-baseline",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 2,
+        "retainedCount": 2,
+        "membershipComplete": true,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": null,
+            "contextObservedAtMs": null
+          },
+          {
+            "sequence": 2,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1200,
+            "contextObservedAtMs": 800
+          }
+        ]
+      },
+      "expected": {
+        "tokens": 1200,
+        "avoided": 1,
+        "gap": null
+      }
+    },
+    {
+      "name": "singleton-without-context",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 1,
+        "retainedCount": 1,
+        "membershipComplete": true,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": null,
+            "contextObservedAtMs": null
+          }
+        ]
+      },
+      "expected": {
+        "tokens": 0,
+        "avoided": 0,
+        "gap": null
+      }
+    },
+    {
+      "name": "missing-required-context",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 2,
+        "retainedCount": 2,
+        "membershipComplete": true,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1000,
+            "contextObservedAtMs": 800
+          },
+          {
+            "sequence": 2,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": null,
+            "contextObservedAtMs": null
+          }
+        ]
+      },
+      "expected": {
+        "tokens": null,
+        "avoided": 1,
+        "gap": "missing_context"
+      }
+    },
+    {
+      "name": "incomplete-membership",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 3,
+        "retainedCount": 1,
+        "membershipComplete": false,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1000,
+            "contextObservedAtMs": 800
+          }
+        ]
+      },
+      "expected": {
+        "tokens": null,
+        "avoided": 2,
+        "gap": "incomplete_membership"
+      }
+    },
+    {
+      "name": "legacy-count",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": null,
+        "retainedCount": 1,
+        "membershipComplete": false,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1000,
+            "contextObservedAtMs": 800
+          }
+        ]
+      },
+      "expected": {
+        "tokens": null,
+        "avoided": null,
+        "gap": "incomplete_membership"
+      }
+    },
+    {
+      "name": "definitely-unsent",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "definitely_unsent",
+        "opportunity": "idle",
+        "sealedCount": 3,
+        "retainedCount": 0,
+        "membershipComplete": false,
+        "nextItemAfter": null,
+        "items": []
+      },
+      "expected": {
+        "tokens": 0,
+        "avoided": 0,
+        "gap": null
+      }
+    },
+    {
+      "name": "uncertain",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "uncertain",
+        "opportunity": "idle",
+        "sealedCount": 3,
+        "retainedCount": 0,
+        "membershipComplete": false,
+        "nextItemAfter": null,
+        "items": []
+      },
+      "expected": {
+        "tokens": 0,
+        "avoided": 0,
+        "gap": null
+      }
+    },
+    {
+      "name": "unsafe-sum",
+      "input": {
+        "checklistId": "20000000-0000-4000-8000-000000000001",
+        "settlementSequence": 6,
+        "claimedAtMs": 1000,
+        "settledAtMs": 1100,
+        "outcome": "delivered",
+        "opportunity": "idle",
+        "sealedCount": 3,
+        "retainedCount": 3,
+        "membershipComplete": true,
+        "nextItemAfter": null,
+        "items": [
+          {
+            "sequence": 1,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 0,
+            "contextObservedAtMs": 800
+          },
+          {
+            "sequence": 2,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 9007199254740991,
+            "contextObservedAtMs": 800
+          },
+          {
+            "sequence": 3,
+            "createdAtMs": 900,
+            "contextTokensAtArrival": 1,
+            "contextObservedAtMs": 800
+          }
+        ]
+      },
+      "expected": {
+        "tokens": null,
+        "avoided": 2,
+        "gap": "unsafe_arithmetic"
+      }
+    }
+  ],
+  "status": [
+    {
+      "name": "known-lifetime",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 2000,
+        "event": "ordered-example",
+        "counter": 1,
+        "baselineCounter": 0,
+        "window": "lifetime"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "lifetime",
+        "fromMs": 1000,
+        "throughMs": 2000,
+        "estimatedInputTokensAvoided": 2700,
+        "avoidedSeparateDeliveries": 2,
+        "complete": true,
+        "gap": null
+      }
+    },
+    {
+      "name": "covered-empty-day",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 86401000,
+        "event": null,
+        "counter": 0,
+        "baselineCounter": 0,
+        "window": "24h"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "24h",
+        "fromMs": 1000,
+        "throughMs": 86401000,
+        "estimatedInputTokensAvoided": 0,
+        "avoidedSeparateDeliveries": 0,
+        "complete": true,
+        "gap": null
+      }
+    },
+    {
+      "name": "before-collection-week",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 86401000,
+        "event": null,
+        "counter": 0,
+        "baselineCounter": 0,
+        "window": "7d"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "7d",
+        "fromMs": 0,
+        "throughMs": 86401000,
+        "estimatedInputTokensAvoided": null,
+        "avoidedSeparateDeliveries": null,
+        "complete": false,
+        "gap": "before_collection"
+      }
+    },
+    {
+      "name": "unknown-context",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 2000,
+        "event": "missing-required-context",
+        "counter": 1,
+        "baselineCounter": 0,
+        "window": "lifetime"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "lifetime",
+        "fromMs": 1000,
+        "throughMs": 2000,
+        "estimatedInputTokensAvoided": null,
+        "avoidedSeparateDeliveries": 1,
+        "complete": false,
+        "gap": "missing_context"
+      }
+    },
+    {
+      "name": "uncollected-delivery",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 2000,
+        "event": "ordered-example",
+        "counter": 2,
+        "baselineCounter": 0,
+        "window": "lifetime"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "lifetime",
+        "fromMs": 1000,
+        "throughMs": 2000,
+        "estimatedInputTokensAvoided": null,
+        "avoidedSeparateDeliveries": null,
+        "complete": false,
+        "gap": "uncollected_deliveries"
+      }
+    },
+    {
+      "name": "baseline-excludes-earlier-deliveries",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 1000,
+        "event": null,
+        "counter": 10,
+        "baselineCounter": 10,
+        "window": "lifetime"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "lifetime",
+        "fromMs": 1000,
+        "throughMs": 1000,
+        "estimatedInputTokensAvoided": 0,
+        "avoidedSeparateDeliveries": 0,
+        "complete": true,
+        "gap": null
+      }
+    },
+    {
+      "name": "incomplete-membership",
+      "given": {
+        "startedAtMs": 1000,
+        "throughMs": 2000,
+        "event": "incomplete-membership",
+        "counter": 1,
+        "baselineCounter": 0,
+        "window": "lifetime"
+      },
+      "expected": {
+        "method": "context-input-avoided-v1",
+        "window": "lifetime",
+        "fromMs": 1000,
+        "throughMs": 2000,
+        "estimatedInputTokensAvoided": null,
+        "avoidedSeparateDeliveries": 2,
+        "complete": false,
+        "gap": "incomplete_membership"
+      }
+    }
+  ]
+}

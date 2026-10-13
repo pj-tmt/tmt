@@ -31,6 +31,7 @@ case "$*" in
  'api')
    n=$(grep -c '^api$' calls)
    cat > "request.$n.json"
+   if grep -q '"operation":"storage.root"' "request.$n.json"; then cat storage.json; exit 0; fi
    if test -f stats-fail; then
      printf '%s\n' '{"error":{"code":"STORAGE_NOT_WRITABLE","message":"unavailable"}}'
      exit 1
@@ -56,6 +57,7 @@ esac
                 "identityId":ID,"heldCount":3,"observedAtMs":1000,"oldestHeldAgeMs":500
             }]}),
         );
+        fixture.write("storage.json", json!({"dataRoot":fixture.0.join("state")}));
         fs::write(fixture.0.join("digest.toml"), "default = '5m'\n").unwrap();
         fixture
     }
@@ -63,8 +65,11 @@ esac
         fs::write(self.0.join(file), serde_json::to_vec(&value).unwrap()).unwrap();
     }
     fn run(&self) -> Output {
+        self.run_args(&["status", "--json"])
+    }
+    fn run_args(&self, words: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_tmt-digest"))
-            .args(["status", "--json"])
+            .args(words)
             .current_dir(&self.0)
             .env("HOME", &self.0)
             .env("XDG_CONFIG_HOME", self.0.join("config"))
@@ -120,7 +125,7 @@ fn status_is_one_json_document_and_only_public_reads() {
     assert_eq!(document["members"][0]["savings"], Value::Null);
     assert_eq!(
         fixture.calls(),
-        ["config show --json", "identity ls --json", "api"]
+        ["config show --json", "identity ls --json", "api", "api"]
     );
     let request: Value =
         serde_json::from_slice(&fs::read(fixture.0.join("request.1.json")).unwrap()).unwrap();
@@ -149,6 +154,7 @@ fn inventory_is_read_once_and_stats_are_batched_sorted_and_bounded() {
             "identity ls --json",
             "api",
             "api",
+            "api",
             "api"
         ]
     );
@@ -171,7 +177,7 @@ fn empty_inventory_needs_no_stats_and_missing_settings_inherit_without_creation(
     assert_eq!(document["members"], json!([]));
     assert_eq!(
         fixture.calls(),
-        ["config show --json", "identity ls --json"]
+        ["config show --json", "identity ls --json", "api"]
     );
 }
 
@@ -223,4 +229,63 @@ fn discovery_failures_are_json_errors_and_never_empty_success() {
     assert_eq!(document["error"]["code"], "DIGEST_SETTINGS_INVALID");
     assert_eq!(fs::read(fixture.0.join("digest.toml")).unwrap(), before);
     assert_eq!(fixture.calls(), ["config show --json"]);
+}
+
+#[test]
+fn selected_savings_windows_read_private_history_without_changing_it() {
+    let fixture = Fixture::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let directory = fixture.0.join("state/digest/history");
+    fs::create_dir_all(&directory).unwrap();
+    for path in [fixture.0.join("state/digest"), directory.clone()] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let file = directory.join("history.sqlite");
+    let database = rusqlite::Connection::open(&file).unwrap();
+    database.execute_batch("PRAGMA user_version=1; CREATE TABLE members(id TEXT, started INTEGER, through INTEGER, counter INTEGER, pending INTEGER, tokens INTEGER, avoided INTEGER, gap TEXT, raw_from INTEGER); CREATE TABLE events(identity_id TEXT, settled INTEGER, tokens INTEGER, avoided INTEGER, gap TEXT); CREATE TABLE gaps(identity_id TEXT, from_ms INTEGER, through_ms INTEGER, reason TEXT);").unwrap();
+    database
+        .execute(
+            "INSERT INTO members VALUES(?1,?2,?3,11,0,2700,2,NULL,?2)",
+            rusqlite::params![ID, now - 2 * 86400000, now],
+        )
+        .unwrap();
+    database
+        .execute(
+            "INSERT INTO events VALUES(?1,?2,2700,2,NULL)",
+            rusqlite::params![ID, now - 1000],
+        )
+        .unwrap();
+    drop(database);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let before = fs::read(&file).unwrap();
+    let modified = fs::metadata(&file).unwrap().modified().unwrap();
+    for (index, window) in ["24h", "7d", "lifetime"].into_iter().enumerate() {
+        // Each process reuses the public discovery boundary and independent Core fixture.
+        fixture.write(&format!("stats.{}.json",index*2+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":now,"oldestHeldAgeMs":null,"deliveredDigests":11}]}));
+        let output = fixture.run_args(&["status", "--json", "--window", window]);
+        assert!(output.status.success(), "{:?}", output.stderr);
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let row = &document["members"][0];
+        assert_eq!(row["deliveredDigests"], 11);
+        assert_eq!(row["oldestHeldAgeMs"], Value::Null);
+        assert_eq!(row["savings"]["window"], window);
+        assert_eq!(row["savings"]["throughMs"], now);
+        if window == "7d" {
+            assert_eq!(row["savings"]["gap"], "before_collection");
+            assert_eq!(row["savings"]["estimatedInputTokensAvoided"], Value::Null);
+        } else {
+            assert_eq!(row["savings"]["estimatedInputTokensAvoided"], 2700);
+            assert_eq!(row["savings"]["complete"], true);
+        }
+        assert!(row["savings"].get("estimatedCostUsd").is_none());
+        assert!(row["savings"].get("percent").is_none());
+        assert_eq!(fs::read(&file).unwrap(), before);
+        assert_eq!(fs::metadata(&file).unwrap().modified().unwrap(), modified);
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 1);
+    }
+    let invalid = fixture.run_args(&["status", "--json", "--window", "30d"]);
+    assert_eq!(invalid.status.code(), Some(2));
 }

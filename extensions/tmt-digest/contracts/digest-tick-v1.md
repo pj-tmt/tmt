@@ -13,7 +13,8 @@ Each admitted run ends at the next wall-clock minute boundary. A monotonic budge
 prevents a wall-clock rollback extending its lifetime. No new Core call starts
 after the boundary; an already-started call can finish within its existing
 15-second bound before the process exits and releases the lock. The next minute's invocation resumes from current Core
-observations, without a last-sent timestamp or persistent scheduler state.
+observations, without a last-sent timestamp or persistent scheduler state. Its separate
+[history](digest-v1.md#history) cursor records evidence, never delivery eligibility.
 
 ## Settings and deadlines
 
@@ -57,6 +58,15 @@ within the invocation. Other members can still proceed. An observation or policy
 failure is reported; no hidden fallback or direct transport is attempted. A new
 tick independently reads current policy/checklist state; an uncertain sealed
 checklist remains Core-owned and never becomes a replay lease.
+
+## History collection
+
+The tick reconciles retained settlements once when each member is first observed
+in the invocation, and after its own flush opportunities. Core provider/talk/check
+settlements between these observations are collected by the next tick. Status
+exposes the last reconciled watermark and flags newly observed uncollected
+successful deliveries. Collection runs within the same minute deadline. Errors
+are reported without marking the member delivery-failed or retrying delivery.
 
 Tick success produces no stdout. Invalid settings, unavailable Core, lock errors
 and incomplete Core responses return a human error and nonzero status. There is

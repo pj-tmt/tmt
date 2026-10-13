@@ -4,8 +4,7 @@ use crate::{core::Error, settings::Mode};
 use nix::fcntl::{Flock, FlockArg};
 use std::{
     fs::{self, OpenOptions},
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
-    path::PathBuf,
+    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -37,28 +36,26 @@ impl TickClock for MinuteClock {
 
 pub fn execute() -> Result<(), Error> {
     let core = crate::core::Core::discover()?;
-    let shown = core.api("storage.root", serde_json::json!({}))?;
-    let root = shown["dataRoot"]
-        .as_str()
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .ok_or_else(|| {
-            Error::new(
-                "CORE_RESPONSE_INVALID",
-                "Core reported no absolute data root",
-            )
-        })?;
+    let root = core.data_root()?;
     let directory = root.join("digest");
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(&directory)?;
+    let metadata = fs::symlink_metadata(&directory)?;
+    if metadata.file_type().is_symlink() || metadata.mode() & 0o077 != 0 {
+        return Err(Error::new(
+            "DIGEST_HISTORY_INVALID",
+            "Digest directory must be private and not a symlink",
+        ));
+    }
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
         .open(directory.join("tick.lock"))?;
     let _guard = match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
         Ok(guard) => guard,
@@ -77,7 +74,14 @@ pub fn execute() -> Result<(), Error> {
     }
     let core = core.until(boundary + Duration::from_secs(15));
     let path = core.settings_path()?;
+    let history = crate::history::Store::open(&root, true).and_then(|mut history| {
+        if let Some(store) = &mut history {
+            store.maintain(now_ms()?)?;
+        }
+        Ok(history)
+    });
     let mut port = process::TickProcess::new(core, path, boundary_ms, boundary);
+    port.attach_history(history);
     let outcome = run_until(&mut clock, &mut port, boundary_ms, remaining);
     match (outcome, port.finish()) {
         (Ok(()), result) => result,
