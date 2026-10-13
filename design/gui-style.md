@@ -186,6 +186,30 @@ and foreign not checked), Add remote (door address and remote link), catalog
 confirmation with a collision and nothing addable, remove confirmation, and the
 Remote header's four chip states, menu and unreachable-page notice.
 
+### Quick switcher
+
+Colab's **Search pages** header action and Cmd/Ctrl+K open a modal
+[BrowserDialog](browser-ui/README.md#dialog) over the current page. It uses the
+same search editor and label/author filters as the page list; collections are not
+part of v1. Pages remain inert title text, with muted author/labels and the
+existing mark-plus-word Waiting state. The current page is excluded.
+
+- Keep one search row above a scrollable, single-column result list, with no
+  loading flash when a cached list is available. The input keeps focus while
+  arrows move the active result. Filter suggestions get the keys first; otherwise
+  Enter opens that result. Escape closes suggestions, then the dialog and returns
+  focus. Successful navigation focuses the destination title. Editors retain
+  their own shortcuts; repeated and composing keys never activate a result.
+- The content-fitting surface is opaque, square, thin-edged and shadow-free,
+  using existing focus/selection/scrim tokens. It is modal at every width, with
+  safe-area margins, no body scroll lock and contained result scrolling. Close
+  and the input remain reachable at compact or short viewport sizes.
+- Show **Loading pages…** only without usable rows, **No pages yet.** for an empty
+  space, **No other pages in this space.** after current-page exclusion, and
+  **No matching pages.** for a filter with no results. A failed cold read says
+  **Couldn't load pages. Close and try again.**; a failed background refresh keeps
+  the cached list. No implicit navigation or write occurs on opening.
+
 ### Setup guide
 
 The first-run and not-installed screen, built from Card, Status mark and Button:

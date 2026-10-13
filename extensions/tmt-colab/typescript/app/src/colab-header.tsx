@@ -2,6 +2,7 @@ import type { ReactNode, Ref } from 'react';
 import { BrowserHeader } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
 import './colab-header.css';
+import { QuickSwitcherControl } from './quick-switcher-control.js';
 
 /** Colab supplies routing and content to the shared presentation. */
 export function ColabHeader({
@@ -52,7 +53,12 @@ export function ColabHeader({
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
       brandLink={home}
-      actions={actions ?? <></>}
+      actions={
+        <>
+          <QuickSwitcherControl />
+          {actions}
+        </>
+      }
       status={status}
       headerRef={headerRef}
     />
