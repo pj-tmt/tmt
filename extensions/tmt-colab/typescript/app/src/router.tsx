@@ -1821,7 +1821,10 @@ function Page() {
         value={{
           ...notifications.context,
           blockSurface:
-            notifications.modalCount || annotation?.thread || recoveryRequired || quickSwitcher?.open
+            notifications.modalCount ||
+            annotation?.thread ||
+            recoveryRequired ||
+            quickSwitcher?.open
               ? 'covered'
               : panel === 'comments'
                 ? 'comments'

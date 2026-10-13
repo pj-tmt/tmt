@@ -188,8 +188,7 @@ export function QuickSwitcherHost({
             inputTrigger={{
               open: results.length > 0,
               onOpenChange() {},
-              // The shared search-key/ARIA handoff is applied here after #2883 merges.
-              render: () => (
+              render: (trigger) => (
                 <PageListSearch
                   edit={edit}
                   onChange={setEdit}
@@ -198,6 +197,23 @@ export function QuickSwitcherHost({
                   authors={source.state === 'ready' ? authorCounts(source.pages) : []}
                   onApply={setEdit}
                   onClear={() => setOpen(false)}
+                  placeholder={t.placeholder}
+                  resultTrigger={trigger}
+                  onUnhandledKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (
+                        event.repeat ||
+                        event.altKey ||
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey
+                      )
+                        return;
+                      setOpen(false);
+                    } else trigger.onKeyDown?.(event);
+                  }}
                 />
               ),
             }}
