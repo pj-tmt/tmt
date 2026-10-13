@@ -47,6 +47,12 @@ channels and the driver protocol. The owner map is in
   tmux. External syntax comes from approved drivers registered once at start
   (`host::external::register_approved`) in core's write-once registry. Names an approved
   driver reads as targets (Herdr's `wN:pM`) are refused only as new names.
+- Target syntax is case-sensitive; the
+  [contract](../../../../contracts/driver-protocol-v1.md#capabilities) owns its alphabet.
+  Explicit target classification (`names::is_pane_target`, `Host::for_target`) reads
+  `names::target_text`: trimmed and composed, case kept. A new name is refused when its text or
+  its lowercased key reads as a target (`names::names_pane_target`), since an identity is found
+  by its key; existing-name validation still reads the key.
 - Herdr's stored token, pane IDs, markers and `host_servers` rows predate its move to a driver
   (#1082): they parse as `External(herdr)`, so earlier bindings read as unknown, never lost,
   until the driver is approved. Without it, a Herdr pane command keeps its result and prints

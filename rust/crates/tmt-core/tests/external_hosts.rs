@@ -3,11 +3,30 @@
 
 use tmt_core::{
     host::{AlreadyRegistered, HostGrammar, HostKind, MAX_EXTERNAL_HOSTS, register_external_hosts},
-    names::{validate_existing_name, validate_name},
+    identity::{Identity, IdentityReader, Lifetime, addresses_pane, find_by_name},
+    names::{is_pane_target, names_pane_target, validate_existing_name, validate_name},
 };
 
 fn grammar(name: &str, prefix: &str, target: Option<&str>) -> HostGrammar {
     HostGrammar::new(name, prefix, target).unwrap()
+}
+
+/// Storage that holds at most one identity.
+struct Identities(Option<Identity>);
+
+impl IdentityReader for Identities {
+    type Error = std::convert::Infallible;
+
+    fn find_identity(&self, canonical_name: &str) -> Result<Option<Identity>, Self::Error> {
+        Ok(self
+            .0
+            .clone()
+            .filter(|identity| identity.canonical_name == canonical_name))
+    }
+
+    fn list_identities(&self) -> Result<Vec<Identity>, Self::Error> {
+        Ok(self.0.clone().into_iter().collect())
+    }
 }
 
 #[test]
@@ -55,6 +74,45 @@ fn approved_hosts_are_registered_once_and_parse_as_external() {
     assert_eq!(
         validate_existing_name("W1:P2").unwrap().canonical_name(),
         "w1:p2"
+    );
+
+    // Herdr numbers with digits and uppercase letters. A target is read with
+    // its case kept: lowercase letters make a name, on any host.
+    assert!(herdr.is_target("w1:p2E") && !herdr.is_target("w1:p2e"));
+    assert!(is_pane_target("w1:p2E") && is_pane_target(" ｗ１:ｐ２Ｅ "));
+    assert!(validate_name("w1:p2E").is_err());
+    for name in ["w1:p2e", "W1:P2E", "web:prod", "sol", "fred"] {
+        assert!(!is_pane_target(name), "{name}");
+    }
+    for name in ["w1:p2e", "web:prod", "sol", "fred"] {
+        assert!(validate_name(name).is_ok(), "{name}");
+    }
+    // A name is found by its key, so one whose key is a target is refused
+    // although its own text is not one.
+    assert!(!is_pane_target("W1:P2") && names_pane_target("W1:P2"));
+    assert!(validate_name("W1:P2").is_err());
+    // tmux's syntax does not depend on case.
+    assert!(is_pane_target("Work:1.2") && validate_name("Work:1.2").is_err());
+    // An identity that already holds the key of a lettered target keeps
+    // answering for it; without one the text addresses the pane.
+    assert!(addresses_pane(&Identities(None), "w1:p2E").unwrap());
+    let holder = Identities(Some(Identity {
+        id: "identity-1".into(),
+        name: "w1:p2e".into(),
+        canonical_name: "w1:p2e".into(),
+        lifetime: Lifetime::Saved,
+        created_at: "2026-09-13T00:00:00Z".into(),
+        updated_at: "2026-09-13T00:00:00Z".into(),
+    }));
+    assert!(!addresses_pane(&holder, "w1:p2E").unwrap());
+    let found = find_by_name(&holder, "w1:p2E").unwrap();
+    assert_eq!(
+        found.map(|identity| identity.id).as_deref(),
+        Some("identity-1")
+    );
+    assert_eq!(
+        validate_existing_name("w1:p2E").unwrap().canonical_name(),
+        "w1:p2e"
     );
 
     // Its targets are no new identity's name, but an earlier holder keeps one.

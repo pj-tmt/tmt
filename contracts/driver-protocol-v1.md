@@ -127,8 +127,10 @@ The request is `{}`. The answer:
   prefix.
 - **`target`:** how a user names a pane, or `null` when panes have no public
   name. It is a template of up to 32 characters: literal `[a-z:]` and `{n}`,
-  where `{n}` stands for 1–9 digits. It starts with a letter, holds at least one
-  `{n}`, and never has two `{n}` in a row.
+  where `{n}` stands for 1–9 characters of `[0-9A-Z]`. It starts with a letter,
+  holds at least one `{n}`, and never has two `{n}` in a row. A target is
+  case-sensitive: text with a lowercase letter where a `{n}` stands does not
+  match this declared syntax.
 - **`callerEnv`:** at most 4 environment variables that `caller` reads, each
   `[A-Z][A-Z0-9_]*` and never `TMT_*`.
 
