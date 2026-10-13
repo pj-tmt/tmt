@@ -86,8 +86,15 @@ pub static OPENCODE: DriverDescriptor = DriverDescriptor {
     hue: Hue::Neutral,
 };
 
+pub static MUSE: DriverDescriptor = DriverDescriptor {
+    name: "muse",
+    executables: &["muse"],
+    hooks: None,
+    hue: Hue::Neutral,
+};
+
 /// Every built-in driver, in detection and `install all` order.
-pub static ALL: [&DriverDescriptor; 6] = [&CLAUDE, &CODEX, &GEMINI, &AGY, &PI, &OPENCODE];
+pub static ALL: [&DriverDescriptor; 7] = [&CLAUDE, &CODEX, &GEMINI, &AGY, &PI, &OPENCODE, &MUSE];
 
 /// The built-in driver with this name, ignoring ASCII case.
 pub fn named(name: &str) -> Option<&'static DriverDescriptor> {

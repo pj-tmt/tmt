@@ -563,7 +563,7 @@ tmt talk <identity> "message" --inbox # durable queue without pane delivery
 tmt x listen --identity <name>       # bounded recipient/result wait
 tmt check <target> [lines]
 tmt ls [target]                       # list identities or one pane
-tmt install [claude|codex|gemini|agy|pi|opencode|all]
+tmt install [claude|codex|gemini|agy|pi|opencode|muse|all]
 tmt upgrade
 ```
 
@@ -1020,7 +1020,7 @@ options are unsupported on every command; remove them from invocations.
 ### Skill installation
 
 Install the same native skill with `tmt install` (auto-detects supported agents).
-Claude uses `<CLAUDE_CONFIG_DIR>/skills` (otherwise `~/.claude/skills`); Codex, Gemini and OpenCode share
+Claude uses `<CLAUDE_CONFIG_DIR>/skills` (otherwise `~/.claude/skills`); Codex, Gemini, OpenCode and Muse share
 `~/.agents/skills`. Antigravity CLI (`agy`) uses
 `~/.gemini/config/skills`; Pi uses `~/.pi/agent/skills`
 (or `<PI_CODING_AGENT_DIR>/skills` when configured). Each selected root receives
@@ -1044,7 +1044,7 @@ that a running conversation has refreshed its instructions.
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
 shows the guide. Both are text-only. Install default integrations with
-`tmt install [claude|codex|gemini|agy|pi|opencode|all]`, or choose a skills root explicitly:
+`tmt install [claude|codex|gemini|agy|pi|opencode|muse|all]`, or choose a skills root explicitly:
 
 ```bash
 tmt install --dir ./my-skills

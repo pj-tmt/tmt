@@ -256,7 +256,7 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
             .collect::<Vec<_>>(),
         vec![
             "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
-            "opencode", "opencode"
+            "opencode", "opencode", "muse", "muse"
         ]
     );
     assert_eq!(
@@ -294,6 +294,54 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
     .into_iter()
     .collect::<BTreeSet<_>>();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn muse_install_replaces_catalog_targets_without_backup_or_force() {
+    let (_directory, environment, global, home) = fixture();
+    let root = home.join(".agents/skills");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("tmt"), b"old unmanaged skill").unwrap();
+    fs::write(root.join("other"), b"unrelated skill").unwrap();
+
+    let first = install(&environment, &global, Some("muse"), None, false).unwrap();
+    assert_eq!(first.installed.len(), 2);
+    assert!(first.installed.iter().all(|item| {
+        item.agent == Some(&crate::drivers::muse::DRIVER)
+            && item.changed
+            && item.backup.is_none()
+            && item.legacy_backups.is_empty()
+    }));
+    assert_eq!(
+        first
+            .installed
+            .iter()
+            .map(|item| item.target.clone())
+            .collect::<BTreeSet<_>>(),
+        [root.join("tmt"), root.join("tmt-inbox")]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        fs::read(assert_link(&root.join("tmt")).join("SKILL.md")).unwrap(),
+        bundled_skill()
+    );
+    assert_eq!(
+        fs::read(assert_link(&root.join("tmt-inbox")).join("SKILL.md")).unwrap(),
+        bundled_skill_named("tmt-inbox").unwrap()
+    );
+    assert_eq!(fs::read(root.join("other")).unwrap(), b"unrelated skill");
+    assert!(!home.join(".config/muse").exists());
+    assert!(!home.join(".agents/.tmt-skill-backups").exists());
+
+    let second = install(&environment, &global, Some("muse"), None, false).unwrap();
+    assert_eq!(second.installed.len(), 2);
+    assert!(
+        second
+            .installed
+            .iter()
+            .all(|item| !item.changed && item.backup.is_none())
+    );
 }
 
 #[test]
