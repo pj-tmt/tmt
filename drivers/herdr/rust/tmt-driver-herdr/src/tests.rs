@@ -346,6 +346,71 @@ fn a_snapshot_reports_the_scoped_panes_their_shells_and_markers() {
     runner.done();
 }
 
+/// Herdr numbers workspaces, tabs and panes with `1`-`9`, uppercase letters
+/// and then `0`: the tenth pane is `pA`, the 32nd `p0` and the 33rd `p11`.
+/// Every listed target must validate, including panes outside the scope.
+#[test]
+fn panes_numbered_with_letters_are_listed_resolved_and_the_caller() {
+    let runner = Scripted::default();
+    runner
+        .json(list(vec![
+            pane("w1:p1E", "term_a1", None),
+            pane("wA:pG", "term_a2", None),
+            pane("w3:p0", "term_a3", None),
+            pane("w3:p11", "term_a4", None),
+        ]))
+        .json(process("w1:p1E", 90593, "claude"))
+        .json(process("wA:pG", 90594, "zsh"))
+        .json(process("w3:p0", 90595, "zsh"))
+        .json(process("w3:p11", 90596, "zsh"));
+    let answer = serve(
+        &runner,
+        "snapshot",
+        json!({"socket": SOCKET, "panes": null}),
+    );
+    let targets: Vec<&str> = answer["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|pane| pane["target"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        targets,
+        ["w1:p1E", "wA:pG", "w3:p0", "w3:p11"],
+        "{answer:#}"
+    );
+    runner.done();
+
+    let runner = Scripted::default();
+    runner.json(got(pane("w1:p2C", "term_a2", None)));
+    let request = json!({"socket": SOCKET, "target": "w1:p2C"});
+    assert_eq!(
+        serve(&runner, "resolve-target", request)["paneId"],
+        "term_a2"
+    );
+    assert_eq!(runner.commands(), ["herdr pane get w1:p2C"]);
+    // Herdr's letters are uppercase; lowercase is not its target.
+    let answer = serve(
+        &runner,
+        "resolve-target",
+        json!({"socket": SOCKET, "target": "w1:p2c"}),
+    );
+    assert_eq!(error_code(&answer), "bad_request");
+    runner.done();
+
+    let runner = Scripted::default();
+    runner
+        .json(status("0.9.3"))
+        .json(got(pane("w1:pA", "term_a2", None)))
+        .json(process("w1:pA", 90593, "zsh"));
+    let env = json!({"HERDR_PANE_ID": "w1:pA", "HERDR_SOCKET_PATH": SOCKET});
+    assert_eq!(
+        serve(&runner, "caller", json!({"env": env}))["pane"],
+        json!({"id": "term_a2", "socket": SOCKET, "shellPid": 90593})
+    );
+    runner.done();
+}
+
 #[test]
 fn an_invalid_or_repeated_pane_list_is_not_evidence() {
     for panes in [
@@ -355,6 +420,10 @@ fn an_invalid_or_repeated_pane_list_is_not_evidence() {
         ],
         vec![pane("w1:p1", "term_A1", None)],
         vec![pane("pane-1", "term_a1", None)],
+        vec![
+            pane("w1:p1", "term_a1", None),
+            pane("w1:p2e", "term_a2", None),
+        ],
     ] {
         let runner = Scripted::default();
         runner.json(list(panes));

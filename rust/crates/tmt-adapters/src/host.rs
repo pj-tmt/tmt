@@ -309,12 +309,12 @@ impl Host {
     /// The host whose syntax an explicit pane target uses; text that no host
     /// reads as a target is resolved by name elsewhere.
     pub fn for_target(target: &str) -> Self {
-        let canonical = tmt_core::names::normalize_name(target);
+        let text = tmt_core::names::target_text(target);
         // The syntaxes are disjoint (approval refuses an overlap); tmux, the
         // broadest, is the default.
         let host = HostKind::all()
             .filter(|host| *host != HostKind::Tmux)
-            .find(|host| host.is_target(&canonical))
+            .find(|host| host.is_target(&text))
             .unwrap_or(HostKind::Tmux);
         Self::of(host, UnixCommandRunner).with_drivers(external::approved())
     }

@@ -61,6 +61,7 @@ case "$3" in
   capture) printf '{"ok":{"text":"captured line"}}' ;;
   focus) printf '{"ok":{}}' ;;
   resolve-target)
+    printf '%s\n' "$input" >> "$d/resolved"
     if [ -f "$d/slow" ]; then sleep 3; fi
     if [ -f "$d/fail" ]; then printf '{"error":{"code":"failed","message":"host is wedged"}}'; exit 0; fi
     case "$input" in
@@ -383,6 +384,32 @@ fn an_explicit_target_resolves_through_its_driver_without_asking_for_a_caller() 
     assert!(!missing.status.success());
     let failure: Value = serde_json::from_slice(&missing.stdout).unwrap();
     assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
+
+    // A number may hold uppercase letters, and the target reaches its driver
+    // as typed. Text with lowercase letters there is not selected as this
+    // host's target: `talk` reads it as a name and asks no driver.
+    let asked = |fixture: &Fixture| -> Vec<Value> {
+        fixture
+            .requests("resolved")
+            .iter()
+            .map(|request| request["target"].clone())
+            .collect()
+    };
+    let before = asked(&fixture).len();
+    let lettered = fixture.tmt(&["add", "fZ9", "other", "--json"]);
+    assert!(!lettered.status.success());
+    let failure: Value = serde_json::from_slice(&lettered.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
+    assert_eq!(asked(&fixture)[before..], ["fZ9"]);
+    for (text, code, resolved) in [("fZ9", "PANE_NOT_FOUND", 2), ("fz9", "NAME_NOT_FOUND", 2)] {
+        let talk = fixture.tmt(&["talk", text, "hello", "--detach", "--json"]);
+        assert!(!talk.status.success(), "{talk:?}");
+        let failure: Value = serde_json::from_slice(&talk.stdout).unwrap();
+        assert_eq!(failure["error"]["code"], code, "{text}: {failure:#}");
+        let asked = asked(&fixture);
+        assert_eq!(asked.len(), before + resolved, "{text}");
+        assert_eq!(asked.last(), Some(&Value::from("fZ9")), "{text}");
+    }
 }
 
 #[test]
