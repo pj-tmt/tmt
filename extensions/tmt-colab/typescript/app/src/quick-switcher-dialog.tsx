@@ -128,6 +128,8 @@ export function QuickSwitcherHost({
       })
       .catch(() => {
         // The router owns its load-error surface; no second navigation or retry is admitted.
+        if (mounted.current && !latest.current.open)
+          control.current?.focus({ preventScroll: true });
       });
   };
   const hasFilter = !!(filter.q || filter.labels.length || filter.authors.length);
