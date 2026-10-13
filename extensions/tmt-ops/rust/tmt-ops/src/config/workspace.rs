@@ -209,7 +209,7 @@ impl Config {
                     &format!("squad.{name}.board"),
                     &mut notices,
                 );
-                for key in ["rows", "columns", "sections"] {
+                for key in ["layout", "rows", "columns", "sections"] {
                     if table.get(key).is_some() {
                         notices.push(format!("`squad.{name}.{key}` remains available to CLI listing; custom board sections/columns no longer compose the workspace. Use its squad tree and selected-agent details."));
                     }
@@ -532,6 +532,7 @@ mod tests {
             "board.home_replies",
             "tabs.order",
             "squad.product.board.direction",
+            "squad.product.layout",
         ] {
             assert!(
                 notices.iter().any(|notice| notice.contains(path)),
@@ -539,10 +540,9 @@ mod tests {
             );
         }
         assert!(!notices.iter().any(|notice| notice.contains("token_rate")));
-        assert!(
-            !notices
-                .iter()
-                .any(|notice| notice.contains("squad.product.layout"))
+        assert_eq!(
+            config.layout("product").unwrap(),
+            super::super::Layout::Crew
         );
         assert_eq!(config.document.to_string(), before);
     }
