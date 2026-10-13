@@ -125,6 +125,8 @@ export async function mount(
     exportAttachments?: boolean;
     /** An admitted reply already present in the initial loader snapshot. */
     pastReplies?: boolean;
+    /** Restore saved question history before the first loader/binding view. */
+    restoreQuestionPage?: boolean;
     /** Retain the committed answer until the test releases the verified projection. */
     holdQuestionView?: boolean;
     /** One answer publication fails, before commit or after a deliberately lost acknowledgement. */
@@ -670,6 +672,7 @@ export async function mount(
     },
     close() {},
   };
+  if (options.restoreQuestionPage) restoreQuestionPage();
   if (options.history) {
     conversation({ surface: options.history, state: 'waiting' });
     scrollHistory();
@@ -1371,6 +1374,8 @@ export function questionBatchAsk(state: PageAsk['state'] | 'replied') {
       issuedAt: Date.now(),
       canTrack: true,
       state: state === 'replied' ? 'accepted' : state,
+      // Match the accepted response supplied by this fixture's RemoteDouble.
+      ...(state === 'accepted' || state === 'replied' ? { requestId: `req_${id(8)}` } : {}),
       ...(state === 'refused' ? { requestId: null, reason: 'REMOTE_SCOPE_DENIED' } : {}),
       ...(state === 'replied'
         ? { reply: `I read the answers: ${input.destination.agentName}.` }

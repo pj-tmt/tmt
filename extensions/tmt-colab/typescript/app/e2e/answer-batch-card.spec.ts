@@ -41,6 +41,9 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   page,
 }) => {
   const group = await mount(page, { count: 3, agents: ['Agent 1', 'Agent 2', 'Agent 1'] });
+  const host = page.locator('#ask-page-fixture');
+  const live = host.locator('.tmt-ui-notification-status');
+  const notifications = host.locator('.tmt-ui-notification');
   await expect(group.getByRole('button', { name: 'Remove @Agent 1', exact: true })).toHaveCount(1);
   await expect(group.getByRole('button', { name: 'Remove @Agent 2', exact: true })).toHaveCount(1);
   await answerThree(page, group);
@@ -70,6 +73,17 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
       'Answers to 3 questions:\nWhich heading should we use?: Keep it\nWhat should the introduction say?: A clear introduction\nWhat should section 3 explain?: Explain the tradeoffs',
     );
   }
+  await expect(page.locator('.reply-announcement')).toHaveCount(0);
+  await expect(live).toHaveCount(1);
+  await page.evaluate(() => {
+    const region = document.querySelector('#ask-page-fixture .tmt-ui-notification-status')!;
+    const events: string[] = [];
+    Object.assign(window, { batchAnnouncements: events });
+    new MutationObserver(() => {
+      const value = region.textContent;
+      if (value) events.push(value);
+    }).observe(region, { childList: true, characterData: true, subtree: true });
+  });
   await run(page, 'questionBatchAsk', 'replied');
   await expect(
     card(page).getByText('Asked @Agent 1, @Agent 2 with 3 answers.', { exact: true }),
@@ -77,24 +91,36 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
   // One reply per recipient is present in the canonical panel, never once per answer.
   await expect(group.getByTestId('ask-reply')).toHaveCount(2);
-  await expect
-    .poll(async () =>
-      (await page.locator('.reply-announcement').allTextContents())
-        .map((value) => value.trim())
-        .filter(Boolean),
-    )
-    .toEqual(['Agent 1 replied. Agent 2 replied.']);
+  await expect(notifications).toHaveCount(2);
+  await expect(live).toContainText('I read the answers: Agent 2.');
+  const announcements = await page.evaluate(
+    () => (window as unknown as { batchAnnouncements: string[] }).batchAnnouncements,
+  );
+  for (const name of ['Agent 1', 'Agent 2'])
+    expect(
+      announcements.filter((value) => value.includes(`I read the answers: ${name}.`)),
+    ).toHaveLength(1);
+  // The same admitted batch replies cannot enter the shared queue twice.
+  await run(page, 'releaseQuestionView');
   await card(page).getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
   await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
   await expect(card(page).getByTestId('ask-entry').first()).toBeFocused();
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(2);
+  await card(page).getByTestId('ask-reply').last().scrollIntoViewIfNeeded();
+  await expect(notifications).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { batchAnnouncements: string[] }).batchAnnouncements,
+    ),
+  ).toEqual(announcements);
   await run(page, 'saveQuestionPage');
   await page.reload();
-  await run(page, 'mount');
-  await run(page, 'restoreQuestionPage');
+  await run(page, 'mount', { restoreQuestionPage: true });
   const restored = page.locator('[data-question-group]').first();
   await expect(restored).not.toHaveAttribute('data-detached');
   await expect(restored.getByTestId('ask-reply')).toHaveCount(2);
+  await expect(notifications).toHaveCount(0);
+  await expect(live).toHaveText('');
   expect((await run(page, 'proof')).sends).toHaveLength(0);
   await restored.getByRole('tab').nth(1).click();
   await expect(
