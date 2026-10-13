@@ -277,6 +277,12 @@ impl Access {
     pub fn close(mut self) -> Result<(), CleanupUnconfirmed> {
         match &mut self {
             Self::Started { _supervisor, .. } => _supervisor.close(),
+            Self::Unavailable {
+                reason: Reason::CleanupUnconfirmed(detail),
+            } => Err(CleanupUnconfirmed {
+                detail: detail.clone(),
+                original: None,
+            }),
             _ => Ok(()),
         }
     }
@@ -470,6 +476,16 @@ fn join_until<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_start_cleanup_remains_unconfirmed_at_close() {
+        let access = Access::Unavailable {
+            reason: Reason::CleanupUnconfirmed("startup reader join timed out".into()),
+        };
+        let error = access.close().unwrap_err();
+        assert!(error.to_string().contains("startup reader join timed out"));
+        assert!(error.original.is_none());
+    }
 
     struct FakeProcess {
         events: Vec<&'static str>,

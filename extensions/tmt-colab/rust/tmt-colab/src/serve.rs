@@ -526,8 +526,10 @@ fn serve(
         if let supervisor::Access::Unavailable {
             reason: supervisor::Reason::CleanupUnconfirmed(message),
         } = &access
-            && let Some(record) = &mut diagnostic
+            && let Some(mut record) = diagnostic.take()
         {
+            // Preserve the first cleanup failure: ErrorRecord is a write-once owner.
+            // Access::close carries this uncertainty alongside any later serve error.
             record.failure("cleanup", "COLAB_OUTCOME_UNKNOWN", message);
         }
         let candidate = Arc::new(Mutex::new(None));
