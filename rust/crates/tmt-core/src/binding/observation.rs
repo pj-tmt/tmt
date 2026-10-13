@@ -246,12 +246,34 @@ pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
     endpoint: &mut O,
     name: &str,
 ) -> Result<Option<PaneIdentity>, BindingError<R::Error, O::Error>> {
-    let entry = repository.with_binding_transaction(|records| {
-        endpoint.begin_coordination();
+    current_presence(repository, endpoint, |records| {
         let Some(identity) = records.find_identity(&normalize_name(name))? else {
             return Ok(None);
         };
-        let Some(entry) = records.entry_by_id(&identity.id)? else {
+        records.entry_by_id(&identity.id)
+    })
+}
+
+/// UUID lookup shares current-server evidence with name routing, without a
+/// mutable-name lookup or fallback for a missing or retired identity.
+pub fn current_identity_presence<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    identity_id: &str,
+) -> Result<Option<PaneIdentity>, BindingError<R::Error, O::Error>> {
+    current_presence(repository, endpoint, |records| {
+        records.entry_by_id(identity_id)
+    })
+}
+
+fn current_presence<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    select: impl FnOnce(&dyn BindingRecords<Error = R::Error>) -> Result<Option<BindingEntry>, R::Error>,
+) -> Result<Option<PaneIdentity>, BindingError<R::Error, O::Error>> {
+    let entry = repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let Some(entry) = select(records)? else {
             return Ok(None);
         };
         let Some(binding) = &entry.binding else {

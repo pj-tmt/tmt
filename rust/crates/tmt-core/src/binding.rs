@@ -8,7 +8,8 @@ pub mod session;
 mod evidence_tests;
 
 pub use observation::{
-    current_name_presence, evaluate_binding, list_presence, name_presence, pane_presence,
+    current_identity_presence, current_name_presence, evaluate_binding, list_presence,
+    name_presence, pane_presence,
 };
 pub use operations::{
     bind_auto_identity, bind_identity, bind_identity_at, bind_identity_with_creation,

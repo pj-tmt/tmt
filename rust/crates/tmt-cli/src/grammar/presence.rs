@@ -106,9 +106,10 @@ pub(in crate::grammar) fn check() -> Command {
 pub(in crate::grammar) fn focus() -> Command {
     general(spec!(
         "focus",
-        "Show an identity's or pane's view in your tmux client",
+        "Show an identity by name or UUID, or a pane, in your client",
         [
             "Show an agent's pane in your tmux client" => "tmt focus worker",
+            "Focus the same identity after a rename" => "tmt focus 6c57fcc9-96b1-4022-b071-870b81288814",
             "Name your client and the pane it shows" => "tmt focus --client",
         ]
     ))

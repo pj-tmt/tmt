@@ -102,7 +102,12 @@ in `contracts/`.
   default `CODEX_HOME`. Unsupported relative config paths, profile configuration
   and CLI config/profile overrides refuse rather than guess across homes.
 - `focus` needs present evidence but no running agent and switches only the invoker's own
-  client (never a bare "current client"); it sends no input.
+  client (never a bare "current client"); it sends no input. Its target may be a name,
+  pane or canonical lowercase UUIDv4. Only Focus treats a UUID as an identity before
+  name/pane parsing: a missing, retired or inactive UUID refuses without falling back
+  to a UUID-shaped name. UUID lookup uses the same current-server observation and
+  binding/incarnation verification as name lookup; delivery and diagnostics retain
+  their existing target rules.
 
 ## Sessions and driver state
 

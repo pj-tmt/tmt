@@ -2,7 +2,10 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use tmt_core::{
-    binding::{BindingRepository, bind_identity, current_name_presence, pane_presence},
+    binding::{
+        BindingRepository, bind_identity, current_identity_presence, current_name_presence,
+        pane_presence, rename_identity,
+    },
     identity::{IdentityReader, Lifetime, create_or_resolve},
 };
 
@@ -43,6 +46,95 @@ fn current_name_presence_returns_complete_active_binding_evidence() {
     assert_eq!(endpoint.current_calls, current_calls + 1);
     assert!(endpoint.probe_calls.is_empty());
     storage.close().unwrap();
+}
+
+#[test]
+fn current_identity_presence_follows_uuid_after_rename_and_name_reuse() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    let original = bind_identity(&mut storage, &mut endpoint, "%1", "Alice", true).unwrap();
+    rename_identity::<_, super::endpoint::EndpointFailure>(&mut storage, "Alice", "Reviewer")
+        .unwrap();
+    let replacement = bind_identity(&mut storage, &mut endpoint, "%2", "Alice", true).unwrap();
+
+    let observed = current_identity_presence(&mut storage, &mut endpoint, &original.identity.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(observed.pane.id, "%1");
+    assert_eq!(observed.identity.as_ref().unwrap().id, original.identity.id);
+    assert_eq!(observed.identity.as_ref().unwrap().name, "Reviewer");
+    assert_eq!(observed.binding, original.binding);
+    let named = current_name_presence(&mut storage, &mut endpoint, "Alice")
+        .unwrap()
+        .unwrap();
+    assert_eq!(named.identity.unwrap().id, replacement.identity.id);
+    assert_eq!(named.pane.id, "%2");
+    assert!(endpoint.probe_calls.is_empty());
+    storage.close().unwrap();
+}
+
+#[test]
+fn current_identity_presence_never_looks_up_a_missing_or_retired_uuid_as_a_name() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let retired = create_or_resolve(&mut storage, "Retired", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    storage
+        .with_binding_transaction(|records| records.retire_identity(&retired, true))
+        .unwrap();
+    let missing = "6c57fcc9-96b1-4022-b071-870b81288814";
+    // An active display-name collision must not become the UUID's target.
+    bind_identity(&mut storage, &mut endpoint, "%1", &retired.id, true).unwrap();
+    create_or_resolve(&mut storage, missing, Lifetime::Saved).unwrap();
+    let calls = endpoint.current_calls;
+    for id in [&retired.id, missing] {
+        assert!(
+            current_identity_presence(&mut storage, &mut endpoint, id)
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(endpoint.current_calls, calls);
+    assert!(endpoint.probe_calls.is_empty());
+    storage.close().unwrap();
+}
+
+#[test]
+fn current_identity_presence_retains_binding_and_incarnation_guards() {
+    let mutations: [fn(&mut FakeEndpoint); 7] = [
+        |e| e.server.socket_path = "/tmp/other.sock".into(),
+        |e| e.server.host = tmt_core::host::HostKind::parse("herdr").unwrap(),
+        |e| e.server.server_pid += 1,
+        |e| e.server.server_start_time = "replacement".into(),
+        |e| e.pane_mut("%1").pane_incarnation = Some("replacement".into()),
+        |e| e.pane_mut("%1").marker = None,
+        |e| e.hide_panes_after_current = Some(e.current_calls + 1),
+    ];
+    for mutate in mutations {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let mut endpoint = FakeEndpoint::new(&["%1"]);
+        endpoint.starts.insert(100, "original".into());
+        endpoint.pane_mut("%1").pane_incarnation = Some("original".into());
+        // Temporary identities are also valid UUID Focus targets while live.
+        let bound = bind_identity(&mut storage, &mut endpoint, "%1", "Alice", false).unwrap();
+        assert!(
+            current_identity_presence(&mut storage, &mut endpoint, &bound.identity.id)
+                .unwrap()
+                .is_some()
+        );
+        mutate(&mut endpoint);
+        assert!(
+            current_identity_presence(&mut storage, &mut endpoint, &bound.identity.id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(endpoint.probe_calls.is_empty());
+        storage.close().unwrap();
+    }
 }
 
 #[test]

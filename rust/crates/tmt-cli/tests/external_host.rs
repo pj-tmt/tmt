@@ -534,3 +534,101 @@ fn check_and_focus_reach_an_external_pane_through_its_driver() {
     assert!(focused.status.success(), "{focused:?}");
     assert!(fixture.calls().contains(&"focus".to_owned()));
 }
+
+#[test]
+fn focus_uuid_survives_rename_and_name_reuse_without_changing_check_routing() {
+    register();
+    let fixture = Fixture::delivering("focus-uuid-rename");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let original = fixture.json(&["identity", "show", "worker", "--json"]);
+    let id = original["identity"]["id"].as_str().unwrap();
+    fixture.json(&["mv", "worker", "reviewer", "--json"]);
+    fixture.json(&["identity", "create", "worker", "--json"]);
+    fixture.json(&["identity", "create", id, "--json"]);
+
+    let before = fixture.calls().len();
+    let focused = fixture.tmt_in(Some("f1"), &["focus", id, "--json"]);
+    assert!(focused.status.success(), "{focused:?}");
+    let result: Value = serde_json::from_slice(&focused.stdout).unwrap();
+    assert_eq!(result["focused"]["pane"], "fake-1");
+    let calls = fixture.calls();
+    assert!(calls[before..].iter().any(|call| call == "focus"));
+    assert!(fixture.requests("typed").is_empty());
+    assert!(fixture.requests("prompted").is_empty());
+
+    // Check retains name routing: this UUID-shaped display name is offline.
+    let checked = fixture.tmt_in(Some("f1"), &["check", id, "--capture-only", "--json"]);
+    assert_eq!(checked.status.code(), Some(3), "{checked:?}");
+    let failure: Value = serde_json::from_slice(&checked.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
+    let named = fixture.tmt_in(Some("f1"), &["focus", "reviewer", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let explicit = fixture.tmt_in(Some("f1"), &["focus", "f1", "--json"]);
+    assert!(explicit.status.success(), "{explicit:?}");
+    assert!(fixture.requests("typed").is_empty());
+}
+
+#[test]
+fn focus_missing_and_retired_uuids_refuse_even_when_their_names_are_live() {
+    register();
+    for retired in [false, true] {
+        let fixture = Fixture::delivering(if retired {
+            "focus-retired-uuid"
+        } else {
+            "focus-missing-uuid"
+        });
+        fixture.approve();
+        let id = if retired {
+            let record = fixture.json(&["identity", "create", "worker", "--json"]);
+            let id = record["identity"]["id"].as_str().unwrap().to_owned();
+            fixture.json(&["rm", "worker", "--force", "--json"]);
+            id
+        } else {
+            "6c57fcc9-96b1-4022-b071-870b81288814".into()
+        };
+        let named = fixture.tmt_in(Some("f1"), &["name", &id, "--save", "--json"]);
+        assert!(named.status.success(), "{named:?}");
+        let before = fixture.calls().len();
+        let focused = fixture.tmt_in(Some("f1"), &["focus", &id, "--json"]);
+        assert_eq!(focused.status.code(), Some(3), "{focused:?}");
+        let failure: Value = serde_json::from_slice(&focused.stdout).unwrap();
+        assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
+        let calls = fixture.calls();
+        assert!(calls[before..].iter().all(|call| call != "focus"));
+        assert!(fixture.requests("typed").is_empty());
+        // Noncanonical spelling is still a name; it reaches the live collision.
+        let named = fixture.tmt_in(Some("f1"), &["focus", &id.to_uppercase(), "--json"]);
+        assert!(named.status.success(), "{named:?}");
+    }
+}
+
+#[test]
+fn focus_inactive_and_unverified_uuids_do_not_call_the_host_focus_effect() {
+    register();
+    let fixture = Fixture::delivering("focus-unverified-uuid");
+    fixture.approve();
+    let created = fixture.json(&["identity", "create", "worker", "--json"]);
+    let id = created["identity"]["id"].as_str().unwrap();
+    for bind_then_clear_marker in [false, true] {
+        if bind_then_clear_marker {
+            let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+            assert!(named.status.success(), "{named:?}");
+            fs::remove_file(fixture.root.join("driver/marker")).unwrap();
+        }
+        let before = fixture.calls().len();
+        let focused = fixture.tmt_in(Some("f1"), &["focus", id, "--json"]);
+        assert_eq!(focused.status.code(), Some(3), "{focused:?}");
+        let failure: Value = serde_json::from_slice(&focused.stdout).unwrap();
+        assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
+        assert_eq!(
+            failure["error"]["message"],
+            format!("Identity '{id}' is not active.")
+        );
+        let calls = fixture.calls();
+        assert!(calls[before..].iter().all(|call| call != "focus"));
+        assert!(fixture.requests("typed").is_empty());
+        assert!(fixture.requests("prompted").is_empty());
+    }
+}
