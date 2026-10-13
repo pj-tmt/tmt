@@ -135,12 +135,10 @@ fn document(name: &str, lead: Value, rows: Vec<Value>) -> Value {
 }
 
 #[test]
-fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
+fn aggregate_model_keeps_summary_and_acquired_squad_order() {
     let f = Fixture::new("");
-    let empty = model(&[], &f.acquired(&[]), 100);
+    let empty = model(&[], &f.acquired(&[]));
     assert_eq!(empty.summary.members, 0);
-    assert_eq!(empty.sections.len(), 1);
-    assert_eq!(empty.sections[0].key, "blocked");
     assert!(empty.squads.is_empty());
     assert!(!empty.incomplete);
     let acquired = f.acquired(&[
@@ -161,7 +159,7 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
             ),
         ),
     ]);
-    let home = model(&["shown".into()], &acquired, 100);
+    let home = model(&["shown".into()], &acquired);
     assert_eq!(
         home.summary,
         Counts {
@@ -185,13 +183,10 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     );
     assert_eq!(home.squads[1].squad, "hidden");
     assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
-    assert_eq!(home.squads[0].members.members, 1);
-    assert_eq!(home.squads[0].members.review, 1);
-    assert!(home.sections.iter().all(|section| section.rows.is_empty()));
 }
 
 #[test]
-fn the_blocked_section_deduplicates_within_a_squad_and_keeps_cross_squad_memberships() {
+fn acquired_squad_counts_deduplicate_authored_rows_and_keep_distinct_memberships() {
     let f = Fixture::new("");
     let mut waiting = row("A", "asker", "blocked");
     waiting["waitingOnYou"] = json!([{"requestId":"q-new","preparedAtMs":90,"preview":"private question"}, {"requestId":"q-old","preparedAtMs":20}]);
@@ -209,30 +204,22 @@ fn the_blocked_section_deduplicates_within_a_squad_and_keeps_cross_squad_members
         .unwrap()
         .push(json!({"rows":[waiting.clone(),pending]}));
     let acquired = f.acquired(&[("a", a), ("b", document("b", Value::Null, vec![waiting]))]);
-    let home = model(&["a".into(), "b".into()], &acquired, 100);
+    let home = model(&["a".into(), "b".into()], &acquired);
     assert_eq!(home.summary.members, 4);
     assert_eq!(home.summary.waiting, 3);
     assert_eq!(home.summary.blocked, 3);
-    // Requests and pending text no longer have a section of their own: only
-    // blocked members do, and the counts row carries who waits on the user.
-    assert_eq!(home.sections.len(), 1);
-    // Shared user sections retain overlapping matches; a waiting blocked
-    // member appears in both while squad summary counts it once per state.
-    let blocked = &home.sections[0].rows;
-    assert_eq!(blocked.len(), 3);
-    assert_eq!(blocked[0].member["id"], "A");
-    assert_eq!(blocked[0].lead.as_deref().unwrap(), "pending-lead");
-    assert_eq!(blocked[0].age, Some(Age { since_ms: 10 }));
-    assert_eq!(blocked[1].member["id"], "B");
-    assert_eq!(blocked[1].age, Some(Age { since_ms: 30 }));
-    assert_eq!(blocked[2].squad, "b");
-    assert_eq!(home.squads[0].members.members, 2);
-    assert_eq!(home.squads[0].members.waiting, 1);
-    assert_eq!(home.squads[0].members.blocked, 1);
+    assert_eq!(home.squads[0].squad, "a");
+    assert_eq!(home.squads[0].counts.members, 3);
+    assert_eq!(home.squads[0].counts.waiting, 2);
+    assert_eq!(home.squads[0].counts.blocked, 2);
+    assert_eq!(home.squads[1].squad, "b");
+    assert_eq!(home.squads[1].counts.members, 1);
+    assert_eq!(acquired.documents["a"]["sections"][1]["rows"][0]["id"], "A");
+    assert_eq!(acquired.documents["b"]["sections"][0]["rows"][0]["id"], "A");
 }
 
 #[test]
-fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
+fn partial_observations_and_failures_stay_explicit_in_the_aggregate_model() {
     let f = Fixture::new("");
     let mut blocked = row("B", "blocked", "blocked");
     blocked["staleness"] = json!({"unchangedSinceMs":101});
@@ -246,12 +233,7 @@ fn ages_require_authoritative_nonfuture_timestamps_and_partial_is_visible() {
     acquired
         .failures
         .push(json!({"source":"inbox","error":{"code":"FAILED"}}));
-    let home = model(&[], &acquired, 100);
-    for section in &home.sections {
-        for row in &section.rows {
-            assert!(row.age.is_none());
-        }
-    }
+    let home = model(&[], &acquired);
     assert!(home.incomplete);
     assert_eq!(home.failures[0]["source"], "inbox");
 }
@@ -359,8 +341,13 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     assert_eq!(home.summary.blocked, 2);
     assert_eq!(home.summary.waiting, 1);
     assert!(home.incomplete);
-    assert_eq!(home.sections[0].rows[0].member["name"], "worker-a");
-    assert!(home.sections[0].rows.iter().all(|row| row.age.is_none()));
+    assert!(
+        home.workspace
+            .roster
+            .members
+            .values()
+            .any(|member| member.name == "worker-a")
+    );
 }
 
 #[test]
@@ -512,7 +499,7 @@ mod limits;
 pub(in crate::board) mod oracle;
 
 #[test]
-fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
+fn aggregate_state_counts_preserve_public_attention_semantics_including_the_lead() {
     let fixture = Fixture::new("");
     let mut lead = row("L", "lead", "blocked");
     lead["pending"] = json!("lead decision");
@@ -533,18 +520,7 @@ fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
             ],
         ),
     )]);
-    let home = model(&["a".into()], &acquired, 100);
-    assert_eq!(
-        home.squads[0].members,
-        Counts {
-            members: 6,
-            waiting: 1,
-            blocked: 1,
-            review: 1,
-            working: 1,
-            idle: 1,
-        }
-    );
+    let home = model(&["a".into()], &acquired);
     assert_eq!(home.summary.members, 7);
     assert_eq!(home.summary.waiting, 2);
     assert_eq!(
@@ -555,23 +531,7 @@ fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
         "a",
         document("a", Value::Null, vec![row("W", "worker", "idle")]),
     )]);
-    let home = model(&["a".into()], &acquired, 100);
-    assert_eq!(home.squads[0].members.members, 1);
-    assert_eq!(home.squads[0].members.idle, 1);
-}
-
-#[test]
-fn home_ages_use_registered_relative_time_and_identify_observed_provenance() {
-    for (elapsed, expected) in [(0, "just now"), (45_000, "45s ago"), (180_000, "3m ago")] {
-        let now = 1_000_000;
-        assert_eq!(
-            paint::age_label(
-                &Age {
-                    since_ms: now - elapsed
-                },
-                now
-            ),
-            format!("observed {expected}")
-        );
-    }
+    let home = model(&["a".into()], &acquired);
+    assert_eq!(home.squads[0].counts.members, 1);
+    assert_eq!(home.squads[0].counts.idle, 1);
 }

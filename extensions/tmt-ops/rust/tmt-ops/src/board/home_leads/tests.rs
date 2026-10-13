@@ -167,14 +167,12 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
-        sections: vec![],
         squads: retained
             .iter()
             .map(|lead| super::super::home::SquadLine {
                 squad: lead.squad.clone(),
                 lead: Some(lead.row.clone()),
                 counts: Default::default(),
-                members: Default::default(),
             })
             .collect(),
         failures: vec![],
@@ -440,12 +438,10 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
-        sections: vec![],
         squads: vec![super::super::home::SquadLine {
             squad: "squad".into(),
             lead: Some(lead("a", "squad").row),
             counts: Default::default(),
-            members: Default::default(),
         }],
         failures: vec![],
         incomplete: false,

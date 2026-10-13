@@ -1,5 +1,5 @@
 //! Board-only home data. Public aggregate documents keep their existing shape;
-//! member selection uses the same acquisition and sections as user tabs.
+//! workspace selection uses the acquired UUID roster, independently of summaries.
 
 use crate::{
     attention::Attention,
@@ -28,36 +28,11 @@ pub struct Counts {
     pub idle: usize,
 }
 
-/// The painter can advance age without acquiring data or inventing a timestamp.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Age {
-    pub since_ms: u64,
-}
-
-#[derive(Debug)]
-pub struct MemberRow {
-    pub squad: String,
-    /// Retains the public request projection for the existing answer composer.
-    /// Home painting must show only member/squad/age, never pending or preview.
-    pub member: Value,
-    pub lead: Option<String>,
-    pub age: Option<Age>,
-}
-
-#[derive(Debug)]
-pub struct MemberSection {
-    /// Stable section keys, independent of display text or cursor position.
-    pub key: String,
-    pub rows: Vec<MemberRow>,
-}
-
 #[derive(Debug)]
 pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
     pub counts: Counts,
-    /// Exclusive non-lead membership counts, with one urgency state per known member.
-    pub members: Counts,
 }
 
 #[derive(Debug)]
@@ -66,9 +41,8 @@ pub struct Home {
     pub summary: Counts,
     /// Acquired global display choice; never inferred from a squad override.
     pub window: crate::config::TokenWindow,
-    /// HOME uses global windows; named boards and tiles retain their overrides.
+    /// Overview uses global windows; per-squad samplers retain their overrides.
     pub windows: [crate::config::TokenWindow; 3],
-    pub sections: Vec<MemberSection>,
     pub squads: Vec<SquadLine>,
     pub failures: Vec<Value>,
     pub incomplete: bool,
@@ -130,7 +104,7 @@ pub fn load(
             ))
         })
         .collect::<Result<_, SquadError>>()?;
-    let mut home = model(order, &acquired, crate::status::now_ms());
+    let mut home = model(order, &acquired);
     home.workspace =
         super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(&squads, &acquired, listed);
     home.workspace.configure(config)?;
@@ -166,31 +140,8 @@ fn counts(rows: &[Value]) -> Counts {
     }
 }
 
-fn member_counts(rows: &[Value], lead: &Value) -> Counts {
-    let mut counts = Counts::default();
-    for row in rows {
-        if lead["id"].is_string() && row["id"] == lead["id"] {
-            continue;
-        }
-        counts.members += 1;
-        if crate::attention::waits_on_you(row) {
-            counts.waiting += 1;
-        } else {
-            match row["state"].as_str() {
-                Some("blocked") => counts.blocked += 1,
-                Some("review") => counts.review += 1,
-                Some("working") => counts.working += 1,
-                Some("idle") => counts.idle += 1,
-                // Custom or unreported states still count as members.
-                _ => (),
-            }
-        }
-    }
-    counts
-}
-
-fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
-    let mut tab = UserTab {
+fn model(order: &[String], acquired: &Acquired) -> Home {
+    let tab = UserTab {
         name: "home".into(),
         selection: section("home", None),
         sections: Vec::new(),
@@ -199,42 +150,6 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
     let members = all["sections"][0]["rows"]
         .as_array()
         .expect("projected members");
-    tab.sections = vec![section("blocked", Some("state = blocked"))];
-    let selected = tab_view::user_document(&tab, order, acquired);
-    // The shared pipeline retains unmatched rows; they belong in squad lines,
-    // not in a second attention section.
-    let sections = selected["sections"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .take(1)
-        .map(|section| {
-            let key = section["title"].as_str().expect("named home section");
-            let rows = section["rows"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|member| {
-                    let squad = member["squad"].as_str().expect("projected squad");
-                    let since = member["staleness"]["unchangedSinceMs"]
-                        .as_u64()
-                        .filter(|since| *since <= now);
-                    MemberRow {
-                        squad: squad.into(),
-                        member: member.clone(),
-                        lead: acquired.documents[squad]["squad"]["lead"]["name"]
-                            .as_str()
-                            .map(str::to_owned),
-                        age: since.map(|since_ms| Age { since_ms }),
-                    }
-                })
-                .collect();
-            MemberSection {
-                key: key.into(),
-                rows,
-            }
-        })
-        .collect::<Vec<_>>();
     // Public all order already includes hidden squads after the tab line.
     let overview = tab_view::all_document(
         order,
@@ -265,7 +180,6 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
                 squad: name.into(),
                 lead: lead.is_object().then(|| lead.clone()),
                 counts: one,
-                members: member_counts(&rows, lead),
             }
         })
         .collect();
@@ -274,7 +188,6 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
         summary,
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
-        sections,
         squads,
         failures: acquired.failures.clone(),
         incomplete: acquired
@@ -292,7 +205,7 @@ mod paint;
 pub(super) use bar::{hidden_needs, hidden_usage};
 pub(super) use limits::clock_marks as limit_clock_marks;
 pub(super) use limits::hidden_limits;
-pub(super) use paint::{age_label, limits_of, summary_of, usage_of};
+pub(super) use paint::{limits_of, summary_of, usage_of};
 
 /// Held header strips of one immutable view, keyed by data, width and look.
 /// Workspace owns body geometry; a new snapshot starts with empty derivations.

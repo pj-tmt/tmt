@@ -1,6 +1,5 @@
 //! Cached Overview strips over the held view; body geometry belongs to the workspace.
 
-use super::Age;
 use crate::{
     board::app::{App, HomeHeaderUsage, View},
     look::Look,
@@ -76,10 +75,3 @@ pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>>
 /// The strips painted from nothing, for tests of the strips themselves.
 #[cfg(test)]
 pub(crate) use super::bar::{summary, usage};
-
-pub(crate) fn age_label(age: &Age, now: u64) -> String {
-    format!(
-        "observed {}",
-        tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms))
-    )
-}

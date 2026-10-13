@@ -260,7 +260,6 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
             working: 1,
             ..Default::default()
         },
-        members: Counts::default(),
     }];
     view.home_rate.insert(
         "product".into(),

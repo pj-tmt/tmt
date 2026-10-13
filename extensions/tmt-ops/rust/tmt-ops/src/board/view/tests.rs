@@ -2355,7 +2355,7 @@ fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
     );
 }
 
-fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::look::Look) -> App {
+fn digest_app(members: bool, _home: bool, held: u64, until: u64, look: crate::look::Look) -> App {
     let focused = row(
         "worker",
         "working",
@@ -2365,40 +2365,6 @@ fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::loo
     let mut app = board(json!([{"title":null,"rows":[focused]}]));
     app.view.as_mut().unwrap().board.members = members;
     app.view.as_mut().unwrap().look = look;
-    if home {
-        let member = app.view.as_ref().unwrap().document["sections"][0]["rows"][0].clone();
-        let mut lead = member.clone();
-        lead["id"] = json!("lead");
-        lead["name"] = json!("lead");
-        app.current = Some(crate::tabs::ALL.into());
-        app.view.as_mut().unwrap().home = Some(crate::board::home::Home {
-            workspace: Default::default(),
-            summary: Default::default(),
-            window: crate::config::TokenWindow::MINUTE,
-            windows: crate::config::TokenWindow::DEFAULTS,
-            sections: vec![crate::board::home::MemberSection {
-                key: "blocked".into(),
-                rows: vec![crate::board::home::MemberRow {
-                    squad: "product".into(),
-                    member,
-                    lead: Some("lead".into()),
-                    age: None,
-                }],
-            }],
-            squads: vec![crate::board::home::SquadLine {
-                squad: "product".into(),
-                lead: Some(lead.clone()),
-                counts: Default::default(),
-                members: Default::default(),
-            }],
-            failures: Vec::new(),
-            incomplete: false,
-        });
-        app.home_leads.reconcile(
-            app.view.as_ref().unwrap().home.as_ref().unwrap(),
-            Some("owner"),
-        );
-    }
     app
 }
 

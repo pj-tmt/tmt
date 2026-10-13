@@ -130,16 +130,6 @@ fn header_width_and_look_are_part_of_the_admitted_cache_key() {
 }
 
 #[test]
-fn observed_age_labels_use_the_acquired_timestamp_and_advance_without_reacquisition() {
-    let age = crate::board::home::Age { since_ms: 1_000 };
-    let first = paint::age_label(&age, 61_000);
-    assert_eq!(paint::age_label(&age, 62_000), first);
-    assert_ne!(paint::age_label(&age, 181_000), first);
-    assert_eq!(age.since_ms, 1_000);
-    assert!(first.starts_with("observed "));
-}
-
-#[test]
 fn held_header_usage_matches_uncached_formatting_and_invalidates_on_observation_change() {
     let app = board();
     let mut usage = super::interaction::header_usage();

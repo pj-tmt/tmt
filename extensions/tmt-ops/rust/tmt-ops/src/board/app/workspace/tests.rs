@@ -81,7 +81,6 @@ pub(in crate::board) fn board() -> App {
         },
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
-        sections: vec![],
         squads: vec![],
         failures: vec![],
         incomplete: false,

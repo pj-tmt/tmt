@@ -3505,7 +3505,6 @@ pub(crate) mod tests {
                 members: 7,
                 ..Default::default()
             },
-            sections: Vec::new(),
             squads: Vec::new(),
             failures: Vec::new(),
             incomplete: false,
@@ -5162,14 +5161,12 @@ mod token_window_tests {
             window: crate::config::TokenWindow::MINUTE,
             windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
-            sections: Vec::new(),
             failures: Vec::new(),
             incomplete: false,
             squads: vec![super::super::home::SquadLine {
                 squad: "product".into(),
                 lead: Some(serde_json::json!({"id":"a"})),
                 counts: Default::default(),
-                members: Default::default(),
             }],
         });
         let mut input = super::super::rate::tests::input(100);
@@ -5212,7 +5209,6 @@ mod token_window_tests {
                 squad: "extra".into(),
                 lead: Some(json!({"id":"a"})),
                 counts: Default::default(),
-                members: Default::default(),
             });
         view.document["sections"][0]["rows"]
             .as_array_mut()

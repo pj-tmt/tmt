@@ -2020,12 +2020,11 @@ sys.exit(subprocess.run([str(root/'tmt')]+args,input=body).returncode)
                 assert_eq!(
                     view.home
                         .unwrap()
-                        .sections
-                        .iter()
-                        .flat_map(|section| &section.rows)
-                        .find(|row| row.member["id"] == WORKER)
-                        .unwrap()
-                        .member["digest"]["heldCount"],
+                        .workspace
+                        .rows
+                        .values()
+                        .find(|row| row["id"] == WORKER)
+                        .unwrap()["digest"]["heldCount"],
                     2
                 );
             } else {
@@ -2666,7 +2665,6 @@ printf '%s\n' '{{}}'
                         window: crate::config::TokenWindow::MINUTE,
                         windows: crate::config::TokenWindow::DEFAULTS,
                         summary: Default::default(),
-                        sections: vec![],
                         squads: vec![],
                         failures: vec![],
                         incomplete: false,

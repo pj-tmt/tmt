@@ -43,7 +43,7 @@ pub(super) fn board_resuming(
         &acquired.documents,
         &tab_view::tab_attention(&acquired.documents),
     );
-    view.home = Some(model(&order, &acquired, 100));
+    view.home = Some(model(&order, &acquired));
     view.bindings = crate::action::all_preset();
     view.me = Some("ben".into());
     order.push(ALL.into());
