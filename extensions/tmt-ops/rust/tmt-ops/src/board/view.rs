@@ -41,14 +41,16 @@ pub fn fit(text: &str, width: usize) -> String {
 
 pub fn render(frame: &mut Frame, app: &App) {
     app.home_counters.borrow_mut().begin();
-    let home_usage = (!app.loading())
+    let global =
+        app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview;
+    let home_usage = (!app.loading() && global)
         .then(|| app.home_header_usage(std::time::Instant::now()))
         .flatten()
         .zip(app.view.as_ref())
         .and_then(|(usage, _view)| {
             super::home::usage_of(app, &usage, frame.area().width, app.look())
         });
-    let home_limits = if app.loading() {
+    let home_limits = if app.loading() || !global {
         Vec::new()
     } else {
         super::home::limits_of(app, frame.area().width, app.look())
@@ -62,7 +64,8 @@ pub fn render(frame: &mut Frame, app: &App) {
             || app.switcher.is_some()
             || app.cron_list.is_some()
             || app.view_picker.is_some()
-            || app.theme_picker.is_some(),
+            || app.theme_picker.is_some()
+            || app.workspace_form.is_some(),
     );
 }
 
@@ -78,11 +81,13 @@ pub(super) fn prepare(app: &mut App, area: Rect) {
 
 fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
     let home_history_pending = !app.loading()
+        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview)
         && app
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
     let overview = !app.loading()
+        && app.workspace_snapshot().is_none()
         && app
             .home_entries()
             .iter()
@@ -120,6 +125,7 @@ pub(in crate::board) fn render_frame(
     app.hits.borrow_mut().clear();
     app.detail_more_hits.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
+    app.workspace_action_hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
     app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
@@ -129,7 +135,7 @@ pub(in crate::board) fn render_frame(
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
-    let overview = (!app.loading())
+    let overview = (!app.loading() && app.workspace_snapshot().is_none())
         .then(|| {
             app.home_entries()
                 .iter()
@@ -137,6 +143,7 @@ pub(in crate::board) fn render_frame(
         })
         .flatten();
     let home_history_pending = !app.loading()
+        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview)
         && app
             .view
             .as_ref()
@@ -159,14 +166,17 @@ pub(in crate::board) fn render_frame(
             ),
         );
     }
-    let summary_text = app
-        .view
-        .as_ref()
-        .filter(|view| !app.loading() && view.home.is_some())
-        .map_or_else(
-            || header::summary_line(app),
-            |view| super::home::summary_of(view, summary.width, look),
-        );
+    let summary_text = if app.workspace_snapshot().is_some() {
+        super::workspace::render::summary(app, summary.width)
+    } else {
+        app.view
+            .as_ref()
+            .filter(|view| !app.loading() && view.home.is_some())
+            .map_or_else(
+                || header::summary_line(app),
+                |view| super::home::summary_of(view, summary.width, look),
+            )
+    };
     let summary_area =
         header::meter_region(app, summary).map_or(summary, |(meter, _)| ratatui::layout::Rect {
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
@@ -230,6 +240,7 @@ pub(in crate::board) fn render_frame(
     waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
+    super::workspace::render::dialog(frame, app, body);
     waiting::prompt(frame, app, body);
     super::mentions::render(frame, app);
     look.selected_words(frame.buffer_mut());

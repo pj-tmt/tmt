@@ -90,6 +90,7 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
         let mut app = board(json!([]));
         let view = app.view.as_mut().unwrap();
         view.home = Some(crate::board::home::Home {
+            workspace: Default::default(),
             summary: Default::default(),
             windows: crate::config::TokenRate::default().windows,
             sections: Vec::new(),
@@ -4321,6 +4322,7 @@ columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "
                         home_leads::{Kind, Lead, LeadPreview},
                     };
                     view.home = Some(Home {
+                        workspace: Default::default(),
                         summary: crate::board::home::Counts {
                             members: 4,
                             waiting: 1,
@@ -4874,6 +4876,7 @@ fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::loo
         lead["name"] = json!("lead");
         app.current = Some(crate::tabs::ALL.into());
         app.view.as_mut().unwrap().home = Some(crate::board::home::Home {
+            workspace: Default::default(),
             summary: Default::default(),
             windows: crate::config::TokenWindow::DEFAULTS,
             sections: vec![crate::board::home::MemberSection {

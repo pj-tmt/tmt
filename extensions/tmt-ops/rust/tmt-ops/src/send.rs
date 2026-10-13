@@ -125,6 +125,26 @@ pub fn talk(
     Accepted::from_document(&sent)
 }
 
+/// The virtual common pool is not a Core room. Its explicit identity recipient
+/// uses the same public talk command and acceptance parser, without --room.
+pub fn talk_direct(
+    core: &Core,
+    sender: &str,
+    recipient: &str,
+    text: &str,
+) -> Result<Accepted, SquadError> {
+    if text.trim().is_empty() {
+        return Err(refused("Nothing to send."));
+    }
+    let sent = core
+        .json_with_operands(
+            &["talk", "--identity", sender, "--detach"],
+            &[recipient, text],
+        )
+        .map_err(retained)?;
+    Accepted::from_document(&sent)
+}
+
 /// A talk tagged `[<squad> · <row>]`, so the row can show it until answered.
 pub fn annotate(
     core: &Core,

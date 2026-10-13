@@ -452,3 +452,38 @@ fn interrupted_rename_publication_keeps_namespace_and_explicit_repair_continues_
         "c2"
     );
 }
+
+#[test]
+fn committed_pause_is_visible_before_effect_and_locked_until_effect_returns() {
+    let f = Fixture::new();
+    let store = f.store();
+    store.update(|jobs| jobs.insert(job("product"))).unwrap();
+    let (paused, effect) = store
+        .update_then(
+            |jobs| jobs.pause_owner("room-uuid", "owner-uuid", 500),
+            |paused| {
+                assert_eq!(paused, &["c1"]);
+                let bytes: Value =
+                    serde_json::from_slice(&fs::read(store.directory.join("jobs.json")).unwrap())
+                        .unwrap();
+                assert_eq!(bytes["jobs"][0]["state"], "paused");
+                // An independent writer cannot create a new owner job in the gap.
+                assert_eq!(
+                    store
+                        .update(|jobs| jobs.insert(job("product")))
+                        .unwrap_err()
+                        .code,
+                    "SQUAD_CRON_STORE_BUSY"
+                );
+                Err::<(), _>("leave failed")
+            },
+        )
+        .unwrap();
+    assert_eq!(paused, ["c1"]);
+    assert_eq!(effect, Err("leave failed"));
+    assert_eq!(store.read().unwrap().jobs()[0].state(), "paused");
+    assert_eq!(
+        store.update(|jobs| jobs.insert(job("product"))).unwrap(),
+        "c2"
+    );
+}

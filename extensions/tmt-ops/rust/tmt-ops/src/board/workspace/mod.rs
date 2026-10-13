@@ -1,6 +1,10 @@
 //! Pure workspace projection over one acquired roster. This is not a membership
 //! store: IDs and observations come from the worker, and no action performs I/O.
 
+pub(crate) mod manage;
+pub(crate) mod observe;
+pub(crate) mod render;
+
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
@@ -25,12 +29,21 @@ pub struct OpsMember {
     pub usage: Option<u64>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct OpsMembershipState {
+    pub state: Option<String>,
+    pub waiting: bool,
+    pub rank: Option<crate::config::Rank>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpsSquad {
     pub room_id: String,
     pub name: String,
     pub members: Vec<String>,
     pub lead: Option<String>,
+    /// Squad metadata is scoped even when an identity belongs to several rooms.
+    pub member_states: BTreeMap<String, OpsMembershipState>,
     pub observation: OpsObservation,
 }
 
@@ -53,30 +66,7 @@ pub enum OpsTarget {
     },
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum OpsSort {
-    #[default]
-    Name,
-    Attention,
-    Members,
-}
-
-impl OpsSort {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Name => Self::Attention,
-            Self::Attention => Self::Members,
-            Self::Members => Self::Name,
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct OpsPreferences {
-    pub pinned: BTreeSet<String>,
-    pub sort: OpsSort,
-    pub reversed: bool,
-}
+pub use crate::config::{OpsPreferences, OpsSort};
 
 #[derive(Debug, Default)]
 pub struct OpsWorkspace {
@@ -112,28 +102,41 @@ pub struct OpsTreeRow {
 
 impl OpsRoster {
     fn members<'a>(&'a self, squad: &'a OpsSquad) -> impl Iterator<Item = &'a OpsMember> {
-        self.members
-            .values()
-            .filter(move |member| squad.members.contains(&member.id))
+        squad.members.iter().filter_map(|id| self.members.get(id))
     }
 
     fn pool(&self) -> impl Iterator<Item = &OpsMember> {
-        self.members.values().filter(|member| {
-            self.complete()
-                && self.squads.iter().all(|squad| {
-                    squad.observation == OpsObservation::Complete
-                        && !squad.members.contains(&member.id)
-                })
-        })
+        let complete = self.membership_complete
+            && matches!(
+                self.observation,
+                OpsObservation::Complete | OpsObservation::Stale
+            )
+            && self.squads.iter().all(|squad| {
+                matches!(
+                    squad.observation,
+                    OpsObservation::Complete | OpsObservation::Stale
+                )
+            });
+        let assigned: BTreeSet<_> = self
+            .squads
+            .iter()
+            .flat_map(|squad| squad.members.iter())
+            .collect();
+        self.members
+            .values()
+            .filter(move |member| complete && !assigned.contains(&member.id))
     }
 
     fn attention(&self, squad: &OpsSquad) -> u8 {
-        if self.members(squad).any(|member| member.waiting) {
+        let states = || {
+            squad
+                .members
+                .iter()
+                .filter_map(|id| squad.member_states.get(id))
+        };
+        if states().any(|member| member.waiting) {
             2
-        } else if self
-            .members(squad)
-            .any(|member| member.state.as_deref() == Some("blocked"))
-        {
+        } else if states().any(|member| member.state.as_deref() == Some("blocked")) {
             1
         } else {
             0
@@ -234,7 +237,7 @@ impl OpsWorkspace {
             let mut pool = pool;
             pool.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
             for member in pool.into_iter().filter(|member| matches(&member.name)) {
-                rows.push(member_row(member, None, false, OpsObservation::Complete));
+                rows.push(member_row(member, None, false, roster.observation, None));
             }
         }
         let mut squads: Vec<_> = roster.squads.iter().collect();
@@ -267,7 +270,12 @@ impl OpsWorkspace {
             let attention = match roster.attention(squad) {
                 2 => Some("waiting"),
                 1 => Some("blocked"),
-                _ => None,
+                _ => squad
+                    .member_states
+                    .values()
+                    .filter(|member| member.state.is_some())
+                    .min_by_key(|member| member.rank)
+                    .and_then(|member| member.state.as_deref()),
             };
             rows.push(OpsTreeRow {
                 target: OpsTarget::Squad(squad.room_id.clone()),
@@ -282,6 +290,7 @@ impl OpsWorkspace {
                 observation: squad.observation,
             });
             if self.expanded.contains(&squad.room_id) {
+                let unknown = OpsMembershipState::default();
                 members.sort_by(|a, b| {
                     (squad.lead.as_deref() != Some(&a.id))
                         .cmp(&(squad.lead.as_deref() != Some(&b.id)))
@@ -297,6 +306,7 @@ impl OpsWorkspace {
                         Some(&squad.room_id),
                         squad.lead.as_deref() == Some(&member.id),
                         squad.observation,
+                        Some(squad.member_states.get(&member.id).unwrap_or(&unknown)),
                     ));
                 }
             }
@@ -310,6 +320,7 @@ fn member_row(
     room: Option<&str>,
     lead: bool,
     observation: OpsObservation,
+    scope: Option<&OpsMembershipState>,
 ) -> OpsTreeRow {
     OpsTreeRow {
         target: OpsTarget::Member {
@@ -319,10 +330,13 @@ fn member_row(
         title: member.name.clone(),
         depth: 1,
         lead,
-        state: if member.waiting {
+        state: if scope.map_or(member.waiting, |membership| membership.waiting) {
             Some("waiting".into())
         } else {
-            member.state.clone()
+            scope.map_or_else(
+                || member.state.clone(),
+                |membership| membership.state.clone(),
+            )
         },
         presence: member.presence,
         usage: member.usage,

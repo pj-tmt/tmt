@@ -9,36 +9,36 @@ dispatch and the independent clock lifecycle. The shipped Squad skill owns
 
 ## Acquisition and placement
 
-- The refresh worker queues `Deferred::Cron` after full reloads of any tab, with
-  the existing generation/cancellation lane, and publishes `BoardEvent::Cron` to
-  `App.cron`. One read includes jobs of every active squad (hidden included), next
-  slots, clock status and actor. Before its first result nothing is drawn; failures
-  preserve previous jobs alongside the reason. Paint/input acquire no job data.
-  `list_jobs` resolves owners through one public `references.resolve` per job.
-- `cronboard::line` supplies HOME's single `home::CRON` target and pure summary;
-  prompts, paths and clock location stay in job UI. Initial failure is blocked,
-  later failure retains summary with its reason. `effects::pane_place` resolves
-  clock `session:window` once per pane on the invoker's socket; `Places` caches
-  failures too, falling back to pane ID. Lease age uses the shared relative-time
-  formatter; public clock JSON keeps its original pane ID.
-- `composition::halves` places the squad's configured composition above its jobs
-  in one flex computation. The jobs half grows to content demand, capped at two
-  fifths of body height; below 12 body lines it keeps only its rule. The rule is the
-  boundary: a framed pane resting on it extends over the row and ends there
-  (`render_members`' `rule_below`), so no pane bottom edge stacks above it; the rich member
-  list drops its bottom edge there instead (`panes::Shared`). Its ordinary
-  TUI list retains per-room `ListState` across tab switches. Selection and focus
-  leave jobs collapsed; `e` toggles an explicit stable job expansion in
-  `board::row_detail`, which owns the shared block rendering and reconciliation.
-  Tab/pointer focus enters through `App`; `focused_pane()`
-  is then `None`, and member-row actions refuse.
-- `Overlay::CronList` uses the shared `FocusStack`, `app::route` and docked
-  `picker_surface::State`. Rows use `<room UUID>/<c-id>` identity, preserved on
-  refresh. Opening forms/delete confirmation closes the list; pause/resume/send
-  retain it. Job keys route through base field `cron-jobs` before board dispatch,
-  while configured `[bind]` keys win. `e` expands/collapses and `E` edits in both
-  surfaces. `cronboard::hints::KEYS` supplies help and footers; `E edit` appears
-  only with a selected job.
+The refresh worker queues `Deferred::Cron` through the existing generation and
+cancellation lane and publishes `BoardEvent::Cron` to `App.cron`. One read includes
+active squads, next slots, clock status and actor. Failed reads retain prior jobs
+with their reason; paint and input acquire no job data. Clock location resolution
+uses the invoker's socket and caches failures, falling back to pane ID.
+
+The workspace's Timers action opens `Overlay::CronList`. A selected squad supplies
+its frozen room UUID; a member supplies that room and prefills its owner when
+creating a job. Overview and Common pool have no invented room context. The list
+filters by room UUID rather than a mutable name, preserves `<room UUID>/<c-id>`
+selection across refresh and uses the shared FocusStack/picker surface. Opening
+forms or delete confirmation closes the list; pause/resume/send retains it.
+
+Cron keys belong to the focused list, not the workspace tree. Enter opens the
+selected job's squad; `n` creates, `e`
+expands, `E` edits, `p` pauses/resumes, `x` sends, `o` reassigns and `d` deletes after
+confirmation. Effective user bindings keep precedence. `cronboard::hints::KEYS`
+supplies help/footer and hides edit without a selected job.
+
+Ops membership removal pauses source-owned jobs durably before leaving the room.
+Move pauses before its dependent source leave; failed destination admission does
+not remove the source membership. Positive owner absence also persists a pause;
+failed observations remain unknown. Re-add/reassign never resumes a paused job.
+Only explicit Resume clears pause. Human list/show and board state distinguish
+`paused · owner missing`; JSON retains `ownerMissing` and `stateLabel`.
+
+Squad rename keeps the room UUID and c-ids, moves jobs' squad field and the counter
+namespace under the store lock, and preserves pause and counters after all jobs
+were deleted. A failed second step is an honest repairable partial result; there
+is no room-name rollback or automatic retry.
 
 ## Controls and row projection
 
@@ -55,8 +55,8 @@ drops cron before age, and includes labels in the cached row scene key.
 
 ## Verification
 
-`cronboard` tests use disposable service fixtures; `view/tests/cron` verifies split
-placement, focus/scoped keys and forms; `home/tests/cron` verifies the HOME target.
+`cronboard` tests use disposable service fixtures; workspace App tests cover the
+scoped entry/target and native Ops tests cover rename, counters and sticky pause.
 [development.md](development.md#checks) owns focused commands and isolated captures;
 [TUI development](../../tmt-tui/references/development.md#board-parity-baseline) owns
 fixture-change approval. Service/clock verification remains with the cron owner.

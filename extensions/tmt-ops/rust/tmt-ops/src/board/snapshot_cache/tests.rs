@@ -155,6 +155,7 @@ fn home_keeps_only_painted_counts_names_and_age_evidence() {
         json!([{"rows": [{"name": "unpainted", "fields": {"task": "FORBIDDEN-home-task"}}]}]),
     );
     snapshot.view.as_mut().unwrap().home = Some(home::Home {
+        workspace: Default::default(),
         summary: home::Counts {
             members: 2,
             waiting: 1,

@@ -23,6 +23,7 @@ pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> J
             schedule,
         ),
         owner_name: Some(owner.into()),
+        owner_missing: false,
         next_ms: next.into_iter().collect(),
         warnings: vec![],
     }

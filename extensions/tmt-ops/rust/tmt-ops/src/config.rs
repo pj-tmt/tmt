@@ -19,10 +19,13 @@ use std::{
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod edit;
+mod rename;
 mod settings;
 mod sourced;
 mod states;
+mod workspace;
 pub use states::{Rank, States};
+pub use workspace::{OpsKeyScope, OpsLayout, OpsPreferences, OpsSort};
 
 const FILE_LIMIT: u64 = 1024 * 1024;
 const MAX_SECTIONS: usize = 16;
@@ -3306,7 +3309,6 @@ sort = ["state", "-name"]
             crate::action::Verb::Menu
         );
         for body in [
-            "[bind]\nq = \"refresh\"\n",
             "[bind]\nhold = \"refresh\"\n",
             "[bind]\no = \"launch\"\n",
             "[bind]\no = \"run ./script {name}\"\n",

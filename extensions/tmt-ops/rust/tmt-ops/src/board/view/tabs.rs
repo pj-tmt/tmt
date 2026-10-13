@@ -559,6 +559,9 @@ fn unpicked(app: &App, budget: usize, look: Look, colors: &TabColors) -> Line<'s
 
 /// Prepare labels, admit a pure window, then paint its spans and exact hit cells.
 pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
+    if app.workspace_snapshot().is_some() {
+        return crate::board::workspace::render::tabs(app, area);
+    }
     let look = app.look();
     if app.view.is_none() && app.tabs.is_empty() {
         return Line::styled(
@@ -1371,6 +1374,7 @@ mod tests {
             snapshot.tabs = vec![tabs::ALL.into(), "ux".into()];
             snapshot.pinned = 1;
             snapshot.view.as_mut().unwrap().home = Some(crate::board::home::Home {
+                workspace: Default::default(),
                 windows: crate::config::TokenWindow::DEFAULTS,
                 summary: Default::default(),
                 sections: Vec::new(),

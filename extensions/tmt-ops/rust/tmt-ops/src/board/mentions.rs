@@ -46,14 +46,10 @@ impl App {
     }
     fn accept_reference(&mut self) -> bool {
         let mut completion = std::mem::take(&mut self.mentions.completion);
-        let limit = if self
-            .input
-            .as_ref()
-            .is_some_and(|input| matches!(input.compose, Compose::Status))
-        {
-            super::app::INPUT_LIMIT
-        } else {
+        let limit = if self.message_field() {
             MESSAGE_LIMIT
+        } else {
+            super::app::INPUT_LIMIT
         };
         let accepted = self
             .reference_editor_mut()
@@ -79,7 +75,7 @@ impl App {
             })
     }
     pub(super) fn update_mentions(&mut self) {
-        if !self.message_field() {
+        if !self.message_field() && !self.workspace_reference_field() {
             self.mentions = State::default();
             return;
         }

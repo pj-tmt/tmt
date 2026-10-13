@@ -20,7 +20,7 @@ tmt ops squad ls --json [--squad <name>]
 ```
 
 `tmt ops sq ls --tab <name>` returns one configured or built-in board tab's document,
-with the same rows, sections, attention, columns and lines as the board. Hidden
+with the independent CLI rows, sections, attention, columns and lines. Hidden
 squads remain included. `leads` lists each squad lead; `all` lists squad summaries.
 `--tab` cannot be combined with `--squad` or `--refresh-fields`. An unknown tab
 returns `SQUAD_TAB_NOT_FOUND`; an empty tab has an empty rows array.
@@ -52,8 +52,8 @@ Run `tmt ops sq ls --tab needs-me --json` for that view. It includes leads and
 members across all squads, including hidden squads. Names use the squad-name
 rules; `leads`, `all`, `colors`, `order`, `pin` and `hide` are reserved.
 `tab:<name>` distinguishes a user view from a squad in `order`, `pin` and
-`hide`; unplaced views follow the default tabs in definition order. Hidden views
-remain reachable through the switcher and `ls --tab`.
+`hide`; unplaced views follow the default tabs in definition order. These independent views remain reachable through `ls --tab`; they do not add
+interactive shell tabs.
 
 Filters use the section language: field presence, `=`, `!=`, `and`, `or`, `not`
 and parentheses. Fields include `squad`, `name`/`member`, `state`, `pending`,
@@ -69,8 +69,7 @@ At most 16 user views and 16 sections per view are allowed. Invalid definitions
 fail Config reading with their setting path, including hidden views.
 
 Failed roster or inbox reads set `partial: true` and include `failures` with
-source, optional squad, and error code/message. The board marks a partial view;
-text lists show warnings. Available rows remain visible, so an empty partial
+source, optional squad, and error code/message. Text lists show warnings; the workspace retains its own partial-read evidence. Available rows remain visible, so an empty partial
 view must not be treated as evidence that nobody waits on you.
 
 With `--squad <name>` the document is that squad's; without it, it is always
@@ -194,8 +193,8 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Reloading open boards
 
-An open board reloads itself in place, keeping its pid, tab, selection, scroll,
-expanded details, folds, search and picked tabs, when the `tmt-ops` it was started
+An open board reloads itself in place, keeping its pid, shell section, exact selection, scroll,
+expanded room UUIDs, pool expansion and search, when the `tmt-ops` it was started
 from is replaced (for example by `tmt extension upgrade ops` or `tmt upgrade`) or
 when `tmt ops ui --reload-all` asks every open board to. The board waits until it
 has been idle for a second and nothing is open: a composer, search, overlay, reader,
@@ -205,96 +204,47 @@ Boards started before this behavior shipped need one manual restart.
 
 ## Board appearance
 
-Member and HOME lead groups, outlined panes and inline input/read bands use horizontal
-rules with blank side margins. Pane titles and focus cues retain their reserved
-positions. Ask-lead, settings, pickers and cron overlays keep square frames.
+The board opens one `OPS / UI` shell: `1 Overview`, `2 Agents`, `3 Digest`.
+Overview contains global attention, usage and provider limits. Agents contains the
+squad workspace and the selected agent's conversation. Digest keeps the same
+identity context and existing Core-owned policy controls. A squad's theme applies
+to Agents/Digest; Overview uses the shared board theme.
 
-View, Theme, action menus, the tab switcher and the cron list show `›` on the
-selected choice's first line when that line fits. In View, `●` still marks the saved view;
-in the switcher, `[x]` still marks picked tabs. Cursor movement changes neither
-mark nor a cron job's state. Config keeps its selected continuation cues.
+The dense tree keeps Common pool first, then pinned squads and the selected sort
+order. Expand a squad to see its members; the lead is marked and included once in
+its count. A collapsed squad retains its worst observed member state. An identity
+in several squads keeps each squad's state and one conversation/draft by UUID.
+Common pool means no Ops squad membership, not no Core room membership. Partial
+or failed reads never prove that an identity belongs in the pool.
 
-On a squad tab the lead is the first row, in the same columns as the members, with a
-dim `lead` after its name (cut first when the name cell is narrow), followed by
-the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
-with no member; the numbers exclude the lead). The rule is not a row: ↑/↓ step from
-the lead straight to the first member. Opening a squad tab puts the cursor on
-the lead, so Enter, `a` and the other row keys reach it. Search matches
-the lead like any row. A squad without a lead keeps its member rows as they
-are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
-`--json` is unchanged.
+With tree focus, ↑/↓ move, Right expands and Left collapses; Enter inspects the
+selected target. Tab moves between the tree and conversation. `1`/`2`/`3` switch
+sections only when an editor, search, completion, overlay or conversation has not
+claimed the key. `s` cycles sort and `S` reverses; `p` pins/unpins a squad, `n`
+creates a squad, `m` manages a squad or assigns a member, `x` removes only the
+selected membership, `D` opens Digest and `c` opens Timers. Member rename has no
+`r` hint or default binding. `w` is reserved for snapshots and performs no action.
+`j` jumps to the selected agent's host when available; it is not tree navigation.
 
-The home tab is `▚ tmt`, with ◆ waiting and ✗ blocked counts after its name. Its command/config name remains `all`. With neither `tabs.order`
-nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
-An explicit order or pin, including an empty array, keeps the existing ordering
-policy; hide always applies. Opening the board writes no configuration.
+`ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
+footer use the same effective binding table as dispatch: defaults, global `[bind]`,
+host overrides, then section overrides. Compatible explicit bindings keep their
+meaning. Whole optional hints drop when space is short; help remains available.
+Menus, completion and editors own their keys and consume close without replay.
+Pointer controls use only their current visible rectangles.
 
-Only adjacent squad tabs sharing a prefix before the first `-` are grouped,
-with at least two visible tabs (`tmt · core squad`). Built-ins and user tabs
-interrupt groups. Grouping changes display only: each squad keeps its own mark
-slot, count, selection, click and drag target. The prefix is not clickable.
-The `s` switcher retains full names, including hidden tabs.
-
-`tmt ops ui --tabs product,infra,needs-me` picks the tabs this board shows,
-using names from the tab line. Squad names take precedence over user-tab labels;
-use `@tab:NAME` for an unambiguous user tab. `leads` selects leads; omit `--tabs`
-or use `--tabs all` for the default set. Unknown names produce a usage error
-listing valid names. `--squad NAME` must be among the picks when both flags are
-given. This resolver is board-only; `ls --tab` keeps its own names.
-
-In the switcher, Space picks or unpicks the highlighted tab. `[x]` marks
-picked tabs and `[ ]` unpicked tabs. Enter opens a tab and picks it on this
-board; opening a squad from home does the same. Unpicking the current tab opens
-the next picked tab, or home if none remain. The named action `pick-tab` is
-rebindable, for example `[bind] p = "pick-tab"`; that binding replaces Space
-and opens the switcher from the board. A different action bound to Space takes
-precedence.
-
-Unpicked squads share one `N not on this board` segment, dim when quiet and
-lit with ◆ waiting and ✗ blocked counts when they need attention. Click it to
-open a switcher limited to those squads. Picks belong to this board process,
-survive refresh and resizing, and never write `ops.toml`. `tabs.hide` remains
-global: hidden tabs stay out of the tab line even when opened or picked.
-
-The line keeps the current tab visible. Left overflow shows `‹ N`; right
-overflow names hidden tabs as `+N › remote◆2 docs …`, waiting first, then
-blocked, then quiet, retaining arrangement order within each tier. Names remain
-full unless a visible group prefix makes them unambiguous. If configured pins
-leave no room for the current tab, pins step aside from the end, except the
-current pin; their stored order stays unchanged. A label wider than the available
-cells is shortened with `…`. The shown name keeps semantic marks and counts
-when a name grapheme fits. At the minimum name width, a clipped grapheme can
-replace the ellipsis. Otherwise the ordinary prefix is fitted; at one cell a
-leading attention mark wins over the ellipsis. Selection is conveyed by the
-background, bold and no-background reverse styling. A named tab keeps its fixed
-attention slot outside the bar and one blank cell on each side of its name/count. Hidden tabs opened through the switcher remain
-selected and marked `(hidden)`, without a drag target. There are no number keys.
-
-`ctrl-r` refreshes the board in squad, leads and all views, including while
-searching or composing a message, without changing the entered text. The footer
-and `?` help list the effective bindings. The footer shows `↑↓ move`, the row's main
-action (`⏎ open`), `t talk` and `e expand` where those keys are bound and the selected
-row allows them. `v view` appears only for an expanded row with a reply, followed by
-`/ search`, `? more` and `q quit`. Keys are bold Accent, labels are Muted, and
-NO_COLOR keeps keys bold. `a write` and `A ask lead` stay bound and appear in `?`
-help and context menus. When width runs out, whole optional hints drop from the end;
-`q quit` and `? more` always stay. Other keys remain bound and listed in `?`;
-`s switch` joins the footer when the tab line hides tabs. A `talk` or `reply`
-binding of your own keeps its hint. Rebind in `[bind]` (or a section), or
-`[tabs.all.bind]` for all. F5 has no default action; an explicit
-`f5 = "refresh"` binding remains supported. Composing, search, menus and overlays
-keep their own footer; the board's key hints are blank under a menu or overlay.
+Old squad tabs, Left/Right tab navigation, tab reorder/pick/hide, factory views and
+custom pane geometry do not select a legacy UI. The board reports located
+migration notices and preserves authored TOML. `--tabs` is refused; `--squad`
+selects that squad in Agents. Independent `ls --tab` projections remain available.
+See [the migration table](../../docs/ui-migration.md) for old-to-new controls.
 
 Ordinary canvas, content and chrome inherit the terminal background. The board
 uses shared TMT tokens: `text` for shown tab names, primary counts and
 partial/unavailable explanations, `muted` for context and key hints, and `dim`
 for separators and incidental metadata. HOME summary state glyphs keep their
-semantic roles; their words and counts use `text`. Tab marks retain configured
-waiting/blocked colors, independently of neutral names. Shown top-level names
-use the theme's `selection` background with bold, including
-HOME. Row headings and tasks retain their blank indentation; selection adds no
-prefix glyph. Pane tab names also have no added decoration. Requested targets are underlined and say `Opening`; the shown document
-keeps selection until the request loads or fails. A terminal without a selection
+semantic roles; their words and counts use `text`. Selection uses the theme's
+background and readable text, with words and marks independent of colour. A terminal without a selection
 background uses reverse video, including `NO_COLOR`. On a real selection
 background the final word policy uses readable `text`, while semantic marks
 retain their colors. User theme and tab-color overrides still apply. Colors
@@ -328,12 +278,12 @@ Set and remove keep token overrides and the rest of the user's TOML. They
 refuse if the file changed since it was read. On the board, the `,` settings menu's
 Theme row opens the theme picker (`theme` is also a bindable action, with no default key). Arrow keys or j/k preview in
 memory; Tab switches all-boards/this-squad scope, Enter saves, and Esc cancels.
-The leads/all tabs offer all-boards scope only. A squad's own base still wins
+Overview and Common pool offer all-boards scope only. A squad's own base still wins
 over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
-When the squad tab's lead row is selected, detail shows its name with a dim `lead`
+When an agent with squad context is selected, retained detail can show its name with a dim `lead`
 tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
 Missing values are omitted. With no row fields set, it shows
 `no row fields set · tmt ops sq set <lead> task=…`.
@@ -357,44 +307,19 @@ Rows that wait on you show a single decision line: `pending` when set,
 otherwise the oldest unanswered request preview. Text ends in `…` when it does
 not fit; detail retains the full available text and the effective reply/jump
 keys. Request age comes from the inbox timestamp; pending-only rows have no
-request age. The hint uses the tab's member count and drops its oldest-member
-label first when space is short.
+request age. The workspace keeps contextual room/member counts; missing observations remain
+unknown rather than becoming zero.
 
-Press `A` (`ask-lead`, rebindable) on a squad tab to open the docked prompt
-with recipient-first header `→ lead <name>`.
-The prompt starts with "List what waits on me: one line each with who, the
-decision, your suggestion and what happens if I wait." Edit before Enter sends;
-Esc cancels. Missing or changed lead/sender/squad refuses without sending.
-It uses ordinary detached `tmt talk`; replies and ▚ notices follow the normal
-request path.
+`t` opens Talk for the selected agent through the shared conversation composer.
+Writing requires a recorded sender. Common pool supports Talk without inventing
+a squad; notes and manual squad status require a real membership. Explicit
+`annotate`/`reply` bindings reuse the same validated composer for squad members:
+real request IDs answer through `tmt answer`, and notes retain the actual lead or
+explicit member recipient. Multiple open requests require an explicit choice.
+The recipient and source are frozen and rechecked at submission. Esc cancels and
+empty input sends nothing. No member `r` default is provided.
 
-Set the question with `[board] ask_lead`, overridden by
-`[squad.<name>.board] ask_lead`. It must be a nonempty single line of at most
-4000 characters. The settings editor and `tmt ops sq config set board.ask_lead`
-use the same validation and concurrent-edit refusal as other board settings.
-
-```sh
-tmt ops sq config set board.ask_lead "What needs my decision?"
-tmt ops sq config set board.ask_lead "Summarize our pending decisions." --squad product
-```
-
-Press `a` on a home, squad member or leads row, including its expanded `e` band, to write to it. One composer
-answers an open request when something waits on you and otherwise sends the squad's
-lead a note (or opens talk when no lead is available); Tab cycles **answer, note, talk and status** (talk is a detached `tmt talk`:
-a request that expects a reply), through the modes the row allows. The input opens
-directly beneath the complete selected row in an opaque full-width band, shifting
-rows below it. The first line names the recipient, its squad and the mode: `→ docs-sweep (tmt-product) ·
-answer`, `→ docs-sweep (tmt-product) · talk`, or `→ sol (tmt-product) · note · about
-docs-sweep` for a note to the lead about that member; when the row itself receives
-the note it is `→ docs-sweep (tmt-product) · note`. The chosen waiting question is quoted above the answer input. Several open
-requests require an explicit choice before composing. `r` has no default key
-(`a` already answers first; `reply` stays bindable and, on a row that waits only on a
-`pending` decision, opens a note to that member: nothing is sent, cleared or
-acknowledged until you press Enter on a non-empty note, and the pending text stays
-until it is explicitly cleared by its owner or Update status). `t` opens talk mode on every tab. Explicit member-note
-bindings retain that recipient and cycle note, talk and status.
-
-Use `a → Tab → status` to **Update status** for the selected lead or member. The
+Use a squad member's shared composer and Tab to **Update status** for the selected lead or member. The
 shared band shows exact raw manual `pending` and `state` values separately from
 **Requires a reply**. Up/down selects a field or action; Enter toggles **Clear
 pending** or **Replace state**. Type the explicit replacement on its row and a
@@ -437,58 +362,39 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows needs-you squads first, then provider meters and
-one muted longest-window usage line, grouped leads, squads and cron. `◆ Needs
-you` names waiting squads; known empty attention says `✓ Nothing needs you`.
-Marks and words identify working/idle/blocked totals, with partial/unknown notices
-retained. One blank precedes Leads and Squads; each rule heading starts `── `,
-with one rule per boundary. Cron is one muted line after the squads table.
+Overview is the shell's global dashboard. Waiting and blocked observations remain
+visible; a complete read can say `Nothing needs you`, but a partial/stale read
+shows observed counts and says totals are unknown. Agents/Digest keep contextual
+headers instead of repeating global counts. Search, pinning, sorting, expansion,
+refresh and reload retain exact room/identity selection. A hidden or removed
+selected target cannot redirect an operation to an adjacent row.
 
-The usage line is `Usage 1h N tok · top <member> P%`, using actual global
-`[board] tok` labels and its longest window. UUIDs in several sampling squads
-count once using the better-covered observation. Missing readings are counted
-as members without data; incomplete totals/shares carry `~`, measured zero is
-`0`, and a zero total has no share. Model attribution is best effort. Search
-limits observations to shown squads. Short windows, missing-data coverage and
-shortened metadata are available through `e` on the overview, not repeated when
-already visible. Reading acquires and sends nothing.
+The longest-window usage line uses the configured global token window. Identities
+in several sampling squads count once with the better-covered observation.
+Missing differs from measured zero; incomplete totals/shares carry partial
+coverage, and a zero total has no share. Sampling off supplies no token values.
+Model attribution is best effort. Provider limits and sampled history reuse the
+existing bounded observations; reading sends and acknowledges nothing.
+Public `tmt ops sq ls --tab all --json` retains its aggregate document.
 
-Squads use one full-width row with aligned squad/lead/members/longest-window token
-and `lead %` headers (the lead’s fraction of its squad window). At 60 columns,
-lead/member cells move to shared detail; token and lead percentage remain. Missing values differ from zero and partial evidence; sampling
-off hides token cells. Mixed window settings label actual durations. `e` reveals
-hidden short windows, model and member counts from held observations. Blocked
-rows retain member, squad and `observed` age; questions stay in the `a` composer.
-Public `tmt ops sq ls --tab all --json` and text retain the aggregate document.
+Select a squad to inspect its lead, members, usage and timers. Add a member, set or
+clear its lead, rename it, pin it or open Timers through the named controls or
+Manage. `n` creates from a name, optional lead and explicit members. Assign offers
+add (keep every membership) or move (remove the selected source only after the
+destination add is confirmed). Common pool offers add only.
 
-Leads show the latest exchange with you in one full-width group between horizontal
-rules, with blank side margins. Each header has a bold name, its squad from 80 columns, and a labelled last-exchange age
-at the right. The header marks the latest exchange: ◆ means the lead asks you,
-… means you asked and no reply has been submitted, and ✓ means the lead replied.
-A lead with no exchange has a blank mark and `–` age. Leads marked ◆ come first,
-oldest ask first; other exchanges follow newest first, then undated exchanges,
-then leads without an exchange ordered by name. Reply previews start collapsed.
-`e` expands/collapses that row's fields and latest reply using the same presentation
-as [member rows](#squad-member-list). Reading sends and acknowledges nothing.
-`t` talks to the selected member or lead; `a` keeps its answer/note action.
+Management reviews freeze exact room/identity UUIDs and revisions, show timer
+impact and start on Cancel. Tab reaches the scrollable read region and Apply;
+clipped or stale Apply controls cannot submit. Pending prevents repeated applies.
+Results retain per-item success/failure and explicit repair guidance, with no
+automatic retry. `x` removes membership, not an identity, process, draft or history.
+Source timers pause before leave; re-add/reassign never resumes them. Explicit
+Resume is separate.
 
-The `→ all leads` footer sits outside the group. `A` writes to all current leads;
-`@` picks one lead. Both use the ordinary composer. The recipient identities
-are frozen when it opens, deduplicated for dispatch and checked again before
-sending. A changed sender or lead audience sends nothing. Feedback reports
-each recipient's queued or unavailable acceptance; uncertain acceptance keeps
-its operation ID and saved intent for inspection, with no automatic resend.
-
-One cursor spans overview, attention rows, leads, their footer, squads and cron.
-The overview is the first traversal stop; its selection appears only on usage,
-never on meter bars. `e`/Enter opens its shared detail; search hides this stop. Arrows or j/k move it; Tab
-keeps its board-wide pane-focus behavior and does not jump between home sections. Home opens on its first row from the top:
-the first blocked row, else the first lead, else the first squad. Switching back to home from
-another tab returns to the row you left. Squad tabs keep their own start on the lead. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
-through public `tmt answer`, otherwise annotates for that squad's actual lead.
-The composer refuses changed targets/requests/leads and missing sender/lead;
-Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
-switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
+Squad rename keeps its room UUID, moves Ops metadata/config and the cron counter
+namespace/jobs' squad field, and preserves c-ids and pause. A second-step failure
+leaves the confirmed room name intact and reports a repair command. Use that
+exact command to repair; do not roll the room name back or blindly retry.
 
 ## Digest time
 
@@ -507,31 +413,25 @@ ordinary deliveries; owner and urgent messages can still interrupt.
 
 ## Cron on the board
 
-The home tab shows one line, `cron · N jobs · next <time> <owner> · clock on/off/checking · c list`: the job count
-and earliest active slot. It omits the job prompt, clock location and paths. Up/Down
-reaches it like any row. Enter on it, or `c` anywhere, lists every squad's
-jobs, hidden squads included; Enter opens the job's squad and Esc closes. The
-job list retains full prompts and clock status (`no clock` means due slots are
-not sent; `clock: checking…` is the first read). A running clock identifies its
-holder as `session:window` inside tmux when available, otherwise by pane id.
+`c` or the selected squad's Timers control opens the shared job list, scoped by
+room UUID. A selected member prefills its owner when creating a job. Overview and
+Common pool do not invent a room; choose a real squad for a new job. Read failures
+retain prior jobs and their reason. `no clock` means due slots are not sent;
+`clock: checking…` is the first read. A running clock shows its holder's
+`session:window` when available, otherwise its pane ID.
 
-A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
-most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
-jobs after the last pane and back to the first. Members who own an active job show
-`cron <next>` at the row end (the first thing to drop when narrow) and in their detail. Jobs start collapsed; `e` toggles their shared [row detail](#squad-member-list) in place. Selection alone never expands them.
+The focused list owns Enter (open the job's squad), `n` new, `e` expand/collapse, `E` edit, `p`
+pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. Effective
+explicit bindings keep precedence. Forms retain exact owner/message/schedule;
+Esc cancels. Multiline messages use the shared editor; oversized stored messages
+remain intact when editing only owner or schedule.
 
-While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
-Enter go to the owner (open the squad, in the list), `n` new, `e` expand/collapse, `E` edit, `p` pause or resume,
-`x` send now, `o` reassign and `d` delete (after a confirmation). A key you bound in `[bind]`
-keeps its binding. New, edit and reassign use the input line one step at a time: owner
-(member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
-`mon,thu 10:00` or five cron fields); Esc cancels and nothing is written. The message is sent as
-typed, and an edit leaves untouched fields as stored. Multiline messages use the shared
-editor below; messages above its 1 MiB editing limit remain intact while owner and schedule
-can still be changed. Changes
-use the same permission and revision checks as the commands: only the recorded user or the
-squad's lead can change jobs, and a job that changed since you looked is refused, not
-overwritten. Failures are shown and never retried. `x` sends once, like `tmt ops sq cron send`.
+Changes use the same permission/revision checks as the CLI: only the recorded
+user or squad lead can change jobs; changed jobs are refused, never overwritten.
+Failures remain visible with no automatic retry. `x` sends once through the same
+manual service as `tmt ops sq cron send`. A missing owner is shown as
+`paused · owner missing`. Re-add/reassign never resumes a paused job; only explicit
+Resume clears pause.
 
 ## Manage checklists
 
@@ -653,9 +553,10 @@ separate from the clock lifecycle.
 
 ## Use the board checklist
 
-Press `,`, choose the first row **Actions…**, then **Checklist**. A configured
+Press `,`, choose **Actions** after the layout/Theme/Token window choices, then
+**Checklist**. A configured
 `menu` binding opens the same action menu. A named squad uses its exact room;
-HOME, leads and aggregate views ask you to choose a room explicitly. Opening
+Overview and Common pool ask you to choose a room explicitly. Opening
 Checklist does not select or assign a member. Esc from the action menu returns
 directly to the board.
 
@@ -686,22 +587,12 @@ attention, and opens references only when you choose Open reference.
 
 ## Inspect board settings
 
-Press `,` to open settings for the shown squad or tab; `settings` is bindable.
-Select with arrows/j/k, PgUp/PgDn or Home/End; the wheel scrolls. Press Enter on
-an editable entry to open its value. Type a scalar or JSON array, or use Ctrl-U
-to clear it. Valid input previews live behind the prompt; Enter saves, and Esc
-cancels the edit without writing. A second Esc closes settings. Entries marked
-`*`, including provider argv and run bindings, are read-only. Each value shows its preset/default or configuration setting source
-and the path of `ops.toml`. Configured provider argv and run bindings are
-shown without executing them. Close and reopen to read later config edits.
-
-Board preference choices save to the all-boards layer of `ops.toml` by default
-and persist across sessions. Theme and view pickers still offer an explicit
-`this squad` scope. A hand-written squad key overrides the shared value: its
-settings row carries `≠` and `this squad · r reset`. The header counts explicit
-settings that differ from all boards. Press `r` on that row to remove only its
-squad key and use the shared value; other rows ignore `r`. Comments and unrelated
-keys stay intact. A failed or conflicting write leaves the effective value unchanged.
+Press `,` for Workspace settings: Auto/Side/Stack, Theme, Token window and
+Actions. The menu reports current choices; cancel writes nothing. Layout, pins
+and sort are per-user Ops preferences. Config saves compare the opening values
+and file bytes, preserving comments and unrelated keys; a conflict keeps the
+current effective choice. Theme can use all-boards or selected-squad scope;
+Overview/Common pool have only the shared scope.
 
 `tmt ops sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
@@ -726,15 +617,11 @@ tmt ops sq config set board.hidden_columns '["pr_link"]' --squad product
 tmt ops sq config set tabs.hide '["leads"]'
 ```
 
-Editing `board.direction`, `board.sizes` or `board.panes` pins the effective workflow
-layout and full flat split (direction, panes and sizes) in `ops.toml`, preserving
-the untouched geometry. Future preset changes no longer replace these values.
-Nested split trees are read-only and must be edited in `ops.toml`. Existing validators reject invalid values
-before writing. The writer preserves unrelated keys and comments and refuses a
-file changed since reading it. A conflicting board save keeps the prompt and
-explains the refusal; cancel, close and reopen to load the newer file. Refreshes
-retain the current valid preview and the newest roster data. Provider/run commands,
-patterns and core/provider configuration remain read-only.
+Legacy geometry, factory view and tab policy remain authored CLI configuration;
+the workspace reports migration notices instead of applying those arrangements.
+The validated writer preserves unrelated keys and comments and refuses a file
+changed since reading. Provider/run commands and Core/provider configuration
+remain read-only to settings inspection and are never executed by inspection.
 
 For the selected squad, set `reminders.enabled` to `true` or `false`, and
 `reminders.stale_after` to whole s/m/h units from 1m to 24h (for example `30m`).
@@ -746,93 +633,37 @@ extension consent.
 
 ## Choose a board view
 
-`tmt ops sq view ls` (or bare `tmt ops sq view`) lists factory pane arrangements:
-`members`, `team`, `focus`, `notes`, `detail` and `wide`. The default `members`
-view uses one grouped list; the other views use the configured row grid and pane
-arrangements. Workflow states, rows, providers, reminders, the token meter
-and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
+The settings menu offers Auto, Side and Stack for the workspace/conversation
+placement, alongside Actions, Theme and Token window. These per-user Ops
+preferences persist through Config's compare-and-set writer; stale-file refusal
+keeps current state and preserves comments and unrelated values. They change
+presentation only, not workflow state, membership, provider or sampling policy.
 
-```sh
-tmt ops sq view set notes                      # all boards
-tmt ops sq view set wide --squad product       # this squad
-tmt ops sq view rm --squad product             # inherit the arrangement
-```
-
-The effective arrangement comes from a hand-written per-squad `board.layout`
-or `panes`, then `[squad.<name>.board] view`, then `[board] view`, then the
-default `members` view. Existing simple direction/sizes configs without a named
-view retain their pane preset. `team` keeps the previous responsive side panes;
-`focus` starts detail/replies/notes folded, `notes` gives lead notes most space,
-`detail` places detail/replies below rows with notes folded, and `wide` uses
-three columns. Team folds detail/replies below 100 cells, detail folds replies
-below 100, and wide folds detail/replies below 180. Manual folds retain their
-existing session rules.
-
-Set and reset write only the selected layer's `view` key through the existing
-format-preserving writer and refuse a concurrently changed file. Scoped set
-refuses a custom layout with a manual-removal hint. Reset removes only `view`,
-retaining custom layout and fold keys; all-boards settings remain masked by
-custom and scoped arrangements. Reset drops an emptied table only when its header
-has no comments; existing empty tables remain. On the board, the `,` settings menu's
-View row opens the view picker (`view` is also bindable, with no default key). Arrow keys or j/k preview only in memory, Tab
-switches all-boards/this-squad scope, Enter saves once, and Esc restores the
-opening arrangement and runtime folds without writing. Data keeps refreshing.
-The leads/home tabs offer all-boards scope only and retain their fixed composition
-during preview, save and cancel; views apply to squad tabs. The default entry
-removes only the chosen layer's view key. A custom entry identifies hand-written layout;
-this-squad preview works, but scoped save is refused with a manual-removal hint.
-An all-boards choice saves while this squad keeps its custom layout; the picker
-names that masking setting.
-A failed or stale save stays open; cancel and reopen to read the changed file.
-Actions…, Theme, View and Token window are rows of the `,` settings menu, which help lists. No preset binds `jump lead`:
-the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
-to go to the lead's pane from any row.
-Agents change views only when requested.
+Factory `sq view` configuration and custom pane keys no longer choose the UI.
+Their authored bytes remain intact and located migration notices identify them.
+There is no legacy mode. Independent CLI list/layout configuration retains its
+own reader and validation; it is not a second interactive editor or shell.
 
 ## Squad member list
 
-Squad tabs default to one grouped list with the lead first, its `lead` tag, then
-`── members · N ──`. Each member has a mark/name/state/model/age line and its task line. The mark is the
-reported state: `◆` waits on you, `✗` blocked, `◐` review or testing, `●` working, `◌` idle.
-A row that reports no state shows the observed presence in its state cell (`online` or
-`offline`, muted); an offline member that still reports a state reads `<state> · offline`,
-and its name is dim. A bind or unbind shows on the next refresh. A refresh moves no cell: model and age keep their place, a refresh that has not read them yet
-shows the last value dim (for up to ten minutes), and a column widens only when a longer value
-appears, until you resize or change tab. Below 40 columns the model and age are hidden. Waiting members (`◆`) come first, with the oldest questions first; other
-exchanges follow newest first, and members without exchanges sort by name.
-The lead stays first, and authored sections keep their positions. The lead's
-notes stay below the list; `n` hides or shows them.
+Agents shows one expandable squad tree and Common pool, with explicit room and
+identity targets. Lead badges and member counts include the lead once. State,
+attention and presence are scoped observations; missing state says `unreported`
+and failed observations remain partial/stale rather than becoming idle or zero.
+A collapsed squad shows its worst observed state. Display names never provide
+operation authority.
 
-Press `e` to expand/collapse the selected row in place, including HOME lead/member
-and job rows. Several rows can stay expanded; refresh retains their row identities
-and removes detail when a row disappears. A dim `│` (accent for the selected row)
-attaches the label/value grid below the collapsed row. The collapsed row keeps
-its existing content and selection; the expanded block has no selection background.
-Member fields are task, pending, note, links, model and reply; HOME lead fields are
-task, pending and reply; HOME member fields are task and reply. Empty fields are
-omitted, and fields already visible in the collapsed row are not repeated (such as
-the member task line). A missing reply says `no reply yet`. Job fields are when, next,
-last when available, target and prompt, omitting what the collapsed job line already
-shows at that width. With no additional fields it says `no details yet`. Long fields wrap to three lines; replies
-show sender/age and up to six lines of Markdown, followed by `… N more lines · v view`
-when clipped. Arrow keys/j/k move between rows; the block scrolls with its pane.
-`v` opens any available reply in a read-only full-message reader; clicking the
-clipped-reply hint also opens it. Arrows/PgUp/PgDn/Home/End scroll that reader,
-and Esc closes it without changing row expansion. Rows without replies ignore `v`.
-The footer shows `v view` only for an expanded selected row with a reply; `?` always
-lists it. Enter keeps its jump/menu action and `o` keeps its link action.
-`a` opens the existing answer/note/talk/status composer, and `t` opens talk mode.
-Reading works without recording yourself; writing requires `tmt ops sq me`.
-
-Choose `team` from the `,` settings menu's View row for the previous detail/replies
-side panes; `members` restores the grouped list.
-Hand-written `board.layout` or `panes` keeps its configured composition.
+Enter inspects the selected agent in the shared conversation; `t` opens Talk and
+`j` jumps to its available host. Source-provided labels retain their semantic roles
+and choice actions; a choice click opens that exact control rather than sending.
+Digest uses the same UUID context and existing Core authorization. Refresh and
+resize retain the target and clear old hit rectangles. Reading requires no sender
+and sends/acknowledges nothing; writing requires `tmt ops sq me`.
 
 ## Conversation and message editing
 
-The Replies pane shows the selected agent's conversation. A wide HOME dashboard
-uses the same conversation beside its monitor. Both share response, reading position
-and composer by agent UUID, so renaming an agent or changing its membership does not
+The workspace shows the selected agent's conversation in its Auto/Side/Stack
+placement. All sections share response, reading position and composer by agent UUID, so renaming an agent or changing its membership does not
 create another draft. Runtime is the observed runtime name, not the model's vendor;
 missing runtime/model evidence is shown as unavailable.
 
@@ -877,47 +708,11 @@ For terminal-native selection, use the terminal's mouse-capture bypass modifier
 
 ## Fold board panes
 
-In split mode, press `d` to fold or expand detail and replies together when
-both panes exist; otherwise it toggles whichever exists. With neither it does
-nothing silently. Footer and help show `d detail+replies ▾` when any is open, or
-`d detail+replies ▸` when both are folded; single-pane labels use that pane's
-title. The footer drops the whole hint when space is short. Click a pane's title
-to toggle it alone.
-A folded title reads `▸ detail` and stays in place. Stacked panes reserve one
-line; side-by-side panes reserve a compact title-width column. Expanded neighbours
-share the freed space, and expanding restores the configured proportions.
-Nested percentages use the raw fractional parent, then round cumulative boundaries
-to terminal cells. For example, Team at body height 21 gives detail/replies 6/7
-cells rather than halving an already rounded parent into 7/6.
-Tab skips folded panes. Folding a focused pane moves focus to rows when visible,
-otherwise the next expanded pane; unfolding keeps an existing focus. With all
-panes folded, only titles and bindings act;
-`n` expands and focuses notes. A single expanded pane stays borderless; bind
-`toggle rows` to fold it, then click its folded title to expand.
-
-Set the initial state or override a binding in `ops.toml`:
-
-```toml
-[squad.product.board]
-panes = ["rows", "detail"]
-collapsed = ["detail"]
-
-[bind]
-d = "toggle detail"
-```
-
-`collapsed` accepts unique configured pane names: rows, notes, detail or replies.
-It applies only to split mode. `toggle <pane>...` uses the same literal names
-and accepts one or more unique panes, for example `toggle detail replies`. If any present pane is expanded, it
-folds all present panes; otherwise it expands all. Duplicate or unknown names are configuration
-errors; the action toggles the named panes present on the board and does nothing
-silently if none are present.
-Tabs mode gives a notice before any change. User and section bindings keep their
-usual precedence. Runtime folds survive unchanged refreshes and squad switches
-within the board session. Changed board configuration resets them; restarting
-uses the configured initial state. Manual toggles win over automatic width-based
-folds until the board config changes, including after resizing in either
-direction. Toggling writes no config or member state.
+The new workspace uses squad expansion and Auto/Side/Stack placement. Left/Right
+expand/collapse the selected tree group; a hidden or removed selection remains
+anchored and cannot confer actions on a neighbour. Old pane toggles, fold keys
+and tab-reorder bindings are retired with located migration notices, preserving
+user configuration. There is no factory-view or legacy-mode fallback.
 
 ## Keep it current
 
@@ -970,48 +765,14 @@ tmt ops squad rm <name>                           # leaves the squad; the agent 
 
 ## Keep your notebook current
 
-The notes pane shows the squad lead's own saved-identity notebook, read-only.
-There is no separate squad notebook. Find your notebook with
-`tmt notes path --identity <lead>` and edit that file with ordinary filesystem
-tools. The board never creates it: a saved lead without a notebook shows
-`(no notes yet)`, while a temporary lead shows the
-`NOTEBOOK_SAVED_IDENTITY_REQUIRED` failure text.
+Each saved member owns its notebook; there is no separate squad notebook.
+Find it with `tmt notes path --identity <name>` and edit that file with ordinary
+filesystem tools. The board never creates another member's notebook. The
+workspace conversation replaces the former Notes-pane navigation; notebook
+reading/links/line-annotation controls are not workspace defaults.
 
-Click a notebook line in the lead notes pane to focus it and place the cursor.
-Arrow keys or j/k move between displayed lines; PgUp/PgDn page, and
-Home/End or g/G select the first/last line. The cursor follows unchanged source
-text when notes refresh (nearest match for duplicates, clamped after deletion).
-The wheel scrolls independently; moving the cursor brings it back into view.
-Every displayed continuation of the selected source line uses the full-width
-selection appearance, including reverse video with `NO_COLOR`. A fixed two-cell
-gutter holds the sent marker or blanks, so notebook text stays aligned.
-
-In Markdown notes, Tab/Shift-Tab select links; the footer previews kind and target.
-Enter or clicking the selected link activates it; the first click selects only.
-Esc clears link selection, and configured bindings take precedence. With no links,
-Tab moves to the next pane. Plain notes and undefined schemes stay inert.
-Built-ins are `tmt:jump/back/talk/answer/open/copy/annotate`; except `back`, append
-`/<current-member-name-or-id>`. Talk/answer/annotate open the existing prompt,
-optionally prefilled by bounded percent-encoded `?text=`; Enter submits, Esc cancels.
-Custom programs require your own `[links]` entries such as
-`gh = "run gh issue view {path}"`: argv only, one argument per template, no shell.
-Bare #N remains plain; full GitHub issue/PR URLs are selectable. Absolute file
-links reveal after resolving symlinks; configured openers get only the containing
-directory. Relative paths stay plain. Opening files requires a custom scheme.
-
-In focused notes, the annotate binding (`a` by default) opens a composer addressed
-to the lead, quoting the line number and a bounded excerpt. Enter sends only
-nonempty text; Esc cancels. The line shows `✎` while your request to the current
-lead is open, clearing after the lead answers and the board refreshes. Notes remain
-read-only. The marker uses the nearest matching quoted excerpt after an edit;
-requests outside the bounded room-history window may not be shown.
-
-The detail pane shows the selected non-lead member's own notebook after its fields,
-using the same read-only Markdown/plain rendering as lead notes. A saved member
-without a notebook shows `(no notes yet)`; temporary members show
-`(temporary identity: no notebook)`. Only the visible selected detail is read,
-on selection and board refresh. The leads/home tabs never show member detail
-notebooks.
+Notebook content remains owned by each member. A board projection never makes
+another member's notebook writable; use the explicit notebook commands below.
 
 Every member should keep a short **Current state** section at the top of their own notebook, with
 **Now / Next / Blocked** in a few lines, because the user reads it on the board.
@@ -1074,10 +835,10 @@ one hour and continues from its included counter watermark. It stores no separat
 usage history and computes no money estimate.
 
 Team enables observation; crew, pr-queue and minimal keep it off by default.
-The all/leads tabs omit this named-squad meter. The settings menu's Token window row cycles the summary's windows, as does
+Overview and Common pool omit this named-squad meter. The settings menu's Token window row cycles the summary's windows, as does
 the bindable `token-window` action (no default key), or clicking any part of the meter.
 All three paths save the next window to the shared layer; a squad override remains
-in effect until reset in settings. Member columns show all three at once.
+in effect until reset in settings. Selected squad usage detail can disclose each configured window.
 The live label names the configured window and the live number is a token total. Configure exactly three distinct ascending whole `m`/`h`
 durations, from 1m through 24h:
 
@@ -1111,12 +872,12 @@ shows the covered total. Core rollups crossing a shorter window boundary are
 excluded whole rather than prorated. Unreported members are excluded from
 totals and make the total approximate; `?` lists never-reporting members.
 Resets, new sessions, invalid counters, gaps and failed reads rebaseline without
-inventing tokens. Returning to a tab refreshes its recent range from core while
-preserving older board observations, without bridging uncovered intervals.
+inventing tokens. Refreshing the retained usage source keeps older board observations without
+bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
-on the next tab entry.
+on the next admitted source entry.
 
-While the usage meter is on, HOME shows provider account meters at every width.
+While the usage meter is on, Overview shows provider account meters at every width.
 Inside, approximately 18 cells show `Claude 36% (7d)`. At 160 columns two bars
 share a row; narrower widths give each its own row. Outside, `│ duration` is
 time to reset. Short-window readings remain in overview detail.
@@ -1245,38 +1006,13 @@ starts members, worktrees or windows; that is yours to arrange with the user.
 
 ## Team workflow and previous board view
 
-Squads with no layout key use the team workflow unless they set the simple board
-form, which keeps crew. Explicit `crew`, `pr-queue` and `minimal` retain their
-workflow settings. Presentation defaults to the boxed `members` view independently.
-Choose the named `team` view to restore rows beside a right column (62/38), with
-detail above replies (50/50) in the top 60% and lead notes in the bottom 40%.
-
-Below 100 columns of board body width, the team view folds detail and replies into title
-bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
-`d` toggles detail and replies together; click either title to toggle it alone.
-Widening restores automatically folded panes without moving focus; manual folds
-keep the session policy described above. Custom split
-boards can set `fold_below` with width 1–1000 and panes present in their layout.
-
-Member, state and PR use percentage widths (22%, 14%, 24%); TASK grows from
-a 20-cell minimum and MODEL follows its content up to 8 cells. Usage columns
-follow the sampling and active-window policy under Observed token usage above.
-Values truncate with the existing ellipsis.
-
-Team uses crew states and pending-first ordering. Rows show member, state,
-task, PR and model (`session.model` from the existing presence read); pending
-text has its own line under task, styled with `token = "waiting"`. Other
-presets keep their styles unless their cells opt in. Its `pr` field uses `preset = "github-pr"`
-from `pr_link`, refreshed at most every 60 seconds per member. A missing link
-never runs `gh`; unavailable or failed provider results follow the normal
-missing/`?` rules. A `rows` or legacy `columns` table replaces the whole grid;
-`fields.<name>` replaces that provider's whole table, other provider names add
-to `pr`, and reminder keys override individually. Set a full `board.layout`
-or `board.panes` to replace the nested pane arrangement; `direction` or `sizes`
-alone is refused for nested/named arrangements. Theme selection is unchanged.
-
-Team enables observed age at 30 minutes. Other layouts keep it disabled by
-default; `[squad.<name>.reminders] enabled = false` disables it for team too.
+Workflow presets remain independent of the new shell. Squads with no layout key
+use team unless their simple board form keeps crew; explicit crew, pr-queue and
+minimal keep their workflow settings. Team uses crew states, pending-first order,
+the existing task/PR/model projections and a 30-minute observed-age default.
+A missing PR link never invokes `gh`; unavailable or failed provider values keep
+the normal missing/unknown distinction. Authored row/provider tables and reminder
+overrides retain their validation. They do not revive a factory board view.
 
 ## Optional observed age
 
@@ -1295,13 +1031,11 @@ Missing or unreadable notes, unavailable cache and rollback clocks are unknown.
 Cache loss/corruption starts a new period; config edits do not reset age.
 Disabling stops observation; after re-enabling, surviving fingerprint matches
 keep their first-observed time. Disabled observation does no cache work and
-never creates a notebook. The board dims a stale row and shows its age at the
-row's end, and puts the notes' age on the notes pane title; the leads tab
-shows no ages. Home shows blocked ages only
-where this observation policy is enabled (Team by default; other layouts off);
-disabled or unavailable observation provides no age. Request ages use the real
-inbox timestamp, and pending-only rows have no age. Home labels blocked
-age `observed`: unchanged task/state observation, not an authoritative blocked start.
+never creates a notebook. Observation belongs to the unchanged task/state fingerprint, not an authoritative
+blocked-start time. Disabled or unavailable evidence supplies no age. Request
+ages use the real inbox timestamp; pending-only rows have no request age. The
+workspace retains these data distinctions without the former Notes-pane or
+lead/HOME-tab placement.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

@@ -36,6 +36,10 @@ pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
+    if app.workspace_snapshot().is_some() {
+        crate::board::workspace::render::render(frame, app, area);
+        return;
+    }
     let jobs = body_halves(app, area);
     match jobs {
         Some((members, jobs)) => {

@@ -4,19 +4,16 @@
 //! CARGO_BUILD_JOBS=2 cargo test --release -p tmt-ops frame_timing -- --ignored --nocapture
 //! ```
 //!
-//! Each scene (crew rows, team rows, home with attention sections only, home with
-//! every section; the token meter is on in all but the last) is drawn through
+//! Retained CLI row-painter scenes (crew/team, both metered) are drawn through
 //! `Terminal::draw` on a `TestBackend`, so ratatui's buffer diff is part of the cost. The surface split times the phases `view::render` runs, in
 //! its order; `render_replica_matches_render` keeps the replica honest. Pane
 //! painters, the rows scene and the outlines are timed again on their own, and the
 //! microbench times `strip::paint_*` alone. Numbers vary with the machine: compare
-//! runs from one machine and one build.
+//! runs from one machine and one build. WP2 workspace measurements use the actual
+//! App/render/diff path in `board::app::workspace::tests::workspace_frame_cost`;
+//! this retained row-phase harness is not a workspace performance oracle.
 use super::*;
-use crate::board::{
-    home::{Age, Counts, Home, MemberRow, MemberSection, SquadLine},
-    meter::Meter,
-    rate::tests::input,
-};
+use crate::board::{meter::Meter, rate::tests::input};
 use crate::config::{Config, Layout, TokenRate};
 use ratatui::{buffer::Buffer, style::Style, text::Span};
 use std::time::{Duration, Instant};
@@ -256,73 +253,6 @@ fn member_board(layout: Layout) -> App {
             .repeat(6),
     );
     meter(&mut app);
-    app.set_body_width(WIDTH);
-    app
-}
-
-/// Four squads, a blocked section, and squad tiles.
-fn home_board() -> App {
-    let names = ["product", "reviews", "infra", "colab"];
-    let member = |squad: &str, n: usize, state: &str| {
-        json!({"id": format!("{squad}-{n}"), "name": format!("{squad}-member-{n}"), "squad": squad,
-            "state": state, "pending": null, "fields": {"state": state}, "waitingOnYou": [],
-            "staleness": {}})
-    };
-    let section = |key: &str, state: &str, per_squad: usize| MemberSection {
-        key: key.into(),
-        rows: names
-            .iter()
-            .flat_map(|squad| {
-                (0..per_squad).map(move |n| MemberRow {
-                    squad: (*squad).into(),
-                    member: member(squad, n, state),
-                    lead: Some(format!("{squad}-lead")),
-                    age: Some(Age {
-                        since_ms: crate::status::now_ms().saturating_sub(720_000 * (n as u64 + 1)),
-                    }),
-                })
-            })
-            .collect(),
-    };
-    let counts = |members| Counts {
-        members,
-        waiting: 2,
-        blocked: 1,
-        review: 1,
-        working: members.saturating_sub(5),
-        idle: 1,
-    };
-    let home = Home {
-        windows: crate::config::TokenWindow::DEFAULTS,
-        summary: counts(names.len() * 8),
-        sections: vec![section("blocked", "blocked", 2)],
-        squads: names
-            .iter()
-            .map(|squad| SquadLine {
-                squad: (*squad).into(),
-                lead: Some(json!({"id": format!("{squad}-lead"), "name": format!("{squad}-lead")})),
-                counts: counts(8),
-                members: counts(7),
-            })
-            .collect(),
-        failures: Vec::new(),
-        incomplete: false,
-    };
-    let mut app = board(json!([]));
-    let view = app.view.as_mut().unwrap();
-    view.home = Some(home);
-    view.me = Some("ben".into());
-    view.bindings = crate::action::all_preset();
-    meter(&mut app);
-    app.set_body_width(WIDTH);
-    app
-}
-
-/// Every HOME section: blocked attention, the leads list with its
-/// exchanges, the audience line, cron and the squads table (the HOME oracle's
-/// model). It is the all-squads tab, which has no meter strips.
-fn home_full_board() -> App {
-    let mut app = crate::board::home::tests::oracle::rich();
     app.set_body_width(WIDTH);
     app
 }
@@ -620,8 +550,6 @@ fn frame_timing_report() {
     for report in [
         measure("crew rows + meter", crew),
         measure("team rows + meter", member_board(Layout::Team)),
-        measure("home + meter", home_board()),
-        measure("home, all sections", home_full_board()),
     ] {
         print(&report);
     }
@@ -632,8 +560,6 @@ fn render_replica_matches_render() {
     for (app, sentinel, metered) in [
         (member_board(Layout::Crew), "member-05", true),
         (member_board(Layout::Team), "member-05", true),
-        (home_board(), "blocked", true),
-        (home_full_board(), "Squads", false),
     ] {
         let mut expected = terminal();
         expected.draw(|frame| render(frame, &app)).unwrap();

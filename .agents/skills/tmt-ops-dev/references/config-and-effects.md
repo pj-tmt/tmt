@@ -160,33 +160,17 @@ shared fetcher path.
 
 ## Views (pane arrangements)
 
-- The `view` command module owns the factory catalog and registers `view ls` (hidden
-  `list` alias), `set` and `rm`; bare `view` lists. `members` is the default boxed
-  squad list with notes below. `team` preserves the previous side-pane arrangement;
-  `focus`, `notes`, `detail` and `wide` keep their arrangements and initial folds.
-  `Board.members` selects the shared HOME list scene without replacing configured
-  row/public-list projections. A view changes no states, rows, providers, reminders or
-  meter policy. Explicit per-squad fold settings override factory defaults through the
-  same Board reader; pane acquisition reads the resolved Board independently of the
-  workflow layout. `wide` folds its middle column below 180 cells and relies on the
-  solver's 40:30 redistribution; there is no width-dependent arrangement resolver.
-- `Config::set_view`/`remove_view` edit only `view` in the chosen board layer. A scoped
-  set refuses a hand-written layout with a manual-removal hint; reset keeps custom keys,
-  and drops only a table that the reset emptied when its header has no comments.
-  All-boards choices stay masked by custom or scoped arrangements.
-- The bindable `view` verb (`l`) opens `board::view_picker`, mirroring the theme picker's
-  scope, navigation and save/cancel lifecycle. The opening Config is the save baseline and
-  refresh never replaces that draft. `App::effective_board` is the single presentation
-  accessor for preview geometry, fold defaults and focus; per-tab `FoldState` keeps session
-  overrides. Esc restores the opening Board and focus with the latest data and writes
-  nothing; a successful save uses the normal changed-Board fold reconciliation. A custom
-  arrangement previews in this-squad scope on a disposable Config copy, but scoped save
-  refuses to remove hand-written keys; in all-boards scope a custom squad keeps its Board,
-  shows the masking note and saves the global view for other tabs. The reset entry removes
-  only the chosen layer's `view` key. The Reload request carries `preview_panes` only while
-  the picker is open, loading missing notes/replies through the same loader and
-  cancellation fence; closing it returns to resolved-pane acquisition. Built-in leads/all
-  tabs keep their fixed composition throughout and offer all-boards scope only.
+The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
+room-UUID pins and sort/reverse, written by the existing Config CAS owner. One
+effective action table resolves defaults/global/host/section overrides for
+dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
+bytes remain intact. The shell has no legacy mode or factory-view picker.
+
+Independent `view` CLI configuration, workflow/layout readers and offline markup
+validation retain their own command contracts. A CLI view key changes no roster,
+state, provider, reminder or sampling policy and no longer selects an interactive
+arrangement. `set_view`/`remove_view` preserve unrelated/custom keys and comments,
+refuse concurrent file changes and never write during inspection.
 
 ## Themes
 
@@ -200,54 +184,31 @@ shared fetcher path.
   configuration errors, validated per layer including masked values.
 - `Config::set_theme_base`/`remove_theme_base` change only `base`. Squad never writes
   `config.json`, and command and picker text say that CLI colors stay unchanged.
-- The bindable `theme` action (`T` in both host presets and the all tab) opens
+- The bindable `theme` action, offered in Workspace settings, opens
   `board::theme_picker`. The session reads its Config at opening and keeps that baseline
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
-  switches board/squad scope (built-in tabs have board scope only; a masking squad base is
+  switches board/squad scope (Overview/Common pool have board scope only; a masking squad base is
   named). Pickers open in all-boards scope, even when a squad override masks it;
-  the notice points to `r reset in ,`. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
+  the notice directs an intentional this-squad edit. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
 ## Settings inspection and editing
 
-Board preference choices use the shared layer by default; explicit squad keys
-remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
-count from actual squad keys, not inherited source labels. Its selected override
-alone offers `r reset`; `Config::reset_setting` removes exactly that key through
-the existing validated CAS writer, preserving siblings and comments. Failure
-keeps the effective state and existing diagnostic. Reset drops only an empty
-immediate parent table whose header has no comments. Quick theme/view/window rows
-share the full settings entry's provenance. Workflow and geometry edits retain
-their required squad scope.
+The comma menu offers workspace layout, Theme, Token window and Actions. It does
+not expose the former general configuration-inspection overlay. `config show`
+retains effective values/provenance independently; provider argv, run bindings,
+patterns and nested structures remain inert/read-only to inspection.
 
-- `settings` coordinates arrangement, rows, notebook/state, meter, theme and tab/program
-  projections. `config show` and the bindable inspection overlay (comma by default) share
-  those results; the overlay owns its scroll position, blocks underlying input and keeps
-  its opening snapshot through refresh (close/reopen reads later configuration). Provider
-  argv, run bindings, state patterns and nested split structures are read-only, and neither
-  inspection nor edit validation ever executes configured programs. `Config::bindings_for_tab`, `action::effective_bindings`
-  and `tab_view::rows` keep inspection and loaded tab/section rules together. Aggregate
-  tabs show fixed grids and global appearance without squad providers. `config show`
-  without scope inspects board defaults; `--squad` and `--tab` are exclusive.
-- `board.view` is editable globally and for squads without custom layout/panes.
-  `preview_setting` uses the same `view_draft` as the view command/picker; it never
-  writes during preview and global choices remain masked by scoped/custom layouts.
-- Editing in the overlay (`board/settings.rs`): an editable entry opens a local input
-  prompt. Each valid value calls `Config::preview_setting`, and the app applies the
-  disposable board, rows, notes mode, state colors, interval and tab policy to the newest
-  acquired data; the loader keeps raw core squad order so clearing tab order previews the
-  same fallback as a reload. Invalid input leaves no draft. Esc restores the opening
-  configuration and focus without discarding refreshed rows. Enter saves only through
-  `Config::set_setting`, then refreshes values and sources; a file conflict stays in the
-  prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
-  acquires preview notes/replies and metadata behind its existing cancellation fence, and
-  closing returns to resolved-pane acquisition.
-- `board.home_replies` remains a recognized obsolete global key so existing TOML
-  loads. Its value is ignored, with one deprecation notice; inspection exposes no
-  editable entry, and `config set` refuses it without changing authored bytes.
-  HOME reply previews are collapsed by default; row expansion belongs to `row_detail`.
+Workspace preferences use one Config CAS writer: compare the opening values and
+file bytes, validate before publication and preserve comments/unrelated keys.
+Theme picker preview remains disposable across refresh, names masking squad
+settings and offers explicit board/squad scope. Enter saves once; failure retains
+the draft and error without retry; Esc restores saved appearance. Global choices
+never silently remove a squad override. Token window keeps the shared writer and
+scoped override semantics; CLI configuration remains available for explicit edits.
+
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the

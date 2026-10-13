@@ -1,92 +1,75 @@
-# HOME board surface
+# Ops workspace surface
 
-[board.md](board.md) owns frame routing, row composers and shared scroll integration.
-The shipped Squad skill owns [HOME controls and appearance](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#home-dashboard).
-Acquisition/selection fences belong to [refresh-and-meter.md](refresh-and-meter.md#refresh-worker),
-usage evidence to its [meter reference](refresh-and-meter.md#token-window-meter),
-and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-sends).
+[board.md](board.md) owns frame routing, the WP1 composer and shared scroll integration.
+The shipped Squad skill owns [workspace controls](../../../../extensions/tmt-ops/skills/tmt-ops/SKILL.md#home-dashboard).
+Acquisition fences and usage evidence belong to [refresh-and-meter.md](refresh-and-meter.md);
+validated send effects belong to [config-and-effects.md](config-and-effects.md).
 
-## Model and scene owners
+## Acquisition and model ownership
 
-- `board::home::Home` is board-only (`View.home`); acquisition reuses `tab_view` and
-  the user-section pipeline. It observes each squad's task/state age under the
-  existing staleness lock/policy before/after its roster read; the blocked section's
-  age is that observation alone. Public aggregate
-  documents and `ls --tab all` retain their separate projection.
-- HOME bypasses ordinary pane composition. The neutral `view::scene` admits literal templates,
-  binds display-ready data, computes TUI geometry and lifts a scratch buffer into
-  lines. Section owners are `attention`, `leads`, `rows` (audience/cron), `tiles`
-  (squads), `limits` (provider meters) and `bar` (summary/usage/keys). Builders report local entry/start/end/x/width
-  placements; `home::paint` translates them into one stream, cursor, reveal and
-  viewport-clipped hit map. Scene IDs are local ordinals, not names or cursor identity.
-- Template branch visibility uses `tmt-switch`/`hide-below` named steps; Rust
-  projections use the shared SM/MD steps plus HOME-local compact (60) and wide
-  (160) checkpoints for budgets and hidden-value disclosure. Content fitting stays
-  Rust measurement feeding bound data. `tiles` supplies one full-width squad table
-  at every width, in filtered reading order. Padding belongs to row selection;
-  headings/gaps have no hit. Member counts align inside the table rather than at
-  the terminal edge. Marks exclude leads and assign each member one urgency class;
-  unknown/custom states get an unmarked `other` count. Waiting precedence comes
-  from `attention::waits_on_you`.
+`board::home::Home` retains the existing attention, sampled-history and provider
+limit projections. Its `workspace::observe::WorkspaceSnapshot` is built from the
+same `tab_view::Acquired` documents, room records and global identity inventory;
+painting and input perform no Core reads. Public aggregate documents and
+`ls --tab all` keep their independent projection.
 
-## Runtime projections and identity
+The snapshot contains admitted source rows, room UUIDs, identity UUIDs, per-squad
+states and effective Config tables. A malformed, failed or incomplete roster is
+not proof of zero memberships. Common pool includes only identities positively
+known to have no Ops squad membership; other Core rooms do not count as squads.
+A lead remains one identity in its squad count. Repeated memberships do not
+inflate the unique identity total. Unknown, stale, partial and measured zero stay
+distinct. Per-squad rank/state never becomes a global identity state.
 
-- `limits::estimate` derives pace and trend from one current-cycle slice of the
-  existing sampled history (refill, reset advance and six-hour fence). Endpoint
-  rates use actual elapsed time. Trend requires a five-hour baseline and a
-  one-to-two-hour recent span inside it; its strict threshold is the maximum of
-  0.1 pp/h, one whole-percent step per recent hour and 20% of baseline. Precision
-  is not retained, so a single step cannot flip the arrow. `Standing` carries
-  this derived observation; `outlook` omits it when stale, reset or without a
-  positive finite pace. No new acquisition or persisted field is added.
-  The meter renders reset, pace and trend only for depletion before reset; its
-  balance bands and independent warning follow [the HOME style](../../../../design/tui-board.md#home-overview-and-sections).
-  Width-hidden pace also hides its arrow; shared detail discloses the rate, not
-  the trend.
-- `App::home_usage` supplies observed totals, model attribution and longest-window
-  lead share; `tiles` only formats them. Missing differs from measured zero, partial
-  evidence propagates to shares, and disabled sampling supplies no token cells.
-  Sampling admits the longest-window token/`lead %` columns; mixed windows label actual durations. Short windows use shared explicit detail.
-  A sampling lead without totals has one missing mark in the first token column.
-- Session-model observations are independent of sampling: a bounded public `ls`
-  on refresh seeds retained inputs, and meter receipts can update them. Failed
-  model reads remain HOME failed-read evidence without changing aggregate JSON.
-  `App::home_lead_model` can supply a model while sampling is disabled; without
-  observation the field is omitted. Model metadata lives in explicit squad detail. `source::model_name` shares best-effort family
-  formatting with session columns/meter; acquisition preserves the original name.
-- `App.selected` reconciles by section/squad/member identity across refresh/search.
-  Overview is first in traversal order, followed by attention, deferred leads, their audience footer, squads and cron. The overview uses a stable non-row `USAGE` target, hidden during search; only its usage line receives selection. Inline
-  input and sent feedback join the stream beneath the selected row, shifting later
-  regions together. Tiles expose no member names, task/PR fields or question text;
-  composing uses the acquired target and ordinary send revalidation.
-  `App::shown_changed` places it when HOME comes on screen: `home_left` (the target
-  `go` saved on leaving) if that row still exists, else `place_home_start` (blocked,
-  leads, squads; never the cron line). A start on a lead also sets
-  `home_start`, so the first deferred lead read, which reorders the leads, places the
-  cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
-- `home::leads` projects deferred lead headings into the shared `view::member_list`
-  `Outline` box; a section whose `head` carries its own rule (HOME's `leads`) draws no
-  box top, so each boundary has one rule. Leads and blocked members start collapsed. `board::row_detail`
-  owns explicit overview, squad, lead/member detail and reply blocks; section builders reserve
-  those lines and include their presentation data in cache keys. Every block line
-  maps to its parent cursor target, while selection styles only the heading.
-  The audience footer remains outside the box. Acquisition and audience effects
-  remain with the linked owners.
+`workspace::OpsWorkspace` owns expansion, filtering and the exact selected
+`OpsTarget`: pool, room UUID, or room/identity UUID pair. It derives the tree from
+one snapshot. Pool remains first; pinned squads precede the selected sort order.
+A collapsed squad keeps its worst observed child state, prioritizing attention.
+Refresh, sorting, pinning and search preserve the anchor; a hidden or removed
+anchor disables actions rather than selecting its neighbour.
 
-## Cache invariant and verification
+## Shell, geometry and input
 
-Each section and summary/usage/key strip has a `view::scene::Kept` in the immutable
-view: HOME-specific caches live in `Derived.home` (`home::Scenes`), and the shared
-boxed-list cache lives in `Derived.member_list`. `scene::Key` contains bound data, width,
-look and selected block. Ages, cron text, input reservation, sent feedback, search
-and usage must reach bound data before key comparison; decoration may read only
-look and selected block. Local placement lets a shifted section reuse its block.
-Selection repaints the departed/entered sections; width/look changes rebuild affected
-scenes, and a new snapshot starts empty. The key strip decorates keys and labels through the shared footer painter;
-its bound strings include the conditional reply-reader hint.
+`board::shell` owns Overview, Agents and Digest selection. `workspace::render`
+uses shared TUI Outline, Strip and Scrolls for the dense tree and squad detail;
+WP1 retains conversation, editor, drafts, reply reader and send authority.
+Overview owns global attention/usage/limits. Agents and Digest use the selected
+squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
+not a second editor or a revival of factory board views.
 
-`home/tests/cache.rs` compares retained frames with fresh frames. `home/tests/oracle.rs`
-records whole-frame cells/styles/hits around `sm`, `md` and `lg` boundaries;
-regeneration follows the [parity approval gate](../../tmt-tui/references/development.md#board-parity-baseline).
-`home/tests` and `home/tiles/tests` cover projection, selection, reveal and clipped
-hits; [development.md](development.md#checks) owns commands and isolated captures.
+The App resolves one effective workspace key table for dispatch, help and footer.
+Text, search, completion, overlays and conversation take their keys before shell
+shortcuts. Tab moves between the tree and conversation; arrows expand/collapse
+squads in the tree. Exact painted rectangles own pointer actions and are cleared
+on resize/model replacement. Clipped controls publish no action authority.
+
+`workspace::manage::Draft` freezes typed operations, UUIDs/revisions and observed
+timer impact for review. The shared modal starts on Cancel and offers a scrollable
+read region before Apply. Short terminals use a screen-sized sheet; read position
+uses the shared modal's reserved position row. Apply requires current geometry.
+Pending blocks replay; partial results remain readable without automatic retry.
+The service rechecks the frozen identities and revisions before writes.
+
+In-place reload carries shell choice, expanded room UUIDs, pool expansion and the
+exact selected target in resume version 2. A removed target stays missing.
+Workspace forms block reload until their operation/result is dismissed. The old
+HOME display cache is not admitted as a new shell frame.
+
+## Usage and verification
+
+`App::home_usage` and provider-limit estimates reuse the existing history owner:
+missing differs from measured zero, uncovered evidence is partial, sampling off
+has no token cells, and model metadata is best effort. Provider pace/trend remains
+a derived current-cycle observation, not a persisted field or new acquisition.
+See the meter reference for coverage, time fences and trend thresholds.
+
+`board::app::workspace::tests` covers authority, modal lifecycle, pointer geometry,
+reload and scoped appearance. `board::workspace::tests` covers pure membership,
+counts, selection and sorting. Native service tests exercise public Core and Ops
+ports. Capture packets include cells, styles, exact targets and hits across width,
+height and colour depth; they are evidence, not regenerated fixtures.
+
+Frozen HOME and TUI parity baselines retain their provenance until a decoded
+cells/styles/hits/oracle diff is approved by UX and Core. Regeneration follows the
+[TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
+[development.md](development.md#checks) owns commands and isolated captures.

@@ -2,12 +2,16 @@
 //! Arguments are split at load time; a `{field}` value later fills (part of)
 //! exactly one argument and is never re-split, re-quoted or shell-parsed.
 
+mod workspace;
+pub use workspace::OpsUiAction;
+
 use crate::template::{DEFAULT_COPY, Template};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verb {
+    Ui(OpsUiAction),
     Jump,
     Back,
     Open,
@@ -66,29 +70,31 @@ impl Verb {
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             "digest" => Self::Digest,
-            _ => return None,
+            other => Self::Ui(OpsUiAction::parse(other)?),
         })
     }
 
     /// Verbs that resolve against the selected member row.
     pub fn acts_on_member(self) -> bool {
-        matches!(
-            self,
-            Self::Jump
-                | Self::Open
-                | Self::Copy
-                | Self::Run
-                | Self::Menu
-                | Self::Tab
-                | Self::Talk
-                | Self::Reply
-                | Self::Annotate
-                | Self::Digest
-        )
+        matches!(self, Self::Ui(action) if action.acts_on_member())
+            || matches!(
+                self,
+                Self::Jump
+                    | Self::Open
+                    | Self::Copy
+                    | Self::Run
+                    | Self::Menu
+                    | Self::Tab
+                    | Self::Talk
+                    | Self::Reply
+                    | Self::Annotate
+                    | Self::Digest
+            )
     }
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Ui(action) => action.spec().name,
             Self::Jump => "jump",
             Self::Back => "back",
             Self::Open => "open",
@@ -179,8 +185,12 @@ impl Action {
     /// selected row's actions first, then the board's. It orders the action menu,
     /// not help, whose sections follow the configured bindings.
     pub fn order(&self) -> u8 {
+        if let Verb::Ui(action) = self.verb {
+            return action.spec().rank;
+        }
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         match self.verb {
+            Verb::Ui(_) => unreachable!("UI action handled above"),
             Verb::Reply => 0,
             Verb::Talk => 1,
             Verb::Annotate => 2,
@@ -214,8 +224,12 @@ impl Action {
     /// The footer names the way in: open and expand, then search.
     /// The match is exhaustive so a new verb must choose.
     pub fn footer_rank(&self) -> Option<u8> {
+        if let Verb::Ui(action) = self.verb {
+            return Some(action.spec().rank);
+        }
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         Some(match self.verb {
+            Verb::Ui(_) => unreachable!("UI action handled above"),
             Verb::Jump if !lead => 0,
             Verb::Menu | Verb::Tab => 0,
             Verb::Reply => 2,
@@ -250,6 +264,7 @@ impl Action {
     pub fn description(&self) -> String {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
+            Verb::Ui(action) => action.spec().description.into(),
             Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Back => "go back to the previous pane".into(),
@@ -372,15 +387,13 @@ impl Action {
     }
 }
 
-/// Board keys no binding may take: quit, select, search and help.
-const RESERVED: &[&str] = &["q", "j", "k", "/", "?"];
-
 /// Key and mouse events a binding may name. Ctrl-C always quits.
 pub fn valid_event(event: &str) -> bool {
-    if RESERVED.contains(&event) {
-        return false;
-    }
     const NAMED: &[&str] = &[
+        "up",
+        "down",
+        "left",
+        "right",
         "enter",
         "backspace",
         "tab",
@@ -675,12 +688,19 @@ mod tests {
             "ctrl-r",
             "click",
             "double-click",
+            "j",
+            "k",
+            "q",
+            "/",
+            "?",
+            "up",
+            "down",
+            "left",
+            "right",
         ] {
             assert!(valid_event(event), "{event}");
         }
-        for event in [
-            "ctrl-c", "ctrl-", "hold", "f13", "", "ab", "é", "q", "j", "k", "/", "?",
-        ] {
+        for event in ["ctrl-c", "ctrl-", "hold", "f13", "", "ab", "é"] {
             assert!(!valid_event(event), "{event}");
         }
     }

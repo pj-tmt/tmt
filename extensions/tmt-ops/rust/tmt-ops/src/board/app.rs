@@ -22,6 +22,7 @@ use std::{
 };
 
 mod carry;
+mod workspace;
 
 /// What the refresh worker loaded for one squad.
 pub struct RateView {
@@ -32,13 +33,6 @@ pub struct RateView {
 
 /// Raw observations for tiles and headers; formatting belongs to the caller.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "Consumed by #1293 tiles and #1295 HOME header painting."
-    )
-)]
 pub(super) struct HomeUsage<'a> {
     pub lead_model: Option<&'a str>,
     pub windows: [crate::config::TokenWindow; 3],
@@ -191,6 +185,11 @@ pub enum Request {
         to: String,
         text: String,
     },
+    DirectTalk {
+        sender: String,
+        recipient: String,
+        text: String,
+    },
     Annotate {
         me: String,
         squad: String,
@@ -213,6 +212,11 @@ pub enum Request {
     Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
+    WorkspacePreferences {
+        expected: crate::config::OpsPreferences,
+        next: crate::config::OpsPreferences,
+    },
+    WorkspaceOperation(crate::membership::workspace::Operation),
     /// A cron job control, with its actor, job and viewed revision resolved.
     Cron(super::cronboard::CronRequest),
     /// Check that the person at the board may change a member's digest.
@@ -230,11 +234,15 @@ impl Request {
             Self::DigestOpen(_) => "Checking digest access…",
             Self::Digest(_) => "Saving digest…",
             Self::Copy { .. } => "Copying…",
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Leads { .. } => {
-                "Sending…"
-            }
+            Self::Talk { .. }
+            | Self::DirectTalk { .. }
+            | Self::Annotate { .. }
+            | Self::Reply { .. }
+            | Self::Leads { .. } => "Sending…",
             Self::Status(_) => "Updating status…",
             Self::Reorder(_) => "Saving the tab order…",
+            Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
+            Self::WorkspaceOperation(_) => "Applying workspace operation…",
             Self::Cron(_) => "Updating the job…",
         }
     }
@@ -245,9 +253,12 @@ impl Request {
         matches!(
             self,
             Self::Talk { .. }
+                | Self::DirectTalk { .. }
                 | Self::Annotate { .. }
                 | Self::Reply { .. }
                 | Self::Reorder(_)
+                | Self::WorkspacePreferences { .. }
+                | Self::WorkspaceOperation(_)
                 | Self::Cron(_)
                 | Self::Leads { .. }
                 | Self::Status(_)
@@ -280,6 +291,8 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    WorkspaceBegin(super::workspace::manage::Kind),
+    WorkspaceLayout(crate::config::OpsLayout),
     Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
@@ -329,6 +342,7 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
+    Workspace,
     Leads {
         sender: String,
         recipients: Vec<crate::send::LeadRecipient>,
@@ -361,6 +375,7 @@ pub enum Compose {
 /// A row occurrence, independent of its position after refresh or sorting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RowTarget {
+    Workspace(super::workspace::OpsTarget),
     Home(super::home::Target),
     Member {
         tab: String,
@@ -420,14 +435,13 @@ impl RowSend {
         {
             return false;
         }
-        let squad = match &self.target {
-            RowTarget::Home(target) => &target.squad,
-            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad,
+        let Some(squad) = app.target_squad(&self.target) else {
+            return false;
         };
         let Some(row) = app.target_row(&self.target) else {
             return false;
         };
-        if squad != &input.squad || row["name"].as_str() != Some(&self.name) {
+        if squad != input.squad || row["name"].as_str() != Some(&self.name) {
             return false;
         }
         match &input.compose {
@@ -449,6 +463,7 @@ impl RowSend {
             Compose::AskLead { .. }
             | Compose::Leads { .. }
             | Compose::Cron
+            | Compose::Workspace
             | Compose::Digest(_) => false,
         }
     }
@@ -487,14 +502,20 @@ impl Input {
     pub(super) fn header(&self) -> String {
         match &self.compose {
             Compose::Leads { .. } => self.prompt.clone(),
-            Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
+            Compose::Talk { to } => {
+                if self.squad.is_empty() {
+                    format!("→ {to} · talk")
+                } else {
+                    format!("→ {to} ({}) · talk", self.squad)
+                }
+            }
             Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
                 format!("→ {to} ({}) · note · about {row}", self.squad)
             }
             Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
-            Compose::Cron | Compose::Digest(_) => self.prompt.clone(),
+            Compose::Cron | Compose::Workspace | Compose::Digest(_) => self.prompt.clone(),
             Compose::AnswerPicker => self.prompt.clone(),
             Compose::Status => format!(
                 "Update status → {} / {}",
@@ -540,6 +561,7 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 /// Shared routing identifies the active surface; its controller owns effects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Overlay {
+    Workspace,
     Help,
     Settings,
     View,
@@ -553,6 +575,7 @@ impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
         vec![
             match self {
+                Self::Workspace => "workspace-form",
                 Self::Help => "help",
                 Self::Settings => "settings",
                 Self::View => "view-picker",
@@ -651,6 +674,12 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) shell: super::shell::OpsShell,
+    pub(super) workspace: super::workspace::OpsWorkspace,
+    pub(super) workspace_startup: Option<String>,
+    pub(super) workspace_form: Option<super::workspace::manage::Draft>,
+    pub(in crate::board) workspace_action_hits:
+        RefCell<Vec<(ratatui::layout::Rect, super::workspace::OpsTarget, Choice)>>,
     pub(super) timing: Option<super::timing::Ui>,
     pub(super) checklist: Option<super::checklist::Controller>,
     pub(super) checklist_generation: u64,
@@ -713,7 +742,7 @@ pub struct App {
     pub(super) migration_notice: Option<String>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
-    overlay_focus: tmt_tui::app::FocusStack,
+    pub(in crate::board) overlay_focus: tmt_tui::app::FocusStack,
     pub menu: Option<Menu>,
     pub(super) view_picker: Option<super::view_picker::Picker>,
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
@@ -811,6 +840,10 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::Char(' ') => "space".into(),
         KeyCode::Char(character) if character.is_ascii_graphic() => character.to_string(),
         KeyCode::Enter => "enter".into(),
+        KeyCode::Up => "up".into(),
+        KeyCode::Down => "down".into(),
+        KeyCode::Left => "left".into(),
+        KeyCode::Right => "right".into(),
         KeyCode::Backspace => "backspace".into(),
         KeyCode::Tab => "tab".into(),
         KeyCode::Delete => "delete".into(),
@@ -840,9 +873,14 @@ impl App {
         };
         if view.home.is_some() {
             return self
-                .home_entries()
+                .workspace_rows()
                 .into_iter()
-                .map(|entry| (RowOrigin::Section(0), entry.row))
+                .filter_map(|entry| {
+                    self.workspace_snapshot()?
+                        .rows
+                        .get(&entry.target)
+                        .map(|row| (RowOrigin::Section(0), row))
+                })
                 .collect();
         }
         self.items()
@@ -1273,6 +1311,10 @@ impl App {
     }
 
     fn clamp(&mut self) {
+        if self.workspace_snapshot().is_some() {
+            self.workspace_reconcile();
+            return;
+        }
         self.reconcile_row_details();
         let anchor = self
             .input
@@ -1369,7 +1411,10 @@ impl App {
 
     /// Keeps a stored display only for the tab still waiting on its first fresh view.
     pub(super) fn adopt_cached(&mut self, display: super::snapshot_cache::Display) -> bool {
-        if self.current.as_deref() != Some(display.tab())
+        // Version-1 HOME display snapshots carry the retired section layout.
+        // Keep their inert bytes for the cache owner, but never paint that shell.
+        if display.tab() == super::ALL
+            || self.current.as_deref() != Some(display.tab())
             || (self.view.is_some() && !self.loading())
         {
             return false;
@@ -1671,6 +1716,19 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
+                if let Some(snapshot) = self
+                    .view
+                    .as_mut()
+                    .and_then(|view| view.home.as_mut())
+                    .map(|home| &mut home.workspace)
+                {
+                    snapshot.roster.observation = super::workspace::OpsObservation::Stale;
+                    for squad in &mut snapshot.roster.squads {
+                        if squad.observation == super::workspace::OpsObservation::Complete {
+                            squad.observation = super::workspace::OpsObservation::Stale;
+                        }
+                    }
+                }
                 // A reload's state belongs to a view that did not arrive.
                 self.pending_resume = None;
                 self.home_counters.get_mut().clear();
@@ -1889,6 +1947,21 @@ impl App {
 
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
+        if let Some(snapshot) = self.workspace_snapshot() {
+            let target = snapshot
+                .roster
+                .squads
+                .iter()
+                .find(|squad| squad.name == next)
+                .map(|squad| super::workspace::OpsTarget::Squad(squad.room_id.clone()));
+            if let Some(target) = target {
+                self.workspace.selected = Some(target);
+                self.shell.tab = super::shell::OpsTab::Agents;
+                self.workspace_reconcile();
+                return Effect::None;
+            }
+            return self.say("Select a squad from the workspace; old squad tabs are retired.");
+        }
         self.meter_hover = None;
         self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
@@ -2111,6 +2184,15 @@ impl App {
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
+        if self.workspace_snapshot().is_some() {
+            return if self.shell.tab == super::shell::OpsTab::Overview
+                && self.conversation.borrow().pane.is_none()
+            {
+                [Pane::Replies].into()
+            } else {
+                BTreeSet::new()
+            };
+        }
         let mut folds = self.folds_at(self.body_width);
         if self.view.as_ref().is_some_and(|view| view.home.is_some())
             && super::conversation::layout::overview(self.conversation.borrow().area)
@@ -2137,15 +2219,26 @@ impl App {
         self.restore_focus();
     }
 
+    fn focus_panes(&self) -> &[Pane] {
+        if self.workspace_snapshot().is_some() {
+            &[Pane::Rows, Pane::Replies]
+        } else {
+            self.effective_board()
+                .map_or(&[], |board| board.panes.as_slice())
+        }
+    }
+
     pub fn focused_pane(&self) -> Option<Pane> {
-        self.effective_board()
-            .and_then(|board| board.panes.get(self.focus).copied())
+        self.focus_panes()
+            .get(self.focus)
+            .copied()
             .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
     }
 
     pub fn focused(&self) -> Pane {
-        self.effective_board()
-            .and_then(|board| board.panes.get(self.focus).copied())
+        self.focus_panes()
+            .get(self.focus)
+            .copied()
             .unwrap_or(Pane::Rows)
     }
 
@@ -2157,10 +2250,7 @@ impl App {
         else {
             return;
         };
-        if let Some(position) = self
-            .effective_board()
-            .and_then(|board| board.panes.iter().position(|p| *p == pane))
-        {
+        if let Some(position) = self.focus_panes().iter().position(|p| *p == pane) {
             self.focus = position;
         }
     }
@@ -2171,8 +2261,9 @@ impl App {
             return;
         }
         if let Some(position) = self
-            .effective_board()
-            .and_then(|board| board.panes.iter().position(|pane| *pane == Pane::Rows))
+            .focus_panes()
+            .iter()
+            .position(|pane| *pane == Pane::Rows)
             && !self.collapsed_panes().contains(&Pane::Rows)
         {
             self.focus = position;
@@ -2186,22 +2277,23 @@ impl App {
             self.jobs_leave(false);
             return;
         }
-        if let Some(board) = self.effective_board() {
-            let collapsed = self.collapsed_panes();
-            let count = board.panes.len();
-            // After the last visible pane, Tab enters the jobs half when it is drawn.
-            if self.jobs_painted()
-                && !(self.focus + 1..count).any(|index| !collapsed.contains(&board.panes[index]))
-            {
-                self.jobs_focus = true;
-                return;
-            }
-            if let Some(next) = (1..=count)
-                .map(|step| (self.focus + step) % count)
-                .find(|index| !collapsed.contains(&board.panes[*index]))
-            {
-                self.focus = next;
-            }
+        let panes = self.focus_panes();
+        let collapsed = self.collapsed_panes();
+        let count = panes.len();
+        // Only the retained row composition has a jobs half. Workspace Timers
+        // is a modal with its own focus owner.
+        if self.workspace_snapshot().is_none()
+            && self.jobs_painted()
+            && !(self.focus + 1..count).any(|index| !collapsed.contains(&panes[index]))
+        {
+            self.jobs_focus = true;
+            return;
+        }
+        if let Some(next) = (1..=count)
+            .map(|step| (self.focus + step) % count)
+            .find(|index| !collapsed.contains(&panes[*index]))
+        {
+            self.focus = next;
         }
     }
 
@@ -2210,13 +2302,11 @@ impl App {
         self.jobs_focus = false;
         let collapsed = self.collapsed_panes();
         let visible = |pane: &Pane| !collapsed.contains(pane);
-        let target = self.effective_board().and_then(|board| {
-            if backwards {
-                board.panes.iter().rposition(visible)
-            } else {
-                board.panes.iter().position(visible)
-            }
-        });
+        let target = if backwards {
+            self.focus_panes().iter().rposition(visible)
+        } else {
+            self.focus_panes().iter().position(visible)
+        };
         if let Some(target) = target {
             self.focus = target;
         }
@@ -2280,6 +2370,9 @@ impl App {
     /// The selected row's section overrides its host table, which overrides the
     /// tab/global bindings and the preset.
     pub fn bindings(&self) -> Bindings {
+        if self.workspace_snapshot().is_some() {
+            return self.workspace_bindings();
+        }
         let Some(view) = &self.view else {
             return Bindings::new();
         };
@@ -2316,6 +2409,9 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if let Verb::Ui(action) = action.verb {
+            return self.workspace_action(action);
+        }
         if action.verb == Verb::Menu {
             return self.context_menu();
         }
@@ -2330,7 +2426,15 @@ impl App {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
         }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+        if self.workspace_snapshot().is_some()
+            && action.verb.acts_on_member()
+            && self.workspace_selected_member().is_none()
+        {
+            return self.say("Select a visible named member before running this action.");
+        }
+        if self.view.as_ref().is_some_and(|view| view.home.is_some())
+            && self.workspace_snapshot().is_none()
+        {
             match action.verb {
                 Verb::Tab | Verb::Jump
                     if action.args.first().and_then(|arg| arg.literal()) != Some("lead") =>
@@ -2366,7 +2470,13 @@ impl App {
             Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
             Verb::Digest => return self.digest_row(self.selected),
-            Verb::Settings => return Effect::Settings,
+            Verb::Settings => {
+                return if self.workspace_snapshot().is_some() {
+                    self.workspace_settings()
+                } else {
+                    Effect::Settings
+                };
+            }
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
             Verb::NextPane => {
@@ -2426,7 +2536,11 @@ impl App {
                     None => self.say("tab: this row has no squad."),
                 };
             }
-            Verb::Jump => match row["name"].as_str() {
+            Verb::Jump => match if self.workspace_snapshot().is_some() {
+                row["id"].as_str()
+            } else {
+                row["name"].as_str()
+            } {
                 Some(name) => Ok(Request::Jump(name.to_owned())),
                 None => Err("This row has no member name.".to_owned()),
             },
@@ -2580,6 +2694,10 @@ impl App {
     /// Selects the same row, else the same member elsewhere; otherwise the index stays.
     fn follow_member(&mut self, anchor: &RowTarget) {
         let member = |target: &RowTarget| match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => {
+                Some(identity_id.clone())
+            }
+            RowTarget::Workspace(_) => None,
             RowTarget::Member { id, .. } | RowTarget::Lead { id, .. } => Some(id.clone()),
             RowTarget::Home(_) => None,
         };
@@ -2601,6 +2719,14 @@ impl App {
     }
 
     pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
+        if self.workspace_snapshot().is_some() {
+            if index == self.selected && !self.workspace_selection_visible() {
+                return None;
+            }
+            let target = self.workspace_rows().get(index)?.target.clone();
+            return matches!(target, super::workspace::OpsTarget::Member { .. })
+                .then_some(RowTarget::Workspace(target));
+        }
         if self.view.as_ref()?.home.is_some() {
             return self
                 .home_entries()
@@ -2629,6 +2755,7 @@ impl App {
 
     pub(super) fn target_row(&self, target: &RowTarget) -> Option<&Value> {
         match target {
+            RowTarget::Workspace(target) => self.workspace_snapshot()?.rows.get(target),
             RowTarget::Home(target) => self
                 .home_entries()
                 .into_iter()
@@ -2658,6 +2785,25 @@ impl App {
 
     fn note_recipient(&self, target: &RowTarget) -> Option<String> {
         match target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                room_id: Some(room),
+                ..
+            }) => {
+                let snapshot = self.workspace_snapshot()?;
+                let lead = snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == *room)?
+                    .lead
+                    .as_ref()?;
+                snapshot
+                    .roster
+                    .members
+                    .get(lead)
+                    .map(|member| member.name.clone())
+            }
+            RowTarget::Workspace(_) => None,
             RowTarget::Home(target) => self
                 .home_entries()
                 .into_iter()
@@ -2721,6 +2867,10 @@ impl App {
     }
     /// One composer for row answers and notes; several requests still need a choice.
     pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
+        if squad.is_empty() && verb == Verb::Annotate {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         self.status_draft = None;
         let row = self.target_row(&send.target).expect("opening row exists");
         let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
@@ -2771,6 +2921,10 @@ impl App {
                 },
             },
         };
+        if squad.is_empty() && matches!(compose, Compose::Annotate { .. }) {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         let effect = self.ask(String::new(), compose, squad.clone());
         self.attach_row(send, squad);
         effect
@@ -2803,6 +2957,18 @@ impl App {
                 })
                 .flatten()
         });
+        if action.verb == Verb::Annotate
+            && matches!(
+                target,
+                Some(RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                    room_id: None,
+                    ..
+                }))
+            )
+        {
+            return self
+                .say("Notes require a squad context; use Talk for this Common pool identity.");
+        }
         let Some(send) = target.and_then(|target| {
             self.send_target(
                 target,
@@ -2811,16 +2977,16 @@ impl App {
         }) else {
             return self.say("This row has no stable member target.");
         };
-        let squad = row["squad"]
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| self.current.clone())
-            .unwrap_or_default();
+        let Some(squad) = self.target_squad(&send.target) else {
+            return self.say("The retained membership is unavailable.");
+        };
         self.compose_row(send, action.verb, squad)
     }
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::WorkspaceBegin(kind) => self.workspace_begin(kind),
+            Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -2876,8 +3042,12 @@ impl App {
             Some(Compose::Talk {
                 to: send.name.clone(),
             }),
-            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none()))
-                .then_some(Compose::Status),
+            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none())
+                && !matches!(
+                    &send.target,
+                    RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id: None, .. })
+                ))
+            .then_some(Compose::Status),
         ];
         let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
         let here = rank(current);
@@ -2994,7 +3164,7 @@ impl App {
             "Token window: {}{}",
             window.label(),
             if config.has_setting_override(&key, "board.token_rate.window") {
-                " · this squad · r reset in ,"
+                " · this squad override remains"
             } else {
                 ""
             }
@@ -3270,7 +3440,7 @@ impl App {
         Effect::None
     }
 
-    fn input_key(&mut self, key: KeyEvent) -> Effect {
+    pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
             self.remember_draft();
         }
@@ -3288,6 +3458,11 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                if input.compose == Compose::Workspace {
+                    self.input = None;
+                    self.workspace_form = None;
+                    return self.say("Cancelled; nothing changed.");
+                }
                 let cron = matches!(input.compose, Compose::Cron);
                 let digest = matches!(input.compose, Compose::Digest(_));
                 self.input = None;
@@ -3339,6 +3514,9 @@ impl App {
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
         let input = self.input.take().expect("composing");
+        if input.compose == Compose::Workspace {
+            return self.workspace_submit_field(input.text.into_string());
+        }
         if matches!(input.compose, Compose::Cron) {
             // A job message is stored exactly as typed: no trim, unlike talk.
             return self.cron_submit(input.text.into_string());
@@ -3378,6 +3556,7 @@ impl App {
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron
+                    | Compose::Workspace
                     | Compose::Status
                     | Compose::AnswerPicker
                     | Compose::Digest(_)
@@ -3407,9 +3586,24 @@ impl App {
                 .say("Message including quotes exceeds 1 MiB; nothing sent. Draft retained.");
         }
         self.sending_draft(&input);
+        let direct = input.row_send.as_ref().and_then(|send| match &send.target {
+            RowTarget::Workspace(super::workspace::OpsTarget::Member {
+                room_id: None,
+                identity_id,
+            }) => Some((self.view.as_ref()?.me_id.clone()?, identity_id.clone())),
+            _ => None,
+        });
         let squad = input.squad;
         self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
+            Compose::Talk { .. } if direct.is_some() => {
+                let (sender, recipient) = direct.unwrap();
+                Request::DirectTalk {
+                    sender,
+                    recipient,
+                    text,
+                }
+            }
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
                 squad,
@@ -3435,7 +3629,9 @@ impl App {
             },
             Compose::Status => unreachable!("status submission has its own retained form"),
             Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
-            Compose::Cron => unreachable!("a cron step is submitted before this match"),
+            Compose::Cron | Compose::Workspace => {
+                unreachable!("form steps are submitted before this match")
+            }
             Compose::Digest(_) => unreachable!("a digest value is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -3534,9 +3730,8 @@ impl App {
         if key.code == KeyCode::Tab
             && let Some(send) = self.menu.as_ref().and_then(|menu| menu.row_send.clone())
         {
-            let squad = match &send.target {
-                RowTarget::Home(target) => target.squad.clone(),
-                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            let Some(squad) = self.target_squad(&send.target) else {
+                return self.say("The retained target is unavailable.");
             };
             let prefill = self.menu.as_ref().unwrap().prefill.clone();
             self.menu = None;
@@ -3592,9 +3787,8 @@ impl App {
             input.link = link;
         }
         if let Some(send) = row_send {
-            let squad = match &send.target {
-                RowTarget::Home(target) => target.squad.clone(),
-                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            let Some(squad) = self.target_squad(&send.target) else {
+                return self.say("The retained target is unavailable.");
             };
             self.attach_row(send, squad);
         }
@@ -3609,11 +3803,20 @@ impl App {
             self.overlay_focus.close();
             return self.jobs_event(event);
         };
-        let id = overlay.id();
+        let mut id = overlay.id();
+        if overlay == Overlay::Workspace
+            && let Some(draft) = &self.workspace_form
+        {
+            id.push(draft.stage_id());
+        }
         let mut focus = std::mem::take(&mut self.overlay_focus);
         if focus.overlay() != Some(&id) {
             focus.reconcile_base(vec![vec![self.focused().title().into()]]);
             let fields = match overlay {
+                Overlay::Workspace => self
+                    .workspace_form
+                    .as_ref()
+                    .map_or_else(Vec::new, |draft| draft.focus_fields()),
                 Overlay::Switcher => vec![
                     vec!["switcher".into(), "query".into()],
                     vec!["switcher".into(), "choices".into()],
@@ -3648,7 +3851,9 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.row_details.reader.is_some() {
+        if self.workspace_form.is_some() {
+            Some(Overlay::Workspace)
+        } else if self.row_details.reader.is_some() {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
             Some(Overlay::Checklist)
@@ -3676,6 +3881,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::Workspace => self.workspace_form_event(field, event),
             Overlay::ReplyReader => Some(self.reader_event(event)),
             Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
@@ -3811,6 +4017,9 @@ impl App {
             }
             self.clamp();
             return Effect::None;
+        }
+        if self.workspace_snapshot().is_some() {
+            return self.workspace_key(key);
         }
         if self.focused_pane().is_none()
             && !self.bound(key)
@@ -4008,6 +4217,11 @@ impl App {
 
     pub(super) fn invalidate_overlay_frames(&self) {
         self.input_viewport.set(None);
+        self.workspace_action_hits.borrow_mut().clear();
+        self.chip_hits.borrow_mut().clear();
+        if let Some(draft) = &self.workspace_form {
+            draft.invalidate();
+        }
         self.conversation.borrow_mut().pane = None;
         self.scrolls.begin_frame();
         self.mentions.invalidate();
@@ -4043,6 +4257,10 @@ impl App {
 
     /// Selects a row and keeps it on screen.
     pub(super) fn select(&mut self, row: usize) {
+        if self.workspace_snapshot().is_some() {
+            self.workspace_select(row);
+            return;
+        }
         self.home_start = false;
         self.home_target = None;
         self.selected = row;
@@ -4211,6 +4429,22 @@ impl App {
             return Effect::None;
         }
         if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let workspace_action = self
+                .workspace_action_hits
+                .borrow()
+                .iter()
+                .find(|(area, _, _)| area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some((_, target, choice)) = workspace_action {
+                if self.workspace.selected.as_ref() != Some(&target)
+                    || !self.workspace_selection_visible()
+                {
+                    return self.say(
+                        "The painted action target changed; select it and repaint before acting.",
+                    );
+                }
+                return self.choose(choice);
+            }
             let chip = self
                 .chip_hits
                 .borrow()
@@ -4271,6 +4505,15 @@ impl App {
         });
         match (event.kind, tab) {
             (MouseEventKind::Down(MouseButton::Left), Some(hit)) => {
+                if self.workspace_snapshot().is_some() {
+                    let action = match hit.tab {
+                        0 => crate::action::OpsUiAction::Overview,
+                        1 => crate::action::OpsUiAction::Agents,
+                        2 => crate::action::OpsUiAction::DigestDashboard,
+                        _ => return Effect::None,
+                    };
+                    return self.workspace_action(action);
+                }
                 self.dragging = Some(hit.tab);
                 return match self.tabs.get(hit.tab).cloned() {
                     Some(key) => self.go(key),
@@ -4362,13 +4605,20 @@ impl App {
     /// The shown squad's theme, or the already resolved startup theme before
     /// the first snapshot arrives.
     pub fn look(&self) -> crate::look::Look {
-        let saved = self.view.as_ref().map_or_else(
-            || {
-                self.initial_look
-                    .unwrap_or_else(|| crate::look::Look::new(tmt_cli_style::Theme::default()))
-            },
-            |view| view.look,
-        );
+        let saved = self
+            .workspace_squad()
+            .and_then(|squad| self.workspace_snapshot()?.squad_looks.get(&squad.room_id))
+            .copied()
+            .unwrap_or_else(|| {
+                self.view.as_ref().map_or_else(
+                    || {
+                        self.initial_look.unwrap_or_else(|| {
+                            crate::look::Look::new(tmt_cli_style::Theme::default())
+                        })
+                    },
+                    |view| view.look,
+                )
+            });
         self.theme_picker
             .as_ref()
             .map_or(saved, |picker| picker.preview(saved.depth))
@@ -4417,6 +4667,16 @@ impl App {
     }
 
     pub fn selected_row(&self) -> Option<&Value> {
+        if self.workspace_snapshot().is_some() {
+            return self
+                .workspace_selection_visible()
+                .then(|| {
+                    self.workspace_snapshot()?
+                        .rows
+                        .get(self.workspace.selected.as_ref()?)
+                })
+                .flatten();
+        }
         self.rows().get(self.selected).map(|(_, row)| *row)
     }
 
@@ -4764,6 +5024,7 @@ pub(crate) mod tests {
         let mut home = snapshot(super::super::ALL, json!([]));
         home.tabs.push(super::super::ALL.into());
         home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            workspace: Default::default(),
             windows: crate::config::TokenWindow::DEFAULTS,
             summary: super::super::home::Counts {
                 members: 7,
@@ -6771,6 +7032,7 @@ mod token_window_tests {
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
         let view = snapshot.view.as_mut().unwrap();
         view.home = Some(super::super::home::Home {
+            workspace: Default::default(),
             windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
             sections: Vec::new(),
@@ -7152,20 +7414,25 @@ mod token_window_tests {
     }
 
     #[test]
-    fn failed_switch_back_to_home_restores_its_member_meter() {
+    fn workspace_shell_navigation_retains_scoped_usage_and_failed_inventory_marks_it_stale() {
         let now = Instant::now();
         let mut app = home(now);
-        assert!(matches!(app.go("product".into()), Effect::Load(_)));
-        assert!(app.loading() && app.meter.is_some());
-        assert!(!app.meters.contains_key("product"));
-
-        let mut failed = super::tests::snapshot("product", serde_json::json!([]));
-        failed.view = Err("product load failed".into());
-        app.apply(failed);
+        assert_eq!(
+            app.workspace_action(crate::action::OpsUiAction::Agents),
+            Effect::None
+        );
         assert_eq!(app.current.as_deref(), Some(super::super::ALL));
+        assert!(!app.loading());
         assert!(app.meter.is_none() && app.meters.contains_key("product"));
+        let mut failed = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        failed.view = Err("workspace inventory failed".into());
+        app.apply(failed);
         assert!(app.home_usage("product", now).is_some());
-        assert_eq!(app.error.as_deref(), Some("product load failed"));
+        assert_eq!(app.error.as_deref(), Some("workspace inventory failed"));
+        assert_eq!(
+            app.workspace_snapshot().unwrap().roster.observation,
+            super::super::workspace::OpsObservation::Stale
+        );
     }
 
     #[test]
@@ -7291,7 +7558,8 @@ mod token_window_tests {
     }
 
     #[test]
-    fn home_receipts_ignore_loading_other_tabs_and_unrelated_identities() {
+    fn workspace_receipts_keep_source_scope_across_shell_navigation_and_ignore_unrelated_identities()
+     {
         let now = Instant::now();
         let mut app = home(now);
         let mut receipt = super::super::rate::tests::input(200).resumes;
@@ -7304,11 +7572,20 @@ mod token_window_tests {
                 .tokens,
             150
         );
-        app.go("other".into());
-        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
-        app.apply(super::tests::snapshot("other", serde_json::json!([])));
-        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(20)));
-        assert!(app.home_usage("product", time).is_none());
+        assert_eq!(app.go("other".into()), Effect::None);
+        assert_eq!(app.current.as_deref(), Some(super::super::ALL));
+        app.workspace_action(crate::action::OpsUiAction::Agents);
+        app.workspace_action(crate::action::OpsUiAction::DigestDashboard);
+        app.sample_home(Ok(&receipt), time + Duration::from_secs(10));
+        assert_eq!(
+            app.home_usage("product", time + Duration::from_secs(10))
+                .unwrap()
+                .squad[2]
+                .unwrap()
+                .tokens,
+            150
+        );
+        assert!(app.home_usage("product", time).is_some());
     }
 
     #[test]

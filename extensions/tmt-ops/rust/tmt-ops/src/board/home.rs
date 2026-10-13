@@ -62,6 +62,7 @@ pub struct SquadLine {
 
 #[derive(Debug)]
 pub struct Home {
+    pub(crate) workspace: super::workspace::observe::WorkspaceSnapshot,
     pub summary: Counts,
     /// HOME uses global windows; named boards and tiles retain their overrides.
     pub windows: [crate::config::TokenWindow; 3],
@@ -128,6 +129,9 @@ pub fn load(
         })
         .collect::<Result<_, SquadError>>()?;
     let mut home = model(order, &acquired, crate::status::now_ms());
+    home.workspace =
+        super::workspace::observe::WorkspaceSnapshot::from_acquired(&squads, &acquired, listed);
+    home.workspace.configure(config)?;
     home.windows = config.token_windows("")?.0;
     Ok((public, home, inputs))
 }
@@ -262,6 +266,7 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
         })
         .collect();
     Home {
+        workspace: Default::default(),
         summary,
         windows: crate::config::TokenWindow::DEFAULTS,
         sections,

@@ -163,6 +163,7 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
     let mut retained = read.leads.clone();
     retained.reverse();
     let home = super::super::home::Home {
+        workspace: Default::default(),
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
         sections: vec![],
@@ -434,6 +435,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         "late read from another user is ignored"
     );
     let home = super::super::home::Home {
+        workspace: Default::default(),
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
         sections: vec![],

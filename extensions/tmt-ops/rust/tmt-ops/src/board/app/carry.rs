@@ -17,6 +17,7 @@ impl App {
             || self.in_flight > 0
             || self.pending_send.is_some()
             || self.input.is_some()
+            || self.workspace_form.is_some()
             || self.composer.has_drafts()
             || self.status_draft.is_some()
             || self.cron_draft.is_some()
@@ -41,7 +42,14 @@ impl App {
     pub(in crate::board) fn resume(&self) -> Option<Resume> {
         let tab = self.current.clone()?;
         Some(Resume {
-            selected: self.row_target(self.selected),
+            shell: self.shell.tab,
+            squads_expanded: self.workspace.expanded.iter().cloned().collect(),
+            pool_expanded: self.workspace.pool_expanded,
+            selected: if self.workspace_snapshot().is_some() {
+                self.workspace.selected.clone().map(RowTarget::Workspace)
+            } else {
+                self.row_target(self.selected)
+            },
             focus: self.focus,
             follow: self.follow,
             scrolls: self.scrolls.offsets(),
@@ -83,6 +91,9 @@ impl App {
             return;
         };
         self.search = resume.search;
+        self.shell.tab = resume.shell;
+        self.workspace.expanded = resume.squads_expanded.into_iter().collect();
+        self.workspace.pool_expanded = resume.pool_expanded;
         if let Some(state) = self
             .current
             .as_ref()
@@ -97,6 +108,9 @@ impl App {
         self.scrolls.restore(resume.scrolls);
         self.follow = resume.follow;
         match resume.selected {
+            Some(RowTarget::Workspace(target)) => {
+                self.workspace.selected = Some(target);
+            }
             Some(RowTarget::Home(target)) => {
                 if let Some(index) = self
                     .home_entries()
@@ -222,6 +236,9 @@ mod tests {
             }),
             ("carried state not yet applied", |app| {
                 app.carry(Resume {
+                    shell: crate::board::shell::OpsTab::Overview,
+                    squads_expanded: vec![],
+                    pool_expanded: false,
                     tab: "product".into(),
                     selected: None,
                     focus: 0,

@@ -1,5 +1,6 @@
 //! This board's transient tab policy; global arrangement and hide remain config-owned.
 
+#[cfg(test)]
 use crate::{core::SquadError, tabs};
 use std::collections::BTreeSet;
 
@@ -8,6 +9,7 @@ pub(crate) struct Picks(Option<BTreeSet<String>>);
 
 impl Picks {
     /// Names are resolved against the board inventory, never the `ls --tab` resolver.
+    #[cfg(test)]
     pub fn parse(input: Option<&str>, inventory: &[String]) -> Result<Self, SquadError> {
         let Some(input) = input else {
             return Ok(Self::default());

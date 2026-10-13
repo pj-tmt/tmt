@@ -171,6 +171,7 @@ impl App {
             return Some(detail);
         }
         let row = match target {
+            RowTarget::Workspace(_) => self.target_row(target)?,
             RowTarget::Home(target) if target.section == super::home::LEADS => {
                 &self
                     .home_leads
@@ -276,9 +277,14 @@ impl App {
             }
         }
         let (squad, id) = match target {
-            RowTarget::Home(target) => (&target.squad, target.member.as_deref()?),
+            RowTarget::Workspace(super::workspace::OpsTarget::Member { identity_id, .. }) => (
+                row["squad"].as_str().unwrap_or("Common pool"),
+                identity_id.as_str(),
+            ),
+            RowTarget::Workspace(_) => return None,
+            RowTarget::Home(target) => (target.squad.as_str(), target.member.as_deref()?),
             RowTarget::Member { squad, id, .. } | RowTarget::Lead { squad, id, .. } => {
-                (squad, id.as_str())
+                (squad.as_str(), id.as_str())
             }
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
@@ -295,7 +301,7 @@ impl App {
                 .map(|(sender, request)| MessageKey {
                     sender,
                     lead: id.into(),
-                    squad: squad.clone(),
+                    squad: squad.to_owned(),
                     request: request.into(),
                     kind: Kind::Reply,
                 });
@@ -330,7 +336,7 @@ impl App {
                     .map(|(sender, request)| MessageKey {
                         sender,
                         lead: id.into(),
-                        squad: squad.clone(),
+                        squad: squad.to_owned(),
                         request,
                         kind: Kind::Reply,
                     });

@@ -52,6 +52,7 @@ impl Columns {
         let target = view.owner_name.as_deref().unwrap_or("no owner");
         let schedule_text = schedule_text(&view.job.schedule);
         let next_text = match view.job.state() {
+            _ if view.owner_missing => view.state_label().into(),
             "on" => next_time(view, now_ms).unwrap_or_else(|| "–".into()),
             "paused" => "paused".into(),
             _ => "no owner".into(),
@@ -200,6 +201,7 @@ pub(in crate::board) fn detail(view: &JobView, now_ms: i64) -> crate::board::row
         Role::Text,
     );
     let next = match view.job.state() {
+        _ if view.owner_missing => view.state_label().into(),
         "on" => upcoming(view, now_ms).join(" · "),
         "paused" => "paused".into(),
         _ => "no owner".into(),
@@ -239,6 +241,7 @@ pub(super) fn project(
             let (symbol, mark_role) = mark(view);
             let state = view.job.state();
             let (next, next_role) = match state {
+                _ if view.owner_missing => (view.state_label().into(), Role::Blocked),
                 "on" => (
                     next_time(view, now_ms).unwrap_or_else(|| "–".into()),
                     Role::Text,

@@ -26,6 +26,7 @@ fn roster() -> OpsRoster {
             name: "product".into(),
             members: vec!["lead".into(), "one".into()],
             lead: Some("lead".into()),
+            member_states: BTreeMap::new(),
             observation: OpsObservation::Complete,
         }],
         membership_complete: true,
@@ -132,13 +133,27 @@ fn known_empty_is_distinct_from_unavailable_and_offline_is_not_missing() {
 #[test]
 fn collapse_retains_child_attention_without_making_a_second_member_count() {
     let mut roster = roster();
-    roster.members.get_mut("one").unwrap().state = Some("blocked".into());
+    roster.squads[0].member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            state: Some("blocked".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
     roster.squads[0].members.push("one".into());
     let rows = OpsWorkspace::default().rows(&roster, &OpsPreferences::default());
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[1].state.as_deref(), Some("blocked"));
     assert_eq!(rows[1].count, Some(2));
-    roster.members.get_mut("lead").unwrap().waiting = true;
+    roster.squads[0].member_states.insert(
+        "lead".into(),
+        OpsMembershipState {
+            state: None,
+            waiting: true,
+            rank: None,
+        },
+    );
     assert_eq!(
         OpsWorkspace::default().rows(&roster, &OpsPreferences::default())[1]
             .state
@@ -227,6 +242,7 @@ fn pinned_squads_stay_before_unpinned_in_both_sort_directions() {
         name: "z".into(),
         members: vec![],
         lead: None,
+        member_states: BTreeMap::new(),
         observation: OpsObservation::Complete,
     });
     let workspace = OpsWorkspace {
@@ -305,6 +321,7 @@ fn dense_roster_preserves_selected_target_across_reversal_and_search() {
             name: format!("squad-{i:02}"),
             members: vec![format!("identity-{i:03}")],
             lead: None,
+            member_states: BTreeMap::new(),
             observation: OpsObservation::Complete,
         });
     }
@@ -335,4 +352,98 @@ fn dense_roster_preserves_selected_target_across_reversal_and_search() {
         SelectionState::Visible
     );
     assert_eq!(workspace.selected, Some(selected));
+}
+
+#[test]
+fn same_identity_keeps_each_squads_metadata_state_and_attention() {
+    let mut roster = roster();
+    // The global identity may also have a status; it cannot bleed into room metadata.
+    roster.members.get_mut("one").unwrap().state = Some("blocked".into());
+    roster.squads[0].member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            state: Some("blocked".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
+    let mut other = OpsSquad {
+        room_id: "other".into(),
+        name: "other".into(),
+        ..roster.squads[0].clone()
+    };
+    other.member_states.insert(
+        "one".into(),
+        OpsMembershipState {
+            state: Some("idle".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
+    roster.squads.push(other);
+    let mut workspace = OpsWorkspace::default();
+    let preferences = OpsPreferences::default();
+    let collapsed = workspace.rows(&roster, &preferences);
+    let other = collapsed
+        .iter()
+        .find(|row| row.target == OpsTarget::Squad("other".into()))
+        .unwrap();
+    assert_eq!(other.state.as_deref(), Some("idle"));
+    workspace.expanded.extend(["room".into(), "other".into()]);
+    let expanded = workspace.rows(&roster, &preferences);
+    assert_eq!(
+        expanded
+            .iter()
+            .find(|row| row.target == target(Some("room"), "one"))
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("blocked")
+    );
+    assert_eq!(
+        expanded
+            .iter()
+            .find(|row| row.target == target(Some("other"), "one"))
+            .unwrap()
+            .state
+            .as_deref(),
+        Some("idle")
+    );
+}
+
+#[test]
+fn a_collapsed_squad_preserves_its_configured_worst_observed_state() {
+    let mut roster = roster();
+    roster.squads[0].member_states = [
+        (
+            "one".into(),
+            OpsMembershipState {
+                state: Some("hold".into()),
+                waiting: false,
+                rank: Some((1, false, 0)),
+            },
+        ),
+        (
+            "lead".into(),
+            OpsMembershipState {
+                state: Some("working".into()),
+                waiting: false,
+                rank: Some((20, false, 1)),
+            },
+        ),
+    ]
+    .into();
+    let rows = OpsWorkspace::default().rows(&roster, &OpsPreferences::default());
+    assert_eq!(rows[1].state.as_deref(), Some("hold"));
+    roster.squads[0]
+        .member_states
+        .get_mut("lead")
+        .unwrap()
+        .waiting = true;
+    assert_eq!(
+        OpsWorkspace::default().rows(&roster, &OpsPreferences::default())[1]
+            .state
+            .as_deref(),
+        Some("waiting")
+    );
 }

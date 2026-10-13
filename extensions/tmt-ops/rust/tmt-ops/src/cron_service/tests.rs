@@ -3,6 +3,128 @@ use super::*;
 use std::fs;
 
 #[test]
+fn missing_squad_owner_is_listed_paused_and_readding_it_does_not_resume() {
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    let job = f.add(&user, WORKER).unwrap().job.job;
+    f.change_model(|model| model["rosterWithout"] = json!([WORKER]));
+    let listed = list_jobs(&f.core, &f.config, Some("product"), 100).unwrap();
+    assert_eq!(listed.jobs.len(), 1);
+    let missing = &listed.jobs[0];
+    assert!(missing.owner_missing);
+    assert_eq!(missing.state_label(), "paused · owner missing");
+    assert_eq!(missing.job.owner_id.as_deref(), Some(WORKER));
+    assert_eq!(missing.job.pause.as_ref().unwrap().at_ms, 100);
+    assert!(missing.next_ms.is_empty());
+    assert_eq!(missing.job.revision, job.revision + 1);
+    assert_eq!(missing.document()["ownerMissing"], true);
+    f.change_model(|model| model["rosterWithout"] = json!([]));
+    let restored = show_job(&f.core, &f.config, &JobKey::of(&job), 200).unwrap();
+    assert!(!restored.owner_missing);
+    assert_eq!(restored.job.pause, missing.job.pause);
+    assert_eq!(restored.job.revision, missing.job.revision);
+    assert_eq!(
+        admit_scheduled(&f.core, &JobKey::of(&job), restored.job.revision)
+            .unwrap_err()
+            .code,
+        "SQUAD_CRON_NOT_ON"
+    );
+    assert!(
+        f.mutate(&user, &restored.job, Mutation::Resume)
+            .unwrap()
+            .job
+            .job
+            .pause
+            .is_none()
+    );
+}
+
+#[test]
+fn scheduled_admission_and_explicit_resume_persist_missing_owner_pause_before_refusing() {
+    for resume in [false, true] {
+        let f = Fixture::new();
+        let user = f.actor(USER);
+        let job = f.add(&user, WORKER).unwrap().job.job;
+        f.change_model(|model| model["rosterWithout"] = json!([WORKER]));
+        let error = if resume {
+            f.mutate(&user, &job, Mutation::Resume).err().unwrap()
+        } else {
+            admit_scheduled(&f.core, &JobKey::of(&job), job.revision).unwrap_err()
+        };
+        assert_eq!(error.code, "SQUAD_NOT_A_MEMBER");
+        let stored = Store::new(&f.directory.join("ops"))
+            .unwrap()
+            .read()
+            .unwrap();
+        let paused = &stored.jobs()[0];
+        assert!(paused.pause.is_some());
+        assert_eq!(paused.revision, job.revision + 1);
+        let reassigned = f
+            .mutate(
+                &user,
+                paused,
+                Mutation::Reassign {
+                    owner_id: LEAD.into(),
+                },
+            )
+            .unwrap()
+            .job
+            .job;
+        assert_eq!(reassigned.pause, paused.pause);
+        assert_eq!(reassigned.owner_id.as_deref(), Some(LEAD));
+    }
+}
+
+#[test]
+fn direct_reassignment_of_a_missing_owner_keeps_a_pause_until_explicit_resume() {
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    let job = f.add(&user, WORKER).unwrap().job.job;
+    f.change_model(|model| model["rosterWithout"] = json!([WORKER]));
+    let reassigned = f
+        .mutate(
+            &user,
+            &job,
+            Mutation::Reassign {
+                owner_id: LEAD.into(),
+            },
+        )
+        .unwrap()
+        .job
+        .job;
+    assert!(reassigned.pause.is_some());
+    assert_eq!(reassigned.revision, job.revision + 1);
+    assert!(
+        f.mutate(&user, &reassigned, Mutation::Resume)
+            .unwrap()
+            .job
+            .job
+            .pause
+            .is_none()
+    );
+}
+
+#[test]
+fn failed_or_incomplete_owner_observation_never_claims_missing_or_changes_jobs() {
+    for malformed in [false, true] {
+        let f = Fixture::new();
+        let job = f.add(&f.actor(USER), WORKER).unwrap().job.job;
+        let path = f.directory.join("ops/cron/jobs.json");
+        let before = fs::read(&path).unwrap();
+        f.change_model(|model| {
+            if malformed {
+                model["malformedReferences"] = json!(true);
+            } else {
+                model["failOperation"] = json!("rooms.roster");
+            }
+        });
+        assert!(list_jobs(&f.core, &f.config, Some("product"), 100).is_err());
+        assert!(admit_scheduled(&f.core, &JobKey::of(&job), job.revision).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
 fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
     let f = Fixture::new();
     assert!(
@@ -222,9 +344,17 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
             .code,
         "SQUAD_NOT_A_MEMBER"
     );
+    let paused = Store::new(&f.directory.join("ops"))
+        .unwrap()
+        .read()
+        .unwrap()
+        .jobs()[0]
+        .clone();
+    assert_eq!(paused.revision, job.revision + 1);
+    assert!(paused.pause.is_some());
     let empty = f.mutate(
         &user,
-        &job,
+        &paused,
         Mutation::Edit {
             message: Some(" \n".into()),
             schedule: None,
@@ -287,7 +417,9 @@ fn departure_pause_survives_readd_and_reassign_until_explicit_resume() {
     let user = f.actor(USER);
     let job = f.add(&user, WORKER).unwrap().job.job;
     assert_eq!(
-        pause_departing_owner(&f.core, ROOM, WORKER, 500).unwrap(),
+        with_departure_pause(&f.core, ROOM, WORKER, 500, || ())
+            .unwrap()
+            .0,
         [job.id()]
     );
     f.change_model(|model| model["rosterWithout"] = json!([WORKER]));

@@ -37,11 +37,13 @@ mod settings;
 mod snapshot_cache;
 mod status_update;
 pub(crate) use crate::tabs;
+mod shell;
 mod terminal;
 mod theme_picker;
 mod timing;
 mod view;
 mod view_picker;
+mod workspace;
 
 pub use tabs::{ALL, LEADS};
 
@@ -225,6 +227,7 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 /// back stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ActionOutcome {
+    Workspace(Box<Result<crate::membership::Outcome, crate::core::SquadError>>),
     Message(String),
     /// A request Core accepted: the notice and the row's mark.
     Accepted {
@@ -257,6 +260,13 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         })));
     }
     let outcome = match request {
+        Request::WorkspaceOperation(operation) => {
+            return Ok(ActionOutcome::Workspace(Box::new(
+                Config::load(core).and_then(|mut config| {
+                    crate::membership::workspace::apply(core, &mut config, operation)
+                }),
+            )));
+        }
         Request::Status(_) => unreachable!("handled above"),
         Request::DigestOpen(ask) => {
             return digest::grant(core, ask)
@@ -301,6 +311,18 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 })
                 .map_err(|error| error.message);
         }
+        Request::DirectTalk {
+            sender,
+            recipient,
+            text,
+        } => {
+            return send::talk_direct(core, &sender, &recipient, &text)
+                .map(|accepted| ActionOutcome::Accepted {
+                    notice: accepted.describe("Message", &recipient),
+                    mark: accepted.mark(),
+                })
+                .map_err(|error| error.message);
+        }
         Request::Annotate {
             me,
             squad,
@@ -318,6 +340,10 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         Request::Reorder(keys) => Config::load(core)
             .and_then(|mut config| config.set_tab_order(&keys))
             .map(|()| "Tab order saved.".to_owned())
+            .map_err(|error| error.message),
+        Request::WorkspacePreferences { expected, next } => Config::load(core)
+            .and_then(|mut config| config.save_workspace_preferences(&expected, &next))
+            .map(|()| "Workspace preferences saved.".to_owned())
             .map_err(|error| error.message),
         Request::Cron(request) => cronboard::act(core, request),
         Request::Leads {
@@ -607,6 +633,7 @@ fn session(
                     app.finish_draft(outcome.is_ok());
                 }
                 match outcome {
+                    Ok(ActionOutcome::Workspace(outcome)) => app.finished_workspace(*outcome),
                     Ok(ActionOutcome::Status(outcome)) => app.finished_status(*outcome),
                     Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
                     Ok(ActionOutcome::Accepted { notice, mark }) => {
@@ -808,7 +835,10 @@ fn session(
                 refreshed = Instant::now();
             }
             Effect::PickTheme => {
-                let squad = app.current.clone().filter(|name| !tabs::aggregate(name));
+                let squad = app
+                    .workspace_squad()
+                    .map(|squad| squad.name.clone())
+                    .or_else(|| app.current.clone().filter(|name| !tabs::aggregate(name)));
                 submit(app, lane::Job::Open(lane::Opening::ThemePicker(squad)));
             }
             Effect::SaveTheme => {
@@ -859,43 +889,22 @@ fn session(
 /// Resolve the initial board selection before terminal admission. Reads only public Squad/core ports.
 pub(super) fn selection(
     core: &Core,
-    config: &Config,
+    _config: &Config,
     input: Option<&str>,
     initial: Option<&str>,
 ) -> Result<(pick::Picks, Option<String>), SquadError> {
-    if input.is_none() {
-        return Ok((pick::Picks::default(), initial.map(str::to_owned)));
-    }
-    let names = crate::squad::Squad::list(core)?
-        .into_iter()
-        .map(|squad| squad.name)
-        .collect::<Vec<_>>();
-    let settings = config.tabs()?;
-    let (arranged, _) = tabs::arrange(&names, &settings);
-    let mut inventory = arranged.clone();
-    for key in names
-        .into_iter()
-        .chain([ALL.to_owned(), LEADS.to_owned()])
-        .chain(settings.user.iter().map(|tab| tabs::user_key(&tab.name)))
-    {
-        if !inventory.contains(&key) {
-            inventory.push(key);
-        }
-    }
-    let picks = pick::Picks::parse(input, &inventory)?;
-    if let Some(initial) = initial
-        && !picks.contains(initial)
-    {
-        return Err(SquadError::new(
-            "USAGE_ERROR",
-            format!("Initial squad '{initial}' is not in --tabs."),
+    if input.is_some() {
+        return Err(SquadError::hinted(
+            "SQUAD_UI_TABS_RETIRED",
+            "ui --tabs belongs to the retired squad-tab layout",
+            "; use ",
+            "the workspace search and squad pins, with 1/2/3 for the shell tabs.",
         ));
     }
-    let chosen = initial
-        .map(str::to_owned)
-        .or_else(|| arranged.iter().find(|key| picks.contains(key)).cloned())
-        .or_else(|| inventory.iter().find(|key| picks.contains(key)).cloned());
-    Ok((picks, chosen))
+    if let Some(name) = initial.filter(|name| *name != ALL) {
+        crate::squad::Squad::resolve(core, Some(name))?;
+    }
+    Ok((pick::Picks::default(), Some(ALL.into())))
 }
 
 /// `ui --reload-all`: every board that started before now reloads once it is idle.
@@ -952,12 +961,13 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
+    let startup_squad = squad.clone();
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     // A reloaded board comes back on the tab it was on, with the tabs it had admitted.
     let (picks, squad) = match &resume {
         Some(resume) => (
             pick::Picks::from_keys(resume.picks.clone()),
-            Some(resume.tab.clone()),
+            Some(ALL.into()),
         ),
         None => (picks, squad),
     };
@@ -990,6 +1000,7 @@ pub fn run(
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
     let mut app = App::new(squad);
+    app.workspace_startup = startup_squad;
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();
     app.notice = crate::migration::paths(&core, None)?

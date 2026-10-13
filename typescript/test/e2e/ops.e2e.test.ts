@@ -71,6 +71,106 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('creates from the empty workspace only after exact review and keeps section keys out of fields', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'worker']));
+      expectJsonResult(await squadCli(fixture, ['me', 'Ben']));
+      const beforeRequests = requestAttempts(fixture);
+      const beforeIdentities = durableState(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('workspace-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui; echo WORKSPACE_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('OPS / UI') && screen.includes('Common pool'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
+      await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product1']);
+      // Digits are authored field input, never navigation to Overview/Agents.
+      await fixture.waitForCapture(
+        (screen) => screen.includes('product1') && screen.includes('Squad name'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (screen) => !screen.includes('Squad name') && screen.includes('OPS / UI'),
+        shell.pane
+      );
+      const cancelled = await fixture.runJsonCli(['room', 'show', 'squad-product1']);
+      expect(cancelled.code).not.toBe(0);
+      expect(errorCode(cancelled)).toBe('ROOM_NOT_FOUND');
+      expect(requestAttempts(fixture)).toEqual(beforeRequests);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
+      await fixture.waitForCapture((screen) => screen.includes('Squad name'), shell.pane);
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'product']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('Lead (optional'), shell.pane);
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'Ben']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('Member (@agent'), shell.pane);
+      fixture.tmux(['send-keys', '-l', '-t', shell.pane, 'worker']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Member (@agent') && !screen.includes('worker'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Apply this exact operation') && screen.includes('New squad: product'),
+        shell.pane
+      );
+      const beforeApply = await fixture.runJsonCli(['room', 'show', 'squad-product']);
+      expect(beforeApply.code).not.toBe(0);
+      expect(errorCode(beforeApply)).toBe('ROOM_NOT_FOUND');
+      expect(requestAttempts(fixture)).toEqual(beforeRequests);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
+      await fixture.waitForCapture((screen) => screen.includes('Applied'), shell.pane);
+      const room = expectJsonResult<{ room: { id: string; memberIds: string[] } }>(
+        await fixture.runJsonCli(['room', 'show', 'squad-product'])
+      ).room;
+      expect(room.id).toMatch(/^[a-f0-9-]{36}$/);
+      expect(room.memberIds).toHaveLength(2);
+      expect(requestAttempts(fixture)).toEqual(beforeRequests);
+      // Management changes membership; it does not retire or recreate identities.
+      const afterCreate = durableState(fixture);
+      expect(afterCreate.identities).toEqual(beforeIdentities.identities);
+      expect(afterCreate.bindings).toEqual(beforeIdentities.bindings);
+      expect(afterCreate.profiles).toEqual(beforeIdentities.profiles);
+      expect(
+        afterCreate.metadata.filter((row) => !String(row.key).startsWith('squad.product.'))
+      ).toEqual(beforeIdentities.metadata);
+      expect(afterCreate.metadata).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: 'squad.product.lead.marker', value: 'true' }),
+          expect.objectContaining({ key: 'squad.product.state', value: 'working' }),
+        ])
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (screen) => !screen.includes('Apply this exact operation') && screen.includes('product'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, '2']);
+      await fixture.waitForCapture((screen) => screen.includes('2 Agents'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('WORKSPACE_BOARD_EXIT=0'),
+        shell.pane
+      );
+    });
+  });
+
   it.each(
     [80, 100, 160].flatMap((width) =>
       [
@@ -608,7 +708,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const start = clientPlace(fixture);
       expect(start).toBe(`e2e/${shell.pane}`);
 
-      // A named squad opens on its own tab; an unnamed board opens on the home tab.
+      // A named squad opens as the UUID-anchored target in Agents.
       fixture.tmux([
         'send-keys',
         '-t',
@@ -616,24 +716,29 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         'tmt ops ui --squad product --popup; echo BOARD_EXIT=$?',
         'Enter',
       ]);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('product') && screen.includes('OPS / UI'),
+        shell.pane
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'j']);
       await fixture.waitForCapture((screen) => screen.includes('BOARD_EXIT=0'), shell.pane);
       expect(clientPlace(fixture)).toBe(`crew/${member}`);
 
       // The pane form: the same jump leaves the board running.
       fixture.tmux(['switch-client', '-t', shell.pane]);
       fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt ops ui --squad product', 'Enter']);
-      // The first board stored this tab, so the second may open from that
-      // display; it acts only once fresh rows replace it.
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('auth-fix') &&
-          !screen.includes('· cached') &&
+          screen.includes('product') &&
+          screen.includes('OPS / UI') &&
           !screen.includes('BOARD_EXIT'),
         shell.pane
       );
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Right', 'Down']);
+      await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'j']);
       await fixture.waitFor(() => clientPlace(fixture) === `crew/${member}`, 5_000, 'jumped');
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(fixture.capture(40, shell.pane)).toContain('auth-fix');

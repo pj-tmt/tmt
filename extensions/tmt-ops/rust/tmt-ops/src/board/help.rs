@@ -106,6 +106,73 @@ fn section(id: &str, title: &str, rows: &[(&str, &str)]) -> KeyHelpSection {
     }
 }
 pub(super) fn model(app: &App) -> KeyHelp {
+    if let Some(snapshot) = app.workspace_snapshot() {
+        let entries = app
+            .bindings()
+            .into_iter()
+            .map(|(key, action)| entry(&format!("binding-{key}"), &key, action.description()))
+            .collect();
+        let mut sections = vec![
+            KeyHelpSection {
+                id: "bindings".into(),
+                title: "effective scoped bindings".into(),
+                entries,
+            },
+            section(
+                "migration",
+                "new workspace keys",
+                &[
+                    (
+                        "Left/Right",
+                        "collapse/expand the selected squad; no squad-tab switching",
+                    ),
+                    (
+                        "Shift-Left/Right",
+                        "old tab reorder is removed; use squad pins/sort instead",
+                    ),
+                    ("w", "reserved for Workspace snapshots; no list binding"),
+                    ("S", "reverse Overview sort"),
+                    ("D", "member Digest; timers keep their own job keys"),
+                ],
+            ),
+            section(
+                "editor",
+                "message editor",
+                &[
+                    (
+                        "Enter",
+                        "send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead",
+                    ),
+                    (
+                        "Shift-Enter / Ctrl-N",
+                        "insert a newline; Ctrl-N also works without extended terminal key reporting",
+                    ),
+                    ("Esc", "leave the editor and keep its session draft"),
+                    (
+                        "@",
+                        "insert an acquired reference as text; it never changes the recipient",
+                    ),
+                    (
+                        "Tab",
+                        "cycle the available answer/note/talk modes when completion is closed",
+                    ),
+                ],
+            ),
+        ];
+        if !snapshot.notices.is_empty() {
+            sections.push(KeyHelpSection {
+                id: "migration-notices".into(),
+                title: "configuration migration (file preserved)".into(),
+                entries: snapshot
+                    .notices
+                    .iter()
+                    .enumerate()
+                    .map(|(index, notice)| entry(&format!("notice-{index}"), "", notice.clone()))
+                    .collect(),
+            });
+        }
+        return KeyHelp { sections };
+    }
     let home = app.view.as_ref().is_some_and(|view| view.home.is_some());
     let navigation = if home {
         section(
@@ -343,7 +410,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ));
     }
     sections.push(section("editor", "message editor", &[
-        ("Enter", "send to the displayed recipient; while @ completion is open, insert the selected reference instead"),
+        ("Enter", "send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift-Enter / Ctrl-N", "insert a newline; Ctrl-N also works without extended terminal key reporting"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A selects all"),

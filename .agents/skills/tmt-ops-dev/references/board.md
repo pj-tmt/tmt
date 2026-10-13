@@ -17,28 +17,17 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
 panic and TERM/HUP. Worker shutdown follows terminal restoration.
 
-`board::view::render_frame` resets frame-local hits, row starts, input placement
-and drawn scroll regions once. `view::panes` dispatches HOME before ordinary pane
-composition. `board/mod.rs` receives input, snapshots and deferred events on one
-channel; snapshots wake painting directly. Redraws follow state/input/resize changes
-and changed clock text or spinner frames, rather than periodic full repainting.
+`board::view::render_frame` resets frame-local hits, input placement and scroll
+regions once. `view::panes` dispatches workspace snapshots to `workspace::render`
+before independent row/pane painters. `board/mod.rs` receives input, snapshots
+and deferred events on one channel; snapshots wake painting directly. Redraws
+follow state/input/resize changes and changed clock text/spinner frames.
 
-Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizontal
-rules and blank side slots retain measured inner areas and title/fold hits.
-Each boundary has one rule: a framed pane whose bottom row is a later heading's row
-(another framed pane's title, or the cron heading) extends its frame over that row
-and the heading is painted over it (`render_split`, panes in top-to-bottom order). Headings
-side by side with a collapsed strip, and the one-column gap between siblings, still count as
-one heading row. The rich member list paints its own edges, so it drops its top edge under a
-framed pane (`Shared::above`) and its bottom edge above a heading (`Shared::below`); a
-frame with no row between heading and bottom edge keeps its heading alone.
-`tests/rules.rs` (pane orders, factory views, notes, cron, widths 160/100/80) and the HOME
-oracle assert that no two rule lines are ever adjacent; keep them green when a section
-or painter changes.
-Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
-Invisible walls do not change the actual borderless dispatch predicate. The shared
-inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
-and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay square.
+Workspace tree/detail uses shared Outline/Strip/Scrolls. Conversation and inline
+input retain their WP1 owner and opaque covered-hit mask. Review/Result uses a
+square shared modal. Incidental frame cells remain Dim; receiving focus and
+selection stay distinct. Frozen row/HOME provenance and decoded fixture approval
+are owned by the verification reference.
 
 ## Reload in place
 
@@ -161,94 +150,44 @@ only, no squad data.
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
   refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
   mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
-  The footer (`view/footer.rs`) is derived from the effective bindings through
-  `Action::footer_rank` (`None` keeps an action out of the footer, in `?` help only) with a
-  fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
-  painter) is true. HOME's key line (`home/bar.rs`) follows the same list. `,` settings
-  rows (Actions…, Theme, View, Token window) are `settings::Pick`s beside the config entries, never
-  config keys. After a successful settings save, their config-backed values are
-  resolved again through the same Config readers as opening; the component keeps
-  selection and the token-window row resolves its persisted shared value and any
-  squad override through Config. Failed saves publish no new quick-row values. Presets bind `t` to talk, `e` to row expansion and `v` to the full-reply reader; no `r`, `T`, `l` or `w` default exists;
-  fixtures that exercise those actions use `action::with_action_keys`.
-
-Receiving focus is explicit in the existing outlined pane title. The default
-borderless Rows and HOME panes add no footer focus text. Selection persists when
-another pane receives keys. Input/read, search and every existing overlay/menu
-retain their footer ownership; notice, selected-link and error precedence is unchanged.
-Footer hint keys use bold Accent with Muted labels and two-space separators;
-NO_COLOR keeps the key bold. While an overlay or menu is open (`App::modal_open`) the
-base key hints are blank, since it draws its own; notices and errors stay, dim under settings. `t talk` remains at footer rank 1; `v view` appears only for an expanded selected row with a reply. Write and ask-lead
-remain bound and discoverable in help/menus, without default footer hints.
+  Workspace dispatch, help and footer resolve the same Config key table. Text,
+  search, completion, overlays and the conversation own input before shell keys.
+  The footer fits whole ranked hints and hides its base hints under opaque modals;
+  notices/error precedence remains with the existing frame owner. Theme and Token
+  window actions reuse their existing Config writers, while Auto/Side/Stack writes
+  only workspace preferences. Reading, preview or cancelling sends nothing.
 
 ## Composition, folds and scrolling
 
-- `split` validates trees and reading/focus order (`MAX_DEPTH` 3); `board::composition`
-  owns geometry. It admits its embedded XML scaffold before raw mode, instantiates
-  named prototypes from Board/Split and effective folds, and dispatches rectangles
-  to existing rich painters. There is no runtime layout-file loader. Folded groups
-  propagate title footprints; expanded siblings share the remainder through one
-  TUI flex computation. Nested percentages retain fractional parents until
-  cumulative edge rounding. Tabs mode reserves a shrinkable bar and a one-line body
-  minimum. The composition cache keys viewport, Board, manual/config folds, tab
-  focus and the jobs boundary rule. It derives transient folds from actual inner
-  rows (including shared rules), then reallocates the released space. Growth
-  recomputes from inputs, never the derived fold set. Paint and input share this
-  result; it never writes `App.folds`. Composition and row caches have separate
-  borrows: solve/release composition before painting rows, which may read folds.
-- `App` resolves configured folds from the full-width body measurement supplied by
-  the draw owner. Per-tab session overrides win over defaults at either width,
-  survive unchanged refreshes/switches, reset on changed Board and drop with removed
-  tabs. Toggling never changes the configured tree or persists folds. The `action`
-  owner parses named-pane toggles; binding precedence and factory arrangements
-  belong to [config-and-effects.md](config-and-effects.md#views-pane-arrangements).
-- Title presses toggle before row dispatch, without row selection or double-click
-  history. Folded bodies publish no row/scroll hits. Collapsing focus chooses rows,
-  else the next expanded pane; all folded means no body focus, and expanding then
-  focuses that pane. Notes focus expands notes first. A sole expanded pane is
-  borderless, while its folded title remains clickable.
-- `board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
-  overflow painting. Each frame records drawn pane areas for pointer focus/wheel
-  routing. Rows supply every continuation's start/hit and reveal the complete
-  selected visual range while followed, or its first line when taller than the
-  viewport. Paging uses visual lines, falling back to records before positions
-  have been drawn; painters keep no competing pane scroll state.
+`workspace::render` places the tree and conversation/detail from Auto/Side/Stack
+preferences and actual minimum usable sizes. Squad expansion is keyed by room
+UUID, not a per-tab pane fold. Retired factory/pane/tab settings remain authored
+configuration with located migration notices; they do not create a legacy UI.
+The independent split/markup readers and row painters remain separately tested
+for CLI projection and offline authoring contracts.
 
-## Tabs and retained views
+`board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
+pointer areas. Tree starts, reveal and clipped hits share that viewport. Following
+reveals the selected visual range or its first line when taller than the viewport;
+paging uses visual lines. Review/Result's shared ScrollState owns its read region.
+Resize/model replacement invalidates controls before another action can use them.
 
-- `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
-  a fixed attention slot sits outside the selected bar, whose name/count has one
-  blank cell on each side. Every named tab keeps the same trailing cell.
-  shown names retain their authored text without added decoration. Shown-name
-  fitting preserves semantic suffixes when a name grapheme fits; otherwise it uses
-  the ordinary prefix fallback (a one-cell attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
-  uses measured group/overflow widths and preserves the current tab even when other
-  pins must step aside. Adjacent squad-prefix groups are display-only; prefixes
-  have no hit, suffixes retain canonical keys/indices. An opened globally hidden
-  tab has no movable `TabHit`. Tab moves persist through `Config::write`.
-- `board::pick::Picks` owns process-local admission separately from full arranged
-  and hidden inventories. Startup resolves inventory before terminal admission;
-  opening picks a tab, unpicking the current tab requests the next pick or HOME
-  through the ordinary load path. Refresh prunes removed keys but does not erase
-  picks after a failed empty inventory read. Config and `ls --tab` are unchanged.
-- `view::tabs` measures the unpicked-squad fold before the picked window and
-  recomputes groups over that sequence. Fold attention includes only visible
-  unpicked squads, excluding aggregates and global hide. Its separate rectangle
-  opens a restricted switcher and cannot be dragged. Switcher filtering belongs
-  to `tabs::matching` (prefix, substring, then ordered letters). Its adapter consumes
-  effective `pick-tab` bindings before query editing; explicit bindings replace
-  local Space, and a non-pick Space binding wins.
-- `App` retains visited views. Cached switches display immediately; uncached ones
-  retain the shown view marked stale, refusing row actions until replacement.
-  The requested tab is underlined without taking shown-view selection. Failure
-  restores the shown tab and clears that cue. `view::header` delays the uncached
-  spinner by `SPINNER_DELAY` (100 ms), with 80 ms frames; cached switches omit it.
-  Cold startup uses the same delayed spinner, with a stable Squad heading and
-  target-aware opening line, using the startup theme already read for background
-  detection. Historical usage loads after the roster; its scoped
-  status does not disable rows or replace the displayed owner with a blank frame.
-  Effective refresh dispatch precedes text inputs, preserving search/drafts.
-  `App::lead` resolves the shown squad/aggregate/HOME lead before ordinary jump.
+## Workspace and retained identity
+
+`board::shell` selects Overview/Agents/Digest without loading a second roster.
+`workspace::observe` projects the same acquired room/document/identity snapshots;
+`workspace::OpsWorkspace` owns UUID selection, expansion and filter/sort ordering.
+The [workspace reference](board-home.md) owns geometry, count truth and modal
+operation review. Public Config and `ls --tab` projections remain independent of
+interactive navigation; tab/pick/reorder and factory-view bindings report
+migration notices instead of providing a legacy UI.
+
+Cold startup keeps the delayed spinner (`SPINNER_DELAY`, 100 ms) and existing
+worker cancellation fences. Failed refresh retains stale evidence; it cannot
+turn unknown membership into an empty pool. Historical usage loads after roster
+without moving recipient authority. Effective refresh preserves search/drafts.
+In-place reload carries shell/expansion/exact UUID selection; hidden/missing
+anchors refuse actions and never retarget to a visible neighbour.
 
 ## Decisions and composers
 
@@ -299,11 +238,10 @@ remain bound and discoverable in help/menus, without default footer hints.
   painters reserve input beneath the complete target in the same line stream used
   for starts, reveal and hits. `view::waiting` removes only hits covered by the
   current opaque band, preserving independent pointer scrolling in other panes. Headers derive from actual `Compose` recipients/subjects. Unanchored input
-  keeps the footer path; ask-lead keeps a docked band and opening sender/squad/lead
-  fences. Read-only detail belongs to `row_detail`, outside the composer.
+  keeps the footer path. Recipient/sender/source fences remain enforced at submit. Read-only detail belongs to `row_detail`, outside the composer.
 - `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag
-  alone permits `✓ sent`. A removed HOME row stays in the transient display
-  projection until the next key. An active status form retains its row through
+  alone permits `✓ sent`. A removed workspace target remains an explicit missing anchor, with no adjacent
+  recipient authority. An active status form retains its row through
   applied/unknown outcomes and notification retry without claiming a successful
   send; the acquired model and request state are unchanged. Clearing precedes any
   underlying action after leaving the form.
@@ -311,7 +249,7 @@ remain bound and discoverable in help/menus, without default footer hints.
 ## Overlays and offline validation
 
 `App::overlay_event` synchronizes help/settings/theme/view/switcher/cron/checklist controllers
-with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
+and workspace forms with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
 rollback and worker effects; `picker_surface::State` owns component cursor/query,
 admitted scenes and clipped frame maps. Refresh follows stable selected identity;
 resize/model replacement invalidates hits. Query edits select the first match;
@@ -351,9 +289,8 @@ the frozen parity approval/regeneration gate. Relevant tests live in `view/tests
 ## Checklist controller
 
 `App::context_menu` owns the context action menu for configured Menu bindings and
-`,` → Actions… (the first settings row on every host). It adds Checklist before
-member-row admission; no selected member exposes only context actions. No default
-Menu binding or hint changes. Closing that menu returns directly to the board.
+`,` → Workspace settings → Actions. It adds Checklist before
+member-row admission; no selected member exposes only context actions. Workspace settings exposes Actions after layout/Theme/Token window choices. Closing that menu returns directly to the board.
 
 `checklist::{controller,forms,surface,load}` owns one centered square modal and its
 room chooser, independent filters, item selection, authored fields and exact

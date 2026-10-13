@@ -936,11 +936,7 @@ fn load(
     };
     // A hidden squad is still shown when asked for by name.
     let chosen = match &wanted {
-        Some(key)
-            if (tabs::builtin(key) && !names.is_empty())
-                || users.contains(key)
-                || names.contains(key) =>
-        {
+        Some(key) if tabs::builtin(key) || users.contains(key) || names.contains(key) => {
             Some(key.clone())
         }
         Some(_) => None,
@@ -2784,6 +2780,7 @@ printf '%s\n' '{{}}'
                 |_, _| Stamp::cursor(0),
                 |_, _, _, _| {
                     let home = super::super::home::Home {
+                        workspace: Default::default(),
                         windows: crate::config::TokenWindow::DEFAULTS,
                         summary: Default::default(),
                         sections: vec![],

@@ -378,6 +378,18 @@ impl Store {
         &self,
         change: impl FnOnce(&mut Jobs) -> Result<T, Error>,
     ) -> Result<T, Error> {
+        self.update_then(change, |_| ()).map(|(value, ())| value)
+    }
+
+    /// Publish the job change before the dependent effect, retaining the store
+    /// lock through that effect. Membership uses this barrier so no job can be
+    /// added between its owner's durable pause and leave. The effect result is
+    /// separate: failure/panic never rolls back the already-published pause.
+    pub fn update_then<T, U>(
+        &self,
+        change: impl FnOnce(&mut Jobs) -> Result<T, Error>,
+        committed: impl FnOnce(&T) -> U,
+    ) -> Result<(T, U), Error> {
         let _lock = self.lock(true)?.expect("create obtains a lock or fails");
         let mut jobs = self.read_locked()?;
         let before = jobs.document();
@@ -385,7 +397,8 @@ impl Store {
         jobs.validate()?;
         let document = jobs.document();
         if document == before {
-            return Ok(result);
+            let effect = committed(&result);
+            return Ok((result, effect));
         }
         let bytes = serde_json::to_vec(&document).map_err(io)?;
         if bytes.len() as u64 > LIMIT {
@@ -414,7 +427,8 @@ impl Store {
             let _ = fs::remove_file(&temporary);
         }
         publish.map_err(io)?;
-        Ok(result)
+        let effect = committed(&result);
+        Ok((result, effect))
     }
 }
 

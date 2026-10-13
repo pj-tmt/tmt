@@ -7,6 +7,12 @@ use crate::{
     core::{Core, SquadError},
     squad::{self, Squad, name_invalid, valid_name},
 };
+mod assign;
+mod rename;
+pub(crate) mod workspace;
+pub use assign::assign;
+pub use rename::{Rename, rename_squad};
+
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const METADATA_ENTRY_LIMIT: usize = 64;
 
 /// A command result plus whether every requested change was applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
     pub document: Value,
     pub complete: bool,
@@ -236,15 +243,26 @@ pub fn add(
 
 pub fn remove(core: &Core, squad: &Squad, name: &str) -> Result<Outcome, SquadError> {
     let (member, _) = identity(core, name)?;
-    let paused = crate::cron_service::pause_departing_owner(
+    let (paused, leave) = crate::cron_service::with_departure_pause(
         core,
         &squad.room_id,
         &member.id,
         jiff::Timestamp::now().as_millisecond(),
+        || core.json(&["room", "leave", &squad.room_id, "--identity", &member.id]),
     )?;
+    finish_remove(core, squad, &member, paused, leave)
+}
+
+fn finish_remove(
+    core: &Core,
+    squad: &Squad,
+    member: &Resolved,
+    paused: Vec<String>,
+    leave: Result<Value, SquadError>,
+) -> Result<Outcome, SquadError> {
     let mut document = json!({"squad": squad.name, "removed": null,
         "cleared": [], "pausedTimers": paused});
-    if let Err(error) = core.json(&["room", "leave", &squad.room_id, "--identity", &member.id]) {
+    if let Err(error) = leave {
         return Ok(removal_failed(document, "membership", &error));
     }
     document["removed"] = json!({"id": member.id, "name": member.name});

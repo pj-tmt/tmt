@@ -84,6 +84,7 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "view",
+        Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
 }
@@ -101,6 +102,12 @@ fn key_label(event: &str) -> &str {
 /// a row action needs a row, and `reply` and `open` need something to act on.
 fn row_allows(app: &App, action: &crate::action::Action) -> bool {
     use crate::action::Verb;
+    if app.workspace_snapshot().is_some()
+        && action.verb.acts_on_member()
+        && app.workspace_selected_member().is_none()
+    {
+        return false;
+    }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     if action.verb == Verb::ViewReply {
         return app.reply_hint();
@@ -141,7 +148,14 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if app.jobs_focus {
         return crate::board::cronboard::jobs_hints(width, app.jobs_selected().is_some());
     }
-    if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
+    if app.workspace_snapshot().is_some() {
+        return workspace_hints(app, width);
+    }
+    if let Some(view) = app
+        .view
+        .as_ref()
+        .filter(|view| view.home.is_some() && app.workspace_snapshot().is_none())
+    {
         return crate::board::home::hints_of(
             view,
             width,
@@ -248,6 +262,78 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     }
 }
 
+fn workspace_hints(app: &App, width: usize) -> String {
+    use crate::action::{OpsUiAction, Verb};
+    let bindings = app.bindings();
+    let mut entries: Vec<_> = bindings
+        .iter()
+        .filter(|(event, action)| {
+            !matches!(event.as_str(), "click" | "double-click")
+                && !matches!(
+                    action.verb,
+                    Verb::Ui(
+                        OpsUiAction::Overview
+                            | OpsUiAction::Agents
+                            | OpsUiAction::DigestDashboard
+                            | OpsUiAction::First
+                            | OpsUiAction::Last
+                            | OpsUiAction::PageUp
+                            | OpsUiAction::PageDown
+                    )
+                )
+                && row_allows(app, action)
+        })
+        .collect();
+    entries.sort_by_key(|(_, action)| action.order());
+    let mut seen = std::collections::BTreeSet::new();
+    let mut hints = Vec::new();
+    let mut tail = Vec::new();
+    for (key, action) in entries {
+        if !seen.insert(action.text.as_str()) {
+            continue;
+        }
+        let word = if action.verb == Verb::Jump {
+            "jump"
+        } else {
+            hint_word(action)
+        };
+        let hint = format!("{} {word}", key_label(key));
+        if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
+            tail.push(hint);
+        } else {
+            hints.push(hint);
+        }
+    }
+    if !bindings
+        .values()
+        .any(|action| action.verb == Verb::Ui(OpsUiAction::Quit))
+    {
+        tail.push("Ctrl-C quit".into());
+    }
+    let mut shown = tail.join("  ");
+    if shown.width() > width {
+        return String::new();
+    }
+    let mut chosen: Vec<String> = Vec::new();
+    for hint in hints {
+        let next = chosen
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(hint.as_str()))
+            .chain(tail.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join("  ");
+        if next.width() <= width {
+            chosen.push(hint);
+        }
+    }
+    if !chosen.is_empty() {
+        chosen.extend(tail);
+        shown = chosen.join("  ");
+    }
+    shown
+}
+
 struct Waiting {
     base: String,
     oldest: Option<String>,
@@ -317,7 +403,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(
             input.compose,
-            crate::board::app::Compose::AskLead { .. } | crate::board::app::Compose::Status
+            crate::board::app::Compose::AskLead { .. }
+                | crate::board::app::Compose::Status
+                | crate::board::app::Compose::Workspace
         ) && app.input_band.get().is_none()
     }) {
         let hint = input

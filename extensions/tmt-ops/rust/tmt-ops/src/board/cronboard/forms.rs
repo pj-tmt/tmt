@@ -202,12 +202,30 @@ impl App {
         // the selected job. Neither exists on an empty list of another tab.
         let target = match near {
             Some(job) => Some((job.job.squad.clone(), job.job.room_id.clone())),
+            None if self.workspace_snapshot().is_some() => self
+                .workspace
+                .selected
+                .as_ref()
+                .and_then(|target| match target {
+                    crate::board::workspace::OpsTarget::Squad(room)
+                    | crate::board::workspace::OpsTarget::Member {
+                        room_id: Some(room),
+                        ..
+                    } => self
+                        .workspace_snapshot()?
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| squad.room_id == *room)
+                        .map(|squad| (squad.name.clone(), squad.room_id.clone())),
+                    _ => None,
+                }),
             None => super::half::room(self)
                 .zip(self.current.clone())
                 .map(|(room, name)| (name, room.to_owned())),
         };
         let Some((squad, room_id)) = target else {
-            return self.say("Open a squad tab, then n adds a job to that squad.");
+            return self.say("Select a squad, then open its Timers to add a job.");
         };
         let zone = match Schedule::local_zone() {
             Ok(zone) => zone,
@@ -215,7 +233,7 @@ impl App {
         };
         let owner = self
             .selected_row()
-            .filter(|_| self.current.as_deref() == Some(&squad))
+            .filter(|row| row["squad"] == squad || self.current.as_deref() == Some(&squad))
             .and_then(|row| row["name"].as_str())
             .map(str::to_owned)
             .unwrap_or_default();

@@ -22,7 +22,7 @@ pub(super) fn age(row: &Value, now: u64) -> Option<String> {
 
 /// Shared viewport for every message composer. Paint and pointer use the same
 /// editor projection; the current frame publishes only its clipped rectangle.
-pub(super) fn editor(
+pub(in crate::board) fn editor(
     frame: &mut ratatui::Frame,
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,

@@ -94,7 +94,7 @@ impl Picker {
             return None;
         }
         Some(format!(
-            "squad {name} keeps {} (its own setting) · r reset in ,",
+            "squad {name} keeps {} (its own setting) · choose this squad scope to change",
             self.config.theme(name).ok()?.0.base.name()
         ))
     }
@@ -291,7 +291,7 @@ mod tests {
         assert_eq!(app.theme_picker.as_ref().unwrap().scope, ThemeScope::Board);
         assert_eq!(
             app.theme_picker.as_ref().unwrap().masked().as_deref(),
-            Some("squad product keeps mono (its own setting) · r reset in ,")
+            Some("squad product keeps mono (its own setting) · choose this squad scope to change")
         );
         app.key(key(KeyCode::Tab));
         assert_eq!(
@@ -308,7 +308,7 @@ mod tests {
         );
         assert_eq!(
             app.theme_picker.as_ref().unwrap().masked().as_deref(),
-            Some("squad product keeps mono (its own setting) · r reset in ,")
+            Some("squad product keeps mono (its own setting) · choose this squad scope to change")
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));

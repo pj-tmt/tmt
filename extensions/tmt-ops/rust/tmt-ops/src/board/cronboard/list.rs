@@ -34,15 +34,17 @@ pub(in crate::board) enum Input {
 type Shape = (Columns, u16, u16);
 
 pub(in crate::board) struct List {
+    pub scope: Option<String>,
     surface: RefCell<picker_surface::State>,
     template: RefCell<Option<(Shape, Template<()>)>>,
 }
 
-fn list_rows(state: &State) -> Vec<ListRow> {
+fn list_rows(state: &State, scope: Option<&str>) -> Vec<ListRow> {
     state
         .cron
         .iter()
         .flat_map(|cron| &cron.jobs)
+        .filter(|view| scope.is_none_or(|room| view.job.room_id == room))
         .map(|view| ListRow {
             id: row_id(&key_of(view)),
             disabled: false,
@@ -52,8 +54,16 @@ fn list_rows(state: &State) -> Vec<ListRow> {
 
 impl List {
     pub fn open(state: &State, selected: Option<&str>) -> Self {
+        Self::open_scoped(state, None, selected)
+    }
+    pub fn open_scoped(state: &State, scope: Option<String>, selected: Option<&str>) -> Self {
         Self {
-            surface: RefCell::new(picker_surface::State::new(None, list_rows(state), selected)),
+            surface: RefCell::new(picker_surface::State::new(
+                None,
+                list_rows(state, scope.as_deref()),
+                selected,
+            )),
+            scope,
             template: RefCell::default(),
         }
     }
@@ -92,7 +102,16 @@ impl List {
         .width;
         let inside = width.saturating_sub(4);
         let columns = Columns::for_width(true, inside);
-        let jobs: Vec<_> = state.cron.iter().flat_map(|cron| &cron.jobs).collect();
+        let jobs: Vec<_> = state
+            .cron
+            .iter()
+            .flat_map(|cron| &cron.jobs)
+            .filter(|view| {
+                self.scope
+                    .as_deref()
+                    .is_none_or(|room| view.job.room_id == room)
+            })
+            .collect();
         // Content height: border 2, one line per job (one for the
         // empty note), position, status and footer lines; the modal caps it.
         let detail_height = jobs
@@ -138,7 +157,7 @@ impl List {
         // Reconcile before projecting the cursor, including when refresh removes
         // the selected job. The list remains the sole selection owner.
         let mut surface = self.surface.borrow_mut();
-        surface.reconcile(list_rows(state));
+        surface.reconcile(list_rows(state, self.scope.as_deref()));
         let selected = surface.picker.list.selected().map(str::to_owned);
         let rows = project(
             &jobs,

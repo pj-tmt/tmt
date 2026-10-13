@@ -139,9 +139,16 @@ impl super::app::App {
                 return Effect::None;
             };
             let squad = match &target {
+                RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
                 RowTarget::Home(target) => target.squad.clone(),
                 RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
             };
+            if squad.is_empty() {
+                self.notice = Some(
+                    "Notes require a squad context; use Talk for this Common pool identity.".into(),
+                );
+                return Effect::None;
+            }
             let Some(send) = self.send_target(target, true) else {
                 self.notice = Some("The agent is no longer available; quote not attached.".into());
                 return Effect::None;

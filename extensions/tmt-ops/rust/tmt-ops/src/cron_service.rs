@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use tmt_ops::cron::{self, Job, Jobs, Pause, Schedule, ScheduleInput, Store};
 
 mod notices;
+mod owners;
 mod retirement;
 pub use retirement::drain_retired;
 
@@ -50,13 +51,23 @@ impl JobKey {
 pub struct JobView {
     pub job: Job,
     pub owner_name: Option<String>,
+    pub owner_missing: bool,
     pub next_ms: Vec<i64>,
     pub warnings: Vec<SquadError>,
 }
 impl JobView {
+    pub fn state_label(&self) -> &'static str {
+        if self.owner_missing {
+            "paused · owner missing"
+        } else {
+            self.job.state()
+        }
+    }
     pub fn document(&self) -> Value {
         let mut value = self.job.document();
         value["owner"] = json!(self.owner_name);
+        value["ownerMissing"] = json!(self.owner_missing);
+        value["stateLabel"] = json!(self.state_label());
         value["scheduleText"] = json!(schedule_text(&self.job.schedule));
         value["nextMs"] = json!(self.next_ms);
         value["warnings"] = json!(
@@ -240,10 +251,19 @@ fn admitted_job(
                     "Reassign this job before sending or resuming it.",
                 ))
             })?;
-            owner(core, &roster, id).map_err(stored)?;
-            Ok(job.clone())
+            if owners::observe(core, &roster, id)
+                .map_err(stored)?
+                .is_none()
+            {
+                owners::pause_missing(job, crate::status::now_ms() as i64).map_err(stored)?;
+                return Ok(Err(failure(
+                    "SQUAD_NOT_A_MEMBER",
+                    "The job owner is missing from this squad; the job remains paused.",
+                )));
+            }
+            Ok(Ok(job.clone()))
         })
-        .map_err(Into::into)
+        .map_err(SquadError::from)?
 }
 
 fn project(core: &Core, job: Job, count: usize, now_ms: i64) -> Result<JobView, SquadError> {
@@ -252,6 +272,16 @@ fn project(core: &Core, job: Job, count: usize, now_ms: i64) -> Result<JobView, 
         .as_deref()
         .map(|id| active_identity(core, id))
         .transpose()?;
+    let missing = job.owner_id.is_none();
+    project_with_owner(job, owner_name, missing, count, now_ms)
+}
+fn project_with_owner(
+    job: Job,
+    owner_name: Option<String>,
+    owner_missing: bool,
+    count: usize,
+    now_ms: i64,
+) -> Result<JobView, SquadError> {
     let mut next_ms = Vec::new();
     if job.state() == "on" {
         let mut after = now_ms;
@@ -266,30 +296,63 @@ fn project(core: &Core, job: Job, count: usize, now_ms: i64) -> Result<JobView, 
     Ok(JobView {
         job,
         owner_name,
+        owner_missing,
         next_ms,
         warnings: vec![],
     })
 }
+/// Pure preflight over a read snapshot; the real move is repeated under the
+/// store lock only after the room CAS succeeded.
+pub(crate) fn check_rename_namespace(
+    core: &Core,
+    old: &str,
+    new: &str,
+    room_id: &str,
+) -> Result<(), SquadError> {
+    let (store, _migration) = store(core)?;
+    store.read()?.rename_squad(old, new, room_id)?;
+    Ok(())
+}
+
+pub(crate) fn rename_namespace(
+    core: &Core,
+    old: &str,
+    new: &str,
+    room_id: &str,
+) -> Result<(), SquadError> {
+    let (store, _migration) = store(core)?;
+    store.update(|jobs| {
+        if jobs.rename_squad(old, new, room_id)? {
+            // Retirement references include the namespace. Register its new
+            // reference before publishing the move; old hooks remain harmless.
+            for job in jobs
+                .jobs()
+                .iter()
+                .filter(|job| job.room_id == room_id && job.squad == new)
+            {
+                retirement::register(core, job).map_err(stored)?;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
 /// The membership service calls this before committing a leave/move. This is
 /// departure admission, not a manual pause command; it cannot resume any job.
-pub fn pause_departing_owner(
+pub(crate) fn with_departure_pause<T>(
     core: &Core,
     room_id: &str,
     identity_id: &str,
     now_ms: i64,
-) -> Result<Vec<String>, SquadError> {
+    leave_or_move: impl FnOnce() -> T,
+) -> Result<(Vec<String>, T), SquadError> {
     let (store, _migration) = store(core)?;
-    // A squad without jobs needs no new cron files merely because a member left.
-    if !store
-        .read()?
-        .jobs()
-        .iter()
-        .any(|job| job.room_id == room_id && job.owner_id.as_deref() == Some(identity_id))
-    {
-        return Ok(Vec::new());
-    }
     store
-        .update(|jobs| jobs.pause_owner(room_id, identity_id, now_ms))
+        .update_then(
+            |jobs| jobs.pause_owner(room_id, identity_id, now_ms),
+            |_| leave_or_move(),
+        )
         .map_err(Into::into)
 }
 
@@ -306,18 +369,7 @@ pub fn list_jobs(
         Squad::list(core)?
     };
     let (store, _migration) = store(core)?;
-    let jobs = store
-        .read()?
-        .jobs()
-        .iter()
-        .filter(|job| {
-            squads
-                .iter()
-                .any(|squad| squad.name == job.squad && squad.room_id == job.room_id)
-        })
-        .cloned()
-        .map(|job| project(core, job, 1, now_ms))
-        .collect::<Result<Vec<_>, _>>()?;
+    let jobs = owners::project_jobs(core, &store, &squads, 1, now_ms)?;
     Ok(List { jobs, warnings })
 }
 pub fn show_job(
@@ -327,21 +379,22 @@ pub fn show_job(
     now_ms: i64,
 ) -> Result<JobView, SquadError> {
     let warnings = drain_retired(core, config, now_ms)?;
-    room(core, &key.squad, &key.room_id)?;
+    let squad = room(core, &key.squad, &key.room_id)?;
     let (store, _migration) = store(core)?;
-    let jobs = store.read()?;
-    let job = jobs
-        .jobs()
-        .iter()
-        .find(|job| job.squad == key.squad && job.id() == key.id && job.room_id == key.room_id)
+    let mut view = owners::project_jobs(core, &store, &[squad], 3, now_ms)?
+        .into_iter()
+        .find(|view| {
+            view.job.squad == key.squad
+                && view.job.id() == key.id
+                && view.job.room_id == key.room_id
+        })
         .ok_or_else(|| {
             failure(
                 "SQUAD_CRON_NOT_FOUND",
                 "The job does not exist in this squad room.",
             )
         })?;
-    let mut view = project(core, job.clone(), 3, now_ms)?;
-    view.warnings = warnings;
+    view.warnings.extend(warnings);
     Ok(view)
 }
 
@@ -387,7 +440,7 @@ pub fn apply(
                 let id = jobs.insert(job)?;
                 let job = jobs.find_mut(&squad, &id).expect("inserted job").clone();
                 retirement::register(core, &job).map_err(stored)?;
-                Ok((None, job, "added", true))
+                Ok(Ok((None, job, "added", true)))
             }
             Change::Existing {
                 key,
@@ -429,12 +482,32 @@ pub fn apply(
                                 "Reassign this job before resuming it.",
                             ))
                         })?;
-                        owner(core, &roster, id).map_err(stored)?;
+                        if owners::observe(core, &roster, id)
+                            .map_err(stored)?
+                            .is_none()
+                        {
+                            owners::pause_missing(job, now_ms).map_err(stored)?;
+                            return Ok(Err(failure(
+                                "SQUAD_NOT_A_MEMBER",
+                                "The owner is missing from this squad; the job stays paused.",
+                            )));
+                        }
                         job.pause = None;
                         "resumed"
                     }
                     Mutation::Reassign { owner_id } => {
                         owner(core, &roster, &owner_id).map_err(stored)?;
+                        if job.pause.is_none()
+                            && let Some(old) = &job.owner_id
+                            && owners::observe(core, &roster, old)
+                                .map_err(stored)?
+                                .is_none()
+                        {
+                            job.pause = Some(Pause {
+                                by: old.clone(),
+                                at_ms: now_ms,
+                            });
+                        }
                         job.owner_id = Some(owner_id);
                         retirement::register(core, job).map_err(stored)?;
                         // Reassignment keeps an explicit pause; no-owner jobs remain paused.
@@ -449,10 +522,10 @@ pub fn apply(
                 if action == "removed" {
                     jobs.remove(&key.squad, &key.id);
                 }
-                Ok((Some(before), after, action, changed))
+                Ok(Ok((Some(before), after, action, changed)))
             }
         }
-    })?;
+    })??;
     if changed {
         warnings.extend(notices::changed(
             core,
@@ -470,6 +543,7 @@ pub fn apply(
             JobView {
                 job: after,
                 owner_name: None,
+                owner_missing: false, // Failed observation is unknown, not absence.
                 next_ms: vec![],
                 warnings: vec![],
             }

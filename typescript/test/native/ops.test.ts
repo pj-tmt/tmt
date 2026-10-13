@@ -3178,6 +3178,142 @@ describe('Squad cron clock', () => {
   }, 20_000);
 });
 
+describe('WP2 squad workspace services', () => {
+  it('renames the same room and timer namespace without reusing deleted job ids', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      expect((await squad(sandbox, ['set', 'worker', 'state=working'])).status).toBe(0);
+      const originalRoom = parseWholeStdout(
+        await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+      ).room;
+      expect(
+        (
+          await squad(sandbox, [
+            'cron',
+            'add',
+            'product',
+            'worker',
+            '--every',
+            '1h',
+            'bounded reminder',
+          ])
+        ).body.job.id
+      ).toBe('c1');
+      expect((await squad(sandbox, ['cron', 'pause', 'product', 'c1'])).status).toBe(0);
+      const before = (await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job;
+      const renamed = await squad(sandbox, [
+        'rename',
+        'product',
+        'next',
+        '--room-id',
+        originalRoom.id,
+      ]);
+      expect(renamed.status, JSON.stringify(renamed.body)).toBe(0);
+      expect(renamed.body).toMatchObject({
+        roomId: originalRoom.id,
+        roomStatus: 'Applied',
+        ownedStatus: 'Applied',
+        repair: null,
+      });
+      const currentRoom = parseWholeStdout(
+        await runCli(sandbox, ['room', 'show', 'squad-next', '--json'])
+      ).room;
+      expect(currentRoom.id).toBe(originalRoom.id);
+      expect(currentRoom.memberIds).toContain(worker);
+      expect(observe(sandbox).metadata).toContainEqual({
+        identity: 'worker',
+        key: 'squad.next.state',
+        value: 'working',
+      });
+      expect(
+        observe(sandbox).metadata.some((field) => field.key.startsWith('squad.product.'))
+      ).toBe(false);
+      const listed = await squad(sandbox, ['cron', 'ls', '--squad', 'next']);
+      expect(listed.body.jobs).toMatchObject([
+        { id: 'c1', roomId: originalRoom.id, squad: 'next', pause: before.pause, state: 'paused' },
+      ]);
+      expect((await squad(sandbox, ['cron', 'rm', 'next', 'c1'])).status).toBe(0);
+      expect(
+        (await squad(sandbox, ['cron', 'add', 'next', 'worker', '--every', '1h', 'next reminder']))
+          .body.job.id
+      ).toBe('c2');
+    });
+  }, 60_000);
+
+  it('keeps missing-owner pause after re-add and keeps an empty-store counter across rename', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'Ben');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'cron',
+            'add',
+            'product',
+            'worker',
+            '--every',
+            '1h',
+            'retained reminder',
+          ])
+        ).body.job.id
+      ).toBe('c1');
+      const room = parseWholeStdout(
+        await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+      ).room;
+      // Bypass Ops removal to pin the service's positive external-departure observation.
+      expect(
+        (await runCli(sandbox, ['room', 'leave', room.id, '--identity', worker, '--json'])).status
+      ).toBe(0);
+      const missing = (await squad(sandbox, ['cron', 'ls', '--squad', 'product'])).body.jobs[0];
+      expect(missing).toMatchObject({
+        state: 'paused',
+        ownerMissing: true,
+        stateLabel: 'paused · owner missing',
+      });
+      const root = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+        })
+      ).dataRoot as string;
+      expect(
+        JSON.parse(readFileSync(path.join(root, 'ops', 'cron', 'jobs.json'), 'utf8')).jobs[0].pause
+      ).toEqual(missing.pause);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      expect((await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job).toMatchObject({
+        state: 'paused',
+        ownerMissing: false,
+        pause: missing.pause,
+      });
+      expect((await squad(sandbox, ['cron', 'resume', 'product', 'c1'])).body.job.state).toBe('on');
+      expect((await squad(sandbox, ['cron', 'rm', 'product', 'c1'])).status).toBe(0);
+      expect(
+        (await squad(sandbox, ['rename', 'product', 'next', '--room-id', room.id])).status
+      ).toBe(0);
+      expect((await squad(sandbox, ['cron', 'ls', '--squad', 'next'])).body.jobs).toEqual([]);
+      expect(
+        (
+          await squad(sandbox, [
+            'cron',
+            'add',
+            'next',
+            'worker',
+            '--every',
+            '1h',
+            'no duplicate c1',
+          ])
+        ).body.job.id
+      ).toBe('c2');
+    });
+  }, 60_000);
+});
+
 describe('Squad cron management', () => {
   it('admits the user and lead, preserves exact jobs, and records announcements independently', async () => {
     await withSandbox(async (sandbox) => {

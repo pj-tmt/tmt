@@ -107,6 +107,11 @@ impl App {
         let target = self.row_target(index).ok_or("No row is selected.")?;
         let row = self.target_row(&target).ok_or("No row is selected.")?;
         let squad = match &target {
+            RowTarget::Workspace(_) => {
+                self.target_squad(&target)
+                    .filter(|name| !name.is_empty())
+                    .ok_or("Choose a squad membership before managing Digest.")?
+            }
             RowTarget::Home(target) => target.squad.clone(),
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
         };

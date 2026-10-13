@@ -429,6 +429,9 @@ mod tests {
         let root = scratch("restart");
         let state = root.join("state");
         let resume = Resume {
+            shell: crate::board::shell::OpsTab::Overview,
+            squads_expanded: vec![],
+            pool_expanded: false,
             tab: "product".into(),
             selected: None,
             focus: 0,

@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 /// A snapshot older than this is a leftover, not a handoff.
 const FRESH_MS: u64 = 60_000;
 /// A real snapshot is a few hundred bytes; the cap bounds a foreign file.
@@ -21,6 +21,9 @@ const MAX_BYTES: u64 = 64 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Resume {
     pub tab: String,
+    pub shell: super::shell::OpsTab,
+    pub squads_expanded: Vec<String>,
+    pub pool_expanded: bool,
     pub selected: Option<RowTarget>,
     pub focus: usize,
     pub follow: bool,
@@ -50,6 +53,9 @@ impl Resume {
             "pid": pid,
             "writtenAtMs": now_ms,
             "tab": self.tab,
+            "shell": match self.shell {super::shell::OpsTab::Overview=>"overview",super::shell::OpsTab::Agents=>"agents",super::shell::OpsTab::Digest=>"digest"},
+            "squadsExpanded": self.squads_expanded,
+            "poolExpanded": self.pool_expanded,
             "selected": self.selected.as_ref().map(row_json),
             "focus": self.focus,
             "follow": self.follow,
@@ -96,6 +102,22 @@ impl Resume {
         };
         Some(Self {
             tab: document["tab"].as_str()?.to_owned(),
+            shell: match document["shell"].as_str()? {
+                "overview" => super::shell::OpsTab::Overview,
+                "agents" => super::shell::OpsTab::Agents,
+                "digest" => super::shell::OpsTab::Digest,
+                _ => return None,
+            },
+            squads_expanded: document["squadsExpanded"]
+                .as_array()?
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .filter(|id| crate::config::uuid_like(id))
+                        .map(str::to_owned)
+                })
+                .collect::<Option<_>>()?,
+            pool_expanded: document["poolExpanded"].as_bool()?,
             selected: match &document["selected"] {
                 Value::Null => None,
                 value => Some(row_from(value)?),
@@ -148,6 +170,16 @@ fn read_regular(path: &Path) -> Option<Vec<u8>> {
 
 fn row_json(target: &RowTarget) -> Value {
     match target {
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+            room_id,
+            identity_id,
+        }) => json!({"kind":"workspace-member","roomId":room_id,"id":identity_id}),
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(id)) => {
+            json!({"kind":"workspace-squad","id":id})
+        }
+        RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool) => {
+            json!({"kind":"workspace-pool"})
+        }
         RowTarget::Home(target) => json!({
             "kind": "home",
             "section": target.section,
@@ -169,6 +201,22 @@ fn row_json(target: &RowTarget) -> Value {
 fn row_from(value: &Value) -> Option<RowTarget> {
     let text = |key: &str| value[key].as_str().map(str::to_owned);
     Some(match value["kind"].as_str()? {
+        "workspace-squad" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Squad(
+            text("id").filter(|id| crate::config::uuid_like(id))?,
+        )),
+        "workspace-pool" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Pool),
+        "workspace-member" => RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+            room_id: match &value["roomId"] {
+                Value::Null => None,
+                value => Some(
+                    value
+                        .as_str()
+                        .filter(|id| crate::config::uuid_like(id))?
+                        .to_owned(),
+                ),
+            },
+            identity_id: text("id").filter(|id| crate::config::uuid_like(id))?,
+        }),
         "home" => RowTarget::Home(HomeTarget {
             section: text("section")?,
             squad: text("squad")?,
@@ -214,6 +262,9 @@ mod tests {
 
     fn sample() -> Resume {
         Resume {
+            shell: super::super::shell::OpsTab::Overview,
+            squads_expanded: vec![],
+            pool_expanded: false,
             tab: "product".into(),
             selected: Some(RowTarget::Member {
                 tab: "product".into(),
@@ -308,7 +359,7 @@ mod tests {
             Resume::take(&root, 41, 1_500).is_some(),
             "the control is valid"
         );
-        valid(&|document| document["version"] = json!(2));
+        valid(&|document| document["version"] = json!(3));
         rejects("another version");
         valid(&|document| document["pid"] = json!(42));
         rejects("another process");
