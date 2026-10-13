@@ -62,6 +62,20 @@ test('a same-request annotation reply recovers from a visible transient read fai
     );
     await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
     await input.fill(`@${agent.name} Explain this passage.`);
+    // Hiding pauses future cycles but cannot cancel an in-flight result read.
+    // Install response loss before Send, so no result can bypass this route.
+    let failedReads = 0;
+    const failedResult = async (route: Route) => {
+      const request = route.request();
+      if (request.method() !== 'POST' || request.postDataJSON().operation !== 'result')
+        return route.continue();
+      // Let the real signed read reach Remote, then lose its response. This keeps
+      // admitted session sequences intact and never fabricates a result or send.
+      await route.fetch();
+      failedReads++;
+      await route.abort('failed');
+    };
+    await page.route('**/append', failedResult);
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await until(() => agent.received().length === 1, 'annotation delivery');
     await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
@@ -76,18 +90,6 @@ test('a same-request annotation reply recovers from a visible transient read fai
       () => agent.rows().some((row) => row.event === 'replied' && row.requestId === requestId),
       'same-request durable reply',
     );
-    let failedReads = 0;
-    const failedResult = async (route: Route) => {
-      const request = route.request();
-      if (request.method() !== 'POST' || request.postDataJSON().operation !== 'result')
-        return route.continue();
-      // Let the real signed read reach Remote, then lose its response. This keeps
-      // admitted session sequences intact and never fabricates a result or send.
-      await route.fetch();
-      failedReads++;
-      await route.abort('failed');
-    };
-    await page.route('**/append', failedResult);
     await page.evaluate(() => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
       document.dispatchEvent(new Event('visibilitychange'));
@@ -114,7 +116,8 @@ test('a same-request annotation reply recovers from a visible transient read fai
         }
       }
     }
-    await page.unroute('**/append', failedResult);
+    // Finish admitted reads before removing interception and allowing recovery.
+    await page.unrouteAll({ behavior: 'wait' });
     const expected = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
     await expect(window.getByText(text.askObservationUnavailable, { exact: true })).toHaveCount(0);
