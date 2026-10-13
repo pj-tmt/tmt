@@ -31,7 +31,7 @@ impl Drop for Fixture {
         fs::remove_dir_all(&self.0).unwrap();
     }
 }
-fn event(seq: u64, time: u64, contexts: &[Option<u64>]) -> model::Event {
+fn event(seq: u64, time: u64, contexts: &[Option<u64>]) -> model::ChecklistSettlement {
     serde_json::from_value(json!({"checklistId":format!("20000000-0000-4000-8000-{seq:012}"),"settlementSequence":seq,"claimedAtMs":time-1,"settledAtMs":time,"outcome":"delivered","opportunity":"idle","sealedCount":contexts.len(),"retainedCount":contexts.len(),"membershipComplete":true,"nextItemAfter":null,"items":contexts.iter().enumerate().map(|(index,context)|json!({"sequence":index+1,"createdAtMs":time-2,"contextTokensAtArrival":context,"contextObservedAtMs":context.map(|_|time-3)})).collect::<Vec<_>>()})).unwrap()
 }
 #[test]
@@ -41,7 +41,8 @@ fn accepted_counterfactual_and_unknowns_have_independent_expected_values() {
     ))
     .unwrap();
     for vector in vectors["events"].as_array().unwrap() {
-        let event: model::Event = serde_json::from_value(vector["input"].clone()).unwrap();
+        let event: model::ChecklistSettlement =
+            serde_json::from_value(vector["input"].clone()).unwrap();
         event.validate().unwrap();
         let result = event.estimate();
         assert_eq!(
@@ -363,7 +364,8 @@ fn normative_status_vectors_cover_selected_windows_and_unknowns() {
                 .iter()
                 .find(|event| event["name"] == name)
                 .unwrap();
-            let event: model::Event = serde_json::from_value(source["input"].clone()).unwrap();
+            let event: model::ChecklistSettlement =
+                serde_json::from_value(source["input"].clone()).unwrap();
             store.record(ID, &event, through).unwrap();
             deliveries += u64::from(event.outcome == "delivered");
         }

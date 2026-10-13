@@ -45,7 +45,7 @@ pub struct Input {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Event {
+pub struct ChecklistSettlement {
     pub checklist_id: String,
     pub settlement_sequence: u64,
     pub claimed_at_ms: u64,
@@ -58,7 +58,7 @@ pub struct Event {
     pub items: Vec<Input>,
     pub next_item_after: Option<u64>,
 }
-impl Event {
+impl ChecklistSettlement {
     pub fn validate(&self) -> Result<(), Error> {
         if !crate::settings::canonical_uuid(&self.checklist_id)
             || self.settlement_sequence == 0
@@ -170,7 +170,7 @@ pub struct Page {
     pub observed_at_ms: u64,
     pub through_sequence: u64,
     pub delivered_digests: u64,
-    pub checklists: Vec<Event>,
+    pub checklists: Vec<ChecklistSettlement>,
     pub next_after: Option<u64>,
 }
 impl Page {

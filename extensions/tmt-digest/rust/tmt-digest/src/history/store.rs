@@ -2,7 +2,7 @@
 
 use super::{
     DAY, MAX, METHOD, RETENTION, invalid,
-    model::{Event, Window},
+    model::{ChecklistSettlement, Window},
 };
 use crate::core::Error;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
@@ -201,14 +201,14 @@ impl Store {
         self.0.execute("INSERT OR IGNORE INTO members(id,started,through,cursor,counter,tokens,avoided,raw_from) VALUES(?1,?2,?2,?3,?4,0,0,?2)",params![id,now as i64,sequence as i64,counter as i64]).map_err(io)?;
         Ok(())
     }
-    pub fn record(&mut self, id: &str, event: &Event, now: u64) -> Result<(), Error> {
+    pub fn record(&mut self, id: &str, event: &ChecklistSettlement, now: u64) -> Result<(), Error> {
         event.validate()?;
         if now > MAX {
             return Err(invalid("Unsafe collection timestamp"));
         }
         let inputs = serde_json::to_string(event).map_err(io)?;
         if inputs.len() > 1024 * 1024 {
-            return Err(invalid("Event exceeds 1 MiB"));
+            return Err(invalid("History event exceeds 1 MiB"));
         }
         let tx = self.0.transaction().map_err(io)?;
         let (cursor, through, tokens, avoided): (u64, u64, Option<u64>, Option<u64>) = tx
