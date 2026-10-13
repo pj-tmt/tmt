@@ -446,32 +446,12 @@ columns = [
 }
 
 #[test]
-fn uncovered_tracks_supply_values_without_reserving_width() {
+fn uncovered_tracks_publish_value_only_metadata_without_configured_sizing() {
     let config: toml_edit::DocumentMut = include_str!("fixtures/uncovered-tracks.toml")
         .parse()
         .unwrap();
     let rows = read(config["squad"]["checkout"].as_table_like(), "checkout").unwrap();
     assert_eq!(rows.covered_tracks(), 4);
-    let mut covered = rows.clone();
-    covered.columns.truncate(4);
-    for available in [144, 198] {
-        let widths = crate::markup::Grid::compile(&rows, |_| 80, available)
-            .unwrap()
-            .columns;
-        assert_eq!(
-            &widths[..4],
-            crate::markup::Grid::compile(&covered, |_| 80, available)
-                .unwrap()
-                .columns
-        );
-        assert_eq!(&widths[4..], [None, None]);
-        assert_eq!(&widths[..2], [Some(30), Some(10)]);
-        assert!(
-            widths.iter().flatten().sum::<usize>()
-                + widths.iter().flatten().count().saturating_sub(1)
-                <= available
-        );
-    }
     let value = rows.value();
     assert!(value["columns"][0].get("valueOnly").is_none());
     for column in &value["columns"].as_array().unwrap()[4..] {
@@ -487,15 +467,8 @@ fn uncovered_tracks_supply_values_without_reserving_width() {
 }
 
 #[test]
-fn empty_cells_and_spans_use_production_covered_geometry() {
+fn empty_cells_and_spans_publish_positional_track_coverage() {
     let rows = parse(HANDBOOK).unwrap();
-    for available in [40, 146, 200] {
-        let geometry = crate::markup::Grid::compile(&rows, |i| i + 15, available).unwrap();
-        assert_eq!(geometry.columns.len(), rows.covered_tracks());
-        let used = geometry.columns.iter().flatten().sum::<usize>()
-            + geometry.columns.iter().flatten().count().saturating_sub(1);
-        assert!(used <= available);
-    }
     assert!(
         rows.value()["columns"]
             .as_array()

@@ -4352,7 +4352,7 @@ filter = "not pending"
         }
     }
     #[test]
-    fn crew_sampling_policy_hides_windows_and_preserves_task_and_active_column() {
+    fn crew_sampling_policy_publishes_hidden_windows_and_active_column_priority() {
         let path = temp("crew-window-policy");
         for enabled in [false, true] {
             fs::write(
@@ -4370,38 +4370,29 @@ filter = "not pending"
             }
             for selected in 0..3 {
                 rows.select_window(selected);
-                for available in [68, 56] {
-                    let grid = crate::markup::Grid::compile(
-                        &rows,
-                        |i| rows.columns[i].title.len(),
-                        available,
-                    )
-                    .unwrap();
-                    assert!(
-                        grid.columns[2].unwrap() >= 20,
-                        "{enabled} {available}: {:?}",
-                        grid.columns
-                    );
-                    if enabled {
-                        assert!(
-                            grid.columns[5 + selected].is_some(),
-                            "{available}: {:?}",
-                            grid.columns
-                        );
-                        assert_eq!(grid.columns[5..].iter().flatten().count(), 1);
-                    } else {
-                        assert!(grid.columns[4].is_some());
-                        assert!(grid.columns[5..].iter().all(Option::is_none));
-                    }
-                }
+                let metadata = rows.value();
+                assert_eq!(metadata["columns"][2]["min"], 20);
+                let priorities: Vec<_> = rows.columns[5..]
+                    .iter()
+                    .map(|column| column.priority.unwrap())
+                    .collect();
+                assert_eq!(
+                    priorities[selected],
+                    *priorities.iter().min().unwrap(),
+                    "the selected supplied window retains the strongest published priority"
+                );
+                assert_eq!(
+                    metadata.get("hidden_columns").cloned().unwrap_or(json!([])),
+                    json!(rows.hidden_columns)
+                );
+                assert_eq!(metadata.get("hidden_columns").is_some(), !enabled);
             }
         }
         fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn sampled_preset_model_tracks_follow_content_and_keep_pr_at_120_columns() {
-        use unicode_width::UnicodeWidthStr;
+    fn sampled_preset_model_and_usage_columns_keep_their_published_source_policy() {
         let path = temp("model-track-sizing");
         for layout in ["crew", "team"] {
             fs::write(
@@ -4413,28 +4404,19 @@ filter = "not pending"
             let mut rows = config.rows("p").unwrap();
             for selected in 0..3 {
                 rows.select_window(selected);
-                for model in ["", "sol", "gpt-6.1-sol", "日本語モデル"] {
-                    let natural = |i: usize| {
-                        let column = &rows.columns[i];
-                        column.title.width().max(if column.field == "model" {
-                            model.width()
-                        } else {
-                            12
-                        })
-                    };
-                    // A full-width 120-cell rows pane reserves two cells for row marks.
-                    let grid = crate::markup::Grid::compile(&rows, natural, 118).unwrap();
-                    assert_eq!(grid.columns[4], Some(model.width().clamp(5, 8)));
-                    assert!(grid.columns[3].is_some(), "{layout}: {:?}", grid.columns);
-                    assert!(grid.columns[5 + selected].is_some());
-                    assert!(grid.columns[2].unwrap() >= 20);
-                    for available in [98, 78] {
-                        let grid = crate::markup::Grid::compile(&rows, natural, available).unwrap();
-                        assert!(grid.columns[4].is_none_or(|width| width <= 8));
-                        assert!(grid.columns[5 + selected].is_some());
-                        assert!(grid.columns[2].unwrap() >= 20);
-                    }
-                }
+                let metadata = rows.value();
+                assert_eq!(metadata["columns"][4]["from"], "session.model");
+                assert_eq!(metadata["columns"][4]["max"], 8);
+                assert_eq!(metadata["columns"][2]["min"], 20);
+                assert_eq!(metadata["columns"][5 + selected]["priority"], 1);
+                assert_eq!(
+                    metadata["columns"][5 + selected]["from"],
+                    format!("usage.w{}", selected + 1)
+                );
+                assert_eq!(
+                    metadata["columns"][3]["field"],
+                    if layout == "crew" { "pr_link" } else { "pr" }
+                );
             }
         }
         fs::remove_file(path).unwrap();

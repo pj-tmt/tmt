@@ -29,7 +29,6 @@ mod layout;
 mod links;
 mod look;
 mod management;
-mod markup;
 mod me;
 mod member_actions;
 mod membership;

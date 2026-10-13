@@ -53,25 +53,17 @@ a failed view drops the pending handoff. Version 3 carries no named-tab picks or
 old versions are consumed as normal-start misses. The snapshot holds session
 state only, no squad data or durable preference policy.
 
-## Rows, grid and identity
+## Source rows and workspace identity
 
-- `rows::Rows` owns positional tracks and prefix coverage, including empty cells
-  and spans. Uncovered columns remain value sources. `Column::display` ignores
-  their sizing; `ListSizing` selects natural text-list sizing unless shown columns
-  opt into percent width or overflow. Text lists then use `tmt-cli-style::grid`;
-  board geometry remains the separate CSS grid policy of `markup::Grid`.
-- `markup::Grid` resolves configured bases/bounds and chooses priority tracks before
-  one TUI grid computation. Growing tracks default to `rows::NARROWEST`; natural
-  capped tracks retain content demand, while capped growing tracks expand to their
-  cap. Hidden tracks keep original positions: spans shrink over surviving tracks,
-  and zero-survivor cells disappear. `rows::read` rejects unknown, duplicate,
-  uncovered and all-hidden masks. Full projected values remain intact.
-- `markup::row_values` binds display-ready cells and typed semantic `Role` tokens,
-  never source lookups or formatting. Occurrence scope is tab, authored section,
-  source squad and member UUID, followed by static line/column IDs. The lead uses
-  the `lead` scope; member order is not identity. UUID-free rows remain drawable
-  but have no actionable IDs. `App::shown_tab` supplies the retained view's owner
-  during loading, including after resize or search.
+- `rows::Rows` owns authored positional coverage, including empty cells and
+  spans. Uncovered columns remain value sources and publish value-only metadata;
+  `Column::display` ignores their sizing. Independent text lists use the existing
+  `ListSizing` and `tmt-cli-style::grid` owners. Row metadata, source formatting and
+  hidden-column validation remain Config/CLI contracts, not workspace geometry.
+- Offline layout admission uses the registered source grammar. Its binding tests
+  verify acquired source values, stable identity admission and refusal of missing
+  members without retaining the retired row painter, Grid or projected scene
+  adapter. The workspace paints admitted row text from its acquired snapshot.
 - `display_rows::project` supplies lead, nonselectable members rule and authored
   sections to `App::items`, `App::rows` and text `ls`. The rule counts distinct
   shown members excluding the lead; `none_yet` depends on the roster, not search.
