@@ -73,17 +73,19 @@ fn retained_targets(env: &ProviderEnvironment, global: &Path) -> io::Result<BTre
     Ok(targets)
 }
 
-/// A retained historical generation must not lose its backing tree even when
-/// targets were removed or their intent record was lost. This grants no ownership.
-fn retained_sources(global: &Path, assets: &SkillAssets) -> io::Result<bool> {
+/// Historical records and backing trees remain preservation evidence even
+/// without any targets or source content. This grants no ownership.
+fn retained_installation(global: &Path, assets: &SkillAssets) -> io::Result<bool> {
+    if owned::owners(global)?.iter().any(|(name, owner)| {
+        owner == "office"
+            || tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..].contains(&name.as_str())
+    }) {
+        return Ok(true);
+    }
     if !files::exists(assets.root())? {
         return Ok(false);
     }
-    if owned::owned_names(global)?
-        .iter()
-        .any(|name| tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..].contains(&name.as_str()))
-        || files::exists(&assets.root().join("owners/office"))?
-    {
+    if files::exists(&assets.root().join("owners/office"))? {
         return Ok(true);
     }
     for generation in fs::read_dir(assets.root())? {
@@ -165,7 +167,7 @@ pub fn uninstall(env: &ProviderEnvironment, global: &Path) -> io::Result<SkillsR
     })?;
     // Removed current intents are forgotten; historical intents and sources remain.
     // Retention requires no digest admission because it authorizes no deletion.
-    if !retained.is_empty() || retained_sources(&global, &assets)? {
+    if !retained.is_empty() || retained_installation(&global, &assets)? {
         files::with_lock(&global, || registry::forget(&global, &removal.removed))?;
         return Ok(removal);
     }

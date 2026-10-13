@@ -286,37 +286,56 @@ fn default_uninstall_preserves_historical_names_under_a_distinct_owner() {
 #[test]
 fn default_uninstall_preserves_a_historical_owner_record_without_targets() {
     use super::{OwnedSkill, ProviderEnvironment, install_owned};
-    let temp = TestDirectory::new();
-    let global = temp.path.join("global");
-    let home = temp.path.join("home");
-    let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
-    let skill = OwnedSkill {
-        name: "tmt-office".into(),
-        files: vec![("SKILL.md".into(), b"Retained backing".to_vec())],
-    };
-    install_owned(&env, &global, "custom", &[skill], false).unwrap();
-    let target = home.join(".agents/skills/tmt-office");
-    let source = fs::read_link(&target).unwrap();
-    fs::remove_file(&target).unwrap();
-    let record = global.join("skill-owners.json");
-    let mut document: serde_json::Value =
-        serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
-    document["skills"]["tmt-office"]["targets"] = serde_json::json!([]);
-    let bytes = serde_json::to_vec(&document).unwrap();
-    fs::write(&record, &bytes).unwrap();
-    for _ in 0..2 {
-        assert_eq!(
-            super::plan_uninstall(&env, &global).unwrap(),
-            super::SkillsRemoval::default()
-        );
-        assert_eq!(
-            super::uninstall(&env, &global).unwrap(),
-            super::SkillsRemoval::default()
-        );
-        assert_eq!(fs::read(&record).unwrap(), bytes);
-        assert_eq!(
-            fs::read(source.join("SKILL.md")).unwrap(),
-            b"Retained backing"
-        );
+    for (owner, name) in [
+        ("custom", "tmt-office"),
+        ("office", "tmt-office"),
+        ("office", "custom-guide"),
+    ] {
+        let temp = TestDirectory::new();
+        let global = temp.path.join("global");
+        let home = temp.path.join("home");
+        let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
+        let skill = OwnedSkill {
+            name: name.into(),
+            files: vec![("SKILL.md".into(), b"Retained backing".to_vec())],
+        };
+        install_owned(&env, &global, owner, &[skill], false).unwrap();
+        let target = home.join(".agents/skills").join(name);
+        let source = fs::read_link(&target).unwrap();
+        fs::remove_file(&target).unwrap();
+        let record = global.join("skill-owners.json");
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+        document["skills"][name]["targets"] = serde_json::json!([]);
+        let bytes = serde_json::to_vec(&document).unwrap();
+        fs::write(&record, &bytes).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                super::plan_uninstall(&env, &global).unwrap(),
+                super::SkillsRemoval::default()
+            );
+            assert_eq!(
+                super::uninstall(&env, &global).unwrap(),
+                super::SkillsRemoval::default()
+            );
+            assert_eq!(fs::read(&record).unwrap(), bytes);
+            assert_eq!(
+                fs::read(source.join("SKILL.md")).unwrap(),
+                b"Retained backing"
+            );
+        }
+        // Missing backing content never authorizes discarding its historical record.
+        fs::remove_dir_all(global.join("skill-assets")).unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                super::plan_uninstall(&env, &global).unwrap(),
+                super::SkillsRemoval::default()
+            );
+            assert_eq!(
+                super::uninstall(&env, &global).unwrap(),
+                super::SkillsRemoval::default()
+            );
+            assert_eq!(fs::read(&record).unwrap(), bytes);
+        }
     }
 }
