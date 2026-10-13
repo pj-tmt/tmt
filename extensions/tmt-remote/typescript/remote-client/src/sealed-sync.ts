@@ -108,7 +108,7 @@ export interface SyncSubscription {
 export type SyncFailure =
   | {
       readonly code: 'REMOTE_STATE_UNAVAILABLE';
-      readonly state: 'catch-up-required' | 'conflict' | 'unsupported';
+      readonly state: 'catch-up-required' | 'conflict' | 'unsupported' | 'deadline' | 'cancelled';
     }
   | {
       readonly code:

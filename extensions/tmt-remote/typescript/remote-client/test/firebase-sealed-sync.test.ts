@@ -253,9 +253,9 @@ test('one page interest covers an empty page, new writers and later writes, hint
   expect(f.requests).toHaveLength(0);
   const pending = s.next(call());
   s.close();
-  await expect(pending).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  await expect(pending).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
   f.changed();
-  await expect(s.next(call())).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  await expect(s.next(call())).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
   expect(f.detached()).toBe(1);
   f.port.close();
 });
@@ -269,6 +269,13 @@ test('listener error is unavailable, never proof of revoke, and late hints after
   const pending = s.next(call());
   f.failed();
   await expect(pending).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  for (let i = 0; i < 3; i++)
+    await expect(s.next(call())).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  const aborted = new AbortController();
+  aborted.abort();
+  await expect(s.next({ signal: aborted.signal, deadlineAtMs: 0 })).rejects.toEqual({
+    code: 'REMOTE_STATE_UNAVAILABLE',
+  });
   f.port.close();
   f.changed();
   expect(f.detached()).toBe(1);
@@ -398,10 +405,33 @@ test('a pending next expires at its original deadline without ending the interes
     call(),
   );
   const pending = s.next(call());
-  const refused = expect(pending).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE' });
+  const refused = expect(pending).rejects.toEqual({
+    code: 'REMOTE_STATE_UNAVAILABLE',
+    state: 'deadline',
+  });
   await vi.advanceTimersByTimeAsync(1000);
   await refused;
   f.changed();
   expect(await s.next(call())).toEqual({ kind: 'changed' });
   f.port.close();
+});
+
+test('aborting a pending or pre-aborted next is cancelled, not an idle deadline', async () => {
+  const f = await fixture();
+  const s = await f.port.subscribe(
+    { resource: 'rows', scope: { tenant: { stringValue: 'fixture-space' } } },
+    call(),
+  );
+  const controller = new AbortController();
+  const c = { ...call(), signal: controller.signal };
+  const pending = s.next(c);
+  const cancelled = expect(pending).rejects.toEqual({
+    code: 'REMOTE_STATE_UNAVAILABLE',
+    state: 'cancelled',
+  });
+  controller.abort();
+  await cancelled;
+  await expect(s.next(c)).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
+  f.port.close();
+  await expect(s.next(c)).rejects.toEqual({ code: 'REMOTE_STATE_UNAVAILABLE' });
 });

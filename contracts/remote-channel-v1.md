@@ -1940,14 +1940,15 @@ build pins. Scripts stay same-origin. A hosted page that calls `connect` must al
 `connect-src`; `https://firestore.googleapis.com` is required for sealed-document transport.
 Colab owns the hosted shell policy; these are requirements, not its current headers.
 The local door's pairing and session path never implicitly loads Firebase.
-Firestore document transport, cloud agent operations and a machine connector are not shipped
-by this bootstrap.
+Cloud agent operations and a machine connector are not shipped. This bootstrap's Firestore
+access is the browser sealed-document transport described below.
 
-### Proposal: extension-scoped sealed-document client
+### Extension-scoped sealed-document client
+
+Browser transport is shipped; native transport and credentials land in their own slices.
 
 The SDK and native types define one bound client port. The browser factory
-`HostedAuth.sealedSync(space, guard)` binds it to the existing verified anonymous Auth owner;
-native transport and credentials are separate slices.
+`HostedAuth.sealedSync(space, guard)` binds it to the existing verified anonymous Auth owner.
 Its context contains verified public Firebase configuration, extension, exact declaration digest,
 declared resources, space and authenticated uid. Binding validates the entire declaration before
 accepting any resource; digest or context disagreement refuses before provider access. The public
@@ -1985,8 +1986,11 @@ Browser wake uses one Web SDK onSnapshot per page interest, with only its declar
 memoryLocalCache and no persistent cache. Metadata-only changes after the initial server snapshot
 are ignored. Snapshots carry coalesced hints, never document delivery or cursor progress; listeners
 cover empty pages, new writers and later writes in existing streams. Cancellation, unsubscribe,
-sign-out and close fence late callbacks. Listener failure is unavailable, never a device-revocation
-proof. Firestore is confined to the lazy Firebase asset; the loopback door does not import it.
+sign-out and close fence late callbacks. An idle `next` deadline rejects with
+`REMOTE_STATE_UNAVAILABLE {state: 'deadline'}` and keeps the interest alive; call `next` again.
+An aborted call rejects with `state: 'cancelled'`. Failed listeners and ended/closed interests
+reject with bare `REMOTE_STATE_UNAVAILABLE`, including pending and every later `next`; any
+rejection other than `state: 'deadline'` is terminal for the consumer, never a device-revocation proof. Firestore is confined to the lazy Firebase asset; the loopback door does not import it.
 
 The port offers bounded read, query, subscribe, publish and close. A document target names one
 resource and an opaque ID, resolved only within that declared collection under `x/<extension>`.

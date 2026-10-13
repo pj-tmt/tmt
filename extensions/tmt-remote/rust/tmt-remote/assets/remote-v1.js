@@ -2771,9 +2771,21 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 			};
 			const subscription = {
 				async next(nextCall) {
-					live();
-					syncCallLive(nextCall);
-					if (ended || failed) return Promise.reject(unavailable());
+					if (ended || failed || closed) throw unavailable();
+					try {
+						live();
+					} catch {
+						throw unavailable();
+					}
+					if (nextCall.signal.aborted) throw {
+						code: "REMOTE_STATE_UNAVAILABLE",
+						state: "cancelled"
+					};
+					if (!Number.isFinite(nextCall.deadlineAtMs)) throw unavailable();
+					if (Date.now() >= nextCall.deadlineAtMs) throw {
+						code: "REMOTE_STATE_UNAVAILABLE",
+						state: "deadline"
+					};
 					if (pending) return Promise.reject({ code: "REMOTE_RATE_LIMITED" });
 					if (dirty) {
 						dirty = false;
@@ -2781,11 +2793,17 @@ function createSealedSync(context, guard, fetcher, wake, ownerLive, page = { lis
 					}
 					return new Promise((resolve, reject) => {
 						const controller = setTimeout(() => {
-							pending?.reject(unavailable());
+							pending?.reject({
+								code: "REMOTE_STATE_UNAVAILABLE",
+								state: "deadline"
+							});
 							pending = void 0;
 						}, Math.max(0, nextCall.deadlineAtMs - Date.now()));
 						const abort = () => {
-							pending?.reject(unavailable());
+							pending?.reject({
+								code: "REMOTE_STATE_UNAVAILABLE",
+								state: "cancelled"
+							});
 							pending = void 0;
 						};
 						nextCall.signal.addEventListener("abort", abort, { once: true });

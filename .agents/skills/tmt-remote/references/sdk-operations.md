@@ -88,7 +88,7 @@ Firebase implicitly.
 ## Sealed-document types
 
 `sealed-sync.ts` and native `sealed_sync.rs` own the bound ports and pure validation.
-`HostedAuth.sealedSync(space, guard)` implements the browser factory after anonymous sign-in. The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+`HostedAuth.sealedSync(space, guard)` implements the browser factory after anonymous sign-in. The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
 owns context, injected Auth, sequence catch-up, uncertainty and the cloud object
 profile. The browser transport shares hosted App/Auth, uses REST for data and one memory-only
 Web SDK listener per page interest for coalesced wake hints. The caller supplies admission

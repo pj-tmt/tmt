@@ -417,7 +417,8 @@ not create a Firebase client or enable cloud attachments. Caller-supplied public
 configuration must already be bootstrap-verified. Injected Auth never changes uid
 silently. After `signInAnonymous()`, `auth.sealedSync(space, guard)` returns a frozen bound
 port over the verified declaration. Data uses REST; one memory-only Web SDK listener per
-page interest emits coalesced hints, never content or cursor progress. The caller owns
+page interest emits coalesced hints, never content or cursor progress. Retry `next` only on
+`REMOTE_STATE_UNAVAILABLE {state: 'deadline'}`; every other rejection is terminal for the consumer. The caller owns
 positions and same-target reconciliation, and supplies `guard.admit(cost)` before each
 REST read/query/commit or listener start. That guard reserves cost durably or throws the
 frozen budget refusal; no budget ledger is added here. Metadata counts the matching
@@ -425,5 +426,5 @@ listener tail, deliveries including the writer's own, three Rules lookups per de
 document, separate REST catch-up and fresh-query reconnect cost. `reads: null` means an unbounded matching initial
 listener tail, never zero reads. Native transport/credentials and Colab's relay remain
 separate slices; this API enables neither agent operations nor cloud attachment glue.
-The [contract](../../../../contracts/remote-channel-v1.md#proposal-extension-scoped-sealed-document-client)
+The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
 owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.

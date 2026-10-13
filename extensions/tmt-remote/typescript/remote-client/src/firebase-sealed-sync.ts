@@ -22,6 +22,7 @@ import {
   syncCallLive,
   syncWait,
   admitSync,
+  SYNC_PROVIDER_BYTES,
   type SyncAdmissionGuard,
 } from './firebase-sync-http.js';
 
@@ -226,7 +227,10 @@ export function createSealedSync(
     async subscribe(interest, call) {
       const boundInterest = structuredClone(interest);
       validateSyncInterest(context, boundInterest);
-      if (new TextEncoder().encode(JSON.stringify(boundInterest.scope)).byteLength > 397312)
+      if (
+        new TextEncoder().encode(JSON.stringify(boundInterest.scope)).byteLength >
+        SYNC_PROVIDER_BYTES
+      )
         throw invalid();
       live();
       syncCallLive(call);
@@ -255,9 +259,17 @@ export function createSealedSync(
       };
       const subscription: SyncSubscription = {
         async next(nextCall) {
-          live();
-          syncCallLive(nextCall);
-          if (ended || failed) return Promise.reject(unavailable());
+          if (ended || failed || closed) throw unavailable();
+          try {
+            live();
+          } catch {
+            throw unavailable();
+          }
+          if (nextCall.signal.aborted)
+            throw { code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' };
+          if (!Number.isFinite(nextCall.deadlineAtMs)) throw unavailable();
+          if (Date.now() >= nextCall.deadlineAtMs)
+            throw { code: 'REMOTE_STATE_UNAVAILABLE', state: 'deadline' };
           if (pending) return Promise.reject({ code: 'REMOTE_RATE_LIMITED' });
           if (dirty) {
             dirty = false;
@@ -266,13 +278,13 @@ export function createSealedSync(
           return new Promise((resolve, reject) => {
             const controller = setTimeout(
               () => {
-                pending?.reject(unavailable());
+                pending?.reject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'deadline' });
                 pending = undefined;
               },
               Math.max(0, nextCall.deadlineAtMs - Date.now()),
             );
             const abort = () => {
-              pending?.reject(unavailable());
+              pending?.reject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
               pending = undefined;
             };
             nextCall.signal.addEventListener('abort', abort, { once: true });
