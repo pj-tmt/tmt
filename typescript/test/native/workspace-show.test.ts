@@ -134,3 +134,141 @@ describe('read-only workspace restore preview', () => {
     });
   });
 });
+
+describe('named workspace snapshots', () => {
+  it('copies exact bytes, lists/selects per socket, enforces the cap and permits explicit removal', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = installTmuxTripwire(sandbox);
+      const socket = path.join(sandbox.root, 'gone-socket');
+      const directory = path.join(
+        sandbox.globalDir,
+        'workspace',
+        createHash('sha256').update(socket).digest('hex')
+      );
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const latest = path.join(directory, 'latest.json');
+      const bytes = `${JSON.stringify(snapshot(socket))}\n`;
+      fs.writeFileSync(latest, bytes, { mode: 0o600 });
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const cli = (args: string[]) =>
+        runCli(sandbox, ['workspace', ...args, '--socket', socket, '--json']);
+      const saved = await cli(['save', 'work']);
+      expect(saved.status).toBe(0);
+      expect(JSON.parse(saved.stdout)).toEqual({
+        version: 1,
+        socket,
+        name: 'work',
+        digest,
+        capturedAtMs: 1,
+      });
+      const named = path.join(directory, 'saved-work.json');
+      expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
+      expect(fs.statSync(named).mode & 0o777).toBe(0o600);
+      const duplicate = await cli(['save', 'work']);
+      expect(duplicate.status).toBe(5);
+      expect(JSON.parse(duplicate.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_EXISTS');
+      const preview = await cli(['show', 'work']);
+      expect(preview.status).toBe(0);
+      expect(JSON.parse(preview.stdout)).toMatchObject({
+        name: 'work',
+        digest,
+        snapshot: snapshot(socket),
+      });
+      const updated = { ...snapshot(socket), capturedAtMs: 2 };
+      fs.writeFileSync(latest, JSON.stringify(updated));
+      const listed = await cli(['ls']);
+      const alias = await cli(['list']);
+      expect(alias.status).toBe(0);
+      expect(JSON.parse(alias.stdout)).toEqual(JSON.parse(listed.stdout));
+      expect(listed.status).toBe(0);
+      expect(JSON.parse(listed.stdout)).toEqual({
+        version: 1,
+        socket,
+        snapshots: [
+          {
+            name: null,
+            digest: createHash('sha256').update(JSON.stringify(updated)).digest('hex'),
+            capturedAtMs: 2,
+          },
+          { name: 'work', digest, capturedAtMs: 1 },
+        ],
+      });
+      expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
+      const other = await runCli(sandbox, [
+        'workspace',
+        'ls',
+        '--socket',
+        `${socket}-other`,
+        '--json',
+      ]);
+      expect(other.status).toBe(0);
+      expect(JSON.parse(other.stdout).snapshots).toEqual([]);
+      for (let index = 0; index < 15; index++)
+        expect((await cli(['save', `name-${index}`])).status).toBe(0);
+      const cap = await cli(['save', 'overflow']);
+      expect(cap.status).toBe(1);
+      expect(JSON.parse(cap.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_LIMIT');
+      expect(fs.existsSync(path.join(directory, 'saved-overflow.json'))).toBe(false);
+      expect((await cli(['rm', 'work'])).status).toBe(0);
+      expect(fs.existsSync(named)).toBe(false);
+      const missing = await cli(['show', 'work']);
+      expect(missing.status).toBe(3);
+      expect(JSON.parse(missing.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_NOT_FOUND');
+      expect((await cli(['save', 'work'])).status).toBe(0);
+      expect(fs.readFileSync(named)).toEqual(fs.readFileSync(latest));
+      expect(fs.readdirSync(directory).some((name) => name.endsWith('.tmp'))).toBe(false);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+      expect(fs.existsSync(tripwire)).toBe(false);
+    });
+  });
+
+  it('rejects changed raw bytes before any restore effect, and reports invalid syntax as usage errors', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = installTmuxTripwire(sandbox);
+      const socket = path.join(sandbox.root, 'gone-socket');
+      const directory = path.join(
+        sandbox.globalDir,
+        'workspace',
+        createHash('sha256').update(socket).digest('hex')
+      );
+      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+      const latest = path.join(directory, 'latest.json');
+      fs.writeFileSync(latest, JSON.stringify(snapshot(socket)), { mode: 0o600 });
+      const preview = await runCli(sandbox, ['workspace', 'show', '--socket', socket, '--json']);
+      expect(preview.status).toBe(0);
+      const { digest } = JSON.parse(preview.stdout);
+      // Change only bytes, retaining the same valid topology and selected socket.
+      fs.appendFileSync(latest, '\n');
+      const changed = fs.readFileSync(latest);
+      for (const flags of [[], ['--layout-only']]) {
+        const result = await runCli(sandbox, [
+          'workspace',
+          'restore',
+          ...flags,
+          '--socket',
+          socket,
+          '--expect',
+          digest,
+          '--json',
+        ]);
+        expect(result.status).toBe(5);
+        expect(JSON.parse(result.stdout).error.code).toBe('WORKSPACE_SNAPSHOT_CHANGED');
+        expect(result.stderr).toBe('');
+        expect(fs.readFileSync(latest)).toEqual(changed);
+        expect(fs.existsSync(sandbox.database)).toBe(false);
+        expect(fs.existsSync(tripwire)).toBe(false);
+        expect(fs.readdirSync(directory)).toEqual(['latest.json']);
+      }
+      for (const args of [
+        ['save', '../escape'],
+        ['rm', 'latest'],
+        ['restore', '--expect', 'invalid'],
+      ]) {
+        const result = await runCli(sandbox, ['workspace', ...args, '--json']);
+        expect(result.status).toBe(1);
+        expect(JSON.parse(result.stdout).error.code).toBe('USAGE_ERROR');
+      }
+      expect(fs.existsSync(tripwire)).toBe(false);
+    });
+  });
+});
