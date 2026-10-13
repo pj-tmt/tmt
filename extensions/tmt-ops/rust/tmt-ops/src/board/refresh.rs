@@ -1025,24 +1025,21 @@ fn squad_view(
         .iter()
         .map(|member| member.id.clone())
         .collect();
-    let crate::observe::Projected {
-        mut document,
-        sent,
-        notes: _,
-    } = timing::measure(trace, "observation.document", || {
-        observation.document(
-            core,
-            squad,
-            me.as_ref(),
-            &providers,
-            crate::observe::Shape {
-                layout,
-                states: &states,
-                sections: &sections,
-                rows: &rows,
-            },
-        )
-    })?;
+    let crate::observe::Projected { mut document, sent } =
+        timing::measure(trace, "observation.document", || {
+            observation.document(
+                core,
+                squad,
+                me.as_ref(),
+                &providers,
+                crate::observe::Shape {
+                    layout,
+                    states: &states,
+                    sections: &sections,
+                    rows: &rows,
+                },
+            )
+        })?;
     // Publish with what earlier reads learned; the digest read and missing reply
     // bodies follow as one deferred job on this worker (`EnrichJob`).
     let ids = crate::digest::eligible([&document], &active_ids);

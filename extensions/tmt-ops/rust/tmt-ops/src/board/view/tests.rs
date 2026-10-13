@@ -2,7 +2,7 @@ use super::{
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
 };
-use crate::{attention::Attention, config::NotesRender, rows::Rows};
+use crate::rows::Rows;
 use ratatui::widgets::Paragraph;
 use ratatui::{
     layout::Rect,
@@ -21,13 +21,12 @@ mod parity;
 mod rules;
 use super::*;
 use crate::board::app::{Effect, Snapshot, View};
-use crate::config::{BoardMode, Direction, Pane};
+use crate::config::Pane;
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
-use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 fn workspace_board() -> App {
@@ -995,10 +994,6 @@ fn workspace_search_help_and_errors_use_the_footer_and_overlay() {
     app.key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
     app.error = Some("tmt did not finish in time".into());
     assert_eq!(draw(&app, 80, 12)[11], "tmt did not finish in time");
-}
-
-fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::config::Board {
-    crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
 }
 
 /// The painted cells of the first board row, from its first line down.
@@ -2478,14 +2473,14 @@ fn supplied_labels_yield_to_the_name_and_the_whole_state_dropping_trailing_label
 
 #[test]
 fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_choice_hit() {
+    use crate::board::app::workspace::tests::{MEMBER, ROOM};
+    use crate::board::shell::OpsTab;
     use crate::labels::{Choose, Label, Supplied};
-    for (members, home) in [(false, false), (true, false)] {
+    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
         for width in [80, 100, 160] {
             crate::status::with_now_ms(1000, || {
-                let mut app = digest_app(members, home, 0, 1_801_000, Default::default());
-                if let Some(tab) = app.current.clone() {
-                    app.set_tab_focus_for_test(&tab);
-                }
+                let mut app = workspace_board();
+                app.shell.tab = tab;
                 for (mode, text, held) in [
                     ("auto", "Auto", false),
                     ("auto", "Auto", true),
@@ -2507,30 +2502,30 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                         action: Some(choice),
                     }];
                     if held {
-                        labels.push(Label {
-                            text: "3 held".into(),
-                            role: Role::Muted,
-                            action: None,
-                        });
-                        labels.push(Label {
-                            text: "When idle".into(),
-                            role: Role::Muted,
-                            action: None,
-                        });
+                        labels.extend([
+                            Label {
+                                text: "3 held".into(),
+                                role: Role::Muted,
+                                action: None,
+                            },
+                            Label {
+                                text: "When idle".into(),
+                                role: Role::Muted,
+                                action: None,
+                            },
+                        ]);
                     }
                     app.labels = Supplied::from_rows(vec![(
                         "digest".into(),
-                        ["worker", "lead"]
-                            .into_iter()
-                            .map(|id| (id.into(), labels.clone()))
-                            .collect(),
+                        [(MEMBER.into(), labels)].into(),
                     )]);
-                    let buffer = board_buffer(&app, width, 20);
+                    let buffer = board_buffer(&app, width, 36);
                     let screen = buffer_text(&buffer).join("\n");
-                    let context = format!("{members} {home} {width} {mode} {held}:\n{screen}");
+                    let context = format!("{tab:?}/{width}/{mode}/{held}:\n{screen}");
                     assert!(!screen.contains("No held messages"), "{context}");
                     assert_eq!(screen.contains("3 held"), held, "{context}");
-                    if width == 160 || !held {
+                    // Complete trailing labels may be omitted at compact widths.
+                    if width == 160 {
                         assert_eq!(screen.contains("When idle"), held, "{context}");
                     }
                     for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {
@@ -2540,20 +2535,36 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                             "{context}"
                         );
                     }
-                    let at = find_cells(&buffer, &format!("{text} ▾"))[0];
-                    let effect = app.mouse(
-                        MouseEvent {
-                            kind: MouseEventKind::Down(MouseButton::Left),
-                            column: at.0,
-                            row: at.1,
-                            modifiers: KeyModifiers::NONE,
-                        },
-                        std::time::Instant::now(),
+                    let hits = app.chip_hits.borrow().clone();
+                    assert!(
+                        !hits.is_empty(),
+                        "the visible mode has an exact hit: {context}"
                     );
-                    let Effect::Act(crate::board::app::Request::DigestOpen(ask)) = effect else {
-                        panic!("the mode remains actionable: {context}: {effect:?}");
-                    };
-                    assert_eq!(ask.member, "worker");
+                    for (area, _) in hits {
+                        let effect = app.mouse(
+                            MouseEvent {
+                                kind: MouseEventKind::Down(MouseButton::Left),
+                                column: area.x,
+                                row: area.y,
+                                modifiers: KeyModifiers::NONE,
+                            },
+                            std::time::Instant::now(),
+                        );
+                        let Effect::Act(crate::board::app::Request::DigestOpen(ask)) = effect
+                        else {
+                            panic!("the mode remains actionable: {context}: {effect:?}");
+                        };
+                        assert_eq!(ask.member, "worker");
+                        assert_eq!(ask.squad, "product");
+                        assert_eq!(ask.choose.current, mode);
+                        assert_eq!(
+                            app.workspace.selected,
+                            Some(crate::board::workspace::OpsTarget::Member {
+                                room_id: Some(ROOM.into()),
+                                identity_id: MEMBER.into(),
+                            })
+                        );
+                    }
                 }
             });
         }
