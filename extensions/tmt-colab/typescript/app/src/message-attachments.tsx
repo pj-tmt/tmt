@@ -6,6 +6,7 @@ import { isRaster, useAttachmentOpener } from './attachment-opener.js';
 import { AttachmentPreview } from './attachment-preview.js';
 import type { AttachmentBinding } from './attachment-service.js';
 import { text } from './strings.js';
+import { AttachmentLabel } from './attachment-tray.js';
 import type { CommentView } from './thread-records.js';
 import './attachment-tray.css';
 
@@ -64,6 +65,11 @@ function ImageTile({
   }, []);
   return (
     <li className="message-attachment message-image" data-testid="message-attachment">
+      <AttachmentLabel
+        filename={descriptor.filename}
+        mediaType={descriptor.mediaType}
+        size={Number(descriptor.plaintextBytes)}
+      />
       <button
         ref={tile}
         type="button"
@@ -163,27 +169,17 @@ export function MessageAttachments({
       {!!files.length && (
         <ul className="attachment-files">
           {files.map((d) => {
-            const type =
-              d.filename.split('.').length > 1
-                ? d.filename.split('.').at(-1)!.slice(0, 8).toUpperCase()
-                : 'FILE';
             return (
               <li
                 key={d.attachmentId}
                 className="message-attachment message-file"
                 data-testid="message-attachment"
               >
-                <span className="attachment-type" aria-hidden="true">
-                  {type}
-                </span>
-                <div>
-                  <span className="attachment-name" title={d.filename}>
-                    {d.filename}
-                  </span>
-                  <span className="attachment-size">
-                    {type} · {text.attachmentSize(Number(d.plaintextBytes))}
-                  </span>
-                </div>
+                <AttachmentLabel
+                  filename={d.filename}
+                  mediaType={d.mediaType}
+                  size={Number(d.plaintextBytes)}
+                />
                 <BrowserIconAction
                   type="button"
                   variant="text"
@@ -196,7 +192,7 @@ export function MessageAttachments({
                 />
                 {error(d.attachmentId) && (
                   <span className="attachment-state" role="alert">
-                    {error(d.attachmentId)}
+                    ✗ {error(d.attachmentId)}
                   </span>
                 )}
               </li>

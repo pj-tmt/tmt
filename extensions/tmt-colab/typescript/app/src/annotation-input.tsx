@@ -1,7 +1,8 @@
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { useAttachmentDropTarget } from './attachment-drop.js';
-import { BrowserAction } from '@tmt/browser-ui/react';
+import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/browser-ui/react';
+import { ArrowRight } from 'lucide-react';
 import {
   useContext,
   useEffect,
@@ -340,6 +341,26 @@ export function AnnotationInput({
         {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
       </section>
     );
+  const sendActionProps: BrowserActionProps = {
+    type: 'button',
+    label:
+      chat || !decision.agents.length
+        ? text.askSend
+        : `Send · to ${decision.agents.map((agent) => agent.agentName).join(', ')}`,
+    variant: 'primary',
+    busy,
+    disabled:
+      blocked ||
+      staged.chips.some((chip) => chip.state.kind === 'uploading') ||
+      !!recorded ||
+      !discussion ||
+      !value.trim() ||
+      !decision.allowed ||
+      (!!decision.agents.length && !binding),
+    onActivate: (event) => {
+      if (event.isTrusted) void send();
+    },
+  };
   return (
     <section
       className="annotation-compose"
@@ -426,7 +447,13 @@ export function AnnotationInput({
             cancel();
         }}
       />
+      {!chat && !showCreatorHint && recipientHint}
       <div className="annotation-status-row" data-creator-toggle={!!creator || undefined}>
+        {!chat && anchor && (
+          <span className="annotation-anchor-note" title={quote}>
+            Attached to this sentence
+          </span>
+        )}
         {chat && discussion?.attachments && (
           <AttachButton draft={files} disabled={!attachable} label={text.messageAttach} />
         )}
@@ -454,9 +481,9 @@ export function AnnotationInput({
               }}
             />
           </div>
-        ) : (
+        ) : chat ? (
           recipientHint
-        )}
+        ) : null}
 
         {binding &&
           !busy &&
@@ -489,24 +516,11 @@ export function AnnotationInput({
             }}
           />
         )}
-        <BrowserAction
-          type="button"
-          label={text.askSend}
-          variant="primary"
-          busy={busy}
-          disabled={
-            blocked ||
-            staged.chips.some((chip) => chip.state.kind === 'uploading') ||
-            !!recorded ||
-            !discussion ||
-            !value.trim() ||
-            !decision.allowed ||
-            (!!decision.agents.length && !binding)
-          }
-          onActivate={(event) => {
-            if (event.isTrusted) void send();
-          }}
-        />
+        {chat ? (
+          <BrowserAction {...sendActionProps} />
+        ) : (
+          <BrowserIconAction {...sendActionProps} icon={<ArrowRight />} />
+        )}
       </div>
       <CommentSendFailures
         failures={failures}

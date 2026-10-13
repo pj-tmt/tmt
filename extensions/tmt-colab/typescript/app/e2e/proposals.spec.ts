@@ -103,7 +103,7 @@ for (const width of [1440, 390])
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       await card.getByRole('combobox').press('End');
       await card.getByRole('combobox').pressSequentially('Please clarify');
-      await card.getByRole('button', { name: 'Send', exact: true }).click();
+      await card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(card.getByRole('combobox')).toHaveCount(0);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
     });
@@ -229,7 +229,9 @@ for (const width of [1440, 390])
       await expect(card.getByRole('combobox')).toHaveText('', { useInnerText: true });
       await expect(card.locator('.message-mention-chip')).toHaveCount(0);
       await expect(card.locator('.creator-toggle')).toHaveCount(0);
-      await expect(card.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+      await expect(
+        card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+      ).toBeDisabled();
       await card.getByRole('button', { name: 'Cancel', exact: true }).click();
       await capture(page, `detached-${width}-${theme}`);
       await card.getByRole('button', { name: 'Approve', exact: true }).click();
@@ -250,7 +252,7 @@ test('follow-up preparation failure stays on the card after composer closes', as
   await card.getByRole('button', { name: 'Follow up', exact: true }).click();
   await card.getByRole('combobox').press('End');
   await card.getByRole('combobox').pressSequentially('Please clarify');
-  await card.getByRole('button', { name: 'Send', exact: true }).click();
+  await card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect(card.getByRole('combobox')).toHaveCount(0);
   await expect(card.locator('.annotation-delivery-failure')).toContainText('Not delivered');
   expect((await run(page, 'proof')).sends).toHaveLength(0);

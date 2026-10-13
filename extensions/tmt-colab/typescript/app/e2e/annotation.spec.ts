@@ -56,10 +56,13 @@ test('the shared window awaits one admitted status action without replacing its 
   await expect(input).toBeFocused();
   await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
   await expect(input).toHaveAttribute('data-retained', 'yes');
-  await expect(window.locator('blockquote')).toHaveText('Frozen original quote');
+  await expect(window.locator('.thread-state')).toHaveAttribute('title', 'Frozen original quote');
   expect(await run(page, 'windowProof')).toEqual({ statusCalls: 1, closes: 0 });
   await run(page, 'finishWindowStatus');
   await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await expect(input).toBeHidden();
+  await window.getByRole('button', { name: 'Show conversation', exact: true }).click();
+  await input.focus();
   await expect(input).toBeFocused();
   await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
   await window.getByRole('button', { name: 'Reopen', exact: true }).click();

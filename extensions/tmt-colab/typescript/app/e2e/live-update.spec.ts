@@ -206,7 +206,10 @@ for (const width of [1440, 390]) {
           (node) => (window as unknown as { retainedComposer: Element }).retainedComposer === node,
         ),
       ).toBe(true);
-      await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(composer.locator('.thread-state')).toHaveAttribute(
+        'title',
+        'Exact selected text',
+      );
       await expect(composer.getByText(text.commentQuoteChanged)).toBeVisible();
       await expect(
         page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
@@ -302,7 +305,10 @@ for (const width of [1440, 390]) {
       });
       await expect(input).toHaveAttribute('contenteditable', 'false');
       await expect(composer).toBeVisible();
-      await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(composer.locator('.thread-state')).toHaveAttribute(
+        'title',
+        'Exact selected text',
+      );
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
       const notice = page.getByRole('alert');
       await expect(notice).toContainText('Page unavailable');
@@ -430,7 +436,9 @@ for (const width of [1440, 390]) {
       await expect(input).toHaveText('@Agent 1 Exact unsent draft retained on collapse.', {
         useInnerText: true,
       });
-      await expect(dialog.locator('.annotation-status-row')).toContainText('Asks @Agent 1.');
+      await expect(dialog.locator('.annotation-hint[role="status"]')).toContainText(
+        'Asks @Agent 1.',
+      );
       await expect
         .poll(() =>
           thread
@@ -438,7 +446,7 @@ for (const width of [1440, 390]) {
             .evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop),
         )
         .toBeLessThanOrEqual(1);
-      await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(thread.locator('.thread-state')).toHaveAttribute('title', 'Exact selected text');
       await expect(page.locator('.tmt-ui-drawer[open]')).toHaveCount(0);
       const box = (await dialog.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(8);

@@ -634,11 +634,11 @@ footer {
 .annotation-popover {
   height: auto;
   display: flex;
-  width: min(380px, calc(100vw - 24px));
-  overflow: hidden;
+  width: min(440px, calc(100vw - 24px));
+  overflow: visible;
   padding: 0;
-  border: 1px solid var(--c-text);
-  background: var(--c-sheet);
+  border: 0;
+  background: var(--tmt-ui-surface-annotation-panel);
   box-shadow: none;
 }
 .annotation-popover blockquote {
@@ -648,8 +648,38 @@ footer {
   padding-left: 8px;
 }
 .selection-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  background: var(--tmt-ui-surface-annotation-action);
+  color: var(--tmt-ui-color-annotation-on-action);
+  font-weight: 600;
 }
+.selection-ask svg {
+  width: 16px;
+  height: 16px;
+}
+.selection-control[data-leader]::before,
+.annotation-popover[data-leader]::before {
+  content: '';
+  position: absolute;
+  top: var(--annotation-leader-y);
+  width: 24px;
+  height: 1px;
+  background: var(--tmt-ui-color-text);
+  pointer-events: none;
+}
+[data-leader='left']::before {
+  right: 100%;
+}
+[data-leader='right']::before {
+  left: 100%;
+}
+
 .annotation-row {
   display: flex;
   flex-direction: column;
@@ -938,12 +968,6 @@ footer {
 .ask-supporting {
   margin: 0;
 }
-.message-mention {
-  background: var(--tmt-ui-surface-selection);
-  padding: 0 4px;
-  border: 0;
-  border-radius: 0;
-}
 
 /* The menu list drops below this block: the message itself, not the asks and replies after it. */
 .comment-main {
@@ -1010,9 +1034,148 @@ footer {
   border: 0;
 }
 .annotation-reply-label {
-  flex: none;
-  margin: 12px 0 8px;
-  font-weight: 600;
+  display: none;
+}
+.comment-thread {
+  background: var(--tmt-ui-surface-annotation-panel);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.comment-thread [hidden] {
+  display: none;
+}
+.comment-thread .conversation-window-bar {
+  padding: 24px 24px 12px;
+  border: 0;
+  gap: 12px;
+}
+.comment-thread .conversation-title {
+  min-height: 22px;
+  font: 500 12px/1.5 var(--f-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tmt-ui-color-secondary);
+}
+.annotation-number {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  margin-inline-end: 8px;
+  border-radius: 50%;
+  background: var(--tmt-ui-surface-annotation-action);
+  color: var(--tmt-ui-color-annotation-on-action);
+  font: 600 12px/1 var(--f-body);
+  letter-spacing: 0;
+}
+.comment-thread .conversation-composer {
+  padding: 16px 24px 24px;
+  border: 0;
+}
+.comment-thread .rich-input-surface[data-accessory],
+.comment-thread .rich-input-field {
+  border: 0;
+  background: transparent;
+}
+.comment-thread .rich-input-field {
+  padding: 0;
+  font: 400 26px/1.45 var(--f-body);
+  min-height: 5em;
+  max-height: min(12em, 32dvh);
+}
+.comment-thread .rich-input-field:focus-visible,
+.comment-thread .rich-input-surface[data-accessory]:has(.rich-input-field:focus-visible) {
+  outline: none;
+  border: 0;
+}
+.comment-thread .rich-input-accessory {
+  padding: 0;
+}
+.comment-thread .rich-input-surface[data-accessory] {
+  margin-inline-start: 0;
+}
+.comment-thread .annotation-compose .annotation-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 44px;
+  margin-top: 16px;
+}
+.comment-thread .annotation-compose .annotation-status-row > .tmt-ui-icon-action:last-child {
+  margin-inline-start: auto;
+  --tmt-ui-host-icon-action-size: 44px;
+  --tmt-ui-header-icon-size: 24px;
+}
+.comment-thread
+  .annotation-compose
+  .annotation-status-row
+  > .tmt-ui-icon-action:last-child
+  .tmt-ui-icon-action-control {
+  border: 0;
+  background: var(--tmt-ui-surface-annotation-action);
+  color: var(--tmt-ui-color-annotation-on-action);
+}
+.annotation-anchor-note {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.comment-thread .conversation-turn {
+  width: calc(100% - 48px);
+  margin: 12px 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.comment-thread .conversation-turn[data-turn-role='agent'] {
+  padding: 16px;
+  background: var(--tmt-ui-surface-sheet);
+}
+.comment-thread .conversation-avatar {
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+}
+.comment-thread .conversation-driver {
+  display: none;
+}
+.comment-thread .conversation-main .comment-byline {
+  font: 11px/1.5 var(--f-mono);
+  color: var(--tmt-ui-color-secondary);
+}
+.comment-thread .conversation-author {
+  color: var(--tmt-ui-color-text);
+}
+.comment-thread .conversation-body {
+  margin-top: 8px;
+}
+.resolved-summary {
+  padding: 0 24px 24px;
+  color: var(--tmt-ui-color-secondary);
+}
+.resolved-summary p {
+  margin: 8px 0;
+}
+@media (max-width: 640px) {
+  .comment-thread .conversation-window-bar {
+    padding: 20px 20px 12px;
+  }
+  .comment-thread .conversation-composer {
+    padding: 12px 20px 20px;
+  }
+  .comment-thread .rich-input-field {
+    font-size: 22px;
+  }
+  .comment-thread .conversation-turn {
+    width: calc(100% - 40px);
+    margin-inline: 20px;
+  }
 }
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {

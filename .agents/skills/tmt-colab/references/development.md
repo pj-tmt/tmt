@@ -256,6 +256,12 @@ counterpart in `page_check/group.rs`), a reason-code row in colab-v1 and at leas
 
 ## App and browser client
 
+The opaque renderer's annotation paint roles are generated from the same browser
+role tokens without a network fetch. After token changes run
+`node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write`, then
+`--check`; app check/build verify equality. The checked browser stylesheet retains
+its separate shared generator. Never hand-edit the generated renderer token block.
+
 Without `TMT_COLAB_APP_DIR` the executable serves the checkout's
 `extensions/tmt-colab/typescript/app/dist` or a build hint. To embed a build:
 

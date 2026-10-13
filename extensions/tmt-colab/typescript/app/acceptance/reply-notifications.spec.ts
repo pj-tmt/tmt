@@ -77,7 +77,7 @@ test('an authenticated participant comment notifies the thread author and opens 
     await page.getByTestId('selection-ask').click();
     const compose = page.getByRole('dialog', { name: 'Annotate selection' });
     await compose.getByRole('combobox', { name: 'Message', exact: true }).fill('My own thread.');
-    await compose.getByRole('button', { name: 'Send', exact: true }).click();
+    await compose.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     const original = page.getByTestId('comment-thread');
     await expect(original.getByTestId('comment-entry')).toHaveCount(1);
     const id = await original.getAttribute('data-thread-id');
@@ -88,7 +88,7 @@ test('an authenticated participant comment notifies the thread author and opens 
     await thread
       .getByRole('combobox', { name: 'Message', exact: true })
       .fill('A signed participant reply.');
-    await thread.getByRole('button', { name: 'Send', exact: true }).click();
+    await thread.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     const card = page.locator('.tmt-ui-notification');
     await expect(card).toHaveCount(1);
     await expect(card).toContainText('A signed participant reply.');
@@ -97,7 +97,10 @@ test('an authenticated participant comment notifies the thread author and opens 
     await card.getByRole('button', { name: 'Open Thread', exact: true }).click();
     await expect(original).toHaveAttribute('data-thread-id', id!);
     await expect(original).toHaveAttribute('data-anchor', 'attached');
-    await expect(original.locator('blockquote').first()).toHaveText('Canonical quote.');
+    await expect(original.locator('.thread-state').first()).toHaveAttribute(
+      'title',
+      'Canonical quote.',
+    );
     await expect(original.getByTestId('comment-entry')).toHaveCount(2);
     await expect(
       original.getByTestId('comment-entry').filter({ hasText: 'A signed participant reply.' }),
@@ -176,8 +179,10 @@ for (const [destination, forceFallback] of [
         // this scenario proves notifications, not creator-default initialization.
         await input.fill(`@${agent.name} Please follow up on this proposal.`);
         await annotationInput(block, agent.name);
-        await expect(block.locator('.annotation-status-row')).toContainText(`Asks @${agent.name}.`);
-        await block.getByRole('button', { name: 'Send', exact: true }).click();
+        await expect(block.locator('.annotation-hint[role="status"]')).toContainText(
+          `Asks @${agent.name}.`,
+        );
+        await block.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       }
       await until(() => agent.received().length === 1, 'one admitted block follow-up Ask');
       if (forceFallback) {

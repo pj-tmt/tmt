@@ -301,7 +301,9 @@ for (const surface of ['chat', 'thread'] as const)
     await expect(panel.locator('.archive-unsent-draft pre')).toHaveText(
       'Keep my unsent text and local file.',
     );
-    await expect(panel.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+    await expect(
+      panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toHaveCount(0);
     await expect(panel.getByRole('button', { name: 'Attach', exact: true })).toHaveCount(0);
     const drag = await page.evaluateHandle(() => {
       const data = new DataTransfer();

@@ -377,7 +377,10 @@ for (const theme of ['light', 'dark'] as const)
     await page.keyboard.press('c');
     const input = page.getByRole('combobox', { name: 'Message', exact: true });
     await expect(input).toBeFocused();
-    await expect(page.locator('.annotation-popover blockquote')).toHaveText('Exact selected text');
+    await expect(page.locator('.annotation-popover .thread-state')).toHaveAttribute(
+      'title',
+      'Exact selected text',
+    );
     await expect(input).toHaveText('', { useInnerText: true });
     expect((await run(page, 'proof')).sends).toEqual([]);
     // Capture the opened annotation before the separate editing and IME controls type into it.
@@ -576,7 +579,8 @@ for (const width of [1440, 390])
       await frame.locator('#selected').click();
       const input = page.locator('.annotation-popover').getByRole('combobox', { name: 'Message' });
       await expect(input).toBeFocused();
-      await expect(page.locator('.annotation-popover blockquote')).toHaveText(
+      await expect(page.locator('.annotation-popover .thread-state')).toHaveAttribute(
+        'title',
         'Exact selected text',
       );
       await expect(page.getByText(text.selectionModeHint, { exact: true })).toHaveCount(0);
@@ -645,7 +649,7 @@ test('selection uses admitted comment authority without Ask; a read-only page ha
   await expect(input).toBeFocused();
   await input.fill('A comment without Ask authority');
   expect((await run(page, 'proof')).sends).toEqual([]);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
   await expect.poll(async () => (await run(page, 'discussionProof'))?.length).toBe(1);
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.evaluate(() => {
@@ -733,7 +737,9 @@ test('a live archive preserves Chat text for Copy and removes publication contro
   await expect(chat.getByText(text.unsentDraft, { exact: true })).toBeVisible();
   await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(draft);
   await expect(chat.getByRole('combobox')).toHaveCount(0);
-  await expect(chat.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+  await expect(chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true })).toHaveCount(
+    0,
+  );
   await expect(chat.getByRole('button', { name: /Attach/ })).toHaveCount(0);
   await chat.getByRole('button', { name: text.copyDraft, exact: true }).click();
   expect(await page.evaluate(() => (window as any).copiedArchiveDraft)).toBe(draft);
@@ -767,7 +773,9 @@ test('archive keeps an open anchored draft mounted as read-only Copy text', asyn
   );
   await expect(annotation.getByRole('button', { name: 'Copy', exact: true })).toBeVisible();
   await expect(annotation.getByRole('combobox')).toHaveCount(0);
-  await expect(annotation.getByRole('button', { name: 'Send', exact: true })).toHaveCount(0);
+  await expect(
+    annotation.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
   expect((await run(page, 'proof')).actions).toEqual([]);
 });
@@ -845,7 +853,7 @@ for (const [width, height, theme] of [
     await expect(mode).toBeVisible();
     await page.screenshot({ path: capturePath(`2719-thread-${width}-${height}-${theme}.png`) });
     if (height <= 500) {
-      const send = window.getByRole('button', { name: 'Send', exact: true });
+      const send = window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true });
       await send.scrollIntoViewIfNeeded();
       await expect
         .poll(async () => {
@@ -914,7 +922,9 @@ for (const width of [1440, 390]) {
     await compose(page);
     await run(page, 'pausePrepare');
     await input.press('Enter');
-    await expect(chat.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(
+      chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await page.getByRole('button', { name: 'Close Chat', exact: true }).focus();
     await page.keyboard.press('Escape');
     await expect(chat).toBeVisible();
@@ -940,7 +950,9 @@ test('Escape does not collapse an anchored thread during its explicit send', asy
   await input.fill('@Agent 1 Anchored busy turn');
   await run(page, 'pausePrepare');
   await input.press('Enter');
-  await expect(window.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(
+    window.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeDisabled();
   await page.getByRole('button', { name: 'Collapse thread', exact: true }).focus();
   await page.keyboard.press('Escape');
   await expect(window).toBeVisible();

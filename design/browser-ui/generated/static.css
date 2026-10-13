@@ -55,6 +55,8 @@
   --tmt-ui-color-review: #7847bd;
   --tmt-ui-color-blocked: #b62c3b;
   --tmt-ui-color-link: #006b8f;
+  --tmt-ui-color-annotation-on-action: #ffffff;
+  --tmt-ui-color-mention-person: #315e78;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -63,6 +65,11 @@
   --tmt-ui-surface-selection: #e2e2e2;
   --tmt-ui-surface-disabled: #eaeaea;
   --tmt-ui-surface-rule: #d0d0d0;
+  --tmt-ui-surface-annotation-highlight: #ececeb;
+  --tmt-ui-surface-annotation-panel: #f7f7f5;
+  --tmt-ui-surface-annotation-action: #262626;
+  --tmt-ui-surface-mention-agent: #ececeb;
+  --tmt-ui-surface-mention-person: #e4eff6;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
@@ -77,6 +84,8 @@
     --tmt-ui-color-review: #bb9af7;
     --tmt-ui-color-blocked: #f7768e;
     --tmt-ui-color-link: #7dcfff;
+    --tmt-ui-color-annotation-on-action: #ffffff;
+    --tmt-ui-color-mention-person: #b6d8ec;
     --tmt-ui-surface-scrim: #00000052;
     --tmt-ui-surface-command: #202020;
     --tmt-ui-surface-code: #171717;
@@ -85,6 +94,11 @@
     --tmt-ui-surface-selection: #2b2b2b;
     --tmt-ui-surface-disabled: #171717;
     --tmt-ui-surface-rule: #303030;
+    --tmt-ui-surface-annotation-highlight: #343434;
+    --tmt-ui-surface-annotation-panel: #202020;
+    --tmt-ui-surface-annotation-action: #626262;
+    --tmt-ui-surface-mention-agent: #343434;
+    --tmt-ui-surface-mention-person: #203947;
   }
 }
 [data-theme='light'] {
@@ -99,6 +113,8 @@
   --tmt-ui-color-review: #7847bd;
   --tmt-ui-color-blocked: #b62c3b;
   --tmt-ui-color-link: #006b8f;
+  --tmt-ui-color-annotation-on-action: #ffffff;
+  --tmt-ui-color-mention-person: #315e78;
   --tmt-ui-surface-scrim: #0000001f;
   --tmt-ui-surface-command: #eaeaea;
   --tmt-ui-surface-code: #f0f0f0;
@@ -107,6 +123,11 @@
   --tmt-ui-surface-selection: #e2e2e2;
   --tmt-ui-surface-disabled: #eaeaea;
   --tmt-ui-surface-rule: #d0d0d0;
+  --tmt-ui-surface-annotation-highlight: #ececeb;
+  --tmt-ui-surface-annotation-panel: #f7f7f5;
+  --tmt-ui-surface-annotation-action: #262626;
+  --tmt-ui-surface-mention-agent: #ececeb;
+  --tmt-ui-surface-mention-person: #e4eff6;
 }
 [data-theme='dark'] {
   --tmt-ui-color-text: #b0b0b0;
@@ -120,6 +141,8 @@
   --tmt-ui-color-review: #bb9af7;
   --tmt-ui-color-blocked: #f7768e;
   --tmt-ui-color-link: #7dcfff;
+  --tmt-ui-color-annotation-on-action: #ffffff;
+  --tmt-ui-color-mention-person: #b6d8ec;
   --tmt-ui-surface-scrim: #00000052;
   --tmt-ui-surface-command: #202020;
   --tmt-ui-surface-code: #171717;
@@ -128,6 +151,11 @@
   --tmt-ui-surface-selection: #2b2b2b;
   --tmt-ui-surface-disabled: #171717;
   --tmt-ui-surface-rule: #303030;
+  --tmt-ui-surface-annotation-highlight: #343434;
+  --tmt-ui-surface-annotation-panel: #202020;
+  --tmt-ui-surface-annotation-action: #626262;
+  --tmt-ui-surface-mention-agent: #343434;
+  --tmt-ui-surface-mention-person: #203947;
 }
 @media (max-width: 479px) {
   :root {

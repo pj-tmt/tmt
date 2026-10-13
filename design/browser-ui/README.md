@@ -33,7 +33,7 @@ The check compares expected bytes without writing. Consumers embed checked CSS;
 Cargo and installed products never run the generator. Select light/system-dark
 on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.
-Every component is opaque, square and shadow-free. Semantic marks retain words.
+Every shared component is opaque, square and shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
 Links, essential edges, selection indicators and keyboard focus are separate.
 
 ## Host metric inputs

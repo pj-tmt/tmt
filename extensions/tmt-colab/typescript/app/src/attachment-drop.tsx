@@ -104,7 +104,10 @@ export function AttachmentDropPanel({
     }
   }, [active]);
   const admits = (event: DragEvent) => {
-    if (!active) return false;
+    if (!active) {
+      if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      return false;
+    }
     const target = event.target;
     if (!(target instanceof Element)) return false;
     if (target.closest('[role="menu"]')) return false;

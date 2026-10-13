@@ -300,7 +300,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('option').filter({ hasText: '@Agent 1 ·' }).click();
       await capture('reply-agent');
       await run('pausePrepare');
-      await dialog.getByRole('button', { name: 'Send', exact: true }).click();
+      await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(input).toHaveAttribute('contenteditable', 'false');
       await capture('reply-busy');
       await run('resumePrepare');
@@ -315,7 +315,7 @@ for (const width of [1440, 390]) {
       await chatInput.pressSequentially('Ask about the complete page.');
       await capture('chat-ready');
       await run('pausePrepare');
-      await chat.getByRole('button', { name: 'Send', exact: true }).click();
+      await chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(chatInput).toHaveAttribute('contenteditable', 'false');
       await capture('chat-busy');
       await run('resumePrepare');

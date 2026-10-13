@@ -7,7 +7,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ArrowUpRight, Moon, MousePointer2, Sun } from 'lucide-react';
+import { ArrowUpRight, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -192,6 +192,8 @@ function SelectionAnnotation({
     top?: number;
     bottom?: number;
     maxHeight: number;
+    leaderY?: number;
+    leaderSide?: 'left' | 'right';
   } | null>(null);
   useEffect(() => {
     const notice = noticeVisible
@@ -199,7 +201,7 @@ function SelectionAnnotation({
       : null;
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
-      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const width = expanded ? Math.min(440, innerWidth - 24) : 128;
       // Parent chrome reserves the toggle's bottom strip only for overlapping windows.
       const margin = innerWidth <= 640 ? 16 : 24;
       const leftEdge =
@@ -261,23 +263,46 @@ function SelectionAnnotation({
       const clampAnchor = (value: number) => Math.max(inset + 4, Math.min(edge, value));
       const top = expanded ? clampAnchor(selectionTop) : selectionTop;
       const bottom = expanded ? clampAnchor(selectionBottom) : selectionBottom;
-      const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
+      if (expanded && innerWidth <= 640) {
+        setPosition({
+          left: 12,
+          bottom: Math.max(8, innerHeight - edge),
+          maxHeight: Math.max(0, edge - inset - 8),
+        });
+        return;
+      }
+      const beside = right + width + 24 <= Math.min(frame.right, innerWidth - 8);
+      const besideLeft = !beside && expanded && left - width - 24 >= Math.max(frame.left, 8);
       const below = bottom + placementHeight + 8 <= edge;
       // Choose the edge using stable placement clearance, not the changing content
       // height. CSS fits the shell; first Send grows away from the same anchor edge.
-      const above = expanded && !below && top - placementHeight - 6 >= inset + 4;
+      const above =
+        expanded && !beside && !besideLeft && !below && top - placementHeight - 6 >= inset + 4;
       const windowTop = Math.max(
         inset + 4,
         Math.min(
           edge - placementHeight,
-          beside ? top : below ? bottom + 6 : top - placementHeight - 6,
+          beside || besideLeft ? top : below ? bottom + 6 : top - placementHeight - 6,
         ),
       );
       setPosition({
         left: Math.max(
           8,
-          Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
+          Math.min(
+            innerWidth - width - 8,
+            frame.right - width - 8,
+            beside ? right + 24 : besideLeft ? left - width - 24 : left,
+          ),
         ),
+        ...((beside || besideLeft) && innerWidth > 640
+          ? {
+              leaderY: Math.max(
+                6,
+                Math.min(placementHeight - 6, top + rectangle.height / 2 - windowTop),
+              ),
+              leaderSide: beside ? ('left' as const) : ('right' as const),
+            }
+          : {}),
         ...(above
           ? { bottom: innerHeight - top + 6, maxHeight: top - 6 - inset - 4 }
           : { top: windowTop, maxHeight: Math.max(0, edge - windowTop) }),
@@ -299,10 +324,21 @@ function SelectionAnnotation({
     <div
       ref={element}
       className={children ? 'annotation-popover' : 'selection-control'}
-      style={{
-        ...position,
-        visibility: position ? 'visible' : 'hidden',
-      }}
+      data-leader={position?.leaderSide}
+      style={
+        {
+          ...(position
+            ? {
+                left: position.left,
+                top: position.top,
+                bottom: position.bottom,
+                maxHeight: position.maxHeight,
+              }
+            : {}),
+          '--annotation-leader-y': `${position?.leaderY ?? 0}px`,
+          visibility: position ? 'visible' : 'hidden',
+        } as React.CSSProperties
+      }
     >
       {children ?? (
         <button
@@ -314,6 +350,7 @@ function SelectionAnnotation({
             if (event.isTrusted) open();
           }}
         >
+          <MessageSquare aria-hidden />
           Annotate
         </button>
       )}

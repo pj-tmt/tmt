@@ -156,7 +156,7 @@ test('files attached in Chat reach a second paired device, preview and download 
     await openChat(second);
     await expect(second.getByTestId('chat-panel').getByTestId('chat-thread')).toHaveCount(0);
 
-    await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+    await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(panel.getByTestId('message-attachment')).toHaveCount(3, { timeout: 30_000 });
     await expect(panel.getByTestId('attachment-chip')).toHaveCount(0);
 
@@ -544,7 +544,7 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
       const chooser = first.waitForEvent('filechooser');
       await mine.getByRole('button', { name: text.messageAttach }).click();
       await (await chooser).setFiles([big]);
-      await mine.getByRole('button', { name: text.askSend, exact: true }).click();
+      await mine.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(chip).toHaveAttribute('data-state', 'uploading');
     };
     const colab = (args: string[], input?: string) =>
@@ -602,7 +602,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       const pick = first.waitForEvent('filechooser');
       await panel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
-      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(panel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
       const originals = new Map([notes, picture, chat].map((file) => [file.name, file.buffer]));
 
@@ -969,7 +969,7 @@ for (const surface of ['chat', 'thread'] as const)
         await fresh
           .getByRole('combobox', { name: 'Message', exact: true })
           .fill('Start this thread.');
-        await fresh.getByRole('button', { name: text.askSend, exact: true }).click();
+        await fresh.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       }
       const panel =
         surface === 'chat'
@@ -983,7 +983,7 @@ for (const surface of ['chat', 'thread'] as const)
       await (
         await posted
       ).setFiles([{ name: 'posted.png', mimeType: 'image/png', buffer: picture }]);
-      await panel.getByRole('button', { name: text.askSend, exact: true }).click();
+      await panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       await expect(panel.locator('.attachment-thumbnail img')).toBeVisible();
       await input.fill('Pending files remain local until Send.');
       const editor = await input.elementHandle();

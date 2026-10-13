@@ -8,7 +8,7 @@ import {
 } from 'react';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
-import { Bot } from 'lucide-react';
+import { Bot, UserRound } from 'lucide-react';
 import type { RunningDriver } from '../ask-remote.js';
 
 /** Presentation only: callers supply admitted labels, text and trusted actions. */
@@ -39,6 +39,7 @@ export function ConversationTurn({
   delivery?: ReactNode;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
+  const Icon = role === 'agent' ? Bot : UserRound;
   const driver =
     role === 'agent' && (runningDriver === 'claude' || runningDriver === 'codex')
       ? runningDriver
@@ -55,22 +56,24 @@ export function ConversationTurn({
       <div className="comment-main conversation-main">
         <header>
           <p className="comment-byline" title={authorTitle} data-testid={bylineTestId}>
-            {driver && (
+            {(driver || !chat) && (
               <span className="conversation-avatar" aria-hidden="true">
-                <Bot size={16} />
+                <Icon size={16} />
               </span>
             )}
             <span className="conversation-author">{author}</span>
             {driver ? (
               <>
-                {chat && <span className="conversation-agent-label">{text.conversationAgent}</span>}
+                <span className="conversation-agent-label">
+                  {chat ? text.conversationAgent : 'AGENT'}
+                </span>
                 <span className="conversation-driver"> {driver}</span>
               </>
             ) : (
               role === 'agent' && (
                 <span className="conversation-agent-label">
                   <span className="conversation-time-separator"> · </span>
-                  {text.conversationAgent}
+                  {chat ? text.conversationAgent : 'AGENT'}
                 </span>
               )
             )}{' '}

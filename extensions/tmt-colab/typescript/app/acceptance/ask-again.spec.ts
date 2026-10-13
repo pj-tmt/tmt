@@ -50,13 +50,13 @@ for (const surface of ['chat', 'thread'])
           : page.getByRole('dialog', { name: 'Annotate selection' });
       const input = panel.getByRole('combobox', { name: 'Message', exact: true });
       await expect(input).toBeVisible();
-      await expect(panel.locator('.annotation-status-row')).not.toContainText('Checking');
+      await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
       const body = `@${alpha.name} @${beta.name} Explain the original comment.\n  Keep these bytes.  `;
       await input.fill(body);
       if (surface === 'chat') {
-        await expect(panel.locator('.annotation-status-row')).not.toContainText('Asks @');
+        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
       } else {
-        await expect(panel.locator('.annotation-status-row')).toContainText(
+        await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
           `Asks @${alpha.name}, @${beta.name}.`,
         );
       }

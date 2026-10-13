@@ -27,11 +27,9 @@ import {
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
 
-/** Only an agent's resolution names its actor; a person's stays the plain state. */
+/** Actor names are admitted display metadata, never inferred from a device ID. */
 export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
-  return status?.actor === 'agent' && status.actorName
-    ? text.threadResolvedBy(status.actorName)
-    : text.threadResolved;
+  return status?.actorName ? text.threadResolvedBy(status.actorName) : text.threadResolved;
 }
 
 function Composer({
@@ -399,6 +397,9 @@ export function ThreadWindow({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
+  const [showResolved, setShowResolved] = useState(false);
+  useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
+  const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
   const anchor = thread ? thread.anchor : initialAnchor;
   // A resolved thread leaves the page's marker set, so its attachment is not
@@ -455,8 +456,29 @@ export function ThreadWindow({
       });
   };
   return (
-    <AttachmentDropPanel target="thread">
+    <AttachmentDropPanel target="thread" active={!collapsed}>
       <ConversationWindow
+        collapsed={collapsed}
+        summary={
+          <div className="resolved-summary">
+            <p>
+              {messageIds.length} messages ·{' '}
+              {thread?.comments
+                .filter((comment) => !comment.deleted)
+                .reduce((count, comment) => count + (comment.attachments?.length ?? 0), 0) ??
+                0}{' '}
+              attachments
+            </p>
+            <BrowserAction
+              type="button"
+              variant="text"
+              label="Show conversation"
+              onActivate={(event) => {
+                if (event.isTrusted) setShowResolved(true);
+              }}
+            />
+          </div>
+        }
         notificationDestination={
           thread ? threadNotificationDestination(thread.ref.writer, thread.ref.id) : undefined
         }
@@ -475,12 +497,13 @@ export function ThreadWindow({
                 : 'detached'
         }
         title={
-          <span className="thread-state">
+          <span className="thread-state" title={anchor?.exact}>
             {number !== undefined && <span className="annotation-number">{number}</span>}
-            {thread?.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
+            {thread && <span className="annotation-heading">THREAD</span>}
+            {thread && (thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />)}
             <span>
               {!thread
-                ? text.annotationTitle
+                ? 'ANNOTATE THE SELECTION'
                 : thread.deleted
                   ? text.threadDeleted
                   : thread.resolved
@@ -537,11 +560,19 @@ export function ThreadWindow({
           </>
         }
         notice={
-          observationUnavailable && (
-            <p role="status" className="annotation-hint">
-              {text.askObservationUnavailable}
-            </p>
-          )
+          <>
+            {observationUnavailable && (
+              <p role="status" className="annotation-hint">
+                {text.askObservationUnavailable}
+              </p>
+            )}
+            {notNotified.length > 0 && (
+              <p role="status" className="annotation-hint">
+                {text.threadNotNotified(notNotified.join(', '))}
+              </p>
+            )}
+            {error && <p role="alert">{text.commentFailed}</p>}
+          </>
         }
         messageIds={messageIds}
         ownWriter={binding?.deviceId}
@@ -573,7 +604,6 @@ export function ThreadWindow({
               )
         }
       >
-        {anchor && <blockquote>{anchor.exact}</blockquote>}
         {tracked && anchorsChecked && !attached && (
           <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
@@ -637,12 +667,6 @@ export function ThreadWindow({
             </div>
           </section>
         )}
-        {notNotified.length > 0 && (
-          <p role="status" className="annotation-hint">
-            {text.threadNotNotified(notNotified.join(', '))}
-          </p>
-        )}
-        {error && <p role="alert">{text.commentFailed}</p>}
       </ConversationWindow>
     </AttachmentDropPanel>
   );

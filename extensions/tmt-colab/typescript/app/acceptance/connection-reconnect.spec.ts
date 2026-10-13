@@ -146,7 +146,9 @@ test('a device revoked while its Chat drawer is open shows the ended notice in t
     await expect(
       drawer.getByRole('combobox', { name: 'Message', exact: true }),
     ).not.toHaveAttribute('contenteditable', 'true');
-    await expect(drawer.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(
+      drawer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     for (const [width, theme] of [
       [1440, 'light'],
       [390, 'dark'],

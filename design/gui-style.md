@@ -14,7 +14,7 @@ named below; explicitly labelled design targets remain unshipped.
 
 ## Principles
 
-1. **Square and flat.** Corners are square everywhere. The browser leaf and Colab
+1. **Square and flat.** Corners are square except Colab annotation number badges (round) and the Annotate affordance (rounded pill). The browser leaf and Colab
    menus, previews and dialogs use opaque surfaces without shadows.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
@@ -382,7 +382,20 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
 - Colab shows Annotate beside the selection's focus end only after the pointer is
   released or keyboard selection finishes. C opens the same annotation view; ignore
   text-entry targets, modifiers, repeat and IME confirmation. Alt+Enter remains available.
-  Opening captures the quote without publishing or sending.
+  Opening captures the quote without publishing or sending. The dark pill has a
+  speech-bubble icon and `Annotate`, with a short thin leader at the focus end.
+  Shortcut help is accessible through `aria-keyshortcuts`, without visible hotkey copy.
+- Annotation ranges use flat neutral grey token paint, no underline, rounding or
+  shadow, preserving authored text colour and weight. Round dark badges with white
+  numbers sit at the final text rect; collision lanes keep each target distinct.
+  Creation-order numbering includes every non-deleted thread before view filters.
+  Deletion renumbers; resolved threads retain list numbers without page markers.
+- Annotation and thread windows are borderless, square grey panels with an uppercase
+  monospace label and a large borderless composer. Wide windows sit beside the
+  selection with a leader; mobile retains bottom placement without one. The footer
+  has muted `Attached to this sentence` and square arrow-only Send, with a complete
+  recipient-bearing accessible name. Resolved windows start collapsed with counts,
+  state/Reopen and an explicit Show conversation action; expansion retains drafts.
 
 - The recipient is independent of the message. An admitted stable prior
   reply can supply the default; creation defaults require a reliable canonical binding.
@@ -405,14 +418,24 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
   inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
   and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
+Mention chips share an icon and named roles in editors, sent messages and lists:
+agent chips are neutral grey with bold ink; person chips use pale blue and
+blue-grey text. Unknown identity kinds default to agent. Current directory data
+has no person kind: the person variant is tokens and explicit presentation fixtures,
+not person routing. Editing tokens retain recipient UUIDs; styling never admits a
+recipient or sends. Source plaintext, undo and IME remain owned by the shared editor.
+
 ### Conversation turn
 
 One message in Chat or a thread: author line (`name · agent · time`), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
-- Chat and threads share the flat `ConversationTurn`: user and agent rows span
-  the history, separated by a 1 px rule; agent replies have a 3 px rail.
-- Only the current verified `runningDriver`, matched by machine and agent,
+- Chat and threads share `ConversationTurn` structure and history ownership.
+  In annotation/thread windows, human messages sit directly on the grey panel;
+  agent messages use a whole-message sheet block without borders or bubbles.
+  Every author line includes a person/agent icon, name and time; agent messages
+  carry `AGENT`. Chat retains its existing rows and driver rail treatment.
+- In Chat, only the current verified `runningDriver`, matched by machine and agent,
   selects driver treatment: `claude` uses `review`, `codex` uses `link`. Present
   metadata adds a square filled Bot avatar, bold name and lowercase driver tag;
   the rail uses the same role. No shadow.
@@ -424,7 +447,10 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
 ### Message attachments
 
-Pending attachments use one horizontally scrollable row of small raster
+Annotation/thread attachments use flat metadata chips with a type mark, filename,
+type and size; previews sit below. Uploads show progress, refusals show `✗` with
+reason and Remove. Trusted Send starts staged uploads and stays busy until done.
+Chat pending attachments use one horizontally scrollable row of small raster
 thumbnails or filenames inside the input below its text, each with a named ×
 remove action. They share the text's left edge, with no cards or progress bar.
 The message composer has a visible `Attach` action; Files keeps `Attach files`.
@@ -437,7 +463,7 @@ focus. Drop alone never uploads or sends.
 Raster images use aspect-preserving thumbnails capped at 200 × 120 px. Two or
 more images use a three-column square grid: up to six show in full; larger groups
 show five thumbnails and a `+N` tile, where N is total minus five. The tile opens
-image six. Non-images use compact filename/type/size cards with Download.
+image six. Non-images use compact filename/type/size chips with Download.
 
 A modal viewer shows one image with Previous/Next (no wrapping), Download and
 Close; arrows navigate, Escape closes, and closing restores the opening tile's
