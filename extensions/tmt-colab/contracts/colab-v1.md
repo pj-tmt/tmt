@@ -2854,8 +2854,13 @@ with a bounded call each (three seconds, 16 KiB), never Remote's files:
   the message retains Remote's port and explicit `--port` choices. Other stderr diagnostics
   keep streaming. Colab passes no port: Remote owns port reuse. On Ctrl-C or SIGTERM Colab
   closes its socket, then sends SIGTERM to the child's whole group, SIGKILL after three
-  seconds, and always reaps it. A door that exits on its own is reported once and the local
-  space keeps running. A SIGKILL of Colab itself cannot clean up; run `tmt remote serve`
+  seconds while retaining the unreaped leader, then attempts a bounded reap and read-only
+  group-absence confirmation. Reaping and all pipe/watcher joins share a five-second cleanup
+  bound. No destructive group signal follows reap. An unexpected exit is observed without
+  reaping and its remaining group is killed before reap; a failed startup uses the same abort.
+  A door that exits on its own is reported once and the local space keeps running. Signal,
+  reap, absence or join failure reports cleanup unconfirmed, preserving the original error.
+  Darwin's KILL EPERM clears only after bounded reap and read-only ESRCH. A SIGKILL of Colab itself cannot clean up; run `tmt remote serve`
   separately to recover.
 - No door can be started: Colab runs local-only. When Remote gave no answer at all, the
   warning is `Browser access needs the Remote extension: tmt extension install remote --yes`;
@@ -3160,6 +3165,13 @@ started` for a started door) and, for an attached door, `Remote is still running
 `COLAB_UNAVAILABLE`; a request accepted but a serve still running after the wait is
 `COLAB_OUTCOME_UNKNOWN`; both exit 1 and are never retried. A `stop` sent while `serve` is still
 waiting (at most 15 seconds) for a starting door is not answered until the wait ends.
+
+When the lock releases, no private failure record (including an older serve) or an empty
+cleared record keeps the stopped result. A `cleanup` failure in `serve-error.json`, or an
+existing unreadable record, returns `COLAB_OUTCOME_UNKNOWN`, names cleanup and asks for a
+manual `tmt remote status --json` check; it never claims the owned door stopped. Every serve
+mode clears the previous record at startup and records unconfirmed cleanup before releasing
+its lock. There is no required successful-completion record and no new socket message.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud

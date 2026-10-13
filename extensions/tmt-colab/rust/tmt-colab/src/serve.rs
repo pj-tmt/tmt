@@ -30,7 +30,7 @@ const STARTUP: Duration = Duration::from_secs(30);
 /// How long a launcher waits for a cancelled worker to confirm its cleanup.
 const CLEANUP_WAIT: Duration = Duration::from_secs(10);
 /// The bound of the readiness frame and of the private failure record.
-const RECORD_BYTES: usize = 16 * 1024;
+const RECORD_BYTES: usize = tmt_colab::limits::REMOTE_FAILURE_BYTES;
 const RUN_HINT: &str = "run tmt colab serve --foreground to see why";
 const STOP_HINT: &str = "run tmt colab stop before starting again";
 
@@ -249,7 +249,10 @@ pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) 
         let result = serve(root, args, json_output, stop, Some(&mut handoff));
         match &result {
             Ok(()) => handoff.finish(),
-            Err(error) => handoff.fail(&startup_failure(error.as_ref()), true),
+            Err(error) => handoff.fail(
+                &startup_failure(error.as_ref()),
+                !error.is::<supervisor::CleanupUnconfirmed>(),
+            ),
         }
         return result;
     }
@@ -265,7 +268,8 @@ pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) 
     } else {
         let result = serve(root, args, json_output, stop, None);
         if std::env::var_os("TMT_COLAB_REPLACEMENT").is_some_and(|value| value == "1") {
-            result.map_err(|_| replacement_failure(root, env!("CARGO_PKG_VERSION")))
+            result
+                .map_err(|error| replacement_failure(root, env!("CARGO_PKG_VERSION"), Some(error)))
         } else {
             result
         }
@@ -274,7 +278,18 @@ pub(crate) fn run(root: &Path, args: &clap::ArgMatches, stop: &Arc<AtomicBool>) 
 
 /// After the cutoff there is no rollback promise. This marker only selects diagnostics; it
 /// grants no admission and cannot start, stop or open anything by itself.
-fn replacement_failure(root: &Path, version: &str) -> Box<dyn std::error::Error + Send + Sync> {
+fn replacement_failure(
+    root: &Path,
+    version: &str,
+    cause: Option<Box<dyn std::error::Error + Send + Sync>>,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    // Cleanup has its own truthful outcome and private record. Do not overwrite it with
+    // the generic post-cutoff replacement marker; its original failure remains attached.
+    if let Some(error) = cause
+        && error.is::<supervisor::CleanupUnconfirmed>()
+    {
+        return error;
+    }
     let message = format!("Colab {version} replacement failed after the previous service stopped.");
     let hint = "Run tmt colab stop, then tmt colab serve --background.";
     if let Ok(Some(layout)) = Layout::existing(root)
@@ -439,6 +454,10 @@ fn record_failure(
     record: &mut ErrorRecord,
     error: &(dyn std::error::Error + Send + Sync + 'static),
 ) {
+    if let Some(cleanup) = error.downcast_ref::<supervisor::CleanupUnconfirmed>() {
+        record.failure("cleanup", "COLAB_OUTCOME_UNKNOWN", &cleanup.to_string());
+        return;
+    }
     let cancelled = error.downcast_ref::<StartFault>().is_some();
     record.failure(
         if cancelled { "handoff" } else { "serve" },
@@ -466,14 +485,10 @@ fn serve(
     )?;
     let layout = Layout::open(root)?;
     let lock = layout.serve_lock()?;
-    let mut diagnostic = if handoff.is_some() {
-        Some(ErrorRecord::clear(
-            layout.file("serve-error.json")?,
-            RECORD_BYTES,
-        )?)
-    } else {
-        None
-    };
+    let mut diagnostic = Some(ErrorRecord::clear(
+        layout.file("serve-error.json")?,
+        RECORD_BYTES,
+    )?);
     let detached = handoff.is_some();
     let result = (|| -> Result<Option<tmt_colab::serve_release::Candidate>> {
         fence(stop, detached)?;
@@ -508,57 +523,74 @@ fn serve(
             .with_app(app);
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(stop);
-        fence(stop, detached)?;
-        let socket = socket
-            .with_door(match &access {
-                supervisor::Access::Attached(_) => "attached",
-                supervisor::Access::Started { .. } => "started",
-                supervisor::Access::Unavailable { .. } => "unavailable",
-            })
-            .with_object_discovery(|| match crate::door::Door::lookup() {
-                crate::door::Lookup::Running(door) => {
-                    let host = door.origin().strip_prefix("http://")?.to_owned();
-                    let mount = door.url("x/colab/").strip_prefix(door.origin())?.to_owned();
-                    Some((host, mount))
-                }
-                _ => None,
-            });
-        let pairing = match &access {
-            supervisor::Access::Unavailable { .. } => None,
-            _ => Some(crate::door::Pairing::lookup()),
-        };
-        let status = status::Status {
-            space: &space_id,
-            socket: &socket.path,
-            access: &access,
-            pairing,
-            pages,
-            all_pages,
-            opened: false,
-        };
-        let presentation = Presentation::from_live(&status, &access);
-        match handoff.as_mut() {
-            Some(handoff) => handoff
-                .ready(&serde_json::to_value(&presentation).expect("presentation serialization"))
-                .map_err(StartFault::from)?,
-            None => present(presentation, args, root, json_output, false)?,
+        if let supervisor::Access::Unavailable {
+            reason: supervisor::Reason::CleanupUnconfirmed(message),
+        } = &access
+            && let Some(mut record) = diagnostic.take()
+        {
+            // Preserve the first cleanup failure: ErrorRecord is a write-once owner.
+            // Access::close carries this uncertainty alongside any later serve error.
+            record.failure("cleanup", "COLAB_OUTCOME_UNKNOWN", message);
         }
-        let serving = Arc::new(AtomicBool::new(true));
-        let requested = Arc::new(AtomicBool::new(false));
         let candidate = Arc::new(Mutex::new(None));
-        let watcher = watch_release(&release, &serving, stop, &requested, &candidate, &space_id);
-        let result = socket.run_until_replacement(stop, &requested);
-        serving.store(false, Ordering::Release);
-        let _ = watcher.join();
-        let closed = Arc::try_unwrap(registration)
-            .map_err(|_| "Registration worker retained.")?
-            .into_inner()
-            .map_err(|_| "Registration lock poisoned.")?
-            .close();
-        let replacing = result?;
-        closed?;
-        // Normal stop preserves its ownership rule: stop only the door this serve started.
-        drop(access);
+        let outcome = (|| -> Result<bool> {
+            fence(stop, detached)?;
+            let socket = socket
+                .with_door(match &access {
+                    supervisor::Access::Attached(_) => "attached",
+                    supervisor::Access::Started { .. } => "started",
+                    supervisor::Access::Unavailable { .. } => "unavailable",
+                })
+                .with_object_discovery(|| match crate::door::Door::lookup() {
+                    crate::door::Lookup::Running(door) => {
+                        let host = door.origin().strip_prefix("http://")?.to_owned();
+                        let mount = door.url("x/colab/").strip_prefix(door.origin())?.to_owned();
+                        Some((host, mount))
+                    }
+                    _ => None,
+                });
+            let pairing = match &access {
+                supervisor::Access::Unavailable { .. } => None,
+                _ => Some(crate::door::Pairing::lookup()),
+            };
+            let status = status::Status {
+                space: &space_id,
+                socket: &socket.path,
+                access: &access,
+                pairing,
+                pages,
+                all_pages,
+                opened: false,
+            };
+            let presentation = Presentation::from_live(&status, &access);
+            match handoff.as_mut() {
+                Some(handoff) => handoff
+                    .ready(
+                        &serde_json::to_value(&presentation).expect("presentation serialization"),
+                    )
+                    .map_err(StartFault::from)?,
+                None => present(presentation, args, root, json_output, false)?,
+            }
+            let serving = Arc::new(AtomicBool::new(true));
+            let requested = Arc::new(AtomicBool::new(false));
+            let watcher =
+                watch_release(&release, &serving, stop, &requested, &candidate, &space_id);
+            let result = socket.run_until_replacement(stop, &requested);
+            serving.store(false, Ordering::Release);
+            let _ = watcher.join();
+            let closed = Arc::try_unwrap(registration)
+                .map_err(|_| "Registration worker retained.")?
+                .into_inner()
+                .map_err(|_| "Registration lock poisoned.")?
+                .close();
+            result.and_then(|replacing| closed.map(|()| replacing))
+        })();
+        // Close only the owned door, and preserve both a serve failure and cleanup uncertainty.
+        if let Err(mut cleanup) = access.close() {
+            cleanup.original = outcome.err();
+            return Err(cleanup.into());
+        }
+        let replacing = outcome?;
         if replacing && !stop.load(Ordering::Acquire) {
             let candidate = candidate
                 .lock()
@@ -588,7 +620,7 @@ fn serve(
             // Exec retains ordinary foreground/background supervision and its owned PID.
             // Normal startup attaches to an untouched door or restarts the one just stopped.
             let _error = command.exec();
-            Err(replacement_failure(root, candidate.version()))
+            Err(replacement_failure(root, candidate.version(), None))
         }
         _ => Ok(()),
     }
@@ -732,4 +764,35 @@ fn open_pages(store: &Store, keyring: &Keyring) -> (Option<Vec<String>>, Option<
         ids(&catalog["pages"], true),
         ids(&catalog["pageIds"], false),
     )
+}
+
+#[cfg(test)]
+mod cleanup_record_tests {
+    use super::*;
+    #[test]
+    fn replacement_error_keeps_cleanup_phase_record_and_original_failure() {
+        use std::os::unix::fs::DirBuilderExt;
+        let root =
+            std::env::temp_dir().join(format!("tmt-2899-replacement-{}", std::process::id()));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&root)
+            .unwrap();
+        let layout = Layout::open(&root).unwrap();
+        let mut record =
+            ErrorRecord::clear(layout.file("serve-error.json").unwrap(), RECORD_BYTES).unwrap();
+        record.failure("cleanup", "COLAB_OUTCOME_UNKNOWN", "worker join timed out");
+        let before = layout.serve_failure().unwrap().unwrap();
+        let cause = supervisor::CleanupUnconfirmed {
+            detail: "worker join timed out".into(),
+            original: Some(std::io::Error::other("original startup failure").into()),
+        };
+        let error = replacement_failure(&root, "selected-release", Some(cause.into()));
+        assert_eq!(crate::error_code(error.as_ref()), "COLAB_OUTCOME_UNKNOWN");
+        assert!(error.to_string().contains("original startup failure"));
+        assert!(error.to_string().contains("cleanup unconfirmed"));
+        assert_eq!(layout.serve_failure().unwrap().unwrap(), before);
+        drop(record);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

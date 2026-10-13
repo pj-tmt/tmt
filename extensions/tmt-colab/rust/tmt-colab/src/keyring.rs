@@ -98,6 +98,24 @@ impl Layout {
     pub fn file(&self, name: &str) -> Result<File> {
         self.shared.file(name).map_err(state_error)
     }
+    /// Read the optional private serve failure without creating or following a missing file.
+    pub fn serve_failure(&self) -> Result<Option<Vec<u8>>> {
+        use std::io::Read;
+        let file = match self.shared.read_file("serve-error.json") {
+            Ok(file) => file,
+            Err(StateError::ReadOpen(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(None);
+            }
+            Err(error) => return Err(state_error(error)),
+        };
+        let mut bytes = Vec::new();
+        file.take(crate::limits::REMOTE_FAILURE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > crate::limits::REMOTE_FAILURE_BYTES {
+            return Err("Serve failure record exceeds its bound.".into());
+        }
+        Ok(Some(bytes))
+    }
     pub fn serve_lock(&self) -> Result<Flock<File>> {
         self.shared
             .lock("serve.lock")

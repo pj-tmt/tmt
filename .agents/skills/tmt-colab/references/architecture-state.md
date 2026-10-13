@@ -288,6 +288,19 @@ keeps its marker until authenticated boot clears it.
 The Remote restart and retained-draft cases in `acceptance/ask.spec.ts` verify
 original-ID observation, no resend and fresh explicit Send after recovery.
 
+`supervisor.rs` owns only a Remote group this serve started. Shutdown signals that
+group before reaping its leader, then uses read-only absence checks. All reaps
+and pipe/watcher joins share bounded cleanup deadlines; failure reports cleanup
+unconfirmed without replacing the original startup error. An unexpected exit
+is observed with rustix's safe `waitid(WNOWAIT)` while serving, so the leader
+continues reserving its identity until group cleanup. Attached Remote is untouched.
+Darwin's zombie-leader KILL EPERM is cleared only after successful bounded reap
+and a read-only ESRCH, matching Core's process cleanup rule. The existing private
+serve-error record carries a cleanup failure before the serve lock releases; stop
+reports outcome unknown for that phase or an unreadable record. Missing/empty
+records remain compatible with older serves. No success record or socket message
+is added.
+
 ## Persistence layout
 
 - The data root comes from one fixed `storage.root` API call through the absolute

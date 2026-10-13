@@ -4806,6 +4806,49 @@ impl Serving {
     }
 }
 #[test]
+fn stop_reports_recorded_cleanup_uncertainty_instead_of_claiming_the_door_stopped() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    assert_eq!(serving.ready()["door"], "attached");
+    // Model the private failure report written before this serve releases its lock.
+    fs::write(pilot.root.join("selected/colab/serve-error.json"),
+        br#"{"version":1,"phase":"cleanup","code":"COLAB_OUTCOME_UNKNOWN","message":"worker join timed out"}"#).unwrap();
+    let output = pilot.command().args(["stop", "--json"]).output().unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["error"]["code"], "COLAB_OUTCOME_UNKNOWN");
+    let message = result["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("cleanup") && message.contains("worker join timed out"),
+        "{message}"
+    );
+    assert!(message.contains("tmt remote status --json"), "{message}");
+    serving.exits();
+    let repeat = pilot.command().args(["stop", "--json"]).output().unwrap();
+    assert!(!repeat.status.success());
+    let repeat: Value = serde_json::from_slice(&repeat.stdout).unwrap();
+    assert_eq!(repeat["error"]["code"], "COLAB_OUTCOME_UNKNOWN");
+
+    // A successful new start clears the stale failure. Absence models an older serve.
+    let mut legacy = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    assert_eq!(legacy.ready()["door"], "attached");
+    fs::remove_file(pilot.root.join("selected/colab/serve-error.json")).unwrap();
+    assert_eq!(
+        pilot.stop_json(),
+        json!({"state":"stopped","door":"attached"})
+    );
+    legacy.exits();
+}
+
+#[test]
 fn stop_ends_serve_and_the_door_it_started_and_is_idempotent() {
     let pilot = Pilot::new(None);
     let mut serving = Serving::start(

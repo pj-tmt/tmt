@@ -83,7 +83,7 @@ impl Status<'_> {
                 }
             }
             Access::Unavailable {
-                reason: Reason::WouldNotStart,
+                reason: Reason::WouldNotStart | Reason::CleanupUnconfirmed(_),
             } => format!("{link} (browser access unavailable: see warning)"),
             _ => link,
         })
