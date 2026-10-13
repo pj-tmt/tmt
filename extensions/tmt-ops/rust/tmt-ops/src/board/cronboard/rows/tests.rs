@@ -3,18 +3,46 @@ use crate::board::cronboard::line::tests::{NOW, view};
 use ratatui::{Terminal, backend::TestBackend};
 
 fn paint(rows: Vec<Value>, columns: Columns, width: u16, height: u16) -> Vec<String> {
-    let mut pane = super::super::surface::Pane::default();
+    use tmt_tui::{
+        binding::Schema,
+        components::{ListState, collection, surface::RenderStyle},
+    };
+    let mut schema = crate::board::picker_surface::schema(&[]);
+    let Schema::Object(root) = &mut schema else {
+        unreachable!("picker schema")
+    };
+    root.insert("rows".into(), schema_rows());
+    let file = "cron-row-test.xml";
+    let markup = format!(
+        r#"<tmt-view version="1"><tmt-list id="jobs" bind="$.rows" empty="(no jobs)">{}</tmt-list></tmt-view>"#,
+        columns.markup()
+    );
+    let table = crate::board::picker_surface::collection(file, &markup, schema);
+    let scene = table
+        .materialize(
+            file,
+            &serde_json::json!({"rows":rows}),
+            &crate::board::picker_surface::Data,
+        )
+        .unwrap();
+    let mut state = ListState::default();
+    let look = crate::look::Look::default();
     let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
     screen
         .draw(|frame| {
-            pane.render(
-                rows.clone(),
-                columns,
-                "(no jobs)",
-                frame,
-                crate::look::Look::default(),
+            let map = collection::render(
+                &scene,
+                &mut state,
                 frame.area(),
+                frame.buffer_mut(),
+                RenderStyle {
+                    theme: &look.theme,
+                    depth: look.depth,
+                },
+                |role| look.role(role),
             )
+            .unwrap();
+            crate::board::row_detail::paint_list(frame.buffer_mut(), &map, &rows, look, None, 7);
         })
         .unwrap();
     let buffer = screen.backend().buffer();

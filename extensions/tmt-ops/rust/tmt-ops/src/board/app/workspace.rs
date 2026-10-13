@@ -200,7 +200,6 @@ impl App {
                 if !self.shell.select_digit(digit, self.workspace_input_owner()) {
                     return Effect::None;
                 }
-                self.jobs_focus = false;
                 self.focus = 0;
                 self.invalidate_frame_geometry();
                 return Effect::None;

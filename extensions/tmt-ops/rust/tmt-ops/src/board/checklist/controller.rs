@@ -41,7 +41,6 @@ impl App {
                 .and_then(|v| v.document["squad"]["roomId"].as_str())
                 .map(str::to_owned),
             pane: self.focused(),
-            jobs: self.jobs_focus,
             row: self.row_target(self.selected),
         };
         // A retained draft belongs to its original room even after the board navigates.
@@ -80,7 +79,6 @@ impl App {
                 {
                     self.focus = position;
                 }
-                self.jobs_focus = saved.jobs && self.jobs_painted();
             }
         }
         self.checklist = Some(controller);

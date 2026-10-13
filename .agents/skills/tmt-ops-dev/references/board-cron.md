@@ -1,7 +1,7 @@
 # Board cron surface
 
 `board::cronboard` owns board-side acquisition, projection, controllers, forms,
-half/list painting and scoped hints. It reaches jobs through `cron_service`, manual
+modal list painting and scoped hints. It reaches jobs through `cron_service`, manual
 sends through `cron_clock::send_now`, and clock status through `cron::Clock::status`.
 [data-and-state.md](data-and-state.md#cron) owns storage, actor/revision admission,
 dispatch and the independent clock lifecycle. The shipped Squad skill owns
@@ -25,8 +25,9 @@ forms or delete confirmation closes the list; pause/resume/send retains it.
 Cron keys belong to the focused list, not the workspace tree. Enter opens the
 selected job's squad; `n` creates, `e`
 expands, `E` edits, `p` pauses/resumes, `x` sends, `o` reassigns and `d` deletes after
-confirmation. Effective user bindings keep precedence. `cronboard::hints::KEYS`
-supplies help/footer and hides edit without a selected job.
+confirmation. The workspace entry uses effective user bindings; the modal owns
+its scoped keys. `cronboard::hints::KEYS` supplies its footer and hides edit without a
+selected job.
 
 Ops membership removal pauses source-owned jobs durably before leaving the room.
 Move pauses before its dependent source leave; failed destination admission does
@@ -49,9 +50,10 @@ schedule fields from edits; owner and schedule input are trimmed at submission.
 Stored multiline/control-bearing or oversized messages remain intact. Submission
 resolves owner names through `identity show`.
 
-Member row-end cron labels and detail match owner UUID, selecting the earliest
-active slot. `view::rows` reserves the label only if no additional column hides,
-drops cron before age, and includes labels in the cached row scene key.
+Workspace squad timer counts match room UUID; conversation member counts
+match owner UUID. The
+shared cron projection retains earliest active-slot and next-run detail for
+job rows; the retired squad-tab jobs half owns no focus, geometry or controls.
 
 ## Verification
 

@@ -88,7 +88,7 @@ impl App {
     }
 
     /// `n E p x o d` on the selected job. `row` is that job's row id, from the
-    /// jobs half or the `c` list; `n` also works with none, in the shown squad.
+    /// scoped Timers list; `n` also works with none, in the selected squad.
     pub(in crate::board) fn cron_key(&mut self, key: char, row: Option<&str>) -> Effect {
         if key == 'e' {
             return self.toggle_row_detail();
@@ -198,8 +198,8 @@ impl App {
             Ok(actor) => actor,
             Err(why) => return self.say(why),
         };
-        // In the jobs half this is the shown squad; in the `c` list, the squad of
-        // the selected job. Neither exists on an empty list of another tab.
+        // A selected job carries its room UUID; an empty workspace list uses
+        // the explicitly selected squad membership.
         let target = match near {
             Some(job) => Some((job.job.squad.clone(), job.job.room_id.clone())),
             None if self.workspace_snapshot().is_some() => self

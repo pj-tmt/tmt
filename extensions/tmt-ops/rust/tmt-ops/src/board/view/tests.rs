@@ -185,7 +185,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
         let help = help_lines(&app);
         assert!(help.iter().any(|line| line.starts_with("a  ")));
         assert!(help.iter().any(|line| line.starts_with("A  ")));
-        for list in [text, crate::board::cronboard::jobs_hints(160, true)] {
+        for list in [text] {
             let line = super::footer::hint_line(&list, app.look());
             let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 1));
             tmt_tui::components::strip::paint_left(&mut buffer, Rect::new(0, 0, 160, 1), line);

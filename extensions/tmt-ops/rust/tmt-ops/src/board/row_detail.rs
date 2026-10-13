@@ -388,9 +388,6 @@ impl App {
         if let Some(list) = &self.cron_list {
             return list.selected().map(Target::Job);
         }
-        if self.jobs_focus {
-            return self.jobs_selected().map(Target::Job);
-        }
         self.row_target(self.selected).map(Target::Row)
     }
     pub(super) fn detail(&self, target: &Target) -> Option<Detail> {

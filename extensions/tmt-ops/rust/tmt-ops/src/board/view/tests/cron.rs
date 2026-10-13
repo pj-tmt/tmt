@@ -1,66 +1,42 @@
-//! The squad tab's jobs half: composition, focus transfer, scoped keys, row labels.
+//! Current workspace Timers: scoped controls, exact forms, clock and navigation.
 use super::*;
+use crate::action::Action;
 use crate::board::cronboard::{TEST_NOW, test_cron, test_view, test_views};
-use std::time::Instant;
+use crate::board::{
+    app::workspace::tests::{MEMBER, ROOM},
+    workspace::OpsTarget,
+};
 use tmt_ops::cron::ClockStatus;
 
-fn members() -> Value {
-    json!([{"rows": [
-        row("alpha", "working", "task one", json!({"id": "u1"})),
-        row("bravo", "idle", "task two", json!({"id": "u2"})),
-        row("carol", "idle", "task three", json!({"id": "u3"})),
-    ]}])
+fn squad_tab() -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
+    home.workspace.roster.members.get_mut(MEMBER).unwrap().name = "alpha".into();
+    let target = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: MEMBER.into(),
+    };
+    home.workspace.rows.get_mut(&target).unwrap()["name"] = json!("alpha");
+    home.workspace.rows.get_mut(&target).unwrap()["squad"] = json!("product");
+    let mut job = test_view("someone", "job for u1", Some(TEST_NOW + 3_600_000));
+    job.job.squad = "product".into();
+    job.job.room_id = ROOM.into();
+    job.job.owner_id = Some(MEMBER.into());
+    app.cron
+        .replace(Ok(test_cron(vec![job.clone()], ClockStatus::NoClock)));
+    app.cron
+        .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
+    app
 }
 
-fn squad_tab() -> App {
-    let mut app = board(members());
-    let document = &mut app.view.as_mut().unwrap().document;
-    document["squad"]["roomId"] = json!("room");
-    document["squad"]["lead"] = json!({"name": "sol"});
-    let jobs = ["u1", "u3"].map(|owner| {
-        let mut job = test_view(
-            "someone",
-            &format!("job for {owner}"),
-            Some(TEST_NOW + 3_600_000),
-        );
-        job.job.squad = "product".into();
-        job.job.room_id = "room".into();
-        job.job.owner_id = Some(owner.into());
-        job
-    });
-    let mut jobs = jobs.to_vec();
-    // Distinct job ids come from the store; the fixture reuses one, so move the room.
-    jobs[1].job.room_id = "room".into();
-    let jobs = vec![jobs.remove(0)];
-    // The first read may precede the board's own clock; a second one is settled.
-    app.cron
-        .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
-    app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
-    // The cursor starts on the lead; these cases are about the members.
-    app.select(1);
-    app
+fn open_timers(app: &mut App) {
+    assert_eq!(app.perform(&Action::parse("timers").unwrap()), Effect::None);
+    assert_eq!(app.cron_list.as_ref().unwrap().scope.as_deref(), Some(ROOM));
+    draw(app, 100, 24);
 }
 
 fn press(app: &mut App, code: KeyCode) -> Effect {
     app.key(KeyEvent::new(code, KeyModifiers::NONE))
-}
-
-#[test]
-fn members_sit_above_the_squads_jobs_with_the_clock_on_the_rule() {
-    let app = squad_tab();
-    for (width, height) in [(160, 30), (100, 24), (80, 24)] {
-        let screen = draw(&app, width, height);
-        let text = screen.join("\n");
-        let rule = screen
-            .iter()
-            .position(|l| l.starts_with("── cron · 1"))
-            .expect(&text);
-        assert!(screen[..rule].iter().any(|l| l.contains("alpha")), "{text}");
-        assert!(screen[..rule].iter().any(|l| l.contains("carol")), "{text}");
-        assert!(screen[rule].contains("no clock"), "{text}");
-        assert!(screen[rule + 1].contains("every 30m"), "{text}");
-        assert!(screen[rule + 1].contains("someone"), "{text}");
-    }
 }
 
 fn running_in(pane: &str) -> ClockStatus {
@@ -75,39 +51,17 @@ fn running_in(pane: &str) -> ClockStatus {
 fn rule_of(app: &App) -> String {
     draw(app, 120, 30)
         .into_iter()
-        .find(|line| line.starts_with("── cron"))
+        .find(|line| line.contains("clock:") || line.contains("no clock"))
         .expect("the rule line")
 }
 
 #[test]
-fn the_half_is_content_sized_and_capped_at_two_fifths_of_the_body() {
-    let mut app = squad_tab();
-    let below = |app: &App, height: u16| {
-        let screen = draw(app, 120, height);
-        let rule = screen
-            .iter()
-            .position(|l| l.starts_with("── cron"))
-            .unwrap();
-        // The footer is the last line; the half is everything between.
-        screen.len() - 1 - rule
-    };
-    // One job: the rule, the job and the three-line minimum, not half the body.
-    assert_eq!(below(&app, 40), 3);
-    // Focus leaves the job collapsed; only e reserves its shared detail lines.
-    press(&mut app, KeyCode::Tab);
-    assert_eq!(below(&app, 40), 3);
-    press(&mut app, KeyCode::Char('e'));
-    assert_eq!(below(&app, 40), 3);
-    let capped = below(&app, 20);
-    assert!((3..=7).contains(&capped), "{capped}");
-}
-
-#[test]
 fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window() {
-    let mut app = board(members());
-    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
+    let mut app = squad_tab();
+    app.cron = Default::default();
     app.cron
         .replace(Ok(test_cron(Vec::new(), ClockStatus::NoClock)));
+    open_timers(&mut app);
     assert!(
         rule_of(&app).contains("clock: checking…"),
         "{}",
@@ -135,167 +89,6 @@ fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window(
     assert!(rule_of(&app).contains("clock: %9"), "{}", rule_of(&app));
 }
 
-#[test]
-fn the_member_detail_shows_the_next_run_too() {
-    let mut app = squad_tab();
-    let first = buffer_text(&entity_detail_buffer(&app, 80, 12)).join("\n");
-    assert!(
-        first.contains("cron:") && first.contains("job for u1"),
-        "{first}"
-    );
-    // A member without an active job has no cron line.
-    press(&mut app, KeyCode::Char('j'));
-    press(&mut app, KeyCode::Char('j'));
-    let carol = buffer_text(&entity_detail_buffer(&app, 80, 12)).join("\n");
-    assert!(
-        carol.contains("carol") && !carol.contains("cron:"),
-        "{carol}"
-    );
-}
-
-#[test]
-fn a_member_with_an_active_job_shows_its_next_run_and_the_label_drops_first() {
-    let app = squad_tab();
-    let wide = draw(&app, 120, 24);
-    let alpha = wide.iter().find(|l| l.contains("alpha")).unwrap();
-    // The label's clock text depends on the real date; its exact form is
-    // covered where time is injected (`cronboard::tests`).
-    let label = alpha.split_once("cron ").expect(alpha).1;
-    assert!(label.contains(':') && alpha.ends_with(label), "{alpha}");
-    let carol = wide.iter().find(|l| l.contains("carol")).unwrap();
-    assert!(!carol.contains("cron "), "{carol}");
-    // Too narrow for the label: it goes, the row's columns stay.
-    let narrow = draw(&app, 30, 24);
-    let alpha = narrow.iter().find(|l| l.contains("alpha")).unwrap();
-    assert!(!alpha.contains("cron "), "{alpha}");
-}
-
-#[test]
-fn tab_enters_the_jobs_half_after_the_last_pane_and_returns() {
-    let mut app = squad_tab();
-    draw(&app, 100, 24);
-    assert!(!app.jobs_focus);
-    press(&mut app, KeyCode::Tab);
-    assert!(
-        app.jobs_focus,
-        "Tab after the last pane enters the jobs half"
-    );
-    let screen = draw(&app, 100, 24);
-    let text = screen.join("\n");
-    assert!(
-        !text.contains("prompt "),
-        "focus leaves jobs collapsed\n{text}"
-    );
-    press(&mut app, KeyCode::Char('e'));
-    let expanded = draw(&app, 60, 40).join("\n");
-    assert!(
-        expanded.contains("prompt")
-            && expanded.contains("job for u1")
-            && !expanded.contains("│when")
-            && expanded.contains("│next"),
-        "{expanded}"
-    );
-    press(&mut app, KeyCode::Tab);
-    assert!(!app.jobs_focus && app.focused_pane() == Some(Pane::Rows));
-    assert!(
-        draw(&app, 60, 40).join("\n").contains("prompt"),
-        "expansion survives focus changes"
-    );
-    press(&mut app, KeyCode::Tab);
-    press(&mut app, KeyCode::Char('e'));
-    assert!(!draw(&app, 60, 40).join("\n").contains("prompt"));
-}
-
-#[test]
-fn scoped_keys_navigate_jobs_and_never_act_on_a_member_row() {
-    let mut app = squad_tab();
-    draw(&app, 100, 24);
-    press(&mut app, KeyCode::Tab);
-    draw(&app, 100, 24);
-    // Enter goes to the job's owner, not the selected member row.
-    assert_eq!(
-        press(&mut app, KeyCode::Enter),
-        Effect::Act(crate::board::app::Request::Jump("someone".into()))
-    );
-    // The preset's member keys refuse while the jobs half has focus.
-    for key in ['y', 't', 'r'] {
-        assert_eq!(press(&mut app, KeyCode::Char(key)), Effect::None);
-        assert!(
-            app.notice
-                .as_deref()
-                .unwrap_or("")
-                .contains("acts on a member row"),
-            "{key}: {:?}",
-            app.notice
-        );
-    }
-    assert_eq!(app.selected, 1, "the member selection never moved");
-}
-
-#[test]
-fn a_user_binding_wins_over_the_scoped_c_key_and_other_tabs_have_no_half() {
-    let mut app = squad_tab();
-    draw(&app, 100, 24);
-    press(&mut app, KeyCode::Tab);
-    app.view
-        .as_mut()
-        .unwrap()
-        .configured_bindings
-        .insert("c".into(), crate::action::Action::parse("refresh").unwrap());
-    app.view
-        .as_mut()
-        .unwrap()
-        .bindings
-        .insert("c".into(), crate::action::Action::parse("refresh").unwrap());
-    assert_eq!(press(&mut app, KeyCode::Char('c')), Effect::Refresh);
-    let mut leads = squad_tab();
-    leads.view.as_mut().unwrap().document["squad"]
-        .as_object_mut()
-        .unwrap()
-        .remove("roomId");
-    assert!(!draw(&leads, 100, 24).join("\n").contains("── cron"));
-}
-
-#[test]
-fn a_short_body_keeps_the_rule_only_and_a_pointer_press_focuses_the_half() {
-    let app = squad_tab();
-    let short = draw(&app, 100, 11);
-    assert!(short.iter().any(|l| l.starts_with("── cron · 1")));
-    assert!(!short.join("\n").contains("every 30m"));
-    let mut app = squad_tab();
-    let screen = draw(&app, 100, 24);
-    let job = screen.iter().position(|l| l.contains("every 30m")).unwrap();
-    let click = |kind| MouseEvent {
-        kind,
-        column: 10,
-        row: job as u16,
-        modifiers: KeyModifiers::NONE,
-    };
-    app.mouse(
-        click(MouseEventKind::Down(MouseButton::Left)),
-        Instant::now(),
-    );
-    assert!(app.jobs_focus);
-    app.mouse(
-        MouseEvent {
-            row: 2,
-            ..click(MouseEventKind::Down(MouseButton::Left))
-        },
-        Instant::now(),
-    );
-    assert!(!app.jobs_focus, "a press elsewhere gives the focus back");
-}
-
-#[test]
-fn a_failed_read_without_data_says_so_in_the_half() {
-    let mut app = board(members());
-    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
-    app.cron.replace(Err("storage unreachable".into()));
-    let text = draw(&app, 100, 24).join("\n");
-    assert!(text.contains("cron · 0 · ✗ storage unreachable"), "{text}");
-    assert!(text.contains("(jobs unavailable)"), "{text}");
-}
-
 mod controls {
     use super::*;
     use crate::board::{
@@ -311,12 +104,10 @@ mod controls {
         }
     }
 
-    /// A squad tab whose jobs half has focus on its single job `c0`.
+    /// The public workspace Timers action selects its scoped job `c0`.
     fn focused() -> (App, JobKey) {
         let mut app = squad_tab();
-        draw(&app, 100, 24);
-        press(&mut app, KeyCode::Tab);
-        draw(&app, 100, 24);
+        open_timers(&mut app);
         let key = JobKey::of(&app.cron.cron.as_ref().unwrap().jobs[0].job);
         (app, key)
     }
@@ -334,31 +125,6 @@ mod controls {
             revision: 1,
             op,
         }))
-    }
-
-    #[test]
-    fn keys_are_job_keys_only_while_the_jobs_half_has_focus() {
-        let mut app = squad_tab();
-        draw(&app, 100, 24);
-        // Member keys cannot perform cron operations.
-        for key in ['p', 'x', 'o', 'd', 'n'] {
-            let effect = press(&mut app, KeyCode::Char(key));
-            assert!(
-                !matches!(effect, Effect::Act(Request::Cron(_)))
-                    && app.input.is_none()
-                    && app.menu.is_none(),
-                "{key}"
-            );
-        }
-        let effect = press(&mut app, KeyCode::Char('e'));
-        assert!(!matches!(effect, Effect::Act(Request::Cron(_))));
-        assert!(app.input.is_none());
-        assert!(
-            app.row_details
-                .contains(&crate::board::row_detail::Target::Row(
-                    app.row_target(app.selected).unwrap()
-                ))
-        );
     }
 
     #[test]
@@ -398,6 +164,7 @@ mod controls {
             "Enter keeps the job"
         );
         assert!(app.menu.is_none());
+        open_timers(&mut app);
         press(&mut app, KeyCode::Char('d'));
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
@@ -426,6 +193,7 @@ mod controls {
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref().unwrap().contains("nothing written"));
         // An invalid schedule keeps the step, the text and says why.
+        open_timers(&mut app);
         press(&mut app, KeyCode::Char('E'));
         press(&mut app, KeyCode::Enter);
         for _ in 0..9 {
@@ -459,6 +227,7 @@ mod controls {
             }
         );
         // Esc at any step discards the draft.
+        open_timers(&mut app);
         press(&mut app, KeyCode::Char('E'));
         typed(&mut app, "x");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
@@ -483,12 +252,6 @@ mod controls {
     #[test]
     fn new_and_reassign_collect_owner_message_and_schedule_exactly() {
         let (mut app, key) = focused();
-        // A member row is selected on the members; Tab back and use `n` there.
-        press(&mut app, KeyCode::Tab);
-        draw(&app, 100, 24);
-        press(&mut app, KeyCode::Tab);
-        draw(&app, 100, 24);
-        assert!(app.jobs_focus);
         press(&mut app, KeyCode::Char('n'));
         assert_eq!(
             app.input.as_ref().unwrap().text,
@@ -518,12 +281,13 @@ mod controls {
         else {
             panic!("an add");
         };
-        assert_eq!((squad.as_str(), room_id.as_str()), ("product", "room"));
+        assert_eq!((squad.as_str(), room_id.as_str()), ("product", ROOM));
         assert_eq!(
             (owner.as_str(), message.as_str(), schedule.as_str()),
             ("alpha", "  spaced  ", "weekdays 09:00")
         );
         // Reassign asks only for the owner, prefilled with the current one.
+        open_timers(&mut app);
         press(&mut app, KeyCode::Char('o'));
         assert_eq!(app.input.as_ref().unwrap().text, "someone");
         for _ in 0..7 {
@@ -538,6 +302,39 @@ mod controls {
                     owner: "carol".into()
                 }
             )
+        );
+    }
+
+    #[test]
+    fn an_empty_scoped_list_can_create_a_job_for_the_selected_member() {
+        let mut app = squad_tab();
+        app.cron.cron.as_mut().unwrap().jobs.clear();
+        open_timers(&mut app);
+        assert!(app.cron_list.as_ref().unwrap().selected().is_none());
+        press(&mut app, KeyCode::Char('n'));
+        assert!(app.cron_list.is_none());
+        assert_eq!(app.input.as_ref().unwrap().text, "alpha");
+        press(&mut app, KeyCode::Enter);
+        typed(&mut app, "Review the queue");
+        press(&mut app, KeyCode::Enter);
+        typed(&mut app, "every 30m");
+        let Effect::Act(Request::Cron(CronRequest::Add {
+            actor: submitted_actor,
+            squad,
+            room_id,
+            owner,
+            message,
+            schedule,
+            ..
+        })) = press(&mut app, KeyCode::Enter)
+        else {
+            panic!("a complete new job");
+        };
+        assert_eq!(submitted_actor, actor());
+        assert_eq!((squad.as_str(), room_id.as_str()), ("product", ROOM));
+        assert_eq!(
+            (owner.as_str(), message.as_str(), schedule.as_str()),
+            ("alpha", "Review the queue", "every 30m")
         );
     }
 
@@ -562,40 +359,8 @@ mod controls {
     }
 
     #[test]
-    fn help_and_the_footer_show_the_scoped_keys_while_jobs_have_focus() {
-        let (mut app, _) = focused();
-        let screen = draw(&app, 120, 24);
-        let footer = screen.last().unwrap();
-        assert!(
-            footer.starts_with("⏎ owner  n new  e expand  E edit"),
-            "{footer}"
-        );
-        assert!(
-            footer.contains("q quit") && footer.ends_with("? more"),
-            "{footer}"
-        );
-        let narrow = draw(&app, 40, 24);
-        assert!(
-            narrow.last().unwrap().ends_with("? more"),
-            "{:?}",
-            narrow.last()
-        );
-        press(&mut app, KeyCode::Char('?'));
-        let text = draw(&app, 120, 40).join("\n");
-        assert!(
-            text.contains("cron jobs") && text.contains("go to the job's owner"),
-            "{text}"
-        );
-        assert!(
-            text.contains("delete the job after a confirmation"),
-            "{text}"
-        );
-    }
-
-    #[test]
-    fn the_c_list_runs_the_same_controls_and_forms_close_it() {
+    fn timers_controls_keep_the_list_and_forms_close_it() {
         let (mut app, key) = focused();
-        press(&mut app, KeyCode::Char('c'));
         assert!(app.cron_list.is_some());
         draw(&app, 100, 24);
         // A pause keeps the list open to show the result.
@@ -612,12 +377,12 @@ mod controls {
 
 fn snapshots() -> Value {
     let mut frames = Vec::new();
-    for (scenario, focused) in [("members above jobs", false), ("jobs focused", true)] {
+    for (scenario, focused) in [("workspace tree", false), ("scoped Timers", true)] {
         for (width, height) in [(160u16, 24u16), (100, 24), (80, 24)] {
             let mut app = squad_tab();
             draw(&app, width, height);
             if focused {
-                press(&mut app, KeyCode::Tab);
+                open_timers(&mut app);
             }
             frames.push(json!({
                 "scenario": scenario, "width": width, "height": height,
@@ -650,11 +415,11 @@ fn record_split_squad_tab_snapshots() {
     .unwrap();
 }
 
-/// A squad tab with `count` jobs of its own room, `u1` owning them all.
+/// Current workspace jobs with store-assigned c-ids in the actual room UUID.
 fn many_jobs(count: usize) -> App {
-    let mut app = board(members());
-    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
-    let jobs = test_views(count, "product", "room");
+    let mut app = squad_tab();
+    app.cron = Default::default();
+    let jobs = test_views(count, "product", ROOM);
     app.cron
         .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
     app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
@@ -662,57 +427,7 @@ fn many_jobs(count: usize) -> App {
 }
 
 fn walk_ids(count: usize) -> Vec<String> {
-    (1..=count).map(|id| format!("room/c{id}")).collect()
-}
-
-#[test]
-fn walking_the_jobs_half_moves_one_job_per_press_without_auto_expansion() {
-    let order = walk_ids(8);
-    for (down, up) in [
-        (KeyCode::Down, KeyCode::Up),
-        (KeyCode::Char('j'), KeyCode::Char('k')),
-    ] {
-        for (width, height) in [(100, 40), (80, 24)] {
-            let mut app = many_jobs(8);
-            draw(&app, width, height);
-            press(&mut app, KeyCode::Tab);
-            draw(&app, width, height);
-            assert_eq!(app.jobs_selected().as_deref(), Some(order[0].as_str()));
-            let members = app.selected;
-            let step = |app: &mut App, code: KeyCode, expected: &str| {
-                press(app, code);
-                let screen = draw(app, width, height);
-                assert_eq!(
-                    app.jobs_selected().as_deref(),
-                    Some(expected),
-                    "{code:?} at {width}x{height}\n{}",
-                    screen.join("\n")
-                );
-                assert_eq!(app.selected, members, "the member selection never moves");
-                let cid = expected.rsplit('/').next().unwrap();
-                assert!(
-                    screen
-                        .iter()
-                        .any(|line| line.contains(&format!(" {cid} ")) && line.contains("●")),
-                    "{cid} painted\n{}",
-                    screen.join("\n")
-                );
-                assert!(
-                    app.row_details.expanded.is_empty(),
-                    "navigation never auto-expands"
-                );
-            };
-            for expected in &order[1..] {
-                step(&mut app, down, expected);
-            }
-            // A press past either end stays put, and never reaches the member rows.
-            step(&mut app, down, &order[7]);
-            for expected in order[..order.len() - 1].iter().rev() {
-                step(&mut app, up, expected);
-            }
-            step(&mut app, up, &order[0]);
-        }
-    }
+    (1..=count).map(|id| format!("{ROOM}/c{id}")).collect()
 }
 
 #[test]
@@ -724,10 +439,7 @@ fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
     ] {
         for (width, height) in [(100, 40), (80, 24)] {
             let mut app = many_jobs(8);
-            draw(&app, width, height);
-            press(&mut app, KeyCode::Tab);
-            draw(&app, width, height);
-            press(&mut app, KeyCode::Char('c'));
+            open_timers(&mut app);
             draw(&app, width, height);
             let selected = |app: &App| app.cron_list.as_ref().unwrap().selected();
             assert_eq!(selected(&app).as_deref(), Some(order[0].as_str()));
@@ -775,10 +487,9 @@ fn dump_split_squad_tab_snapshots() {
 fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
     use crate::board::row_detail::Target;
     let mut app = many_jobs(2);
+    open_timers(&mut app);
     draw(&app, 160, 40);
-    press(&mut app, KeyCode::Tab);
-    draw(&app, 160, 40);
-    let first = app.jobs_selected().unwrap();
+    let first = app.cron_list.as_ref().unwrap().selected().unwrap();
     assert!(app.row_details.expanded.is_empty());
     app.cron.cron.as_mut().unwrap().actor = Err("actor unavailable".into());
     press(&mut app, KeyCode::Char('e'));
@@ -787,10 +498,9 @@ fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
     assert!(shown.contains("no details yet"), "{shown}");
     press(&mut app, KeyCode::Down);
     draw(&app, 160, 40);
-    let second = app.jobs_selected().unwrap();
+    let second = app.cron_list.as_ref().unwrap().selected().unwrap();
     assert_ne!(first, second);
     assert_eq!(app.row_details.expanded, vec![Target::Job(first.clone())]);
-    press(&mut app, KeyCode::Char('c'));
     draw(&app, 160, 40);
     assert_eq!(
         app.cron_list.as_ref().unwrap().selected().as_deref(),
@@ -811,39 +521,4 @@ fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
     assert!(app.row_details.expanded.is_empty());
     let shown = draw(&app, 160, 40).join("\n");
     assert!(!shown.contains("E edit"), "{shown}");
-}
-
-#[test]
-fn a_framed_pane_above_the_cron_rule_ends_on_it_instead_of_stacking_a_second_rule() {
-    use crate::config::{Direction, Pane};
-    for (direction, panes) in [
-        (Direction::TopBottom, vec![Pane::Rows, Pane::Notes]),
-        (Direction::LeftRight, vec![Pane::Rows, Pane::Notes]),
-    ] {
-        let mut app = super::paned(
-            super::split(direction, panes, vec![50, 50]),
-            crate::board::app::Notes::Text("ship it".into()),
-        );
-        app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
-        let mut job = test_view("someone", "job", Some(TEST_NOW + 3_600_000));
-        job.job.squad = "product".into();
-        job.job.room_id = "room".into();
-        app.cron
-            .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
-        let lines = draw(&app, 100, 30);
-        let rule = lines
-            .iter()
-            .position(|line| line.starts_with("── cron · 1"))
-            .unwrap_or_else(|| panic!("no cron rule in {lines:#?}"));
-        assert!(
-            !lines[rule - 1].starts_with('─') && !lines[rule - 1].starts_with(" ─"),
-            "{direction:?}: a second rule stacks above the cron heading: {:?}",
-            lines[rule - 1]
-        );
-        assert_eq!(
-            lines.iter().filter(|line| line.contains("cron ·")).count(),
-            1,
-            "{direction:?}"
-        );
-    }
 }

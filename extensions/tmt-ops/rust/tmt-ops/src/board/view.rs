@@ -110,7 +110,6 @@ pub(in crate::board) fn render_frame(
     app.workspace_action_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
-    app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
     let overview = (!app.loading() && app.workspace_snapshot().is_none())
         .then(|| {

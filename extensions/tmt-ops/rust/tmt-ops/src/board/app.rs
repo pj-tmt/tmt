@@ -645,12 +645,6 @@ pub struct App {
     /// The cron form being filled in on the input line, if any.
     pub(super) status_draft: Option<super::status_update::Draft>,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
-    /// The squad tab's jobs half has focus (Tab moves in after the last pane).
-    pub(super) jobs_focus: bool,
-    /// One list state per squad room; selection survives tab switches.
-    pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
-    /// Where the jobs half was last drawn, for the pointer; empty when absent.
-    pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) home_counters: RefCell<super::home::counters::Counters>,
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
@@ -1743,7 +1737,6 @@ impl App {
         self.current = Some(next.clone());
         self.disk = None;
         self.error = None;
-        self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
         // Never blank the screen: a visited squad shows from the cache at
@@ -1900,7 +1893,7 @@ impl App {
         self.focus_panes()
             .get(self.focus)
             .copied()
-            .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
+            .filter(|pane| !self.collapsed_panes().contains(pane))
     }
 
     pub fn focused(&self) -> Pane {
@@ -1939,7 +1932,7 @@ impl App {
             return;
         }
 
-        if self.jobs_focus || self.focused_pane().is_some() {
+        if self.focused_pane().is_some() {
             return;
         }
         if let Some(position) = self
@@ -1955,42 +1948,14 @@ impl App {
     }
 
     fn next_pane(&mut self) {
-        if self.jobs_focus {
-            self.jobs_leave(false);
-            return;
-        }
         let panes = self.focus_panes();
         let collapsed = self.collapsed_panes();
         let count = panes.len();
-        // Only the retained row composition has a jobs half. Workspace Timers
-        // is a modal with its own focus owner.
-        if self.workspace_snapshot().is_none()
-            && self.jobs_painted()
-            && !(self.focus + 1..count).any(|index| !collapsed.contains(&panes[index]))
-        {
-            self.jobs_focus = true;
-            return;
-        }
         if let Some(next) = (1..=count)
             .map(|step| (self.focus + step) % count)
             .find(|index| !collapsed.contains(&panes[*index]))
         {
             self.focus = next;
-        }
-    }
-
-    /// Leaves the jobs half for the first (or, backwards, last) visible pane.
-    pub(super) fn jobs_leave(&mut self, backwards: bool) {
-        self.jobs_focus = false;
-        let collapsed = self.collapsed_panes();
-        let visible = |pane: &Pane| !collapsed.contains(pane);
-        let target = if backwards {
-            self.focus_panes().iter().rposition(visible)
-        } else {
-            self.focus_panes().iter().position(visible)
-        };
-        if let Some(target) = target {
-            self.focus = target;
         }
     }
 
@@ -2084,9 +2049,6 @@ impl App {
                 };
             }
             _ => {}
-        }
-        if self.jobs_focus && action.verb.acts_on_member() {
-            return self.say("Tab returns to the members; this key acts on a member row.");
         }
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
@@ -3158,7 +3120,7 @@ impl App {
         use tmt_tui::app::{Routed, route};
         let Some(overlay) = self.overlay() else {
             self.overlay_focus.close();
-            return self.jobs_event(event);
+            return None;
         };
         let mut id = overlay.id();
         if overlay == Overlay::Workspace
@@ -3389,9 +3351,6 @@ impl App {
         if let Some(list) = &self.cron_list {
             list.invalidate();
         }
-        for pane in self.jobs.borrow_mut().values_mut() {
-            pane.invalidate();
-        }
     }
 
     fn bound(&self, key: KeyEvent) -> bool {
@@ -3612,9 +3571,6 @@ impl App {
             })
         {
             return self.cycle_token_window();
-        }
-        if let Some(effect) = self.jobs_mouse(event) {
-            return effect;
         }
         if self.scroll_pointer(event) {
             return Effect::None;

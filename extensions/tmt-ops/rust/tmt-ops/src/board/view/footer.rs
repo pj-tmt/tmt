@@ -91,9 +91,6 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
 /// priority first. Whole hints drop from the end; `q quit` and `? more` always
 /// stay (`? more` alone when only it fits), as the guideline requires.
 pub(super) fn hints(app: &App, width: usize) -> String {
-    if app.jobs_focus {
-        return crate::board::cronboard::jobs_hints(width, app.jobs_selected().is_some());
-    }
     workspace_hints(app, width)
 }
 

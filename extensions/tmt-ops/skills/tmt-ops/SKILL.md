@@ -421,8 +421,9 @@ retain prior jobs and their reason. `no clock` means due slots are not sent;
 `session:window` when available, otherwise its pane ID.
 
 The focused list owns Enter (open the job's squad), `n` new, `e` expand/collapse, `E` edit, `p`
-pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. Effective
-explicit bindings keep precedence. Forms retain exact owner/message/schedule;
+pause/resume, `x` send now, `o` reassign and `d` delete after confirmation. The
+workspace entry follows explicit bindings; the modal owns its scoped keys.
+Forms retain exact owner/message/schedule;
 Esc cancels. Multiline messages use the shared editor; oversized stored messages
 remain intact when editing only owner or schedule.
 

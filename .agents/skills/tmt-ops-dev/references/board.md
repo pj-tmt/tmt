@@ -295,7 +295,7 @@ Cancel discards intent. This flow never contributes attention or changes Core
 requests, member state, metadata or configuration. Storage/service invariants live
 in [data-and-state.md](data-and-state.md#checklist-storage-and-service).
 
-The jobs half and `c` list never expand merely on selection or focus. Their ListState
-owns navigation, scrolling and hit geometry; `row_detail` paints into their reserved
+The scoped Timers modal never expands merely on selection or focus. Its ListState
+owns navigation, scrolling and hit geometry; `row_detail` paints into its reserved
 inline detail lines. Scoped `e` toggles, `E` edits, and the single cron `KEYS` table
-owns footer/help words. `E edit` appears only when a job is selected.
+owns footer words. `E edit` appears only when a job is selected.

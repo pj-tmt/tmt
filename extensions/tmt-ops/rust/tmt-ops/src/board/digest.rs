@@ -101,9 +101,6 @@ impl App {
     }
 
     fn digest_ask(&self, index: usize) -> Result<Ask, String> {
-        if self.jobs_focus {
-            return Err("Tab returns to the members; this key acts on a member row.".into());
-        }
         let target = self.row_target(index).ok_or("No row is selected.")?;
         let row = self.target_row(&target).ok_or("No row is selected.")?;
         let squad = match &target {
