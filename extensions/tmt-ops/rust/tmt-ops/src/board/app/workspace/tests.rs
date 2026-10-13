@@ -79,6 +79,7 @@ pub(in crate::board) fn board() -> App {
             working: 1,
             ..Default::default()
         },
+        window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         sections: vec![],
         squads: vec![],

@@ -112,6 +112,7 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
         view.home = Some(crate::board::home::Home {
             workspace: Default::default(),
             summary: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: crate::config::TokenRate::default().windows,
             sections: Vec::new(),
             squads: Vec::new(),
@@ -2288,6 +2289,7 @@ fn digest_app(members: bool, home: bool, held: u64, until: u64, look: crate::loo
         app.view.as_mut().unwrap().home = Some(crate::board::home::Home {
             workspace: Default::default(),
             summary: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: crate::config::TokenWindow::DEFAULTS,
             sections: vec![crate::board::home::MemberSection {
                 key: "blocked".into(),

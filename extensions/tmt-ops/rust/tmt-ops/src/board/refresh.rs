@@ -2663,6 +2663,7 @@ printf '%s\n' '{{}}'
                 |_, _, _, _| {
                     let home = super::super::home::Home {
                         workspace: Default::default(),
+                        window: crate::config::TokenWindow::MINUTE,
                         windows: crate::config::TokenWindow::DEFAULTS,
                         summary: Default::default(),
                         sections: vec![],

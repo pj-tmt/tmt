@@ -693,15 +693,6 @@ pub struct App {
     body_width: u16,
 }
 
-fn page_step(code: KeyCode) -> Step {
-    match code {
-        KeyCode::PageUp => Step::Pages(-1),
-        KeyCode::PageDown => Step::Pages(1),
-        KeyCode::Home => Step::Top,
-        _ => Step::Bottom,
-    }
-}
-
 pub(super) fn matches(row: &Value, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
@@ -1080,27 +1071,6 @@ impl App {
         })
     }
 
-    pub(super) fn home_counter_keys(&self, squad: &str) -> [String; 3] {
-        let view = self.view.as_ref().expect("HOME counter has a view");
-        let rate = &view.home_rate[squad];
-        let lead = view
-            .home
-            .as_ref()
-            .unwrap()
-            .squads
-            .iter()
-            .find(|line| line.squad == squad)
-            .and_then(|line| line.lead.as_ref())
-            .and_then(|lead| lead["id"].as_str());
-        let owner = format!(
-            "lead:{:?}:{squad:?}:{:?}:{lead:?}:{:?}:{:?}",
-            view.me_id, rate.input.room, self.token_window, rate.settings
-        );
-        std::array::from_fn(|index| {
-            format!("{owner}:{}", rate.settings.windows[index].milliseconds())
-        })
-    }
-
     pub(super) fn home_header_counter_keys(&self) -> [String; 3] {
         let view = self.view.as_ref().expect("HOME header has a view");
         let owners = self
@@ -1120,28 +1090,6 @@ impl App {
             format!(
                 "{owner}:{}",
                 view.home.as_ref().unwrap().windows[index].milliseconds()
-            )
-        })
-    }
-
-    pub(super) fn home_digits(
-        &self,
-        squad: &str,
-        usage: &HomeUsage<'_>,
-        now: Instant,
-    ) -> [String; 3] {
-        let reduced = self.view.as_ref().unwrap().home_rate[squad]
-            .settings
-            .reduced_motion;
-        let keys = self.home_counter_keys(squad);
-        let mut counters = self.home_counters.borrow_mut();
-        let mut keys = keys.into_iter();
-        std::array::from_fn(|index| {
-            counters.digits(
-                keys.next().unwrap(),
-                usage.lead[index],
-                reduced || self.loading(),
-                now,
             )
         })
     }
@@ -1398,6 +1346,7 @@ impl App {
                 let now = Instant::now();
                 self.home_leads.set_sender(view.me_id.as_deref());
                 if let Some(home) = &view.home {
+                    self.token_window = home.window.available(home.windows);
                     self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
                         if view
@@ -1753,10 +1702,6 @@ impl App {
         } else {
             BTreeSet::new()
         }
-    }
-
-    pub(super) fn body_width(&self) -> u16 {
-        self.body_width
     }
 
     pub fn set_body_width(&mut self, width: u16) {
@@ -2197,11 +2142,6 @@ impl App {
         }
     }
 
-    pub(super) fn row_send(&self, index: usize, member_note: bool) -> Option<RowSend> {
-        let target = self.row_target(index)?;
-        self.send_target(target, member_note)
-    }
-
     pub(super) fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
         let sender = self.view.as_ref()?.me.clone()?;
         let name = self.target_row(&target)?["name"].as_str()?.to_owned();
@@ -2515,26 +2455,39 @@ impl App {
         self.bind_draft();
     }
 
-    /// The next token window of the summary meter, when the squad samples one.
+    /// Cycle the acquired workspace window or the independent sampled source.
     fn cycle_token_window(&mut self) -> Effect {
-        if self.meter.is_some() {
+        if self.next_token_window().is_some() {
             Effect::CycleTokenWindow
         } else {
             Effect::None
         }
     }
     pub(super) fn next_token_window(&self) -> Option<crate::config::TokenWindow> {
-        self.meter
+        let windows = self
+            .view
             .as_ref()
-            .map(|meter| self.token_window.next(meter.settings.windows))
+            .and_then(|view| view.home.as_ref())
+            .map(|home| home.windows)
+            .or_else(|| self.meter.as_ref().map(|meter| meter.settings.windows))?;
+        Some(self.token_window.next(windows))
     }
     pub(super) fn apply_token_window(&mut self, config: &Config) -> String {
-        let key = self.current.clone().unwrap_or_default();
+        let shared = self.view.as_ref().is_some_and(|view| view.home.is_some());
+        let key = if shared {
+            String::new()
+        } else {
+            self.current.clone().unwrap_or_default()
+        };
         let window = config
             .token_rate(&key)
             .expect("validated window write")
             .window;
         self.token_window = window;
+        if let Some(home) = self.view.as_mut().and_then(|view| view.home.as_mut()) {
+            home.window = window.available(home.windows);
+            self.token_window = home.window;
+        }
         let now = Instant::now();
         if let Some(meter) = &mut self.meter {
             meter.settings.window = window;
@@ -3142,10 +3095,6 @@ impl App {
         }
     }
 
-    fn bound(&self, key: KeyEvent) -> bool {
-        event_name(key).is_some_and(|event| self.bindings().contains_key(&event))
-    }
-
     /// Selects a row and keeps it on screen.
     pub(super) fn select(&mut self, row: usize) {
         if self.workspace_snapshot().is_some() {
@@ -3462,13 +3411,6 @@ impl App {
         }
         self.rows().get(self.selected).map(|(_, row)| *row)
     }
-
-    /// The displayed lead occurrence owns no detail notebook acquisition.
-    pub(super) fn selected_is_lead(&self) -> bool {
-        self.rows()
-            .get(self.selected)
-            .is_some_and(|(origin, _)| *origin == RowOrigin::Lead)
-    }
 }
 
 #[cfg(test)]
@@ -3573,6 +3515,7 @@ pub(crate) mod tests {
         home.tabs.push(super::super::ALL.into());
         home.view.as_mut().unwrap().home = Some(super::super::home::Home {
             workspace: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: crate::config::TokenWindow::DEFAULTS,
             summary: super::super::home::Counts {
                 members: 7,
@@ -5200,12 +5143,16 @@ mod lead_row_tests {
 
 #[cfg(test)]
 mod token_window_tests {
-    use super::tests::{bind, crew};
+    use super::tests::crew;
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
     fn saved_cycle(app: &mut App, key: KeyEvent) {
         assert_eq!(app.key(key), Effect::CycleTokenWindow);
+        save_window(app);
+    }
+
+    fn save_window(app: &mut App) {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "tmt-window-choice-{}-{}",
@@ -5288,6 +5235,7 @@ mod token_window_tests {
         let view = snapshot.view.as_mut().unwrap();
         view.home = Some(super::super::home::Home {
             workspace: Default::default(),
+            window: crate::config::TokenWindow::MINUTE,
             windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
             sections: Vec::new(),
@@ -5848,15 +5796,35 @@ mod token_window_tests {
         assert!(app.home_usage("product", time).is_some());
     }
 
+    fn configure_window_keys(app: &mut App, text: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "ops-window-keys-{}.toml",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::write(&path, text).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn window_binding_overrides_and_text_inputs_keep_their_owner() {
-        let mut app = app();
-        let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
+        let mut app = super::workspace::tests::board();
+        configure_window_keys(&mut app, "[bind]\nu = \"token-window\"\n");
+        let key = KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE);
         saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = true;
         assert_eq!(app.key(key), Effect::None);
-        assert_eq!(app.search, "w");
+        assert_eq!(app.search, "u");
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = false;
         for compose in [
@@ -5884,29 +5852,28 @@ mod token_window_tests {
                 hint: None,
             });
             app.key(key);
-            assert_eq!(app.input.as_ref().unwrap().text, "w");
+            assert_eq!(app.input.as_ref().unwrap().text, "u");
             assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         }
         app.input = None;
         app.search.clear();
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .extend(bind(&[("w", "refresh"), ("W", "token-window")]));
+        configure_window_keys(&mut app, "[bind]\nu = \"refresh\"\nU = \"token-window\"\n");
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         saved_cycle(
             &mut app,
-            KeyEvent::new(KeyCode::Char('W'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('U'), KeyModifiers::NONE),
         );
         assert_eq!(app.token_window, TokenWindow::HOUR);
-        app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
+        configure_window_keys(
+            &mut app,
+            "[bind]\nu = \"refresh\"\n[[squad.product.section]]\ntitle = \"Members\"\n[squad.product.section.bind]\nu = \"token-window\"\n",
+        );
         saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
     #[test]
-    fn window_switch_updates_column_priority_even_with_unchanged_zero_values() {
+    fn source_window_changes_prioritize_columns_even_with_unchanged_zero_values() {
         let mut app = app();
         let settings = crate::config::Config::read(
             std::env::temp_dir().join(format!("active-window-{}.toml", std::process::id())),
@@ -5919,10 +5886,11 @@ mod token_window_tests {
             for (index, column) in view.rows.columns[5..].iter().enumerate() {
                 assert_eq!(column.priority == Some(1), index == selected);
             }
-            saved_cycle(
-                &mut app,
-                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            assert_eq!(
+                app.perform(&Action::parse("token-window").unwrap()),
+                Effect::CycleTokenWindow
             );
+            save_window(&mut app);
         }
     }
 

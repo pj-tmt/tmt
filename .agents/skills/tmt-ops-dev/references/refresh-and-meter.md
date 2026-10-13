@@ -204,8 +204,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `board.tok` select three distinct ascending whole m/h durations from 1m through
   24h, default 1m/5m/60m. Both layers validate even when masked. The config reader
   reports the winning setting path and preserves explicit column titles.
-- HOME projection: global `board.tok` windows live in the retained HOME model;
-  tiles and member grids keep squad overrides. `App::home_header_usage` joins only
+- HOME projection: global `board.tok` windows and the selected display window
+  are acquired into HOME. Refresh restores that global choice independently of
+  squad sampling overrides. Settings and compatible explicit `token-window`
+  bindings cycle it even without a single-squad meter; `w` has no such default.
+  `App::home_header_usage` joins only
   shown sampling squads from existing roster names and meter UUIDs, with no reads.
   It queries actual durations, so a shorter retained ring remains partial in a
   longer global window. Duplicate UUIDs count once per window: prefer more verified

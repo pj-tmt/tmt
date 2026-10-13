@@ -164,6 +164,7 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
     retained.reverse();
     let home = super::super::home::Home {
         workspace: Default::default(),
+        window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
         sections: vec![],
@@ -436,6 +437,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
     );
     let home = super::super::home::Home {
         workspace: Default::default(),
+        window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         summary: Default::default(),
         sections: vec![],

@@ -365,7 +365,9 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
 
 #[test]
 fn home_global_windows_do_not_replace_named_squad_overrides() {
-    let f = Fixture::new("[board]\ntok='1m/1h/2h'\n[squad.a.board]\ntok='2m/5m/10m'\n");
+    let f = Fixture::new(
+        "[board]\ntok='1m/1h/2h'\n[board.token_rate]\nwindow='1h'\n[squad.a.board]\ntok='2m/5m/10m'\n",
+    );
     fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
     for name in ["a", "b"] {
         fs::write(f.root.join(name), roster(name).to_string()).unwrap();
@@ -389,6 +391,21 @@ fn home_global_windows_do_not_replace_named_squad_overrides() {
         ["2m", "5m", "10m"]
     );
     assert_eq!(rates["b"].settings.windows, home.windows);
+    assert_eq!(home.window, crate::config::TokenWindow::HOUR);
+    let mut published = crate::board::app::tests::snapshot(ALL, json!([]));
+    let view = published.view.as_mut().unwrap();
+    view.home = Some(home);
+    view.home_rate = rates;
+    let mut app = crate::board::app::App::new(Some(ALL.into()));
+    app.apply(published);
+    assert!(app.meter.is_none(), "aggregate uses per-squad rings");
+    assert_eq!(app.token_window, crate::config::TokenWindow::HOUR);
+    assert_eq!(app.next_token_window().unwrap().label(), "2h");
+    app.token_window = crate::config::TokenWindow::MINUTE;
+    let mut reloaded = crate::board::app::tests::snapshot(ALL, json!([]));
+    reloaded.view = Ok(app.view.take().unwrap());
+    app.apply(reloaded);
+    assert_eq!(app.token_window, crate::config::TokenWindow::HOUR);
 }
 
 #[test]

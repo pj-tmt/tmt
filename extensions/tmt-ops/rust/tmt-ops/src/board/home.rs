@@ -64,6 +64,8 @@ pub struct SquadLine {
 pub struct Home {
     pub(crate) workspace: super::workspace::observe::OpsWorkspaceSnapshot,
     pub summary: Counts,
+    /// Acquired global display choice; never inferred from a squad override.
+    pub window: crate::config::TokenWindow,
     /// HOME uses global windows; named boards and tiles retain their overrides.
     pub windows: [crate::config::TokenWindow; 3],
     pub sections: Vec<MemberSection>,
@@ -132,7 +134,9 @@ pub fn load(
     home.workspace =
         super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(&squads, &acquired, listed);
     home.workspace.configure(config)?;
-    home.windows = config.token_windows("")?.0;
+    let settings = config.token_rate("")?;
+    home.windows = settings.windows;
+    home.window = settings.window.available(home.windows);
     Ok((public, home, inputs))
 }
 
@@ -268,6 +272,7 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
     Home {
         workspace: Default::default(),
         summary,
+        window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
         sections,
         squads,
