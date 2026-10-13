@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { setTimeout as realWait } from 'node:timers/promises';
-import { expect, it, vi } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { binary } from '@tmt/colab-client';
 import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
@@ -1268,169 +1268,214 @@ it('releasing a batch retry clears only its own set reservation', async () => {
 });
 
 /** Crypto completion uses real worker turns even while the observer clock is fake. */
-async function observationSleep() {
+async function observationSleep(alive = () => true) {
   for (let turn = 0; turn < 100; turn++) {
+    if (!alive()) throw new Error('Observation clock disposed');
     if (vi.getTimerCount() === 1) return;
     await realWait(10);
   }
   throw new Error('Observer did not reach its single sleep');
 }
-async function advanceObservation(ms: number) {
-  // Advance in bounded steps so real signing/verification finishes between reads.
-  for (let remaining = ms; remaining > 0; remaining -= Math.min(1000, remaining)) {
-    await vi.advanceTimersByTimeAsync(Math.min(1000, remaining));
-    await observationSleep();
-  }
-}
-async function pendingObservation() {
-  let published!: () => void;
-  const replied = new Promise<void>((resolve) => {
-    published = resolve;
+describe('active Ask observation', () => {
+  let close: (() => Promise<void>) | undefined;
+  afterEach(async () => {
+    const owned = close;
+    close = undefined;
+    await owned?.();
   });
-  const { store, remote, key } = await setup((root) => {
-    if (root === 'replies') published();
-  });
-  const reads: number[] = [];
-  const replies = new Set<string>();
-  remote.result = async (requestId) => {
-    reads.push(performance.now());
-    return replies.has(requestId)
-      ? { state: 'replied', requestId, message: 'Prompt final' }
-      : { state: 'pending', requestId };
-  };
-  const send = remote.send.bind(remote);
-  remote.send = async (input) => {
-    const result = await send(input);
-    return result.state === 'accepted'
-      ? { ...result, requestId: `req_${input.operationId}` }
-      : result;
-  };
-  const controller = new AskController({ store, remote, key, selection });
-  await controller.destinations();
-  vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
-  const first = controller.prepare(destination());
-  const accepted = await controller.send(first);
-  const stop = new AbortController();
-  const observing = controller.observe(stop.signal);
-  await observationSleep();
-  return { store, remote, controller, reads, replies, first, accepted, stop, observing, replied };
-}
-it('an accepted ask gets a prompt final at sixty seconds without extending its active window on reads', async () => {
-  const f = await pendingObservation();
-  try {
-    await advanceObservation(60001);
-    await observationSleep();
-    f.replies.add(f.accepted.requestId!);
-    await vi.advanceTimersByTimeAsync(3000);
-    await Promise.race([f.replied, realWait(1000)]);
-    expect((await f.store.view(f.first.view.operationId)).reply?.body).toBe('Prompt final');
-    await f.observing;
-    expect(f.reads.at(-1)).toBeLessThanOrEqual(63001);
-    expect(f.remote.sends).toHaveLength(1);
-    expect(vi.getTimerCount()).toBe(0);
-  } finally {
-    f.stop.abort();
-    await f.observing;
-    vi.useRealTimers();
+  async function advanceObservation(clock: { active: boolean; sleepAt: number }, ms: number) {
+    const target = performance.now() + ms;
+    while (performance.now() < target) {
+      await observationSleep(() => clock.active);
+      const step = Math.min(clock.sleepAt, target) - performance.now();
+      expect(step).toBeGreaterThan(0);
+      await vi.advanceTimersByTimeAsync(step);
+      await observationSleep(() => clock.active);
+    }
+    expect(performance.now()).toBe(target);
   }
-});
-it('idle observation resumes the ordinary backoff after ten minutes and stops at the original horizon', async () => {
-  const f = await pendingObservation();
-  try {
-    await advanceObservation(63000);
-    await observationSleep();
-    expect(f.reads.slice(0, 5)).toEqual([0, 2000, 5000, 8000, 11000]);
-    // Stepping waits on the actual scheduled sleep, rather than outrunning crypto.
-    for (let elapsed = 63000; elapsed < 601000; elapsed += 1000) {
-      await vi.advanceTimersByTimeAsync(1000);
+  async function pendingObservation() {
+    let published!: () => void;
+    const replied = new Promise<void>((resolve) => {
+      published = resolve;
+    });
+    const { store, remote, key } = await setup((root) => {
+      if (root === 'replies') published();
+    });
+    const reads: number[] = [];
+    const replies = new Set<string>();
+    remote.result = async (requestId) => {
+      reads.push(performance.now());
+      return replies.has(requestId)
+        ? { state: 'replied', requestId, message: 'Prompt final' }
+        : { state: 'pending', requestId };
+    };
+    const send = remote.send.bind(remote);
+    remote.send = async (input) => {
+      const result = await send(input);
+      return result.state === 'accepted'
+        ? { ...result, requestId: `req_${input.operationId}` }
+        : result;
+    };
+    const controller = new AskController({ store, remote, key, selection });
+    await controller.destinations();
+    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+    const clock = { active: true, sleepAt: 0 };
+    const timeout = globalThis.setTimeout;
+    const timers = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation((callback, delay, ...args) => {
+        clock.sleepAt = performance.now() + Number(delay ?? 0);
+        return timeout(callback, delay, ...args);
+      });
+    const stop = new AbortController();
+    let observing: Promise<void> | undefined;
+    let releaseRead = () => {};
+    close = async () => {
+      clock.active = false;
+      stop.abort();
+      releaseRead();
+      try {
+        await observing;
+      } finally {
+        timers.mockRestore();
+        vi.useRealTimers();
+      }
+    };
+    const first = controller.prepare(destination());
+    const accepted = await controller.send(first);
+    observing = controller.observe(stop.signal);
+    await observationSleep(() => clock.active);
+    return {
+      store,
+      remote,
+      controller,
+      reads,
+      replies,
+      first,
+      accepted,
+      stop,
+      observing,
+      replied,
+      clock,
+      releaseReadOnClose: (release: () => void) => {
+        releaseRead = release;
+      },
+    };
+  }
+  it('an accepted ask gets a prompt final at sixty seconds without extending its active window on reads', async () => {
+    const f = await pendingObservation();
+    try {
+      await advanceObservation(f.clock, 60001);
       await observationSleep();
+      f.replies.add(f.accepted.requestId!);
+      await vi.advanceTimersByTimeAsync(3000);
+      await Promise.race([f.replied, realWait(1000)]);
+      expect((await f.store.view(f.first.view.operationId)).reply?.body).toBe('Prompt final');
+      await f.observing;
+      expect(f.reads.at(-1)).toBeLessThanOrEqual(63001);
+      expect(f.remote.sends).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      f.stop.abort();
+      await f.observing;
     }
-    const tail = f.reads.slice(-4);
-    expect(tail).toEqual([590000, 593000, 596000, 599000]);
-    await advanceObservation(29000);
-    await observationSleep();
-    expect(f.reads.at(-1)).toBe(602000);
-    await vi.advanceTimersByTimeAsync(2000);
-    await observationSleep();
-    expect(f.reads.at(-1)).toBe(632000);
-    // Advancing beyond two hours retires observation; reads never extend the horizon.
-    vi.setSystemTime(Date.now() + ASK_OBSERVATION_MS);
-    await vi.advanceTimersToNextTimerAsync();
-    await f.observing;
-    expect(f.remote.sends).toHaveLength(1);
-    expect(vi.getTimerCount()).toBe(0);
-  } finally {
-    f.stop.abort();
-    await f.observing;
-    vi.useRealTimers();
-  }
-});
-it('a new accepted send wakes an older idle sleep without another dispatch', async () => {
-  const f = await pendingObservation();
-  try {
-    // Age the first wait past the active window, then let it reach its idle sleep.
-    await advanceObservation(601000);
-    await observationSleep();
-    await vi.advanceTimersByTimeAsync(1001);
-    await observationSleep();
-    const second = f.controller.prepare(destination());
-    const accepted = await f.controller.send(second);
-    f.replies.add(accepted.requestId!);
-    expect(f.controller.observe(f.stop.signal)).toBe(f.observing);
-    await vi.advanceTimersByTimeAsync(2000);
-    await observationSleep();
-    expect((await f.store.view(second.view.operationId)).reply?.body).toBe('Prompt final');
-    expect(f.remote.sends).toHaveLength(2);
-    f.stop.abort();
-    await f.observing;
-    expect(vi.getTimerCount()).toBe(0);
-    const reads = f.reads.length;
-    await vi.advanceTimersByTimeAsync(30000);
-    expect(f.reads).toHaveLength(reads);
-  } finally {
-    f.stop.abort();
-    await f.observing;
-    vi.useRealTimers();
-  }
-});
+  });
+  it('idle observation resumes the ordinary backoff after ten minutes and stops at the original horizon', async () => {
+    const f = await pendingObservation();
+    try {
+      await advanceObservation(f.clock, 63000);
+      await observationSleep();
+      expect(f.reads.slice(0, 5)).toEqual([0, 2000, 5000, 8000, 11000]);
+      // Stepping waits on the actual scheduled sleep, rather than outrunning crypto.
+      await advanceObservation(f.clock, 538000);
+      expect(performance.now()).toBe(601000);
+      const tail = f.reads.slice(-4);
+      expect(tail).toEqual([590000, 593000, 596000, 599000]);
+      await advanceObservation(f.clock, 29000);
+      await observationSleep();
+      expect(f.reads.at(-1)).toBe(602000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await observationSleep();
+      expect(f.reads.at(-1)).toBe(632000);
+      // Advancing beyond two hours retires observation; reads never extend the horizon.
+      vi.setSystemTime(Date.now() + ASK_OBSERVATION_MS);
+      await vi.advanceTimersToNextTimerAsync();
+      await f.observing;
+      expect(f.remote.sends).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      f.stop.abort();
+      await f.observing;
+    }
+  });
+  it('a new accepted send wakes an older idle sleep without another dispatch', async () => {
+    const f = await pendingObservation();
+    try {
+      // Age the first wait past the active window, then let it reach its idle sleep.
+      await advanceObservation(f.clock, 601000);
+      expect(performance.now()).toBe(601000);
+      await observationSleep();
+      await vi.advanceTimersByTimeAsync(1001);
+      await observationSleep();
+      const second = f.controller.prepare(destination());
+      const accepted = await f.controller.send(second);
+      f.replies.add(accepted.requestId!);
+      expect(f.controller.observe(f.stop.signal)).toBe(f.observing);
+      await vi.advanceTimersByTimeAsync(2000);
+      await observationSleep();
+      expect((await f.store.view(second.view.operationId)).reply?.body).toBe('Prompt final');
+      expect(f.remote.sends).toHaveLength(2);
+      f.stop.abort();
+      await f.observing;
+      expect(vi.getTimerCount()).toBe(0);
+      const reads = f.reads.length;
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(f.reads).toHaveLength(reads);
+    } finally {
+      f.stop.abort();
+      await f.observing;
+    }
+  });
 
-it('an accepted send during a result read wakes before the old cycle can install a sleep', async () => {
-  const f = await pendingObservation();
-  let entered!: () => void;
-  const reading = new Promise<void>((resolve) => {
-    entered = resolve;
-  });
-  let finish!: () => void;
-  const blocked = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const original = f.remote.result.bind(f.remote);
-  let firstRead = true;
-  f.remote.result = async (requestId) => {
-    if (firstRead) {
-      firstRead = false;
-      entered();
-      await blocked;
+  it('an accepted send during a result read wakes before the old cycle can install a sleep', async () => {
+    const f = await pendingObservation();
+    let entered!: () => void;
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let finish!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    f.releaseReadOnClose(finish);
+    const original = f.remote.result.bind(f.remote);
+    let firstRead = true;
+    f.remote.result = async (requestId) => {
+      if (firstRead) {
+        firstRead = false;
+        entered();
+        await blocked;
+      }
+      return original(requestId);
+    };
+    try {
+      await vi.advanceTimersToNextTimerAsync();
+      await reading;
+      const second = f.controller.prepare(destination());
+      const accepted = await f.controller.send(second);
+      f.replies.add(accepted.requestId!);
+      finish();
+      await Promise.race([f.replied, realWait(1000)]);
+      expect((await f.store.view(second.view.operationId)).reply?.body).toBe('Prompt final');
+      expect(f.remote.sends).toHaveLength(2);
+      f.stop.abort();
+      await f.observing;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      finish();
+      f.stop.abort();
+      await f.observing;
     }
-    return original(requestId);
-  };
-  try {
-    await vi.advanceTimersToNextTimerAsync();
-    await reading;
-    const second = f.controller.prepare(destination());
-    const accepted = await f.controller.send(second);
-    f.replies.add(accepted.requestId!);
-    finish();
-    await Promise.race([f.replied, realWait(1000)]);
-    expect((await f.store.view(second.view.operationId)).reply?.body).toBe('Prompt final');
-    expect(f.remote.sends).toHaveLength(2);
-    f.stop.abort();
-    await f.observing;
-    expect(vi.getTimerCount()).toBe(0);
-  } finally {
-    finish();
-    f.stop.abort();
-    await f.observing;
-    vi.useRealTimers();
-  }
+  });
 });
