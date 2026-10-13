@@ -1,6 +1,6 @@
 use super::{
-    OwnedSkill, ProviderEnvironment, Refusal, inspect_local_drift, install, install_office,
-    install_owned, owned::validate, owners, refresh, refusal, remove_owned,
+    OwnedSkill, ProviderEnvironment, Refusal, inspect_local_drift, install_owned, owned::validate,
+    owners, refusal, remove_owned,
 };
 use crate::test_support::TestDirectory;
 use std::{
@@ -119,96 +119,6 @@ fn api_names_refuse_unmanaged_targets_and_force_preserves_a_backup() {
         assert_eq!(read_skill(backup), "user content");
         assert_eq!(read_skill(&target), "api content");
     }
-}
-
-#[test]
-fn office_links_published_before_owners_existed_are_adopted_without_force() {
-    let (_directory, env, global, root) = fixture();
-    install(&env, &global, None, None, false).unwrap();
-    install_office(&env, &global, false).unwrap();
-    let office = root.join("tmt-office");
-    let core_link = fs::read_link(&office).unwrap();
-
-    let adopted = install_owned(
-        &env,
-        &global,
-        "office",
-        &[
-            skill("tmt-office", "office from its release"),
-            skill("tmt-prop-create", "props"),
-            skill("tmt-avatar-create", "avatars"),
-        ],
-        false,
-    )
-    .unwrap();
-    assert_eq!(
-        adopted.published.len(),
-        3,
-        "one target per name, no duplicates"
-    );
-    assert!(
-        adopted
-            .published
-            .iter()
-            .all(|item| item.changed && item.backup.is_none())
-    );
-    assert_ne!(fs::read_link(&office).unwrap(), core_link);
-    assert_eq!(read_skill(&office), "office from its release");
-    assert_eq!(owners(&global).unwrap()["tmt-prop-create"], "office");
-    // Core's own skills are untouched and core refresh sees no extension names.
-    assert!(fs::symlink_metadata(root.join("tmt")).unwrap().is_symlink());
-    let refreshed = refresh(&global).unwrap();
-    assert!(refreshed.conflicts.is_empty());
-    assert_eq!(
-        refreshed.skipped.len(),
-        3,
-        "held names are skipped, not refreshed"
-    );
-    // Core's Office facade leaves the adopted names to their owner.
-    let facade = install_office(&env, &global, false).unwrap();
-    assert!(facade.installed.is_empty());
-    assert_eq!(read_skill(&office), "office from its release");
-}
-
-#[test]
-fn only_office_adopts_core_office_links_without_force() {
-    let (_directory, env, global, root) = fixture();
-    install(&env, &global, None, None, false).unwrap();
-    install_office(&env, &global, false).unwrap();
-    let office = root.join("tmt-office");
-    let core_link = fs::read_link(&office).unwrap();
-
-    let refused = install_owned(
-        &env,
-        &global,
-        "squad",
-        &[skill("tmt-office", "squad's office")],
-        false,
-    )
-    .unwrap_err();
-    assert_eq!(
-        claimed(&refused.cause),
-        Some(("tmt-office".into(), "core".into()))
-    );
-    assert!(refused.report.published.is_empty());
-    assert_eq!(fs::read_link(&office).unwrap(), core_link);
-    assert!(!global.join("skill-owners.json").exists());
-
-    let forced = install_owned(
-        &env,
-        &global,
-        "squad",
-        &[skill("tmt-office", "squad's office")],
-        true,
-    )
-    .unwrap();
-    assert!(forced.published[0].changed);
-    assert!(
-        forced.published[0].backup.is_none(),
-        "a managed link is relinked"
-    );
-    assert_eq!(read_skill(&office), "squad's office");
-    assert_eq!(owners(&global).unwrap()["tmt-office"], "squad");
 }
 
 #[test]

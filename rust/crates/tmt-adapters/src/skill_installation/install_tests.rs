@@ -1,7 +1,4 @@
-use super::{
-    InstallFailure, ProviderEnvironment, bundled_skill, bundled_skill_named, install,
-    install_office,
-};
+use super::{InstallFailure, ProviderEnvironment, bundled_skill, install};
 use crate::test_support::TestDirectory;
 use sha2::{Digest, Sha256};
 use std::{
@@ -35,18 +32,6 @@ fn assert_failure_preserves(failure: &InstallFailure, expected: &str) {
     assert!(failure.to_string().contains(expected), "{failure}");
     assert!(failure.report.installed.is_empty());
     assert!(failure.pending_backup.is_none());
-}
-
-fn office_target(target: &Path) -> PathBuf {
-    target.parent().unwrap().join("tmt-office")
-}
-
-fn prop_create_target(target: &Path) -> PathBuf {
-    target.parent().unwrap().join("tmt-prop-create")
-}
-
-fn avatar_create_target(target: &Path) -> PathBuf {
-    target.parent().unwrap().join("tmt-avatar-create")
 }
 
 #[test]
@@ -91,157 +76,6 @@ fn custom_install_uses_exact_target_and_does_not_invent_provider() {
     let source = assert_link(&custom);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
     assert_eq!(fs::read_dir(custom.parent().unwrap()).unwrap().count(), 2);
-}
-
-#[test]
-fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() {
-    let (directory, environment, global, home) = fixture();
-    let custom_root = PathBuf::from("custom skills");
-    install(&environment, &global, None, Some(&custom_root), false).unwrap();
-    let custom_core = directory.path.join("cwd/custom skills/tmt");
-    assert!(!office_target(&custom_core).exists());
-    assert!(!home.join(".agents/skills/tmt").exists());
-
-    let first = install_office(&environment, &global, false).unwrap();
-    let office_targets = first
-        .installed
-        .iter()
-        .map(|item| item.target.clone())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        office_targets,
-        [
-            home.join(".agents/skills/tmt-office"),
-            home.join(".agents/skills/tmt-prop-create"),
-            home.join(".agents/skills/tmt-avatar-create"),
-            office_target(&custom_core),
-            prop_create_target(&custom_core),
-            avatar_create_target(&custom_core),
-        ]
-        .into_iter()
-        .collect()
-    );
-    assert!(first.installed.iter().all(|item| {
-        matches!(
-            item.name,
-            "tmt-office" | "tmt-prop-create" | "tmt-avatar-create"
-        ) && item.changed
-            && item.backup.is_none()
-    }));
-    for target in office_targets {
-        let name = target.file_name().unwrap().to_str().unwrap();
-        let installed = fs::read(assert_link(&target).join("SKILL.md")).unwrap();
-        assert_eq!(installed, bundled_skill_named(name).unwrap());
-        let guidance = String::from_utf8(installed).unwrap();
-        if name == "tmt-prop-create" {
-            assert!(!guidance.contains("extensions/tmt-office/contracts/"));
-            for required in [
-                "\"formatVersion\": 1",
-                "tmt office prop validate --file",
-                "tmt office prop ls --local",
-                "tmt office prop install --local",
-                "tmt office layout show",
-                "tmt office layout apply",
-                "tmt office prop rm --local",
-                "`.layout`",
-            ] {
-                assert!(
-                    guidance.contains(required),
-                    "missing creator guidance: {required}"
-                );
-            }
-        } else if name == "tmt-avatar-create" {
-            assert!(!guidance.contains("extensions/tmt-office/contracts/"));
-            for required in [
-                "`formatVersion: 1` for 16×24 pixels",
-                "`2` for 32×48 pixels",
-                "V2 rows contain exactly 64 characters",
-                "tmt office avatar validate --file",
-                "tmt office avatar ls --local",
-                "tmt office avatar install --local",
-                "tmt office profile show --local",
-                "tmt office profile apply --local",
-                "tmt office avatar rm --local",
-                "maintained `Avatar` composition",
-            ] {
-                assert!(
-                    guidance.contains(required),
-                    "missing avatar creator guidance: {required}"
-                );
-            }
-        } else {
-            for required in [
-                "`tmt-prop-create`",
-                "`tmt-avatar-create`",
-                "tmt office prop ls --local",
-                "tmt office prop install --local",
-                "tmt office prop rm --local",
-                "`.layout`",
-                "{\"version\":1,\"map\":{...},\"objects\":[...]}",
-                "tmt office layout show",
-                "tmt office layout apply",
-            ] {
-                assert!(
-                    guidance.contains(required),
-                    "missing Office guidance: {required}"
-                );
-            }
-        }
-    }
-    assert!(custom_core.exists());
-    assert!(!home.join(".agents/skills/tmt").exists());
-
-    let second = install_office(&environment, &global, false).unwrap();
-    assert_eq!(second.installed.len(), 6);
-    assert!(second.installed.iter().all(|item| !item.changed));
-}
-
-#[test]
-fn office_install_replaces_an_existing_published_name_without_force() {
-    let (_directory, environment, global, home) = fixture();
-    let target = home.join(".agents/skills/tmt-avatar-create");
-    fs::create_dir_all(target.parent().unwrap()).unwrap();
-    fs::write(&target, b"old copy").unwrap();
-    let report = install_office(&environment, &global, false).unwrap();
-    assert_eq!(report.installed.len(), 3);
-    assert!(report.installed.iter().all(|item| item.backup.is_none()));
-    assert_eq!(
-        fs::read(target.join("SKILL.md")).unwrap(),
-        bundled_skill_named("tmt-avatar-create").unwrap()
-    );
-}
-
-#[test]
-fn office_install_uses_the_detected_provider_root() {
-    let (directory, _environment, global, home) = fixture();
-    fs::create_dir(home.join(".claude")).unwrap();
-    let environment =
-        ProviderEnvironment::from_parts(home.clone(), directory.path.join("cwd"), Vec::new(), []);
-
-    let report = install_office(&environment, &global, false).unwrap();
-    assert_eq!(report.installed.len(), 3);
-    assert!(
-        report
-            .installed
-            .iter()
-            .all(|item| item.agent == Some(&crate::drivers::claude::DRIVER))
-    );
-    let targets = report
-        .installed
-        .iter()
-        .map(|item| item.target.clone())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        targets,
-        [
-            home.join(".claude/skills/tmt-avatar-create"),
-            home.join(".claude/skills/tmt-office"),
-            home.join(".claude/skills/tmt-prop-create"),
-        ]
-        .into_iter()
-        .collect()
-    );
-    assert!(!home.join(".agents/skills/tmt-office").exists());
 }
 
 #[test]

@@ -597,7 +597,7 @@ describe('per-tag release run (native-release.yml)', () => {
     expect(job(run, 'plan')).toContain('retry, hold and rerun need prepare turned off.');
   });
 
-  it('refuses parked Office before preparation or draft planning, retaining released products', () => {
+  it('refuses retired products before preparation or draft planning, retaining released products', () => {
     const plan = job(run, 'plan');
     expect(plan).toContain(
       'node typescript/scripts/native-release-policy.mjs require-released "$PRODUCT"'
@@ -631,7 +631,9 @@ describe('per-tag release run (native-release.yml)', () => {
         expect(result.status).toBe(1);
         expect(result.stdout).toBe('');
         expect(result.stderr.trim()).toBe(
-          `${product} is not released (release: false in .github/components.json).`
+          product === 'office'
+            ? 'Unknown native product: office'
+            : `${product} is not released (release: false in .github/components.json).`
         );
       }
       for (const product of ['cli', 'ops', 'driver-herdr', 'remote', 'colab']) {
@@ -925,7 +927,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     for (const input of ['product', 'tag', 'sha']) {
       expect(upgrade.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
-    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/);
+    expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- ops/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
       /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.prove\.outputs\.reason \}\}\n/m
@@ -1558,9 +1560,7 @@ describe('public install smoke (native-release-smoke.yml)', () => {
     for (const input of ['product', 'tag']) {
       expect(smokeWorkflow.match(new RegExp(`^ {6}${input}:$`, 'gm')), input).toHaveLength(2);
     }
-    expect(smokeWorkflow).toMatch(
-      /type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- ops/
-    );
+    expect(smokeWorkflow).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- ops/);
   });
 
   it('installs on the same four hosts as the upgrade proof', () => {

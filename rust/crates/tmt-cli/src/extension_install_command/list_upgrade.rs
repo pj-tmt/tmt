@@ -104,7 +104,7 @@ pub(super) fn upgrade_at(
         exact: to,
         unpin,
     };
-    let verifier = crate::office_facade::release_verifier(product);
+    let verifier = None;
     let checkpoint = interruptible("Extension update interrupted before activation.")?;
     let report = match selected {
         Some(version) => native_install::upgrade_product_selected(

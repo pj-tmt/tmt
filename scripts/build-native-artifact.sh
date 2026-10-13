@@ -8,21 +8,15 @@ case "${1:-}" in
   --rust-notices-only) notices_only=true; frontend_notices=false; shift ;;
 esac
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|office|ops|driver-herdr|remote|colab|digest]' >&2
+  printf '%s\n' 'Usage: scripts/build-native-artifact.sh [--notices-only|--rust-notices-only] <cargo-dist target> [cli|ops|driver-herdr|remote|colab|digest]' >&2
   exit 2
 fi
 target=$1
 product=${2:-cli}
-case "$product" in cli|office|ops|driver-herdr|remote|colab|digest) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
+case "$product" in cli|ops|driver-herdr|remote|colab|digest) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 # Native releases do not inherit a developer-hosted Colab inventory.
 unset TMT_COLAB_HOSTING_DIR
-if [ "$product" = office ] && [ "$frontend_notices" = true ]; then
-  cd "$repo/typescript"
-  corepack pnpm office:build:local 1>&2
-  TMT_OFFICE_SPA_DIR="$repo/target/office-spa"
-  export TMT_OFFICE_SPA_DIR
-fi
 if [ "$product" = colab ] && [ "$frontend_notices" = true ]; then
   cd "$repo/typescript"
   corepack pnpm@10.33.0 install --frozen-lockfile --ignore-scripts 1>&2
@@ -126,11 +120,6 @@ if [ "$product" = cli ]; then
     --config target/native-notices/about.toml --target "$target" --locked --offline --fail about.hbs \
     --output-file target/native-notices/HERDR-NOTICES.txt 1>&2
   cat target/native-notices/HERDR-NOTICES.txt >> target/native-notices/THIRD-PARTY-NOTICES.txt
-fi
-if [ "$product" = office ] && [ "$frontend_notices" = true ]; then
-  # Vite owns the inventory of dependencies actually included in the SPA bundle.
-  test -s "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt"
-  cat "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt
 fi
 if [ "$product" = colab ] && [ "$frontend_notices" = true ]; then
   cat "$TMT_COLAB_APP_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt

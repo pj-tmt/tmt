@@ -1,6 +1,6 @@
 //! `tmt uninstall`: plan every removal read-only, ask once, then remove in a
-//! fixed order with the running CLI last: a running Office service is stopped,
-//! then hooks, skills, extensions, the CLI, the setup record, and the data
+//! fixed order with the running CLI last: hooks, current skills, extensions,
+//! the CLI, the setup record, and the data
 //! directory only with `--purge`. Anything that
 //! is no longer what TMT wrote is kept and reported. A failed step stops the
 //! run; running it again resumes, because every step is idempotent.
@@ -49,8 +49,6 @@ fn failure(error: impl std::error::Error + 'static) -> Failure {
 }
 
 struct Plan {
-    /// A running local Office service, stopped before any file is removed.
-    office_running: bool,
     hooks: Vec<HookStep>,
     skills: SkillsRemoval,
     products: Vec<(Product, ProductRemoval)>,
@@ -62,9 +60,6 @@ struct Plan {
 impl Plan {
     fn removals(&self) -> Vec<(&'static str, PathBuf)> {
         let mut rows = Vec::new();
-        if self.office_running {
-            rows.push(("stop", PathBuf::from("the local Office service")));
-        }
         for step in &self.hooks {
             if let HookStep::Remove(planned) = step {
                 rows.push(("hooks", planned.change.path.clone()));
@@ -196,19 +191,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
     let drivers = Registry::builtin();
     let prefix = prefix(requested).map_err(failure)?;
     // Read-only: an unreadable record stops here, before anything changes.
-    // A service whose state cannot be confirmed stops the plan: removing its
-    // files underneath it could leave a process without its installation.
-    let office_running =
-        crate::office_facade::service_control::running(&paths).map_err(|error| {
-            Failure::new(
-                "UNINSTALL_ERROR",
-                format!("Could not confirm whether local Office is running: {error}"),
-                1,
-            )
-            .suggestion("run tmt office stop, then tmt uninstall again".into())
-        })?;
     let plan = Plan {
-        office_running,
         hooks: removal::plan_hook_removal(&paths.global_dir, &environment, &drivers)
             .map_err(failure)?,
         skills: skill_installation::plan_uninstall(&environment, &paths.global_dir)
@@ -259,7 +242,7 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
         return Ok(());
     }
     let mut removed = Vec::new();
-    let result = remove(&plan, &paths, &environment, &prefix, &mut removed);
+    let result = remove(&plan, &environment, &prefix, &mut removed);
     let deleted = result.as_ref().is_ok_and(|deleted| *deleted);
     if let Err(error) = result {
         return Err(Failure::new(
@@ -307,14 +290,10 @@ fn run(purge: bool, yes: bool, requested: Option<&str>, mode: OutputMode) -> Res
 /// The fixed order. Returns whether the data directory was deleted.
 fn remove(
     plan: &Plan,
-    paths: &ConfigPaths,
     environment: &ProviderEnvironment,
     prefix: &Path,
     removed: &mut Vec<PathBuf>,
 ) -> io::Result<bool> {
-    if plan.office_running {
-        crate::office_facade::service_control::stop(paths)?;
-    }
     for step in &plan.hooks {
         removal::remove_hooks(&plan.data, step)?;
         if let HookStep::Remove(planned) = step {
@@ -412,25 +391,18 @@ fn report(plan: &Plan, removed: &[PathBuf], deleted: bool) -> serde_json::Value 
     json!({
         "removed": removed,
         "kept": plan.kept().into_iter().map(|(path, reason)| json!({"path": path, "reason": reason})).collect::<Vec<_>>(),
-        "officeStopped": plan.office_running,
         "data": {"path": plan.data, "deleted": deleted},
     })
 }
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::core(
         "fix the cause, then run tmt uninstall again; completed steps are not repeated",
         &[" again"],
         &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "run tmt office stop, then tmt uninstall again",
-        &[", then", " again"],
-        &[],
-    ),
-];
+    )];
 
 #[cfg(test)]
 mod presentation_tests {
@@ -439,7 +411,6 @@ mod presentation_tests {
     fn plan() -> Plan {
         let prefix = Path::new("/prefix");
         Plan {
-            office_running: false,
             hooks: Vec::new(),
             skills: SkillsRemoval::default(),
             products: products_in_removal_order()

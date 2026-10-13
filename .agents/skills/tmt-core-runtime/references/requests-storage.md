@@ -103,7 +103,7 @@ owns event cardinality, direction, window rounding and independent 30-day retent
   preparation, for pane and inbox routes, before cadence or attention writes.
   CLI preflight alone is no atomic fence. Direct `talk --room` names one recipient,
   not a fan-out. Presence, self-reported status and roster membership remain
-  distinct; room commands require no Office installation or tmux probe when an
+  distinct; room commands require no extension installation or tmux probe when an
   identity is explicitly selected.
 - Core `dispatch` composes values and normalized audience; its adapter owns strict
   JSON and intent digests. `storage::dispatch` borrows `TransactionRequests` so

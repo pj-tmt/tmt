@@ -228,7 +228,7 @@ pub(in crate::grammar) fn notes() -> Command {
                 storage(spec!(
                     "path",
                     "Initialize and print the local Markdown path",
-                    details = "Saved identities only. Edit the returned Markdown file directly; an Office\nnotebook object reads this same file. Office reads never create missing notes.",
+                    details = "Saved identities only. Edit the returned Markdown file directly. Reads never create missing notes.",
                     [
                         "Print the path of your notes file" => "tmt notes path",
                         "For another saved identity" => "tmt notes path --identity reviewer",

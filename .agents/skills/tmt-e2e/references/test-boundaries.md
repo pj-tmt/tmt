@@ -42,17 +42,7 @@ Native process tests prove public CLI contracts through the selected real binary
 storage tests independently prove migrations, rollback, contention, retention
 and late-final behavior. Docker adds private tmux, caller/lifecycle, transport
 and cross-process ordering. Tooling tests prove verifiers and policy, not runtime
-or release archives. Real-companion `office-*` scenarios stay Office-owned,
-including stress selection; shared setup stays in support. Retained-release
-setup uses the private installer, while public frozen-product refusal belongs in
-native lifecycle scenarios. See [scenario ownership](e2e-scenarios.md#scenario-ownership) and the
-[smoke matrix](runtime-smoke-matrix.md) before replacing coverage.
-
-Office's opt-in `playwright.visual.config.ts` reuses its local HTTP fixture and
-real renderer for reviewed pixel baselines. Its read-only world is not an
-admission or persistence oracle; the partition verifier keeps visual scenarios
-separate from standard CI and capacity diagnostics. Geometry, gesture history
-and native durability retain their own test owners.
+or release archives.
 
 ## Executable fixtures
 
@@ -65,7 +55,7 @@ explicit executable or deliberately non-executable modes.
 Rust's private `tmt-test-support` library owns only `write_executable`: a bounded
 short-lived shell writer through `tmt-invoke`, with exact bytes/mode and no retries
 or readiness policy. The reviewed untargeted dev consumers are Adapters, CLI,
-Squad, Office, Colab and Office Command; production/build edges are forbidden.
+Ops and Colab; production/build edges are forbidden.
 The architecture guard enforces canonical dependency names and `dist=false`.
 Every additional helper needs its own two-caller justification and review.
 Follow [DEVELOPMENT's ETXTBSY rules](../../../../DEVELOPMENT.md#rust-checks)

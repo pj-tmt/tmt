@@ -2,8 +2,7 @@
   "$comment": [
     "The one component map. typescript/scripts/ci-scope.mjs reads it to decide which CI consumers a changed path selects; release-cut.mjs reads it for released-root membership at the exact main cut.",
     "components: who owns which paths. `owns` roots minus `excludes` decide ownership, a `selectedBy` glob wins over the root, and `package` is the Cargo package.",
-    "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification. Component ownership and Office-specific machinery decide frozen Office verification in ci-scope.mjs; rules do not select Office.",
-    "Office SPA, browser and local-service/companion verification share the ownership-only Office selector in ci-scope.mjs; weekly/manual runs cover shared inputs, while merge groups and main pushes never select Office work.",
+    "rules: ordered, the first rule whose `paths` match a changed path decides native verification (Rust, tooling and E2E jobs). No match retains full native verification.",
     "migrations: the source files that list a component's SQLite migrations; outside the alpha channel a release that has more entries in one than the last published release of that component is held for the owner, while an alpha only reports them (typescript/scripts/publication-gates.mjs).",
     "skills: true when the component's native archive carries the agent-skills tree extensions/<name>/skills (cargo-dist include ../../skills); typescript/scripts/component-skills.mjs reads it for the archive policy and verifier, and component-skills.test.ts checks the tree and the include.",
     "scopedChecks: a component that cannot affect the others (only Ops) lists the native test files and E2E files its own scope runs; ci-scope.mjs turns that into the native_scope outputs.",
@@ -20,7 +19,6 @@
       "package": "tmt-cli",
       "owns": ["."],
       "excludes": [
-        "extensions/tmt-office",
         "extensions/tmt-ops",
         "extensions/tmt-digest",
         "extensions/tmt-remote",
@@ -49,20 +47,6 @@
       "bootstrapSha": "e2aedb34b75ee551252a53174a0c377da27e12a9",
       "initialVersion": "0.1.0-alpha.1",
       "requiresCliSha": "506abd65febb889144bfb84cbadf1932cc90f995"
-    },
-    "office": {
-      "package": "tmt-office",
-      "releaseStatus": "parked",
-      "owns": ["extensions/tmt-office"],
-      "release": false,
-      "migrations": ["extensions/tmt-office/rust/tmt-office-storage/src/schema.rs"],
-      "selectedBy": [
-        "typescript/test/native/office-*",
-        "typescript/test/stress/office-*",
-        "typescript/test/e2e/office-*",
-        "typescript/test/tooling/office-*",
-        "typescript/test/support/office-*"
-      ]
     },
     "ops": {
       "package": "tmt-ops",
@@ -267,7 +251,7 @@
     {
       "id": "browser-addon",
       "consumers": [],
-      "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native and Office jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
+      "why": "Private MV3 shell has its own browser-addon.yml workflow filtered to shell and consumed tooling inputs; native jobs read none of its files. Positive and prefix-negative fixtures guard this boundary.",
       "paths": [
         "extensions/tmt-remote/typescript/browser-addon/**",
         ".github/workflows/browser-addon.yml"
@@ -276,20 +260,14 @@
     {
       "id": "colab-rust",
       "consumers": ["native"],
-      "why": "Colab Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+      "why": "Colab Rust retains full workspace checks.",
       "paths": ["extensions/tmt-colab/rust/**"]
     },
     {
       "id": "remote-rust",
       "consumers": ["native"],
-      "why": "Remote Rust retains full workspace checks; frozen Office selection follows its own ownership rather than private release ownership.",
+      "why": "Remote Rust retains full workspace checks.",
       "paths": ["extensions/tmt-remote/rust/**"]
-    },
-    {
-      "id": "office-web",
-      "consumers": [],
-      "why": "The Office application and its documentation: checked by the Office web jobs only.",
-      "paths": ["extensions/tmt-office/typescript/apps/office/**", "extensions/tmt-office/docs/**"]
     },
     {
       "id": "native-source",
@@ -298,15 +276,9 @@
       "paths": ["rust/**", "skills/**", "extensions/tmt-ops/**"]
     },
     {
-      "id": "office-rust",
-      "consumers": ["native"],
-      "why": "Office's Rust crates remain in workspace Cargo checks and select the frozen Office web, local-service and companion suites through Office ownership.",
-      "paths": ["extensions/tmt-office/rust/**"]
-    },
-    {
       "id": "native-tests",
       "consumers": ["native"],
-      "why": "Test suites and E2E scenarios retain native coverage. Office-owned native suites additionally select Office verification; shared support changes rely on weekly/manual Office runs.",
+      "why": "Test suites and E2E scenarios retain native coverage.",
       "paths": [
         "typescript/test/native/**",
         "typescript/test/tooling/**",

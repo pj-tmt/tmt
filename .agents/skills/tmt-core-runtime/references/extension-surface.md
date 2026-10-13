@@ -25,7 +25,7 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   `finish_parse` and returns `JSON_UNSUPPORTED` before operand validation. `OutputMode` holds only JSON;
   unsupported `--verbose`/`--debug` fail with `USAGE_ERROR` before effects.
 - Core names and aliases are reserved before external PATH dispatch; the recursive listing
-  guard in `tmt-cli-style::audit` covers core, Office and Squad.
+  guard in `tmt-cli-style::audit` covers core and Ops.
 - `skill_reminder` prints at most one best-effort stderr line after a successful result and
   never changes JSON or raw stdout; `TMT_HINTS=off` disables transition hints, not error
   recovery or drift reports.

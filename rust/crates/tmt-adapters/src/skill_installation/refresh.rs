@@ -64,6 +64,18 @@ pub(super) fn refresh_with_publisher(
             let mut locations = BTreeSet::new();
             let mut sources = None;
             for target in targets {
+                // Discontinued names retain their original links and backing generations.
+                // Skipping them grants no ownership or publication authority.
+                if target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        tmt_core::skill_catalog::HISTORICAL_BUNDLE_NAMES[2..].contains(&name)
+                    })
+                {
+                    report.skipped.push(target);
+                    continue;
+                }
                 let location = files::entry_location(&target)?;
                 if !locations.insert(location) {
                     continue;

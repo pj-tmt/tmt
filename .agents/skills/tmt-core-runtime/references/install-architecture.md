@@ -28,8 +28,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   discovery before replacement. API names/owners cannot authorize catalog replacement.
   Name claims are checked before publication;
   removal deletes only links into the owner's store.
-- The Office skill sources under `extensions/tmt-office/skills/` are still embedded into the core
-  bundle (extraction debt owned by #328, not a second source).
+- Historical bundle inventories remain verification metadata only; retired guidance is no longer embedded or published. Refresh and default uninstall preserve its existing links, owner records and immutable sources. Full inventory and digest admission still fences old Core-name replacement.
 
 ## Native installation
 
@@ -85,7 +84,7 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
 
 - `native_install::Product` is fixed policy with no filesystem or network effect: identity,
   inventory, namespace and links for the CLI and the official extensions (Ops with the sole `tmt-ops`
-  link, Remote, Colab, Digest, Office). Archive data never adds a product. Every product uses one
+  link, Remote, Colab and Digest). Archive data never adds a product. Every product uses one
   acquisition, receipt and atomic-publication path with independent links, lock and current
   release. Manifest selection uses product and target together and rejects ambiguous or multiply
   owned artifacts.
@@ -249,10 +248,6 @@ the move is a bootstrap reinstall.
   come from the fixed product table. Ops, Remote, Colab and Digest are registered for installation;
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
   and changes nothing. Digest remains unpublished until its release activation.
-- Office is frozen: install and explicit upgrade refuse before consent or acquisition, root
-  upgrade skips it, listing marks an existing one frozen and never looks up an upgrade, and
-  `tmt office install|upgrade` share the same `require_installable` guard. Historical receipts and
-  Office skill names stay available for listing and consented removal.
 - Install, upgrade and uninstall need consent (`--yes` or a prompt) and refuse non-interactive
   runs without it. `ls` reads local receipts only; `--check` adds one bounded metadata lookup
   and reports `unknown` on failure.

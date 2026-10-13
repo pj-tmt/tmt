@@ -17,7 +17,7 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
     manifestFile: string,
     archiveFile: string,
     target: string,
-    product?: 'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
+    product?: 'cli' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
     options?: { readonly release?: boolean }
   ) => NativeArtifact;
   withNativeArtifact: <T>(
@@ -34,11 +34,10 @@ const { shipsSkills } = (await import(
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
 const COMPANIONS: Record<
-  'cli' | 'office' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
+  'cli' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr',
   readonly string[]
 > = {
   cli: ['tmt-driver-herdr'],
-  office: [],
   ops: [],
   squad: [],
   remote: [],
@@ -57,15 +56,7 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
-  readonly product?:
-    | 'cli'
-    | 'office'
-    | 'ops'
-    | 'squad'
-    | 'remote'
-    | 'colab'
-    | 'digest'
-    | 'driver-herdr';
+  readonly product?: 'cli' | 'ops' | 'squad' | 'remote' | 'colab' | 'digest' | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
   /** Whether the manifest declares the `skills` asset (default: component skills declaration). */
@@ -232,7 +223,7 @@ describe('native artifact policy', () => {
             `tmt-${product}`,
           ]);
         });
-        for (const other of ['cli', 'office', 'ops', 'remote', 'colab', 'digest'] as const) {
+        for (const other of ['cli', 'ops', 'remote', 'colab', 'digest'] as const) {
           if (other === product) continue;
           expect(() =>
             selectNativeArtifact(artifact.manifestFile, artifact.archiveFile, TARGET, other)
@@ -345,27 +336,26 @@ describe('native artifact policy', () => {
       });
     }
   );
-
-  it('verifies Office through the shared allowlist without accepting CLI ownership or a non-executable payload', async () => {
+  it('verifies Remote through the shared allowlist without accepting CLI ownership or a non-executable payload', async () => {
     await withSandbox(async (sandbox) => {
-      const office = await createArchiveFixture(sandbox, { product: 'office' });
-      await withNativeArtifact(office.archiveFile, office.metadata, (root) => {
+      const remote = await createArchiveFixture(sandbox, { product: 'remote' });
+      await withNativeArtifact(remote.archiveFile, remote.metadata, (root) => {
         expect(fs.readdirSync(root).sort()).toEqual([
           'LICENSE',
           'NATIVE-INSTALL.md',
           'THIRD-PARTY-NOTICES.txt',
-          'tmt-office',
+          'tmt-remote',
         ]);
-        expect(fs.readFileSync(path.join(root, 'tmt-office'), 'utf8')).toBe('tmt-office fixture\n');
+        expect(fs.readFileSync(path.join(root, 'tmt-remote'), 'utf8')).toBe('tmt-remote fixture\n');
       });
-      expect(() => selectNativeArtifact(office.manifestFile, office.archiveFile, TARGET)).toThrow(
+      expect(() => selectNativeArtifact(remote.manifestFile, remote.archiveFile, TARGET)).toThrow(
         'Archive must belong to the TMT release'
       );
       const cli = await createArchiveFixture(sandbox);
       expect(() =>
-        selectNativeArtifact(cli.manifestFile, cli.archiveFile, TARGET, 'office')
+        selectNativeArtifact(cli.manifestFile, cli.archiveFile, TARGET, 'remote')
       ).toThrow('Archive must belong to the TMT release');
-      const invalid = await createArchiveFixture(sandbox, { product: 'office', executable: false });
+      const invalid = await createArchiveFixture(sandbox, { product: 'remote', executable: false });
       await expect(
         withNativeArtifact(invalid.archiveFile, invalid.metadata, () => undefined)
       ).rejects.toThrow('Native executable lacks execute permission');

@@ -34,65 +34,6 @@ fn exact_extension_install_accepts_release_proof_arguments() {
 }
 
 #[test]
-fn extension_preflight_requires_both_named_files_and_rejects_execution_flags() {
-    use crate::invocation::OfficeOperation;
-    assert_eq!(
-        parsed(&[
-            "office",
-            "extension",
-            "validate",
-            "--file",
-            "definition.json",
-            "--instance",
-            "instance.json"
-        ])
-        .invocation,
-        Invocation::Office {
-            prefix: None,
-            operation: OfficeOperation::ExtensionValidate {
-                file: "definition.json".into(),
-                instance: "instance.json".into()
-            }
-        }
-    );
-    for invalid in [
-        vec![
-            "office",
-            "extension",
-            "validate",
-            "--file",
-            "definition.json",
-        ],
-        vec![
-            "office",
-            "extension",
-            "validate",
-            "--instance",
-            "instance.json",
-        ],
-        vec![
-            "office",
-            "extension",
-            "validate",
-            "--file",
-            "definition.json",
-            "--instance",
-            "instance.json",
-            "--execute",
-        ],
-        vec![
-            "office",
-            "extension",
-            "install",
-            "--file",
-            "definition.json",
-        ],
-    ] {
-        assert!(parse(&args(&invalid)).is_err(), "{invalid:?}");
-    }
-}
-
-#[test]
 fn extension_repair_accepts_paired_local_inputs_but_cannot_change_channel() {
     let result = parsed(&[
         "extension",

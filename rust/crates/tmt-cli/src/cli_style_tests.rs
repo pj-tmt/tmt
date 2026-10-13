@@ -1,4 +1,4 @@
-//! The #436 help guard for `tmt`, Office's facade tree included: every visible
+//! The #436 help guard for `tmt`: every visible
 //! command follows `design/cli-style.md` and its examples parse through the real
 //! parser, except the commands still listed in `cli_style_allowlist.rs`.
 
@@ -38,10 +38,6 @@ fn option_description_gaps(command: &clap::Command, path: &str) -> Vec<String> {
         }
     }
     for child in command.get_subcommands() {
-        // Office is mounted by core but its grammar belongs to the extension.
-        if path == "tmt" && child.get_name() == "office" {
-            continue;
-        }
         gaps.extend(option_description_gaps(
             child,
             &format!("{path} {}", child.get_name()),
@@ -58,7 +54,7 @@ fn every_public_core_option_has_a_one_line_description() {
 }
 
 #[test]
-fn option_description_guard_checks_nested_core_options_only() {
+fn option_description_guard_checks_all_visible_nested_options() {
     use clap::{Arg, Command};
     let grammar = Command::new("tmt")
         .subcommand(
@@ -85,6 +81,7 @@ fn option_description_guard_checks_nested_core_options_only() {
             "tmt core nested: missing needs a one-line description",
             "tmt core nested: blank needs a one-line description",
             "tmt core nested: multiline needs a one-line description",
+            "tmt office: external needs a one-line description",
         ]
     );
 }

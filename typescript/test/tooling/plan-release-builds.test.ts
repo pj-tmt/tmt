@@ -124,18 +124,18 @@ describe('release build plan', () => {
 
   it('ignores other products, published releases and tags the policy does not publish, and builds nothing for a bundled draft', () => {
     const plan = planReleaseBuilds({
-      product: 'office',
+      product: 'digest',
       releases: [
-        draft('tmt-office-v0.1.0-alpha.4', '1'),
+        draft('tmt-digest-v0.1.0-alpha.4', '1'),
         draft('tmt-ops-v0.1.0-alpha.2', '1'),
         draft('v5.0.0-alpha.9', '1'),
         draft('some-other-tag', '1'),
-        draft('tmt-office-v0.1.0-alpha.5', '2', [BUNDLE_ASSET, 'dist-manifest.json']),
-        draft('tmt-office-v0.1.0-alpha.6', '3', [], { draft: false }),
+        draft('tmt-digest-v0.1.0-alpha.5', '2', [BUNDLE_ASSET, 'dist-manifest.json']),
+        draft('tmt-digest-v0.1.0-alpha.6', '3', [], { draft: false }),
       ],
     });
-    expect(tags(plan)).toEqual(['tmt-office-v0.1.0-alpha.4']);
-    expect(plan.awaiting.map(({ tag }) => tag)).toEqual(['tmt-office-v0.1.0-alpha.5']);
+    expect(tags(plan)).toEqual(['tmt-digest-v0.1.0-alpha.4']);
+    expect(plan.awaiting.map(({ tag }) => tag)).toEqual(['tmt-digest-v0.1.0-alpha.5']);
     expect(plan.blocked).toEqual([]);
   });
 
@@ -220,7 +220,7 @@ describe('release build plan', () => {
     ],
     [
       'another product',
-      draft('tmt-office-v0.1.0-alpha.4', '1'),
+      draft('tmt-digest-v0.1.0-alpha.4', '1'),
       'not a draft release of the cli product',
     ],
     [
@@ -274,8 +274,8 @@ describe('release build plan', () => {
       'not a draft release of the cli product'
     );
     expect(() =>
-      planReleaseBuilds({ product: 'office', releases, hold: 'v5.0.0-alpha.10' })
-    ).toThrow('not a draft release of the office product');
+      planReleaseBuilds({ product: 'digest', releases, hold: 'v5.0.0-alpha.10' })
+    ).toThrow('not a draft release of the digest product');
   });
 
   it('refuses to retry and to release a hold in one run', () => {
@@ -368,13 +368,13 @@ describe('release build plan', () => {
 
   it('plans nothing for a component that is not released, and lists its drafts as left alone', () => {
     const plan = planReleaseBuilds({
-      product: 'office',
+      product: 'digest',
       released: false,
       releases: [
-        draft('tmt-office-v0.1.0-alpha.4', '1'),
-        draft('tmt-office-v0.1.0-alpha.5', '2', [BUNDLE_ASSET]),
-        draft('tmt-office-v0.1.0-alpha.6', '3', [BUNDLE_ASSET, HOLD_ASSET]),
-        draft('tmt-office-v0.1.0-alpha.7', '4', [FAILURE_ASSET]),
+        draft('tmt-digest-v0.1.0-alpha.4', '1'),
+        draft('tmt-digest-v0.1.0-alpha.5', '2', [BUNDLE_ASSET]),
+        draft('tmt-digest-v0.1.0-alpha.6', '3', [BUNDLE_ASSET, HOLD_ASSET]),
+        draft('tmt-digest-v0.1.0-alpha.7', '4', [FAILURE_ASSET]),
         draft('v5.0.0-alpha.9', '5'),
       ],
     });
@@ -383,45 +383,45 @@ describe('release build plan', () => {
     expect(plan.blocked).toEqual([]);
     expect(plan.held).toEqual([]);
     expect(plan.unreleased).toEqual([
-      { tag: 'tmt-office-v0.1.0-alpha.4' },
-      { tag: 'tmt-office-v0.1.0-alpha.5' },
-      { tag: 'tmt-office-v0.1.0-alpha.6' },
-      { tag: 'tmt-office-v0.1.0-alpha.7' },
+      { tag: 'tmt-digest-v0.1.0-alpha.4' },
+      { tag: 'tmt-digest-v0.1.0-alpha.5' },
+      { tag: 'tmt-digest-v0.1.0-alpha.6' },
+      { tag: 'tmt-digest-v0.1.0-alpha.7' },
     ]);
   });
 
   it('refuses to retry or release a hold for a component that is not released', () => {
-    const releases = [draft('tmt-office-v0.1.0-alpha.4', '1', [BUNDLE_ASSET, HOLD_ASSET])];
+    const releases = [draft('tmt-digest-v0.1.0-alpha.4', '1', [BUNDLE_ASSET, HOLD_ASSET])];
     for (const extra of [
-      { retry: 'tmt-office-v0.1.0-alpha.4' },
-      { hold: 'tmt-office-v0.1.0-alpha.4' },
-      { rerun: 'tmt-office-v0.1.0-alpha.4' },
+      { retry: 'tmt-digest-v0.1.0-alpha.4' },
+      { hold: 'tmt-digest-v0.1.0-alpha.4' },
+      { rerun: 'tmt-digest-v0.1.0-alpha.4' },
     ]) {
       expect(() =>
-        planReleaseBuilds({ product: 'office', released: false, releases, ...extra })
-      ).toThrow('office is not released');
+        planReleaseBuilds({ product: 'digest', released: false, releases, ...extra })
+      ).toThrow('digest is not released');
     }
   });
 
   it('plans a released component as before', () => {
     const plan = planReleaseBuilds({
-      product: 'office',
+      product: 'digest',
       released: true,
-      releases: [draft('tmt-office-v0.1.0-alpha.4', '1')],
+      releases: [draft('tmt-digest-v0.1.0-alpha.4', '1')],
     });
-    expect(tags(plan)).toEqual(['tmt-office-v0.1.0-alpha.4']);
+    expect(tags(plan)).toEqual(['tmt-digest-v0.1.0-alpha.4']);
     expect(plan.unreleased ?? []).toEqual([]);
   });
 
   it('says in the run summary which drafts it leaves alone', () => {
     const text = renderPlanSummary({
-      product: 'office',
+      product: 'digest',
       builds: [],
       blocked: [],
-      unreleased: [{ tag: 'tmt-office-v0.1.0-alpha.4' }],
+      unreleased: [{ tag: 'tmt-digest-v0.1.0-alpha.4' }],
     });
-    expect(text).toContain('**Left alone** (office is not released');
-    expect(text).toContain('- `tmt-office-v0.1.0-alpha.4`');
+    expect(text).toContain('**Left alone** (digest is not released');
+    expect(text).toContain('- `tmt-digest-v0.1.0-alpha.4`');
   });
 
   it('renders the complete drafts that await their publication in the run summary', () => {
@@ -494,7 +494,7 @@ describe('plan-release-builds.mjs', () => {
     expect(resume.summary).toContain('await their gates and publication');
   });
 
-  it.each(['office', 'driver-herdr', 'remote', 'colab'])(
+  it.each(['digest', 'driver-herdr', 'remote', 'colab'])(
     'plans no run for parked %s until its map activates it',
     (product) => {
       const directory = mkdtempSync(path.join(os.tmpdir(), 'plan-components-'));

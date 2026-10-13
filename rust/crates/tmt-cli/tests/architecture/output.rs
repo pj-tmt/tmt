@@ -13,7 +13,6 @@ use syn::visit::{self, Visit};
 /// that delegates to it, so both are outside this scope.
 pub const GUARDED: &[&str] = &[
     "tmt-cli",
-    "tmt-office-command",
     "tmt-ops",
     "tmt-digest",
     "tmt-remote",

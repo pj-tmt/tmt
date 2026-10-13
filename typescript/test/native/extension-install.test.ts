@@ -914,7 +914,6 @@ describe('tmt extension install surface', () => {
           version,
           new Uint8Array(),
           product,
-          undefined,
           {},
           undefined,
           declared
@@ -1010,7 +1009,6 @@ describe('tmt extension install surface', () => {
         '0.1.0-alpha.1',
         new Uint8Array(),
         'colab',
-        undefined,
         {},
         undefined,
         '{"version":1,"uses":[{"feature":"Browser Access"}]}'
@@ -1058,7 +1056,7 @@ describe('tmt extension install surface', () => {
           ...extra,
         ]);
       const squad = (version: string, skills: Record<string, string>) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'ops', undefined, skills);
+        createArtifact(sandbox, version, new Uint8Array(), 'ops', skills);
       const first = await squad('0.1.0-alpha.1', {
         'tmt-ops/SKILL.md': 'lead v1\n',
         'tmt-ops/references/usage.md': 'usage\n',
@@ -1146,7 +1144,7 @@ describe('tmt extension install surface', () => {
       );
       const prefix = path.join(sandbox.root, 'Colab skill prefix');
       const artifact = (version: string, content: string) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'colab', undefined, {
+        createArtifact(sandbox, version, new Uint8Array(), 'colab', {
           'tmt-colab/SKILL.md': content,
         });
       const install = (input: ArtifactFixture, skills = false) =>
@@ -1245,14 +1243,9 @@ describe('tmt extension install surface', () => {
       const initial = await createArtifact(sandbox, '0.0.9-alpha.1', new Uint8Array(), 'ops');
       const installed = await runCli(sandbox, replacementArgs(initial, prefix));
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      const artifact = await createArtifact(
-        sandbox,
-        '0.1.0-alpha.1',
-        new Uint8Array(),
-        'ops',
-        undefined,
-        { 'tmt-ops/SKILL.md': 'lead\n' }
-      );
+      const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops', {
+        'tmt-ops/SKILL.md': 'lead\n',
+      });
       // Publication cannot replace a directory in a root without write permission.
       const conflict = path.join(sandbox.home, '.claude/skills/tmt-ops');
       mkdirSync(conflict, { recursive: true });

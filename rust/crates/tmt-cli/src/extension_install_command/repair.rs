@@ -13,7 +13,7 @@ pub(super) fn repair_extension(
     archive: Option<&str>,
     manifest: Option<&str>,
 ) -> Result<InstalledExtension, Failure> {
-    let verifier = crate::office_facade::release_verifier(product);
+    let verifier = None;
     let checkpoint = interruptible("Extension repair interrupted before activation.")?;
     let result = match (archive, manifest) {
         (Some(archive), Some(manifest)) => native_install::repair_product_from_archive(

@@ -598,7 +598,7 @@ Only never-shipped work or waits confined to parked products reconcile to `Done`
 `ships with the first <product> release` for each parked wait. `release:false` alone never
 proves that work needs no release; an absent status marker retains activation waits.
 The map's `releaseStatus` is valid only with `release:false` (`never`: test support contained
-in no release; `parked`: Office and the private browser-addon demo). Private consumers cannot
+in no release; `parked`: the private browser-addon demo). Private consumers cannot
 name a never-shipped product. Browser-addon publication remains deferred by the v1 freeze
 (#1056 / v1-later), with no release consumer. Released products require published containing tags;
 Style and invoke require their active consumers' containing tags; TUI is contained by Ops through its Cargo closure.

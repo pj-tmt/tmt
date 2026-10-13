@@ -377,35 +377,27 @@ export function ownerOf(path, map = componentMap()) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides native work; unknown inputs keep
- * full native verification. Office product verification is retired independently
- * of ownership and release attribution.
+ * full native verification.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
     const rule = map.rules.find(({ patterns }) => patterns.some((pattern) => pattern.test(path)));
-    const office = selectOfficeBrowser([path], map);
     return {
       path,
       owner: ownerOf(path, map),
       rule: rule?.id ?? 'unmapped',
-      why:
-        rule?.why ??
-        'Unmapped input retains full native verification; Office product checks are retired.',
+      why: rule?.why ?? 'Unmapped input retains full native verification.',
       native: rule ? rule.consumers.includes('native') : true,
-      office,
-      nativeOffice: office,
     };
   });
 }
 
 /** Deletions select their owner; an empty diff retains full native work only. */
 export function selectCiAreas(paths, map = componentMap()) {
-  if (paths.length === 0) return { native: true, office: false, nativeOffice: false };
+  if (paths.length === 0) return { native: true };
   const rows = explainCiSelection(paths, map);
   return {
     native: rows.some((row) => row.native),
-    office: rows.some((row) => row.office),
-    nativeOffice: rows.some((row) => row.nativeOffice),
   };
 }
 
@@ -436,11 +428,6 @@ export function selectNativeNotices(paths) {
         /^(rust|extensions|drivers)\/(?:.*\/)?Cargo\.toml$/.test(path)
     )
   );
-}
-
-/** Office product verification is retired for every event; ownership and release attribution remain. */
-export function selectOfficeBrowser(_paths, _map = componentMap()) {
-  return false;
 }
 
 // Keep the advisory harness narrower than required native CI. Ownership comes
@@ -567,17 +554,13 @@ export function renderSelectionEvidence({
   nativeScope,
   range = '...',
 }) {
-  const selects = (row) =>
-    [row.native && 'native', row.office && 'office', row.nativeOffice && 'native_office']
-      .filter(Boolean)
-      .join(', ') || 'nothing';
+  const selects = (row) => (row.native ? 'native' : 'nothing');
   const lines = [
     '### CI selection',
     '',
     `Diff \`${base.slice(0, 12)}${range}${head.slice(0, 12)}\`, ${rows.length} changed path(s), component map \`sha256:${digest}\`.`,
     '',
-    `Selected: native=${areas.native}, office=${areas.office}, native_office=${areas.nativeOffice}` +
-      (nativeScope ? `, native scope ${nativeScope}.` : '.'),
+    `Selected: native=${areas.native}` + (nativeScope ? `, native scope ${nativeScope}.` : '.'),
     '',
     '| Path | Owner | Rule | Selects |',
     '| --- | --- | --- | --- |',
@@ -615,7 +598,7 @@ const NATIVE_JOBS = [
 ];
 const E2E_JOBS = ['e2eShard1', 'e2eShard2'];
 /** Positional result order accepted by the gate-rust CLI. */
-export const RUST_WORKERS = ['clippy', 'tests', 'office', 'process', 'msrv'];
+export const RUST_WORKERS = ['clippy', 'tests', 'process', 'msrv'];
 
 /**
  * What each native job must have reported for the scope. A scoped component runs
@@ -649,12 +632,11 @@ function expectedNativeResults(scope, map, macos = 'true') {
   };
 }
 
-function expectedRustResults(scope, map, officeSelected) {
+function expectedRustResults(scope, map) {
   const native = expectedNativeResults(scope, map)?.nativeRust;
   if (!native) return undefined;
   return {
     ...Object.fromEntries(RUST_WORKERS.map((worker) => [worker, native])),
-    office: scope === 'full' && officeSelected === 'true' ? native : 'skipped',
   };
 }
 
@@ -675,10 +657,9 @@ export function e2eGatePasses(scope, results, map = componentMap()) {
   return gatePasses(E2E_JOBS, scope, results, map);
 }
 
-/** `Native Rust contracts`: clippy, tests, Office feature, native fixtures and MSRV. */
-export function rustGatePasses(scope, results, officeSelected, map = componentMap()) {
-  if (!['true', 'false'].includes(officeSelected)) return false;
-  const expected = expectedRustResults(scope, map, officeSelected);
+/** `Native Rust contracts`: clippy, tests, native fixtures and MSRV. */
+export function rustGatePasses(scope, results, map = componentMap()) {
+  const expected = expectedRustResults(scope, map);
   if (!expected || results?.length !== RUST_WORKERS.length) return false;
   const byWorker = Object.fromEntries(
     RUST_WORKERS.map((worker, index) => [worker, results[index]])
@@ -725,8 +706,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     return;
   }
   if (args[0] === 'gate-rust') {
-    const [, scope, officeSelected, ...results] = args;
-    if (!rustGatePasses(scope, results, officeSelected)) {
+    const [, scope, ...results] = args;
+    if (!rustGatePasses(scope, results)) {
       throw new Error(
         'Selected native Rust workers did not complete successfully, or skip evidence is invalid.'
       );
@@ -788,12 +769,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
   }
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
-  if (full) selection.areas = { native: true, office: false, nativeOffice: false };
-  if (queue) {
-    selection.areas = { ...selection.areas, office: false, nativeOffice: false };
-    selection.rows = selection.rows?.map((row) => ({ ...row, office: false, nativeOffice: false }));
-  }
-  const officeBrowser = selectOfficeBrowser(selection.paths);
+  if (full) selection.areas = { native: true };
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const colabApp = !queue && !seed && !full && selectColabApp(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
@@ -801,9 +777,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const colabFirestore = !seed && !full && selectColabFirestore(selection.paths);
   const evidence =
     (full || seed || fallback
-      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification; Office retired.' : 'Main cache seed; Office product verification is retired.')}\n`
+      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification.' : 'Main cache seed.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
-    `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
@@ -815,8 +790,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   const checks = scopedChecks(nativeScope);
   const [firstShard, secondShard] = e2eShardFiles(nativeScope, checks.e2eFiles);
   stdout.write(
-    `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
-      `office_browser=${officeBrowser}\n` +
+    `native=${areas.native}\n` +
       `colab_harness=${colabHarness}\n` +
       `colab_app=${colabApp}\n` +
       `native_notices=${nativeNotices}\n` +

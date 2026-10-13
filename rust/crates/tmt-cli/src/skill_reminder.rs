@@ -71,7 +71,6 @@ pub fn eligible_for_drift(parsed: &Parsed) -> bool {
                 | Invocation::NativeRefreshSkills { .. }
                 | Invocation::NativeRenameDatabase
                 | Invocation::NativeUpgradeExtensions { .. }
-                | Invocation::Office { .. }
                 | Invocation::Identity(_)
                 | Invocation::Bind { .. }
                 | Invocation::BindMarked { .. }

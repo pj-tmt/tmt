@@ -361,10 +361,6 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
             allow_schema_ahead: flag(m, "allow-schema-ahead"),
         },
-        ["office", ..] => Invocation::Office {
-            prefix: text(m, "prefix"),
-            operation: crate::office_facade::parser::translate(path, m)?,
-        },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills {
             managed: flag(m, "managed"),
         },

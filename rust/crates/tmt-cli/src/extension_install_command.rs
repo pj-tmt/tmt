@@ -446,7 +446,7 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
 /// never deletes data; the extension's own agent skills are not data.
 fn kept(product: Product, prefix: &Path) -> Vec<(&'static str, String)> {
     let name = product.as_str();
-    let mut kept = vec![
+    let kept = vec![
         (
             "releases",
             format!(
@@ -459,12 +459,6 @@ fn kept(product: Product, prefix: &Path) -> Vec<(&'static str, String)> {
             format!("lifecycle hook consent; withdraw it with: tmt extension hooks disable {name}"),
         ),
     ];
-    if product == Product::Office {
-        kept.push((
-            "officeData",
-            "Office data (office.db) and its backups; see their paths with: tmt office storage status, and delete them there only if you no longer need them".to_owned(),
-        ));
-    }
     kept
 }
 
@@ -691,15 +685,6 @@ mod tests {
         );
         assert!(squad[0].1.contains("/p/lib/tmt-ops/releases"));
         assert!(squad[1].1.contains("tmt extension hooks disable ops"));
-        let office = kept(Product::Office, prefix);
-        assert_eq!(office.last().unwrap().0, "officeData");
-        assert!(
-            office
-                .last()
-                .unwrap()
-                .1
-                .contains("tmt office storage status")
-        );
     }
 }
 
@@ -832,11 +817,6 @@ mod presentation_tests {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
-        "Office data (office.db) and its backups; see their paths with: tmt office storage status, and delete them there only if you no longer need them",
-        &[", and"],
-        &[],
-    ),
     crate::cli_style_tests::HintSpec::core(
         "lifecycle hook consent; withdraw it with: tmt extension hooks disable {name}",
         &[""],

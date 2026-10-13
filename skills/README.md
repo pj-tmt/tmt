@@ -4,11 +4,7 @@ Install the native alpha using the [README](../README.md) command, then run
 `tmt install`. Use the installer asset from a published release. No plugin, marketplace
 or separate slash-command package is required. The native executable embeds the
 canonical [tmt skill](tmt/SKILL.md), focused
-[tmt-inbox skill](tmt-inbox/SKILL.md), optional
-[tmt-office skill](../extensions/tmt-office/skills/tmt-office/SKILL.md), and optional
-[tmt-prop-create skill](../extensions/tmt-office/skills/tmt-prop-create/SKILL.md) and
-[tmt-avatar-create skill](../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md) in one versioned bundle. Core
-install exposes only the first two; explicit Office setup manages all three Office skills.
+[tmt-inbox skill](tmt-inbox/SKILL.md) in one versioned core-only bundle.
 
 The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is
 still required for pane operations. Native bindings are temporary by default:
@@ -91,35 +87,14 @@ tmt learn --skill
 tmt install --dir './project skills'
 ```
 
-`learn --skill` prints the exact core skill; `learn --skill tmt-inbox`,
-`learn --skill tmt-office`, `learn --skill tmt-prop-create`, and
-`learn --skill tmt-avatar-create` select the other
-exact embedded sources. Plain `learn` is a short guide.
+`learn --skill` prints the exact core skill; `learn --skill tmt-inbox` selects
+the inbox source. Plain `learn` is a short guide.
 Custom installation creates sibling `./project skills/tmt` and
 `./project skills/tmt-inbox` links relative to the current directory. Choose a
 folder your provider discovers, and do not combine `--dir`
 with a provider or `all`. Custom installs do not migrate default paths or touch
 unrelated siblings. Automatic drift reminders cover default locations, not
 arbitrary custom folders.
-
-## Optional Office guidance
-
-Office is frozen: installation and upgrade refuse before acquisition. Existing
-Office skills remain available for viewing and consented removal; native core
-refresh skips names held by an extension owner. Publication of optional bundled
-Office guidance uses the same name replacement contract as core guidance.
-
-```bash
-tmt learn --skill tmt-office
-tmt learn --skill tmt-prop-create
-tmt learn --skill tmt-avatar-create
-tmt office install --yes
-tmt office upgrade
-```
-
-Custom and provider-specific targets remain managed by the same immutable asset,
-registry, drift, backup, and lock owner. There are no provider-specific Office
-copies or command wrappers.
 
 ## Existing installations
 

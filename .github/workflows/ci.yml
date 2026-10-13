@@ -39,8 +39,6 @@ jobs:
       verify: ${{ steps.event.outputs.verify }}
       macos: ${{ steps.event.outputs.macos }}
       native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
-      office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
-      native_office: ${{ steps.scope.outputs.native_office || steps.queue.outputs.native_office || steps.seed.outputs.native_office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
       release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
@@ -67,7 +65,6 @@ jobs:
       - name: Select the cache-seeding jobs
         if: steps.event.outputs.verify != 'true'
         id: seed
-        # Office product verification is retired; all seed events cover retained products only.
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
         run: node typescript/scripts/ci-scope.mjs "$SEED_SCOPE" >> "$GITHUB_OUTPUT"
@@ -93,24 +90,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node typescript/scripts/release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-  office:
-    name: Office SPA
-    needs: changes
-    if: needs.changes.outputs.office == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Verify Office application and service without browser execution
-        run: docker build --target browser-tests-base -f extensions/tmt-office/typescript/services/office/Dockerfile -t tmt-office-checks:ci .
-
   code-quality:
     name: Code quality
     env:
       RUSTUP_TOOLCHAIN: 1.97.0
-    needs: [changes, office]
+    needs: changes
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -156,11 +140,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node typescript/scripts/pr-agent-check.mjs
-      - name: Require selected Office verification
-        env:
-          OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
-          OFFICE_RESULT: ${{ needs.office.result }}
-        run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
       - name: Install locked byte-codec tools
         working-directory: typescript
         run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
@@ -288,7 +267,7 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings
+          cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Lint Ops
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
@@ -329,8 +308,8 @@ jobs:
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
-          cargo build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
+          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace
+          cargo build --locked --workspace
       - name: Test Ops and architecture
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust
@@ -338,89 +317,10 @@ jobs:
           node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
           cargo test --locked -p tmt-cli --test architecture
 
-  native-office-build:
-    name: Build Office native fixture
-    needs: changes
-    if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust toolchains
-        run: |
-          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
-          shared-key: native-rust
-          save-if: false
-      - name: Set up Node.js and pnpm test tooling
-        uses: ./.github/actions/setup-tooling
-      - name: Install test dependencies
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Build the independent Office companion
-        working-directory: rust
-        run: cargo build --locked -p tmt-office
-      - name: Build the embedded local Office companion
-        working-directory: typescript
-        run: |
-          pnpm office:build:local
-          cd ../rust
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
-      - name: Record the verified companion bytes
-        working-directory: rust/target/debug
-        run: sha256sum tmt-office > tmt-office.sha256
-      - name: Share the verified companion with native tests
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-office-companion
-          path: |
-            rust/target/debug/tmt-office
-            rust/target/debug/tmt-office.sha256
-            target/office-spa
-          if-no-files-found: error
-          retention-days: 1
-
-  native-office:
-    name: Native Rust Office local service
-    needs: [changes, native-office-build]
-    if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust toolchains
-        run: |
-          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
-          shared-key: native-rust
-          save-if: false
-      - name: Download the Office fixture and embedded SPA
-        uses: actions/download-artifact@v4
-        with:
-          name: native-office-companion
-          path: .
-      - name: Verify embedded local Office companion
-        working-directory: rust
-        run: |
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
-          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
-
   native-process-tests:
     name: Native process contracts
-    needs: [changes, native-office-build]
-    if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'ops' || needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')) }}
+    needs: changes
+    if: ${{ always() && needs.changes.outputs.native == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -499,34 +399,14 @@ jobs:
           # The source gate has proved these are the only edits, implied by the CLI version.
           git restore --source=HEAD -- rust/Cargo.toml rust/Cargo.lock
           git diff --exit-code HEAD --
-      - name: Download the verified Office companion
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: native-office-companion
-          path: .
-      - name: Verify Office companion identity and executable mode
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_office == 'true'
-        working-directory: rust/target/debug
-        run: |
-          sha256sum --check tmt-office.sha256
-          chmod +x tmt-office
       - name: Verify native process and shared parser contracts
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: typescript
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
-          NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
         run: |
-          if [ "$NATIVE_OFFICE_SELECTED" = true ]; then
-            pnpm test:native --reporter=verbose
-          elif [ "$NATIVE_OFFICE_SELECTED" = false ]; then
-            pnpm test:native --reporter=verbose --exclude 'test/native/office-*.test.ts'
-          else
-            echo 'Missing Office native selection' >&2
-            exit 1
-          fi
+          pnpm test:native --reporter=verbose
       - name: Verify Ops native contracts
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: typescript
@@ -536,7 +416,6 @@ jobs:
           SCOPED_NATIVE_TESTS: ${{ needs.changes.outputs.scoped_native_tests }}
         run: |
           # Vitest filters match path substrings, so each name gets its directory:
-          # a bare uninstall.test.ts would also select office-uninstall.test.ts.
           files=()
           for name in $SCOPED_NATIVE_TESTS; do files+=("test/native/$name"); done
           pnpm test:native --reporter=verbose "${files[@]}"
@@ -565,19 +444,11 @@ jobs:
           save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
-        run: cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets
+        run: cargo +"$MSRV" check --locked --workspace --all-targets
 
   native-rust:
     name: Native Rust contracts
-    needs:
-      [
-        changes,
-        native-clippy,
-        native-workspace-tests,
-        native-office,
-        native-process-tests,
-        native-msrv,
-      ]
+    needs: [changes, native-clippy, native-workspace-tests, native-process-tests, native-msrv]
     # Preserve the outer gate's skipped result for scope none. Missing selection
     # must still reach this gate and fail, even when all workers were skipped.
     if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
@@ -593,13 +464,11 @@ jobs:
       - name: Require every selected Rust worker
         env:
           NATIVE_SCOPE: ${{ needs.changes.outputs.native_scope }}
-          NATIVE_OFFICE_SELECTED: ${{ needs.changes.outputs.native_office }}
           CLIPPY_RESULT: ${{ needs.native-clippy.result }}
           TESTS_RESULT: ${{ needs.native-workspace-tests.result }}
-          OFFICE_RESULT: ${{ needs.native-office.result }}
           NATIVE_RESULT: ${{ needs.native-process-tests.result }}
           MSRV_RESULT: ${{ needs.native-msrv.result }}
-        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$NATIVE_OFFICE_SELECTED" "$CLIPPY_RESULT" "$TESTS_RESULT" "$OFFICE_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
+        run: node typescript/scripts/ci-scope.mjs gate-rust "$NATIVE_SCOPE" "$CLIPPY_RESULT" "$TESTS_RESULT" "$NATIVE_RESULT" "$MSRV_RESULT"
 
   unit-tests:
     name: Unit tests
@@ -645,7 +514,6 @@ jobs:
           name: native-caller-fixture-x86_64-unknown-linux-musl
           path: rust/target/debug/examples
       # Firestore Rules emulator suites: selected paths only (ci-scope remote_firestore/colab_firestore).
-      # The tool pins mirror extensions/tmt-office/typescript/services/office/Dockerfile.
       - name: Select the hosted Temurin 21 for the Rules emulator
         if: needs.changes.outputs.remote_firestore == 'true'
         run: |

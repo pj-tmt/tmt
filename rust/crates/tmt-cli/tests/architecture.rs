@@ -86,30 +86,6 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
         "tmt-host-grammar",
         "rust/crates/tmt-host-grammar/Cargo.toml",
     ),
-    (
-        "tmt-office",
-        "extensions/tmt-office/rust/tmt-office/Cargo.toml",
-    ),
-    (
-        "tmt-office-command",
-        "extensions/tmt-office/rust/tmt-office-command/Cargo.toml",
-    ),
-    (
-        "tmt-office-model",
-        "extensions/tmt-office/rust/tmt-office-model/Cargo.toml",
-    ),
-    (
-        "tmt-office-pairing",
-        "extensions/tmt-office/rust/tmt-office-pairing/Cargo.toml",
-    ),
-    (
-        "tmt-office-service",
-        "extensions/tmt-office/rust/tmt-office-service/Cargo.toml",
-    ),
-    (
-        "tmt-office-storage",
-        "extensions/tmt-office/rust/tmt-office-storage/Cargo.toml",
-    ),
     ("tmt-ops", "extensions/tmt-ops/rust/tmt-ops/Cargo.toml"),
     (
         "tmt-digest",
@@ -260,7 +236,7 @@ fn workspace_obeys_native_architecture() {
     assert!(
         extensions
             .iter()
-            .any(|(file, _)| file.ends_with("local_service/core/in_process.rs")),
+            .any(|(file, _)| file.ends_with("tmt-colab/tests/support/core_fixture.rs")),
         "the extension guard reads test sources"
     );
     violations.extend(extension_host::violations(&extensions));

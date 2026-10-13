@@ -147,7 +147,7 @@ describe('retained developer tooling boundaries', () => {
       ['support', '../native/cli.test.js'],
       ['support', '../e2e/harness.js'],
       ['support', '../tooling/cli-process.test.js'],
-      ['support', '../stress/office-native-installation-capacity.test.js'],
+      ['support', '../stress/vitest.config.js'],
       ['native', '../tooling/cli-process.test.js'],
       ['e2e', '../native/cli.test.js'],
       ['e2e', '../tooling/cli-process.test.js'],
@@ -179,8 +179,8 @@ describe('retained developer tooling boundaries', () => {
       ['typescript/test/e2e/__fixture__.ts', './harness/fixture.js'],
       ['typescript/test/e2e/__fixture__.ts', './harness/types.js'],
       [
-        'extensions/tmt-office/typescript/apps/office/e2e/__fixture__.ts',
-        '../../../../../../typescript/test/e2e/harness/fixture.js',
+        'extensions/tmt-colab/typescript/app/e2e/__fixture__.ts',
+        '../../../../../typescript/test/e2e/harness/fixture.js',
       ],
     ]) {
       expect(
@@ -198,22 +198,6 @@ describe('retained developer tooling boundaries', () => {
       ['typescript/test/e2e/harness/cleanup.ts', './types.js'],
       ['typescript/test/e2e/__fixture__.ts', './harness.js'],
       ['typescript/test/native/__fixture__.ts', '../support/cli-process.js'],
-      [
-        'extensions/tmt-office/typescript/apps/office/e2e/__fixture__.ts',
-        '../../../../../../typescript/test/e2e/harness.js',
-      ],
-      [
-        'extensions/tmt-office/typescript/apps/office/e2e/__fixture__.ts',
-        '../../../../../../typescript/test/support/cli-process.js',
-      ],
-      [
-        'extensions/tmt-office/typescript/apps/office/e2e/__fixture__.ts',
-        '../../../services/office/functions/test/emulator-fixture.js',
-      ],
-      [
-        'extensions/tmt-office/typescript/apps/office/e2e/__fixture__.ts',
-        '../../../services/office/functions/src',
-      ],
     ]) {
       // Resolve positive controls too: missing modules must not make them pass.
       const source = path.join(repositoryRoot, file);

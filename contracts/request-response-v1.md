@@ -442,7 +442,7 @@ For identified destinations the immutable route is Inbox from preparation,
 including live delivery. One claim gates the full-payload paste; no second
 request or receipt rewrite is made if the runtime ends before input. Confirmed
 full delivery settles recipient attention only, so it does not inflate incoming
-X/listen/context counts. Office's advisory wake does not settle that attention.
+X/listen/context counts. An advisory extension wake does not settle that attention.
 Unavailable or uncertain delivery remains queued; uncertainty still returns
 `DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
 its agent as waiting on its user (an approval or a question) refuses the
@@ -654,7 +654,7 @@ remain observer-only: they do not cancel or complete X, and the existing
 180-second default remains current behavior. Explicit `talk --inbox` queues for
 one existing non-retired local identity, and bounded `x listen` observes local
 recipient or result attention. This adds no lease, background daemon, memory
-feature, MCP state machine, remote transport or Office dependency.
+feature, MCP state machine, remote transport or extension dependency.
 
 The request service owns frozen policy, metadata/final horizons, prompt
 validation and bounded housekeeping. Attention consumes the same retained state. Do not add a

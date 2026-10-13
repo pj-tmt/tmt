@@ -187,20 +187,6 @@ await withNativeArtifact(values.archive, current, async (source) => {
       assert.notEqual(upgradedLayout.executable, initialLayout.executable);
       assert.equal(run(['--version']).trim(), current.version);
       assert.equal(run(['learn', '--skill']), fs.readFileSync(values.skill, 'utf8'));
-      assert.equal(
-        run(['learn', '--skill', 'tmt-office']),
-        fs.readFileSync(
-          new URL('extensions/tmt-office/skills/tmt-office/SKILL.md', sourceRoot),
-          'utf8'
-        )
-      );
-      assert.equal(
-        run(['learn', '--skill', 'tmt-avatar-create']),
-        fs.readFileSync(
-          new URL('extensions/tmt-office/skills/tmt-avatar-create/SKILL.md', sourceRoot),
-          'utf8'
-        )
-      );
       assert.deepEqual(
         fs.readFileSync(readCoreDatabase(state)),
         originalDatabase,

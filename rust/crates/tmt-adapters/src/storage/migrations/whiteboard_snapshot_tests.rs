@@ -17,10 +17,84 @@ fn snapshot_upgrade_preserves_saved_scene_and_rolls_back_schema_with_history() {
         [world_id],
     )
     .unwrap();
-    let original = std::str::from_utf8(include_bytes!(
-        "../../../../../../extensions/tmt-office/contracts/whiteboard-scene-v1.json"
-    ))
-    .unwrap();
+    // Frozen schema-21 scene from Git blob c1d238b477a58f6f36bde06bc9b193858a29f575; preserved migration input.
+    let original = r###"{
+  "formatVersion": 1,
+  "width": 1600,
+  "height": 1000,
+  "background": "#fff7e7",
+  "elements": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "kind": "note",
+      "x": 100,
+      "y": 100,
+      "width": 320,
+      "height": 200,
+      "text": "What should we build next?
+Leave a sketch or a note.",
+      "color": "#263d33",
+      "fill": "#ffeaa3",
+      "fontSize": 24
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "kind": "rectangle",
+      "x": 600,
+      "y": 200,
+      "width": 300,
+      "height": 200,
+      "color": "#237e70",
+      "fill": "none",
+      "strokeWidth": 4
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "kind": "arrow",
+      "points": [
+        [440, 200],
+        [580, 280]
+      ],
+      "color": "#237e70",
+      "strokeWidth": 4
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "kind": "stroke",
+      "points": [
+        [650, 450],
+        [700, 420],
+        [760, 450]
+      ],
+      "color": "#b45941",
+      "strokeWidth": 3
+    },
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "kind": "ellipse",
+      "x": 950,
+      "y": 200,
+      "width": 200,
+      "height": 200,
+      "color": "#263d33",
+      "fill": "#d8eadb",
+      "strokeWidth": 2
+    },
+    {
+      "id": "66666666-6666-4666-8666-666666666666",
+      "kind": "text",
+      "x": 600,
+      "y": 100,
+      "width": 500,
+      "height": 60,
+      "text": "A shared idea, not an implicit request.",
+      "color": "#263d33",
+      "fill": "none",
+      "fontSize": 24
+    }
+  ]
+}
+"###;
     old.execute("INSERT INTO office_whiteboards (document_id,world_id,revision,scene,updated_at_ms) VALUES ('lobby',?,1,?,100)", params![world_id, original]).unwrap();
     old.execute_batch("CREATE TRIGGER reject_snapshot_upgrade BEFORE INSERT ON _migrations WHEN NEW.version=22 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
     old.close().unwrap();

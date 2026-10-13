@@ -28,7 +28,6 @@ on:
         type: choice
         options:
           - cli
-          - office
           - ops
           - driver-herdr
           - remote

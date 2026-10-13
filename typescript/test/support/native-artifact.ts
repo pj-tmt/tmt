@@ -9,12 +9,8 @@ import { writeExecutable } from './executable-fixture.mjs';
 const { runtimeFiles, companionFiles } = (await import(
   new URL('../../scripts/native-artifact-policy.mjs', import.meta.url).href
 )) as unknown as {
-  runtimeFiles: (
-    product?: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr'
-  ) => string[];
-  companionFiles: (
-    product?: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr'
-  ) => string[];
+  runtimeFiles: (product?: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr') => string[];
+  companionFiles: (product?: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr') => string[];
 };
 
 export type ArtifactFixture = {
@@ -56,8 +52,7 @@ export async function createArtifact(
   sources: ArtifactSources,
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
-  product: 'cli' | 'office' | 'ops' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
-  companionExecutable = path.resolve('../rust/target/debug/tmt-office'),
+  product: 'cli' | 'ops' | 'remote' | 'colab' | 'driver-herdr' = 'cli',
   /** An extension's agent-skills tree, by path under `skills/`. */
   skills: Record<string, string> = {},
   archiveName?: string,
@@ -77,9 +72,7 @@ export async function createArtifact(
   const source =
     product === 'cli'
       ? sources.cli?.executable
-      : product === 'office'
-        ? companionExecutable
-        : path.resolve(`../rust/target/debug/tmt-${product}`);
+      : path.resolve(`../rust/target/debug/tmt-${product}`);
   if (source === undefined) throw new Error(`Missing ${product} executable for artifact fixture.`);
   const executable = path.join(root, executableName);
   writeExecutable(executable, Buffer.concat([readFileSync(source), executableSuffix]));

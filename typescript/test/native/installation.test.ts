@@ -49,33 +49,6 @@ function inboxSkill(): Buffer {
   );
 }
 
-function officeSkill(): Buffer {
-  return readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../extensions/tmt-office/skills/tmt-office/SKILL.md'
-    )
-  );
-}
-
-function propCreateSkill(): Buffer {
-  return readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../extensions/tmt-office/skills/tmt-prop-create/SKILL.md'
-    )
-  );
-}
-
-function avatarCreateSkill(): Buffer {
-  return readFileSync(
-    path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../extensions/tmt-office/skills/tmt-avatar-create/SKILL.md'
-    )
-  );
-}
-
 function inboxTarget(target: string): string {
   return path.join(path.dirname(target), 'tmt-inbox');
 }
@@ -229,52 +202,11 @@ describe('native installation process contract', () => {
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toBe(canonicalSkill().toString('utf8'));
-      const officeGuidance = await runCli(moved, ['learn', '--skill', 'tmt-office']);
-      expect(officeGuidance.status).toBe(0);
-      expect(officeGuidance.stderr).toBe('');
-      expect(officeGuidance.stdout).toBe(officeSkill().toString('utf8'));
-      const propGuidance = await runCli(moved, ['learn', '--skill', 'tmt-prop-create']);
-      expect(propGuidance.status).toBe(0);
-      expect(propGuidance.stderr).toBe('');
-      expect(propGuidance.stdout).toBe(propCreateSkill().toString('utf8'));
-      expect(propGuidance.stdout).not.toContain('extensions/tmt-office/contracts/');
-      for (const required of [
-        '"formatVersion": 1',
-        'tmt office prop validate --file',
-        'tmt office prop ls --local',
-        'tmt office prop install --local',
-        'tmt office layout apply --file',
-        'tmt office prop rm --local',
-        '`.layout`',
-      ])
-        expect(propGuidance.stdout).toContain(required);
-      const avatarGuidance = await runCli(moved, ['learn', '--skill', 'tmt-avatar-create']);
-      expect(avatarGuidance.status).toBe(0);
-      expect(avatarGuidance.stderr).toBe('');
-      expect(avatarGuidance.stdout).toBe(avatarCreateSkill().toString('utf8'));
-      expect(avatarGuidance.stdout).not.toContain('extensions/tmt-office/contracts/');
-      for (const required of [
-        '`formatVersion: 1`',
-        '32×48 pixels',
-        'tmt office avatar validate --file',
-        'tmt office avatar ls --local',
-        'tmt office avatar install --local',
-        'tmt office profile apply --local',
-        'tmt office avatar rm --local',
-        'maintained `Avatar` composition',
-      ])
-        expect(avatarGuidance.stdout).toContain(required);
-      for (const required of [
-        '`tmt-prop-create`',
-        '`tmt-avatar-create`',
-        'tmt office prop ls --local',
-        'tmt office prop install --local',
-        'tmt office prop rm --local',
-        '`.layout`',
-        '{"version":1,"map":{...},"objects":[...]}',
-        '--legacy-basis',
-      ])
-        expect(officeGuidance.stdout).toContain(required);
+      for (const retired of ['tmt-office', 'tmt-prop-create', 'tmt-avatar-create']) {
+        const guidance = await runCli(moved, ['learn', '--skill', retired]);
+        expect(guidance.status).toBe(1);
+        expect(guidance.stdout).toBe('');
+      }
       expect(existsSync(sandbox.localConfig)).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(false);
 

@@ -66,7 +66,6 @@ describe('extension upgrade proof against the real CLI', () => {
             version,
             new Uint8Array(),
             product,
-            undefined,
             shipsSkills(product) ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' } : {}
           );
         const previous = await artifact('previous', '0.1.0-alpha.1', extension);

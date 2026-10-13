@@ -15,18 +15,8 @@ fn materialized_source_is_exact_and_repeated_install_preserves_it() {
         fs::read(source.parent().unwrap().join("tmt-inbox/SKILL.md")).unwrap(),
         bundled_skill_named("tmt-inbox").unwrap()
     );
-    assert_eq!(
-        fs::read(source.parent().unwrap().join("tmt-office/SKILL.md")).unwrap(),
-        bundled_skill_named("tmt-office").unwrap()
-    );
-    assert_eq!(
-        fs::read(source.parent().unwrap().join("tmt-prop-create/SKILL.md")).unwrap(),
-        bundled_skill_named("tmt-prop-create").unwrap()
-    );
-    assert_eq!(
-        fs::read(source.parent().unwrap().join("tmt-avatar-create/SKILL.md")).unwrap(),
-        bundled_skill_named("tmt-avatar-create").unwrap()
-    );
+    assert_eq!(fs::read_dir(source.parent().unwrap()).unwrap().count(), 2);
+    assert!(bundled_skill_named("tmt-office").is_none());
     assert!(assets.owns(&source));
     assert_eq!(assets.materialize().unwrap(), source);
     assert_eq!(
@@ -117,11 +107,7 @@ fn missing_wrong_type_or_symlinked_bundle_sibling_never_establishes_ownership() 
         let root = TestDirectory::new();
         let assets = SkillAssets::new(&root.path);
         let source = assets.materialize().unwrap();
-        let sibling = source.parent().unwrap().join(if corruption == "missing" {
-            "tmt-office"
-        } else {
-            "tmt-inbox"
-        });
+        let sibling = source.parent().unwrap().join("tmt-inbox");
         fs::remove_dir_all(&sibling).unwrap();
         match corruption {
             "missing" => {}
@@ -155,4 +141,66 @@ fn dangling_generations_require_known_names_inside_the_canonical_store() {
     fs::create_dir(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, &version).unwrap();
     assert!(!assets.owns(&source));
+}
+
+#[test]
+fn default_uninstall_preserves_retired_office_links_sources_and_owner_records() {
+    use super::{OwnedSkill, ProviderEnvironment, install, install_owned, registry, uninstall};
+    let temp = TestDirectory::new();
+    let global = temp.path.join("global");
+    let home = temp.path.join("home");
+    let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
+    install(&env, &global, None, None, false).unwrap();
+    let skill = OwnedSkill {
+        name: "tmt-office".into(),
+        files: vec![("SKILL.md".into(), b"Retained installed guidance".to_vec())],
+    };
+    install_owned(&env, &global, "office", &[skill], true).unwrap();
+    let target = home.join(".agents/skills/tmt-office");
+    let source = fs::read_link(&target).unwrap();
+    let record = fs::read(global.join("skill-owners.json")).unwrap();
+    let plan = super::plan_uninstall(&env, &global).unwrap();
+    assert!(!plan.removed.contains(&target));
+    assert!(plan.kept.contains(&target));
+    let report = uninstall(&env, &global).unwrap();
+    assert!(report.kept.contains(&target));
+    assert_eq!(fs::read_link(&target).unwrap(), source);
+    assert_eq!(
+        fs::read(source.join("SKILL.md")).unwrap(),
+        b"Retained installed guidance"
+    );
+    assert_eq!(fs::read(global.join("skill-owners.json")).unwrap(), record);
+    assert!(!home.join(".agents/skills/tmt").exists());
+    assert!(
+        registry::read(&global)
+            .unwrap()
+            .iter()
+            .all(|target| target.file_name().unwrap() != "tmt")
+    );
+}
+
+#[test]
+fn default_uninstall_preserves_historical_bundle_sources_even_without_intents() {
+    use super::{ProviderEnvironment, install, uninstall};
+    let temp = TestDirectory::new();
+    let global = temp.path.join("global");
+    let home = temp.path.join("home");
+    let env = ProviderEnvironment::from_parts(&home, &temp.path, Vec::new(), []);
+    install(&env, &global, None, None, false).unwrap();
+    let historical = global
+        .join("skill-assets")
+        .join("a".repeat(64))
+        .join("tmt-office");
+    fs::create_dir_all(&historical).unwrap();
+    fs::write(historical.join("SKILL.md"), b"Edited retained source").unwrap();
+    let target = home.join(".agents/skills/tmt-office");
+    std::os::unix::fs::symlink(&historical, &target).unwrap();
+    let report = uninstall(&env, &global).unwrap();
+    assert!(report.kept.contains(&target));
+    assert_eq!(fs::read_link(&target).unwrap(), historical);
+    assert_eq!(
+        fs::read(target.join("SKILL.md")).unwrap(),
+        b"Edited retained source"
+    );
+    assert!(!home.join(".agents/skills/tmt").exists());
 }
