@@ -3,7 +3,7 @@
     "Approximate seconds each real-binary acceptance spec file takes in CI, used only to balance the Colab acceptance shards (typescript/scripts/colab-acceptance-shards.mjs).",
     "A stale or missing weight costs balance, never coverage: every spec file always lands in exactly one shard (guarded by typescript/test/tooling/colab-acceptance-shards.test.ts).",
     "Whole seconds, the mean of the per-test durations of two full green runs of the sharded suite on 2026-10-12 (runs 38218284566 and 38222074650, both shards each; one file's time varied by up to 1.6x between them). Recompute from the colab-acceptance-results artifacts' outcomes.json when the suite changes.",
-    "reply-notifications.spec.ts: five completed cases totalled 30.3 and 30.2 seconds in run 38223734365 attempts 1 and 2; later cases hit the job budget."
+    "reply-notifications.spec.ts: six cases totalled 49.7 seconds in the fresh frozen-native headless run for #2981/#2850 on 2026-10-13; rounded to 50 after adding the persistent-unread case."
   ],
   "defaultSeconds": 16,
   "files": {
@@ -34,7 +34,7 @@
     "page-size.spec.ts": 89,
     "popover.spec.ts": 17,
     "reader.spec.ts": 20,
-    "reply-notifications.spec.ts": 30,
+    "reply-notifications.spec.ts": 50,
     "storage-lifecycle.spec.ts": 42,
     "tabs.spec.ts": 12,
     "talk-scope.spec.ts": 7,
