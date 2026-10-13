@@ -2,19 +2,14 @@ use super::{
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
 };
-use crate::{
-    attention::Attention,
-    config::{NotesRender, TabColors},
-    rows::Rows,
-};
+use crate::{attention::Attention, config::NotesRender, rows::Rows};
 use ratatui::widgets::Paragraph;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
-    text::Line,
 };
 use serde_json::Value;
-use tmt_cli_style::{Role, mark::Mark};
+use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
 
 mod checklist;

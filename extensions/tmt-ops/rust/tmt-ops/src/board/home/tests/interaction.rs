@@ -1,20 +1,9 @@
 use super::*;
-use crate::board::{
-    app::{App, Effect},
-    home::paint,
-};
-use ratatui::{
-    Terminal,
-    backend::TestBackend,
-    crossterm::event::{KeyCode, KeyCode::*, KeyEvent, KeyModifiers},
-    widgets::Paragraph,
-};
+use crate::board::{app::App, home::paint};
+use ratatui::{Terminal, backend::TestBackend, widgets::Paragraph};
 use tmt_cli_style::breakpoint::{LG, MD};
 use unicode_width::UnicodeWidthStr;
 
-pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
-    app.key(KeyEvent::new(key, KeyModifiers::NONE))
-}
 pub(super) fn board(documents: &[(&str, Value)]) -> App {
     board_resuming(documents, None)
 }
@@ -54,15 +43,6 @@ pub(super) fn board_resuming(
     }
     app.apply(snapshot);
     app
-}
-pub(super) fn keys(app: &mut App, codes: &[KeyCode]) -> Effect {
-    codes.iter().fold(Effect::None, |_, code| press(app, *code))
-}
-
-pub(super) fn waiting() -> Value {
-    let mut member = row("W", "worker", "blocked");
-    member["waitingOnYou"] = json!([{"requestId":"q1","preparedAtMs":20,"preview":"private question one"},{"requestId":"q2","preparedAtMs":30,"preview":"private question two"}]);
-    document("a", row("L", "lead-a", "working"), vec![member])
 }
 
 #[test]

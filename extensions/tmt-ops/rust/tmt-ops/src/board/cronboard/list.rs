@@ -43,8 +43,7 @@ fn list_rows(state: &State, scope: Option<&str>) -> Vec<ListRow> {
     state
         .cron
         .iter()
-        .flat_map(|cron| &cron.jobs)
-        .filter(|view| scope.is_none_or(|room| view.job.room_id == room))
+        .flat_map(|cron| cron.jobs_in(scope))
         .map(|view| ListRow {
             id: row_id(&key_of(view)),
             disabled: false,
@@ -102,12 +101,7 @@ impl List {
         let jobs: Vec<_> = state
             .cron
             .iter()
-            .flat_map(|cron| &cron.jobs)
-            .filter(|view| {
-                self.scope
-                    .as_deref()
-                    .is_none_or(|room| view.job.room_id == room)
-            })
+            .flat_map(|cron| cron.jobs_in(self.scope.as_deref()))
             .collect();
         // Content height: border 2, one line per job (one for the
         // empty note), position, status and footer lines; the modal caps it.

@@ -15,11 +15,6 @@ pub(in crate::board) fn text(row: &Value) -> Option<&str> {
         .or_else(|| oldest(row)?["preview"].as_str())
 }
 
-pub(super) fn age(row: &Value, now: u64) -> Option<String> {
-    let since = oldest(row)?["preparedAtMs"].as_u64()?;
-    (since > 0 && since <= now).then(|| crate::requests::age(now, since))
-}
-
 /// Shared viewport for every message composer. Paint and pointer use the same
 /// editor projection; the current frame publishes only its clipped rectangle.
 pub(in crate::board) fn editor(

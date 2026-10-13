@@ -20,7 +20,6 @@ pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
 #[cfg(test)]
 pub(super) use line::line as home_line;
-pub(super) use line::pieces as home_pieces;
 #[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
@@ -68,11 +67,12 @@ impl State {
 }
 
 impl Cron {
-    /// Jobs of one squad room; a reused squad name never matches an old room.
-    pub fn of_room<'a>(&'a self, room_id: &'a str) -> impl Iterator<Item = &'a JobView> {
+    /// The same room-UUID admission for picker identities and painted jobs.
+    /// `None` is the explicit all-rooms context, never a squad-name fallback.
+    pub fn jobs_in<'a>(&'a self, room_id: Option<&'a str>) -> impl Iterator<Item = &'a JobView> {
         self.jobs
             .iter()
-            .filter(move |view| view.job.room_id == room_id)
+            .filter(move |view| room_id.is_none_or(|room| view.job.room_id == room))
     }
 
     /// The earliest future slot among active jobs.
@@ -99,17 +99,6 @@ impl State {
             checking: self.reads <= 1,
             place,
         }
-    }
-
-    /// The member's next job for the detail pane: when, which job, what it says.
-    pub fn member_detail(&self, member_id: &str, now_ms: i64) -> Option<String> {
-        let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
-        Some(format!(
-            "{} · {} {}",
-            line::time(at, now_ms, &line::zone(view))?,
-            view.job.id(),
-            line::first_line(&view.job.message)
-        ))
     }
 
     /// The instant the shown text is relative to.
