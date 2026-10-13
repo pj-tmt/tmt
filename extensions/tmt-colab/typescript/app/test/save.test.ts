@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { conflictAt, saveMessage, saveResult, SaveConflict } from '../src/save.js';
+import { conflictAt, saveMessage, saveResult, SaveConflict, SaveRefused } from '../src/save.js';
 import { text } from '../src/strings.js';
 
 const frame = (fields: Record<string, unknown>) => ({
@@ -98,4 +98,9 @@ it('the conflict sentence names one edit or several, quoting the first', () => {
     'Your edit at line 4 conflicts',
   );
   expect(text.saveMerged).toBe('Saved. Your edit was merged with a change made elsewhere.');
+});
+
+it('a page that kept moving while its hunks were evaluated is still the stale-base sentence', () => {
+  expect(saveMessage(new SaveRefused('COLAB_STALE_BASE', 'Moved.'))).toBe(text.saveStale);
+  expect(saveMessage(new SaveRefused('COLAB_PATCH_CONFLICT', 'No match.'))).toBe('No match.');
 });

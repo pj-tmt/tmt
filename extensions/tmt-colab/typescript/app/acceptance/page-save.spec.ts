@@ -199,7 +199,7 @@ test('a lost reply is settled by one status request and the save lands exactly o
   });
 });
 
-test('a save on a stale base is refused and the newer version stays', async () => {
+test('a save that overlaps a newer change is refused naming it and the newer version stays', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -228,7 +228,8 @@ test('a save on a stale base is refused and the newer version stays', async () =
     );
     await box.fill('<p>v1 edited in the browser</p>');
     await save(page);
-    await expect(page.getByRole('alert')).toContainText(text.saveStale);
+    // The CLI changed the line the browser changed: its edit cannot be placed, so nothing is saved.
+    await expect(page.getByRole('alert')).toContainText(text.saveConflict('<p>v1</p>', 1));
     await expect(page.getByRole('alert')).toContainText(text.saveNotSaved);
     await expect(box).toHaveValue('<p>v1 edited in the browser</p>');
     await expect(page.getByRole('alert')).not.toBeFocused();
