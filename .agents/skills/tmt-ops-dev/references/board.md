@@ -76,55 +76,20 @@ only, no squad data.
   Search also filters the lead; without a lead there is no rule. `each_row` includes
   the lead in waiting, staleness, usage and color projections. `RowOrigin::Lead`
   carries no section binding, and public JSON keeps it outside `sections`.
-- Default squad `members` and HOME leads use the neutral `view::member_list` boxed-list
-  scene and `Derived.member_list` cache:
-  lead first, the nonselectable members rule, then each member’s selectable heading and task line.
-  `View.exchanges` comes from `home_leads::members` using the already acquired
-  `requests::Sent` window. `App::items` applies the HOME comparator within authored
-  member groups; the lead/rules/sections and public documents stay fixed. Actual
-  row waiting overrides newer replies for squad ordering; HOME retains its latest
-  exchange semantics. Task/state/model/observed age feed the same scene key, and
-  read-only detail joins the row stream through `row_detail`.
-  The mark column is reported state only (`◌` idle; `○` is the Core offline mark and no
-  member row draws it). Observed `presence` fills the state cell when no state is
-  reported, appends `· offline` to a reported one, and sets the bound `name_role` (dim
-  offline); HOME lead headings bind `Text`. The stored-display cache carries no presence.
-- `view::stable::Stable` (`App.stable`, begun per frame) owns what outlives a snapshot,
-  so a refresh moves no cell. Cell widths only grow while a tab stays open at one
-  terminal width (another tab starts over; a resize derives them again), and the last
-  model and age read for a row id stand in, dim, for up to ten minutes when a read has
-  none (an unobserved or `unknown` age; `disabled` clears it). `view::rows` takes the
-  `natural` of unsized grid columns and the row-end label reserve from it;
-  `member_list` takes the model cell (grow-only, at most 8) and the age cell (8 cells
-  right-aligned; HOME lead headings 4) from it, and below 40 cells shows neither. The
-  squad name column follows the widest filtered display name, with a 12-cell minimum
-  and a 26-cell / half-row maximum; whole state text precedes optional chips. HOME
-  keeps its existing name sizing. Layout
-  reads no value as loaded now: placeholder, carried and fresh values share their cells
-  (`view/tests/layout_shift.rs`). The stored display is a separate inert preview.
-- Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
-  `Derived.grid`. Its key includes effective width, search and `Extra` (lead,
-  clock-derived cron/request labels, sent feedback and input reservation). Failed
-  layout/value preparation displays a muted error and leaves the prior cache intact.
-  Selection changes styles without rebuilding the scene. New views start fresh.
-- `RowPaint` owns cells, logical text widths, cuts, row-end labels and clipped hits;
-  `paint_with` gets Squad's alignment and `Look::row_span` selection/stale/token
-  policy. Missing uncolored cells remain Dim; reverse selection overrides their
-  colors. Annotation marks never take selection. The row backdrop reaches its
-  text or end label. The lead tag stays inside the member cell, cuts before the
-  name, disappears below two cells and reserves no width on other rows. Age/cron
-  room is reserved only if it hides no additional column; cron drops before age.
-- Occurrence selection changes styles while preserving the existing blank prefixes:
-  grid x=1 beside the attention diamond, and boxed heading indentation.
-  Hit/reveal ranges, annotation, sent feedback, borders and input reservations
-  do not define selected paint. Duplicate occurrences remain independent. HOME
-  boxed leads select their heading only; member boxes retain their heading/task selection.
+- `workspace::render::tree` formats the viewport's admitted UUID targets from one
+  acquired roster; it owns no factory grid, boxed-member scene or column-width
+  carry cache. Each row reserves its cursor, fits its supplied state/chips, and
+  publishes only its clipped visible hit rectangle. A repeated identity in two
+  squads remains two room/identity targets with independent room observations.
+  Selection covers the actual row and uses `Look::row_span` plus the common
+  selection-word pass. Model/usage truth remains with acquired observations and
+  their existing owners; painting does not turn missing readings into fresh ones.
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
   state colors (waiting, working, review, blocked) paint in `text` unless the cell is a
   single mark glyph (`MARKS`; a dim or muted mark still becomes `text`). Surfaces name no
-  word/mark classes; `render_replica` in `frame_timing` repeats the call. The reverse
+  word/mark classes. The reverse
   fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
   and marks 3:1 on that background.
 
@@ -163,8 +128,10 @@ only, no squad data.
 preferences and actual minimum usable sizes. Squad expansion is keyed by room
 UUID, not a per-tab pane fold. Retired factory/pane/tab settings remain authored
 configuration with located migration notices; they do not create a legacy UI.
-The independent split/markup readers and row painters remain separately tested
-for CLI projection and offline authoring contracts.
+The independent split/markup readers remain separately tested for CLI projection
+and offline authoring contracts. The old grid/boxed-list painters, width/model
+carry cache and duplicated renderer timing harness are removed; workspace
+performance measurements use the actual App/render/buffer-diff path.
 
 `board::scroll::Scrolls` owns pane offsets, clamping, viewport reservation and
 pointer areas. Tree starts, reveal and clipped hits share that viewport. Following

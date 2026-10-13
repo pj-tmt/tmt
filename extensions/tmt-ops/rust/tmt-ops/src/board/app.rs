@@ -706,7 +706,6 @@ pub struct App {
     /// Provider limits as the worker last sampled them; `None` until the first sample.
     pub(super) limits: Option<super::limits::Snapshot>,
     /// Cell widths and row values that outlive a snapshot, so a refresh cannot move the layout.
-    pub(super) stable: RefCell<super::view::stable::Stable>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     usage_document: Option<Value>,
@@ -951,16 +950,14 @@ impl App {
             self.usage_document = None;
             return;
         };
-        if view.rows.select_window(
+        view.rows.select_window(
             meter
                 .settings
                 .windows
                 .iter()
                 .position(|window| *window == self.token_window)
                 .unwrap_or(0),
-        ) {
-            view.derived.borrow_mut().grid = None;
-        }
+        );
         let mut document = view.document.clone();
         crate::display_rows::each_row(&mut document, |row| {
             if let Some(id) = row["id"].as_str().map(str::to_owned) {
@@ -990,7 +987,6 @@ impl App {
             }
         });
         if self.usage_document.as_ref() != Some(&document) {
-            view.derived.borrow_mut().grid = None;
             self.usage_document = Some(document);
         }
     }

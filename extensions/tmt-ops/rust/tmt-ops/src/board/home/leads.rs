@@ -1,34 +1,20 @@
-//! Hidden metadata from the fitted lead projection used by selected details.
-use crate::board::{
-    home_leads::{Kind, Lead},
-    row_chips,
-    view::{fit, member_list},
-};
-use serde_json::{Value, json};
-use tmt_cli_style::{Role, table::escape};
+//! Retained hidden-name projection for typed HOME detail data. The retired lead
+//! painter, its scene cache and its model/age carry state are not retained.
+use crate::board::{home_leads::Lead, row_chips, view::fit};
+use tmt_cli_style::table::escape;
 
 /// Cells of a lead heading's age (`45s`, `12m`, `3h`, `999d`).
 const AGE_CELLS: usize = 4;
 
-fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) -> Value {
-    let (mark, role) = match lead.exchange.as_ref().map(|exchange| exchange.kind) {
-        Some(Kind::Question) => ("◆", Role::Waiting),
-        Some(Kind::Asked) => ("…", Role::Dim),
-        Some(Kind::Reply) => ("✓", Role::Working),
-        None => (" ", Role::Dim),
-    };
+fn heading_names(
+    labels: &crate::labels::Supplied,
+    lead: &Lead,
+    width: u16,
+    now: u64,
+) -> (String, String) {
     let inner = usize::from(width.saturating_sub(2));
-    let age = lead
-        .exchange
-        .as_ref()
-        .and_then(|exchange| exchange.since_ms)
-        .map_or_else(|| "–".into(), |at| crate::requests::age(now, at));
     // The age cell is a fixed width, right-aligned: its text never moves the name.
-    let age_cells = if inner < member_list::NARROW {
-        0
-    } else {
-        AGE_CELLS
-    };
+    let age_cells = if inner < 40 { 0 } else { AGE_CELLS };
     let available = inner.saturating_sub(3 + if age_cells == 0 { 0 } else { age_cells + 1 });
     // The name takes at most half the heading, so a digest always has room beside it.
     let name_width = (available / 2).min(24);
@@ -44,37 +30,28 @@ fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) 
     } else {
         String::new()
     };
-    json!({
-        "chips": chips.pieces,
-        "chips_visible": chips.all,
-        "mark": format!(" {mark} "),
-        "mark_role": role.name(),
-        "name": fit(&escape(lead.name()), name_width),
-        "name_role": Role::Text.name(),
-        "squad": if width >= super::MD.cells { squad.clone() } else { String::new() },
-        "tag": if (super::SM.cells..super::MD.cells).contains(&width) { squad } else { String::new() },
-        "age": member_list::age_cell(&age, age_cells),
-        "age_role": Role::Dim.name(),
-    })
+    (
+        fit(&escape(lead.name()), name_width),
+        if width >= super::SM.cells {
+            squad
+        } else {
+            String::new()
+        },
+    )
 }
 
-/// Disclosure uses the same fitted heading as paint, so visible labels are not repeated.
+/// Preserve the fitted-name disclosure policy for retained typed detail callers.
 pub(in crate::board) fn hidden_metadata(
     labels: &crate::labels::Supplied,
     lead: &Lead,
     width: u16,
     now: u64,
 ) -> Vec<(&'static str, String)> {
-    let row = heading(labels, lead, width, now);
+    let (name, shown) = heading_names(labels, lead, width, now);
     let mut fields = Vec::new();
-    if row["name"].as_str().unwrap().trim_end() != escape(lead.name()) {
+    if name.trim_end() != escape(lead.name()) {
         fields.push(("lead", lead.name().into()));
     }
-    let shown = format!(
-        "{}{}",
-        row["squad"].as_str().unwrap(),
-        row["tag"].as_str().unwrap()
-    );
     let label = escape(&lead.squad);
     if !shown.contains(&label) {
         fields.push(("squad", lead.squad.clone()));

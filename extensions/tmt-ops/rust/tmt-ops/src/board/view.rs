@@ -4,14 +4,10 @@ mod cached;
 mod detail;
 pub(super) mod footer;
 mod header;
-pub(in crate::board) mod member_list;
 mod notes;
 mod overlays;
 mod panes;
-pub(in crate::board) mod row_paint;
-mod rows;
 pub(in crate::board) mod scene;
-pub(in crate::board) mod stable;
 mod tabs;
 pub(in crate::board) mod waiting;
 
@@ -114,9 +110,6 @@ pub(in crate::board) fn render_frame(
     app.input_band.set(None);
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
-    app.stable
-        .borrow_mut()
-        .begin(app.shown_tab().unwrap_or_default(), frame.area().width);
     app.hits.borrow_mut().clear();
     app.detail_more_hits.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();

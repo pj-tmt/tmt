@@ -292,7 +292,6 @@ fn grid_fields_use_each_rows_actual_budget_including_wrap_and_request_age() {
     for (max_lines, hidden) in [(1, true), (2, false)] {
         let view = app.view.as_mut().unwrap();
         view.rows.columns[1].overflow = Some(tmt_cli_style::grid::Overflow::Wrap { max_lines });
-        view.derived.borrow_mut().grid = None;
         let shown = text(&draw(&app, 80, 30));
         assert_eq!(shown.contains("│task"), hidden, "{shown}");
         assert!(shown.contains("before shipping"), "{shown}");

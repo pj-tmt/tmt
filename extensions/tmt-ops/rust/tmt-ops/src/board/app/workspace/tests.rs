@@ -1238,6 +1238,127 @@ fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
     });
 }
 
+#[test]
+fn selected_tree_rows_keep_uniform_reverse_fallback_and_clipped_hit_bounds() {
+    use ratatui::style::Modifier;
+    for base in tmt_cli_style::Base::ALL {
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let mut app = board();
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            app.view.as_mut().unwrap().look = look;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .squad_looks
+                .insert(ROOM.into(), look);
+            for width in [160, 80, 31, 1] {
+                let mut terminal = Terminal::new(TestBackend::new(width, 18)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let hits = app.hits.borrow();
+                assert!(
+                    hits.iter()
+                        .all(|hit| hit.x + hit.width <= width && hit.y < 18)
+                );
+                let Some(hit) = hits.iter().find(|hit| hit.row() == Some(app.selected)) else {
+                    continue;
+                };
+                let buffer = terminal.backend().buffer();
+                let selection = look.selection();
+                for x in hit.x..hit.x + hit.width {
+                    let cell = &buffer[(x, hit.y)];
+                    if let Some(background) = selection.bg {
+                        assert_eq!(cell.bg, background);
+                    } else {
+                        assert_eq!(
+                            cell.fg,
+                            selection.fg.unwrap_or_default(),
+                            "{base:?}/{depth:?} at {x},{}",
+                            hit.y
+                        );
+                        assert!(cell.modifier.contains(Modifier::REVERSED));
+                        assert!(!cell.modifier.contains(Modifier::DIM));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn repeated_membership_selection_keeps_its_room_context_and_exact_row_data() {
+    const OTHER_ROOM: &str = "77777777-7777-4777-8777-777777777777";
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    let mut squad = snapshot.roster.squads[0].clone();
+    squad.room_id = OTHER_ROOM.into();
+    squad.name = "another-squad".into();
+    squad.member_states.get_mut(MEMBER).unwrap().state = Some("blocked".into());
+    snapshot.roster.squads.push(squad);
+    let first = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: MEMBER.into(),
+    };
+    let second = OpsTarget::Member {
+        room_id: Some(OTHER_ROOM.into()),
+        identity_id: MEMBER.into(),
+    };
+    snapshot.rows.get_mut(&first).unwrap()["note"] = json!("first room observation");
+    snapshot.rows.insert(
+        second.clone(),
+        json!({"id":MEMBER,"name":"worker","state":"blocked","note":"second room observation"}),
+    );
+    app.workspace.expanded.insert(OTHER_ROOM.into());
+    for target in [first, second] {
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| row.target == target)
+            .unwrap();
+        app.select(index);
+        for width in [160, 80, 60] {
+            paint(&app, width, 36);
+            assert_eq!(app.workspace.selected.as_ref(), Some(&target));
+            assert_eq!(
+                app.selected_row().unwrap()["note"],
+                if matches!(&target, OpsTarget::Member {room_id: Some(id), ..} if id == ROOM) {
+                    "first room observation"
+                } else {
+                    "second room observation"
+                }
+            );
+            let hit = *app
+                .hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.row() == Some(index))
+                .unwrap();
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: hit.x,
+                    row: hit.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now(),
+            );
+            assert_eq!(app.workspace.selected.as_ref(), Some(&target));
+        }
+    }
+}
+
 /// One literal fixture owner for private capture packets and the frozen HOME oracle.
 /// It configures only an isolated test model; rendering stays on the actual App path.
 pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> App {
