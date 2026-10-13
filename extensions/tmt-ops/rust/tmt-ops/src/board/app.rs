@@ -683,7 +683,6 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
-    pub(super) detail_more_hits: RefCell<Vec<(ratatui::layout::Rect, super::row_detail::Target)>>,
     /// Where a row's choice chip was last drawn, with its row.
     pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     /// Each record's first visual line in the last rows draw, for paging.
@@ -3069,7 +3068,6 @@ impl App {
         self.hits.borrow_mut().clear();
         self.row_starts.borrow_mut().clear();
         self.tab_hits.borrow_mut().clear();
-        self.detail_more_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.chip_hits.borrow_mut().clear();
         if let Some(draft) = &self.workspace_form {
@@ -3284,19 +3282,6 @@ impl App {
                 self.notice = None;
                 self.select(row);
                 return self.digest_row(row);
-            }
-            let target = self
-                .detail_more_hits
-                .borrow()
-                .iter()
-                .find(|(area, _)| area.contains((event.column, event.row).into()))
-                .map(|(_, target)| target.clone());
-            if let Some(target) = target.filter(|target| {
-                self.detail(target)
-                    .is_some_and(|detail| detail.reply.is_some())
-            }) {
-                self.row_details.reader = Some(super::row_detail::Reader::new(target, None));
-                return Effect::None;
             }
         }
 

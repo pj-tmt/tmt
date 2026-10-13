@@ -87,24 +87,16 @@ state only, no squad data or durable preference policy.
   fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
   and marks 3:1 on that background.
 
-- `board::row_detail` owns the typed entity fields/reply projection, one renderer and
-  full-reply reader for member, HOME lead/member and job rows. Adapters supply data
-  and row geometry plus fields shown uncut in the collapsed row (truncated or
-  clamped fields remain in the detail block), never a
-  separate detail look. Collapsed content stays intact; detail omits visible
-  fields, including task/model in the default member box and width-dependent
-  job/grid cells. `e` toggles stable row occurrences;
-  several can expand. Refresh prunes disappeared rows and obsolete request bodies.
-  Detail participates in the list height and parent hits, with no composer, input-band
-  or selection background. Labels/gutter, three-line fields and six-line Markdown
-  replies share wrapping and roles across every adapter. Existing scroll owners
-  reveal the minimum row/block range, clipping tall blocks with their overflow cue.
-  Full bodies arrive only through the existing cancellable worker/request cache,
-  fenced by revision and exact sender/recipient/request; collapsed or removed rows
-  cannot accept late results. `v` opens any available reply in the shared read-only
-  modal/ScrollState reader, and clicking its generated overflow line does the same.
-  Enter and `o` retain ordinary row actions. Expansion needs no recorded user or
-  Rows-pane focus; sending still does.
+- `board::row_detail` owns the typed entity fields/reply projection and shared
+  renderer used by Timers detail and the response reader. Labels/gutter, bounded
+  fields and Markdown previews share wrapping and roles; current workspace
+  response placement belongs to `conversation`, not inline member expansions.
+  The retired inline row overflow click targets and their frame cache are removed.
+  Full bodies arrive through the cancellable worker/request cache, fenced by exact
+  sender/recipient/request. A compatible `view-reply` action opens the shared
+  read-only modal/ScrollState reader. Source selection and annotation revalidate
+  the exact request and raw body before producing an effect; reading alone sends
+  and acknowledges nothing.
 - Row composer and footer: `Input.compose` is the current mode (answer, note, talk or status)
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
   refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a

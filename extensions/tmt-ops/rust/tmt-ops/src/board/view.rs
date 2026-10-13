@@ -98,7 +98,6 @@ pub(in crate::board) fn render_frame(
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
     app.hits.borrow_mut().clear();
-    app.detail_more_hits.borrow_mut().clear();
     app.chip_hits.borrow_mut().clear();
     app.workspace_action_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();

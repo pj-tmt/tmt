@@ -180,48 +180,6 @@ fn the_shared_renderer_wraps_limits_and_keeps_only_the_gutter_selected() {
 }
 
 #[test]
-fn the_overflow_line_opens_its_parent_reply_without_running_the_row_click_action() {
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    let mut app = fixture();
-    app.view.as_mut().unwrap().replies =
-        vec![json!({"recipientId":"u1","requestId":"r1","response":"a paragraph\n\n".repeat(30)})];
-    press(&mut app, KeyCode::Char('e'));
-    let _ = draw(&app, 80, 24);
-    let (hit, target) = app
-        .detail_more_hits
-        .borrow()
-        .first()
-        .cloned()
-        .expect("the visible overflow line owns a hit");
-    // Moving from a meter to the reply overflow clears hover without cycling it.
-    let window = app.token_window;
-    app.meter_hover = Some(None);
-    assert_eq!(
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: hit.x + 10,
-                row: hit.y,
-                modifiers: KeyModifiers::NONE
-            },
-            std::time::Instant::now()
-        ),
-        Effect::None
-    );
-    assert_eq!(app.row_details.reader.as_ref().unwrap().target, target);
-    assert_eq!(app.meter_hover, None);
-    assert_eq!(app.token_window, window);
-    assert!(app.input.is_none() && app.menu.is_none());
-    press(&mut app, KeyCode::Esc);
-    press(&mut app, KeyCode::Char('e'));
-    let _ = draw(&app, 80, 24);
-    assert!(
-        app.detail_more_hits.borrow().is_empty(),
-        "collapsed rows leave no old click target"
-    );
-}
-
-#[test]
 fn collapsed_fields_are_complete_only_when_their_entire_text_survives() {
     use tmt_tui::style::TextFlow;
     assert!(!uncut("a long field", 5, TextFlow::Truncate));

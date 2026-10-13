@@ -376,14 +376,7 @@ impl App {
     }
 }
 
-#[derive(Default)]
-struct Block {
-    lines: Vec<Line<'static>>,
-    more: Option<usize>,
-}
-
-/// Render every row kind at its own text-column indent. No selection background
-/// enters this block: only the gutter acknowledges the selected parent.
+/// Shared typed field/reply preview renderer; viewport and input belong to callers.
 pub(super) fn render(
     data: &Value,
     width: u16,
@@ -391,12 +384,8 @@ pub(super) fn render(
     look: Look,
     selected: bool,
 ) -> Vec<Line<'static>> {
-    block(data, width, indent, look, selected).lines
-}
-
-fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> Block {
     if data.is_null() {
-        return Block::default();
+        return Vec::new();
     }
     let fields = data["fields"]
         .as_array()
@@ -419,7 +408,6 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
         .max(1);
     let muted = look.role(Role::Muted);
     let mut output = Vec::new();
-    let mut more = false;
     let mut line = |label: &str, value: Line<'static>| {
         let mut spans = vec![
             Span::raw(" ".repeat(indent.saturating_sub(1))),
@@ -516,7 +504,6 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
                         muted,
                     ),
                 );
-                more = true;
             }
         }
     } else if fields.is_empty() {
@@ -527,10 +514,7 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
             " ".repeat(usize::from(width).saturating_sub(line.width())),
         ));
     }
-    Block {
-        more: more.then(|| output.len() - 1),
-        lines: output,
-    }
+    output
 }
 
 /// Paint list-reserved lines using the same renderer, leaving scrolling and hit
@@ -570,37 +554,6 @@ pub(super) fn paint_list(
                 line,
             );
         }
-    }
-}
-
-/// Record only the generated overflow line, using this frame's row/scroll geometry.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn more_hit(
-    app: &App,
-    row: usize,
-    data: &Value,
-    width: u16,
-    indent: u16,
-    start: usize,
-    area: Rect,
-    offset: usize,
-    viewport: usize,
-) {
-    if data["reply"].is_null() {
-        return;
-    }
-    let Some(more) = block(data, width, indent, app.look(), row == app.selected).more else {
-        return;
-    };
-    let at = start + more;
-    if at >= offset
-        && at < offset + viewport
-        && let Some(target) = app.row_target(row)
-    {
-        app.detail_more_hits.borrow_mut().push((
-            Rect::new(area.x, area.y + (at - offset) as u16, area.width, 1),
-            Target::Row(target),
-        ));
     }
 }
 
