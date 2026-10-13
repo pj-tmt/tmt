@@ -1002,18 +1002,18 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 Ok(())
             })
-            .map_err(|_| crate::sync::Code::Denied)?;
+            .map_err(|error| sync_fault(error.as_ref()))?;
         Ok(crate::sync::CatchupContext {
             membership_head: store
                 .owner_head(&scope.space, &service.keyring.owner_public())
-                .map_err(|_| crate::sync::Code::Denied)?
+                .map_err(|error| sync_fault(error.as_ref()))?
                 .ok_or(crate::sync::Code::Denied)?,
             baseline: store
                 .baseline(
                     &scope.page,
                     values::decimal(&scope.epoch, false).map_err(|_| crate::sync::Code::Denied)?,
                 )
-                .map_err(|_| crate::sync::Code::Denied)?
+                .map_err(|error| sync_fault(error.as_ref()))?
                 .map(|baseline| baseline.descriptor),
             owner_key: service.keyring.owner_public(),
             recipients: if service.readers.contains(principal) {
@@ -1124,12 +1124,7 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 Ok(binding.signing)
             })
-            .map_err(|error| {
-                error
-                    .downcast_ref::<SyncCode>()
-                    .copied()
-                    .unwrap_or(SyncCode::Denied)
-            })
+            .map_err(|error| sync_fault(error.as_ref()))
     }
 }
 
@@ -1250,6 +1245,20 @@ pub(crate) fn now_ms() -> std::result::Result<u64, Code> {
         .as_millis()
         .try_into()
         .map_err(|_| Code::Unavailable)
+}
+
+/// What a peer is told when an admission read fails. A refusal the store answered keeps its code;
+/// a store that could not be read (another connection held it past the busy timeout) is no
+/// verdict on the device, so the peer resyncs instead of being denied (#2956).
+fn sync_fault(error: &(dyn std::error::Error + 'static)) -> crate::sync::Code {
+    if let Some(code) = error.downcast_ref::<crate::sync::Code>() {
+        return *code;
+    }
+    if crate::store::contended(error) {
+        crate::sync::Code::ResyncRequired
+    } else {
+        crate::sync::Code::Denied
+    }
 }
 
 fn reader_sync_error(code: Code) -> crate::sync::Code {
