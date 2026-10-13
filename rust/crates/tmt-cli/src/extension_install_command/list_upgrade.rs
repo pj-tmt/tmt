@@ -106,6 +106,7 @@ pub(super) fn upgrade_at(
     };
     let verifier = None;
     let checkpoint = interruptible("Extension update interrupted before activation.")?;
+    let before = PostUpgradeNotice::capture(product, Some(&executable));
     let report = match selected {
         Some(version) => native_install::upgrade_product_selected(
             product, request, version, verifier, checkpoint,
@@ -118,6 +119,7 @@ pub(super) fn upgrade_at(
             product,
             &error,
             Some(&current.state.version.to_string()),
+            before,
         );
         notice.retain(failure("EXTENSION_UPGRADE_FAILED", error))
     })?;
@@ -125,6 +127,7 @@ pub(super) fn upgrade_at(
         product,
         &report.installation,
         Some(&current.state.version.to_string()),
+        before,
     );
     let version = report.installation.version.clone();
     let human = if report.skipped_pinned {

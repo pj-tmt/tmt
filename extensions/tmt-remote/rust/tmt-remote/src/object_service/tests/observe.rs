@@ -307,6 +307,61 @@ fn observations_never_cache_an_allow_or_disclose_after_a_refusal() {
 }
 
 #[test]
+fn restart_in_flight_committed_read_defers_and_the_read_still_completes() {
+    let env = Env::new();
+    let (service, peer) = running(&env, bounds());
+    let original = spec(Context::LocalExtension, 7, b"hello");
+    seed(&service, &original, b"hello", true);
+    let before = service.storage.installation_usage(&io()).unwrap();
+    assert_eq!(before.active_uploads, 0);
+    let view = service.readiness();
+    let (seen, entered) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let resume = Mutex::new(resume);
+    service.storage.observe(Arc::new(move |point| {
+        if point == Milestone::ReadBytes {
+            seen.send(()).unwrap();
+            resume
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+        }
+        true
+    }));
+    request(
+        &peer,
+        1,
+        Origin::LocalExtension,
+        read_input(&original, 0, 5),
+    );
+    let acquire = callback(&peer);
+    decide(&peer, acquire.callback_id.get(), 1, Decision::Allow);
+    entered.recv_timeout(Duration::from_secs(5)).unwrap();
+    let stopped = AtomicBool::new(false);
+    let admitted = view
+        .while_idle(&stopped, || stopped.store(true, Ordering::Release))
+        .unwrap();
+    // Release the named milestone even when the assertion below will fail.
+    release.send(()).unwrap();
+    let disclose = callback(&peer);
+    assert_eq!(disclose.boundary, Checkpoint::Disclose);
+    decide(&peer, disclose.callback_id.get(), 1, Decision::Allow);
+    assert!(matches!(
+        result(&peer).outcome,
+        Outcome::Success(Success::Read { .. })
+    ));
+    assert!(!admitted);
+    assert!(!stopped.load(Ordering::Acquire));
+    assert_eq!(service.storage.installation_usage(&io()).unwrap(), before);
+    assert!(
+        view.while_idle(&stopped, || stopped.store(true, Ordering::Release))
+            .unwrap()
+    );
+    service.shutdown();
+}
+
+#[test]
 fn observation_shutdown_cancels_an_in_flight_read_and_releases_every_view() {
     let env = Env::new();
     let (service, peer) = running(&env, bounds());

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
-/// The control socket may retain this view, but cannot open storage or start a worker.
-/// ObjectService shutdown removes and joins every Running before its lease ends.
+/// Control may observe existing upload accounting while the serve lease is held.
+/// Shutdown releases the reader and joins every Running; retained views open nothing.
 #[derive(Clone, Default)]
 pub struct ObjectReadiness {
     state: Option<Arc<Mutex<State>>>,
@@ -32,6 +32,57 @@ impl ObjectReadiness {
                 .map(|e| e.name)
                 .collect(),
         }
+    }
+    /// Observe existing pending-upload accounting and live transfer holders.
+    /// Failure cannot admit a restart. No channel is activated or reconciled.
+    pub(crate) fn while_idle(
+        &self,
+        stop: &std::sync::atomic::AtomicBool,
+        action: impl FnOnce(),
+    ) -> Result<bool, crate::error::RemoteError> {
+        if !self.failed.is_empty() {
+            return Err(crate::error::RemoteError::new(
+                "REMOTE_OBJECTS_UNAVAILABLE",
+                "Object transfer observation is unavailable.",
+            ));
+        }
+        let state = self
+            .state
+            .as_ref()
+            .map(|state| state.try_lock())
+            .transpose()
+            .map_err(|_| {
+                crate::error::RemoteError::new(
+                    "REMOTE_OBJECTS_UNAVAILABLE",
+                    "Object lifecycle observation is unavailable.",
+                )
+            })?;
+        if state
+            .as_ref()
+            .is_some_and(|state| state.stopped || state.slots.iter().any(|slot| slot.setup))
+        {
+            return Ok(false);
+        }
+        let reader = state
+            .as_ref()
+            .and_then(|state| state.restart_reader.clone());
+        drop(state); // Service state is never held across ledger I/O.
+        let io = crate::objects::IoBudget {
+            deadline: std::time::Instant::now() + crate::limits::OBJECT_REACTIVATION,
+            cancelled: stop,
+        };
+        if let Some(reader) = reader
+            && !reader.transfers_idle(&io).map_err(|_| {
+                crate::error::RemoteError::new(
+                    "REMOTE_OBJECTS_UNAVAILABLE",
+                    "Object transfer observation is unavailable.",
+                )
+            })?
+        {
+            return Ok(false);
+        }
+        action();
+        Ok(true)
     }
     pub fn snapshot(&self) -> Value {
         let Some(state) = &self.state else {

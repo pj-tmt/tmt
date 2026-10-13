@@ -107,6 +107,8 @@ impl Pilot {
             .env("XDG_STATE_HOME", self.root.join("xdg-state"))
             .env("XDG_CACHE_HOME", self.root.join("cache"))
             .env("HOME", &self.root)
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
             .env("XDG_CONFIG_HOME", self.root.join("config"))
             .env("XDG_DATA_HOME", self.root.join("data"))
             .env("TMT_EXECUTABLE", self.root.join("core"));
@@ -1862,6 +1864,427 @@ fn read_startup_record(stream: &mut UnixStream, deadline: Instant) -> std::io::R
     let mut bytes = vec![0; length];
     read_until(stream, &mut bytes, deadline)?;
     Ok((header[0], serde_json::from_slice(&bytes)?))
+}
+
+#[test]
+fn restart_stopped_does_not_create_or_mutate_state() {
+    let mut pilot = Pilot::new();
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"not-running","reason":null})
+    );
+    assert!(!pilot.root.join("state/remote").exists());
+    assert!(pilot.background_output(&["--port", "0"]).status.success());
+    stop_json(&pilot);
+    let before = stopped_files(&pilot);
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"not-running","reason":null})
+    );
+    assert_eq!(stopped_files(&pilot), before);
+}
+
+#[test]
+fn restart_foreground_defers_without_stopping_the_owner() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &["--foreground", "--port", "0"], false);
+    let before = status_json(&pilot);
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"deferred","reason":"foreground"})
+    );
+    assert_eq!(status_json(&pilot), before);
+    assert!(pilot.child.as_mut().unwrap().try_wait().unwrap().is_none());
+    stop_json(&pilot);
+    wait_stopped(pilot.child.as_mut().unwrap());
+}
+
+#[test]
+fn restart_active_pairing_defers_and_keeps_the_exact_offer() {
+    let mut pilot = Pilot::new();
+    assert!(pilot.background_output(&["--port", "0"]).status.success());
+    let before = status_json(&pilot);
+    let mut owner = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+    owner.set_read_timeout(Some(STARTUP)).unwrap();
+    owner.write_all(b"{\"op\":\"pair\"}\n").unwrap();
+    let mut owner = BufReader::new(owner);
+    let mut line = String::new();
+    owner.read_line(&mut line).unwrap();
+    let offer: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(offer["event"], "offer");
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"deferred","reason":"busy"})
+    );
+    assert_eq!(status_json(&pilot), before);
+    owner.get_mut().write_all(b"{\"op\":\"cancel\"}\n").unwrap();
+    line.clear();
+    owner.read_line(&mut line).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["event"],
+        "ended"
+    );
+    drop(owner);
+    stop_json(&pilot);
+}
+
+#[test]
+fn restart_legacy_owner_defers_without_a_stop_request_or_state_write() {
+    let pilot = Pilot::new();
+    let layout = tmt_remote::state::Layout::open(&pilot.root.join("state")).unwrap();
+    let socket = layout.directory.join("control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let owner = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(STARTUP)).unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            serde_json::json!({"op":"restart-snapshot"})
+        );
+        writeln!(stream, "{{\"error\":{{\"code\":\"REMOTE_CONTROL_UNSUPPORTED\",\"message\":\"Unknown control operation.\"}}}}").unwrap();
+    });
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    owner.join().unwrap();
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"deferred","reason":"legacy"})
+    );
+    for name in ["serve.lock", "remote.db", "machine.key"] {
+        assert!(!layout.directory.join(name).exists());
+    }
+    fs::remove_file(socket).unwrap();
+}
+
+#[test]
+fn restart_lost_stop_reply_observes_status_without_retry_or_start() {
+    use tmt_remote::{control, state::Layout};
+    let mut pilot = Pilot::new();
+    let started = pilot.background_output(&["--port", "0"]);
+    assert!(started.status.success());
+    let ready: Value = serde_json::from_slice(&started.stdout).unwrap();
+    let before = status_json(&pilot);
+    stop_json(&pilot);
+    let layout = Layout::existing(&pilot.root.join("state"))
+        .unwrap()
+        .unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let socket_path = layout.directory.join(control::SOCKET);
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600)).unwrap();
+    let snapshot = serde_json::json!({"background":true,"windowId":ready["windowId"],"origin":before["origin"],"path":before["path"],"registrations":control::registrations(&tmt_remote::mount::EXTENSIONS)});
+    let owner = std::thread::spawn(move || {
+        let mut observed = Vec::new();
+        for reply in [Some(snapshot), None, Some(before)] {
+            let (mut client, _) = listener.accept().unwrap();
+            client.set_read_timeout(Some(STARTUP)).unwrap();
+            let mut line = String::new();
+            BufReader::new(client.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            observed.push(
+                serde_json::from_str::<Value>(&line).unwrap()["op"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+            );
+            if let Some(reply) = reply {
+                writeln!(client, "{reply}").unwrap();
+            }
+            // Dropping the stop connection loses its acknowledgment.
+        }
+        drop(listener);
+        fs::remove_file(socket_path).unwrap();
+        drop(lease);
+        observed
+    });
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        owner.join().unwrap(),
+        ["restart-snapshot", "restart-stop", "status"]
+    );
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"unconfirmed","reason":"unknown"})
+    );
+    assert_eq!(status_json(&pilot)["running"], false);
+}
+
+#[test]
+fn restart_failed_bind_is_unconfirmed_and_keeps_the_exact_port() {
+    use tmt_remote::{control, state::Layout};
+    let mut pilot = Pilot::new();
+    let started = pilot.background_output(&["--port", "0"]);
+    assert!(started.status.success());
+    let ready: Value = serde_json::from_slice(&started.stdout).unwrap();
+    let before = status_json(&pilot);
+    stop_json(&pilot);
+    let (_, _, port) = address_parts(ready["address"].as_str().unwrap());
+    let occupied = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let layout = Layout::existing(&pilot.root.join("state"))
+        .unwrap()
+        .unwrap();
+    let lease = layout.serve_lock().unwrap();
+    let socket_path = layout.directory.join(control::SOCKET);
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600)).unwrap();
+    let snapshot = serde_json::json!({"background":true,"windowId":ready["windowId"],"origin":before["origin"],"path":before["path"],"registrations":control::registrations(&tmt_remote::mount::EXTENSIONS)});
+    let owner = std::thread::spawn(move || {
+        let (mut snapshot_client, _) = listener.accept().unwrap();
+        snapshot_client.set_read_timeout(Some(STARTUP)).unwrap();
+        let mut line = String::new();
+        BufReader::new(snapshot_client.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            serde_json::json!({"op":"restart-snapshot"})
+        );
+        writeln!(snapshot_client, "{snapshot}").unwrap();
+        drop(snapshot_client);
+        let (mut stopping, _) = listener.accept().unwrap();
+        stopping.set_read_timeout(Some(STARTUP)).unwrap();
+        line.clear();
+        BufReader::new(stopping.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap(),
+            serde_json::json!({"op":"restart-stop","windowId":snapshot["windowId"]})
+        );
+        writeln!(stopping, "{{\"stopping\":true}}").unwrap();
+        drop(listener);
+        fs::remove_file(socket_path).unwrap();
+        drop(lease);
+    });
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    owner.join().unwrap();
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"unconfirmed","reason":"startup"})
+    );
+    assert_eq!(occupied.local_addr().unwrap().port(), port);
+    assert_eq!(
+        status_json(&pilot),
+        serde_json::json!({"running":false,"lastPort":port})
+    );
+    let diagnostic: Value = serde_json::from_slice(
+        &fs::read(pilot.root.join("state/remote/serve-error.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(diagnostic["code"], "REMOTE_PORT_BUSY");
+    drop(occupied);
+}
+
+#[test]
+fn restart_candidate_failure_leaves_old_background_usable() {
+    let mut pilot = Pilot::new();
+    let started = pilot.background_output(&["--port", "0"]);
+    assert!(started.status.success());
+    let ready: Value = serde_json::from_slice(&started.stdout).unwrap();
+    let before = status_json(&pilot);
+    executable_fixture::write_executable(&pilot.root.join("core"), &format!(
+        "cat > '{root}/input'\nif grep -q storage.root '{root}/input'; then printf '{{\"dataRoot\":\"{root}/state\"}}'; else printf '{{\"version\":99}}'; fi\n", root=pilot.root.display()
+    )).unwrap();
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"unconfirmed","reason":"candidate"})
+    );
+    assert_eq!(status_json(&pilot), before);
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap();
+    assert!(
+        exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"))
+            .contains("<!doctype html>")
+    );
+    stop_json(&pilot);
+}
+
+#[test]
+fn restart_idle_background_keeps_endpoint_and_replaces_window() {
+    let mut pilot = Pilot::new();
+    let output = pilot.background_output(&["--port", "0"]);
+    assert!(output.status.success());
+    let ready: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let before = status_json(&pilot);
+    // This trusted mount remains registered while Remote replaces its own run.
+    struct RegisteredRoute {
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Drop for RegisteredRoute {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Release);
+            self.thread.take().unwrap().join().unwrap();
+        }
+    }
+    let directory = pilot.root.join("state/colab");
+    fs::create_dir_all(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = UnixListener::bind(directory.join("door.sock")).unwrap();
+    fs::set_permissions(
+        directory.join("door.sock"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let (sent, requests) = mpsc::channel();
+    let route = RegisteredRoute {
+        stop,
+        thread: Some(std::thread::spawn(move || {
+            while !flag.load(Ordering::Acquire) {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(client) => client,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
+                    }
+                    Err(error) => panic!("registered route: {error}"),
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .unwrap();
+                let mut head = String::new();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    head.push_str(&line);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                if head.starts_with("GET / HTTP/1.1\r\n") {
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\n\r\nmounted");
+                    let _ = sent.send(head);
+                } else {
+                    let _ =
+                        stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                }
+            }
+        })),
+    };
+    let socket = before["origin"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("http://")
+        .unwrap();
+    let request = format!("GET /colab HTTP/1.1\r\nHost: {socket}\r\n\r\n");
+    assert!(exchange(socket, &request).ends_with("\r\n\r\nmounted"));
+    let mounted_before = requests.recv_timeout(STARTUP).unwrap();
+    let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
+    let result = pilot
+        .command()
+        .args(["restart", "--json", "--no-open"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(result.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+        serde_json::json!({"outcome":"restarted", "reason":null})
+    );
+    assert_eq!(status_json(&pilot), before);
+    assert!(exchange(socket, &request).ends_with("\r\n\r\nmounted"));
+    let mounted_after = requests.recv_timeout(STARTUP).unwrap();
+    assert_eq!(
+        mounted_before, mounted_after,
+        "same trusted mount/Host policy after restart"
+    );
+    let mut owner = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+    owner.set_read_timeout(Some(STARTUP)).unwrap();
+    owner.write_all(b"{\"op\":\"pair\"}\n").unwrap();
+    let mut owner = BufReader::new(owner);
+    let mut line = String::new();
+    owner.read_line(&mut line).unwrap();
+    let offer: Value = serde_json::from_str(&line).unwrap();
+    let descriptor = &offer["descriptor"];
+    assert_ne!(descriptor["windowId"], ready["windowId"]);
+    owner.get_mut().write_all(b"{\"op\":\"cancel\"}\n").unwrap();
+    line.clear();
+    owner.read_line(&mut line).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["event"],
+        "ended"
+    );
+    drop(owner);
+    assert_eq!(
+        fs::read(pilot.root.join("state/remote/machine.key")).unwrap(),
+        key
+    );
+    assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
+    assert_eq!(status_json(&pilot)["running"], false);
+    drop(route);
 }
 
 #[test]

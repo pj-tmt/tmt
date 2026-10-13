@@ -3,13 +3,28 @@
 use super::Human;
 use crate::output::Failure;
 use serde_json::Value;
-use tmt_adapters::native_install::{self, InstallReport, Product};
+use tmt_adapters::native_install::{self, InstallReport, PostUpgradeObservation, Product};
 
 #[derive(Default)]
 pub(super) struct PostUpgradeNotice(Option<&'static str>);
 
 impl PostUpgradeNotice {
-    pub fn observe(product: Product, report: &InstallReport, previous: Option<&str>) -> Self {
+    pub fn capture(
+        product: Product,
+        executable: Option<&std::path::Path>,
+    ) -> PostUpgradeObservation {
+        let Some(executable) = executable else {
+            return PostUpgradeObservation::NotApplicable;
+        };
+        let core = std::env::current_exe().ok();
+        native_install::observe_before_upgrade(product, executable, core.as_deref())
+    }
+    pub fn observe(
+        product: Product,
+        report: &InstallReport,
+        previous: Option<&str>,
+        before: PostUpgradeObservation,
+    ) -> Self {
         let core = std::env::current_exe().ok();
         let replaced = previous.is_some_and(|old| old != report.version);
         Self(native_install::post_upgrade_hint(
@@ -17,12 +32,18 @@ impl PostUpgradeNotice {
             report,
             replaced,
             core.as_deref(),
+            before,
         ))
     }
 
-    pub fn after_failure(product: Product, error: &std::io::Error, previous: Option<&str>) -> Self {
+    pub fn after_failure(
+        product: Product,
+        error: &std::io::Error,
+        previous: Option<&str>,
+        before: PostUpgradeObservation,
+    ) -> Self {
         native_install::activated_report(error)
-            .map(|report| Self::observe(product, report, previous))
+            .map(|report| Self::observe(product, report, previous, before))
             .unwrap_or_default()
     }
 
@@ -62,20 +83,31 @@ mod tests {
         };
         let previous = report.version.as_str();
         assert!(
-            PostUpgradeNotice::observe(Product::Remote, &report, None)
-                .0
-                .is_none()
+            PostUpgradeNotice::observe(
+                Product::Remote,
+                &report,
+                None,
+                PostUpgradeObservation::Running
+            )
+            .0
+            .is_none()
         );
         assert!(
-            PostUpgradeNotice::observe(Product::Remote, &report, Some(previous))
-                .0
-                .is_none()
+            PostUpgradeNotice::observe(
+                Product::Remote,
+                &report,
+                Some(previous),
+                PostUpgradeObservation::Running
+            )
+            .0
+            .is_none()
         );
         assert!(
             PostUpgradeNotice::after_failure(
                 Product::Remote,
                 &std::io::Error::other("before activation"),
-                Some(previous)
+                Some(previous),
+                PostUpgradeObservation::Running
             )
             .0
             .is_none()

@@ -217,6 +217,25 @@ impl Pairing {
     pub fn window_id(&self) -> &str {
         &self.window_id
     }
+    /// Hold the offer owner briefly while lifecycle admission checks the other owners.
+    pub(crate) fn while_idle(
+        &self,
+        action: impl FnOnce() -> Result<bool, RemoteError>,
+    ) -> Result<bool, RemoteError> {
+        let mut slot = match self.offer.try_lock() {
+            Ok(slot) => slot,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+            Err(error) => return Err(crate::store::database(error)),
+        };
+        self.expire_locked(&mut slot);
+        if slot
+            .as_ref()
+            .is_some_and(|offer| !matches!(offer.phase, Phase::Confirmed { .. }))
+        {
+            return Ok(false);
+        }
+        action()
+    }
     /// Open the single offer, explicitly cancelling any previous one.
     pub fn open(&self) -> Result<(Offered, mpsc::Receiver<PairingEvent>), RemoteError> {
         let mut code = [0; 16];

@@ -1,6 +1,7 @@
 //! The parent owns consent; only the newly installed executable plans/applies extensions.
 use super::*;
 use crate::extension_install_command::upgrade_all::{self, Plan};
+const EXTENSION_BUDGET: Duration = Duration::from_secs(180);
 
 pub(super) fn upgrade(
     executable: &Path,
@@ -8,23 +9,44 @@ pub(super) fn upgrade(
     mode: OutputMode,
     runner: &impl CommandRunner,
 ) -> Vec<Value> {
-    upgrade_with(executable, runner, |plan| upgrade_all::ask(plan, yes, mode))
+    upgrade_with_progress(
+        executable,
+        runner,
+        |plan| upgrade_all::ask(plan, yes, mode),
+        |remote_pending| {
+            let mut stderr = tmt_cli_style::stream::stderr();
+            if remote_pending && !mode.json && tmt_cli_style::Interaction::detect(mode.json).stderr
+            {
+                let _ = writeln!(stderr, "Upgrading Remote…");
+            }
+        },
+    )
 }
 
+#[cfg(test)]
 fn upgrade_with(
     executable: &Path,
     runner: &impl CommandRunner,
     consent: impl FnOnce(&Plan) -> Result<bool, Failure>,
 ) -> Vec<Value> {
-    let plan = match child(executable, runner, true, &[]).and_then(|(bytes, failed)| {
-        if failed {
-            return Err(invalid_report());
-        }
-        Plan::parse(&bytes).ok_or_else(invalid_report)
-    }) {
-        Ok(plan) => plan,
-        Err(error) => return vec![phase_failure(error)],
-    };
+    upgrade_with_progress(executable, runner, consent, |_| {})
+}
+fn upgrade_with_progress(
+    executable: &Path,
+    runner: &impl CommandRunner,
+    consent: impl FnOnce(&Plan) -> Result<bool, Failure>,
+    progress: impl FnOnce(bool),
+) -> Vec<Value> {
+    let plan =
+        match child(executable, runner, true, &[], EXTENSION_BUDGET).and_then(|(bytes, failed)| {
+            if failed {
+                return Err(invalid_report());
+            }
+            Plan::parse(&bytes).ok_or_else(invalid_report)
+        }) {
+            Ok(plan) => plan,
+            Err(error) => return vec![phase_failure(error)],
+        };
     if plan.pending.is_empty() {
         return plan.products;
     }
@@ -40,8 +62,19 @@ fn upgrade_with(
         products: Vec::new(),
         pending,
     };
+    let remote_pending = apply
+        .pending
+        .iter()
+        .any(|(product, _, _)| *product == native_install::Product::Remote);
+    let budget = EXTENSION_BUDGET
+        + if remote_pending {
+            native_install::POST_UPGRADE_RESTART_BOUND
+        } else {
+            Duration::ZERO
+        };
+    progress(remote_pending);
     let input = serde_json::to_vec(&apply.document()).expect("JSON plan");
-    match child(executable, runner, false, &input).and_then(|(bytes, failed)| {
+    match child(executable, runner, false, &input, budget).and_then(|(bytes, failed)| {
         let rows = upgrade_all::parse_results(&bytes).ok_or_else(invalid_report)?;
         if failed != rows.iter().any(|row| row["status"] == "failed")
             || rows.len() != apply.pending.len()
@@ -75,6 +108,7 @@ fn child(
     runner: &impl CommandRunner,
     planning: bool,
     input: &[u8],
+    budget: Duration,
 ) -> io::Result<(Vec<u8>, bool)> {
     let result = runner.execute(CommandRequest {
         program: executable.as_os_str(),
@@ -84,8 +118,9 @@ fn child(
             if planning { "--plan" } else { "--yes" }.into(),
         ],
         input,
-        // Two official products each have a bounded 60s acquisition, plus activation/skills.
-        deadline: Instant::now() + Duration::from_secs(180),
+        // Keep the existing acquisition/activation/skills allowance. Only a
+        // pending Remote replacement adds its single owner-defined lifecycle bound.
+        deadline: Instant::now() + budget,
         max_output_bytes: upgrade_all::LIMIT,
     });
     let (output, failed) = match result {

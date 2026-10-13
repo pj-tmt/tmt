@@ -744,6 +744,43 @@ impl DoorSessions {
             self.ready.notify_all();
         }
     }
+    /// Lifecycle observation uses the existing live -> Store ordering and never waits
+    /// for an effect to finish. The caller sets the ordinary stop flag while held.
+    pub(crate) fn while_idle(
+        &self,
+        action: impl FnOnce() -> Result<bool, RemoteError>,
+    ) -> Result<bool, RemoteError> {
+        let live = match self.live.try_lock() {
+            Ok(live) => live,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+            Err(error) => return Err(crate::store::database(error)),
+        };
+        if live.stopped
+            || live
+                .by_session
+                .values()
+                .any(|session| session.busy.load(Ordering::Acquire))
+        {
+            return Ok(false);
+        }
+        let store = match self.store.try_lock() {
+            Ok(store) => store,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(false),
+            Err(error) => return Err(crate::store::database(error)),
+        };
+        let held: bool = store
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM operations WHERE phase='held')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(crate::store::database)?;
+        if held {
+            return Ok(false);
+        }
+        action()
+    }
     /// Publish operation metadata under its original ID to the currently live session.
     pub(crate) fn operation_response(
         &self,

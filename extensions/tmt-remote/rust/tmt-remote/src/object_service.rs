@@ -131,6 +131,7 @@ impl Declared {
 struct State {
     stopped: bool,
     slots: Vec<Declared>,
+    restart_reader: Option<Arc<crate::objects::LocalObjectReader>>,
 }
 
 /// The service is bound to the held serve lease for its lifetime: the lease cannot be
@@ -202,7 +203,7 @@ impl<'s> ObjectService<'s> {
             return Ok(None);
         }
         let storage = LocalFs::open(serving, quotas, clock, io)?;
-        let slots = declared
+        let slots: Vec<Declared> = declared
             .into_iter()
             .map(|(name, id, tunnels)| {
                 let backend = storage.handle(id.clone());
@@ -223,6 +224,7 @@ impl<'s> ObjectService<'s> {
                 }
             })
             .collect();
+        let restart_reader = slots.first().map(|slot| storage.reader(slot.id.clone()));
         Ok(Some(Self {
             storage,
             bounds,
@@ -231,6 +233,7 @@ impl<'s> ObjectService<'s> {
             state: Arc::new(Mutex::new(State {
                 stopped: false,
                 slots,
+                restart_reader,
             })),
             #[cfg(test)]
             hook: Mutex::new(None),
@@ -531,6 +534,8 @@ impl<'s> ObjectService<'s> {
         let channels: Vec<Running> = {
             let mut state = self.locked();
             state.stopped = true;
+            // Retained discovery views must not retain storage beyond this lease.
+            state.restart_reader = None;
             state
                 .slots
                 .iter_mut()
