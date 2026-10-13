@@ -189,3 +189,16 @@ fn budget_refusal_keeps_existing_code_and_reset_fields() {
     assert_eq!(error.code(), "REMOTE_BUDGET_EXHAUSTED");
     assert_eq!(error, SyncError::BudgetExhausted(refusal));
 }
+
+#[test]
+fn finite_query_gap_has_a_distinct_state_without_a_new_refusal_code() {
+    assert_eq!(
+        SyncError::CatchUpRequired.code(),
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(
+        SyncError::CatchUpRequired.state(),
+        Some("catch-up-required")
+    );
+    assert_eq!(SyncError::Unavailable.state(), None);
+}

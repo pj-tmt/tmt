@@ -1984,7 +1984,9 @@ provider exhaustion follows the [budget guard](#free-plan-budget-guard), includi
 Catch-up cursors are declared per-stream sequence positions (`{stream,seq}`), with stream
 identifying the extension's writer stream (not the Auth uid), and seq the last observed contiguous nonnegative integer
 below 2^53. Colab Rules enforce contiguous seq within a stream owned by its initial uid. Neither a global clock nor lexical document
-ID orders catch-up. A gap, compaction or listener overflow returns `catch-up-required`, never a
+ID orders catch-up. A finite query gap/compaction refuses with `REMOTE_STATE_UNAVAILABLE` and
+state `catch-up-required` (native SyncError::CatchUpRequired); a subscription emits the matching
+catch-up-required change. Neither exposes a partial finite page. A gap, compaction or listener overflow is never a
 silent drop or a false complete page. Cursor use cannot change the bound resource/space/identity.
 Each call has caller cancellation and an absolute deadline; closing suppresses late publication.
 There is no offline mutation queue. The transport must accommodate the accepted encoded envelope

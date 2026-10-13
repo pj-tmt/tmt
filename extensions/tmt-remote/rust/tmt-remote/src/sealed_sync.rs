@@ -19,15 +19,24 @@ pub enum SyncError {
     Deadline,
     BudgetExhausted(crate::firestore_budget::Refusal),
     RateLimited,
+    CatchUpRequired,
 }
 impl SyncError {
+    pub fn state(self) -> Option<&'static str> {
+        match self {
+            Self::CatchUpRequired => Some("catch-up-required"),
+            _ => None,
+        }
+    }
     pub fn code(self) -> &'static str {
         match self {
             Self::Invalid => "REMOTE_INPUT_INVALID",
             Self::Denied => "REMOTE_SCOPE_DENIED",
             Self::BudgetExhausted(_) => "REMOTE_BUDGET_EXHAUSTED",
             Self::RateLimited => "REMOTE_RATE_LIMITED",
-            Self::Unavailable | Self::Cancelled | Self::Deadline => "REMOTE_STATE_UNAVAILABLE",
+            Self::Unavailable | Self::Cancelled | Self::Deadline | Self::CatchUpRequired => {
+                "REMOTE_STATE_UNAVAILABLE"
+            }
         }
     }
 }

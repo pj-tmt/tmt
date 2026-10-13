@@ -83,6 +83,7 @@ export interface SyncSubscription {
   close(): void;
 }
 export type SyncFailure =
+  | { readonly code: 'REMOTE_STATE_UNAVAILABLE'; readonly state: 'catch-up-required' }
   | {
       readonly code:
         | 'REMOTE_INPUT_INVALID'
