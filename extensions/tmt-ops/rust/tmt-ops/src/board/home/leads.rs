@@ -1,30 +1,14 @@
-//! HOME's deferred-lead projection for the shared boxed member-list scene.
-use super::controller::HomeEntry;
-use crate::{
-    board::{
-        app::{App, RowTarget},
-        home_leads::{Kind, Lead},
-        row_chips,
-        view::{
-            fit,
-            member_list::{self, Block, id},
-            scene::{Kept, Key, rule},
-        },
-    },
-    look::Look,
+//! Hidden metadata from the fitted lead projection used by selected details.
+use crate::board::{
+    home_leads::{Kind, Lead},
+    row_chips,
+    view::{fit, member_list},
 };
-use ratatui::layout::Rect;
 use serde_json::{Value, json};
 use tmt_cli_style::{Role, table::escape};
 
 /// Cells of a lead heading's age (`45s`, `12m`, `3h`, `999d`).
 const AGE_CELLS: usize = 4;
-
-pub(super) struct Section<'a> {
-    pub first: usize,
-    pub entries: &'a [HomeEntry<'a>],
-    pub leads: &'a [&'a Lead],
-}
 
 fn heading(labels: &crate::labels::Supplied, lead: &Lead, width: u16, now: u64) -> Value {
     let (mark, role) = match lead.exchange.as_ref().map(|exchange| exchange.kind) {
@@ -96,87 +80,4 @@ pub(in crate::board) fn hidden_metadata(
         fields.push(("squad", lead.squad.clone()));
     }
     fields
-}
-
-/// The section's block, painted again only when its key changed.
-pub(super) fn paint(
-    app: &App,
-    look: Look,
-    area: Rect,
-    now: u64,
-    section: &Section<'_>,
-    slot: &mut Kept<Block>,
-) -> Block {
-    let inner = Rect {
-        x: area.x.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        ..area
-    };
-    let rows = section
-        .leads
-        .iter()
-        .enumerate()
-        .map(|(local, lead)| {
-            let index = section.first + local;
-            let target = RowTarget::Home(section.entries[local].target.clone());
-            let mut after = Vec::new();
-            if let Some(text) = app
-                .sent
-                .as_ref()
-                .and_then(|feedback| feedback.line(&target))
-            {
-                after.push(json!({"id": "sent", "text": format!("  {text}"), "role": "working"}));
-            }
-            let reserved =
-                crate::board::view::waiting::reserved_lines(app, index, inner).unwrap_or_default();
-            after.extend(
-                (0..reserved).map(
-                    |line| json!({"id": format!("reserve-{line}"), "text": null, "role": null}),
-                ),
-            );
-            let mut row = heading(&app.labels, lead, area.width, now);
-            row["id"] = json!(id(local));
-            row["before"] = json!([]);
-            for field in ["state", "model"] {
-                row[field] = json!("");
-            }
-            row["model_role"] = json!(Role::Muted.name());
-            row["state_role"] = json!("text");
-            row["separator"] = json!([]);
-            row["after"] = json!(after);
-            let visible = if row["chips_visible"] == true {
-                vec!["chips"]
-            } else {
-                vec![]
-            };
-            row["detail"] = app.detail_value(index, &visible);
-            row
-        })
-        .collect::<Vec<_>>();
-    let selected = app
-        .selected
-        .checked_sub(section.first)
-        .filter(|local| *local < section.leads.len())
-        .map(id);
-    let key = Key {
-        width: area.width,
-        look,
-        selected,
-        data: json!({
-            "head": [
-                {"id": "gap", "text": null, "role": null},
-                {
-                    "id": "rule",
-                    "text": if area.width >= super::SM.cells {
-                        let label = "last exchange";
-                        format!("{} {label}", rule("Leads", usize::from(area.width).saturating_sub(label.len() + 1)))
-                    } else { rule("Leads", usize::from(area.width)) },
-                    "role": Role::Muted.name(),
-                },
-            ],
-            "leads": rows,
-            "tail": [],
-        }),
-    };
-    slot.get(key, member_list::build).clone()
 }

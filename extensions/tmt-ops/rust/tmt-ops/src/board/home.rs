@@ -288,18 +288,13 @@ mod paint;
 pub(super) use bar::{hidden_needs, hidden_usage};
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target, USAGE};
 pub(super) use limits::hidden_limits;
-pub(super) use paint::{age_label, hints_of, limits_of, render, summary_of, usage_of};
+pub(super) use paint::{age_label, limits_of, summary_of, usage_of};
 pub(super) use tiles::{TileItem, hidden_squad};
 
-/// The painted sections of one immutable view, each held with the key it was
-/// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
-/// derivations.
+/// Held header strips of one immutable view, keyed by data, width and look.
+/// Workspace owns body geometry; a new snapshot starts with empty derivations.
 #[derive(Default)]
 pub(super) struct Scenes {
-    attention: scene::Kept<attention::Block>,
-    audience: scene::Kept<rows::Block>,
-    cron: scene::Kept<rows::Block>,
-    squads: scene::Kept<tiles::TilePaint>,
     /// The strips outside the body.
     summary: scene::Kept<ratatui::text::Line<'static>>,
     usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
@@ -311,22 +306,13 @@ impl Scenes {
     /// How many scenes were solved and painted since the view began.
     #[cfg(test)]
     pub(super) fn builds(&self) -> usize {
-        self.attention.builds
-            + self.audience.builds
-            + self.cron.builds
-            + self.squads.builds
-            + self.summary.builds
-            + self.usage.builds
-            + self.limits.builds
-            + self.hints.builds
+        self.summary.builds + self.usage.builds + self.limits.builds + self.hints.builds
     }
 }
 
-mod attention;
 mod bar;
 mod leads;
 mod limits;
-mod rows;
 use super::view::scene;
 mod tiles;
 

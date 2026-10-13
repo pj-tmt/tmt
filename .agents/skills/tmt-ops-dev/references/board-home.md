@@ -39,6 +39,12 @@ Overview owns global attention/usage/limits. Agents and Digest use the selected
 squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
 not a second editor or a revival of factory board views.
 
+The retired HOME attention/audience/cron body painters and their caches are
+removed. `home::paint` retains the shared summary, usage and quota strips; fitted
+hidden-value projections retain their data owners. Cache equality tests render
+actual workspace frames, including pointer hits and composer geometry, rather
+than maintaining a second HOME renderer.
+
 Config projects one effective table per list/Reader scope for dispatch, help and
 footer. Reader defaults scroll responses with `j/k`; compatible explicit
 bindings keep global/host/section precedence, so hints name the action that will

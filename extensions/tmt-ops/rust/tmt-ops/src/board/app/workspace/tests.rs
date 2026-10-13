@@ -1053,6 +1053,75 @@ fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
     assert!(app.input.is_none() && app.menu.is_none());
 }
 
+#[test]
+fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next_key() {
+    const REQUEST: &str = "req_44444444-4444-4444-8444-444444444443";
+    for width in [160, 100, 80, 60] {
+        let mut app = board();
+        let selected = app.workspace.selected.clone().unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&selected)
+            .unwrap()["waitingOnYou"] = json!([
+            {"requestId":REQUEST,"preparedAtMs":20,"preview":"An explicitly selected question"}
+        ]);
+        app.perform(&Action::parse("reply").unwrap());
+        assert!(app.menu.is_none());
+        assert!(
+            matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == REQUEST)
+        );
+        paint(&app, width, 36);
+        key(&mut app, KeyCode::Char('y'));
+        assert_eq!(
+            key(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Reply {
+                me: "Owner".into(),
+                request: REQUEST.into(),
+                from: "worker".into(),
+                text: "y".into(),
+            })
+        );
+        assert_eq!(
+            app.pending_send.as_ref().unwrap().target,
+            RowTarget::Workspace(selected.clone())
+        );
+        app.finished(Ok("Replied".into()));
+        let mut fresh = board();
+        fresh
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&selected)
+            .unwrap()["waitingOnYou"] = json!([]);
+        let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+        snapshot.tabs = fresh.tabs;
+        snapshot.view = Ok(fresh.view.take().unwrap());
+        app.apply(snapshot);
+        assert_eq!(app.workspace.selected, Some(selected.clone()));
+        assert_eq!(app.selected_row().unwrap()["waitingOnYou"], json!([]));
+        assert_eq!(
+            app.sent.as_ref().unwrap().target,
+            RowTarget::Workspace(selected)
+        );
+        let screen = paint(&app, width, 36).join("\n");
+        assert!(screen.contains("Replied"), "{width}: {screen}");
+        key(&mut app, KeyCode::Down);
+        assert!(app.sent.is_none());
+        assert!(app.notice.is_none());
+    }
+}
+
 /// Explicit, read-only evidence capture. This never rewrites a frozen fixture
 /// and never calls Core, tmux, the filesystem-backed services or the action lane.
 #[test]
