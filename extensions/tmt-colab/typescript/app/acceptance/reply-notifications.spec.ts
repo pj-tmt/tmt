@@ -161,7 +161,11 @@ for (const [destination, forceFallback] of [
         destination === 'Proposal' ? await block.getAttribute('data-proposal-id') : undefined;
       if (destination === 'Answer') {
         await block.getByLabel('Your answer', { exact: true }).fill('Follow this direction.');
-        await block.getByRole('button', { name: /^Send answer/ }).click();
+        const send = page
+          .locator('[data-question-group]')
+          .getByRole('button', { name: /^Send answer/ });
+        await expect(send).toBeEnabled();
+        await send.click();
         await expect(
           block.getByRole('button', { name: 'Change answer', exact: true }),
         ).toBeEnabled();
