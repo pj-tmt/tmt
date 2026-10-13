@@ -620,6 +620,9 @@ fn commit_source(
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
+    // One offline owner spans the original fences, any deferred combine, and commit.
+    // A running serve retains its existing IPC preparation/publication path.
+    let write_lock = write_owner(layout)?;
     let publisher_agent = core::publisher_agent();
     // Read once after the page snapshot to prepare, and again to commit.
     let clock = || -> tmt_colab::Result<u64> {
@@ -628,24 +631,63 @@ fn commit_source(
             .as_millis()
             .try_into()?)
     };
-    let preparation = page::prepare_publication_with_clock(
-        &store,
-        key,
-        id,
-        tmt_colab::decoder::ContentEdit {
-            source,
-            publisher_agent: publisher_agent.as_deref(),
-            attachments: None,
-        },
-        PublishOptions {
-            expected_revision,
-            base_source_sha256,
-            operation_id: None,
-        },
-        decoder,
-        &clock,
-    )?;
-    store.close()?;
+    let prepare = |store: &Store,
+                   expected_revision: Option<&str>,
+                   decoder: &mut tmt_colab::decoder::Decoder| {
+        page::prepare_publication_with_clock(
+            store,
+            key,
+            id,
+            tmt_colab::decoder::ContentEdit {
+                source,
+                publisher_agent: publisher_agent.as_deref(),
+                attachments: None,
+            },
+            PublishOptions {
+                expected_revision,
+                base_source_sha256,
+                operation_id: None,
+            },
+            decoder,
+            &clock,
+        )
+    };
+    let preparation = match prepare(&store, expected_revision, decoder) {
+        Ok(prepared) => {
+            store.close()?;
+            prepared
+        }
+        Err(original) => {
+            let tail_full = matches!(original.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),
+                Some(tmt_colab::store::owner::OwnerFault::PageCapacity(capacity))
+                    if capacity.edit && capacity.compactable);
+            store.close()?;
+            if write_lock.is_none() || !tail_full {
+                return Err(original);
+            }
+            // No publication was frozen or sent on the failed preparation. Its revision and
+            // source fences passed under this same guard. Try one pending own combine only;
+            // a failed/insufficient combine keeps the original refusal, never a new write.
+            let recovered = (|| -> Result<_> {
+                let mut store = Store::write_existing(layout)?;
+                if page::compact::deferred_write(&mut store, key, id, decoder)?.is_none() {
+                    return Err(page::Fault::Capacity.into());
+                }
+                let revision = expected_revision
+                    .map(|_| page::revision(&store, key, id))
+                    .transpose()?;
+                let prepared = prepare(&store, revision.as_deref(), decoder);
+                let closed = store.close();
+                let prepared = prepared?;
+                closed?;
+                Ok(prepared)
+            })();
+            match recovered {
+                Ok(prepared) => prepared,
+                Err(_) => return Err(original),
+            }
+        }
+    };
     let mut receipt = match preparation {
         page::PublicationPreparation::Noop {
             epoch,
@@ -662,7 +704,15 @@ fn commit_source(
             memory_limit,
         ),
         page::PublicationPreparation::Write(frozen) => {
-            let published = publish_write(layout, key, id, &frozen, decoder, clock()?)?;
+            let published = publish_write_owned(
+                layout,
+                key,
+                id,
+                &frozen,
+                decoder,
+                clock()?,
+                write_lock.as_ref(),
+            )?;
             let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
             // A write's combine can move the revision after its outcome was retained. The
             // revision read by the writer that excluded every other writer is the one a next
@@ -809,13 +859,37 @@ fn publish_write(
     decoder: &mut tmt_colab::decoder::Decoder,
     now: u64,
 ) -> Result<tmt_colab::page::Published> {
+    let lock = write_owner(layout)?;
+    publish_write_owned(layout, key, page_id, frozen, decoder, now, lock.as_ref())
+}
+fn write_owner(layout: &Layout) -> Result<Option<nix::fcntl::Flock<std::fs::File>>> {
+    match layout.serve_lock() {
+        Ok(lock) => Ok(Some(lock)),
+        Err(error)
+            if error.downcast_ref::<tmt_colab::keyring::StateFault>()
+                == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+fn publish_write_owned(
+    layout: &Layout,
+    key: &Keyring,
+    page_id: &str,
+    frozen: &tmt_colab::page::FrozenPublication,
+    decoder: &mut tmt_colab::decoder::Decoder,
+    now: u64,
+    write_lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+) -> Result<tmt_colab::page::Published> {
     use tmt_colab::{
         page::{self, OutcomeUnknown, Published},
         publication::Outcome,
         store::Accepted,
     };
-    match layout.serve_lock() {
-        Ok(_lock) => {
+    match write_lock {
+        Some(_lock) => {
             let mut store = Store::write_existing(layout)?;
             let committed = page::commit_publication(
                 &mut store,
@@ -857,10 +931,7 @@ fn publish_write(
             closed?;
             Ok(Published { record, revision })
         }
-        Err(error)
-            if error.downcast_ref::<tmt_colab::keyring::StateFault>()
-                == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
-        {
+        None => {
             if let Some(published) = page::ipc::publish(layout, key, frozen)? {
                 return Ok(published);
             }
@@ -883,7 +954,6 @@ fn publish_write(
                 .into()),
             }
         }
-        Err(error) => Err(error),
     }
 }
 fn page_source(path: &std::path::Path) -> Result<String> {

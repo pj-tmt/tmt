@@ -205,6 +205,48 @@ impl OwnerTransaction<'_> {
         key.validate().map_err(|_| OwnerFault::Invalid)?;
         Ok(Some(key))
     }
+    /// A committed native content write beyond this stream's selected paired checkpoint.
+    /// Creation has no publication outcome; own/status publications must not qualify.
+    pub(crate) fn uncombined_content_write(
+        &self,
+        page: &str,
+        epoch: u64,
+        stream: &str,
+        checkpoint: u64,
+    ) -> Result<bool> {
+        let through = super::super::sequence(checkpoint);
+        let row: Option<(String, Vec<u8>)> = self
+            .tx
+            .query_row(
+                "SELECT o.id,r.hash FROM owner_operations o JOIN receipts r
+               ON r.page=o.page AND r.epoch=o.original_epoch AND r.stream=o.original_stream
+              AND ltrim(r.seq,'0')=json_extract(CAST(o.outcome AS TEXT),'$.finalPosition.seq')
+             WHERE o.publication_kind='content' AND o.space=?1 AND o.page=?2
+               AND o.original_epoch=?3 AND o.original_stream=?4 AND r.namespace='content'
+               AND json_valid(CAST(o.outcome AS TEXT))
+               AND json_extract(CAST(o.outcome AS TEXT),'$.status')='committed'
+               AND r.seq>?5
+             LIMIT 1",
+                params![self.space, page, epoch.to_string(), stream, through],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((id, hash)) = row else {
+            return Ok(false);
+        };
+        let original = self
+            .publication_key_by_operation(page, stream, &id)?
+            .ok_or(OwnerFault::Invalid)?;
+        let bytes = self
+            .saved_publication(&original, None)?
+            .ok_or(OwnerFault::Invalid)?;
+        let outcome = crate::publication::Outcome::from_json(&bytes, &original, None)?;
+        Ok(
+            matches!(outcome, crate::publication::Outcome::Committed { final_position, .. }
+            if values::decimal(&final_position.seq, false)? > checkpoint
+                && values::binary(&final_position.envelope_hash, 32)? == hash),
+        )
+    }
     pub(crate) fn saved_publication(
         &self,
         key: &crate::publication::JobKey,
