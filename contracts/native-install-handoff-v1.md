@@ -11,6 +11,15 @@ PR acquisition and returning from a PR channel use separately probed protocol 2,
 defined in [the PR channel contract](native-pr-channel.md). Protocol 1's published
 shape and normal release behavior remain unchanged.
 
+Protocols 3 and 4 are protocols 1 and 2 for an updater that validates the CLI prefix
+`lib/tmt` instead of `lib/tmux-team`; see
+[the install architecture](../.agents/skills/tmt-core-runtime/references/install-architecture.md#cli-prefix-move).
+Their probe, bounds, request fields, result and failure rules are those of protocol 1
+(protocol 3) and protocol 2 (protocol 4), with `protocol` set to the version and, in
+the PR wrapper, the inner `transfer.protocol` set to `3`. A candidate serves protocols 1 to 4: for
+1 and 2 it keeps publishing under `lib/tmux-team` while the CLI is active there, so an
+updater released before the move never sees a path it does not validate. Updaters send 3 and 4 only.
+
 ## Admission and probe
 
 The parent verifies immutable GitHub release metadata, product/tag/target match,

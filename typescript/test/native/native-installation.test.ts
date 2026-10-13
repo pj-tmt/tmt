@@ -400,7 +400,7 @@ esac
           version,
           changed: true,
         });
-        expect(readlinkSync(installed.executable)).toBe('../lib/tmux-team/current/tmt');
+        expect(readlinkSync(installed.executable)).toBe('../lib/tmt/current/tmt');
         expect(existsSync(sandbox.database)).toBe(false);
 
         sandbox.env.PATH = '';

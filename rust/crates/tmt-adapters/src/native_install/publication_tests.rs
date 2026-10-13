@@ -23,7 +23,7 @@ fn assert_managed_links(layout: &Layout) {
     for name in ["tmt", "tmux-team"] {
         assert_eq!(
             fs::read_link(layout.prefix.join("bin").join(name)).unwrap(),
-            Path::new("../lib/tmux-team/current/tmt")
+            Path::new("../lib/tmt/current/tmt")
         );
     }
 }
@@ -66,7 +66,7 @@ fn corrupted_installed_payload_is_rejected_without_changing_current() {
     assert_eq!(current_target(&layout), target);
     assert_eq!(
         fs::read_link(layout.prefix.join("bin/tmt")).unwrap(),
-        Path::new("../lib/tmux-team/current/tmt")
+        Path::new("../lib/tmt/current/tmt")
     );
     assert_eq!(target, PathBuf::from(format!("releases/{}", receipt.id)));
 }

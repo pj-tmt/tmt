@@ -46,6 +46,8 @@ pub fn execute_with_schema_consent(
             );
         }
     };
+    let ran_from_moved_prefix = std::env::current_exe()
+        .is_ok_and(|executable| native_install::in_moved_prefix(&executable));
     let result = (|| {
         let executable = std::env::current_exe()?;
         native_install::upgrade_product_with_schema_consent(
@@ -87,7 +89,7 @@ pub fn execute_with_schema_consent(
     };
     if report.skipped_pinned {
         drop(interrupt);
-        return finish(&report, None, None, yes, mode);
+        return finish(&report, None, None, yes, ran_from_moved_prefix, mode);
     }
     if interrupt.is_interrupted() {
         return publish(
@@ -114,7 +116,7 @@ pub fn execute_with_schema_consent(
         ));
     }
     drop(interrupt);
-    finish(&report, skills, failure, yes, mode)
+    finish(&report, skills, failure, yes, ran_from_moved_prefix, mode)
 }
 
 fn finish(
@@ -122,6 +124,7 @@ fn finish(
     skills: Option<Value>,
     failure: Option<Failure>,
     yes: bool,
+    ran_from_moved_prefix: bool,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let extensions = if failure.is_none() {
@@ -147,13 +150,28 @@ fn finish(
     } else {
         None
     };
+    // The upgrade that moves the installation keeps the former prefix on
+    // purpose; only a later one reports why it could not remove it.
+    let former_hint = if after_upgrade && ran_from_moved_prefix {
+        native_install::retained_former_hint(&report.installation.active_executable)
+    } else {
+        None
+    };
     publish_products_with_hints(
         Some(report),
         skills,
         failure,
         extensions,
         &rename_hints,
-        picker_hint,
+        &picker_hint
+            .map(|hint| ("pickerHint", hint))
+            .into_iter()
+            .chain(
+                former_hint
+                    .as_deref()
+                    .map(|hint| ("formerPrefixHint", hint)),
+            )
+            .collect::<Vec<_>>(),
         mode,
     )
 }
@@ -248,7 +266,7 @@ fn publish_products(
     extensions: Vec<Value>,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    publish_products_with_hints(report, skills, failure, extensions, &[], None, mode)
+    publish_products_with_hints(report, skills, failure, extensions, &[], &[], mode)
 }
 
 fn publish_products_with_hints(
@@ -257,7 +275,7 @@ fn publish_products_with_hints(
     failure: Option<Failure>,
     extensions: Vec<Value>,
     rename_hints: &[String],
-    picker_hint: Option<&str>,
+    named_hints: &[(&str, &str)],
     mode: OutputMode,
 ) -> io::Result<u8> {
     let failure = failure.map(|mut failure| {
@@ -292,8 +310,8 @@ fn publish_products_with_hints(
     if !rename_hints.is_empty() {
         document["paneRenameHints"] = json!(rename_hints);
     }
-    if let Some(hint) = picker_hint {
-        document["pickerHint"] = hint.into();
+    for (key, hint) in named_hints {
+        document[*key] = (*hint).into();
     }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     let terminal = stdout.terminal();
@@ -344,7 +362,11 @@ fn publish_products_with_hints(
         for product in products.iter().skip(1) {
             write_extension_product(&mut stdout, terminal, product)?;
         }
-        for hint in rename_hints.iter().map(String::as_str).chain(picker_hint) {
+        for hint in rename_hints
+            .iter()
+            .map(String::as_str)
+            .chain(named_hints.iter().map(|(_, hint)| *hint))
+        {
             tmt_cli_style::message::hint(&mut stdout, terminal, hint)?;
         }
         if let Some(warning) = warning {

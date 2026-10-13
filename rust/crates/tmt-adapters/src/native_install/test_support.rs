@@ -90,6 +90,7 @@ pub(super) fn install_downloaded(
     )?;
     super::activate(
         super::ActivationRequest {
+            caller: super::Caller::Current,
             product: super::Product::Cli,
             prefix: &current.prefix,
             channel,

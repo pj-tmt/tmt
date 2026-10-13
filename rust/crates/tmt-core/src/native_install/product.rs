@@ -18,8 +18,9 @@ pub enum PostUpgradeCheck {
     RemoteDoor,
 }
 
-/// Read-only installation identity before a product rename. This is never a
-/// selectable product, a dispatch alias or a completion candidate.
+/// Read-only installation identity before a product rename or a move to a new
+/// namespace. This is never a selectable product, a dispatch alias or a
+/// completion candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormerProduct {
     pub name: &'static str,
@@ -28,6 +29,9 @@ pub struct FormerProduct {
     pub tag_prefix: &'static str,
     pub links: &'static [&'static str],
     pub renamed_skills: &'static [(&'static str, &'static str)],
+    /// Whether the former installation could be on the PR channel, so its
+    /// receipts may carry PR provenance. A same-product move keeps that.
+    pub pr_channel: bool,
 }
 
 impl FormerProduct {
@@ -58,6 +62,18 @@ impl Product {
                 tag_prefix: "tmt-squad-v",
                 links: &["tmt-squad", "tmt-sq"],
                 renamed_skills: &[("tmt-squad", "tmt-ops")],
+                pr_channel: false,
+            }),
+            // The CLI keeps its identity and command names; only the install
+            // prefix moved. The old layout stays readable for rollback.
+            Self::Cli => Some(&FormerProduct {
+                name: "cli",
+                executable: "tmt",
+                namespace: "lib/tmux-team",
+                tag_prefix: "v",
+                links: &["tmt", "tmux-team"],
+                renamed_skills: &[],
+                pr_channel: true,
             }),
             _ => None,
         }
@@ -139,7 +155,7 @@ impl Product {
 
     pub const fn namespace(self) -> &'static str {
         match self {
-            Self::Cli => "lib/tmux-team",
+            Self::Cli => "lib/tmt",
             Self::Office => "lib/tmt-office",
             Self::Ops => "lib/tmt-ops",
             Self::Remote => "lib/tmt-remote",
@@ -161,6 +177,16 @@ impl Product {
 
     pub fn link_target(self) -> String {
         format!("../{}/current/{}", self.namespace(), self.executable())
+    }
+
+    /// Where the former installation pointed its command link `name`, when this
+    /// product keeps that command across the move.
+    pub fn former_link_target(self, name: &str) -> Option<String> {
+        let former = self.former()?;
+        former
+            .links
+            .contains(&name)
+            .then(|| format!("../{}/current/{}", former.namespace, former.executable))
     }
 
     /// Releases whose executable must pass the owner's post-write check before

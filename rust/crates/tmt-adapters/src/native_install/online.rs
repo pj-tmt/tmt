@@ -123,6 +123,7 @@ fn install_release_with(
     )?;
     activate(
         ActivationRequest {
+            caller: super::Caller::Current,
             product,
             prefix,
             channel,

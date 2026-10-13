@@ -76,7 +76,7 @@ fn output(value: serde_json::Value) -> CommandOutput {
 fn response(report: Option<InstallReport>, error: Option<&str>) -> CommandOutput {
     output(
         serde_json::to_value(Response {
-            protocol: VERSION,
+            protocol: MOVED_VERSION,
             installation: report,
             error: error.map(str::to_owned),
         })
@@ -113,10 +113,10 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
         run: |request: CommandRequest<'_>| {
             *calls.borrow_mut() += 1;
             if request.input.is_empty() {
-                return Ok(output(probe()));
+                return Ok(output(probe_version(MOVED_VERSION)));
             }
             let request: Request = serde_json::from_slice(request.input).unwrap();
-            assert_eq!(request.protocol, VERSION);
+            assert_eq!(request.protocol, MOVED_VERSION);
             assert_eq!(request.expected_current, old.id.to_string());
             let manifest = fs::read(&request.manifest).unwrap();
             let archive = fs::read(&request.archive).unwrap();
@@ -144,6 +144,7 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
             };
             let report = super::super::activate(
                 super::super::ActivationRequest {
+                    caller: super::super::Caller::Current,
                     product: Product::Cli,
                     prefix: &request.prefix,
                     channel: Channel::Stable,
@@ -222,8 +223,8 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
 fn unsupported_or_malformed_probe_never_calls_install_or_changes_current() {
     for bytes in [
         b"old installer".as_slice(),
-        br#"{"protocol":2}"#,
-        br#"{"protocol":1,"extra":true}"#,
+        br#"{"protocol":1}"#,
+        br#"{"protocol":3,"extra":true}"#,
     ] {
         let (_directory, layout, old) = published_layout();
         let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
@@ -291,7 +292,7 @@ fn candidate_failure_preserves_active_receipt_and_old_bytes_and_cleans_stage() {
         stages: RefCell::new(Vec::new()),
         run: |request: CommandRequest<'_>| {
             if request.input.is_empty() {
-                return Ok(output(probe()));
+                return Ok(output(probe_version(MOVED_VERSION)));
             }
             let mut failure = CommandError::new(CommandFailure::Exit {
                 code: Some(1),
@@ -414,7 +415,7 @@ fn cancellation_between_probe_and_install_preserves_old_install_and_removes_stag
         run: |request: CommandRequest<'_>| {
             *calls.borrow_mut() += 1;
             assert!(request.input.is_empty());
-            Ok(output(probe()))
+            Ok(output(probe_version(MOVED_VERSION)))
         },
     };
     let error = upgrade(
@@ -487,11 +488,11 @@ fn malformed_install_result_or_timeout_never_reports_success() {
             stages: RefCell::new(Vec::new()),
             run: |request: CommandRequest<'_>| {
                 if request.input.is_empty() {
-                    return Ok(output(probe()));
+                    return Ok(output(probe_version(MOVED_VERSION)));
                 }
                 match kind {
                     None => Ok(output(
-                        serde_json::json!({"protocol":1,"installation":null,"error":null}),
+                        serde_json::json!({"protocol":3,"installation":null,"error":null}),
                     )),
                     Some(kind) => Err(CommandError::new(kind)),
                 }
@@ -522,7 +523,7 @@ fn reported_post_activation_failure_retains_the_activated_installation() {
         stages: RefCell::new(Vec::new()),
         run: |request: CommandRequest<'_>| {
             if request.input.is_empty() {
-                return Ok(output(probe()));
+                return Ok(output(probe_version(MOVED_VERSION)));
             }
             let report = super::super::test_support::install_downloaded(
                 &current,
@@ -624,7 +625,7 @@ fn protocol_two_published_source_requires_positive_release_id_before_filesystem_
 }
 
 #[test]
-fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_staging() {
+fn pr_parent_probes_protocol_four_transfers_exact_admission_and_cleans_its_staging() {
     let (_directory, layout, old) = published_layout();
     let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
     let mut downloaded = super::super::pr_resolver::tests::downloaded();
@@ -635,15 +636,15 @@ fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_stagin
         stages: RefCell::new(Vec::new()),
         run: |command: CommandRequest<'_>| {
             *calls.borrow_mut() += 1;
-            assert_eq!(command.args[7], "2");
+            assert_eq!(command.args[7], "4");
             assert_eq!(command.max_output_bytes, PR_LIMIT);
             if command.input.is_empty() {
                 assert!(command.args.iter().any(|arg| arg == "--probe"));
-                return Ok(output(probe_version(PR_VERSION)));
+                return Ok(output(probe_version(MOVED_PR_VERSION)));
             }
             let request: PrRequest = serde_json::from_slice(command.input).unwrap();
-            assert_eq!(request.protocol, PR_VERSION);
-            assert_eq!(request.transfer.protocol, VERSION);
+            assert_eq!(request.protocol, MOVED_PR_VERSION);
+            assert_eq!(request.transfer.protocol, MOVED_VERSION);
             assert_eq!(request.transfer.release_id, 0);
             assert_eq!(request.transfer.expected_current, old.id.to_string());
             assert!(request.explicit_channel);
@@ -664,6 +665,7 @@ fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_stagin
             // tests the parent boundary with the real publisher and local-owner DI.
             let report = super::super::activate_with_local_schema(
                 super::super::ActivationRequest {
+                    caller: super::super::Caller::Current,
                     product: Product::Cli,
                     prefix: &request.transfer.prefix,
                     channel,
@@ -686,7 +688,7 @@ fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_stagin
             .unwrap();
             Ok(output(
                 serde_json::to_value(Response {
-                    protocol: PR_VERSION,
+                    protocol: MOVED_PR_VERSION,
                     installation: Some(report),
                     error: None,
                 })
@@ -764,4 +766,120 @@ fn env_program_operand_refuses_assignment_paths_and_preserves_spaces() {
         super::super::env_program_operand(valid).unwrap(),
         valid.as_os_str()
     );
+}
+
+fn handoff_input(
+    version: u32,
+    transfer_protocol: u32,
+    release_id: u64,
+) -> (Vec<u8>, crate::test_support::TestDirectory, PathBuf) {
+    let directory = crate::test_support::TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let digest = "a".repeat(64);
+    let transfer = Request {
+        protocol: transfer_protocol,
+        archive: directory.path.join("absent.tar.gz"),
+        manifest: directory.path.join("absent.json"),
+        prefix: prefix.clone(),
+        target: tmt_core::native_install::native_target(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        )
+        .unwrap()
+        .into(),
+        version: "1.2.3".into(),
+        archive_sha256: digest.clone(),
+        manifest_sha256: digest.clone(),
+        channel: "stable".into(),
+        pin: "preserve".into(),
+        expected_current: Uuid::new_v4().to_string(),
+        release_id,
+    };
+    let input = if is_pr(version) {
+        serde_json::to_vec(&PrRequest {
+            protocol: version,
+            transfer,
+            provenance: GitHubProvenance {
+                release_id,
+                manifest_sha256: digest,
+            }
+            .into(),
+            explicit_channel: true,
+        })
+    } else {
+        serde_json::to_vec(&transfer)
+    }
+    .unwrap();
+    (input, directory, prefix)
+}
+
+#[test]
+fn each_protocol_names_the_prefix_its_updater_validates() {
+    for (version, pr, current) in [
+        (1, false, false),
+        (2, true, false),
+        (3, false, true),
+        (4, true, true),
+    ] {
+        assert_eq!(is_pr(version), pr, "{version}");
+        assert_eq!(
+            caller(version),
+            if current {
+                crate::native_install::Caller::Current
+            } else {
+                crate::native_install::Caller::Legacy
+            },
+            "{version}"
+        );
+        assert_eq!(
+            transfer_protocol(version),
+            if current { 3 } else { 1 },
+            "{version}"
+        );
+        assert_eq!(
+            probe_version(version),
+            serde_json::json!({"protocol": version})
+        );
+        assert_eq!(input_limit(version), if pr { PR_LIMIT } else { LIMIT });
+    }
+}
+
+#[test]
+fn a_transfer_must_carry_the_protocol_of_its_version() {
+    for (version, transfer) in [(1, 3), (2, 3), (3, 1), (4, 1)] {
+        let (input, _directory, prefix) =
+            handoff_input(version, transfer, if is_pr(version) { 0 } else { 7 });
+        let (response, failed) = install_version(version, &input, || {
+            panic!("Refused input must not reach publication")
+        });
+        assert!(failed, "{version} with transfer {transfer}");
+        assert_eq!(response["error"], "Unsupported native installer handoff.");
+        assert_eq!(response["protocol"], version);
+        assert!(!prefix.exists());
+    }
+}
+
+#[test]
+fn protocol_four_published_source_requires_positive_release_id_before_filesystem_access() {
+    let (input, _directory, prefix) = handoff_input(MOVED_PR_VERSION, MOVED_VERSION, 0);
+    let (response, failed) = install_version(MOVED_PR_VERSION, &input, || {
+        panic!("Refused input must not reach publication")
+    });
+    assert!(failed);
+    assert_eq!(response["error"], "Unsupported native installer handoff.");
+    assert!(!prefix.exists());
+}
+
+#[test]
+fn protocol_three_requires_a_positive_release_id_and_unknown_versions_are_refused() {
+    let (input, _directory, prefix) = handoff_input(MOVED_VERSION, MOVED_VERSION, 0);
+    let (response, failed) = install_version(MOVED_VERSION, &input, || {
+        panic!("Refused input must not reach publication")
+    });
+    assert!(failed);
+    assert_eq!(response["error"], "Unsupported native installer handoff.");
+    assert!(!prefix.exists());
+    let (response, failed) = install_version(5, b"{}", || panic!("unknown version"));
+    assert!(failed);
+    assert_eq!(response["error"], "Unsupported native installer handoff.");
 }

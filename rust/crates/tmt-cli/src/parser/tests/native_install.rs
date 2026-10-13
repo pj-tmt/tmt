@@ -195,21 +195,25 @@ fn internal_extension_upgrade_is_hidden_and_rejects_ambiguous_modes() {
 
 #[test]
 fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
-    for probe in [false, true] {
-        let mut args = vec!["__native-install", "--handoff-version", "1", "--json"];
+    for (probe, version) in [false, true]
+        .into_iter()
+        .flat_map(|probe| [1, 2, 3, 4].map(|version| (probe, version)))
+    {
+        let text = version.to_string();
+        let mut args = vec!["__native-install", "--handoff-version", &text, "--json"];
         if probe {
             args.push("--probe");
         }
         assert_eq!(
             parsed(&args).invocation,
-            Invocation::NativeInstallHandoff { probe, version: 1 }
+            Invocation::NativeInstallHandoff { probe, version }
         );
     }
     for args in [
         vec![
             "__native-install",
             "--handoff-version",
-            "3",
+            "5",
             "--probe",
             "--json",
         ],
