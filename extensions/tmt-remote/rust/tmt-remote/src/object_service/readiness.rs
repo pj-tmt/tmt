@@ -13,12 +13,14 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Default)]
 pub struct ObjectReadiness {
     state: Option<Arc<Mutex<State>>>,
+    budget: Option<tmt_extension_objects::Budget>,
     failed: Vec<&'static str>,
 }
 impl ObjectReadiness {
-    pub(super) fn live(state: Arc<Mutex<State>>) -> Self {
+    pub(super) fn live(state: Arc<Mutex<State>>, budget: tmt_extension_objects::Budget) -> Self {
         Self {
             state: Some(state),
+            budget: Some(budget),
             failed: Vec::new(),
         }
     }
@@ -26,6 +28,7 @@ impl ObjectReadiness {
     pub fn unavailable(extensions: &'static [Extension]) -> Self {
         Self {
             state: None,
+            budget: None,
             failed: extensions
                 .iter()
                 .filter(|e| e.objects == ObjectDeclaration::Local)
@@ -33,7 +36,7 @@ impl ObjectReadiness {
                 .collect(),
         }
     }
-    /// Observe existing pending-upload accounting and live transfer holders.
+    /// Observe existing admitted requests/callbacks, uploads and transfer holders.
     /// Failure cannot admit a restart. No channel is activated or reconciled.
     pub(crate) fn while_idle(
         &self,
@@ -45,6 +48,9 @@ impl ObjectReadiness {
                 "REMOTE_OBJECTS_UNAVAILABLE",
                 "Object transfer observation is unavailable.",
             ));
+        }
+        if self.budget.as_ref().is_some_and(|budget| !budget.is_idle()) {
+            return Ok(false);
         }
         let state = self
             .state

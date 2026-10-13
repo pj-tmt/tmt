@@ -965,8 +965,10 @@ Under the held serve lease, Remote briefly checks the existing offer, live-sessi
 object-upload owners and sets the existing stop flag in the same control operation. An active
 pairing offer, interactive preview/confirmation, pending held approval or observed in-flight
 transfer defers without stopping or changing that work. Live-session effects, pending uploads
-and committed reads use their existing activity/accounting/transfer-holder state; unavailable
-observations cannot admit a restart.
+and committed reads use their existing activity/accounting/transfer-holder state. The shared
+channel budget must have no outstanding admitted requests or callbacks, including a read
+awaiting disclosure; registered page interests are long-lived and do not defer restart.
+Unavailable observations cannot admit a restart.
 There is no new admission fence: work arriving in the narrow check-to-stop race can be interrupted
 as by ordinary stop. Normal pairing/approval cancellation remains unchanged.
 

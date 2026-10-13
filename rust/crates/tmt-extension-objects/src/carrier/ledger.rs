@@ -72,6 +72,11 @@ impl Budget {
     pub fn contract() -> Self {
         Self::new(32, 32)
     }
+    /// Observe outstanding work without changing admission or channel state.
+    pub fn is_idle(&self) -> bool {
+        self.requests.0.load(Ordering::Acquire) == 0
+            && self.callbacks.0.load(Ordering::Acquire) == 0
+    }
     fn take(slots: &(AtomicUsize, usize)) -> bool {
         slots
             .0

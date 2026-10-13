@@ -17,9 +17,8 @@ describe('post-upgrade Remote restart', () => {
     await withE2EFixture(
       async (fixture) => {
         const prefix = path.join(fixture.root, 'background extension prefix');
-        const install = async (version: string, suffix: Uint8Array) => {
-          const artifact = await createArtifact(fixture, version, suffix, 'remote');
-          return expectJsonResult(
+        const install = async (artifact: ArtifactFixture) =>
+          expectJsonResult(
             await fixture.runCli([
               'extension',
               'install',
@@ -34,8 +33,8 @@ describe('post-upgrade Remote restart', () => {
               '--json',
             ])
           );
-        };
-        expect(await install('0.1.0-alpha.1', new Uint8Array())).not.toHaveProperty('restartHint');
+        const first = await createArtifact(fixture, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+        expect(await install(first)).not.toHaveProperty('restartHint');
         symlinkSync(
           path.join(prefix, 'bin/tmt-remote'),
           path.join(fixture.wrapperDir, 'tmt-remote')
@@ -68,7 +67,13 @@ describe('post-upgrade Remote restart', () => {
           const beforeStatus = expectJsonResult(
             await fixture.runCli(['remote', 'status', '--json'])
           );
-          const upgraded = await install('0.1.0-alpha.2', new Uint8Array([1]));
+          const second = await createArtifact(
+            fixture,
+            '0.1.0-alpha.2',
+            new Uint8Array([1]),
+            'remote'
+          );
+          const upgraded = await install(second);
           expect(upgraded).toMatchObject({
             changed: true,
             restartHint: 'Remote upgraded and restarted in the background.',
@@ -99,9 +104,8 @@ describe('post-upgrade Remote restart', () => {
             /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
           );
           expect(grantBytes().equals(grants)).toBe(true);
-          expect(await install('0.1.0-alpha.2', new Uint8Array([1]))).not.toHaveProperty(
-            'restartHint'
-          );
+          // Reuse the exact artifact: equal-version installs still verify integrity.
+          expect(await install(second)).not.toHaveProperty('restartHint');
         } finally {
           try {
             if (background)

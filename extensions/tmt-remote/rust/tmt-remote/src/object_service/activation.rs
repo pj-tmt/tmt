@@ -344,7 +344,7 @@ impl Drop for ScopedReactivation<'_> {
 }
 impl ObjectService<'_> {
     pub fn readiness(&self) -> super::ObjectReadiness {
-        super::ObjectReadiness::live(Arc::clone(&self.state))
+        super::ObjectReadiness::live(Arc::clone(&self.state), self.budget.clone())
     }
     pub fn reactivation(&self, stop: Arc<AtomicBool>) -> Arc<Reactivation> {
         Reactivation::new(self, stop, Arc::new(Instant::now))

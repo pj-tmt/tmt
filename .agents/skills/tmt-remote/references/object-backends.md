@@ -124,8 +124,9 @@ reads at most 32,768 bytes; its current reference/history policy need not equal 
 The crate-private read-only `LocalObjectReader` and mutating `LocalObjectWriter` share the one `LocalFs` inner
 coordinator with owned workers; public `LocalHandle` stays borrowed. There is no second opener or per-request
 reconciliation. `ObjectService` must be dropped or shut down, never forgotten: it joins all view holders before the
-lease ends; `serve.rs` owns it by scope. Restart observes the existing upload accounting and
-namespace transfer holders through one state-owned reader, released at shutdown; retained
+lease ends; `serve.rs` owns it by scope. Restart observes the existing request/callback budget,
+upload accounting and namespace transfer holders; registered page interests do not defer it.
+The state-owned reader is released at shutdown; retained
 readiness views cannot retain storage beyond the lease. Connection-scoped uploads are allowed only by the extension's effect
 admission. Their durable rows cannot be recovered after reconnect; staging expiry and active-intent/entry quotas
 bound them, and closing the connection does not release their charge.
