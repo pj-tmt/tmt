@@ -2,6 +2,7 @@
 
 mod core;
 mod grammar;
+mod history;
 mod settings;
 mod status;
 mod tick;
@@ -29,7 +30,16 @@ fn main() -> ExitCode {
         }
         Ok(matches) => {
             if matches.subcommand_name() == Some("status") {
-                let result = status::execute();
+                let selected = matches
+                    .subcommand_matches("status")
+                    .expect("status matches");
+                let window = history::Window::parse(
+                    selected
+                        .get_one::<String>("window")
+                        .expect("default window"),
+                )
+                .expect("admitted window");
+                let result = status::execute(window);
                 let successful = result.is_ok();
                 let document = match result {
                     Ok(document) => document,

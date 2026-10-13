@@ -54,6 +54,11 @@ esac
     }
     fn lock(&self) -> Flock<fs::File> {
         fs::create_dir_all(self.0.join("state/digest")).unwrap();
+        fs::set_permissions(
+            self.0.join("state/digest"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
         let file = OpenOptions::new()
             .read(true)
             .write(true)

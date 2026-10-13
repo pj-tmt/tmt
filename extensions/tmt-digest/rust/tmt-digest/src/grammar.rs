@@ -54,7 +54,7 @@ const STATUS: CommandSpec = CommandSpec {
         note: "Read one status document without changing settings or delivering messages",
     }],
     outputs: OutputModes::Json,
-    details: "Reads Core identities and held-message stats in batches. Unavailable stats stay unknown; savings are unavailable in phase 2. This command does not tick or deliver messages.",
+    details: "Reads Core identities and held-message stats in batches. Unavailable stats stay unknown. Savings estimate context inputs avoided since Digest collection began, never billed tokens. This command does not tick or deliver messages.",
 };
 
 pub fn command() -> Command {
@@ -65,13 +65,21 @@ pub fn command() -> Command {
         .subcommand(tmt_cli_style::command(&TICK))
         .subcommand(tmt_cli_style::command(&SKILL))
         .subcommand(
-            tmt_cli_style::command(&STATUS).arg(
-                Arg::new("json")
-                    .long("json")
-                    .required(true)
-                    .action(ArgAction::SetTrue)
-                    .help("Output one JSON document"),
-            ),
+            tmt_cli_style::command(&STATUS)
+                .arg(
+                    Arg::new("window")
+                        .long("window")
+                        .default_value("24h")
+                        .value_parser(["24h", "7d", "lifetime"])
+                        .help("Savings window ending at the collected evidence watermark"),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .required(true)
+                        .action(ArgAction::SetTrue)
+                        .help("Output one JSON document"),
+                ),
         )
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .arg(

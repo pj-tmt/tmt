@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 const MAX_NUMBER: u64 = 9_007_199_254_740_991;
 
-pub fn execute() -> Result<Value, Error> {
+pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     let core = Core::discover()?.until(Instant::now() + Duration::from_secs(15));
     let settings = DigestConfig::load(&core.settings_path()?)?;
     let identities = inventory(&core.json(&["identity", "ls"])?)?;
@@ -34,7 +34,30 @@ pub fn execute() -> Result<Value, Error> {
         );
     }
     let now = crate::tick::now_ms()?;
-    project(&settings, &identities, &stats, now)
+    let mut document = project(&settings, &identities, &stats, now)?;
+    let history = core
+        .data_root()
+        .ok()
+        .and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
+    if let Some(history) = history {
+        for (row, observation) in document["members"]
+            .as_array_mut()
+            .expect("projected rows")
+            .iter_mut()
+            .zip(&stats)
+        {
+            let id = row["identityId"].as_str().expect("projected id");
+            row["savings"] = history
+                .status(
+                    id,
+                    window,
+                    now,
+                    observation.and_then(|stats| stats.delivered),
+                )
+                .unwrap_or(Value::Null);
+        }
+    }
+    Ok(document)
 }
 
 fn invalid() -> Error {
@@ -69,12 +92,14 @@ struct Observation {
     held: u64,
     observed: u64,
     age: Option<u64>,
+    delivered: Option<u64>,
 }
 impl Observation {
     fn parse(value: &Value) -> Option<Self> {
         let number = |key: &str| value[key].as_u64().filter(|n| *n <= MAX_NUMBER);
         Some(Self {
             held: number("heldCount")?,
+            delivered: number("deliveredDigests"),
             observed: number("observedAtMs")?,
             age: if value.get("oldestHeldAgeMs")?.is_null() {
                 None
@@ -162,6 +187,7 @@ fn member(
         "mode":match mode { Mode::Auto => "auto", Mode::Off => "off", Mode::Interval {..} => "interval" },
         "intervalMs":interval,"settingSource":if inherited {"default"} else {"member"},
         "settingValue":value,"heldCount":held,"statsObservedAtMs":observation.map(|stats| stats.observed),
+        "oldestHeldAgeMs":observation.and_then(|stats| stats.age),"deliveredDigests":observation.and_then(|stats| stats.delivered),
         "nextSendAtMs":deadline,"timeToSendMs":time,"savings":null,"labels":labels});
     if !inherited {
         if let Some(setter) = settings.setter(id) {

@@ -164,6 +164,18 @@ impl Core {
             Err(error) => Err(error),
         }
     }
+    pub fn data_root(&self) -> Result<PathBuf, Error> {
+        self.api("storage.root", serde_json::json!({}))?["dataRoot"]
+            .as_str()
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .ok_or_else(|| {
+                Error::new(
+                    "CORE_RESPONSE_INVALID",
+                    "Core reported no absolute data root",
+                )
+            })
+    }
     pub fn settings_path(&self) -> Result<PathBuf, Error> {
         let shown = self.json(&["config", "show"])?;
         shown["paths"]["global"]

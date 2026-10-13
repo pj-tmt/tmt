@@ -47,7 +47,7 @@ No skill or managed installation is shipped by this settings surface.
 
 ## Status document
 
-`tmt digest status --json` produces this phase-2 reader contract. The frozen
+`tmt digest status --json` produces this reader contract. The frozen
 [status vectors](vectors/status-v1.json) pin its ready-made labels and actions.
 Ops and insight call the extension once for all agents; they do not read Digest
 TOML/history or Core storage. Digest reads public Core identities once and stats
@@ -72,8 +72,10 @@ Each row contains:
 | `statsObservedAtMs`          | Core observation timestamp for the held snapshot, or null when unavailable.                                                                         |
 | `nextSendAtMs`               | Configured interval deadline of the oldest held message, or null without a known interval deadline.                                                 |
 | `timeToSendMs`               | Zero when the interval flushCount threshold is reached; otherwise `max(0, nextSendAtMs - observedAtMs)`. Null when required inputs are unavailable. |
-| `savings`                    | Null throughout phase 2; unavailable savings must not be rendered as zero. Phase 3 defines its estimate before changing this field.                 |
+| `savings`                    | Null without usable history; otherwise the [savings projection](#savings). Unavailable estimates are never zero.                 |
 | `labels`                     | Ordered ready-made labels defined below.                                                                                                            |
+
+`oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
 that cannot be represented safely is unknown. `nextSendAtMs` is an extension
@@ -159,3 +161,76 @@ The vectors include inherited/explicit auto, inherited interval, custom interval
 off, empty and unavailable held evidence, unknown setter, a due deadline and early flush.
 Action vectors freeze literal argv expansion, run, and namespace/shape refusals;
 they are consumer examples, never commands to run during fixture verification.
+
+## Savings
+
+`status --json --window 24h|7d|lifetime` selects one window (default `24h`).
+The additive `savings` object is `{method, window, fromMs, throughMs,
+estimatedInputTokensAvoided, avoidedSeparateDeliveries, complete, gap}`.
+Cost and percent are absent. `method` is `context-input-avoided-v1`.
+The [normative vectors](vectors/savings-v1.json) fix the event formula.
+
+For a confirmed delivered sealed batch of N original hold references, the
+counterfactual is N separate deliveries instead of one checklist. The estimate
+sums `contextTokensAtArrival` for references 2..N, in original sequence order;
+`avoidedSeparateDeliveries` is N-1. A known singleton is zero even without
+context samples. Definitely-unsent and uncertain settlements contribute no
+confirmed savings. Missing required member inputs, context or sealed count makes the token
+estimate null. Values and sums must be JS-safe; overflow stays unknown.
+
+This estimates gross context rereads, not billed tokens, cost or model turns.
+Ordinary delivery can already coalesce notices. It excludes output, checklist
+and prompt overhead, caching, compaction, overflow reads and subsequent work.
+It is neither causal savings nor a guaranteed lower bound.
+
+`throughMs` is the latest successfully reconciled Core observation, not status
+assembly time. Recent windows cover `(throughMs - duration, throughMs]` (clamped
+to zero); lifetime covers collection start through that watermark. Lifetime means
+**since this identity's Digest collection began**, never all historical TMT use.
+Compatible consumer sums require matching method/window and explicit coverage;
+missing members cannot silently contribute zero. Ops owns aggregation/rendering.
+
+`complete` is true only for fully known covered evidence. One `gap` reason
+explains unavailable/incomplete coverage: `before_collection`, `missing_context`,
+`incomplete_membership`, `missing_deliveries`, `uncollected_deliveries`,
+`history_evicted`, `clock_discontinuity`, `clock_or_store_discontinuity`, or
+`unsafe_arithmetic`. A gap nulls the token estimate; the avoided-delivery count
+can remain known for missing context/membership with a known original sealed
+count. Gap precedence is coverage/counter/clock before event arithmetic/context.
+A covered empty window is zero. Off mode preserves history. Missing, unreadable,
+unsupported or invalid stores produce `savings: null`; status never repairs them.
+
+## History
+
+The existing [tick](digest-tick-v1.md) owns collection through public
+`digest.checklist.history`; it never opens Core storage or provider files.
+Each identity's first successful collection atomically records the observed
+sequence/counter as its baseline and start time; prior settlements are excluded.
+This avoids presenting pre-collection activity as lifetime savings.
+
+Subsequent terminal events and their cursor/lifetime totals commit in one
+transaction, deduplicated by checklist ID and monotonic settlement sequence.
+Counter reconciliation at the end of enumeration detects missing delivered
+history; counter deltas never reconstruct missing inputs or settlement times.
+Interrupted reads/writes resume from the durable cursor. Collection failure
+never offers delivery or changes Core's uncertainty/admission rules.
+
+Private evidence lives at `<dataRoot>/digest/history/history.sqlite` (public
+`storage.root` discovery), schema version 1. Directories are 0700, files 0600;
+nonprivate paths, symlinks and unsupported schema versions are refused. Events
+retain content-free IDs, settlement/claim/collection timestamps, original arrival
+inputs, outcome/opportunity, formula version, nullable estimate and nullable
+`decision` evidence for the later decision work. No bodies, previews, receipts,
+transport tokens or provider locators. Current collection does not invent a
+Digest decision for a Core settlement.
+
+Tick maintenance expires raw events 30 days after collection, including when no members remain. A 24 MiB raw-input budget evicts oldest
+events with explicit recent-window coverage loss while preserving compact lifetime
+totals. SQLite uses at most 32 MiB, reserving another 32 MiB of the 64 MiB store
+budget for its rollback journal. Compact totals/cursors remain within that bound;
+capacity exhaustion fails atomically rather than resetting them. One raw event
+is bounded to 1 MiB; oversized member histories retain explicit incomplete evidence.
+At most four enumeration pages and 32 continuation pages per event are collected
+in one opportunity, within the tick deadline. There is no background collector
+or off-machine export. Status opens only a read-only snapshot and never collects,
+prunes or checkpoints history.
