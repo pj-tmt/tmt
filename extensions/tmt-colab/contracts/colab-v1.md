@@ -1373,6 +1373,10 @@ reload, keeping drafts and the open panel.
 - A refusal that ends access (a revoked device, `Access ended`, a deleted page, a closed or
   ended session) stops the reopen at once. Readmittable and unclassified refusals retry; after
   the last attempt or an exhausted budget the page shows its terminal card.
+- A bare 404, 502, 503 or 504 from the door's mount is the extension restarting or upgrading
+  (#2929), not a refusal of the device: the open page waits and retries silently, with no limit
+  while the tab is visible, and does not spend a reopen. Every retry opens a fresh Remote
+  Session first, so a device revoked or unpaired meanwhile still ends the page.
 - A route reload that delivers a newer binding ends the reopen in flight and the binding an
   earlier reopen produced, so one page keeps one sync socket.
 - A read-only link reader is never reopened: the same codes end its access ("Access ended").

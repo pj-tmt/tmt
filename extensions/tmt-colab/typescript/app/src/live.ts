@@ -13,7 +13,7 @@ import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
-import { ReopenFailedError, type Registration } from './registration.js';
+import { AdmissionRefusedError, ReopenFailedError, type Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView, SaveOutcome } from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
@@ -305,7 +305,8 @@ export class Live implements PageBinding {
           // any other refusal of the fresh open ends the page with its typed reason.
           if (
             error instanceof TypeError ||
-            (error instanceof ReopenFailedError && classify(error).recovery === 'retry')
+            ((error instanceof ReopenFailedError || error instanceof AdmissionRefusedError) &&
+              classify(error).recovery === 'retry')
           )
             throw new RecoveryRequiredError(error);
           throw error;

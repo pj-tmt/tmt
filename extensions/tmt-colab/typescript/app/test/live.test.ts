@@ -9,7 +9,11 @@ import {
   type RemoteClient,
 } from '../src/ask-remote.js';
 import type { PageView } from '../src/transport.js';
-import { ReopenFailedError, type Registration } from '../src/registration.js';
+import {
+  AdmissionRefusedError,
+  ReopenFailedError,
+  type Registration,
+} from '../src/registration.js';
 import { Live } from '../src/live.js';
 import { text } from '../src/strings.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
@@ -1474,6 +1478,40 @@ it.each(['unreachable', 'unconfirmed', 'transient'] as const)(
     }
   },
 );
+
+// The door's mount answers for an extension that is restarting (#2929): not a verdict on the device.
+it.each([404, 502, 503, 504])(
+  'a fresh open the mount refuses with %s keeps the page waiting for a silent retry',
+  async (status) => {
+    const h = heldResync();
+    const refusal = new AdmissionRefusedError(status, '');
+    h.reconnect.mockRejectedValueOnce(refusal);
+    try {
+      await h.live.snapshot();
+      connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      await expect(h.live.snapshot()).rejects.toBeInstanceOf(RecoveryRequiredError);
+      expect(h.failed).toHaveBeenCalledOnce();
+      expect(h.failed.mock.calls[0][0]).toBeInstanceOf(RecoveryRequiredError);
+      expect(h.failed.mock.calls[0][0].cause).toBe(refusal);
+    } finally {
+      h.live.close();
+    }
+  },
+);
+
+it('a fresh open the extension refuses as DENIED is not a wait: the finite readmission decides', async () => {
+  const h = heldResync();
+  const refusal = new AdmissionRefusedError(403, '{"code":"DENIED"}', 'DENIED');
+  h.reconnect.mockRejectedValueOnce(refusal);
+  try {
+    await h.live.snapshot();
+    connections.at(-1)!.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+    await expect(h.live.snapshot()).rejects.toBe(refusal);
+    expect(h.failed.mock.calls[0][0]).toBe(refusal);
+  } finally {
+    h.live.close();
+  }
+});
 
 it.each(['unpaired', 'mismatch', 'revoked', 'expired', 'capacity'] as const)(
   'a fresh open refused as %s ends the page and keeps the typed reason',

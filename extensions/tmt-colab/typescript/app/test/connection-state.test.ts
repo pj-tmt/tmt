@@ -19,6 +19,28 @@ describe('connection classifier', () => {
     },
   );
 
+  // The door's mount reports an extension that is restarting with a bare status (#2929): the
+  // device is untouched, so the page waits in the silent loop instead of the finite readmission.
+  it.each([404, 502, 503, 504])('waits through a bare %s from the mount', async (status) => {
+    const refusal = await jsonResponse(new Response('', { status }), 8192).catch(
+      (error: unknown) => error,
+    );
+    expect(classify(refusal as Error)).toEqual({ recovery: 'retry', cause: 'generic' });
+  });
+
+  it('waits through the extension answering UNAVAILABLE and keeps a named 503 ending', async () => {
+    const unavailable = await jsonResponse(
+      new Response(JSON.stringify({ code: 'UNAVAILABLE' }), { status: 503 }),
+      8192,
+    ).catch((error: unknown) => error);
+    expect(classify(unavailable as Error)).toEqual({ recovery: 'retry', cause: 'generic' });
+    const capacity = await jsonResponse(
+      new Response(JSON.stringify({ code: 'CAPACITY' }), { status: 503 }),
+      8192,
+    ).catch((error: unknown) => error);
+    expect(classify(capacity as Error)).toEqual({ recovery: 'none', cause: 'large' });
+  });
+
   it.each([
     ['REMOTE_DEVICE_REVOKED', 'access'],
     ['REMOTE_DEVICE_NOT_FOUND', 'access'],

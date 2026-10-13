@@ -201,6 +201,13 @@ tunnel limits or the live reconnect path.
 page and expects the same tab, with no Reconnect click and no reload, to return to Live, read the
 next `page write` and deliver a Chat message to an agent.
 
+`serve-restart.spec.ts` (#2929) installs a newer Colab release under an attached door and holds
+the replacement down for longer than the readmission (`READMIT_DELAYS_MS` plus margin). The open
+page stays `Reconnecting…` with no card, returns to Live when the replacement starts, and then
+reads a CLI write, saves a browser edit and delivers one Chat message to an agent, each once and
+with no navigation. A device revoked while the replacement is down still ends with the access
+card.
+
 `connection-readmit.spec.ts` (#2557) opens an owner page, advances the page epoch by adding and
 removing a share link, and expects the same tab, with no reload, to return to Live, read the next
 `page write` and deliver a Chat message to an agent. An epoch advance or authority recheck
