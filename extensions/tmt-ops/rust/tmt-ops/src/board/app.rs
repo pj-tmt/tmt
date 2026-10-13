@@ -383,12 +383,30 @@ pub enum RowTarget {
     },
 }
 
+/// The observed note recipient, including its identity when the source supplies it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct NoteRecipient {
+    id: Option<String>,
+    name: String,
+}
+
+impl NoteRecipient {
+    fn from_row(row: &Value) -> Option<Self> {
+        Some(Self {
+            id: row["id"].as_str().map(str::to_owned),
+            name: row["name"].as_str()?.to_owned(),
+        })
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct RowSend {
     pub target: RowTarget,
     pub sender: String,
+    pub sender_id: Option<String>,
     pub name: String,
     pub note: Option<Compose>,
+    pub note_recipient: Option<NoteRecipient>,
     pub note_member: bool,
 }
 
@@ -424,6 +442,7 @@ impl RowSend {
         }
         if app.loading()
             || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
+            || app.view.as_ref().and_then(|view| view.me_id.as_ref()) != self.sender_id.as_ref()
         {
             return false;
         }
@@ -448,9 +467,9 @@ impl RowSend {
                             .any(|item| item["requestId"].as_str() == Some(request))
                     })
             }
-            Compose::Annotate { to, .. } => {
+            Compose::Annotate { .. } => {
                 self.note.as_ref() == Some(&input.compose)
-                    && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
+                    && (self.note_member || app.note_recipient(&self.target) == self.note_recipient)
             }
             Compose::AskLead { .. }
             | Compose::Leads { .. }
@@ -2250,7 +2269,14 @@ impl App {
 
     pub(super) fn target_row(&self, target: &RowTarget) -> Option<&Value> {
         match target {
-            RowTarget::Workspace(target) => self.workspace_snapshot()?.rows.get(target),
+            RowTarget::Workspace(target) => {
+                let snapshot = self.workspace_snapshot()?;
+                snapshot
+                    .roster
+                    .contains(target)
+                    .then(|| snapshot.rows.get(target))
+                    .flatten()
+            }
             RowTarget::Home(target) => self
                 .home_entries()
                 .into_iter()
@@ -2278,7 +2304,7 @@ impl App {
         }
     }
 
-    fn note_recipient(&self, target: &RowTarget) -> Option<String> {
+    fn note_recipient(&self, target: &RowTarget) -> Option<NoteRecipient> {
         match target {
             RowTarget::Workspace(super::workspace::OpsTarget::Member {
                 room_id: Some(room),
@@ -2296,23 +2322,29 @@ impl App {
                     .roster
                     .members
                     .get(lead)
-                    .map(|member| member.name.clone())
+                    .map(|member| NoteRecipient {
+                        id: Some(member.id.clone()),
+                        name: member.name.clone(),
+                    })
             }
             RowTarget::Workspace(_) => None,
             RowTarget::Home(target) => self
                 .home_entries()
                 .into_iter()
                 .find(|entry| &entry.target == target)
-                .and_then(|entry| entry.lead.map(str::to_owned)),
+                .and_then(|entry| {
+                    entry.lead.map(|name| NoteRecipient {
+                        id: None,
+                        name: name.into(),
+                    })
+                }),
             RowTarget::Member { tab, .. } if tab == super::LEADS => {
-                self.target_row(target)?["name"].as_str().map(str::to_owned)
+                NoteRecipient::from_row(self.target_row(target)?)
             }
             RowTarget::Member { tab, .. } | RowTarget::Lead { tab, .. }
                 if !super::tabs::aggregate(tab) =>
             {
-                self.view.as_ref()?.document["squad"]["lead"]["name"]
-                    .as_str()
-                    .map(str::to_owned)
+                NoteRecipient::from_row(&self.view.as_ref()?.document["squad"]["lead"])
             }
             _ => None,
         }
@@ -2326,17 +2358,23 @@ impl App {
     pub(super) fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
         let sender = self.view.as_ref()?.me.clone()?;
         let name = self.target_row(&target)?["name"].as_str()?.to_owned();
-        let to = if member_note {
-            Some(name.clone())
+        let recipient = if member_note {
+            NoteRecipient::from_row(self.target_row(&target)?)
         } else {
             self.note_recipient(&target)
         };
+        let note = recipient.as_ref().map(|recipient| Compose::Annotate {
+            to: recipient.name.clone(),
+            row: name.clone(),
+        });
         Some(RowSend {
             target,
             sender,
-            name: name.clone(),
+            sender_id: self.view.as_ref()?.me_id.clone(),
+            name,
             note_member: member_note,
-            note: to.map(|to| Compose::Annotate { to, row: name }),
+            note,
+            note_recipient: recipient,
         })
     }
 
@@ -4302,26 +4340,70 @@ pub(crate) mod tests {
         }
     }
 
+    const COMPOSER_LEAD: &str = "44444444-4444-4444-8444-444444444441";
+    const COMPOSER_DOCS: &str = "44444444-4444-4444-8444-444444444442";
+
+    fn composer_row<'a>(view: &'a mut View, id: &str) -> &'a mut Value {
+        view.home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&super::super::workspace::OpsTarget::Member {
+                room_id: Some(super::workspace::tests::ROOM.into()),
+                identity_id: id.into(),
+            })
+            .unwrap()
+    }
+
+    fn workspace_composer() -> App {
+        use super::super::workspace::OpsTarget;
+        use super::workspace::tests::{MEMBER, ROOM};
+        let mut app = super::workspace::tests::board();
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        let workspace = &mut view.home.as_mut().unwrap().workspace;
+        workspace.roster.members.get_mut(MEMBER).unwrap().name = "auth-fix".into();
+        workspace
+            .rows
+            .get_mut(&OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: MEMBER.into(),
+            })
+            .unwrap()["name"] = json!("auth-fix");
+        for (id, name) in [(COMPOSER_LEAD, "sol"), (COMPOSER_DOCS, "docs")] {
+            let mut member = workspace.roster.members[MEMBER].clone();
+            member.id = id.into();
+            member.name = name.into();
+            workspace.roster.members.insert(id.into(), member);
+            workspace.roster.squads[0].members.push(id.into());
+            workspace.rows.insert(
+                OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: id.into(),
+                },
+                json!({"id":id,"name":name}),
+            );
+        }
+        workspace.roster.squads[0].lead = Some(COMPOSER_LEAD.into());
+        app.workspace_reconcile();
+        app
+    }
+
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(
-            crate::action::with_action_keys(crate::action::preset(true, &[])),
-            Vec::new(),
-        );
+        let mut app = workspace_composer();
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
-            view.me_id = Some("ben-id".into());
-            view.document["squad"]["lead"] = json!({"id": "L", "name": "sol"});
-            view.document["sections"][0]["rows"][0]["waitingOnYou"] = json!([
+            composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] = json!([
                 {"requestId": "q2", "preview": "approve the plan?"},
                 {"requestId": "q1", "preview": "which database?"}
             ]);
-            view.document["sections"][1]["rows"][0]["waitingOnYou"] =
+            composer_row(view, COMPOSER_DOCS)["waitingOnYou"] =
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
-        // The cursor starts on the lead; these cases act on the first member.
-        app.select(1);
+        app.workspace_reconcile();
         press(&mut app, KeyCode::Char('t'));
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
@@ -4351,7 +4433,7 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
 
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         press(&mut app, KeyCode::Char('1'));
         press(&mut app, KeyCode::Tab);
@@ -4373,7 +4455,7 @@ pub(crate) mod tests {
         );
 
         // Two open requests: the user picks; the newest is never assumed.
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         let menu = app.menu.as_ref().expect("picker");
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
@@ -4394,9 +4476,10 @@ pub(crate) mod tests {
                 text: "postgres".into()
             })
         );
-        // One open request goes straight to the composer.
+        // Return from the conversation to the tree before choosing the next agent.
+        press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none());
         typed(&mut app, "yes");
         assert!(matches!(
@@ -4406,12 +4489,21 @@ pub(crate) mod tests {
         assert!(!Request::Back.sends());
 
         // Nothing open, or no lead to annotate for, is a notice.
-        app.view.as_mut().unwrap().document["sections"][1]["rows"][0]["waitingOnYou"] = json!([]);
-        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        composer_row(app.view.as_mut().unwrap(), COMPOSER_DOCS)["waitingOnYou"] = json!([]);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = None;
         app.clamp();
-        press(&mut app, KeyCode::Char('r'));
+        app.perform(&Action::parse("reply").unwrap());
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
             Compose::Talk { .. }
@@ -4425,14 +4517,13 @@ pub(crate) mod tests {
 
     #[test]
     fn row_composer_switches_modes_preserves_draft_and_marks_only_success() {
-        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let mut app = workspace_composer();
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
-        view.document["squad"]["lead"] = json!({"name":"sol"});
-        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+        composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId":"q", "preview":"Ship tonight?"}]);
-        app.select(1);
-        press(&mut app, KeyCode::Char('a'));
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
         assert!(app.menu.is_none(), "a single request opens in place");
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -4470,14 +4561,14 @@ pub(crate) mod tests {
             Some("Ship tonight?"),
             "the question is quoted again when the mode returns to answer"
         );
-        let target = app.row_target(1).unwrap();
+        let target = app.row_target(app.selected).unwrap();
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
         );
         assert!(app.sent.is_none(), "dispatch intent is not send success");
         app.finished(Err("delivery uncertain".into()));
         assert!(app.sent.is_none());
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "approved");
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Replied".into()));
@@ -4487,13 +4578,13 @@ pub(crate) mod tests {
                 .map(|feedback| (&feedback.target, feedback.mark)),
             Some((&target, Some("sent")))
         );
-        assert_eq!(app.selected, 1);
+        assert_eq!(app.row_target(app.selected).as_ref(), Some(&target));
         press(&mut app, KeyCode::Char('x'));
         assert!(
             app.sent.is_none(),
             "the next key clears the row confirmation"
         );
-        press(&mut app, KeyCode::Char('a'));
+        app.perform(&Action::parse("annotate").unwrap());
         typed(&mut app, "later");
         press(&mut app, KeyCode::Enter);
         app.finished_as(
@@ -4501,11 +4592,9 @@ pub(crate) mod tests {
             "queued",
         );
         assert_eq!(
-            app.sent
-                .as_ref()
-                .and_then(|feedback| feedback.line(&target)),
-            Some("✓ queued".into()),
-            "an accepted request is marked with what Core reported"
+            app.notice.as_deref(),
+            Some("Message queued in auth-fix's inbox (r)."),
+            "the visible outcome reports Core acceptance"
         );
     }
 

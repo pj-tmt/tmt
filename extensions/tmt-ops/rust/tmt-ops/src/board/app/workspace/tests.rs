@@ -989,6 +989,92 @@ fn pool_annotation_refuses_before_opening_the_shared_composer() {
 }
 
 #[test]
+fn workspace_annotations_recheck_sender_membership_and_lead_identity() {
+    const LEAD: &str = "88888888-8888-4888-8888-888888888881";
+    const REPLACEMENT: &str = "88888888-8888-4888-8888-888888888882";
+    let opening = || {
+        let mut app = board();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let mut lead = snapshot.roster.members[MEMBER].clone();
+        lead.id = LEAD.into();
+        lead.name = "lead".into();
+        snapshot.roster.members.insert(LEAD.into(), lead);
+        snapshot.roster.squads[0].lead = Some(LEAD.into());
+        snapshot.roster.squads[0].members.push(LEAD.into());
+        snapshot.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: LEAD.into(),
+            },
+            json!({"id":LEAD,"name":"lead"}),
+        );
+        app.workspace_reconcile();
+        app.perform(&Action::parse("annotate").unwrap());
+        assert_eq!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Annotate {
+                to: "lead".into(),
+                row: "worker".into()
+            }
+        );
+        app.paste("  observed\nmessage  ");
+        app
+    };
+    let mut app = opening();
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Annotate {
+            me: "Owner".into(),
+            squad: "product".into(),
+            to: "lead".into(),
+            row: "worker".into(),
+            text: "  observed\nmessage  ".into()
+        })
+    );
+    for change in [
+        "sender",
+        "sender UUID",
+        "membership",
+        "identity removed",
+        "lead name",
+        "lead UUID",
+        "loading",
+    ] {
+        let mut app = opening();
+        match change {
+            "sender" => app.view.as_mut().unwrap().me = Some("Other".into()),
+            "sender UUID" => app.view.as_mut().unwrap().me_id = Some(REPLACEMENT.into()),
+            "loading" => app.current = Some("unloaded".into()),
+            _ => {
+                let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                match change {
+                    "membership" => snapshot.roster.squads[0].members.retain(|id| id != MEMBER),
+                    "identity removed" => {
+                        snapshot.roster.members.remove(MEMBER);
+                    }
+                    "lead name" => {
+                        snapshot.roster.members.get_mut(LEAD).unwrap().name = "new-lead".into()
+                    }
+                    _ => {
+                        let mut lead = snapshot.roster.members.remove(LEAD).unwrap();
+                        lead.id = REPLACEMENT.into();
+                        snapshot.roster.members.insert(REPLACEMENT.into(), lead);
+                        snapshot.roster.squads[0].lead = Some(REPLACEMENT.into());
+                        snapshot.roster.squads[0].members.retain(|id| id != LEAD);
+                        snapshot.roster.squads[0].members.push(REPLACEMENT.into());
+                    }
+                }
+            }
+        }
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{change}");
+        assert!(
+            app.notice.as_deref().unwrap().contains("nothing sent"),
+            "{change}"
+        );
+    }
+}
+
+#[test]
 fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
     const FIRST: &str = "req_44444444-4444-4444-8444-444444444441";
     const SECOND: &str = "req_44444444-4444-4444-8444-444444444442";
@@ -1030,12 +1116,23 @@ fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
         })
     );
 
-    for change in ["request", "sender", "loading", "membership", "name"] {
+    for change in [
+        "request",
+        "sender",
+        "sender UUID",
+        "loading",
+        "membership",
+        "name",
+    ] {
         let mut app = opening();
         key(&mut app, KeyCode::Char('y'));
         let selected = app.workspace.selected.clone().unwrap();
         match change {
             "sender" => app.view.as_mut().unwrap().me = Some("Other".into()),
+            "sender UUID" => {
+                app.view.as_mut().unwrap().me_id =
+                    Some("99999999-9999-4999-8999-999999999999".into())
+            }
             "loading" => app.current = Some("unloaded".into()),
             _ => {
                 let rows = &mut app

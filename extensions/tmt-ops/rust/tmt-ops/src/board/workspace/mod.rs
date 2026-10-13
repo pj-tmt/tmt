@@ -143,17 +143,20 @@ impl OpsRoster {
         }
     }
 
-    fn contains(&self, target: &OpsTarget) -> bool {
+    pub(in crate::board) fn contains(&self, target: &OpsTarget) -> bool {
         match target {
             OpsTarget::Pool => true,
             OpsTarget::Squad(id) => self.squads.iter().any(|squad| squad.room_id == *id),
             OpsTarget::Member {
                 room_id: Some(room),
                 identity_id,
-            } => self
-                .squads
-                .iter()
-                .any(|squad| squad.room_id == *room && squad.members.contains(identity_id)),
+            } => {
+                self.members.contains_key(identity_id)
+                    && self
+                        .squads
+                        .iter()
+                        .any(|squad| squad.room_id == *room && squad.members.contains(identity_id))
+            }
             OpsTarget::Member {
                 room_id: None,
                 identity_id,

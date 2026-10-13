@@ -307,16 +307,30 @@ fn grid_fields_use_each_rows_actual_budget_including_wrap_and_request_age() {
     assert!(text(&draw(&app, 80, 30)).contains("│pending"));
 }
 
+fn response_workspace() -> App {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().me = Some("Ben".into());
+    app
+}
+fn open_response(app: &mut App) {
+    assert_eq!(
+        app.perform(&crate::action::Action::parse("view-reply").unwrap()),
+        Effect::None
+    );
+    assert!(app.row_details.reader.is_some());
+}
+
 #[test]
 fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging() {
-    let mut app = fixture();
+    let mut app = response_workspace();
     let source = "line one\n漢字 e\u{301} \x1b[31m\nline three";
     let view = app.view.as_mut().unwrap();
     view.me = Some("Ben".into());
-    view.me_id = Some("user".into());
-    view.replies = vec![json!({"recipientId":"u1","requestId":"r1","response":source})];
+    view.replies = vec![
+        json!({"recipientId":crate::board::app::workspace::tests::MEMBER,"requestId":"r1","response":source}),
+    ];
     let before = view.document.clone();
-    press(&mut app, KeyCode::Char('v'));
+    open_response(&mut app);
     press(&mut app, KeyCode::Char('s'));
     draw(&app, 60, 18);
     let area = app
@@ -402,7 +416,7 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     assert!(app.row_details.reader.is_none());
     let quote = &app.input.as_ref().unwrap().response_quotes[0];
     assert_eq!(quote.key.request, "r1");
-    assert_eq!(quote.key.lead, "u1");
+    assert_eq!(quote.key.lead, crate::board::app::workspace::tests::MEMBER);
     assert_eq!(quote.range, 0..source.len());
     assert_eq!(quote.text, source);
     assert_eq!(app.view.as_ref().unwrap().document, before);
@@ -415,11 +429,11 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
 
 #[test]
 fn failed_or_replaced_response_source_cannot_be_attached() {
-    let mut app = fixture();
+    let mut app = response_workspace();
     app.view.as_mut().unwrap().me = Some("Ben".into());
-    app.view.as_mut().unwrap().me_id = Some("user".into());
-    app.view.as_mut().unwrap().replies = vec![json!({"recipientId":"u1","requestId":"r1"})];
-    press(&mut app, KeyCode::Char('v'));
+    app.view.as_mut().unwrap().replies =
+        vec![json!({"recipientId":crate::board::app::workspace::tests::MEMBER,"requestId":"r1"})];
+    open_response(&mut app);
     let key = app.detail_read().unwrap();
     app.apply_message(&key, Err("Unavailable".into()));
     press(&mut app, KeyCode::Char('s'));
@@ -432,7 +446,17 @@ fn failed_or_replaced_response_source_cannot_be_attached() {
     assert!(app.input.is_none());
     assert!(app.notice.as_deref().unwrap().contains("source changed"));
     app.view.as_mut().unwrap().replies.clear();
-    app.view.as_mut().unwrap().document["sections"][0]["rows"] = json!([]);
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .members
+        .clear();
     app.reconcile_row_details();
     assert!(text(&draw(&app, 80, 24)).contains("exact source"));
     assert_eq!(press(&mut app, KeyCode::Char('a')), Effect::None);
@@ -447,11 +471,11 @@ fn failed_or_replaced_response_source_cannot_be_attached() {
 
 #[test]
 fn reader_reuses_markdown_during_scroll_and_rebuilds_on_width_or_body_change() {
-    let mut app = fixture();
+    let mut app = response_workspace();
     app.view.as_mut().unwrap().replies = vec![json!({
-        "recipientId":"u1", "requestId":"r1", "response":"**reading**  \n".repeat(80)
+        "recipientId":crate::board::app::workspace::tests::MEMBER, "requestId":"r1", "response":"**reading**  \n".repeat(80)
     })];
-    press(&mut app, KeyCode::Char('v'));
+    open_response(&mut app);
     draw(&app, 80, 24);
     let cached = app
         .row_details

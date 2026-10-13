@@ -343,8 +343,10 @@ impl App {
             row_send: Some(RowSend {
                 target: RowTarget::Home(target),
                 sender: view.me.clone().unwrap_or_default(),
+                sender_id: view.me_id.clone(),
                 name,
                 note: None,
+                note_recipient: None,
                 note_member: false,
             }),
             others: Vec::new(),
