@@ -79,6 +79,10 @@ read-bound parity, not a live routed backend or current caller entitlement.
 signing public key, and the exact link-issuer chain (fixed 0 to 2^53-1 validity window) with its
 digest. The TypeScript client reproduces these bytes and the Rust model verifies them.
 
+`authority-v1.json` `linkRulesToken` freezes the link's cloud admission token
+(`HKDF(linkSeed, LP("tmt-colab-link-rules-token-v1", space, linkId))`, unpadded base64url); the
+Rust model and the TypeScript client both reproduce it.
+
 `bridge-own-v1.json` freezes owner-signed membership logs (`bridge.add`, `device.revoke`) and
 sealed own/content envelopes of bridge streams, each case marked `admit` or `reject`. Native
 `tests/bridge_vectors.rs` replays every case in a real store, so a native `Invalid` and a browser

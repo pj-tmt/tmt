@@ -48,6 +48,7 @@ fn independent_wrap_chain_and_link_known_answers() {
         hex(&v, "linkEncryptionPublic")
     );
     assert_eq!(*keys.join_proof(), hex(&v, "joinProof"));
+    assert_eq!(keys.rules_token(), v["linkRulesToken"].as_str().unwrap());
 }
 #[test]
 fn derived_link_device_chain_is_accepted_with_its_fixed_validity_window() {

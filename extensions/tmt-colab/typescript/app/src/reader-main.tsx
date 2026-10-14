@@ -33,7 +33,7 @@ async function start() {
   }
   let link;
   try {
-    link = parseReaderFragment(fragment);
+    link = await parseReaderFragment(fragment);
   } catch {
     return show({ kind: 'invalid' });
   }

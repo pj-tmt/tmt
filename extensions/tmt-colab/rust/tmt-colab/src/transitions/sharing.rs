@@ -160,6 +160,7 @@ impl Engine {
                     let mut recipient = link.clone();
                     recipient.revoked = true;
                     tx.put_recipient(&recipient)?;
+                    tx.drop_link_admission(&link.id)?;
                     for id in devices {
                         if let Some(mut d) = tx.device(id)? {
                             d.revoked = true;

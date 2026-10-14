@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
 import { Catchup } from '../src/catchup.js';
 import { parseReaderFragment } from '../src/reader-link.js';
+import { ReaderSession } from '../src/reader.js';
 import type { Registration } from '../src/registration.js';
 
 const records = new Map<string, unknown>();
@@ -27,6 +28,8 @@ const fields = {
   rev: '4',
   st: c.encodeBinary(new Uint8Array(32).fill(9)),
   seed: c.encodeBinary(new Uint8Array(32).fill(7)),
+  root: c.encodeBinary(hex(v.public)),
+  role: 'viewer',
 };
 const fragment = (overrides: Record<string, string | null> = {}, extra = '') =>
   '#' +
@@ -37,20 +40,27 @@ const fragment = (overrides: Record<string, string | null> = {}, extra = '') =>
   extra;
 
 describe('reader link fragment', () => {
-  it('parses the one grammar into canonical values', () => {
-    const link = parseReaderFragment(fragment());
-    expect(link).toMatchObject({ space: v.space, page: v.page, link: v.linkId, revision: '4' });
+  it('parses the one grammar into canonical values', async () => {
+    const link = await parseReaderFragment(fragment());
+    expect(link).toMatchObject({
+      space: v.space,
+      page: v.page,
+      link: v.linkId,
+      revision: '4',
+      role: 'viewer',
+    });
     expect(link.seed).toEqual(new Uint8Array(32).fill(7));
     expect(link.statement).toEqual(new Uint8Array(32).fill(9));
+    expect(link.root).toEqual(hex(v.public));
   });
-  it('accepts the keys in any order', () => {
+  it('accepts the keys in any order', async () => {
     const reordered =
       '#' +
       Object.entries(fields)
         .reverse()
         .map(([key, value]) => `${key}=${value}`)
         .join('&');
-    expect(parseReaderFragment(reordered).revision).toBe('4');
+    expect((await parseReaderFragment(reordered)).revision).toBe('4');
   });
   const bad: [string, string][] = [
     ['empty', ''],
@@ -59,7 +69,16 @@ describe('reader link fragment', () => {
     ['missing seed', fragment({ seed: null })],
     ['missing statement', fragment({ st: null })],
     ['duplicate key', fragment({}, '&rev=5')],
-    ['unknown key', fragment({}, '&role=editor')],
+    ['unknown key', fragment({}, '&extra=1')],
+    ['missing root', fragment({ root: null })],
+    ['missing role', fragment({ role: null })],
+    ['seven-key link from before the owner root', fragment({ root: null, role: null })],
+    ['root of another space', fragment({ root: c.encodeBinary(new Uint8Array(32).fill(1)) })],
+    ['short root', fragment({ root: c.encodeBinary(hex(v.public).slice(0, 31)) })],
+    ['padded root', fragment({ root: fields.root + '=' })],
+    ['unknown role', fragment({ role: 'owner' })],
+    ['bridge is not a link role', fragment({ role: 'bridge' })],
+    ['uppercase role', fragment({ role: 'Viewer' })],
     ['query-looking key', fragment({}, '&?x=1')],
     ['percent escape', fragment({ rev: '%34' })],
     ['space not canonical', fragment({ space: v.space.toUpperCase() })],
@@ -72,8 +91,58 @@ describe('reader link fragment', () => {
     ['long statement', fragment({ st: c.encodeBinary(new Uint8Array(33)) })],
     ['oversized', fragment({}, '&' + 'x'.repeat(600))],
   ];
-  it.each(bad)('rejects %s', (_name, hash) => {
-    expect(() => parseReaderFragment(hash)).toThrow();
+  it.each(bad)('rejects %s', async (_name, hash) => {
+    await expect(parseReaderFragment(hash)).rejects.toThrow();
+  });
+  it.each(['commenter', 'editor'])('accepts the %s role hint', async (role) => {
+    expect((await parseReaderFragment(fragment({ role }))).role).toBe(role);
+  });
+});
+
+describe('reader session owner key', () => {
+  // A door that answers the challenge and presents `ownerKey`; any later request fails.
+  const door = (ownerKey: Uint8Array) =>
+    vi.fn(async (input: URL | string, init?: RequestInit) => {
+      const url = String(input);
+      const json = (value: unknown) => new Response(JSON.stringify(value));
+      if (url.endsWith('api/readers/challenge')) {
+        const body = JSON.parse(String(init?.body));
+        const chain = c.certificate.Chain.fromJson(c.binary(body.chain, 65536));
+        return json({
+          challengeId: '50000000-0000-4000-8000-000000000001',
+          nonce: c.encodeBinary(new Uint8Array(32)),
+          space: v.space,
+          page: v.page,
+          epoch: '1',
+          chainDigest: c.encodeBinary(await chain.digest()),
+          expiresAt: Date.now() + 60_000,
+        });
+      }
+      if (url.endsWith('api/readers/session')) {
+        return json({
+          principal: '40000000-0000-4000-8000-000000000001',
+          token: c.encodeBinary(new Uint8Array(32)),
+          space: v.space,
+          page: v.page,
+          epoch: '1',
+          ownerKey: c.encodeBinary(ownerKey),
+          expiresAt: Date.now() + 60_000,
+        });
+      }
+      throw new Error('No further request is expected');
+    });
+  const open = async () =>
+    ReaderSession.open(
+      await parseReaderFragment(fragment()),
+      new URL('http://localhost/r/x/'),
+      () => {},
+      () => {},
+    );
+  const realFetch = globalThis.fetch;
+  afterEach(() => vi.stubGlobal('fetch', realFetch));
+  it('ends access when the door presents a key other than the link’s root', async () => {
+    vi.stubGlobal('fetch', door(hex(v.linkSigningPublic)));
+    await expect(open()).rejects.toThrow('Access ended');
   });
 });
 

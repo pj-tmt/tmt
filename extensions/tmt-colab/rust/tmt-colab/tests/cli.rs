@@ -35,6 +35,18 @@ fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 impl Pilot {
+    /// The owner's root public key as a reader link prints it (`root`); it derives the space ID.
+    fn owner_root(&self) -> String {
+        let seed: [u8; 32] = fs::read(self.root.join("selected/colab/owner.key"))
+            .unwrap()
+            .try_into()
+            .unwrap();
+        tmt_colab_model::values::encode_binary(
+            &ed25519_dalek::SigningKey::from_bytes(&seed)
+                .verifying_key()
+                .to_bytes(),
+        )
+    }
     fn new(reply: Option<&str>) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
@@ -849,9 +861,27 @@ fn link_add_without_a_seed_file_generates_a_fresh_seed_and_prints_the_reader_lin
             .map(|p| p.split_once('=').unwrap())
             .collect();
         let keys: Vec<&str> = pairs.iter().map(|(k, _)| *k).collect();
-        assert_eq!(keys, ["v", "space", "page", "link", "rev", "st", "seed"]);
+        assert_eq!(
+            keys,
+            [
+                "v", "space", "page", "link", "rev", "st", "seed", "root", "role"
+            ]
+        );
         let get = |k: &str| pairs.iter().find(|(n, _)| *n == k).unwrap().1;
         assert_eq!(get("v"), "1");
+        assert_eq!(get("role"), "viewer");
+        assert_eq!(get("root"), pilot.owner_root());
+        // The root names the space: it is the key the space ID is the digest of.
+        assert_eq!(
+            tmt_colab_model::crypto::space_id(
+                &tmt_colab_model::values::binary(get("root"), 32)
+                    .unwrap()
+                    .try_into()
+                    .unwrap()
+            )
+            .unwrap(),
+            get("space")
+        );
         assert_eq!(get("page"), PAGE);
         assert_eq!(get("link"), outcome["linkId"]);
         assert_eq!(get("rev"), outcome["membershipHead"]["revision"]);
@@ -954,9 +984,10 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         assert_eq!(
             result["readerPath"],
             format!(
-                "x/colab/read#v=1&space={space}&page={PAGE}&link={LINK}&rev=4&st={}&seed={}",
+                "x/colab/read#v=1&space={space}&page={PAGE}&link={LINK}&rev=4&st={}&seed={}&root={}&role=viewer",
                 result["membershipHead"]["statementHash"].as_str().unwrap(),
-                values::encode_binary(&[17; 32])
+                values::encode_binary(&[17; 32]),
+                pilot.owner_root()
             )
         );
         if serving {
@@ -1026,10 +1057,11 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         assert_eq!(
             outcome["readerPath"],
             format!(
-                "x/colab/read#v=1&space={space}&page={PAGE}&link={replacement}&rev={}&st={}&seed={}",
+                "x/colab/read#v=1&space={space}&page={PAGE}&link={replacement}&rev={}&st={}&seed={}&root={}&role=viewer",
                 outcome["membershipHead"]["revision"].as_str().unwrap(),
                 outcome["membershipHead"]["statementHash"].as_str().unwrap(),
-                values::encode_binary(&[18; 32])
+                values::encode_binary(&[18; 32]),
+                pilot.owner_root()
             )
         );
         let listed_text = pilot
@@ -1278,7 +1310,7 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
         INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
         DROP TABLE current_owner_operations;
-        DROP TABLE cloud_publications; DROP TABLE page_labels;
+        DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels;
         ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
@@ -4565,7 +4597,7 @@ fn release_preflight_reads_an_older_store_without_migration_and_refuses_a_future
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
@@ -4658,7 +4690,7 @@ fn a_release_replacement_migrates_for_the_new_cli_and_restarts_its_owned_door() 
     let connection = rusqlite::Connection::open(&db).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
+            "DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_labels; PRAGMA user_version=6",
         )
         .unwrap();
     drop(connection);
