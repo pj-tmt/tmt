@@ -123,7 +123,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
             &[
                 (
                     "shell",
-                    "effective bindings above select Overview / Agents / Digest; editors, search, readers and popups own input first",
+                    "effective bindings above select Overview / Agents / Digest from any non-typing pane or overlay; active editors, search and completion keep their input",
                 ),
                 (
                     "tree",
@@ -136,6 +136,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 (
                     "wheel",
                     "scroll the pane under the pointer without moving the selected target",
+                ),
+                ("Esc", "step back one level; at the list stay in Ops UI"),
+                (
+                    "quit",
+                    "use the effective quit binding above (default q) or Ctrl-C; q closes an overlay and types in an editor",
                 ),
             ],
         ),

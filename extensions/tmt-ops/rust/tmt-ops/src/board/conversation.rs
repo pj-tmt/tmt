@@ -326,7 +326,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, area: Rect) {
     // or clip the choice mark away from the label whose action it represents.
     chips.truncate(super::row_chips::prefix(&chips, usize::from(area.width)));
     let mut header = vec![
-        Line::styled(format!("Conversation · {name}"), look.role(Role::Accent)),
+        Line::styled(
+            format!(
+                "Conversation · {name}{}",
+                if app.focus == 1 && app.input.is_none() {
+                    " · focused · Esc back"
+                } else {
+                    ""
+                }
+            ),
+            look.role(Role::Accent),
+        ),
         Line::styled(
             format!(
                 "{} · {}",

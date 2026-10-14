@@ -175,6 +175,12 @@ pub(super) struct Completion {
     pub bound_uuid: Option<String>,
 }
 impl Controller {
+    pub(in crate::board) fn owns_typing(&self) -> bool {
+        self.active
+            && self.screen == Screen::Form
+            && self.form_focus
+            && !self.pending.as_ref().is_some_and(|task| task.job.writes())
+    }
     pub fn new(owner: u64, scope: ScanScope) -> Self {
         Self {
             active: true,

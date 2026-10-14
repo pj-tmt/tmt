@@ -35,10 +35,14 @@ pub struct OpsShell {
 }
 
 impl OpsShell {
-    /// Returns true only when the shell consumed the digit. Editors, search,
-    /// readers and modal surfaces receive their input unchanged.
+    /// Returns true only when the shell consumed the digit. Active editors,
+    /// search and completion receive their input unchanged; the host dismisses
+    /// non-typing overlays before applying the destination.
     pub fn select_digit(&mut self, digit: char, owner: OpsInputOwner) -> bool {
-        if owner != OpsInputOwner::List {
+        if matches!(
+            owner,
+            OpsInputOwner::Composer | OpsInputOwner::Search | OpsInputOwner::Completion
+        ) {
             return false;
         }
         let tab = match digit {

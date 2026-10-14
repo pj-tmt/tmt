@@ -890,16 +890,20 @@ fn refreshed_or_resized_rows_have_no_pointer_authority_until_repaint() {
 }
 
 #[test]
-fn explicit_shell_click_can_leave_reader_but_a_guarded_digit_cannot() {
+fn explicit_shell_click_and_destination_key_can_leave_reader() {
     let mut app = board();
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     let selected = app.workspace.selected.clone();
-    assert_eq!(app.workspace_action(OpsUiAction::Overview), Effect::None);
-    assert_eq!(app.shell.tab, OpsTab::Agents);
-    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    assert_eq!(key(&mut app, KeyCode::Char('1')), Effect::None);
+    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
     assert_eq!(app.workspace.selected, selected);
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Enter);
+    paint(&app, 160, 36);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
     let hit = *app
         .tab_hits
         .borrow()
@@ -1106,7 +1110,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     key(&mut app, KeyCode::Tab);
     let target = app.workspace.selected.clone();
     assert_eq!(app.bindings()["j"].text, "scroll-down");
-    assert!(!app.bindings().contains_key("2"));
+    assert_eq!(app.bindings()["2"].text, "agents");
     assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
     assert_eq!(app.workspace.selected, target);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
@@ -2476,11 +2480,9 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
     let original = app.workspace.selected.clone();
     key(&mut app, KeyCode::Char('1'));
-    assert_eq!(app.shell.tab, OpsTab::Agents);
+    assert_eq!(app.shell.tab, OpsTab::Overview);
     assert_eq!(app.workspace.selected, original);
-    key(&mut app, KeyCode::Tab);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
-    key(&mut app, KeyCode::Char('1'));
     paint(&app, 60, 8);
     key(&mut app, KeyCode::Tab);
     assert_eq!(
@@ -2491,3 +2493,4 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
 }
 
 mod member_rename;
+mod navigation;

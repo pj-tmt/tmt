@@ -381,6 +381,11 @@ pub fn parse_bindings<'a>(
     entries
         .map(|(event, line)| {
             if !valid_event(event) {
+                if matches!(event, "esc" | "escape") {
+                    return Err(format!(
+                        "`{place}.{event}`: Esc is reserved for stepping back; use `q` to quit"
+                    ));
+                }
                 return Err(format!(
                     "`{place}.{event}` is not a bindable key or mouse event"
                 ));
@@ -491,6 +496,20 @@ pub fn all_preset() -> Bindings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn escape_stays_reserved_and_rejection_names_its_authored_table() {
+        for place in ["bind", "bind.tmux", "squad.product.section[0].bind"] {
+            for event in ["esc", "escape"] {
+                for action in ["quit", "talk", "copy {name}"] {
+                    assert!(!super::valid_event(event));
+                    let error = super::parse_bindings([(event, Some(action))].into_iter(), place)
+                        .unwrap_err();
+                    assert!(error.contains(&format!("`{place}.{event}`")));
+                    assert!(error.contains("Esc is reserved for stepping back; use `q` to quit"));
+                }
+            }
+        }
+    }
     use super::*;
     use serde_json::json;
 

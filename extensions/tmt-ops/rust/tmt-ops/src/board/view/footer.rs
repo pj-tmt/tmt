@@ -29,7 +29,7 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         }
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
-        Verb::ViewReply => "view",
+        Verb::ViewReply => "reader",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
@@ -132,6 +132,9 @@ fn workspace_hints(app: &App, width: usize) -> String {
     let mut seen = std::collections::BTreeSet::new();
     let mut hints = Vec::new();
     let mut tail = Vec::new();
+    if app.focused_pane() == Some(crate::config::Pane::Replies) {
+        tail.push("Esc back".into());
+    }
     let mut help_hint = None;
     for (key, action) in entries {
         if !seen.insert(action.text.as_str()) {
