@@ -187,8 +187,13 @@ export async function restartRemote(world: AcceptanceWorld, door: Door): Promise
 }
 
 /** Stop and start tmt-colab so its mounted socket and sync state are rebuilt. */
-export async function restartColab(world: AcceptanceWorld, door: Door): Promise<void> {
+export async function restartColab(
+  world: AcceptanceWorld,
+  door: Door,
+  whileStopped?: () => Promise<void>,
+): Promise<void> {
   await door.colab.stop();
+  await whileStopped?.();
   const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
   await colab.event((value) => value.state === 'mounted');
   door.colab = colab;
