@@ -58,6 +58,37 @@ struct Fixture {
     config: Config,
     core: Core,
 }
+
+#[test]
+fn workspace_action_rows_join_global_panes_without_replacing_roster_metadata() {
+    let fixture = Fixture::new("");
+    let roster = row("worker", "worker", "blocked");
+    let acquired = fixture.acquired(&[("a", document("a", Value::Null, vec![roster]))]);
+    let squad = Squad {
+        name: "a".into(),
+        room_id: "room-a".into(),
+    };
+    let listed = Ok(
+        json!({"identities":[{"id":"worker", "name":"worker", "state":"working",
+        "presence":"active", "pane":"%7", "location":{"host":"tmux"}}]}),
+    );
+    let snapshot = super::super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(
+        &[&squad],
+        &acquired,
+        &listed,
+    );
+    let target = super::super::workspace::OpsTarget::Member {
+        room_id: Some("room-a".into()),
+        identity_id: "worker".into(),
+    };
+    let member = &snapshot.rows[&target];
+    assert_eq!(
+        super::super::overview::actions::host(member, true),
+        Ok("worker")
+    );
+    assert_eq!(member["state"], "blocked");
+    assert_eq!(member["pane"]["id"], "%7");
+}
 impl Fixture {
     fn new(text: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);

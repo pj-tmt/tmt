@@ -233,7 +233,13 @@ impl OpsWorkspaceSnapshot {
                             room_id: Some(squad.room_id.clone()),
                             identity_id: identity.id.clone(),
                         },
-                        row.clone(),
+                        observed_member_row(
+                            row,
+                            result.rows.get(&OpsTarget::Member {
+                                room_id: None,
+                                identity_id: identity.id.clone(),
+                            }),
+                        ),
                     );
                     // Presence belongs to the global identity observation, not
                     // the roster's unknown placeholder for that same identity.
@@ -250,6 +256,21 @@ impl OpsWorkspaceSnapshot {
         }
         result
     }
+}
+
+fn observed_member_row(row: &Value, observed: Option<&Value>) -> Value {
+    let mut projected = row.clone();
+    // HOME's roster-only acquisition does not observe panes. Reuse the same
+    // global observation as the workspace presence, retaining squad metadata.
+    projected["presence"] = observed
+        .and_then(|row| row.get("presence"))
+        .cloned()
+        .unwrap_or_else(|| Value::String("unknown".into()));
+    projected["pane"] = observed
+        .and_then(|row| row.get("pane"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    projected
 }
 
 #[cfg(test)]
@@ -276,5 +297,24 @@ mod tests {
         assert!(crate::board::overview::actions::host(&pool_row(&listed), true).is_err());
         listed["pane"] = Value::Null;
         assert!(pool_row(&listed)["pane"].is_null());
+    }
+
+    #[test]
+    fn squad_actions_reuse_global_presence_without_replacing_squad_state() {
+        let roster = json!({"id":"uuid", "state":"blocked", "presence":"unknown",
+            "pane":null, "fields":{"task":"keep squad task"}});
+        let observed = pool_row(&json!({"id":"uuid", "presence":"active", "pane":"%7",
+            "location":{"host":"tmux"}, "state":"working"}));
+        let row = observed_member_row(&roster, Some(&observed));
+        assert_eq!(
+            crate::board::overview::actions::host(&row, true),
+            Ok("uuid")
+        );
+        assert_eq!(row["state"], "blocked");
+        assert_eq!(row["fields"], roster["fields"]);
+        let absent = observed_member_row(&row, None);
+        assert_eq!(absent["presence"], "unknown");
+        assert!(absent["pane"].is_null());
+        assert!(crate::board::overview::actions::host(&absent, true).is_err());
     }
 }
