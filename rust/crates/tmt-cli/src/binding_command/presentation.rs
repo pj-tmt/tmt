@@ -731,7 +731,7 @@ pub(crate) fn agent_name_text(
         AgentNameRefusal::Uncertain => (
             format!(
                 "TMT could not confirm the agent name {name}: {error}. The host may or may not \
-                 have set it; tmt ls shows the agent name the host reports. The binding stays."
+                 have set it; the ls command shows the agent name the host reports. The binding stays."
             ),
             format!("To retry setting the agent name, in the agent's pane run: tmt this {name}"),
         ),
