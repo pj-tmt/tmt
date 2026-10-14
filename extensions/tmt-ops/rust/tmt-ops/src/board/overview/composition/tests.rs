@@ -182,3 +182,78 @@ fn every_panel_is_disjoint_and_short_heights_keep_the_monitor() {
         }
     }
 }
+
+#[test]
+fn eight_rows_keep_the_table_and_filter_details_usage_keys() {
+    use crate::board::{
+        app::{Effect, HitTarget},
+        overview::monitor::Filter,
+    };
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        for width in [160, 100, 80, 60] {
+            let mut app = crate::board::home::tests::oracle::metered(crate::look::Look {
+                theme: tmt_cli_style::Theme::default(),
+                depth: tmt_cli_style::Depth::None,
+            });
+            assert_eq!(app.key(key(KeyCode::Char('u'))), Effect::None);
+            assert!(
+                !app.usage_controls,
+                "no controls before a workspace frame is painted"
+            );
+            app.notice = None;
+            app.set_body_width(width);
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 8)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
+            assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
+            assert!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .all(|hit| !matches!(hit.target, HitTarget::Quota | HitTarget::AllRoomTimers))
+            );
+            let selected = app.workspace.selected.clone();
+            app.invalidate_frame_geometry();
+            app.key(key(KeyCode::Char('u')));
+            assert!(
+                !app.usage_controls,
+                "invalidated table geometry admits no controls"
+            );
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            app.key(key(KeyCode::Char('f')));
+            assert!(app.overview_filter == Filter::NeedsYou);
+            app.key(key(KeyCode::Char('f')));
+            assert!(app.overview_filter == Filter::All);
+            assert_eq!(app.workspace.selected, selected);
+            app.key(key(KeyCode::Char('e')));
+            assert!(app.monitor_details.is_some());
+            app.key(key(KeyCode::Esc));
+            assert!(app.monitor_details.is_none());
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            app.key(key(KeyCode::Char('u')));
+            assert!(app.usage_controls, "usage is still reachable at {width}x8");
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            app.key(key(KeyCode::Esc));
+            assert!(!app.usage_controls && app.workspace.selected == selected);
+        }
+    });
+}

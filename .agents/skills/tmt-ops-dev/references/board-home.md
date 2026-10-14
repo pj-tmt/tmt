@@ -145,7 +145,9 @@ admitted, clipped nodes; resize and source replacement revoke their authority.
 If there is no positive observed count, or placement would leave fewer than six
 target rows, the chart collapses to one summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
-no spare target row omits the summary to retain the last usable row.
+no spare target row omits the summary to retain the last usable row. At eight
+terminal rows, Overview keeps the table and omits summary/quota context; the
+effective filter, Details and usage-control keys remain reachable.
 
 One identity-total series uses the existing Rate rings. Details preserve exact
 half-open bounds, observed tokens, missing identities and source durations;
