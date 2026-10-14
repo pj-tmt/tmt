@@ -14,9 +14,8 @@ use crate::{
 use serde_json::{Value, json};
 
 pub(super) use tmt_cli_style::breakpoint::{MD, SM};
-/// HOME-only compact and two-meter design checkpoints; not shared token roles.
+/// HOME-only compact design checkpoint; not a shared token role.
 pub(super) const COMPACT: u16 = 60;
-pub(super) const WIDE: u16 = 160;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Counts {
@@ -202,9 +201,7 @@ pub(super) mod tests;
 
 pub(crate) mod counters;
 mod paint;
-pub(super) use limits::clock_marks as limit_clock_marks;
-pub(super) use limits::window_clock_marks as quota_window_clock_marks;
-pub(super) use paint::quota_windows_of;
+pub(super) use limits::{clock_marks as limit_clock_marks, detail as quota_detail};
 pub(super) use paint::{limits_enabled, limits_of, summary_of, usage_of};
 
 /// Held header strips of one immutable view, keyed by data, width and look.

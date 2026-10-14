@@ -75,7 +75,7 @@ fn painted(standings: Option<&[Standing]>, width: u16) -> Vec<String> {
 #[test]
 fn expanded_windows_keep_remaining_reset_and_measured_weekly_pace() {
     for width in [160, 100, 80, 60] {
-        let lines = windows_in(
+        let lines = limits_in(
             &mut Kept::default(),
             Some(&mock()),
             NOW,
@@ -110,7 +110,7 @@ fn expanded_windows_keep_remaining_reset_and_measured_weekly_pace() {
 
 #[test]
 fn expanded_unknown_and_zero_have_distinct_cells_without_inventing_a_window() {
-    let missing = window_rows(
+    let missing = rows(
         Some(&[standing(Provider::named("codex"), None, None)]),
         NOW,
         80,
@@ -118,7 +118,7 @@ fn expanded_unknown_and_zero_have_distinct_cells_without_inventing_a_window() {
     let missing_text = missing.to_string();
     assert!(missing_text.contains("no reading yet"));
     assert!(!missing_text.contains("0%"));
-    let zero = window_rows(
+    let zero = rows(
         Some(&[standing(
             Provider::named("codex"),
             Some(reading(MINUTE, window(0.0, HOUR), None)),
@@ -147,31 +147,37 @@ fn expanded_unknown_and_zero_have_distinct_cells_without_inventing_a_window() {
 #[test]
 fn expanded_clock_projection_matches_current_visible_rows() {
     let standings = mock();
-    let rows = window_rows(Some(&standings), NOW, 80);
-    let mark: Value =
-        serde_json::from_str(&window_clock_marks(Some(&standings), NOW, 80, 2)).unwrap();
+    let rows = rows(Some(&standings), NOW, 80);
+    let mark: Value = serde_json::from_str(&clock_marks(Some(&standings), NOW, 80, 2)).unwrap();
     assert_eq!(mark.as_array().unwrap(), &rows.as_array().unwrap()[..2]);
     assert_ne!(
-        window_clock_marks(Some(&standings), NOW, 80, 2),
-        window_clock_marks(Some(&standings), NOW + MINUTE, 80, 2)
+        clock_marks(Some(&standings), NOW, 80, 2),
+        clock_marks(Some(&standings), NOW + MINUTE, 80, 2)
     );
 }
 
 #[test]
 fn meters_follow_the_approved_widths_without_clipping_critical_values() {
-    for (width, count) in [(160, 1), (100, 2), (80, 2), (60, 2)] {
+    for (width, count) in [(160, 3), (100, 3), (80, 3), (60, 3)] {
         let lines = painted(Some(&mock()), width);
         assert_eq!(lines.len(), count, "{width}");
         let content = lines.join("\n");
-        for value in ["Claude 44%", "Codex 78%", "!", "~20h57m"] {
+        for value in [
+            "Claude",
+            "(7d) 44% left",
+            "Codex",
+            "(7d) 78% left",
+            "!",
+            "~20h57m",
+        ] {
             assert!(content.contains(value), "{width}: {content}");
         }
         assert!(lines.iter().all(|line| line.width() <= usize::from(width)));
         assert!(content.contains("~2.1%/h"));
-        assert!(!content.contains("5h 97%"));
-        assert!(content.contains("│ 4d03h"));
+        assert!(content.contains("(5h) 97% left"));
+        assert!(content.contains("reset 4d03h"));
         assert!(!content.contains("empties"));
-        assert!(!content.contains(" left"));
+        assert!(content.contains(" left"));
         assert!(content.contains("(7d)"));
     }
 }
@@ -211,9 +217,9 @@ fn no_rate_and_zero_never_add_negative_pace_text_or_invent_a_countdown() {
     standings[0].burn = None;
     standings[1].burn = Some(0.0);
     let content = painted(Some(&standings), 100).join("\n");
-    assert!(!content.contains("pace not known"));
-    assert!(!content.contains("no use measured"));
-    assert!(!content.contains("5h"));
+    assert!(content.contains("pace not known"));
+    assert!(content.contains("no use measured"));
+    assert!(content.contains("5h"));
     assert!(!content.contains("%/h"));
     assert!(!content.contains("│"));
     assert!(!content.contains("empties") && !content.contains("!"));
@@ -293,8 +299,8 @@ fn positive_slivers_fill_one_cell_and_zero_fills_none() {
         let expected = match percent {
             0.0 => 0,
             0.4 => 1,
-            44.0 => 8,
-            _ => 18,
+            44.0 => 10,
+            _ => 24,
         };
         assert_eq!(filled, expected, "{percent}");
         let expected_label = if percent == 0.4 {
@@ -355,7 +361,8 @@ fn arrows_fit_only_beside_pace_and_use_their_semantic_roles() {
         for width in [160, 100, 80, 60] {
             let look = crate::look::Look::default();
             let lines = limits_in(&mut Kept::default(), Some(&standings), NOW, width, look);
-            assert!(text(&lines[0]).ends_with(&format!("~2.1%/h {glyph}")));
+            assert!(text(&lines[0]).contains("~2.1%/h"));
+            assert!(text(&lines[0]).ends_with(glyph));
             let arrow = lines[0]
                 .spans
                 .iter()
@@ -436,19 +443,15 @@ fn forecast_tail_requires_depletion_strictly_before_reset_at_every_width() {
         sample.trend = Some(Trend::Up);
         for width in [160, 100, 80, 60] {
             let parts = meter(&sample, NOW, width);
-            for id in ["warning", "reset", "detail", "trend"] {
-                assert_eq!(
-                    parts.iter().any(|p| p["id"] == id),
-                    forecasts,
-                    "{burn:?}, {width}, {id}"
-                );
-            }
-            if !forecasts {
-                assert_eq!(
-                    painted(Some(&[sample.clone()]), width),
-                    [" Claude 40% (7d)"]
-                );
-            }
+            let warning = parts.iter().find(|p| p["id"] == "warning");
+            assert_eq!(warning.is_some(), forecasts, "{burn:?}, {width}");
+            let content = painted(Some(&[sample.clone()]), width).join("\n");
+            assert!(content.contains("40% left"));
+            assert!(content.contains("reset 20h00m"));
+            assert_eq!(
+                content.contains("! ~") || content.contains("✗ ~"),
+                forecasts
+            );
         }
     }
 }

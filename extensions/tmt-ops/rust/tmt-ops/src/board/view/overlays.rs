@@ -14,6 +14,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     {
         checklist.render(frame, look, body);
     }
+    if let Some(details) = &app.quota_details {
+        details.borrow_mut().render(frame, app, body);
+    }
     if app.help {
         crate::board::help::render(frame, app, body);
     }

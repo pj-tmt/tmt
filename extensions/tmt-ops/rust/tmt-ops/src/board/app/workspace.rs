@@ -235,6 +235,7 @@ impl App {
         use OpsUiAction::*;
         match action {
             Quit => return Effect::Quit,
+            QuotaDetails => return self.open_quota_details(),
             Help => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -360,8 +361,8 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | Help | Quit | ScrollUp | ScrollDown
-            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            Overview | Agents | DigestDashboard | QuotaDetails | Help | Quit | ScrollUp
+            | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

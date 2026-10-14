@@ -128,161 +128,131 @@ fn rate_text(figures: &Figures) -> String {
 }
 
 fn meter(standing: &Standing, now_ms: u64, width: u16) -> Vec<Value> {
-    let provider = standing.provider.label();
-    let figures = match standing.outlook(now_ms) {
-        Outlook::Known(figures) => figures,
+    match standing.outlook(now_ms) {
+        Outlook::Known(figures) => window_parts(standing, &figures, "7d", figures.weekly, width),
         Outlook::Unknown { age_ms } => {
             let words = age_ms.map_or_else(
                 || "no reading yet".into(),
                 |ms| format!("no reading for {}", age(ms)),
             );
-            return vec![piece(
+            vec![piece(
                 "missing",
-                fit(&format!("{provider}  {words}"), usize::from(width))
-                    .trim_end()
-                    .into(),
+                fit(
+                    &format!("{}  {words}", standing.provider.label()),
+                    usize::from(width),
+                )
+                .trim_end()
+                .into(),
                 Role::Muted,
-            )];
-        }
-    };
-    let warning = warning(&figures);
-    let reset_text = if figures.runs_out_before_reset {
-        format!(" │ {}", reset(figures.weekly.resets_in_ms))
-    } else {
-        String::new()
-    };
-    let cells = 18.min(usize::from(width).saturating_sub(warning.width() + reset_text.width()));
-    let critical = format!(" {} (7d) ", percent(figures.weekly.percent));
-    let name = fit(&provider, cells.saturating_sub(critical.width() + 1));
-    let label = fit(&format!(" {}{critical}", name.trim_end()), cells);
-    let mut pieces = balance_parts(&label, figures.weekly.percent, cells, state(&figures));
-    if !warning.is_empty() {
-        let role = if figures.empties_soon() {
-            Role::Blocked
-        } else {
-            Role::Waiting
-        };
-        pieces.push(piece("warning", warning, role));
-    }
-    if figures.runs_out_before_reset {
-        pieces.push(piece("reset", reset_text, Role::Muted));
-    }
-    if figures.runs_out_before_reset
-        && figures
-            .burn
-            .is_some_and(|rate| rate.is_finite() && rate > 0.0)
-    {
-        let extra = format!(" {}", rate_text(&figures));
-        let used: usize = pieces
-            .iter()
-            .map(|piece| piece["text"].as_str().unwrap().width())
-            .sum();
-        if used + extra.width() <= usize::from(width) {
-            pieces.push(piece("detail", extra, Role::Muted));
-            if let Some(trend) = figures.trend {
-                let (arrow, role) = match trend {
-                    Trend::Up => (" ↗", Role::Waiting),
-                    Trend::Same => (" →", Role::Muted),
-                    Trend::Down => (" ↘", Role::Working),
-                };
-                if used + pieces.last().unwrap()["text"].as_str().unwrap().width() + arrow.width()
-                    <= usize::from(width)
-                {
-                    pieces.push(piece("trend", arrow.into(), role));
-                }
-            }
+            )]
         }
     }
-    pieces
-}
-
-fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
-    let Some(standings) = standings else {
-        return json!([{"id":"pending", "pieces":[piece("missing", PENDING.into(), Role::Muted)]}]);
-    };
-    let mut rows = Vec::new();
-    let group = if width >= super::WIDE { 2 } else { 1 };
-    for (index, chunk) in standings.chunks(group).enumerate() {
-        let mut pieces = Vec::new();
-        for (at, standing) in chunk.iter().enumerate() {
-            if at > 0 {
-                pieces.push(piece(&format!("gap{at}"), "       ".into(), Role::Dim));
-            }
-            let available = if group == 2 {
-                width.saturating_sub(7) / 2
-            } else {
-                width
-            };
-            for mut part in meter(standing, now_ms, available) {
-                let id = part["id"].as_str().unwrap();
-                part["id"] = Value::String(format!("{id}{at}"));
-                pieces.push(part);
-            }
-        }
-        rows.push(json!({"id":format!("provider{index}"), "pieces": pieces}));
-    }
-    Value::Array(rows)
 }
 
 /// Reported windows share the header's admitted cells and quota calculations.
 /// Only the weekly window has a measured pace and depletion warning.
-fn window_rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
+fn rows(standings: Option<&[Standing]>, now_ms: u64, width: u16) -> Value {
     let Some(standings) = standings else {
-        return rows(None, now_ms, width);
+        return json!([{"id":"pending", "pieces":[piece("missing", PENDING.into(), Role::Muted)]}]);
     };
     let mut result = Vec::new();
     for (index, standing) in standings.iter().enumerate() {
         let Outlook::Known(figures) = standing.outlook(now_ms) else {
-            result.push(json!({"id":format!("provider{index}"),
-                "pieces":meter(standing, now_ms, width)}));
+            result.push(
+                json!({"id":format!("provider{index}"), "pieces":meter(standing, now_ms, width)}),
+            );
             continue;
         };
-        for (window, left, weekly) in std::iter::once(("7d", figures.weekly, true))
-            .chain(figures.short.map(|left| ("5h", left, false)))
+        for (window, left) in
+            std::iter::once(("7d", figures.weekly)).chain(figures.short.map(|left| ("5h", left)))
         {
-            let mut extra = format!(" reset {}", reset(left.resets_in_ms));
-            if weekly {
-                let pace = format!(" · pace {}", rate_text(&figures));
-                if extra.width() + pace.width() + 18 <= usize::from(width) {
-                    extra.push_str(&pace);
-                }
-            }
-            if extra.width() + 18 > usize::from(width) {
-                extra.clear();
-            }
-            let warning = if weekly {
-                warning(&figures)
-            } else {
-                String::new()
-            };
-            let warning = if extra.width() + warning.width() + 18 <= usize::from(width) {
-                warning
-            } else {
-                String::new()
-            };
-            let cells = 28.min(usize::from(width).saturating_sub(extra.width() + warning.width()));
-            let critical = format!(" ({window}) {} left", percent(left.percent));
-            let name = fit(
-                &standing.provider.label(),
-                cells.saturating_sub(critical.width()),
-            );
-            let label = fit(&format!("{}{critical}", name.trim_end()), cells);
-            let mut pieces =
-                balance_parts(&label, left.percent, cells, remaining_role(left.percent));
-            pieces.push(piece("detail", extra, Role::Muted));
-            pieces.push(piece(
-                "warning",
-                warning,
-                if figures.empties_soon() {
-                    Role::Blocked
-                } else {
-                    Role::Waiting
-                },
-            ));
-            result.push(json!({"id":format!("provider{index}-{window}"), "pieces":pieces}));
+            result.push(json!({"id":format!("provider{index}-{window}"),
+                "pieces":window_parts(standing, &figures, window, left, width)}));
         }
     }
     Value::Array(result)
+}
+
+fn window_parts(
+    standing: &Standing,
+    figures: &Figures,
+    window: &str,
+    left: crate::board::limits::Left,
+    width: u16,
+) -> Vec<Value> {
+    let weekly = window == "7d";
+    let mut extra = format!(" reset {}", reset(left.resets_in_ms));
+    let mut pace_visible = false;
+    if weekly {
+        let pace = format!(" · pace {}", rate_text(figures));
+        if extra.width() + pace.width() + 18 <= usize::from(width) {
+            extra.push_str(&pace);
+            pace_visible = true;
+        }
+    }
+    if extra.width() + 18 > usize::from(width) {
+        extra.clear();
+        pace_visible = false;
+    }
+    let warning = if weekly {
+        warning(figures)
+    } else {
+        String::new()
+    };
+    let warning = if extra.width() + warning.width() + 18 <= usize::from(width) {
+        warning
+    } else {
+        String::new()
+    };
+    let trend = if pace_visible
+        && figures
+            .burn
+            .is_some_and(|rate| rate.is_finite() && rate > 0.0)
+        && !warning.is_empty()
+    {
+        figures.trend.map(|trend| match trend {
+            Trend::Up => (" ↗", Role::Waiting),
+            Trend::Same => (" →", Role::Muted),
+            Trend::Down => (" ↘", Role::Working),
+        })
+    } else {
+        None
+    };
+    let cells = 28.min(usize::from(width).saturating_sub(
+        extra.width() + warning.width() + trend.map_or(0, |(text, _)| text.width()),
+    ));
+    let critical = format!(" ({window}) {} left", percent(left.percent));
+    let name = fit(
+        &standing.provider.label(),
+        cells.saturating_sub(critical.width()),
+    );
+    let label = fit(&format!("{}{critical}", name.trim_end()), cells);
+    let mut pieces = balance_parts(
+        &label,
+        left.percent,
+        cells,
+        if weekly {
+            state(figures)
+        } else {
+            remaining_role(left.percent)
+        },
+    );
+    if !warning.is_empty() {
+        pieces.push(piece(
+            "warning",
+            warning,
+            if figures.empties_soon() {
+                Role::Blocked
+            } else {
+                Role::Waiting
+            },
+        ));
+    }
+    pieces.push(piece("reset", extra, Role::Muted));
+    if let Some((arrow, role)) = trend {
+        pieces.push(piece("trend", arrow.into(), role));
+    }
+    pieces
 }
 
 /// The same admitted pieces as the provider strip, including role changes;
@@ -304,23 +274,6 @@ pub(in crate::board) fn clock_marks(
     .unwrap()
 }
 
-pub(in crate::board) fn window_clock_marks(
-    standings: Option<&[Standing]>,
-    now_ms: u64,
-    width: u16,
-    count: usize,
-) -> String {
-    serde_json::to_string(
-        &window_rows(standings, now_ms, width)
-            .as_array()
-            .unwrap()
-            .iter()
-            .take(count)
-            .collect::<Vec<_>>(),
-    )
-    .unwrap()
-}
-
 fn branch(name: &str) -> String {
     format!(
         r#"<tmt-repeat each="$.{name}" as="row"><tmt-row id-bind="row.id" class="w-full h-1"><tmt-repeat each="row.pieces" as="piece"><tmt-text id-bind="piece.id" bind="piece.text" token-bind="piece.role" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat>"#
@@ -331,25 +284,6 @@ pub(super) fn limits_in(
     slot: &mut Kept<Vec<Line<'static>>>,
     standings: Option<&[Standing]>,
     now_ms: u64,
-    width: u16,
-    look: Look,
-) -> Vec<Line<'static>> {
-    paint_rows(slot, rows(standings, now_ms, width), width, look)
-}
-
-pub(super) fn windows_in(
-    slot: &mut Kept<Vec<Line<'static>>>,
-    standings: Option<&[Standing]>,
-    now_ms: u64,
-    width: u16,
-    look: Look,
-) -> Vec<Line<'static>> {
-    paint_rows(slot, window_rows(standings, now_ms, width), width, look)
-}
-
-fn paint_rows(
-    slot: &mut Kept<Vec<Line<'static>>>,
-    providers: Value,
     width: u16,
     look: Look,
 ) -> Vec<Line<'static>> {
@@ -380,7 +314,7 @@ fn paint_rows(
         look,
         selected: None,
         data: json!({
-            "providers":providers,
+            "providers":rows(standings, now_ms, width),
         }),
     };
     slot.get(key, |key| {
@@ -412,6 +346,8 @@ fn paint_rows(
     })
     .clone()
 }
+
+pub(in crate::board) mod detail;
 
 #[cfg(test)]
 mod tests;

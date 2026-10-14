@@ -22,6 +22,7 @@ impl App {
             || self.cron_draft.is_some()
             || self.searching
             || self.settings.is_some()
+            || self.quota_details.is_some()
             || self.help
             || self.menu.is_some()
             || self.theme_picker.is_some()

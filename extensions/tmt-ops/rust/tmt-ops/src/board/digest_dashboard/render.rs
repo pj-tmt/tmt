@@ -49,7 +49,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     } else {
         summary.push(Line::styled("Usage unavailable", look.role(Role::Muted)));
     }
-    let quota = crate::board::home::quota_windows_of(app, area.width, look);
+    let quota = crate::board::home::limits_of(app, area.width, look);
     let quota_start = summary.len() + 1;
     let quota_count = quota.len();
     if !quota.is_empty() {
@@ -69,12 +69,20 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) {
     if quota_visible > 0 {
         app.frame_clocks
             .borrow_mut()
-            .push(crate::board::view::ClockSurface::QuotaWindows {
+            .push(crate::board::view::ClockSurface::Limits {
                 width: area.width,
                 rows: quota_visible,
             });
     }
     for (offset, line) in summary.into_iter().take(usize::from(height)).enumerate() {
+        if offset >= quota_start {
+            app.hits.borrow_mut().push(Hit {
+                x: area.x,
+                y: area.y + offset as u16,
+                width: area.width,
+                target: HitTarget::Quota,
+            });
+        }
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, area.y + offset as u16, area.width, 1),
@@ -241,37 +249,6 @@ fn details(frame: &mut Frame, app: &App, area: Rect) {
         }
     } else {
         text.push("Select a visible agent to inspect its Digest status".into());
-    }
-    if let Some(standings) = &app.limits {
-        for standing in standings {
-            text.push(format!("{} · quota observation", standing.provider.label()));
-            if let Some(latest) = standing.latest {
-                text.push(format!("Observed: {} ms", latest.observed_at_ms));
-            }
-            match standing.outlook(crate::status::now_ms()) {
-                crate::board::limits::Outlook::Known(figures) => {
-                    text.push(format!(
-                        "7d: {:.1}% remaining · reset in {}m",
-                        figures.weekly.percent,
-                        figures.weekly.resets_in_ms / 60_000
-                    ));
-                    if let Some(short) = figures.short {
-                        text.push(format!(
-                            "5h: {:.1}% remaining · reset in {}m",
-                            short.percent,
-                            short.resets_in_ms / 60_000
-                        ));
-                    }
-                    text.push(figures.burn.map_or_else(
-                        || "Weekly pace unavailable".into(),
-                        |rate| format!("Weekly pace: {rate:.1}%/h"),
-                    ));
-                }
-                crate::board::limits::Outlook::Unknown { .. } => {
-                    text.push("Quota unavailable or stale".into())
-                }
-            }
-        }
     }
     let lines: Vec<_> = text
         .into_iter()

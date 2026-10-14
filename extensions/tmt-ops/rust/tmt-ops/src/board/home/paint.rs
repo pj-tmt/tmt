@@ -78,23 +78,6 @@ pub(crate) fn limits_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>>
     )
 }
 
-/// Digest expands each reported quota window through the same scene owner.
-pub(crate) fn quota_windows_of(app: &App, width: u16, look: Look) -> Vec<Line<'static>> {
-    let Some(view) = app.view.as_ref() else {
-        return Vec::new();
-    };
-    if !limits_enabled(app) {
-        return Vec::new();
-    }
-    super::limits::windows_in(
-        &mut view.derived.borrow_mut().home.limits,
-        app.limits.as_deref(),
-        crate::status::now_ms(),
-        width,
-        look,
-    )
-}
-
 /// The strips painted from nothing, for tests of the strips themselves.
 #[cfg(test)]
 pub(crate) use super::bar::{summary, usage};
