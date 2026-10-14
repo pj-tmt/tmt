@@ -235,8 +235,9 @@ in several squads keeps each squad's state and one conversation/draft by UUID.
 Common pool means no Ops squad membership, not no Core room membership. Partial
 or failed reads never prove that an identity belongs in the pool.
 
-With tree focus, ↑/↓ move, Right expands and Left collapses; Enter inspects the
-selected target. Tab moves between the tree and conversation. `1`/`2`/`3` switch
+With tree focus, ↑/↓ move, Right expands and Left collapses; Enter focuses a
+selected agent's composer. Enter on a squad or Common pool inspects that group.
+Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. In Overview, click a header to sort and `p` pins/unpins the
 selected agent; pins are saved, with a divider before unpinned agents. Keyboard
@@ -376,14 +377,18 @@ a recipient reply or approval and does not clear manual pending/state. Overview
 owns global attention; selected-target context never substitutes a guessed
 recipient for a hidden, removed or unknown target.
 
-`t` opens Talk for the selected agent through the shared conversation composer.
-Writing requires a recorded sender. Common pool supports Talk without inventing
+Default Enter focuses Talk for the selected agent through the shared conversation
+composer; clicking it also focuses. The composer stays visible while idle and
+after Send. Factory `t` is unassigned; compatible explicit bindings retain their
+meaning. Writing requires a recorded sender. Common pool supports Talk without
+inventing
 a squad; notes and manual squad status require a real membership. Explicit
 `annotate`/`reply` bindings reuse the same validated composer for squad members:
 real request IDs answer through `tmt answer`, and notes retain the actual lead or
 explicit member recipient. Multiple open requests require an explicit choice.
-The recipient and source are frozen and rechecked at submission. Esc cancels and
-empty input sends nothing. Member Rename defaults to `r` in the Agents list only;
+The recipient and source are frozen and rechecked at submission. Esc returns to
+the list with the message draft kept; empty input sends nothing.
+Member Rename defaults to `r` in the Agents list only;
 its reviewed UUID and exact current name must still match before Core changes the name.
 
 Use a squad member's shared composer and Tab to **Update status** for the selected lead or member. The
@@ -414,18 +419,21 @@ request attention intact, and answering leaves unrelated manual status intact.
 Several requests keep the explicit picker; Tab can leave it for the other modes
 without choosing a request. No status action acknowledges requests.
 
-Inside the message band, Enter sends and Esc cancels; Tab cycles answer, note, talk and status
-where they apply, preserving your text. The band has a visible rule in both themes
-and NO_COLOR. At 80 columns the quoted question truncates before the recipient
-or input, which retains at least 30 columns. A successful send closes the band
-and marks the row until the next key; the cursor stays with it. Talk and notes
-report what Core did with the request, naming its ID: `✓ sent` (written to the
-pane), `✓ queued` (in the inbox), `✓ queued · offline` (no live session),
-`✓ held` (the recipient's digest checklist holds it) or `✓ handed over` (no
-receipt; do not resend). A failure after Core accepted the request names that
-retained request, and the board never resends it.
-Opening, cancelling, empty input or a changed target sends nothing. A failed
-send shows its error and does not show `✓ sent` or retry automatically.
+Inside the active message editor, Enter sends and Esc returns to the list with
+text kept; Tab cycles answer, note, talk and status where they apply, preserving
+your text. The boxed composer has a visible rule in both themes and NO_COLOR.
+Narrow or low windows retain an editor row and explain the compact placement in
+its title. After Send, the composer stays ready for the next message. The sent
+turn appears below the retained response, followed by its delivery label and
+independent acquired agent state, then an exactly correlated reply. Follow is on.
+Delivery labels report `sending`, `delivered` (written to the pane), `queued`
+(in the inbox), `offline · queued`, `held · digest`, or `unknown · do not resend`.
+Delivered does not mean the agent saw or read it. Unknown acquired state or stale
+observations never become idle by inference. Acceptance clears only the submitted
+draft, including an uncertain delivery or an error carrying a retained request;
+the board never resends automatically. A refusal without a request keeps the
+submitted draft without overwriting newer edits. Opening, cancelling, empty input
+or a changed target sends nothing.
 
 ## Home dashboard
 
@@ -731,8 +739,9 @@ and failed observations remain partial/stale rather than becoming idle or zero.
 A collapsed squad shows its worst observed state. Display names never provide
 operation authority.
 
-Enter inspects the selected agent in the shared conversation; `t` opens Talk and
-`j` jumps to its available host. Source-provided labels retain their semantic roles
+Enter focuses the selected agent's composer in the shared conversation; the
+configured Inspect action remains available. Factory `t` is unassigned, and `j`
+jumps to the available host. Source-provided labels retain their semantic roles
 and choice actions; a choice click opens that exact control rather than sending.
 Digest uses the same UUID context and existing Core authorization. Refresh and
 resize retain the target and clear old hit rectangles. Reading requires no sender
@@ -750,17 +759,28 @@ Its automatic layout is side by side when wide, stacked at medium widths, and fo
 single-pane when narrow or low. An explicit side/stack preference degrades safely.
 The wheel scrolls the pane under the pointer without changing the message recipient.
 PgUp/PgDn/Home/End act on the focused pane. Reading older response text pauses follow;
-new output is labelled until End resumes follow. A replaced response stays visible
-while paused. A vanished source is labelled separately, not presented as new output.
+new output is labelled until End or intentional downward scrolling to the bottom
+resumes follow. Resize and new output alone keep it paused. A replaced response
+stays visible while paused. A vanished source is labelled separately, not presented as new
+output.
 
+The boxed composer stays at the conversation bottom when an agent is shown.
+Default Enter or a click focuses it; list actions remain available while idle.
+At eight terminal rows, the Agents composer fills the body and member rows are
+hidden. Esc leaves typing with the draft kept; ↑/↓ still change the selected target.
+With list focus, default Home selects Common pool and restores the group tree.
+Select a member to return to its retained draft, or enlarge the terminal to show
+more of the list.
 Talk, reply and annotation use a multiline editor. Left/Right and Home/End move the
 caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
 a newline on terminals that report it distinctly; Ctrl-N is the portable fallback.
 Esc leaves input without sending. Direct-message drafts and their quote/paste
 attachments are session-only: they survive view/layout/resize and membership changes,
-but do not survive restarting the TUI. A successful send clears only the submitted
-draft; a failed or uncertain send keeps it.
+but do not survive restarting the TUI. An accepted request clears only the submitted
+draft and leaves the composer ready, even if delivery is uncertain; do not resend
+that request. Refusal without a retained request keeps the draft. Sent turns and
+exactly correlated replies are bounded session feedback, not durable history.
 
 Bracketed paste never submits. Message text is limited to 1 MiB, with exact text and
 newlines preserved. Paste over 500 characters or eight lines folds into one labelled
@@ -775,12 +795,21 @@ unchanged; `@squad` never broadcasts or chooses a lead. Cron stores the literal 
 and later renames do not rewrite it. Colab addressing has its own semantics; a page
 link in the conversation does not authorize native page/thread writes.
 
-In the full response reader, `s` opens exact source selection. Shift with movement
-or mouse drag selects a range; `y` copies and `a` attaches it to an annotation draft
-without sending. The quote carries the response/request identity and source byte
+Dragging rendered response text opens a labelled exact source view; it does not
+guess raw byte ranges from styled text. Select on the freshly painted raw view,
+then use its annotation control to attach the exact source without sending. Esc
+leaves that source view first, then follows the normal return path. In the full
+response reader, `s` opens exact source selection. Shift with movement or mouse
+drag selects a range; `y` copies and `a` attaches it to a draft without sending.
+Common pool quotations use Talk to the same UUID; squad notes keep their actual
+recipient. The quote carries the response/request identity and source byte
 range. Selecting text never acknowledges a request. If the source changes or the
 agent disappears, the retained text can still be read/copied but cannot be attached
-to another response. Alt-Backspace removes the most recent quote from the composer.
+to another response. The composer shows a readable author/excerpt quote caption;
+its remove control or Alt-Backspace removes the most recent quote while keeping
+message text. Details shows bounded, frozen provenance only for quotes matching
+both the selected source UUID and the draft's actual recipient UUID, including
+full request/identity and exact byte range.
 For terminal-native selection, use the terminal's mouse-capture bypass modifier
 (commonly Shift); the exact modifier belongs to the terminal.
 

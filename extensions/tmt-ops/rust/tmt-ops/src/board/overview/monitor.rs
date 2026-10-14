@@ -816,6 +816,71 @@ mod legend_tests {
     use crate::{action::Action, config::OpsKeyScope};
     use ratatui::{Terminal, backend::TestBackend};
     #[test]
+    fn idle_composer_keeps_overview_legend_and_input_owners_hide_it_without_losing_draft() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        for owner in ["typing", "modal", "search", "chart", "replies"] {
+            let mut app = board();
+            app.shell.tab = OpsTab::Overview;
+            let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+            let draw = |terminal: &mut Terminal<TestBackend>, app: &crate::board::app::App| {
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, app))
+                    .unwrap();
+            };
+            draw(&mut terminal, &app);
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            app.paste("retained Overview draft");
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            // Inspect the idle hints after the transient Escape notice is dismissed.
+            app.notice = None;
+            draw(&mut terminal, &app);
+            assert!(app.input.is_none() && app.input_band.get().is_some());
+            let key = app.composer_projection().unwrap().key.unwrap();
+            let [first, second] = footer::overview_legend(&app, 160).unwrap();
+            assert!(first.contains("⏎ chat") && second.contains("? help"));
+            let lines: Vec<String> = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(160)
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                .collect();
+            assert!(lines[..43].iter().any(|line| line.contains("⏎ chat")));
+            assert_eq!(lines[43].trim_end(), second);
+            assert!(!lines[43].contains("⏎ chat"));
+            let event = match owner {
+                "typing" => KeyCode::Enter,
+                "modal" => KeyCode::Char('?'),
+                "search" => KeyCode::Char('/'),
+                "chart" => KeyCode::Char('u'),
+                "replies" => KeyCode::Tab,
+                _ => unreachable!(),
+            };
+            app.key(KeyEvent::new(event, KeyModifiers::NONE));
+            match owner {
+                "typing" => assert!(app.input.is_some()),
+                "modal" => assert!(app.modal_open()),
+                "search" => assert!(app.searching),
+                "chart" => assert!(app.usage_chart.borrow().focused()),
+                "replies" => assert_eq!(app.focused_pane(), Some(crate::config::Pane::Replies)),
+                _ => unreachable!(),
+            }
+            draw(&mut terminal, &app);
+            assert!(footer::overview_legend(&app, 160).is_none(), "{owner}");
+            if owner == "typing" {
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            }
+            let draft = app.composer_projection().unwrap();
+            assert_eq!(draft.key.as_ref(), Some(&key), "{owner}");
+            assert_eq!(
+                draft.text.unwrap().as_str(),
+                "retained Overview draft",
+                "{owner}"
+            );
+        }
+    }
+
+    #[test]
     fn overview_legend_is_disjoint_and_names_only_live_bindings() {
         let mut app = board();
         app.shell.tab = OpsTab::Overview;
@@ -824,9 +889,7 @@ mod legend_tests {
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
         let [first, second] = footer::overview_legend(&app, 160).unwrap();
-        assert!(
-            first.contains("↑↓ select") && first.contains("⏎ inspect") && first.contains("p pin")
-        );
+        assert!(first.contains("↑↓ select") && first.contains("⏎ chat") && first.contains("p pin"));
         assert!(
             second.contains("/ search")
                 && second.contains("f needs you")
@@ -848,7 +911,7 @@ mod legend_tests {
             .keys;
         keys.get_mut(&OpsKeyScope::Overview)
             .unwrap()
-            .insert("enter".into(), Action::parse("talk").unwrap());
+            .insert("enter".into(), Action::parse("inspect").unwrap());
         keys.get_mut(&OpsKeyScope::Overview)
             .unwrap()
             .insert("/".into(), Action::parse("copy {name}").unwrap());
@@ -856,8 +919,8 @@ mod legend_tests {
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
         let [first, second] = footer::overview_legend(&app, 160).unwrap();
-        assert!(first.contains("⏎ chat") && !first.contains("t chat"));
-        assert!(!first.contains("inspect") && !second.contains("/ search"));
+        assert!(first.contains("⏎ inspect") && !first.contains("t chat"));
+        assert!(!first.contains("chat") && !second.contains("/ search"));
         for width in [60, 80, 100, 160] {
             let [first, second] = footer::overview_legend(&app, width).unwrap();
             assert!(unicode_width::UnicodeWidthStr::width(first.as_str()) <= width);

@@ -114,6 +114,15 @@ pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
 ) -> usize {
+    if let Some(projection) = app.composer_projection() {
+        return projection.text.map_or(1, |text| {
+            text.layout(area.width.saturating_sub(15).max(1))
+                .lines
+                .len()
+                .clamp(1, 6)
+        }) + 3
+            + usize::from(!projection.quotes.is_empty());
+    }
     let Some(input) = &app.input else { return 0 };
     let demand = match input.compose {
         crate::board::app::Compose::Status => {
@@ -144,7 +153,7 @@ pub(in crate::board) fn input_lines(
 
 /// Paint the reserved conversation editor band with opaque chrome and remove
 /// the underlying hits before publishing editor geometry.
-pub(super) fn inline_prompt(
+pub(in crate::board) fn inline_prompt(
     frame: &mut ratatui::Frame,
     app: &crate::board::app::App,
     body: ratatui::layout::Rect,
@@ -155,6 +164,222 @@ pub(super) fn inline_prompt(
     };
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
+    app.composer.invalidate();
+    if let Some(projection) = app.composer_projection()
+        && let Some(band) = app.input_band.get().map(|band| band.intersection(body))
+    {
+        if band.is_empty() {
+            return;
+        }
+        let look = app.look();
+        let blank = " ".repeat(usize::from(band.width));
+        for y in band.y..band.bottom() {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect::new(band.x, y, band.width, 1),
+                Line::styled(blank.as_str(), look.role(Role::Text)),
+            );
+        }
+        // A blocking owner masks the passive band without reflowing the base.
+        if projection.focused || !app.modal_open() {
+            let border_role = if projection.focused {
+                Role::Accent
+            } else {
+                Role::Dim
+            };
+            let content = if band.height >= 3 && band.width >= 3 {
+                let reason = app
+                    .composer_layout_reason()
+                    .map_or_else(String::new, |reason| format!(" · {reason}"));
+                let name = super::fit(
+                    &crate::board::notes::sanitize(projection.recipient),
+                    usize::from(band.width).saturating_sub(
+                        14 + unicode_width::UnicodeWidthStr::width(reason.as_str()),
+                    ),
+                );
+                let outline = tmt_tui::components::Outline {
+                    title: Line::from(format!(" Message → {}{reason} ", name.trim_end())),
+                    border: look.role(border_role),
+                    title_style: look.role(border_role),
+                };
+                outline.paint(band, frame.buffer_mut());
+                outline.inner(band)
+            } else if band.width >= 3 {
+                // Preserve one usable input row before reserving decorative chrome.
+                for y in band.y..band.bottom() {
+                    for x in [band.x, band.right() - 1] {
+                        strip::paint_left(
+                            frame.buffer_mut(),
+                            Rect::new(x, y, 1, 1),
+                            Line::styled("│", look.role(border_role)),
+                        );
+                    }
+                }
+                Rect::new(band.x + 1, band.y, band.width - 2, band.height)
+            } else {
+                band
+            };
+            let content = if content.width >= 5 {
+                Rect::new(content.x + 1, content.y, content.width - 2, content.height)
+            } else {
+                content
+            };
+            let hint_rows = u16::from(content.height > 1 && band.height >= 4);
+            let quote_rows =
+                u16::from(!projection.quotes.is_empty() && content.height > hint_rows + 1);
+            if quote_rows > 0 {
+                let quote = projection.quotes.last().unwrap();
+                let removable = content.width >= 4;
+                let label = app.quote_caption(
+                    quote,
+                    usize::from(content.width.saturating_sub(if removable { 2 } else { 0 })),
+                );
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        content.x,
+                        content.y,
+                        content.width.saturating_sub(if removable { 2 } else { 0 }),
+                        1,
+                    ),
+                    Line::styled(
+                        super::fit(
+                            &label,
+                            usize::from(content.width.saturating_sub(if removable {
+                                2
+                            } else {
+                                0
+                            })),
+                        ),
+                        look.role(Role::Muted),
+                    ),
+                );
+                if removable {
+                    let remove = Rect::new(content.right() - 1, content.y, 1, 1);
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        remove,
+                        Line::styled("✕", look.role(Role::Accent)),
+                    );
+                    if let Some(key) = projection.key.clone() {
+                        *app.composer.quote_hit.borrow_mut() =
+                            Some(crate::board::composer::QuoteHit {
+                                area: remove,
+                                key,
+                                source: quote.key.clone(),
+                                range: quote.range.clone(),
+                            });
+                    }
+                }
+            }
+            let prefix = u16::from(content.width >= 3) * 2;
+            let button_width = if content.width >= 14 { 9 } else { 0 };
+            let editor_area = Rect::new(
+                content.x + prefix,
+                content.y + quote_rows,
+                content
+                    .width
+                    .saturating_sub(prefix + button_width)
+                    .max(1)
+                    .min(content.width),
+                content.height - hint_rows - quote_rows,
+            );
+            if prefix > 0 {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(content.x, editor_area.y, prefix, 1),
+                    Line::styled("› ", look.role(border_role)),
+                );
+            }
+            if projection.focused {
+                editor(frame, app, editor_area);
+            } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
+                let layout = text.layout(editor_area.width);
+                let skip = layout.reveal(0, editor_area.height);
+                layout.paint(
+                    frame.buffer_mut(),
+                    editor_area,
+                    skip,
+                    0..0,
+                    look.role(Role::Text),
+                    look.role(Role::Text),
+                );
+                app.input_viewport.set(Some((editor_area, skip)));
+            } else {
+                app.input_viewport.set(Some((editor_area, 0)));
+            }
+            if projection.text.is_none_or(|text| text.is_empty()) {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(editor_area.x, editor_area.y, editor_area.width, 1),
+                    Line::styled("Write a message…", look.role(Role::Dim)),
+                );
+            }
+            if button_width > 0 {
+                let button = Rect::new(content.right() - 8, editor_area.y, 8, 1);
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    button,
+                    Line::styled(
+                        "[ Send ]",
+                        look.role(if app.in_flight == 0 {
+                            Role::Accent
+                        } else {
+                            Role::Dim
+                        }),
+                    ),
+                );
+                if app.in_flight == 0
+                    && let Some(key) = projection.key
+                {
+                    *app.composer.send_hit.borrow_mut() =
+                        Some(crate::board::composer::SendHit { area: button, key });
+                }
+            }
+            if hint_rows > 0 {
+                let mut hint = if projection.focused {
+                    "Enter send · Shift+Enter newline · Esc list".to_owned()
+                } else {
+                    app.composer_focus_hint()
+                };
+                if !projection.quotes.is_empty() {
+                    hint.push_str(" · Alt-⌫ remove");
+                    if projection.focused
+                        && unicode_width::UnicodeWidthStr::width(hint.as_str())
+                            > usize::from(content.width)
+                    {
+                        hint = "Enter send · Esc list · Alt-⌫ remove · Shift+Enter newline".into();
+                    }
+                }
+                // Keep each hint phrase whole; never paint half of a key name.
+                let mut fitted = String::new();
+                for phrase in hint.split(" · ") {
+                    let next = if fitted.is_empty() {
+                        phrase.to_owned()
+                    } else {
+                        format!("{fitted} · {phrase}")
+                    };
+                    if unicode_width::UnicodeWidthStr::width(next.as_str())
+                        > usize::from(content.width)
+                    {
+                        break;
+                    }
+                    fitted = next;
+                }
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(content.x, content.bottom() - 1, content.width, 1),
+                    Line::styled(fitted, look.role(Role::Muted)),
+                );
+            }
+        }
+        app.hits.borrow_mut().retain(|hit| {
+            Rect::new(hit.x, hit.y, hit.width, 1)
+                .intersection(band)
+                .is_empty()
+        });
+        return;
+    }
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };
@@ -287,15 +512,6 @@ pub(super) fn inline_prompt(
             1
         };
         if let Some(quote) = input.response_quotes.last() {
-            let hint = "Alt-Backspace removes";
-            let source = super::fit(
-                &format!(
-                    "{} quote(s) · {}",
-                    input.response_quotes.len(),
-                    quote.label()
-                ),
-                usize::from(areas.content.width).saturating_sub(hint.len() + 3),
-            );
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect {
@@ -304,7 +520,10 @@ pub(super) fn inline_prompt(
                     ..areas.content
                 },
                 Line::styled(
-                    format!("{} · {hint}", source.trim_end()),
+                    super::fit(
+                        &app.quote_caption(quote, usize::from(areas.content.width)),
+                        usize::from(areas.content.width),
+                    ),
                     look.role(Role::Muted),
                 ),
             );
@@ -320,7 +539,7 @@ pub(super) fn inline_prompt(
             },
         );
     }
-    let hint = if matches!(input.compose, crate::board::app::Compose::Status) {
+    let mut hint = if matches!(input.compose, crate::board::app::Compose::Status) {
         format!(
             "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel · Tab {}",
             if areas.footer.width >= tmt_cli_style::breakpoint::LG.cells {
@@ -337,6 +556,9 @@ pub(super) fn inline_prompt(
     } else {
         "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste".into()
     };
+    if !input.response_quotes.is_empty() {
+        hint.push_str(" · Alt-⌫ remove");
+    }
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,

@@ -84,6 +84,118 @@ fn scrolling_is_independent_and_follow_only_resumes_explicitly() {
 }
 
 #[test]
+fn intentional_wheel_or_page_reaching_the_painted_bottom_resumes_follow() {
+    for height in [5, 18, 36] {
+        for down in [Step::Lines(isize::MAX), Step::Pages(isize::MAX / 100)] {
+            let mut app = fixture();
+            draw(&app, 80, height);
+            app.scroll_pane(Pane::Replies, Step::Top);
+            assert!(draw(&app, 80, height).contains("alpha line 000"));
+            app.scroll_pane(Pane::Replies, Step::Lines(1));
+            assert!(
+                !app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            draw(&app, 80, height);
+            app.view.as_mut().unwrap().replies[0] =
+                json!({"recipientId":"a","requestId":"new","response":"new correlated source"});
+            draw(&app, 80, height);
+            assert!(
+                !app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            app.scroll_pane(Pane::Replies, down);
+            assert!(
+                app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .follow
+            );
+            assert!(draw(&app, 80, height).contains("new correlated source"));
+        }
+    }
+}
+
+#[test]
+fn resize_update_and_missing_frame_never_resume_a_paused_conversation() {
+    let mut app = fixture();
+    draw(&app, 80, 18);
+    app.scroll_pane(Pane::Replies, Step::Top);
+    app.scroll_pane(Pane::Replies, Step::Lines(70));
+    draw(&app, 80, 18);
+    for (width, height) in [(60, 36), (100, 18), (160, 44)] {
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("alpha", 100));
+        draw(&app, width, height);
+        assert!(
+            !app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .next()
+                .unwrap()
+                .follow
+        );
+        app.scroll_pane(Pane::Replies, Step::Lines(0));
+        assert!(
+            !app.conversation
+                .borrow()
+                .sessions
+                .values()
+                .next()
+                .unwrap()
+                .follow
+        );
+    }
+    app.invalidate_frame_geometry();
+    app.scroll_pane(Pane::Replies, Step::Lines(isize::MAX));
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+    draw(&app, 100, 18);
+    app.scroll_pane(Pane::Replies, Step::Lines(1));
+    assert!(
+        !app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+    // A missing frame did not move the source anchor to the bottom. A new
+    // deliberate move must reach the newly painted viewport's actual limit.
+    app.scroll_pane(Pane::Replies, Step::Lines(isize::MAX));
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .follow
+    );
+}
+
+#[test]
 fn switching_identity_and_renaming_preserves_each_reading_anchor() {
     let mut app = fixture();
     draw(&app, 80, 18);
@@ -652,7 +764,7 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     let mut app = workspace_fixture();
     let selected = app.workspace.selected.clone();
     workspace(&mut app, 160, 36);
-    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.input.is_some());
     app.paste("draft 界 e\u{301}\nsecond line");
     let key = app.input.as_ref().unwrap().draft_key.clone();
@@ -687,4 +799,151 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
     assert_eq!(app.input.as_ref().unwrap().draft_key, key);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.focused(), Pane::Replies);
+}
+
+#[test]
+fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
+    use ratatui::crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let mut app = workspace_fixture();
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[{
+            "id":crate::board::app::workspace::tests::MEMBER,"name":"worker","runningDriver":"runtime-long-界","resume":{"model":"model-long-value"}
+        }]})),
+    );
+    let mut terminal = Terminal::new(TestBackend::new(160, 44)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(screen.contains("working · product · member"));
+    assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
+    assert!(screen.contains("tok/h") && screen.contains("[ Details ] [ Links ]"));
+    let hits = app.conversation.borrow().header_hits.clone();
+    assert_eq!(hits.len(), 2);
+    for hit in &hits {
+        assert_eq!(hit.target, app.conversation_target().unwrap());
+        assert_eq!(hit.area.intersection(buffer.area), hit.area);
+        let painted: String = (hit.area.x..hit.area.right())
+            .map(|x| buffer[(x, hit.area.y)].symbol())
+            .collect();
+        assert!(painted == "[ Details ]" || painted == "[ Links ]");
+    }
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: hits[1].area.x,
+        row: hits[1].area.y,
+        modifiers: KeyModifiers::NONE,
+    };
+    app.mouse(click, std::time::Instant::now());
+    assert!(app.monitor_details.is_some());
+    assert!(app.input.is_none());
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        crate::board::app::Effect::None
+    );
+    assert!(app.monitor_details.is_none());
+    assert_eq!(app.selected, 2);
+    app.invalidate_frame_geometry();
+    assert!(app.conversation.borrow().header_hits.is_empty());
+    app.mouse(click, std::time::Instant::now());
+    assert!(
+        app.monitor_details.is_none(),
+        "stale controls retain no authority"
+    );
+}
+
+#[test]
+fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
+    for width in [1, 10, 13, 20, 40, 60, 100] {
+        for height in [0, 1, 3, 6, 8, 18, 24, 44] {
+            let app = workspace_fixture();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    app.cron_scope_hits.borrow_mut().clear();
+                    render(frame, &app, frame.area());
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            for hit in &app.conversation.borrow().header_hits {
+                let painted: String = (hit.area.x..hit.area.right())
+                    .map(|x| buffer[(x, hit.area.y)].symbol())
+                    .collect();
+                assert!(
+                    painted == "[ Details ]" || painted == "[ Links ]",
+                    "{width}x{height}: {painted}"
+                );
+            }
+            for hit in app.cron_scope_hits.borrow().iter() {
+                let painted: String = (hit.area.x..hit.area.right())
+                    .map(|x| buffer[(x, hit.area.y)].symbol())
+                    .collect();
+                assert!(
+                    painted.contains('◷'),
+                    "{width}x{height}: a replaced Response row cannot inherit timer authority: {painted}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn compact_host_label_hides_uuid_and_never_calls_reader_navigation_a_host_shortcut() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_fixture();
+    for focused in [false, true] {
+        if focused {
+            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        }
+        workspace(&mut app, 100, 18);
+        let mut terminal = Terminal::new(TestBackend::new(100, 18)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let shown: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(shown.contains("Host: tmux"));
+        assert!(!shown.contains(crate::board::app::workspace::tests::MEMBER));
+        if focused {
+            assert!(!shown.contains("j host"), "reader j remains a reading key");
+        } else {
+            assert!(shown.contains("j host"));
+        }
+    }
+}
+
+#[test]
+fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
+    for width in [160, 100] {
+        let mut app = workspace_fixture();
+        app.view.as_mut().unwrap().replies.clear();
+        app.home_leads.replies.clear();
+        let mut terminal = Terminal::new(TestBackend::new(width, 18)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &app);
+            })
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(screen.contains("1–1 / 1"), "{screen}");
+    }
 }

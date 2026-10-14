@@ -304,7 +304,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
         assert!(!app.usage_chart.borrow().focused());
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('2'));
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         assert!(app.input.is_some());
         press(&mut app, KeyCode::Char('u'));
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "u");
@@ -406,7 +406,7 @@ fn overview_panels_preserve_the_wide_reader_and_talk_placement() {
         assert!(!app.collapsed_panes().contains(&Pane::Replies));
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.focused(), Pane::Replies);
-        press(&mut app, KeyCode::Char('t'));
+        press(&mut app, KeyCode::Enter);
         assert!(app.input.is_some());
         assert_eq!(app.shell.tab, OpsTab::Overview);
         assert_eq!(app.workspace.selected, target);

@@ -168,7 +168,7 @@ fn digest_frame_timing() {
             // The shared editor remains responsive while the supplier is unavailable.
             app.labels = Default::default();
             key(&mut app, KeyCode::Char('2'));
-            key(&mut app, KeyCode::Char('t'));
+            key(&mut app, KeyCode::Enter);
             assert!(app.input.is_some());
             for kib in [1, 10, 100] {
                 let text = "x".repeat(kib * 1024);

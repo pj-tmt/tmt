@@ -92,22 +92,27 @@ fn buffer_text(buffer: &ratatui::buffer::Buffer) -> Vec<String> {
 }
 
 #[test]
-fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint() {
-    let mut app = board(json!([]));
-    app.ask(
-        String::new(),
-        crate::board::app::Compose::Talk { to: "agent".into() },
-        "product".into(),
-    );
+fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = workspace_board();
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let request = "req_1a2b3c4d-1234-4567-89ab-0123456789ab";
+    let key = app
+        .input
+        .as_ref()
+        .unwrap()
+        .draft_key
+        .as_ref()
+        .unwrap()
+        .clone();
     app.input
         .as_mut()
         .unwrap()
         .response_quotes
         .push(crate::board::response::Quote {
             key: crate::board::home_leads::MessageKey {
-                sender: "owner".into(),
-                lead: "agent".into(),
+                sender: key.0,
+                lead: key.1,
                 squad: "product".into(),
                 request: request.into(),
                 kind: crate::board::home_leads::Kind::Reply,
@@ -121,16 +126,31 @@ fn narrow_annotation_header_truncates_source_before_separator_and_removal_hint()
         .draw(|frame| waiting::inline_prompt(frame, &app, frame.area()))
         .unwrap();
     let buffer = terminal.backend().buffer();
-    let line = (0..8)
+    let lines = (0..8)
         .map(|y| (0..40).map(|x| buffer[(x, y)].symbol()).collect::<String>())
-        .find(|line| line.contains("Alt-Backspace removes"))
-        .expect("whole removal hint at 40 cells");
-    assert!(line.contains("… · Alt-Backspace removes"), "{line}");
-    assert!(line.contains("1 quote(s)"), "{line}");
+        .collect::<Vec<_>>();
     assert!(
-        !line.contains(request),
-        "source display must be the truncated part"
+        lines
+            .iter()
+            .any(|line| line.contains("Quote · worker: \"source\"")),
+        "{lines:?}"
     );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Enter send · Esc list · Alt-⌫ remove")),
+        "{lines:?}"
+    );
+    assert!(!lines.iter().any(|line| line.contains(request)));
+    let hit = app
+        .composer
+        .quote_hit
+        .borrow()
+        .clone()
+        .expect("whole painted removal control");
+    assert_eq!(hit.area.width, 1);
+    assert_eq!(buffer[(hit.area.x, hit.area.y)].symbol(), "✕");
+    assert_eq!(hit.source.request, request);
 }
 
 #[test]
@@ -196,7 +216,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
             !text.contains("a write") && !text.contains("A ask lead") && !text.contains("Focus:")
         );
         let help = help_lines(&app);
-        assert!(help.iter().any(|line| line.starts_with("t  ")));
+        assert!(help.iter().any(|line| line.starts_with("enter  ")));
         assert!(help.iter().any(|line| line.starts_with("j  ")));
         for list in [text] {
             let line = super::footer::hint_line(&list, app.look());
@@ -255,7 +275,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = workspace_board();
     let full = hints(&app, usize::MAX);
     assert!(
-        full.contains("t talk") && full.ends_with("? help  q quit"),
+        full.contains("⏎ chat") && full.ends_with("? help  q quit"),
         "{full}"
     );
     for width in [0, 1, 5, 6, 13, 14, 20, 40, 80, 100, 160] {
@@ -294,7 +314,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     let mut app = workspace_board();
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let full = hints(&app, usize::MAX);
-    let order = ["t talk", "j host", "o open", "down next", "up previous"];
+    let order = ["⏎ chat", "j host", "o open", "down next", "up previous"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -319,7 +339,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut app = workspace_board();
     workspace_keys(&mut app, "[bind]\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
-    assert!(plain.contains("t talk") && plain.contains("j host"));
+    assert!(plain.contains("⏎ chat") && plain.contains("j host"));
     assert!(!plain.contains("r reply") && !plain.contains("o open"));
     workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
@@ -333,7 +353,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     app.select(0);
     let pool = hints(&app, usize::MAX);
     assert!(
-        !pool.contains("t talk") && !pool.contains("j host") && !pool.contains("o open"),
+        !pool.contains("⏎ chat") && !pool.contains("j host") && !pool.contains("o open"),
         "{pool}"
     );
     assert!(pool.contains("/ search") && pool.ends_with("? help  q quit"));
@@ -366,16 +386,16 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
         "[bind]\nt = \"copy {name}\"\nz = \"talk\"\nZ = \"talk\"\n",
     );
     let text = hints(&app, usize::MAX);
-    assert!(!text.contains("t talk"));
+    assert!(!text.contains("⏎ chat"));
     assert_eq!(
         text.split("  ")
-            .filter(|hint| hint.ends_with(" talk"))
+            .filter(|hint| hint.ends_with(" chat"))
             .count(),
         1,
         "{text}"
     );
     assert!(
-        text.contains("Z talk"),
+        text.contains("Z chat"),
         "stable first effective key represents duplicate action"
     );
     assert!(text.contains("t copy"));

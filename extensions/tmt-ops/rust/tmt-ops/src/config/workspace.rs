@@ -157,7 +157,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("q", "quit"),
             ("ctrl-r", "refresh"),
             (",", "settings"),
-            ("t", "talk"),
+            ("enter", "talk"),
             ("o", "open"),
             ("D", "digest"),
             ("c", "timers"),
@@ -192,7 +192,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     match scope {
         OpsKeyScope::Reader => {}
         OpsKeyScope::Overview => entries.extend([
-            ("t", "talk"),
+            ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
@@ -208,7 +208,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         OpsKeyScope::Member => entries.extend([
             ("v", "view-reply"),
             ("e", "monitor-details"),
-            ("t", "talk"),
+            ("enter", "talk"),
             ("j", "jump"),
             ("o", "open"),
             ("x", "remove-membership"),
@@ -661,10 +661,11 @@ mod tests {
             ("k", "scroll-up"),
             ("pageup", "scroll-page-up"),
             ("end", "scroll-bottom"),
+            ("enter", "talk"),
         ] {
             assert_eq!(plain.bindings[event].text, name);
         }
-        for key in ["left", "right", "enter", "s", "p", "x"] {
+        for key in ["left", "right", "t", "s", "p", "x"] {
             assert!(!plain.bindings.contains_key(key), "{key}");
         }
         let config = config("[bind]\nj='copy'\n[bind.tmux]\nj='open'\n");
