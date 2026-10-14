@@ -279,9 +279,18 @@ mod tests {
     #[test]
     fn preview_scope_mask_and_cancel_follow_the_actual_layers_without_writes() {
         let original = "[board.theme]\nbase = \"tmt\"\n[squad.product.theme]\nbase = \"mono\"\n";
-        let (path, config) = fixture("preview-mask", original);
-        let mut app = App::new(Some("product".into()));
-        app.apply(crate::board::app::tests::snapshot("product", json!([])));
+        let original = format!("[bind]\nT = \"theme\"\n{original}");
+        let (path, config) = fixture("preview-mask", &original);
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .configure(&config)
+            .unwrap();
         assert_eq!(
             app.key(key(KeyCode::Char('T'))),
             Effect::PickTheme,
@@ -311,8 +320,21 @@ mod tests {
             Some("squad product keeps mono (its own setting) · choose this squad scope to change")
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-        let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
-        snapshot.view.as_mut().unwrap().look.theme.base = Base::TmtLight;
+        let mut latest = crate::board::app::workspace::tests::board();
+        let view = latest.view.as_mut().unwrap();
+        view.look.theme.base = Base::TmtLight;
+        for look in view
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .values_mut()
+        {
+            look.theme.base = Base::TmtLight;
+        }
+        let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+        snapshot.view = Ok(latest.view.take().unwrap());
         app.apply(snapshot);
         assert_eq!(
             app.look().theme.base,
@@ -399,26 +421,28 @@ mod tests {
 
     #[test]
     fn preview_restyles_tabs_and_summary_and_retains_explicit_tokens() {
-        use crate::attention::Attention;
-        use tmt_cli_style::{Base, Depth, Theme};
+        use tmt_cli_style::{Base, Depth};
         use unicode_width::UnicodeWidthStr;
         for override_text in ["", "waiting = \"#010203\"\n"] {
             let text = format!("[board.theme]\nbase = \"tmt\"\n{override_text}");
             let (path, config) = fixture("header-preview", &text);
-            let mut app = App::new(Some("product".into()));
-            let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
-            snapshot.attention.insert(
-                "product".into(),
-                Attention {
-                    waiting: 1,
-                    blocked: 0,
-                },
-            );
-            snapshot.view.as_mut().unwrap().look = Look {
-                theme: Theme::new(Base::Tmt),
+            let mut app = crate::board::app::workspace::tests::board();
+            app.shell.tab = crate::board::shell::OpsTab::Overview;
+            let view = app.view.as_mut().unwrap();
+            view.look = Look {
+                theme: config.theme("").unwrap().0,
                 depth: Depth::TrueColor,
             };
-            app.apply(snapshot);
+            let home = view.home.as_mut().unwrap();
+            home.workspace.configure(&config).unwrap();
+            home.squads = vec![crate::board::home::SquadLine {
+                squad: "product".into(),
+                lead: None,
+                counts: crate::board::home::Counts {
+                    waiting: 1,
+                    ..Default::default()
+                },
+            }];
             app.theme_picker = Some(Picker::open(config, Some("product".into())).unwrap());
             for _ in 0..3 {
                 app.key(key(KeyCode::Down));
@@ -435,15 +459,18 @@ mod tests {
                 line[..line.find(text).expect("header text")].width() as u16
             };
             assert_eq!(
-                buffer[(find(0, "◆"), 0)].fg,
-                expected,
-                "tab mark uses the preview, including retained tokens"
+                buffer[(find(0, "2 Agents"), 0)].fg,
+                app.look().role(Role::Muted).fg.unwrap_or_default(),
+                "plain shell tabs use the preview without attention badges"
             );
             assert_eq!(
-                buffer[(find(1, " · 1 waiting"), 1)].fg,
+                buffer[(find(2, "Needs you"), 2)].fg,
                 app.look().role(Role::Text).fg.unwrap_or_default(),
                 "summary uses previewed text while the mark keeps its retained token"
             );
+            assert_eq!(buffer[(find(2, "◆"), 2)].fg, expected);
+            let tabs: String = (0..108).map(|x| buffer[(x, 0)].symbol()).collect();
+            assert!(!tabs.contains('◆'));
             if override_text.is_empty() {
                 assert_eq!(expected, ratatui::style::Color::Reset);
             } else {
