@@ -244,6 +244,9 @@ scoped override semantics; CLI configuration remains available for explicit edit
   arguments; bad events, actions or field syntax are configuration errors. Config owns
   the workspace defaults and overlays compatible global, host, then section bindings.
   Dispatch, help and footer consume that same table in the current list or Reader scope.
+  Member `rename-member` defaults to `r` only for a visible Agents list member, including
+  Common pool; the staged form freezes its UUID and literal current name for Core's
+  `identity.rename` CAS, with explicit review and no automatic retry.
   Enter and double-click inspect; list `j` jumps, while Reader `j/k` scroll. The host table
   uses only Core's published `location.host` (`tmux` or an external host); missing or
   unknown location supplies no host override. Retired actions produce located migration

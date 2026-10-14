@@ -17,7 +17,7 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::{Modal, Outline, Placement, strip};
 
-fn safe(text: &str) -> String {
+pub(super) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
 }
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
@@ -530,7 +530,7 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
     app.scrolls.show(frame, Pane::Replies, inside, lines, look);
 }
 pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
-    let Some(draft) = app.workspace_form.as_ref() else {
+    let Some(draft) = app.workspace_form.as_ref().filter(|draft| draft.shown) else {
         return;
     };
     draft.controls.set([None, None]);
@@ -647,6 +647,10 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             if areas.footer.height > 0
                 && areas.footer.width >= x + width
                 && areas.content.height > 1
+                && (index == 0
+                    || draft.kind != super::manage::Kind::RenameMember
+                    || (draft.scroll.borrow().offset() == 0
+                        && lines.len() <= usize::from(areas.content.height)))
             {
                 let area = Rect::new(areas.footer.x + x, areas.footer.y, width, 1);
                 let style = if focused == Some(field) {

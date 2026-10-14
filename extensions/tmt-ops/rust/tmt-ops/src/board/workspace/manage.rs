@@ -16,6 +16,7 @@ pub enum Kind {
     Add,
     Lead,
     RenameSquad,
+    RenameMember,
     Remove,
     Assign,
 }
@@ -26,6 +27,12 @@ pub enum Stage {
     Pending,
     Result(String),
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Change {
+    Membership(Operation),
+    RenameMember(super::rename_member::Request),
+}
+
 pub struct Draft {
     pub kind: Kind,
     pub stage: Stage,
@@ -34,7 +41,8 @@ pub struct Draft {
     pub rooms: BTreeMap<String, RoomTarget>,
     pub identities: BTreeMap<String, OpsMember>,
     pub values: Vec<String>,
-    pub operation: Option<Operation>,
+    pub operation: Option<Change>,
+    pub shown: bool,
     pub timer_impact: Option<usize>,
     pub scroll: RefCell<ScrollState>,
     pub controls: Cell<[Option<Rect>; 2]>,
@@ -78,6 +86,7 @@ impl Draft {
             Kind::Add => &["Member (@agent)"],
             Kind::Lead => &["Lead (@agent; blank clears leadership only)"],
             Kind::RenameSquad => &["New squad name"],
+            Kind::RenameMember => &["New agent name"],
             Kind::Remove => &[],
             Kind::Assign => &[
                 "Destination squad",
@@ -97,7 +106,18 @@ impl Draft {
         }
         Ok(matches[0].id.clone())
     }
-    fn operation(&self) -> Result<Operation, String> {
+    fn operation(&self) -> Result<Change, String> {
+        if self.kind == Kind::RenameMember {
+            let member = self
+                .member
+                .as_ref()
+                .ok_or_else(|| "Select a named member.".to_owned())?;
+            return Ok(Change::RenameMember(super::rename_member::Request {
+                identity_id: member.id.clone(),
+                expected_name: member.name.clone(),
+                name: self.values.first().cloned().unwrap_or_default(),
+            }));
+        }
         let value = |index| self.values.get(index).map(String::as_str).unwrap_or("");
         let room = || {
             self.room
@@ -117,7 +137,7 @@ impl Draft {
                 self.identity(text).map(Some)
             }
         };
-        Ok(match self.kind {
+        Ok(Change::Membership(match self.kind {
             Kind::Create => {
                 if !crate::squad::valid_name(value(0)) {
                     return Err(
@@ -155,6 +175,7 @@ impl Draft {
                     name: value(0).into(),
                 }
             }
+            Kind::RenameMember => unreachable!("handled above"),
             Kind::Remove => Operation::Remove {
                 room: room()?,
                 member: member()?,
@@ -178,7 +199,7 @@ impl Draft {
                     move_member,
                 }
             }
-        })
+        }))
     }
     pub fn title(&self) -> String {
         let name = self
@@ -190,6 +211,7 @@ impl Draft {
             Kind::Add => format!("Add member · {name}"),
             Kind::Lead => format!("Set/clear lead · {name}"),
             Kind::RenameSquad => format!("Rename squad · {name}"),
+            Kind::RenameMember => "Rename agent".into(),
             Kind::Remove => format!("Remove membership · {name}"),
             Kind::Assign => "Add/move membership".into(),
         }
@@ -204,7 +226,21 @@ impl Draft {
         let room =
             |room: &RoomTarget| format!("{} · {} · revision {}", room.name, room.id, room.revision);
         let mut lines = vec![self.title()];
-        match self.operation.as_ref() {
+        if let Some(Change::RenameMember(request)) = &self.operation {
+            lines.push(format!("Identity UUID: {}", request.identity_id));
+            lines.push(format!(
+                "Expected current name: {:?}",
+                request.expected_name
+            ));
+            lines.push(format!("New name: {:?}", request.name));
+            lines.push("Rename only this identity while its current name still matches. Lifetime, binding, memberships, history, drafts and timers stay with its UUID.".into());
+            return lines.join("\n");
+        }
+        let operation = self.operation.as_ref().and_then(|change| match change {
+            Change::Membership(operation) => Some(operation),
+            Change::RenameMember(_) => None,
+        });
+        match operation {
             Some(Operation::Create {
                 name,
                 lead,
@@ -352,7 +388,7 @@ impl App {
         let draft = self.workspace_form.as_ref()?;
         let editing = draft.stage == Stage::Fields;
         if matches!(event, Event::Key(key) if key.code == KeyCode::Esc) {
-            self.workspace_form = None;
+            self.workspace_close();
             self.input = None;
             return Some(Effect::None);
         }
@@ -361,7 +397,7 @@ impl App {
             && draft.controls.get()[0]
                 .is_some_and(|area| area.contains((mouse.column, mouse.row).into()))
         {
-            self.workspace_form = None;
+            self.workspace_close();
             self.input = None;
             return Some(Effect::None);
         }
@@ -379,7 +415,7 @@ impl App {
                 match field.last().map(String::as_str) {
                     Some("apply") if draft.stage == Stage::Review => Some(self.workspace_confirm()),
                     Some("cancel" | "close") => {
-                        self.workspace_form = None;
+                        self.workspace_close();
                         Some(Effect::None)
                     }
                     _ => Some(Effect::None),
@@ -413,7 +449,7 @@ impl App {
                 let controls = draft.controls.get();
                 let at = (mouse.column, mouse.row).into();
                 if controls[0].is_some_and(|area| area.contains(at)) {
-                    self.workspace_form = None;
+                    self.workspace_close();
                 } else if controls[1].is_some_and(|area| area.contains(at)) {
                     return Some(self.workspace_confirm());
                 }
@@ -431,7 +467,37 @@ impl App {
             _ => None,
         }
     }
+    pub(in crate::board) fn workspace_close(&mut self) {
+        if let Some(draft) = &mut self.workspace_form
+            && draft.kind == Kind::RenameMember
+            && draft.stage == Stage::Pending
+        {
+            draft.shown = false;
+            draft.invalidate();
+        } else {
+            self.workspace_form = None;
+        }
+    }
     pub(in crate::board) fn workspace_begin(&mut self, kind: Kind) -> Effect {
+        if let Some(draft) = &mut self.workspace_form
+            && draft.kind == Kind::RenameMember
+            && (!draft.shown || draft.stage == Stage::Pending)
+        {
+            if kind == Kind::RenameMember {
+                draft.shown = true;
+                draft.invalidate();
+                return Effect::None;
+            }
+            if draft.stage == Stage::Pending {
+                return self.say("A rename is still pending. Open Rename to inspect its result.");
+            }
+        }
+        if kind == Kind::RenameMember
+            && (self.shell.tab != super::super::shell::OpsTab::Agents
+                || self.workspace_scope() != crate::config::OpsKeyScope::Member)
+        {
+            return self.say("Select a visible agent in the Agents list to rename it.");
+        }
         let Some(snapshot) = self.workspace_snapshot() else {
             return self.say("The workspace has not loaded.");
         };
@@ -456,7 +522,7 @@ impl App {
         {
             return self.say("A complete squad snapshot is required; refresh first.");
         }
-        if matches!(kind, Kind::Remove | Kind::Assign) && member.is_none() {
+        if matches!(kind, Kind::Remove | Kind::Assign | Kind::RenameMember) && member.is_none() {
             return self.say("Select a named member first.");
         }
         let rooms = snapshot
@@ -491,6 +557,7 @@ impl App {
             identities: snapshot.roster.members.clone(),
             values: Vec::new(),
             operation: None,
+            shown: true,
             timer_impact,
             scroll: Default::default(),
             controls: Cell::new([None, None]),
@@ -547,7 +614,11 @@ impl App {
             }
             return self.say(error);
         }
-        draft.values.push(text.trim().into());
+        draft.values.push(if draft.kind == Kind::RenameMember {
+            text
+        } else {
+            text.trim().into()
+        });
         self.workspace_form_next()
     }
     pub(in crate::board) fn workspace_confirm(&mut self) -> Effect {

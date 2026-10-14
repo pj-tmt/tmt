@@ -173,7 +173,7 @@ pub enum Request {
         expected: crate::config::OpsPreferences,
         next: crate::config::OpsPreferences,
     },
-    WorkspaceOperation(crate::membership::workspace::Operation),
+    WorkspaceOperation(super::workspace::manage::Change),
     /// A cron job control, with its actor, job and viewed revision resolved.
     Cron(super::cronboard::CronRequest),
     /// Check that the person at the board may change a member's digest.
@@ -2904,7 +2904,11 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.workspace_form.is_some() {
+        if self
+            .workspace_form
+            .as_ref()
+            .is_some_and(|draft| draft.shown)
+        {
             Some(Overlay::Workspace)
         } else if self.recovery_shown() {
             Some(Overlay::Recovery)

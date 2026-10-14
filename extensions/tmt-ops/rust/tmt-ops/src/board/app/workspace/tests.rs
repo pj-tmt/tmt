@@ -1205,7 +1205,7 @@ fn confirmation_requires_current_geometry_and_does_not_replay_while_pending() {
     key(&mut app, KeyCode::Tab); // read -> apply
     let effect = key(&mut app, KeyCode::Enter);
     assert!(
-        matches!(effect,Effect::Act(Request::WorkspaceOperation(crate::membership::workspace::Operation::Remove {room,member})) if room.id == ROOM && member == MEMBER)
+        matches!(effect,Effect::Act(Request::WorkspaceOperation(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Remove {room,member}))) if room.id == ROOM && member == MEMBER)
     );
     assert_eq!(app.workspace_form.as_ref().unwrap().stage, Stage::Pending);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
@@ -1548,7 +1548,7 @@ fn repeated_create_member_fields_keep_reference_completion_eligibility() {
     let draft = app.workspace_form.as_ref().unwrap();
     assert_eq!(draft.stage, Stage::Review);
     assert!(
-        matches!(&draft.operation,Some(crate::membership::workspace::Operation::Create {members,..}) if members == &[MEMBER.to_owned()])
+        matches!(&draft.operation,Some(crate::board::workspace::manage::Change::Membership(crate::membership::workspace::Operation::Create {members,..})) if members == &[MEMBER.to_owned()])
     );
 }
 
@@ -2441,3 +2441,5 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
         "Overview cannot focus its hidden conversation"
     );
 }
+
+mod member_rename;
