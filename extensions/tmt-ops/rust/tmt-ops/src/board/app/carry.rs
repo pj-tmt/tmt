@@ -48,6 +48,8 @@ impl App {
             || self.settings.is_some()
             || self.quota_details.is_some()
             || self.usage_details.is_some()
+            || self.monitor_details.is_some()
+            || self.cron_review.is_some()
             || self.usage_controls
             || (self.usage_chart_available() && self.usage_chart.borrow().focused())
             || self.help
@@ -187,6 +189,45 @@ mod tests {
         let taken = Resume::take(&directory, 7, 1_000).unwrap();
         let _ = std::fs::remove_dir_all(directory);
         taken
+    }
+
+    #[test]
+    fn agent_details_holds_reload_until_the_user_closes_it() {
+        let mut app = crate::board::app::workspace::tests::board();
+        assert!(!app.reload_blocked());
+        app.overview_details();
+        assert!(app.monitor_details.is_some());
+        assert!(app.reload_blocked(), "open agent details must defer reload");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.monitor_details.is_none());
+        assert!(!app.reload_blocked(), "closed details release the reload");
+    }
+
+    #[test]
+    fn timer_review_holds_reload_until_the_user_closes_it() {
+        let mut app = crate::board::app::workspace::tests::board();
+        assert!(!app.reload_blocked());
+        let request = crate::board::cronboard::CronRequest::Add {
+            actor: crate::board::cronboard::test_cron(vec![], tmt_ops::cron::ClockStatus::NoClock)
+                .actor
+                .unwrap(),
+            squad: "product".into(),
+            room_id: crate::board::app::workspace::tests::ROOM.into(),
+            owner: crate::board::app::workspace::tests::MEMBER.into(),
+            message: "Review this work".into(),
+            schedule: "every 30m".into(),
+            zone: "UTC".into(),
+        };
+        assert!(matches!(
+            app.cron_review_request(request),
+            crate::board::app::Effect::Act(crate::board::app::Request::CronPreview(_))
+        ));
+        assert!(app.cron_review.is_some());
+        assert_eq!(app.in_flight, 0, "the open review alone must defer reload");
+        assert!(app.reload_blocked(), "open timer review must defer reload");
+        press(&mut app, KeyCode::Esc);
+        assert!(app.cron_review.is_none());
+        assert!(!app.reload_blocked(), "closed review releases the reload");
     }
 
     #[test]
