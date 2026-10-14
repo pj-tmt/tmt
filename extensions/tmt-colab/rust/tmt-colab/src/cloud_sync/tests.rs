@@ -7,14 +7,13 @@ use super::{
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 use tmt_extension_objects::sync::{self, Method};
 
 const FIRST: &str = "10000000-0000-4000-8000-000000000001";
-const SECOND: &str = "10000000-0000-4000-8000-000000000002";
 
 fn until(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -35,7 +34,6 @@ struct Rig {
     activity: Activity,
     reports: Arc<Mutex<Vec<String>>>,
     activations: Arc<AtomicUsize>,
-    passes: Arc<AtomicU64>,
 }
 fn start(
     channels: Arc<super::fixture::FixedChannel>,
@@ -45,7 +43,6 @@ fn start(
     let reports = Arc::new(Mutex::new(Vec::new()));
     let activations = Arc::new(AtomicUsize::new(0));
     let (sink, count) = (Arc::clone(&reports), Arc::clone(&activations));
-    let passes = Arc::new(AtomicU64::new(0));
     let sync = CloudSync::start(Parts {
         channels,
         activity: activity.clone(),
@@ -56,12 +53,7 @@ fn start(
         report: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
         declaration_digest: DIGEST.into(),
         space: SPACE.into(),
-        local: Arc::new(move |_| {
-            Some(Box::new(OneUpdate {
-                next: 1,
-                passes: Arc::clone(&passes),
-            }))
-        }),
+        local: Arc::new(move |_| Some(Box::new(OneUpdate { next: 1 }))),
     })
     .unwrap();
     Rig {
@@ -69,7 +61,6 @@ fn start(
         activity,
         reports,
         activations,
-        passes: Arc::new(AtomicU64::new(0)),
     }
 }
 

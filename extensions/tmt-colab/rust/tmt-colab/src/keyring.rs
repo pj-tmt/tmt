@@ -15,6 +15,7 @@ const FILES: &[&str] = &[
     "serve-error.json",
 ];
 
+#[derive(Clone)]
 pub struct Layout {
     shared: tmt_extension_state::Layout,
 }

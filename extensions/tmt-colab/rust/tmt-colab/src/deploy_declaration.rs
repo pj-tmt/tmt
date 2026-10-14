@@ -85,6 +85,12 @@ fn reply_of(declaration: &str, artifact: &str) -> Result<String, Unavailable> {
     Ok(line)
 }
 
+/// The digest `deploy-declaration --json` reports for this executable: the one declaration a
+/// bound sync client and Remote's deployment must agree on.
+pub fn declaration_digest() -> Result<String, Unavailable> {
+    reply_of(DECLARATION, ARTIFACT).map(|_| digest(DECLARATION))
+}
+
 pub fn run() -> crate::Result<()> {
     let line = reply_of(
         &declaration_of(DECLARATION, crate::hosting::manifest())?,

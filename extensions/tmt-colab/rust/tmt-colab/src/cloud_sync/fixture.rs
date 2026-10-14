@@ -163,19 +163,17 @@ pub(crate) struct Faults {
     pub unknown_without_store: bool,
     pub refuse_next: Option<sync::Error>,
 }
+/// Documents by (resource, id).
+type Documents =
+    std::collections::BTreeMap<(String, String), serde_json::Map<String, serde_json::Value>>;
+/// One request seen by the fake: (kind, resource, id).
+type Seen = (&'static str, String, String);
 #[derive(Clone, Default)]
 pub(crate) struct Firestore {
-    pub docs: Arc<
-        Mutex<
-            std::collections::BTreeMap<
-                (String, String),
-                serde_json::Map<String, serde_json::Value>,
-            >,
-        >,
-    >,
+    pub docs: Arc<Mutex<Documents>>,
     pub faults: Arc<Mutex<Faults>>,
-    /// Every publish and read in arrival order: (kind, resource, id).
-    pub log: Arc<Mutex<Vec<(&'static str, String, String)>>>,
+    /// Every publish and read in arrival order.
+    pub log: Arc<Mutex<Vec<Seen>>>,
 }
 impl Firestore {
     pub(crate) fn answer(&self, call: &sync::Call, request_id: &str) -> sync::Outcome {
@@ -281,14 +279,12 @@ pub(crate) fn seal(
 /// are visible as documents the scripted Remote receives.
 pub(crate) struct OneUpdate {
     pub next: u64,
-    pub passes: Arc<AtomicU64>,
 }
 impl super::publisher::Local for OneUpdate {
     fn preamble(
         &mut self,
         _: &super::PageRef,
     ) -> Result<Vec<super::publisher::Row>, super::publisher::Fault> {
-        self.passes.fetch_add(1, Ordering::SeqCst);
         Ok(Vec::new())
     }
     fn next(

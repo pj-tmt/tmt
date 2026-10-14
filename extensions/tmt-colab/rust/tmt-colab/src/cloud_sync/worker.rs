@@ -6,7 +6,6 @@ use super::{
     activation::{Next, Policy},
     publisher::{Fault, Local, Publisher},
 };
-use crate::SealedClient;
 use std::time::{Duration, Instant};
 use tmt_extension_objects::{Uuid4, sync};
 
@@ -28,7 +27,6 @@ const REESTABLISH: Duration = if cfg!(test) {
 const POLL: Duration = Duration::from_millis(25);
 
 struct Session {
-    client: SealedClient,
     generation: Uuid4,
     publisher: Publisher,
     local: Box<dyn Local + Send>,
@@ -152,7 +150,6 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
         publisher: Publisher::new(client.clone(), context.id),
         local,
         generation: client.generation(),
-        client,
         page: None,
         pass_at: None,
         backoff: Backoff::new(),

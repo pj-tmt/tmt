@@ -2,7 +2,7 @@
 //! generation: it asks Remote to activate sync, binds, holds the interests of the one active
 //! page and keeps that page's local originals published. Notices are wakeups only; the verified
 //! Store owns every publication position.
-use crate::{SealedClient, object_channel::ChannelOwner};
+use crate::{SealedClient, keyring::Layout, object_channel::ChannelOwner, store::Store};
 use std::{
     io,
     sync::{Arc, Condvar, Mutex, MutexGuard},
@@ -31,6 +31,12 @@ pub(crate) use publisher::Local;
 /// for that work and cleanup rather than expiring the shared attachment bus.
 pub const REQUEST_BOUND: Duration = Duration::from_secs(60);
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 /// One page of one space at its current epoch: the unit a watched group follows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageRef {
@@ -52,7 +58,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 /// What woke the worker.
-pub(crate) struct Wake {
+pub struct Wake {
     pub version: u64,
     pub page: Option<PageRef>,
     pub stopped: bool,
@@ -90,7 +96,7 @@ impl Activity {
         self.0.wake.notify_all();
     }
     /// The next state after `seen`, or the unchanged one when `timeout` passes first.
-    pub(crate) fn wait(&self, seen: u64, timeout: Duration) -> Wake {
+    pub fn wait(&self, seen: u64, timeout: Duration) -> Wake {
         let deadline = Instant::now() + timeout;
         let mut state = locked(&self.0.state);
         while state.version == seen && !state.stopped {
@@ -149,7 +155,7 @@ pub enum ActivationFailure {
     Remote(Refusal),
     Local,
 }
-type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
+pub type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
 /// Everything the worker needs, injected: the real control exchange and a one-line sink for
 /// the single warning a person may see.
 pub(crate) struct Parts {
@@ -163,12 +169,55 @@ pub(crate) struct Parts {
     pub local: Arc<dyn Fn(Bound) -> Option<Box<dyn Local + Send>> + Send + Sync>,
 }
 
+/// What the serve supplies to run cloud sync: Remote's activation exchange, the one-line sink
+/// for the single warning a person may see, and the digest of the declaration this executable
+/// is frozen to.
+pub struct Config {
+    pub activate: Arc<Activate>,
+    pub report: Arc<dyn Fn(&str) + Send + Sync>,
+    pub declaration_digest: String,
+}
+
 /// The serve's one cloud-sync worker.
 pub struct CloudSync {
     activity: Activity,
     thread: Option<JoinHandle<()>>,
 }
 impl CloudSync {
+    /// The serve's worker: it reads the space owned by `owner` through its own Store handle.
+    pub(crate) fn serve(
+        objects: Arc<ChannelOwner>,
+        activity: Activity,
+        config: Config,
+        layout: Layout,
+        owner: [u8; 32],
+        space: String,
+    ) -> io::Result<Self> {
+        let Config {
+            activate,
+            report,
+            declaration_digest,
+        } = config;
+        let local_space = space.clone();
+        Self::start(Parts {
+            channels: objects,
+            activity,
+            activate,
+            report,
+            declaration_digest,
+            space,
+            local: Arc::new(move |bound| {
+                let store = Store::open(&layout).ok()?;
+                Some(Box::new(StoreLocal::new(
+                    store,
+                    owner,
+                    local_space.clone(),
+                    bound,
+                    Arc::new(now_ms),
+                )))
+            }),
+        })
+    }
     pub(crate) fn start(parts: Parts) -> io::Result<Self> {
         let activity = parts.activity.clone();
         let thread = thread::Builder::new()

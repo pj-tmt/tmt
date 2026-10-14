@@ -104,9 +104,11 @@ fn kinds(rig: &Rig) -> Vec<String> {
 #[test]
 fn rows_and_authority_come_first_then_each_original_in_order_and_is_confirmed() {
     let mut rig = rig();
-    let mut local = Fake::default();
-    local.rows = vec![row("spaces", "s"), row("authority", "a1")];
-    local.queue = (1..=3).map(data).collect();
+    let mut local = Fake {
+        rows: vec![row("spaces", "s"), row("authority", "a1")],
+        queue: (1..=3).map(data).collect(),
+        ..Fake::default()
+    };
     assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(false));
     assert_eq!(
         kinds(&rig),
@@ -126,8 +128,10 @@ fn rows_and_authority_come_first_then_each_original_in_order_and_is_confirmed() 
 #[test]
 fn rows_already_present_are_not_read_or_written_again_in_this_process() {
     let mut rig = rig();
-    let mut local = Fake::default();
-    local.rows = vec![row("spaces", "s")];
+    let mut local = Fake {
+        rows: vec![row("spaces", "s")],
+        ..Fake::default()
+    };
     rig.publisher.pass(&mut local, &page()).unwrap();
     let before = kinds(&rig).len();
     local.queue = (1..=1).map(data).collect();
@@ -143,8 +147,10 @@ fn rows_already_present_are_not_read_or_written_again_in_this_process() {
 fn a_lost_answer_for_a_stored_original_is_read_back_and_confirmed_without_a_second_create() {
     let mut rig = rig();
     rig.firestore.faults.lock().unwrap().unknown_after_store = true;
-    let mut local = Fake::default();
-    local.queue = (1..=1).map(data).collect();
+    let mut local = Fake {
+        queue: (1..=1).map(data).collect(),
+        ..Fake::default()
+    };
     assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(false));
     assert_eq!(kinds(&rig), ["create log/log-1", "read log/log-1"]);
     assert_eq!(local.confirmed, ["update-1"]);
@@ -154,8 +160,10 @@ fn a_lost_answer_for_a_stored_original_is_read_back_and_confirmed_without_a_seco
 fn a_lost_answer_for_an_unstored_original_advances_nothing_and_retries_the_same_id() {
     let mut rig = rig();
     rig.firestore.faults.lock().unwrap().unknown_without_store = true;
-    let mut local = Fake::default();
-    local.queue = (1..=1).map(data).collect();
+    let mut local = Fake {
+        queue: (1..=1).map(data).collect(),
+        ..Fake::default()
+    };
     assert_eq!(rig.publisher.pass(&mut local, &page()), Err(Fault::Retry));
     assert!(
         local.confirmed.is_empty(),
@@ -210,8 +218,10 @@ fn a_budget_refusal_is_reported_with_its_wait_and_advances_nothing() {
         reset_at_ms: Some(1),
         retry_after_ms: Some(5_000),
     });
-    let mut local = Fake::default();
-    local.queue = (1..=1).map(data).collect();
+    let mut local = Fake {
+        queue: (1..=1).map(data).collect(),
+        ..Fake::default()
+    };
     assert_eq!(
         rig.publisher.pass(&mut local, &page()),
         Err(Fault::Budget(5_000))
@@ -228,8 +238,10 @@ fn an_admission_refusal_stops_the_page() {
         reset_at_ms: None,
         retry_after_ms: None,
     });
-    let mut local = Fake::default();
-    local.queue = (1..=1).map(data).collect();
+    let mut local = Fake {
+        queue: (1..=1).map(data).collect(),
+        ..Fake::default()
+    };
     assert!(matches!(
         rig.publisher.pass(&mut local, &page()),
         Err(Fault::Stuck(_))
@@ -239,8 +251,10 @@ fn an_admission_refusal_stops_the_page() {
 #[test]
 fn a_pass_yields_after_a_bounded_number_of_documents_and_the_next_continues() {
     let mut rig = rig();
-    let mut local = Fake::default();
-    local.queue = (1..=70).map(data).collect();
+    let mut local = Fake {
+        queue: (1..=70).map(data).collect(),
+        ..Fake::default()
+    };
     assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(true));
     assert_eq!(local.confirmed.len(), PASS_DOCUMENTS);
     assert_eq!(rig.publisher.pass(&mut local, &page()), Ok(false));
@@ -250,8 +264,10 @@ fn a_pass_yields_after_a_bounded_number_of_documents_and_the_next_continues() {
 #[test]
 fn the_page_row_is_put_once_and_not_rewritten_until_it_is_old() {
     let mut rig = rig();
-    let mut local = Fake::default();
-    local.rows = vec![Row::Put(document("pages", "p", &[("epoch", "1")]))];
+    let mut local = Fake {
+        rows: vec![Row::Put(document("pages", "p", &[("epoch", "1")]))],
+        ..Fake::default()
+    };
     rig.publisher.pass(&mut local, &page()).unwrap();
     rig.publisher.pass(&mut local, &page()).unwrap();
     assert_eq!(kinds(&rig), ["put pages/p"]);

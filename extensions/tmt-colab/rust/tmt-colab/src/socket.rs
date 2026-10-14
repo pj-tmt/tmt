@@ -8,6 +8,7 @@ use crate::{
     Result,
     assets::{self, App},
     attachments::slots::StagingSlots,
+    cloud_sync::{self, Activity, CloudSync},
     control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
@@ -109,6 +110,14 @@ pub struct MountSocket {
     sync: Option<Server<OwnerAdmission>>,
     objects: Arc<ChannelOwner>,
     slots: Option<Arc<StagingSlots>>,
+    cloud: Option<Cloud>,
+}
+/// Everything the cloud-sync worker is started with, held until the serve loop begins.
+struct Cloud {
+    activity: Activity,
+    config: cloud_sync::Config,
+    layout: Layout,
+    owner: [u8; 32],
 }
 #[derive(Clone)]
 struct Browser {
@@ -168,6 +177,7 @@ impl MountSocket {
             sync: None,
             objects: Arc::new(ChannelOwner::new(Arc::new(|| None))),
             slots: None,
+            cloud: None,
         })
     }
     /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
@@ -205,6 +215,29 @@ impl MountSocket {
         self.slots = Some(Arc::new(StagingSlots::open(layout)?));
         Ok(self)
     }
+    /// Run the native cloud-sync worker for this space while serving. It follows the pages the
+    /// sync server reports as active and needs the registered sync server first.
+    pub fn with_cloud_sync(
+        mut self,
+        layout: &Layout,
+        owner: [u8; 32],
+        config: cloud_sync::Config,
+    ) -> Result<Self> {
+        let sync = self
+            .sync
+            .as_ref()
+            .ok_or("Cloud sync needs the registered sync server.")?;
+        let activity = Activity::default();
+        sync.set_activity(activity.clone())
+            .map_err(|_| "Sync lock poisoned.")?;
+        self.cloud = Some(Cloud {
+            activity,
+            config,
+            layout: layout.clone(),
+            owner,
+        });
+        Ok(self)
+    }
     pub fn run(self, stop: &AtomicBool) -> Result<()> {
         self.run_until_replacement(stop, &AtomicBool::new(false))
             .map(|_| ())
@@ -214,7 +247,7 @@ impl MountSocket {
     /// no new request is admitted; already admitted saves and maintenance finish before close.
     /// The caller performs normal door cleanup after this socket and registration close.
     pub fn run_until_replacement(
-        self,
+        mut self,
         stop: &AtomicBool,
         replacement: &AtomicBool,
     ) -> Result<bool> {
@@ -232,6 +265,17 @@ impl MountSocket {
                 sync.clone(),
             )?),
             _ => None,
+        };
+        let cloud = match self.cloud.take() {
+            Some(cloud) => Some(CloudSync::serve(
+                Arc::clone(&self.objects),
+                cloud.activity,
+                cloud.config,
+                cloud.layout,
+                cloud.owner,
+                self.browser.space_id.clone(),
+            )?),
+            None => None,
         };
         let result = (|| -> Result<bool> {
             let mut requested = None;
@@ -346,6 +390,9 @@ impl MountSocket {
         self.objects.close();
         if let Some(rekeyer) = rekeyer {
             rekeyer.stop();
+        }
+        if let Some(cloud) = cloud {
+            cloud.stop();
         }
         let mut panicked = false;
         for worker in workers {
