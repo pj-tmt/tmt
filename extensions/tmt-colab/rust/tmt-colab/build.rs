@@ -21,7 +21,11 @@ fn main() {
     let hosted = std::env::var_os("TMT_COLAB_HOSTING_DIR").map(std::path::PathBuf::from);
     let sdk = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../tmt-remote/rust/tmt-remote/assets/remote-v1.js");
-    let inputs = hosting::generate(hosted.as_deref(), &sdk, &output)
+    let client = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tmt-remote/typescript/remote-client");
+    let declaration =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../firestore/declaration.json");
+    let inputs = hosting::generate(hosted.as_deref(), &sdk, &client, &declaration, &output)
         .unwrap_or_else(|error| panic!("Colab hosted build is unavailable: {error}"));
     for input in inputs {
         println!("cargo:rerun-if-changed={}", input.display());
