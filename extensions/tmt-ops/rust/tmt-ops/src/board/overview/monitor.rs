@@ -406,6 +406,13 @@ mod tests {
             assert_eq!(observed.model.as_deref(), Some(model));
             assert_eq!(app.row_starts.borrow().len(), 2);
             if width == 160 {
+                let row_y = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row() == Some(index))
+                    .unwrap()
+                    .y;
                 for column in [OverviewColumn::Runtime, OverviewColumn::Model] {
                     let area = app
                         .overview_sort_hits
@@ -415,9 +422,7 @@ mod tests {
                         .unwrap()
                         .0;
                     let text = (area.x..area.right())
-                        .map(|x| {
-                            terminal.backend().buffer()[(x, area.y + 1 + index as u16)].symbol()
-                        })
+                        .map(|x| terminal.backend().buffer()[(x, row_y)].symbol())
                         .collect::<String>();
                     assert!(text.contains('…'), "{column:?}: {text}");
                 }
