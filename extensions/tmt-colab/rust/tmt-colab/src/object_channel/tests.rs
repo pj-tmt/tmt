@@ -1409,7 +1409,7 @@ fn active_cloud_page_joins_every_cancel_before_subscribing_to_its_successor() {
                 limit(),
             )
             .unwrap();
-        assert!(!group.changed().unwrap());
+        assert!(!group.changed().unwrap().any());
         group
             .select(
                 &"a".repeat(32),

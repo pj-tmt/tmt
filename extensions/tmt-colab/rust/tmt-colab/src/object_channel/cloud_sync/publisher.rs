@@ -213,24 +213,26 @@ impl Publisher {
                 Ok(())
             }
             Some(_) => Err(Fault::Stuck(
-                "A cloud original conflicts with the one stored here.",
+                "The cloud copy of this page's original differs from this machine's.",
             )),
             None => Err(Fault::Retry),
         }
     }
 }
 /// Remote's typed refusal as the publisher's three outcomes.
-fn refusal(error: &sync::Error) -> Fault {
+pub(super) fn refusal(error: &sync::Error) -> Fault {
     match error.code {
         sync::Code::Budget | sync::Code::Rate => {
             Fault::Budget(error.retry_after_ms.unwrap_or(60_000))
         }
-        sync::Code::Denied => Fault::Stuck("Cloud sync was refused for this page."),
+        sync::Code::Denied => Fault::Stuck("The cloud refused sync for this page."),
         sync::Code::Unavailable => match error.state {
-            Some(sync::State::Conflict) => Fault::Stuck("A cloud original conflicts."),
+            Some(sync::State::Conflict) => {
+                Fault::Stuck("Two copies of this page's original disagree in the cloud.")
+            }
             _ => Fault::Retry,
         },
-        sync::Code::Invalid => Fault::Stuck("Cloud sync refused an original as invalid."),
+        sync::Code::Invalid => Fault::Stuck("The page original in the cloud is not valid."),
     }
 }
 

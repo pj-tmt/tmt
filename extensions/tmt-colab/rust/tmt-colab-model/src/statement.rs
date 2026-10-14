@@ -89,6 +89,10 @@ impl Envelope {
                 .map_err(|_| Invalid)?,
         })
     }
+    /// The revision its signed header names, before any chain verification.
+    pub fn revision(&self) -> Result<u64> {
+        values::decimal(decode(&self.statement)?.revision, false)
+    }
     pub fn to_json(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&Wire {
             statement: values::encode_binary(&self.statement),

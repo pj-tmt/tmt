@@ -153,9 +153,16 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Export and attachment read                          | `--test export`, `export::tests`, `export::attachments::tests`, `--test socket root_local_attachment_read`                                                                        |
 | Object channel and admitted attachments             | `--lib object_channel::tests`, `--test attachments`                                                                                                                               |
 | Native attach                                       | `--lib attachments::slots`, `--lib object_channel::attach`, `--lib object_channel::tests::attach`, `--test cli attachment_attach`, `--test socket root_local_attach`              |
-| Cloud-sync worker (outbound publication)            | `--lib object_channel::cloud_sync`, `--test sync the_page_a_peer_opens`, `--test socket the_serve_runs_cloud_sync`                                                                |
+| Cloud-sync worker (publication and inbound)         | `--lib object_channel::cloud_sync`, `--test sync the_page_a_peer_opens`, `--test sync a_page_is_touched`, `--test socket the_serve_runs_cloud_sync`                               |
+| Cloud-sync emulator proof (explicit)                | `node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs`                                                                                                                       |
 | Firestore declaration command and vector            | `--test deploy_declaration`, `--lib deploy_declaration`, then Remote's `-p tmt-remote --test deploy_vectors` mirror                                                               |
 
+- The cloud-sync emulator proof needs Java 21 and `firebase-tools`, builds Remote with its `test-emulator`
+  feature, and runs only the two ignored `object_channel::cloud_sync::proof` scenarios in a private world on
+  loopback emulators; it never touches the host browser, tmux or stores. Each scenario restarts the serves
+  once every device chain is in the cloud, so it does not depend on which home read first; a device that
+  joins later without a membership change waits up to a minute for the chain recheck, which the worker and
+  puller tests cover instead.
 - Object-channel fixtures exercise the real private socket and neutral Bus with scripted
   extension outcomes; they do not prove the production Remote backend route. Production
   activation and the three-binary routed proof remain separate acceptance gates. Browser

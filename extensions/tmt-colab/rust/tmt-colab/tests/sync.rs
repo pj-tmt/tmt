@@ -13,7 +13,7 @@ use std::{
 use tmt_colab::{
     cloud_sync::{ActivePage, PageRef},
     keyring::Layout,
-    store::{Store, StreamScope},
+    store::{Accepted, Store, StreamScope},
     sync::{Access, Admission, CatchupContext, Code, Connection, Progress, Server, SyncScope},
 };
 use tmt_colab_model::{crypto, object, values};
@@ -1926,4 +1926,79 @@ fn the_page_a_peer_opens_is_the_active_page_for_cloud_sync_and_an_ack_is_not() {
         activity.wait(opened.version, Duration::ZERO).version,
         opened.version
     );
+}
+
+#[test]
+fn a_page_is_touched_for_cloud_sync_only_once_its_append_is_stored() {
+    let f = Fixture::new();
+    let activity = ActivePage::default();
+    f.server.set_activity(activity.clone()).unwrap();
+    let mut alice = f.peer(ALICE);
+    send(&mut alice, f.frame("subscribe", json!({"cursors":[]})));
+    let seen = activity.wait(0, Duration::ZERO).version;
+    // The worker reads the Store the moment it is woken, and is not asked again if it finds
+    // nothing.
+    let store = Store::open(&Layout::open(&f.root).unwrap()).unwrap();
+    let waiter = std::thread::spawn({
+        let activity = activity.clone();
+        move || {
+            let woken = activity.wait(seen, Duration::from_secs(5));
+            assert!(woken.version > seen);
+            store
+                .payload(
+                    StreamScope {
+                        page: PAGE,
+                        epoch: 1,
+                        stream: ALICE,
+                    },
+                    1,
+                )
+                .unwrap()
+        }
+    });
+    let (frame, _, bytes) = f.append(ALICE, 1, [0; 32], "content", 20);
+    send(&mut alice, frame);
+    assert_eq!(waiter.join().unwrap(), Some(bytes));
+}
+
+#[test]
+fn an_ingested_original_is_stored_and_announced_like_a_browser_append_without_a_receipt() {
+    let f = Fixture::new();
+    let mut bob = f.peer(BOB);
+    send(&mut bob, f.frame("subscribe", json!({"cursors":[]})));
+    let scope = SyncScope {
+        space: f.space.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+    };
+    let alice = f.alice.verifying_key().to_bytes();
+    let (_, _, bytes) = f.append(ALICE, 1, [0; 32], "content", 20);
+    assert_eq!(
+        f.server.ingest(&scope, &bytes, &alice).unwrap(),
+        Accepted::New
+    );
+    assert_eq!(f.payload(ALICE, 1), Some(bytes.clone()));
+    assert_eq!(bob.1.poll(), Progress::Advanced);
+    let broadcast = receive(&mut bob);
+    assert_eq!(broadcast["type"], "broadcast");
+    assert_eq!(broadcast["streamId"], ALICE);
+    // One ingested original is exactly one frame: no Ask, reply or other notification follows.
+    assert_eq!(bob.1.poll(), Progress::Pending);
+    // The same original again changes and announces nothing.
+    assert_eq!(
+        f.server.ingest(&scope, &bytes, &alice).unwrap(),
+        Accepted::Replay
+    );
+    assert_eq!(bob.1.poll(), Progress::Pending);
+    // Another device's key, another epoch and a gap are each refused, and nothing is stored.
+    let (_, _, next) = f.append(ALICE, 2, [0; 32], "own", 20);
+    let bob_key = f.bob.verifying_key().to_bytes();
+    assert!(f.server.ingest(&scope, &next, &bob_key).is_err());
+    let moved = SyncScope {
+        epoch: "2".into(),
+        ..scope.clone()
+    };
+    assert_eq!(f.server.ingest(&moved, &next, &alice), Err(Code::Invalid));
+    assert_eq!(f.payload(ALICE, 2), None);
+    assert_eq!(bob.1.poll(), Progress::Pending);
 }

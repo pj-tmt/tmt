@@ -3191,8 +3191,33 @@ membership, chain and wrap originals, then each local original in sequence, alwa
 before data; a position is recorded only after the exact original was created or read back
 identical. A page whose publication stopped is reported once for the serve's lifetime and is not
 tried again at that epoch; Remote declining to activate prints nothing, so a machine without cloud
-sync stays local, and a restarted Remote is asked again. Inbound streams, member admission and cloud attachments are not implemented, so
-nothing reads these records yet. V1 cloud sync does
+sync stays local, and a restarted Remote is asked again.
+
+The same worker reads the active page back from the cloud; Changed notices only wake it, and the
+Store's receipts are the position. A read is due when the page is first watched, after a notice,
+and while a read is unfinished; a local write publishes and reads nothing. A change of the page's
+membership records reads the membership log and the device chains again. A change of its log or
+checkpoints reads the writers' tails and reads the chains again at most once per minute, because
+the authority interest watches membership records only and this machine's own publications raise
+the same notice: a writer that joins without a membership change is found within 60 seconds. A
+read first compares the cloud's membership log with the owner
+log on this machine, which must equal or be a prefix of it: a cloud log with revisions this
+machine lacks, one that differs from it at the same revision, and one that is not a chain from the
+owner are three separate refusals that stop the page, and neither is merged or replaced. It then
+follows each stream whose chain the cloud holds and this machine did not write, from the Store's
+own head for that stream. An original is admitted by the fold that reads stored objects (the
+author's chain, its role, the epoch, the namespace, the signature) and applied by the serve's own
+append path, so connected browsers receive it; the writer's verified chain is kept in the Store
+(as a retained chain, not as one of this machine's devices) so a browser that opens the page
+later can verify what the writer wrote. An original that is refused, a malformed cloud
+record or a sequence the provider no longer holds stops that writer on that page and epoch only,
+with one line on the serve's stderr, and every other writer continues. What arrived from the
+cloud is never queued for publication. The stopped state lives in the serve's memory, shown by "Cloud sync stopped for
+page" and "Cloud sync resumed for page" lines; no command or route reads it. Not implemented:
+attachments, importing a checkpoint pair (a page the provider no longer holds from its start
+needs a fresh copy), adopting a cloud-only membership log or choosing between forks, and
+enrolling a second machine's own identity; two machines of one owner share the owner key and
+state. Live convergence covers the active page only. V1 cloud sync does
 not refresh log expiry: the existing Rules permit an owner expiry-only refresh, but the log
 mapping deliberately exposes no put, so entries age out at their `expiresAt`. A long-lived
 page needing log refresh requires a Remote follow-up, not a hidden compatibility path.

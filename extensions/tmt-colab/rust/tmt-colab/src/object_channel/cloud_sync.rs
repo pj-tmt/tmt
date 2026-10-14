@@ -2,7 +2,10 @@
 //! generation: it asks Remote to activate sync, binds, holds the interests of the one active
 //! page and keeps that page's local originals published. Notices are wakeups only; the verified
 //! Store owns every publication position.
-use crate::{SealedClient, keyring::Layout, object_channel::ChannelOwner, store::Store};
+use crate::{
+    SealedClient, keyring::Layout, object_channel::ChannelOwner, registration::OwnerAdmission,
+    store::Store, sync::Server,
+};
 use std::{
     io,
     sync::{Arc, Condvar, Mutex, MutexGuard},
@@ -14,15 +17,19 @@ use tmt_extension_objects::Uuid4;
 mod activation;
 #[cfg(test)]
 mod fixture;
-#[cfg(test)]
+mod inbound;
 mod interests;
 mod local;
+#[cfg(test)]
+mod proof;
 mod publisher;
+mod reader;
+mod stops;
 #[cfg(test)]
 mod tests;
 mod worker;
 
-#[cfg(test)]
+pub(crate) use inbound::{Inbound, StoreInbound};
 pub(crate) use interests::PageInterests;
 pub(crate) use local::{Bound, StoreLocal};
 pub(crate) use publisher::Local;
@@ -35,6 +42,20 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The line shown when a page stops syncing with the cloud. A page is named by its id, as the
+/// page commands name it, because a title would need the decoder; editing is never affected.
+fn stopped_line(page: &str, reason: &str) -> String {
+    format!("Cloud sync stopped for page {page}. {reason} Edits continue on this machine.")
+}
+/// The line shown when a stopped page syncs again.
+fn resumed_line(page: &str) -> String {
+    format!("Cloud sync resumed for page {page}.")
+}
+/// The line shown when the cloud's records of one writer of a page stop being followed.
+fn writer_line(page: &str, reason: &str) -> String {
+    format!("Cloud sync stopped following one writer of page {page}: {reason}")
 }
 
 /// One page of one space at its current epoch: the unit a watched group follows.
@@ -164,6 +185,8 @@ pub enum ActivationFailure {
     Local,
 }
 pub type Activate = dyn Fn(Instant) -> Result<Activation, ActivationFailure> + Send + Sync;
+/// Builds the Store side of reading the cloud back for one bound client.
+pub(crate) type MakeInbound = Arc<dyn Fn(Bound) -> Option<Box<dyn Inbound + Send>> + Send + Sync>;
 /// Everything the worker needs, injected: the real control exchange and a one-line sink for
 /// a page that cloud sync cannot continue.
 pub(crate) struct Parts {
@@ -175,6 +198,8 @@ pub(crate) struct Parts {
     pub space: String,
     /// The publisher's local side for one bound client; its `Bound` is what Remote returned.
     pub local: Arc<dyn Fn(Bound) -> Option<Box<dyn Local + Send>> + Send + Sync>,
+    /// The Store side of reading the cloud back, when this serve follows foreign streams.
+    pub inbound: Option<MakeInbound>,
 }
 
 /// What the serve supplies to run cloud sync: Remote's activation exchange, the one-line sink
@@ -200,13 +225,15 @@ impl CloudSync {
         layout: Layout,
         owner: [u8; 32],
         space: String,
+        server: Server<OwnerAdmission>,
     ) -> io::Result<Self> {
         let Config {
             activate,
             report,
             declaration_digest,
         } = config;
-        let local_space = space.clone();
+        let (local_space, inbound_space, inbound_layout) =
+            (space.clone(), space.clone(), layout.clone());
         Self::start(Parts {
             channels: objects,
             activity,
@@ -224,6 +251,12 @@ impl CloudSync {
                     Arc::new(now_ms),
                 )))
             }),
+            inbound: Some(Arc::new(move |_| {
+                let store =
+                    StoreInbound::new(&inbound_layout, server.clone(), inbound_space.clone())
+                        .ok()?;
+                Some(Box::new(store))
+            })),
         })
     }
     pub(crate) fn start(parts: Parts) -> io::Result<Self> {

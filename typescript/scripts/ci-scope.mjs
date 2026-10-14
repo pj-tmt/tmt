@@ -554,11 +554,19 @@ export function selectNativeSyncEmulator(paths) {
       path === 'extensions/tmt-remote/rust/tmt-remote/src/native_sync.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/sealed_sync.rs' ||
       path === 'extensions/tmt-remote/rust/tmt-remote/src/declaration.rs' ||
+      path === 'extensions/tmt-colab/scripts/cloud-sync-emulator.mjs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/documents.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/object_channel/sealed.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/sync.rs' ||
+      path === 'extensions/tmt-colab/rust/tmt-colab/src/fold.rs' ||
       [
         'extensions/tmt-remote/rust/tmt-remote/src/firebase_auth',
         'extensions/tmt-remote/rust/tmt-remote/src/native_sync',
         'extensions/tmt-remote/rust/tmt-remote/src/declaration',
         'extensions/tmt-remote/typescript/remote-client/test/emulator',
+        'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync',
+        'extensions/tmt-colab/rust/tmt-colab/src/object_channel/documents',
       ].some((root) => within(root, path)) ||
       path.startsWith('extensions/tmt-colab/contracts/vectors/deploy-declaration-v1.')
   );

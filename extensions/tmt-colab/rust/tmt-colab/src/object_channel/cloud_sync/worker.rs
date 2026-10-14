@@ -2,9 +2,12 @@
 //! without a bound, and nothing here is progress: only a verified durable admission or a
 //! confirmed publication moves a position.
 use super::{
-    ActivationFailure, Bound, Channels, PageRef, Parts,
+    ActivationFailure, Bound, Channels, PageInterests, PageRef, Parts,
     activation::{Next, Policy},
+    inbound::{Inbound, Puller},
     publisher::{Fault, Local, Publisher},
+    reader::Reader,
+    stops::Stops,
 };
 use std::{
     collections::HashSet,
@@ -33,6 +36,10 @@ struct Session {
     generation: Uuid4,
     publisher: Publisher,
     local: Box<dyn Local + Send>,
+    /// Reading the cloud back, when this serve follows foreign streams.
+    inbound: Option<Following>,
+    /// Pages whose cloud read is stopped, for as long as this session lives.
+    stops: Stops,
     page: Option<PageRef>,
     /// Pages whose publication stopped, remembered for this session so a touch neither retries
     /// them nor shows their line again. Another epoch of the page is another entry.
@@ -41,6 +48,17 @@ struct Session {
     pass_at: Option<Instant>,
     backoff: Backoff,
     established: Instant,
+}
+/// The inbound half of a session: the Store side, the cloud reads, and the three interests of
+/// the one page being watched.
+struct Following {
+    store: Box<dyn Inbound + Send>,
+    puller: Puller,
+    interests: PageInterests,
+    watched: Option<PageRef>,
+    /// The cloud is read when it is due, never because a local write asked for a pass: right
+    /// after the page is watched, after a notice, and while a read is unfinished or retrying.
+    read_due: bool,
 }
 /// The wait before an uncertain pass runs again: it doubles up to a cap and starts over after
 /// a pass that finished.
@@ -69,6 +87,16 @@ impl Backoff {
     }
 }
 impl Session {
+    /// Cancel and join the page interests, so nothing outlives the session. A session lost with
+    /// its channel is dropped without this: its generation ended with the channel, and no
+    /// interest of it remains to cancel.
+    fn close(&mut self) {
+        if let Some(following) = self.inbound.as_mut() {
+            let _ = following
+                .interests
+                .cancel(Instant::now() + Duration::from_secs(2));
+        }
+    }
     fn alive(&self, channels: &dyn Channels) -> bool {
         channels
             .client()
@@ -80,27 +108,116 @@ impl Session {
         self.page = Some(page.clone());
         self.pass_at = Some(Instant::now());
     }
-    /// One bounded publication pass for the active page, and when the next one is due.
-    fn pass(&mut self, report: &dyn Fn(&str)) {
-        let Some(page) = self.page.clone().filter(|page| !self.stuck.contains(page)) else {
-            self.pass_at = None;
-            return;
+    /// A wake that came from the cloud: the watched page changed. A change of its membership
+    /// reads the authority again; a change of its log or checkpoints only asks for the chains
+    /// again, spaced, and for the tails.
+    fn cloud_changed(&mut self) -> bool {
+        let Some(following) = self.inbound.as_mut() else {
+            return false;
         };
-        self.pass_at = match self.publisher.pass(self.local.as_mut(), &page) {
+        match following.interests.changed() {
+            Ok(changes) if !changes.any() => false,
+            Ok(changes) => {
+                if changes.authority {
+                    following.puller.refresh();
+                } else {
+                    following.puller.records_changed();
+                }
+                following.read_due = true;
+                true
+            }
+            // An interest the provider ended is registered again by the next pass.
+            Err(_) => {
+                following.watched = None;
+                true
+            }
+        }
+    }
+    /// The next time a pass is due after `result`, or none when it need not run again.
+    fn next_of(&mut self, result: &Result<bool, Fault>) -> Option<Instant> {
+        match result {
             Ok(true) => Some(Instant::now()),
             Ok(false) => {
                 self.backoff.reset();
                 None
             }
             Err(Fault::Retry) => Some(Instant::now() + self.backoff.next()),
-            Err(Fault::Budget(wait)) => Some(Instant::now() + Duration::from_millis(wait)),
-            Err(Fault::Moved) => None,
-            Err(Fault::Stuck(line)) => {
-                self.stuck.insert(page);
-                report(line);
-                None
-            }
+            Err(Fault::Budget(wait)) => Some(Instant::now() + Duration::from_millis(*wait)),
+            Err(Fault::Moved | Fault::Stuck(_)) => None,
+        }
+    }
+    /// Watch exactly the active page: the previous three interests are cancelled and joined
+    /// before the successor registers any.
+    fn watch(&mut self, page: &PageRef) -> Result<(), Fault> {
+        let Some(following) = self.inbound.as_mut() else {
+            return Ok(());
         };
+        if following.watched.as_ref() == Some(page) {
+            return Ok(());
+        }
+        following.watched = None;
+        following
+            .interests
+            .select(
+                &page.space,
+                &page.page,
+                page.epoch,
+                Instant::now() + super::REQUEST_BOUND,
+            )
+            .map_err(|_| Fault::Retry)?;
+        following.puller.refresh();
+        following.read_due = true;
+        following.watched = Some(page.clone());
+        Ok(())
+    }
+    /// One bounded pass for the active page, publishing what is local and reading what the
+    /// cloud holds, and when the next one is due.
+    fn pass(&mut self, report: &dyn Fn(&str)) {
+        let Some(page) = self.page.clone() else {
+            self.pass_at = None;
+            return;
+        };
+        // A page whose publication stopped is not published again at this epoch, but what the
+        // cloud holds is still read.
+        let published =
+            (!self.stuck.contains(&page)).then(|| self.publisher.pass(self.local.as_mut(), &page));
+        let read = match self.watch(&page) {
+            Err(fault) => Some(Err(fault)),
+            Ok(()) => self.inbound.as_mut().and_then(|following| {
+                let spaced = following
+                    .puller
+                    .recheck_at()
+                    .is_some_and(|at| Instant::now() >= at);
+                if !following.read_due && !spaced {
+                    return None;
+                }
+                let result = following
+                    .puller
+                    .pass(following.store.as_mut(), &page, report);
+                // More to read, or a read that must be tried again; a stop waits for a notice.
+                following.read_due =
+                    matches!(result, Ok(true) | Err(Fault::Retry | Fault::Budget(_)));
+                Some(result)
+            }),
+        };
+        let first = published.and_then(|result| {
+            if let Err(Fault::Stuck(line)) = &result {
+                self.stuck.insert(page.clone());
+                report(&super::stopped_line(&page.page, line));
+            }
+            self.next_of(&result)
+        });
+        let second = read.and_then(|result| {
+            if let Some(line) = self.stops.observe(&page.page, &result, super::now_ms()) {
+                report(&line);
+            }
+            self.next_of(&result)
+        });
+        let recheck = self
+            .inbound
+            .as_ref()
+            .and_then(|following| following.puller.recheck_at());
+        self.pass_at = [first, second, recheck].into_iter().flatten().min();
     }
 }
 
@@ -147,16 +264,28 @@ fn establish(parts: &Parts) -> Result<Session, ActivationFailure> {
         client.end_generation();
         return Err(ActivationFailure::Local);
     }
-    let local = (parts.local)(Bound {
+    let bound = Bound {
         project: activation.project,
         declaration_digest: parts.declaration_digest.clone(),
         uid: context.uid,
-    })
-    .ok_or(ActivationFailure::Local)?;
+    };
+    let inbound = match &parts.inbound {
+        Some(make) => Some(Following {
+            store: make(bound.clone()).ok_or(ActivationFailure::Local)?,
+            puller: Puller::new(Reader::new(client.clone(), context.id.clone())),
+            interests: PageInterests::new(client.clone(), context.id.clone()),
+            watched: None,
+            read_due: false,
+        }),
+        None => None,
+    };
+    let local = (parts.local)(bound).ok_or(ActivationFailure::Local)?;
     Ok(Session {
         publisher: Publisher::new(client.clone(), context.id),
         local,
+        inbound,
         generation: client.generation(),
+        stops: Stops::default(),
         page: None,
         stuck: HashSet::new(),
         pass_at: None,
@@ -216,6 +345,9 @@ pub(super) fn run(parts: Parts) {
             {
                 held.touched(page);
             }
+            if held.cloud_changed() {
+                held.pass_at = Some(Instant::now());
+            }
             if held.pass_at.is_some_and(|at| Instant::now() >= at) {
                 held.pass(parts.report.as_ref());
             }
@@ -228,6 +360,8 @@ pub(super) fn run(parts: Parts) {
         let timeout = due.map_or(TICK, |at| at.saturating_duration_since(Instant::now()));
         wake = activity.wait(version, timeout.min(TICK));
     }
-    // Dropping the session is the whole teardown: it holds no interest in this slice.
+    if let Some(held) = session.as_mut() {
+        held.close();
+    }
     drop(session);
 }

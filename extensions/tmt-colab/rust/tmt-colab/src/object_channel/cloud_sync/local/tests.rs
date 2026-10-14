@@ -1,141 +1,41 @@
 //! `StoreLocal` over a real owner Store: real signed statements, chains, wraps and sealed
 //! updates, so what it hands the publisher is what a reader would verify.
 use super::*;
-use crate::{
-    keyring::{Keyring, Layout},
-    store::{
-        Envelope,
-        owner::{Device, Mutation, Recipient},
-    },
-};
-use ed25519_dalek::{Signer, SigningKey};
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-use tmt_colab_model::{certificate, values, wrap};
+use crate::object_channel::cloud_sync::fixture::home::{DeviceSpec, Home};
+use std::ops::{Deref, DerefMut};
 use tmt_extension_objects::sync;
 
-const PAGE: &str = "10000000-0000-4000-8000-000000000001";
-const MEMBER: &str = "20000000-0000-4000-8000-000000000001";
 const DEVICE: &str = "30000000-0000-4000-8000-000000000001";
 const FOREIGN: &str = "30000000-0000-4000-8000-000000000002";
-const OP: &str = "40000000-0000-4000-8000-000000000001";
 const UID: &str = "owner-uid";
 const NOW: u64 = 1_790_000_000_000;
 
-fn recipient() -> Recipient {
-    Recipient {
-        kind: "member".into(),
-        id: MEMBER.into(),
-        role: Some("editor".into()),
-        signing_key: SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes(),
-        encryption_key: wrap::RecipientKey::from_seed(&[8; 32])
-            .unwrap()
-            .public_key(),
-        pages: vec![PAGE.into()],
-        revoked: false,
-    }
-}
-fn device(key: &Keyring, issuer: [u8; 32], id: &str) -> Device {
-    let signing = SigningKey::from_bytes(&[9; 32]).verifying_key().to_bytes();
-    let enc = wrap::RecipientKey::from_seed(&[10; 32])
-        .unwrap()
-        .public_key();
-    let cert = certificate::input(&certificate::Certificate {
-        space: &key.space_id,
-        issuer_kind: "member",
-        issuer_id: MEMBER,
-        device_id: id,
-        signing_key: &signing,
-        encryption_key: &enc,
-        membership_revision: "1",
-        issued_at: 1,
-        expires_at: 100,
-    })
-    .unwrap();
-    let signature = SigningKey::from_bytes(&[7; 32]).sign(&cert).to_bytes();
-    Device {
-        chain: serde_json::to_vec(&serde_json::json!({"version":1,
-            "issuerStatement":values::encode_binary(&issuer),"deviceCertificate":values::encode_binary(&cert),
-            "issuerSignature":values::encode_binary(&signature)}))
-        .unwrap(),
-        revoked: false,
-    }
-}
-
 struct Fixture {
-    root: PathBuf,
-    key: Keyring,
+    home: Home,
     local: StoreLocal,
-    /// Latest sequence and hash per stream, which the next update and a cut chain from.
-    heads: Vec<(String, u64, [u8; 32])>,
-    /// A second connection to the same Store: the test's own writer, like the serve's other
-    /// handlers, which share the database but not the worker's handle.
-    store: Store,
 }
 impl Fixture {
     fn new() -> Self {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let root = std::env::temp_dir().join(format!(
-            "tmt-2452-local-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let layout = Layout::open(&root).unwrap();
-        let key = Keyring::open(&layout).unwrap();
-        let mut store = Store::open(&layout).unwrap();
-        store.create_page(PAGE).unwrap();
-        let statement = key
-            .sign_statement(
-                None,
-                "member.add",
-                &serde_json::to_vec(&serde_json::json!({
-                    "memberId":MEMBER,"role":"editor",
-                    "signKey":values::encode_binary(&recipient().signing_key),
-                    "encKey":values::encode_binary(&recipient().encryption_key),"pages":[PAGE]
-                }))
-                .unwrap(),
-            )
-            .unwrap();
-        let header = wrap::Header {
-            space: key.space_id.clone(),
-            page: PAGE.into(),
-            epoch: "1".into(),
-            recipient_kind: "member".into(),
-            recipient_id: MEMBER.into(),
-            recipient_key: recipient().encryption_key,
-            signer_key: key.owner_public(),
-            membership_revision: "1".into(),
-        };
-        let wrapped = key.seal_wrap(&header, &[11; 32]).unwrap();
-        store
-            .owner_transaction(
-                &key.space_id,
-                &key.owner_public(),
-                Mutation {
-                    operation_id: OP,
-                    digest: [7; 32],
-                    expected_revision: 0,
+        // Only this machine registered DEVICE; FOREIGN's records arrived from elsewhere.
+        let home = Home::new(
+            &[
+                DeviceSpec {
+                    id: DEVICE,
+                    signing: 9,
+                    registered: true,
                 },
-                |tx| {
-                    tx.append_statement(&statement)?;
-                    tx.put_recipient(&recipient())?;
-                    tx.put_device(&device(&key, statement.hash()?, DEVICE))?;
-                    tx.put_device(&device(&key, statement.hash()?, FOREIGN))?;
-                    // Only this machine registered DEVICE; FOREIGN's records arrived from elsewhere.
-                    tx.put_registration(DEVICE, b"binding", 1)?;
-                    tx.put_epoch_secret(PAGE, 1, &[11; 32])?;
-                    tx.put_wrap(&wrapped)?;
-                    Ok(Vec::new())
+                DeviceSpec {
+                    id: FOREIGN,
+                    signing: 19,
+                    registered: false,
                 },
-            )
-            .unwrap();
+            ],
+            None,
+        );
         let local = StoreLocal::new(
-            Store::open(&layout).unwrap(),
-            key.owner_public(),
-            key.space_id.clone(),
+            Store::open(&home.layout).unwrap(),
+            home.key.owner_public(),
+            home.key.space_id.clone(),
             Bound {
                 project: "fixture".into(),
                 declaration_digest: "b".repeat(64),
@@ -143,115 +43,18 @@ impl Fixture {
             },
             Arc::new(|| NOW),
         );
-        Self {
-            root,
-            key,
-            local,
-            heads: Vec::new(),
-            store,
-        }
-    }
-    fn page(&self, epoch: u64) -> PageRef {
-        PageRef {
-            space: self.key.space_id.clone(),
-            page: PAGE.into(),
-            epoch,
-        }
-    }
-    fn head(&self, stream: &str) -> (u64, [u8; 32]) {
-        self.heads
-            .iter()
-            .find(|(id, ..)| id == stream)
-            .map_or((0, [0; 32]), |(_, seq, hash)| (*seq, *hash))
-    }
-    fn sealed(
-        &self,
-        stream: &str,
-        kind: &str,
-        namespace: &str,
-        seq: u64,
-        previous: [u8; 32],
-    ) -> object::Envelope {
-        object::seal(
-            &object::Context {
-                space: self.key.space_id.clone(),
-                page: PAGE.into(),
-                epoch: "1".into(),
-                kind: kind.into(),
-                namespace: namespace.into(),
-                author_device: stream.into(),
-                membership_revision: "1".into(),
-                stream_seq: seq.to_string(),
-                prev_hash: previous,
-            },
-            &[3; 32],
-            &SigningKey::from_bytes(&[5; 32]),
-            format!("{kind}-{namespace}-{seq}").as_bytes(),
-        )
-        .unwrap()
-    }
-    /// The next update of a stream, alternating namespaces the way real writers do.
-    fn append(&mut self, stream: &str) -> Vec<u8> {
-        let (last, previous) = self.head(stream);
-        let seq = last + 1;
-        let (namespace, name) = if seq.is_multiple_of(2) {
-            (Namespace::Own, "own")
-        } else {
-            (Namespace::Content, "content")
-        };
-        let envelope = self.sealed(stream, "update", name, seq, previous);
-        let bytes = envelope.to_json().unwrap();
-        let hash = envelope.hash().unwrap();
-        self.store
-            .append(&Envelope {
-                scope: StreamScope {
-                    page: PAGE,
-                    epoch: 1,
-                    stream,
-                },
-                namespace,
-                seq,
-                hash,
-                previous,
-                bytes: &bytes,
-            })
-            .unwrap();
-        self.heads.retain(|(id, ..)| id != stream);
-        self.heads.push((stream.into(), seq, hash));
-        bytes
-    }
-    /// Both namespaces' checkpoints at `seq`, which prunes the covered prefix.
-    fn pair(&mut self, stream: &str, seq: u64) -> [Vec<u8>; 2] {
-        let (_, previous) = self.head(stream);
-        let mut out = [Vec::new(), Vec::new()];
-        for (index, (namespace, name)) in [(Namespace::Content, "content"), (Namespace::Own, "own")]
-            .into_iter()
-            .enumerate()
-        {
-            let envelope = self.sealed(stream, "checkpoint", name, seq, previous);
-            let bytes = envelope.to_json().unwrap();
-            self.store
-                .checkpoint(&Envelope {
-                    scope: StreamScope {
-                        page: PAGE,
-                        epoch: 1,
-                        stream,
-                    },
-                    namespace,
-                    seq,
-                    hash: envelope.hash().unwrap(),
-                    previous,
-                    bytes: &bytes,
-                })
-                .unwrap();
-            out[index] = bytes;
-        }
-        out
+        Self { home, local }
     }
 }
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+impl Deref for Fixture {
+    type Target = Home;
+    fn deref(&self) -> &Home {
+        &self.home
+    }
+}
+impl DerefMut for Fixture {
+    fn deref_mut(&mut self) -> &mut Home {
+        &mut self.home
     }
 }
 

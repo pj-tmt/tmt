@@ -333,6 +333,57 @@ struct AppendRequest {
     bytes: Vec<u8>,
     object_id: Option<String>,
 }
+/// An append whose frame is consistent with its scope and sender, before any admission.
+struct Checked {
+    stream: String,
+    seq: String,
+    envelope_hash: String,
+    bytes: Vec<u8>,
+    decoded: object::Envelope,
+    header: object::Header,
+    sequence: u64,
+    hash: [u8; 32],
+}
+impl Checked {
+    fn new(scope: &SyncScope, principal: &str, request: AppendRequest) -> Result<Self, Code> {
+        let AppendRequest {
+            stream,
+            seq,
+            hash: envelope_hash,
+            bytes,
+            object_id,
+        } = request;
+        let sequence = values::decimal(&seq, false)?;
+        let hash = wire::hash(&envelope_hash)?;
+        let decoded = object::Envelope::from_json(&bytes)?;
+        let header = object::Header::decode(decoded.header())?;
+        let c = &header.context;
+        if c.space != scope.space
+            || c.page != scope.page
+            || c.epoch != scope.epoch
+            || c.author_device != principal
+            || stream != principal
+            || c.stream_seq != seq
+            // A device seals a checkpoint over its own stream's `own` namespace only (#2846):
+            // its updates there are the ones only it may combine.
+            || !(c.kind == "update" || (c.kind == "checkpoint" && c.namespace == "own"))
+            || decoded.hash()? != hash
+            || object_id.as_ref().is_some_and(|id| id != &header.object_id)
+        {
+            return Err(Code::Invalid);
+        }
+        Ok(Self {
+            stream,
+            seq,
+            envelope_hash,
+            bytes,
+            decoded,
+            header,
+            sequence,
+            hash,
+        })
+    }
+}
 /// One assembled save, handed out of the sync lock for its long native preparation.
 pub(crate) struct SaveJob {
     open: crate::page::save::SourceOpener,
@@ -645,6 +696,39 @@ impl<A: Admission> Server<A> {
             activity: ActivePage::default(),
         })))
     }
+    /// Apply one original read from the cloud. The caller has already admitted its author and
+    /// passes the key that author's chain proves; the original is then checked and stored by the
+    /// same code as a browser append and announced to the peers that follow its page. Nothing is
+    /// sent to an Ask or a reply, and nothing here queues the original for publication.
+    pub fn ingest(
+        &self,
+        scope: &SyncScope,
+        bytes: &[u8],
+        author_key: &[u8; 32],
+    ) -> Result<Accepted, Code> {
+        if bytes.is_empty() || bytes.len() > limits::OBJECT_BYTES {
+            return Err(Code::Invalid);
+        }
+        let decoded = object::Envelope::from_json(bytes)?;
+        let header = object::Header::decode(decoded.header())?;
+        let principal = header.context.author_device.clone();
+        let checked = Checked::new(
+            scope,
+            &principal,
+            AppendRequest {
+                stream: principal.clone(),
+                seq: header.context.stream_seq.clone(),
+                hash: values::encode_binary(&decoded.hash()?),
+                bytes: bytes.to_vec(),
+                object_id: None,
+            },
+        )?;
+        let mut state = self.0.lock().map_err(|_| Code::Denied)?;
+        if state.draining {
+            return Err(Code::ResyncRequired);
+        }
+        state.apply(None, scope, &principal, &checked, author_key)
+    }
     /// Share the activity the cloud-sync worker waits on.
     pub fn set_activity(&self, activity: ActivePage) -> Result<(), Code> {
         self.0.lock().map_err(|_| Code::Denied)?.activity = activity;
@@ -873,22 +957,15 @@ impl<A: Admission> State<A> {
             return Err(Code::ResyncRequired);
         }
         self.peers.get_mut(&id).ok_or(Code::Denied)?.scope = Some(scope.clone());
-        if matches!(
-            &frame,
-            Frame::Hello { .. }
-                | Frame::Subscribe { .. }
-                | Frame::Append { .. }
-                | Frame::Chunk { .. }
-                | Frame::Save { .. }
-                | Frame::Compact { .. }
-        ) && let Ok(epoch) = values::decimal(&scope.epoch, false)
-        {
-            self.activity.touch(PageRef {
-                space: scope.space.clone(),
-                page: scope.page.clone(),
-                epoch,
-            });
+        // Opening a page names it the active one. A write names it only once it is stored: a
+        // pass that ran first would find nothing to publish and would not be asked again.
+        if matches!(&frame, Frame::Hello { .. } | Frame::Subscribe { .. }) {
+            self.touch(&scope);
         }
+        let writes = matches!(
+            &frame,
+            Frame::Append { .. } | Frame::Chunk { .. } | Frame::Compact { .. }
+        );
         let subscribing = matches!(&frame, Frame::Subscribe { .. });
         match frame {
             Frame::Object { .. } => return Err(Code::Invalid),
@@ -1180,7 +1257,20 @@ impl<A: Admission> State<A> {
                 self.reply_save(id, &scope, &reply)?;
             }
         }
+        if writes {
+            self.touch(&scope);
+        }
         Ok(None)
+    }
+    /// Ask the cloud-sync worker to look at this page.
+    fn touch(&self, scope: &SyncScope) {
+        if let Ok(epoch) = values::decimal(&scope.epoch, false) {
+            self.activity.touch(PageRef {
+                space: scope.space.clone(),
+                page: scope.page.clone(),
+                epoch,
+            });
+        }
     }
     /// An assembled source, once its bytes match the digest the client bound to it.
     fn save_job(
@@ -1355,6 +1445,7 @@ impl<A: Admission> State<A> {
             if let Some(combined) = &combined {
                 self.announce_combined(&scope, combined);
             }
+            self.touch(&scope);
         }
         Ok(SaveFinish::Replied)
     }
@@ -1698,36 +1789,35 @@ impl<A: Admission> State<A> {
         principal: &str,
         request: AppendRequest,
     ) -> Result<(), Code> {
-        let AppendRequest {
+        let checked = Checked::new(scope, principal, request)?;
+        let key =
+            self.admission
+                .authorize(principal, scope, Access::Append(&checked.header.context))?;
+        self.apply(Some(id), scope, principal, &checked, &key)
+            .map(|_| ())
+    }
+    /// Verify the author's signature with a key the caller admitted, store the original and
+    /// tell whoever follows the page. `peer` receives the receipt; an ingested original has none.
+    fn apply(
+        &mut self,
+        peer: Option<u64>,
+        scope: &SyncScope,
+        principal: &str,
+        checked: &Checked,
+        key: &[u8; 32],
+    ) -> Result<Accepted, Code> {
+        let Checked {
             stream,
             seq,
-            hash: envelope_hash,
+            envelope_hash,
             bytes,
-            object_id,
-        } = request;
-        let sequence = values::decimal(&seq, false)?;
-        let hash = wire::hash(&envelope_hash)?;
-        let decoded = object::Envelope::from_json(&bytes)?;
-        let header = object::Header::decode(decoded.header())?;
+            decoded,
+            header,
+            sequence,
+            hash,
+        } = checked;
         let c = &header.context;
-        if c.space != scope.space
-            || c.page != scope.page
-            || c.epoch != scope.epoch
-            || c.author_device != principal
-            || stream != principal
-            || c.stream_seq != seq
-            // A device seals a checkpoint over its own stream's `own` namespace only (#2846):
-            // its updates there are the ones only it may combine.
-            || !(c.kind == "update" || (c.kind == "checkpoint" && c.namespace == "own"))
-            || decoded.hash()? != hash
-            || object_id.as_ref().is_some_and(|id| id != &header.object_id)
-        {
-            return Err(Code::Invalid);
-        }
-        let key = self
-            .admission
-            .authorize(principal, scope, Access::Append(c))?;
-        crypto::verify_signature(&key, &decoded.signature_input()?, decoded.signature())?;
+        crypto::verify_signature(key, &decoded.signature_input()?, decoded.signature())?;
         let ns = namespace(&c.namespace)?;
         let previous = c.prev_hash;
         let scope_of_stream = StreamScope {
@@ -1743,33 +1833,37 @@ impl<A: Admission> State<A> {
         let stored = store::Envelope {
             scope: scope_of_stream,
             namespace: ns,
-            seq: sequence,
-            hash,
+            seq: *sequence,
+            hash: *hash,
             previous,
-            bytes: &bytes,
+            bytes,
         };
         if c.kind == "checkpoint" {
             // The store prunes the covered prefix once the checkpoint pairs. Peers already hold
             // every update it covers, so once stored it is announced only for their cut.
             let accepted = self.store.checkpoint(&stored)?;
-            self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
-            if accepted == Accepted::New {
-                self.announce_checkpoint(scope, principal, ns, sequence);
+            if let Some(peer) = peer {
+                self.peers.get_mut(&peer).ok_or(Code::Denied)?.push(receipt);
             }
-            return Ok(());
+            if accepted == Accepted::New {
+                self.announce_checkpoint(scope, principal, ns, *sequence);
+            }
+            return Ok(accepted);
         }
-        let (envelope, transfer) = delivery(scope, hash, bytes.clone())?;
+        let (envelope, transfer) = delivery(scope, *hash, bytes.clone())?;
         let broadcast = wire::output(
             scope,
             "broadcast",
             serde_json::json!({"streamId":stream,"seq":seq,"envelopeHash":envelope_hash,"envelope":envelope}),
         )?;
         let accepted = self.store.append(&stored)?;
-        self.peers.get_mut(&id).ok_or(Code::Denied)?.push(receipt);
+        if let Some(peer) = peer {
+            self.peers.get_mut(&peer).ok_or(Code::Denied)?.push(receipt);
+        }
         if accepted == Accepted::New {
             self.fanout(scope, broadcast, transfer);
         }
-        Ok(())
+        Ok(accepted)
     }
 }
 #[derive(Debug, PartialEq, Eq)]

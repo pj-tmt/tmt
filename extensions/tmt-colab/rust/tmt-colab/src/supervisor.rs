@@ -131,35 +131,23 @@ pub(crate) fn activate_sync(deadline: Instant) -> Result<Activation, ActivationF
         &milliseconds,
         "--json",
     ])?;
-    activation_of(&reply, || invoke(&["status", "--layers", "--json"]))
+    activation_of(&reply)
 }
 
-/// The activation a successful `__activate` reply describes. A reply that names the project
-/// serve resolved at its start binds to it. A reply from an older Remote carries only the
-/// generation, and the project is then read from the recorded Firestore identity.
-fn activation_of(
-    reply: &str,
-    layers: impl FnOnce() -> Result<String, ActivationFailure>,
-) -> Result<Activation, ActivationFailure> {
+/// The activation a successful `__activate` reply describes: exactly the generation and the
+/// project serve resolved at its start. A reply without a project is refused; an older Remote
+/// answers with its own outdated-serve error instead of a reply.
+fn activation_of(reply: &str) -> Result<Activation, ActivationFailure> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Activated {
         generation: String,
-        #[serde(default)]
-        project: Option<String>,
+        project: String,
     }
-    let activated: Activated = serde_json::from_str(reply).map_err(|_| ActivationFailure::Local)?;
-    let project = match activated.project {
-        Some(project) => project,
-        None => {
-            let identity: serde_json::Value =
-                serde_json::from_str(&layers()?).map_err(|_| ActivationFailure::Local)?;
-            identity["firestoreDeployment"]["project"]
-                .as_str()
-                .ok_or(ActivationFailure::Local)?
-                .to_owned()
-        }
-    };
+    let Activated {
+        generation,
+        project,
+    } = serde_json::from_str(reply).map_err(|_| ActivationFailure::Local)?;
     let valid = !project.is_empty()
         && project.len() <= 64
         && project
@@ -168,7 +156,7 @@ fn activation_of(
     if !valid {
         return Err(ActivationFailure::Local);
     }
-    Activation::from_reply(project, &activated.generation).ok_or(ActivationFailure::Local)
+    Activation::from_reply(project, &generation).ok_or(ActivationFailure::Local)
 }
 
 /// Owns one started door until dropped. Remote owns the port policy.
@@ -557,28 +545,18 @@ mod tests {
     use super::*;
 
     const GENERATION: &str = "22222222-2222-4222-8222-222222222222";
-    fn no_layers() -> Result<String, ActivationFailure> {
-        panic!("a reply that names its project reads no recorded identity")
-    }
 
     #[test]
-    fn a_reply_that_names_its_project_binds_to_it_without_reading_the_recorded_identity() {
+    fn a_reply_binds_to_the_project_it_names() {
         let reply = format!(r#"{{"generation":"{GENERATION}","project":"demo-one"}}"#);
-        let activation = activation_of(&reply, no_layers).unwrap();
+        let activation = activation_of(&reply).unwrap();
         assert_eq!(activation.project, "demo-one");
     }
 
     #[test]
-    fn an_older_reply_takes_the_project_from_the_recorded_identity() {
+    fn a_reply_without_a_project_is_refused() {
         let reply = format!(r#"{{"generation":"{GENERATION}"}}"#);
-        let layers = || Ok(r#"{"firestoreDeployment":{"project":"demo-two"}}"#.to_owned());
-        assert_eq!(activation_of(&reply, layers).unwrap().project, "demo-two");
-        // Without that identity there is nothing to bind to.
-        let none = || Ok(r#"{"firestoreLayers":[]}"#.to_owned());
-        assert_eq!(
-            activation_of(&reply, none).err(),
-            Some(ActivationFailure::Local)
-        );
+        assert_eq!(activation_of(&reply).err(), Some(ActivationFailure::Local));
     }
 
     #[test]
@@ -591,7 +569,7 @@ mod tests {
             r#"{"project":"demo-one"}"#.to_owned(),
         ] {
             assert_eq!(
-                activation_of(&reply, no_layers).err(),
+                activation_of(&reply).err(),
                 Some(ActivationFailure::Local),
                 "{reply}"
             );

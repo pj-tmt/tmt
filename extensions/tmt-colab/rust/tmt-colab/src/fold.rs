@@ -251,6 +251,43 @@ impl Snapshot {
     ) -> Result<Self> {
         Self::capture_epoch(store, key, page, epoch, false)
     }
+    /// The authority for admitting originals of a page at its current epoch, with none of its
+    /// stored objects: the verified owner log, the page secret and the retained devices, plus
+    /// `extra` chains read from the cloud. Each chain is verified against the log when an
+    /// original names its device, never here.
+    pub(crate) fn admission(
+        store: &Store,
+        key: &Keyring,
+        page: &str,
+        extra: Vec<Device>,
+    ) -> Result<Self> {
+        values::generated_id(page)?;
+        store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+            let (states, payloads) = verify_log(&tx.log()?, key, page)?;
+            let authority = states.last().ok_or(OwnerFault::Invalid)?.clone();
+            let epoch = tx.current_epoch(page)?;
+            if tx.head() != Some(&authority.head)
+                || authority.policy.deleted
+                || epoch != authority.policy.epoch
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+            let secret = tx.epoch_secret(page, epoch)?.ok_or(OwnerFault::Invalid)?;
+            let mut devices = tx.devices()?;
+            devices.extend(extra);
+            Ok(Self {
+                authority,
+                epoch,
+                cuts: Vec::new(),
+                secret,
+                devices,
+                states,
+                payloads,
+                baseline: None,
+                objects: Vec::new(),
+            })
+        })
+    }
     fn capture_epoch(
         store: &Store,
         key: &Keyring,
@@ -336,6 +373,19 @@ impl Snapshot {
         stored: &crate::store::owner::epoch::StoredObject,
     ) -> Result<OpenedObject> {
         let cut = &self.cuts[index];
+        self.open_stream_object(key, page, &cut.stream, &cut.namespace, stored)
+    }
+    /// The same checks for an object of `stream` and `namespace` that this snapshot's cut list
+    /// need not name, which is how an original read from the cloud is admitted before it is
+    /// stored.
+    pub(crate) fn open_stream_object(
+        &self,
+        key: &Keyring,
+        page: &str,
+        stream: &str,
+        namespace: &str,
+        stored: &crate::store::owner::epoch::StoredObject,
+    ) -> Result<OpenedObject> {
         let envelope = object::Envelope::from_json(&stored.bytes)?;
         let h = object::Header::decode(envelope.header())?;
         let c = &h.context;
@@ -347,8 +397,8 @@ impl Snapshot {
         if c.space != key.space_id
             || c.page != page
             || c.epoch != self.epoch.to_string()
-            || c.author_device != cut.stream
-            || c.namespace != cut.namespace
+            || c.author_device != stream
+            || c.namespace != namespace
             || c.kind
                 != if stored.checkpoint {
                     "checkpoint"
@@ -365,7 +415,7 @@ impl Snapshot {
         }
         let bridge = at_write
             .recipients
-            .get(&("bridge".into(), cut.stream.clone()));
+            .get(&("bridge".into(), stream.to_owned()));
         let (issuer, key_bytes, owner_device) = if let Some(bridge) = bridge {
             if c.namespace != "own" {
                 return Err(OwnerFault::Invalid.into());
