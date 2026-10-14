@@ -1079,7 +1079,13 @@ fn hosted_plan() -> DeployPlan {
     .unwrap();
     let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
     let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap();
-    let content = hosting::compose(&[bundle]).unwrap().unwrap();
+    let content = hosting::compose(&[hosting::HostingInput {
+        extension: "colab",
+        declaration: &bytes,
+        bundle: &bundle,
+    }])
+    .unwrap()
+    .unwrap();
     let hosting = hosting::deployment_view(
         &content,
         PROJECT,

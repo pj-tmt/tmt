@@ -172,8 +172,10 @@ plan/Rules owners. No installed-root/receipt parser or artifact-path read exists
 An old unsupported command means no declaration; malformed/failed replies are unavailable.
 Optional Hosting capture uses the fixed `hosting-bundle --json` command after declaration
 validation and before provider setup, with a separate bounded stream and waited child cleanup.
-`hosting` validates the complete raw inventory, composes deterministic gzip/ServingConfig and
-names captured site/web-app creation and foreign replacement in the same frozen envelope.
+Discovery pairs each admitted raw declaration with its validated bundle; `hosting` does not parse
+those bytes. It composes their bounded file set and deterministic gzip/ServingConfig, including the
+public declaration file owned by the [contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules),
+and names captured site/web-app creation and foreign replacement in the same frozen envelope.
 The contract owns its schema, bounds, route allow-list and non-atomic publication order.
 The real port inventories Hosting and executes the frozen steps through the same deploy runner.
 Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
@@ -209,7 +211,7 @@ home only; an absent vector reports pending, a present vector needs the complete
 Remote-private fixtures under `tests/fixtures/deploy_vectors/` qualify the entry without implying
 Colab provenance. The contract owns the parser boundary and input/output identity rules.
 
-For the offline Hosting view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
+The offline Hosting view includes the declaration file without another input. For that view only: `CARGO_BUILD_JOBS=2 cargo run --offline --locked -p tmt-remote --example compose_hosting -- /absolute/declaration-envelope.json /absolute/hosting-bundle-reply.json`; refusals emit one stderr code and no stdout.
 
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
