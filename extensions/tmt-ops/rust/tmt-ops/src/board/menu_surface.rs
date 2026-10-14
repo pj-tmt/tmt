@@ -1,7 +1,11 @@
 //! The action menu's surface: one modal list over the board. A menu's title is
 //! the member, request or job it is about, so its template is compiled once per
 //! menu rather than once per process; its entries never change while it is open.
-use super::{app::MenuEntry, picker_surface};
+use super::{
+    app::{Choice, MenuEntry},
+    picker_surface,
+    workspace::manage::Kind,
+};
 use crate::look::Look;
 use ratatui::{
     Frame,
@@ -21,6 +25,7 @@ pub(in crate::board) struct MenuSurface {
     template: surface::Template<()>,
     rows: Vec<ListRow>,
     state: picker_surface::State,
+    room_picker_footer: Option<String>,
 }
 
 /// What the pointer asked of the menu.
@@ -39,7 +44,30 @@ fn row_id(index: usize) -> String {
 }
 
 impl MenuSurface {
+    pub fn invalidate(&mut self) {
+        self.state.invalidate();
+    }
+
     pub fn new(title: &str, entries: &[MenuEntry]) -> Self {
+        let room_picker_footer = entries.first().and_then(|first| {
+            let Choice::WorkspaceRoom { kind, .. } = &first.choice else {
+                return None;
+            };
+            if !entries
+                .iter()
+                .all(|entry| matches!(&entry.choice, Choice::WorkspaceRoom { .. }))
+            {
+                return None;
+            }
+            let action = if *kind == Kind::Remove {
+                "remove"
+            } else {
+                kind.label()
+            };
+            let action = super::notes::sanitize(action).to_ascii_lowercase();
+            Some(format!("Enter {action} · Esc cancel"))
+        });
+        let cursor_width = if room_picker_footer.is_some() { 2 } else { 1 };
         let key_width = entries
             .iter()
             .map(|entry| entry.key.width())
@@ -55,7 +83,7 @@ impl MenuSurface {
             &title
         };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="center" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="accent"/><tmt-cell bind="row.cursor" class="w-1 shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="center" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="accent"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             entries.len() + CHROME
         );
         let rows: Vec<ListRow> = (0..entries.len())
@@ -72,6 +100,7 @@ impl MenuSurface {
             ),
             state: picker_surface::State::new(None, rows.clone(), None),
             rows,
+            room_picker_footer,
         }
     }
 
@@ -116,7 +145,8 @@ impl MenuSurface {
                 serde_json::json!({"id": row.id, "disabled": false, "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
             })
             .collect();
-        let value = serde_json::json!({"rows": rows, "query": "", "footer": FOOTER, "status": "", "notes": []});
+        let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);
+        let value = serde_json::json!({"rows": rows, "query": "", "footer": footer, "status": "", "notes": []});
         self.state
             .render(FILE, &self.template, value, frame, look, body);
     }
