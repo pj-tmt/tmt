@@ -14,7 +14,7 @@ pub use observation::{
 pub use operations::{
     bind_auto_identity, bind_guarded, bind_identity, bind_identity_at, bind_identity_with_creation,
     bind_identity_with_creation_at, name_auto_identity, remove_identity, rename_identity,
-    retire_failed_auto_launch, unbind_identity,
+    rename_identity_by_id, retire_failed_auto_launch, unbind_identity,
 };
 
 use crate::{
@@ -135,6 +135,14 @@ impl RenamedIdentity {
     pub fn changed(&self) -> bool {
         self.previous.name != self.identity.name
     }
+}
+
+/// Exact UUID/name compare-and-set result, captured inside the binding transaction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameOutcome {
+    Applied(Box<RenamedIdentity>),
+    Conflict(Identity),
+    NotFound,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
