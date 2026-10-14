@@ -42,7 +42,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     await trigger.click();
   }
   return page.getByRole(name.startsWith('Theme:') ? 'menuitemradio' : 'menuitem', {
-    name: name === 'Comments' ? /^Comments \d+/ : directName,
-    exact: name !== 'Comments',
+    name:
+      name === 'Comments' ? /^Comments \d+/ : name === 'Chat' ? /^Chat(?: · Unread)?$/ : directName,
+    exact: name !== 'Comments' && name !== 'Chat',
   });
 }

@@ -552,6 +552,7 @@ export const text = {
   pageHeaderActions: 'Page actions',
   discussion: 'Discussion',
   chat: 'Chat',
+  chatUnread: 'Unread',
   more: 'More',
   managePage: 'Manage page',
   aboutPage: 'About this page',

@@ -222,6 +222,7 @@ it('projects revisions and terminal tombstones but rejects changed references, m
   expect(read()[0].comments).toEqual([]);
 });
 function storeFixture() {
+  let connections = 0;
   let device = a,
     denied = false,
     owner = true,
@@ -259,7 +260,10 @@ function storeFixture() {
     deviceName: () => 'Browser',
     own: () => own,
     available: () => true,
-    connection: async () => c,
+    connection: async () => {
+      connections++;
+      return c;
+    },
     publish: async (records) => {
       if (failed) throw new Error('Publication failed');
       batches.push(structuredClone(records));
@@ -271,6 +275,7 @@ function storeFixture() {
   });
   return {
     store,
+    connections: () => connections,
     own,
     batches,
     device(value: string) {
@@ -287,6 +292,16 @@ function storeFixture() {
     },
   };
 }
+it('exposes the admitted scope for attention without a read, write or mutable scope authority', () => {
+  const f = storeFixture();
+  expect(f.store.scope).toEqual(fixture.scope);
+  const display = f.store.scope;
+  display.epoch = '999';
+  expect(f.store.scope).toEqual(fixture.scope);
+  expect(f.batches).toEqual([]);
+  expect(f.connections()).toBe(0);
+  expect(f.own).toEqual({});
+});
 it('publishes thread/opening comment atomically, preserves failures, and prevents stale/concurrent/foreign edits', async () => {
   const f = storeFixture();
   f.fail(true);

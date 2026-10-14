@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BrowserNotification } from '@tmt/browser-ui/react';
+import { ChatSeen } from './chat-unread.js';
 import type { ConversationReading, ReplyReveal } from './reply-notification-context.js';
 import {
   answerNotificationDestination,
@@ -33,6 +34,8 @@ export function useReplyNotifications({
   deviceId,
   classification: { questionThreads },
   blocked,
+  chatReadingAllowed = false,
+  chatScope,
   activate,
 }: {
   pageKey: string;
@@ -41,6 +44,8 @@ export function useReplyNotifications({
   deviceId: string | undefined;
   classification: ReplyClassification;
   blocked: boolean;
+  chatReadingAllowed?: boolean;
+  chatScope?: string;
   activate(event: ReplyNotification): boolean;
 }) {
   const create = () => ({
@@ -53,8 +58,11 @@ export function useReplyNotifications({
   if (scope.pageKey !== pageKey || scope.observer !== observer) setScope(create());
   const [modalCount, setModalCount] = useState(0);
   const modals = useRef(new Set<string>());
-  const readers = useRef(new Map<string, { destination: string; state: ConversationReading }>());
-  const [, setReadingRevision] = useState(0);
+  const readers = useRef(
+    new Map<string, { pageKey: string; destination: string; state: ConversationReading }>(),
+  );
+  const [readingRevision, setReadingRevision] = useState(0);
+  const [, setSeenRevision] = useState(0);
   const [reveal, setReveal] = useState<{
     pageKey: string;
     event: ReplyNotification;
@@ -67,6 +75,30 @@ export function useReplyNotifications({
       projectReplyNotifications({ asks, threads, askUnavailable }, deviceId, { questionThreads }),
     [asks, threads, askUnavailable, deviceId, questionThreads],
   );
+  // Binding scope stays stable even when a projection is temporarily unavailable.
+  const seenScope = chatScope ?? pageKey;
+  const chatSeen = useMemo(() => {
+    let storage: Storage | undefined;
+    try {
+      storage = localStorage;
+    } catch {
+      /* Presentation remains tab-local. */
+    }
+    return new ChatSeen(seenScope, storage);
+  }, [seenScope]);
+  useEffect(() => {
+    if (!scope.mounted || scope.pageKey !== pageKey || !chatReadingAllowed || modalCount > 0)
+      return;
+    const readingChat = [...readers.current.values()].some(
+      (reader) =>
+        reader.pageKey === pageKey &&
+        reader.destination === 'Chat' &&
+        reader.state.visible &&
+        reader.state.atEnd,
+    );
+    if (readingChat && chatSeen.read(projection.candidates.values()))
+      setSeenRevision((value) => value + 1);
+  }, [chatSeen, projection, readingRevision, chatReadingAllowed, modalCount, pageKey, scope]);
   const latest = useRef({ projection, blocked, activate, pageKey, reveal });
   latest.current = { projection, blocked, activate, pageKey, reveal };
   const matches = useCallback((event: ReplyNotification, key: string) => {
@@ -130,12 +162,13 @@ export function useReplyNotifications({
       [...readers.current.values()].some(
         (reader) =>
           reader.destination === destinationKey(event) &&
+          reader.pageKey === pageKey &&
           reader.state.visible &&
           (event.destination === 'Answer' || event.destination === 'Proposal'
             ? reader.state.recordKeys?.includes(event.recordKey)
             : reader.state.atEnd),
       ),
-    [],
+    [pageKey],
   );
   const modal = useCallback((id: string, open: boolean) => {
     if (open) modals.current.add(id);
@@ -148,17 +181,18 @@ export function useReplyNotifications({
       if (
         state &&
         previous?.destination === destination &&
+        previous.pageKey === pageKey &&
         previous.state.visible === state.visible &&
         previous.state.atEnd === state.atEnd &&
         JSON.stringify(previous.state.recordKeys) === JSON.stringify(state.recordKeys)
       )
         return;
       if (!state && !previous) return;
-      if (state) readers.current.set(id, { destination, state });
+      if (state) readers.current.set(id, { pageKey, destination, state });
       else readers.current.delete(id);
       setReadingRevision((value) => value + 1);
     },
-    [],
+    [pageKey],
   );
   const revealed = useCallback(
     (id: string) => setReveal((current) => (current?.request.id === id ? undefined : current)),
@@ -200,6 +234,7 @@ export function useReplyNotifications({
     // when no new reply arrived. The leaf rechecks retained queue entries too.
     events: scope.events.filter(isEligible),
     modalCount,
+    chatUnread: chatSeen.unread(projection.candidates.values()),
     activating: !!activation && matches(activation.event, activation.pageKey),
     isEligible,
     context: {

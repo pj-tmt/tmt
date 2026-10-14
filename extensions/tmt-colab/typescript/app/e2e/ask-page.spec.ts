@@ -386,10 +386,9 @@ for (const theme of ['light', 'dark'] as const)
     // Capture the opened annotation before the separate editing and IME controls type into it.
     await page.screenshot({ path: capturePath(`selection-annotation-390-${theme}.png`) });
     await input.press('c');
-    await expect(page.locator('.selection-mode').getByRole('button')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    await expect(
+      page.locator('.selection-mode').getByRole('button', { name: 'Selection mode', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
     await expect(input).toHaveText('c', { useInnerText: true });
     await page.evaluate(() => {
       document.addEventListener(
@@ -415,10 +414,9 @@ for (const theme of ['light', 'dark'] as const)
       await page.evaluate(() => (window as unknown as { composingKey: unknown }).composingKey),
     ).toEqual({ trusted: true, composing: true });
     await expect(input).toBeFocused();
-    await expect(page.locator('.selection-mode').getByRole('button')).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    await expect(
+      page.locator('.selection-mode').getByRole('button', { name: 'Selection mode', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('.annotation-popover')).toHaveCount(1);
     expect((await run(page, 'proof')).sends).toEqual([]);
     await client.detach();
@@ -532,7 +530,9 @@ for (const width of [1440, 390])
       }, theme);
       await page.goto('/');
       await run(page, 'mount');
-      const mode = page.locator('.selection-mode').getByRole('button');
+      const mode = page
+        .locator('.selection-mode')
+        .getByRole('button', { name: 'Selection mode', exact: true });
       await expect(mode).toHaveAttribute('aria-pressed', 'false');
       await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c');
       await page.screenshot({ path: capturePath(`1923-off-${width}-${theme}.png`) });
@@ -570,7 +570,7 @@ for (const width of [1440, 390])
       await mode.click();
       await expect(mode).toHaveAttribute('aria-pressed', 'true');
       expect(await mode.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
-      await expect(page.locator('.selection-mode .tmt-ui-icon-action-tooltip')).toBeHidden();
+      await expect(mode.locator('..').locator('.tmt-ui-icon-action-tooltip')).toBeHidden();
       await page.screenshot({ path: capturePath(`1923-on-${width}-${theme}.png`) });
       const frame = page.frameLocator('#ask-page-fixture iframe');
       await frame.locator('#selected').hover();
@@ -641,7 +641,9 @@ test('selection uses admitted comment authority without Ask; a read-only page ha
 }) => {
   await page.goto('/');
   await run(page, 'mount', { commentOnly: true });
-  const mode = page.locator('.selection-mode').getByRole('button');
+  const mode = page
+    .locator('.selection-mode')
+    .getByRole('button', { name: 'Selection mode', exact: true });
   await expect(mode).toHaveAttribute('aria-pressed', 'false');
   await mode.click();
   await page.frameLocator('#ask-page-fixture iframe').locator('#selected').click();
@@ -705,7 +707,9 @@ for (const width of [1440, 390])
       const input = window.getByRole('combobox', { name: 'Message' });
       await input.fill('Keep this discussion draft');
       await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
-      const mode = page.locator('.selection-mode').getByRole('button');
+      const mode = page
+        .locator('.selection-mode')
+        .getByRole('button', { name: 'Selection mode', exact: true });
       await mode.click();
       await page.mouse.click(point.x, point.y);
       await expect(input).toHaveText('Keep this discussion draft');
@@ -819,7 +823,9 @@ for (const [width, height, theme] of [
       state: 'replied',
       message: 'Existing discussion. '.repeat(45),
     });
-    const mode = page.locator('.selection-mode').getByRole('button');
+    const mode = page
+      .locator('.selection-mode')
+      .getByRole('button', { name: 'Selection mode', exact: true });
     await mode.click();
     await expect(mode).toHaveAccessibleName(text.selectionMode);
     await expect(mode).toHaveAttribute('aria-keyshortcuts', 'c Escape');

@@ -76,6 +76,7 @@ export function PageHeaderActions({
   comments,
   files,
   unseen,
+  chatUnread = false,
   canExport,
   canManage,
   canFiles,
@@ -86,6 +87,7 @@ export function PageHeaderActions({
   comments: number;
   files: number;
   unseen: boolean;
+  chatUnread?: boolean;
   canExport: boolean;
   canManage: boolean;
   canFiles: boolean;
@@ -100,7 +102,7 @@ export function PageHeaderActions({
         label={`${text.discussion} (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
         icon={<PageHeaderIcon name="discussion" count={comments} unseen={unseen} />}
         items={[
-          { key: 'chat', label: text.chat },
+          { key: 'chat', label: chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat },
           {
             key: 'comments',
             label: `${text.comments} ${comments}${unseen ? ` · ${text.threadUnseen}` : ''}`,

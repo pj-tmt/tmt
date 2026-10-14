@@ -33,6 +33,11 @@ Discussion (combined pending count) opens Chat or Comments; Agents and Files (fi
 open their panels; Source and export opens Source or Export page; More opens Manage
 page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
+The floating Chat icon shares the selection control's corner and opens the same
+retained drawer in one press; it hides during selection mode or an annotation.
+Its mark plus `Unread` (also on the Chat menu entry) is device-local reply attention,
+not the unresolved/Unseen count. Only visible Chat history at its end clears it;
+toast dismissal/expiry, closing and reload do not. Close/Escape restores the opener.
 `BrowserMenu` retains its row trigger for conversation actions and accepts an icon for
 headers; keyboard navigation skips disabled entries, Escape returns focus, and selection
 returns focus before opening a portal. Open header menus sit above the update row and
