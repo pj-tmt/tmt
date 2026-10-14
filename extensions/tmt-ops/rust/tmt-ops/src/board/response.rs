@@ -4,6 +4,9 @@ use super::home_leads::MessageKey;
 use std::ops::Range;
 use tmt_tui::components::Editor;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Quote {
     pub key: MessageKey,
@@ -59,12 +62,96 @@ impl Selection {
     }
 }
 
+/// The caller owns its source surface. Opening a composer remains observable
+/// even when a retained draft already uses the complete attachment budget.
+pub(super) enum Attachment {
+    Composer(super::app::Effect),
+    Opened {
+        effect: super::app::Effect,
+        reason: &'static str,
+    },
+    Refused(&'static str),
+    Unavailable,
+}
+impl Attachment {
+    pub(super) fn finish(self, app: &mut super::app::App) -> super::app::Effect {
+        match self {
+            Self::Composer(effect) => effect,
+            Self::Opened { effect, reason } => {
+                app.notice = Some(reason.into());
+                effect
+            }
+            Self::Refused(reason) => app.say(reason),
+            Self::Unavailable => super::app::Effect::None,
+        }
+    }
+}
+
 impl super::app::App {
+    pub(super) fn attach_response_quote(
+        &mut self,
+        target: super::row_detail::Target,
+        quote: Quote,
+    ) -> Attachment {
+        use super::app::RowTarget;
+        let current = self
+            .detail(&target)
+            .and_then(|detail| detail.reply)
+            .is_some_and(|reply| {
+                reply.acquired
+                    && reply.source
+                    && reply
+                        .key
+                        .as_ref()
+                        .is_some_and(|key| key.same_source(&quote.key))
+                    && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
+            });
+        if !current {
+            return Attachment::Refused(
+                "The response source changed; reopen it before annotating.",
+            );
+        }
+        let super::row_detail::Target::Row(target) = target else {
+            return Attachment::Unavailable;
+        };
+        let squad = match &target {
+            RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
+            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+        };
+        let Some(send) = self.send_target(target, !squad.is_empty()) else {
+            return Attachment::Refused("The agent is no longer available; quote not attached.");
+        };
+        // A quote is response provenance, not permission to create a squad
+        // note. Common pool identities receive an explicit Talk follow-up.
+        let verb = if squad.is_empty() {
+            crate::action::Verb::Talk
+        } else {
+            crate::action::Verb::Annotate
+        };
+        let effect = self.compose_row(send, verb, squad);
+        if let Some(input) = &mut self.input {
+            let bytes = input
+                .response_quotes
+                .iter()
+                .map(|quote| quote.text.len())
+                .sum::<usize>();
+            if bytes.saturating_add(quote.text.len()) > super::app::MESSAGE_LIMIT {
+                return Attachment::Opened {
+                    effect,
+                    reason: "Quote exceeds the 1 MiB attachment limit; not attached.",
+                };
+            } else {
+                input.response_quotes.push(quote);
+            }
+        }
+        Attachment::Composer(effect)
+    }
+
     pub(super) fn reader_event(
         &mut self,
         event: &ratatui::crossterm::event::Event,
     ) -> super::app::Effect {
-        use super::app::{Effect, Request, RowTarget};
+        use super::app::{Effect, Request};
         use ratatui::crossterm::event::{Event, KeyCode, MouseButton, MouseEventKind};
         if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'v')))
         {
@@ -118,57 +205,14 @@ impl super::app::App {
                 self.notice = Some("Select a response range first.".into());
                 return Effect::None;
             };
-            let current = self
-                .detail(&target)
-                .and_then(|detail| detail.reply)
-                .is_some_and(|reply| {
-                    reply.acquired
-                        && reply.source
-                        && reply
-                            .key
-                            .as_ref()
-                            .is_some_and(|key| key.same_source(&quote.key))
-                        && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
-                });
-            if !current {
-                self.notice =
-                    Some("The response source changed; reopen it before annotating.".into());
-                return Effect::None;
+            let attached = self.attach_response_quote(target, quote);
+            if matches!(
+                attached,
+                Attachment::Composer(_) | Attachment::Opened { .. }
+            ) {
+                self.row_details.reader = None;
             }
-            let super::row_detail::Target::Row(target) = target else {
-                return Effect::None;
-            };
-            let squad = match &target {
-                RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
-                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
-            };
-            let Some(send) = self.send_target(target, !squad.is_empty()) else {
-                self.notice = Some("The agent is no longer available; quote not attached.".into());
-                return Effect::None;
-            };
-            self.row_details.reader = None;
-            // A quote is response provenance, not permission to create a squad
-            // note. Common pool identities receive an explicit Talk follow-up.
-            let verb = if squad.is_empty() {
-                crate::action::Verb::Talk
-            } else {
-                crate::action::Verb::Annotate
-            };
-            let effect = self.compose_row(send, verb, squad);
-            if let Some(input) = &mut self.input {
-                let bytes = input
-                    .response_quotes
-                    .iter()
-                    .map(|quote| quote.text.len())
-                    .sum::<usize>();
-                if bytes.saturating_add(quote.text.len()) > super::app::MESSAGE_LIMIT {
-                    self.notice =
-                        Some("Quote exceeds the 1 MiB attachment limit; not attached.".into());
-                } else {
-                    input.response_quotes.push(quote);
-                }
-            }
-            return effect;
+            return attached.finish(self);
         }
         let reader = self.row_details.reader.as_mut().unwrap();
         if let Some(selection) = &mut reader.selection {
