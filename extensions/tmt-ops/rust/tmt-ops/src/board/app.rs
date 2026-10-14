@@ -1836,10 +1836,11 @@ impl App {
             }
             Verb::HomeMessage => return self.toggle_row_detail(),
             Verb::ViewReply => {
-                return if self.reply_hint() {
-                    self.view_row_reply()
-                } else {
+                let effect = self.view_row_reply();
+                return if self.row_details.reader.is_none() {
                     self.say("No response is available for the selected agent yet.")
+                } else {
+                    effect
                 };
             }
             Verb::AskLead => return self.ask_lead(),
@@ -1925,6 +1926,7 @@ impl App {
                 !matches!(event.as_str(), "click" | "double-click")
                     && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
                     && (row.is_some() || !action.verb.acts_on_member())
+                    && (action.verb != Verb::ViewReply || self.reply_hint())
                     // Without a digest source there is nothing for this entry to do.
                     && (action.verb != Verb::Digest
                         || row.as_ref().is_some_and(|row| self.digest_choice(row).is_some()))

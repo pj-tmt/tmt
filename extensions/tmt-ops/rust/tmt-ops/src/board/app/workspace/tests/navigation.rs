@@ -152,7 +152,12 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
 fn reader_entry_without_a_response_says_why_without_changing_selection() {
     let mut app = board();
     let target = app.workspace.selected.clone();
-    paint(&app, 160, 36);
+    assert!(!paint(&app, 160, 36).join("\n").contains("v reader"));
+    app.context_menu();
+    assert!(!app.menu.as_ref().unwrap().entries.iter().any(
+        |entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::ViewReply)
+    ));
+    key(&mut app, KeyCode::Esc);
     assert_eq!(key(&mut app, KeyCode::Char('v')), Effect::None);
     assert!(app.row_details.reader.is_none());
     assert!(
@@ -161,6 +166,31 @@ fn reader_entry_without_a_response_says_why_without_changing_selection() {
             .is_some_and(|text| text.contains("response"))
     );
     assert_eq!(app.workspace.selected, target);
+}
+
+#[test]
+fn reader_entry_uses_the_visible_response_without_requiring_retired_row_expansion() {
+    let mut app = board();
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":MEMBER,"requestId":"req_44444444-4444-4444-8444-444444444444",
+        "response":"Actual held response", "submittedAtMs":crate::status::now_ms(),
+    })];
+    paint(&app, 160, 36);
+    let target = app.selected_detail_target().unwrap();
+    assert!(!app.row_details.expanded.contains(&target));
+    assert_eq!(key(&mut app, KeyCode::Char('v')), Effect::None);
+    assert!(app.row_details.reader.is_some());
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("reply from worker"), "{screen}");
+    assert!(screen.contains("Actual held response"), "{screen}");
+    key(&mut app, KeyCode::Esc);
+    assert!(app.row_details.reader.is_none());
+    let screen = paint(&app, 160, 36).join("\n");
+    assert!(screen.contains("v reader"), "{screen}");
+    app.context_menu();
+    assert!(app.menu.as_ref().unwrap().entries.iter().any(
+        |entry| matches!(&entry.choice, Choice::Action(action) if action.verb == Verb::ViewReply)
+    ));
 }
 
 #[test]

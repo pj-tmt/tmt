@@ -29,9 +29,6 @@ pub(super) struct State {
 }
 
 impl State {
-    pub fn contains(&self, target: &Target) -> bool {
-        self.expanded.contains(target)
-    }
     pub fn toggle(&mut self, target: Target) {
         if let Some(index) = self.expanded.iter().position(|entry| entry == &target) {
             self.expanded.remove(index);
@@ -354,11 +351,14 @@ impl App {
             }),
         ));
     }
-    pub(super) fn view_row_reply(&mut self) -> Effect {
-        if let Some(target) = self.selected_detail_target().filter(|target| {
+    fn selected_reply_target(&self) -> Option<Target> {
+        self.selected_detail_target().filter(|target| {
             self.detail(target)
                 .is_some_and(|detail| detail.reply.is_some())
-        }) {
+        })
+    }
+    pub(super) fn view_row_reply(&mut self) -> Effect {
+        if let Some(target) = self.selected_reply_target() {
             self.row_details.reader = Some(Reader::new(
                 target,
                 self.conversation_reply().filter(|reply| reply.acquired),
@@ -367,12 +367,7 @@ impl App {
         Effect::None
     }
     pub(super) fn reply_hint(&self) -> bool {
-        self.selected_detail_target().is_some_and(|target| {
-            self.row_details.contains(&target)
-                && self
-                    .detail(&target)
-                    .is_some_and(|detail| detail.reply.is_some())
-        })
+        self.selected_reply_target().is_some()
     }
 }
 

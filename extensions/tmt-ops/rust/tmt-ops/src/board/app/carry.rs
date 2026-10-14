@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(after.scrolls.offset(Pane::Rows), 3);
         assert_eq!(after.scrolls.offset(Pane::Notes), 5);
         assert!(
-            after.row_details.contains(&Detail::Row(target)),
+            after.row_details.expanded.contains(&Detail::Row(target)),
             "expansion returns"
         );
         assert!(after.pending_resume.is_none() && !after.reload_blocked());
