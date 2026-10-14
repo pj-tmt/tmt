@@ -331,6 +331,24 @@ fn tree_line(app: &App, row: &super::OpsTreeRow, width: u16) -> Line<'static> {
     } else {
         state_style
     };
+    let count_scope = match &row.target {
+        OpsTarget::Squad(room) => Some(crate::board::overview::cron_counts::Scope::Room(room)),
+        OpsTarget::Member {
+            room_id,
+            identity_id,
+        } => Some(crate::board::overview::cron_counts::Scope::Owner {
+            id: identity_id,
+            room: room_id.as_deref(),
+        }),
+        OpsTarget::Pool => None,
+    };
+    if let Some(scope) = count_scope {
+        text.push_str(" · ");
+        text.push_str(&crate::board::overview::cron_counts::label(
+            app.cron.counts.count(scope),
+            false,
+        ));
+    }
     let mut line = Line::styled(text, style);
     if let Some(raw) = app
         .workspace_snapshot()

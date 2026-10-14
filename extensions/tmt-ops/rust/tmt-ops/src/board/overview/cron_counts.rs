@@ -1,5 +1,5 @@
 //! Counts from one acquired cron snapshot, never a clock or service read.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub struct Job<'a> {
     pub room: &'a str,
@@ -20,28 +20,72 @@ pub enum Scope<'a> {
     Room(&'a str),
 }
 
-/// None is an unavailable/incomplete read, not zero. Job IDs are room-scoped;
-/// the same observation in two squad projections must never double the count.
-pub fn count(jobs: Option<&[Job<'_>]>, scope: Scope<'_>) -> Option<Count> {
-    let jobs = jobs?;
-    let mut seen = BTreeSet::new();
-    let mut result = Count {
-        active: 0,
-        total: 0,
-    };
-    for job in jobs {
-        let included = match scope {
-            Scope::Owner { id, room } => {
-                job.owner == Some(id) && room.is_none_or(|room| job.room == room)
-            }
-            Scope::Room(room) => job.room == room,
+/// One immutable count projection per acquired job snapshot. Missing is not zero;
+/// the same room/id in two projections contributes only once.
+#[derive(Default)]
+pub struct Summary {
+    known: bool,
+    rooms: BTreeMap<String, Count>,
+    owners: BTreeMap<(String, Option<String>), Count>,
+}
+
+impl Summary {
+    pub fn of(jobs: Option<&[Job<'_>]>) -> Self {
+        let Some(jobs) = jobs else {
+            return Self::default();
         };
-        if included && seen.insert((job.room, job.id)) {
-            result.total += 1;
-            result.active += u32::from(job.on && job.owner_valid);
+        let mut result = Self {
+            known: true,
+            ..Self::default()
+        };
+        let mut seen = BTreeSet::new();
+        for job in jobs {
+            if !seen.insert((job.room, job.id)) {
+                continue;
+            }
+            let add = |count: &mut Count| {
+                count.total = count.total.saturating_add(1);
+                count.active = count
+                    .active
+                    .saturating_add(u32::from(job.on && job.owner_valid));
+            };
+            add(result.rooms.entry(job.room.to_owned()).or_insert(Count {
+                active: 0,
+                total: 0,
+            }));
+            if let Some(owner) = job.owner {
+                for room in [None, Some(job.room.to_owned())] {
+                    add(result
+                        .owners
+                        .entry((owner.to_owned(), room))
+                        .or_insert(Count {
+                            active: 0,
+                            total: 0,
+                        }));
+                }
+            }
         }
+        result
     }
-    Some(result)
+
+    pub fn count(&self, scope: Scope<'_>) -> Option<Count> {
+        if !self.known {
+            return None;
+        }
+        let count = match scope {
+            Scope::Room(room) => self.rooms.get(room),
+            Scope::Owner { id, room } => self.owners.get(&(id.to_owned(), room.map(str::to_owned))),
+        };
+        Some(count.copied().unwrap_or(Count {
+            active: 0,
+            total: 0,
+        }))
+    }
+}
+
+#[cfg(test)]
+fn count(jobs: Option<&[Job<'_>]>, scope: Scope<'_>) -> Option<Count> {
+    Summary::of(jobs).count(scope)
 }
 
 pub fn label(count: Option<Count>, ascii: bool) -> String {
