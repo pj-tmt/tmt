@@ -52,6 +52,8 @@ plus own-result metadata, not an event log: source times sort newest first,
 untimed rows last, and failed or unacquired pages say unavailable. Successful empty
 pages say No observed recent exchanges. Summaries label incomplete totals and
 unknown modes/counts instead of inferring Off or zero.
+The two-line Overview legend omits Digest, Manage, Create, Remove and Details;
+Help and the Actions menu retain these effective bindings.
 `overview::detail` discloses full values and observed membership scope without
 adding command authority. The Summary timer control opens the existing all-rooms
 list without retargeting selection. With no selected target, the Overview Timers
@@ -133,7 +135,10 @@ has no token cells, and model metadata is best effort. Provider pace/trend remai
 a derived current-cycle observation, not a persisted field or new acquisition.
 See the meter reference for coverage, time fences and trend thresholds. Overview
 and Digest share the same admitted per-window quota bars: remaining percent,
-labelled reset and measured weekly pace. Complete source timestamps and unknown
+labelled reset and measured weekly pace. Quota width >= 90 pairs providers;
+narrower areas stack them. Paired rows omit reset/pace when they do not fit
+(terminal 160/100); stacked rows retain them at 80/60, while Quota Details always
+retain full values. Complete source timestamps and unknown
 evidence stay in on-demand details; paint and input perform no acquisition.
 
 `board::overview::chart::host` owns one session Each/Range selection for Overview
