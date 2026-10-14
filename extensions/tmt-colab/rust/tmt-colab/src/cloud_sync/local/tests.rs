@@ -291,7 +291,14 @@ fn the_preamble_is_the_owner_rows_then_each_signed_original_exactly() {
     let rows = fixture.local.preamble(&page).ok().unwrap();
     assert_eq!(
         resources(&rows),
-        ["spaces", "pages", "members", "authority", "authority", "authority"]
+        [
+            "spaces",
+            "pages",
+            "members",
+            "authority",
+            "authority",
+            "authority"
+        ]
     );
     assert!(matches!(rows[0], Row::Create(_)));
     assert!(matches!(rows[1], Row::Put(_)));
