@@ -93,6 +93,10 @@ impl Home {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        Self::at(root, devices, seed_from)
+    }
+    /// The same home in a given private directory, such as a world's Colab state root.
+    pub(crate) fn at(root: PathBuf, devices: &[DeviceSpec], seed_from: Option<&Home>) -> Self {
         let layout = Layout::open(&root).unwrap();
         if let Some(other) = seed_from {
             let seed = fs::read(other.layout.directory.join("owner.key")).unwrap();
