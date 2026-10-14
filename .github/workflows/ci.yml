@@ -45,6 +45,7 @@ jobs:
       release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
       remote_firestore: ${{ steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
       colab_firestore: ${{ steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
+      native_sync_emulator: ${{ steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -310,6 +311,20 @@ jobs:
           grep -q ': test$' <<< "$remote_tests"
           node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace
           cargo build --locked --workspace
+      - name: Select hosted Temurin 21 for native sync acceptance
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
+        run: |
+          test -n "$JAVA_HOME_21_X64"
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME_21_X64/bin/java" -version
+      - name: Install pinned native sync emulator tools
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
+        run: npm install --global firebase-tools@15.29.0
+      - name: Prove native Auth and sealed sync against Colab Rules
+        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
+        timeout-minutes: 8
+        run: node extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs
       - name: Test Ops and architecture
         if: needs.changes.outputs.native_scope == 'ops'
         working-directory: rust

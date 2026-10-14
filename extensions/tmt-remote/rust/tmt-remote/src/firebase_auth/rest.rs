@@ -24,6 +24,18 @@ pub struct Request {
     response_bytes: usize,
 }
 impl Request {
+    /// Private lib-test injection; absent from release artifacts.
+    #[cfg(test)]
+    pub(super) fn with_test_url(&self, url: String) -> Self {
+        Self {
+            operation: self.operation,
+            url,
+            body: self.body.clone(),
+            content_type: self.content_type,
+            bearer: self.bearer.clone(),
+            response_bytes: self.response_bytes,
+        }
+    }
     pub fn operation(&self) -> Operation {
         self.operation
     }

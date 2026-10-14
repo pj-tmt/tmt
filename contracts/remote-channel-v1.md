@@ -2279,6 +2279,15 @@ before I/O. No continuation means the run is complete; otherwise it is incomplet
 run ledger. Repeated runs discover arrivals missed by a prior run; pruning requires rebootstrap.
 Native poll interval/read costs are defined by the native transport, not this type boundary.
 
+Native Auth and sealed-document acceptance is an explicitly selected Auth+Firestore
+emulator scenario over the checkout's Colab declaration, Rules and indexes, recording
+those hashes. It exercises ordinary anonymous signup/refresh, same-target create/read,
+stream-cursor catch-up, page COUNT wakes and typed write/read/query/wake refusals after
+admission changes, retaining the uid. Production endpoints are unchanged; only a private
+lib-test HTTP adapter routes fixed demo endpoints to loopback. Plain crate runs ignore
+this scenario. This proof does not establish live-project acceptance or composite-index
+enforcement (the emulator does not enforce those indexes).
+
 #### Subscribe
 
 Subscribe takes a page-level `SyncInterest {resource,scope}`: exact query-mapping scope minus

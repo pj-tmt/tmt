@@ -37,3 +37,16 @@ recording is off so emulator tokens are not written into traces.
 The Firebase dependency remains exactly 13.0.0. Pin equality/size/license checks
 cover the actual hosted asset separately; this test bundle is never copied into
 Remote pages or Colab Hosting. Emulator evidence is not live-project acceptance.
+
+## Native acceptance in CI
+
+`native-qualify.mjs` selects the one ignored native Auth/REST scenario and runs it
+inside the existing Native Rust workspace tests job. Host Temurin 21 and
+firebase-tools 15.29.0 start Auth+Firestore on loopback; no Docker or account is
+used. Declaration, Rules and indexes come directly from the checkout's Colab
+vectors, with their SHA-256 hashes printed. The scenario uses `private-world.mjs`,
+requires exactly one executed test and reports wall time; missing inputs fail.
+Ordinary `cargo test` ignores this explicitly emulator-only scenario. The
+[contract acceptance boundary](../../../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
+owns what this proof establishes; composite-index enforcement and live-project
+acceptance are separate.

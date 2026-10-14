@@ -1,6 +1,8 @@
 //! Remote-owned ordinary Firebase Auth credentials. Effects are injected; this
 //! owner adds no Core state, credential setting, background process or carrier.
 mod credential;
+#[cfg(test)]
+mod emulator_tests;
 mod http;
 #[cfg(test)]
 mod http_tests;
