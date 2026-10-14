@@ -167,9 +167,9 @@ event uses `selection.kind: "always"` with the `step` that proves the incident (
 `code-quality`'s PR title check); the guard rejects an `if` that depends on a path selection and a
 step the job does not have. The rehearsed prepare stages (`build`,
 `assemble`, `verify`, the upgrade proof stages, `gates-dry` and the bundle's `prepare` call) and the
-packaging incidents map to `release-rehearsal`. Incident rows (#1534, #1541, #1542, #1550, #1593,
-#1604, #1616, #1643, #1646, #1661, #1680) name the release step that caught the failure and a counterpart or a concrete
-release-only reason; adding an incident also extends the guard's incident list and tests.
+packaging incidents map to `release-rehearsal`. The manifest's `incidents` keys list the recorded
+release failures; each row names the release step that caught it and a counterpart or a concrete
+release-only reason. Adding an incident also extends the guard's incident list and tests.
 
 For a release workflow change, review its coverage and update the recorded step
 inventory and SHA-256 of the admitted job definition. `node

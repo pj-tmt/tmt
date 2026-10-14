@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
@@ -56,6 +57,7 @@ if (command === 'api') {
     else if (url.endsWith('/git/commits')) reply({sha:'e'.repeat(40)},201);
     else if (url.endsWith('/git/refs/heads/release-index')) {
       if(state.indexRefusal) {reply({message:'Forbidden'},403); process.exitCode=1;}
+      else if(state.indexRefResponses?.length) {const response=state.indexRefResponses.shift(); save(); reply({message:response.message},response.status); process.exitCode=1;}
       else {for(const entry of state.indexTree) state.indexFiles[entry.path]=state.indexBlobs[entry.sha]; save(); reply({sha:body.sha});}
     } else fail('unexpected index call: ' + url);
   }
@@ -116,6 +118,7 @@ interface Scenario {
   openIssues?: { number: number; title: string }[];
   issueFails?: boolean;
   indexRefusal?: boolean;
+  indexRefResponses?: { status: number; message: string }[];
 }
 
 function scenario(options: Scenario = {}) {
@@ -599,6 +602,128 @@ describe('release-publish.mjs index entry', () => {
     ).toBe(1);
     expect(absent.calls().some((args) => args.includes('--input'))).toBe(false);
   });
+  it.each([
+    [409, 'Update is not a fast forward'],
+    [422, 'Update is not a fast forward'],
+    [409, 'Reference cannot be updated'],
+    [422, 'Reference cannot be updated'],
+  ])('re-reads and retries a concurrent ref collision (%i: %s)', (status, message) => {
+    const fixture = scenario({ indexRefResponses: [{ status, message }] });
+    expect(
+      fixture.run(
+        [
+          'index',
+          '--product',
+          'cli',
+          '--tag',
+          TAG,
+          '--directory',
+          path.join(fixture.directory, 'record-fixture'),
+        ],
+        'pj-tmt/tmt'
+      )
+    ).toMatchObject({ status: 0, summary: expect.stringContaining('Release index advanced') });
+    const endpoints = fixture.calls().map((args) => args[1]);
+    const refUpdate = 'repos/pj-tmt/tmt/git/refs/heads/release-index';
+    const firstUpdate = endpoints.indexOf(refUpdate);
+    expect(endpoints.filter((endpoint) => endpoint === refUpdate)).toHaveLength(2);
+    expect(endpoints.slice(firstUpdate + 1, firstUpdate + 3)).toEqual([
+      'repos/pj-tmt/tmt/git/ref/heads/release-index',
+      `repos/pj-tmt/tmt/git/commits/${'b'.repeat(40)}`,
+    ]);
+    expect(
+      endpoints.filter((endpoint) => endpoint === 'repos/pj-tmt/tmt/git/commits')
+    ).toHaveLength(2);
+  });
+
+  it('exhausts exactly five consecutive concurrent ref collisions', () => {
+    const fixture = scenario({
+      indexRefResponses: Array.from({ length: 5 }, () => ({
+        status: 422,
+        message: 'Reference cannot be updated',
+      })),
+    });
+    expect(
+      fixture.run(
+        [
+          'index',
+          '--product',
+          'cli',
+          '--tag',
+          TAG,
+          '--directory',
+          path.join(fixture.directory, 'record-fixture'),
+        ],
+        'pj-tmt/tmt'
+      )
+    ).toMatchObject({
+      status: 1,
+      stderr: expect.stringContaining('Release index non-force race budget exhausted (5 attempts)'),
+    });
+    expect(
+      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
+    ).toHaveLength(5);
+    expect(
+      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/ref/heads/release-index')
+    ).toHaveLength(5);
+  });
+
+  it.each([
+    [422, 'Validation Failed'],
+    [409, 'Conflict'],
+    [403, 'Reference cannot be updated'],
+    [500, 'Update is not a fast forward'],
+  ])('does not retry another ref-update failure (%i: %s)', (status, message) => {
+    const fixture = scenario({ indexRefResponses: [{ status, message }] });
+    expect(
+      fixture.run(
+        [
+          'index',
+          '--product',
+          'cli',
+          '--tag',
+          TAG,
+          '--directory',
+          path.join(fixture.directory, 'record-fixture'),
+        ],
+        'pj-tmt/tmt'
+      )
+    ).toMatchObject({
+      status: 1,
+      stderr: expect.stringContaining(`Index ref update failed (${status}): ${message}`),
+    });
+    expect(
+      fixture.calls().filter((args) => args[1] === 'repos/pj-tmt/tmt/git/refs/heads/release-index')
+    ).toHaveLength(1);
+  });
+
+  it('records #3036 ref-collision retry policy in the pre-merge tooling suite', () => {
+    const read = (file: string) =>
+      readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+    const manifest = JSON.parse(read('.github/release-parity.json'));
+    expect(manifest.incidents['3036']).toEqual({
+      release: {
+        workflow: 'native-release.yml',
+        job: 'release-index',
+        step: 'name:Advance the verified release index',
+      },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-publish-script.test.ts'],
+        },
+      ],
+    });
+    expect(() => checkReleaseParity(manifest, { read })).not.toThrow();
+    delete manifest.incidents['3036'];
+    expect(() => checkReleaseParity(manifest, { read })).toThrow(
+      'release incidents: unmapped 3036'
+    );
+  });
+
   it('prints actual newest historical identity for operator review without writes', () => {
     const fixture = scenario();
     expect(
