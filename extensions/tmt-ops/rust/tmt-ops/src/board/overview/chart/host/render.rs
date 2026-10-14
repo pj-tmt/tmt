@@ -59,7 +59,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, mut area: Rect) -> 
     refresh(app, &mut state, crate::status::now_ms());
     let data = Rc::clone(state.observed.as_ref().unwrap());
     let partial = data.buckets.iter().any(|bucket| !bucket.complete());
-    let height = (area.width >= 38 && !app.usage_controls)
+    // Unknown/zero data remains honest and reachable through the same controls,
+    // without reserving an empty plot or exposing meaningless bucket hit areas.
+    let positive = data
+        .buckets
+        .iter()
+        .any(|bucket| bucket.tokens.is_some_and(|n| n > 0));
+    let height = (positive && area.width >= 38 && !app.usage_controls)
         .then(|| chart_height(app, area, partial))
         .flatten();
     if let Some(height) = height {

@@ -12,6 +12,10 @@ pub(super) const NOW: u64 = 1_791_600_000_000;
 pub(super) const VALUES: [u64; 12] = [0, 1, 0, 51, 12, 72, 49, 110, 85, 24, 180, 105];
 
 pub(super) fn populate(app: &mut App) {
+    populate_values(app, VALUES);
+}
+
+pub(super) fn populate_values(app: &mut App, values: [u64; 12]) {
     let roster = &app.workspace_snapshot().unwrap().roster;
     let id = roster.members.keys().next().unwrap().clone();
     let name = roster.members[&id].name.clone();
@@ -42,7 +46,7 @@ pub(super) fn populate(app: &mut App) {
                 Slice {
                     from_ms: NOW - 3_600_000 + index as u64 * 30_000,
                     to_ms: NOW - 3_600_000 + (index as u64 + 1) * 30_000,
-                    input_tokens: if index % 10 == 0 { VALUES[bar] } else { 0 },
+                    input_tokens: if index % 10 == 0 { values[bar] } else { 0 },
                     output_tokens: 0,
                     cached_input_tokens: 0,
                     covered_ms: if unknown {

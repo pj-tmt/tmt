@@ -76,6 +76,7 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
+        fixtures::populate(&mut app);
         let target = app.workspace.selected.clone();
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
@@ -137,6 +138,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
         let mut app = board();
+        fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 160, 36);
         let hit = app
@@ -144,7 +146,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
             .borrow()
             .hits
             .iter()
-            .find(|hit| hit.target == Target::Bar(0))
+            .find(|hit| hit.target == Target::Bar(2))
             .unwrap()
             .area;
         let target = app.workspace.selected.clone();
@@ -157,7 +159,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
             },
             std::time::Instant::now(),
         );
-        assert_eq!(app.usage_chart.borrow().hover, Some(0));
+        assert_eq!(app.usage_chart.borrow().hover, Some(2));
         assert!(text(&paint(&mut app, 160, 36)).contains("Observed tokens: unavailable"));
         click(&mut app, hit);
         assert!(app.usage_details.is_some());
@@ -188,6 +190,7 @@ fn bucket_click_keyboard_and_hover_share_exact_unknown_evidence_with_no_close_re
 fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let mut app = board();
+        fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
         let hit = app
@@ -292,6 +295,7 @@ fn populated_chart_cache_reuses_exact_semantics_and_same_slot_updates_revoke_it(
 fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let mut app = board();
+        fixtures::populate(&mut app);
         press(&mut app, KeyCode::Char('1'));
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Char('/'));
@@ -418,5 +422,54 @@ fn shortest_digest_body_keeps_its_last_member_row_instead_of_a_chart_summary() {
         paint(&mut app, 60, 8);
         assert!(!app.usage_chart.borrow().visible);
         assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
+    });
+}
+
+#[test]
+fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for known_zero in [false, true] {
+            let mut app = board();
+            app.shell.tab = OpsTab::Overview;
+            if known_zero {
+                fixtures::populate_values(&mut app, [0; 12]);
+            }
+            let selected = app.workspace.selected.clone();
+            let shown = text(&paint(&mut app, 160, 44));
+            let state = app.usage_chart.borrow();
+            let data = state.observed.as_ref().unwrap();
+            assert!(
+                data.buckets
+                    .iter()
+                    .all(|bucket| bucket.tokens.is_none_or(|n| n == 0))
+            );
+            assert_eq!(
+                data.buckets.iter().any(|bucket| bucket.tokens == Some(0)),
+                known_zero
+            );
+            assert!(!state.hits.is_empty());
+            assert!(
+                state.hits.iter().all(|hit| hit.target == Target::Controls),
+                "no-positive data must not expose bars: {shown}"
+            );
+            assert!(shown.contains("TOK / 5m"));
+            assert!(shown.contains(if known_zero {
+                "observed 0 tok"
+            } else {
+                "unavailable"
+            }));
+            drop(state);
+            press(&mut app, KeyCode::Char('u'));
+            assert!(
+                app.usage_controls,
+                "the same Each/Range controls remain reachable"
+            );
+            let controls = text(&paint(&mut app, 160, 44));
+            assert!(controls.contains("Usage · Each / Range"));
+            assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+            assert!(!app.usage_controls);
+            assert_eq!(app.workspace.selected, selected);
+        }
     });
 }

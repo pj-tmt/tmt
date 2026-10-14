@@ -142,8 +142,8 @@ Reader, search and composers retain their own input. Arrows draft a choice, Ente
 applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
 Invalid pairs preserve both controls. Direct control and bucket hits come from
 admitted, clipped nodes; resize and source replacement revoke their authority.
-If placement would leave fewer than six target rows, the chart collapses to one
-summary line. Its effective shortcut, summary click or Actions entry opens the
+If there is no positive observed count, or placement would leave fewer than six
+target rows, the chart collapses to one summary line. Its effective shortcut, summary click or Actions entry opens the
 same controls in an opaque body modal; closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row.
 
