@@ -35,6 +35,50 @@ use tmt_remote::{
     state::Layout,
 };
 
+/// Open project locks only after exec in a one-case process: parallel sibling
+/// publication forks must not inherit this fixture's credential/budget locks.
+/// The existing invocation owner bounds, terminates and reaps a failed child.
+fn isolated_case(name: &str) -> bool {
+    const MARKER: &str = "TMT_3019_NATIVE_SERVE_CASE";
+    let case = format!("serve::native_serve_tests::{name}");
+    if std::env::var(MARKER).as_deref() == Ok(case.as_str()) {
+        return false;
+    }
+    let program = std::env::current_exe().unwrap();
+    let args = ["--exact", &case, "--test-threads=1", "--nocapture"].map(std::ffi::OsString::from);
+    let environment = [(
+        std::ffi::OsString::from(MARKER),
+        std::ffi::OsString::from(&case),
+    )];
+    let stop = AtomicBool::new(false);
+    let output = tmt_invoke::invoke(
+        tmt_invoke::Request {
+            program: &program,
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(45),
+            max_stream_bytes: 65_536,
+            launch: tmt_invoke::LaunchOptions {
+                environment: tmt_invoke::EnvironmentPolicy::InheritWith(&environment),
+                ..Default::default()
+            },
+        },
+        Some(&stop),
+    )
+    .expect("isolated native serve case must complete with owned cleanup");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "{case} failed:\n{stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("running 1 test") && stdout.contains("1 passed; 0 failed"),
+        "must execute the selected case, not an empty selection: {stdout}"
+    );
+    true
+}
+
 const NOW: u64 = 1_800_000_000_000;
 fn token() -> String {
     format!("header.{}.signature", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
@@ -263,6 +307,10 @@ impl Channel {
 }
 #[test]
 fn configured_serve_reaches_native_client_only_after_opt_in_and_flushes_on_stop() {
+    if isolated_case("configured_serve_reaches_native_client_only_after_opt_in_and_flushes_on_stop")
+    {
+        return;
+    }
     let fixture = ServeObjectFixture::new();
     let layout = selected(&fixture);
     signed_in(&layout, false);
@@ -292,7 +340,12 @@ fn configured_serve_reaches_native_client_only_after_opt_in_and_flushes_on_stop(
         "sync.read",
         json!({"binding":binding["context"]["id"],"target":{"resource":"log","id":"probe"}}),
     );
-    assert_eq!(result, json!({"result":"read","document":null}));
+    assert_eq!(
+        result,
+        json!({"result":"read","document":null}),
+        "provider operations: {:?}",
+        *http.0.lock().unwrap()
+    );
     assert_eq!(
         *http.0.lock().unwrap(),
         vec![Operation::Refresh, Operation::Read]
@@ -311,6 +364,11 @@ fn configured_serve_reaches_native_client_only_after_opt_in_and_flushes_on_stop(
 }
 #[test]
 fn missing_project_sign_in_and_expired_sign_in_refuse_native_without_losing_the_door() {
+    if isolated_case(
+        "missing_project_sign_in_and_expired_sign_in_refuse_native_without_losing_the_door",
+    ) {
+        return;
+    }
     for state in ["project", "sign-in", "expired"] {
         let fixture = ServeObjectFixture::new();
         let layout = if state == "project" {
@@ -350,6 +408,9 @@ fn missing_project_sign_in_and_expired_sign_in_refuse_native_without_losing_the_
 }
 #[test]
 fn exhausted_project_budget_refuses_binding_without_provider_work_or_reset() {
+    if isolated_case("exhausted_project_budget_refuses_binding_without_provider_work_or_reset") {
+        return;
+    }
     let fixture = ServeObjectFixture::new();
     let layout = selected(&fixture);
     signed_in(&layout, false);
