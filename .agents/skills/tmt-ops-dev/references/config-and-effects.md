@@ -163,7 +163,11 @@ projection and providers stay on the shared fetcher path.
 ## Views (pane arrangements)
 
 The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
-room-UUID pins and sort/reverse, written by the existing Config CAS owner. One
+room-UUID pins and sort/reverse, written by the existing Config CAS owner.
+`workspace.overview_sort` names an existing monitor column;
+`workspace.overview_reverse` reverses its initial direction; optional
+`workspace.agent_pins` saves up to 1,024 canonical identity UUIDs for Overview.
+Older Ops builds reject that unknown key; the alpha channel upgrades automatically. One
 effective action table resolves defaults/global/host/section overrides for
 dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
 bytes remain intact. The shell has no legacy mode or factory-view picker.

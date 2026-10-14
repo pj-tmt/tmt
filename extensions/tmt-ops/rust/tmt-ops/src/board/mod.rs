@@ -318,9 +318,13 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 })
                 .map_err(|error| error.message);
         }
-        Request::WorkspacePreferences { expected, next } => Config::load(core)
+        Request::WorkspacePreferences {
+            expected,
+            next,
+            saved,
+        } => Config::load(core)
             .and_then(|mut config| config.save_workspace_preferences(&expected, &next))
-            .map(|()| "Workspace preferences saved.".to_owned())
+            .map(|()| saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()))
             .map_err(|error| error.message),
         Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
@@ -1267,7 +1271,12 @@ mod tests {
             |_, _| {},
             |_| {},
             |job| match job {
-                lane::Job::Act(Request::WorkspacePreferences { expected, next }) => {
+                lane::Job::Act(Request::WorkspacePreferences {
+                    expected,
+                    next,
+                    saved,
+                }) => {
+                    assert_eq!(saved, None);
                     assert_eq!(expected.layout, crate::config::OpsLayout::Auto);
                     assert_eq!(next.layout, crate::config::OpsLayout::Side);
                     saves.set(saves.get() + 1);

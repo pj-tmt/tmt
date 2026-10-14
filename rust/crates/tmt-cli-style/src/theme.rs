@@ -492,6 +492,50 @@ pub mod screen {
         }
     }
 
+    /// Variants of the same resolved role hue; no additional palette or token.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Fill {
+        Solid,
+        Lighter,
+    }
+
+    const LIGHTER_PERCENT: u16 = 20;
+
+    /// A bar segment in the role's color, with a label color readable on it.
+    /// Only TrueColor RGB paint is lightened; other depths preserve Solid.
+    pub fn fill(theme: &Theme, role: Role, depth: Depth, fill: Fill) -> Style {
+        let Some(paint) = theme.paint(role, depth).color(depth) else {
+            return style(theme, role, depth);
+        };
+        if let Color::Rgb(rgb) = paint {
+            let lighten = |channel: u8| {
+                if depth == Depth::TrueColor && fill == Fill::Lighter {
+                    channel + ((255 - u16::from(channel)) * LIGHTER_PERCENT / 100) as u8
+                } else {
+                    channel
+                }
+            };
+            let (r, g, b) = (lighten(rgb.0), lighten(rgb.1), lighten(rgb.2));
+            let linear = |v: u8| {
+                let x = f64::from(v) / 255.0;
+                if x <= 0.04045 {
+                    x / 12.92
+                } else {
+                    ((x + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            let luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+            let foreground = if (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) {
+                ScreenColor::Black
+            } else {
+                ScreenColor::White
+            };
+            Style::new().bg(ScreenColor::Rgb(r, g, b)).fg(foreground)
+        } else {
+            Style::new().bg(color(paint))
+        }
+    }
+
     /// The role's style for a ratatui cell.
     pub fn style(theme: &Theme, role: Role, depth: Depth) -> Style {
         let text = theme.style(role, depth);

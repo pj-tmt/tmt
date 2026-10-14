@@ -413,7 +413,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     let shown: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-                    for expected in ["<1%", "44%", "100%", "no reading yet", "reset"] {
+                    for expected in ["<1%", "44%", "100%", "no reading yet"] {
                         assert!(
                             shown.contains(expected),
                             "{tab:?}/{theme}/{width}: missing {expected}"
@@ -437,6 +437,22 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         )
                         .unwrap();
                     }
+                    assert_eq!(app.open_quota_details(), crate::board::app::Effect::None);
+                    terminal
+                        .draw(|frame| crate::board::view::render(frame, &app))
+                        .unwrap();
+                    let details: String = terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol())
+                        .collect();
+                    assert!(
+                        details.contains("reset 4d00h"),
+                        "{tab:?}/{theme}/{width}: {details}"
+                    );
+                    assert!(details.contains("Weekly pace: ~0.4%/h"), "{details}");
                 }
             }
         }

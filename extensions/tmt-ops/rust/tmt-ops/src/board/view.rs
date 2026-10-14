@@ -34,8 +34,8 @@ pub fn fit(text: &str, width: usize) -> String {
 pub fn render(frame: &mut Frame, app: &App) {
     let _rows = app.workspace_frame_rows();
     app.home_counters.borrow_mut().begin();
-    let global =
-        app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview;
+    // Overview owns its Subscriptions panel; do not build or register the former strip too.
+    let global = app.workspace_snapshot().is_none();
     let home_usage = (!app.loading() && global)
         .then(|| app.home_header_usage(std::time::Instant::now()))
         .flatten()
@@ -115,12 +115,27 @@ pub(in crate::board) fn render_frame(
             .view
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
-    let [tabs, boundary, summary, limits, meter_status, body, footer] = bands(
-        app,
-        frame.area(),
-        home_usage.is_some(),
-        home_limits.len().min(usize::from(u16::MAX)) as u16,
-    );
+    let overview =
+        app.workspace_snapshot().is_some() && app.shell.tab == super::shell::OpsTab::Overview;
+    let [tabs, boundary, summary, limits, meter_status, body, footer] = if overview {
+        Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(0),
+            Constraint::Length(0),
+            Constraint::Length(0),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .areas(frame.area())
+    } else {
+        bands(
+            app,
+            frame.area(),
+            home_usage.is_some(),
+            home_limits.len().min(usize::from(u16::MAX)) as u16,
+        )
+    };
     app.conversation.borrow_mut().area = body;
     strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     if boundary.height > 0 {

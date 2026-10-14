@@ -438,3 +438,80 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         }
     }
 }
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn role_fills_preserve_overrides_and_only_lighten_truecolor_rgb() {
+    use ratatui::style::Color as ScreenColor;
+    use screen::Fill;
+    let theme = Theme::default().with(Role::Working, Paint::Rgb(10, 20, 30));
+    assert_eq!(
+        screen::fill(&theme, Role::Working, Depth::TrueColor, Fill::Solid).bg,
+        Some(ScreenColor::Rgb(10, 20, 30))
+    );
+    assert_eq!(
+        screen::fill(&theme, Role::Working, Depth::TrueColor, Fill::Lighter).bg,
+        Some(ScreenColor::Rgb(59, 67, 75))
+    );
+    for depth in [Depth::Ansi16, Depth::None] {
+        assert_eq!(
+            screen::fill(&theme, Role::Working, depth, Fill::Solid),
+            screen::fill(&theme, Role::Working, depth, Fill::Lighter)
+        );
+    }
+    for paint in [Paint::Plain, Paint::Bold, Paint::Dimmed, Paint::Reverse] {
+        let theme = theme.with(Role::Working, paint);
+        for variant in [Fill::Solid, Fill::Lighter] {
+            assert_eq!(
+                screen::fill(&theme, Role::Working, Depth::TrueColor, variant),
+                screen::style(&theme, Role::Working, Depth::TrueColor)
+            );
+        }
+    }
+}
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn every_rgb_role_fill_keeps_wcag_label_contrast_in_both_bases() {
+    use ratatui::style::Color as ScreenColor;
+    use screen::Fill;
+    let lum = |r, g, b| {
+        let channel = |v: u8| {
+            let x = f64::from(v) / 255.0;
+            if x <= 0.04045 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    };
+    for base in [Base::Tmt, Base::TmtLight] {
+        for role in Role::ALL {
+            for fill in [Fill::Solid, Fill::Lighter] {
+                let style = screen::fill(&Theme::new(base), role, Depth::TrueColor, fill);
+                if matches!(
+                    Theme::new(base)
+                        .paint(role, Depth::TrueColor)
+                        .color(Depth::TrueColor),
+                    Some(anstyle::Color::Rgb(_))
+                ) {
+                    let Some(ScreenColor::Rgb(r, g, b)) = style.bg else {
+                        panic!(
+                            "resolved RGB role must retain an RGB fill: {base:?}/{role:?}/{fill:?}"
+                        )
+                    };
+                    let background = lum(r, g, b);
+                    let foreground = match style.fg {
+                        Some(ScreenColor::Black) => 0.0,
+                        Some(ScreenColor::White) => 1.0,
+                        other => panic!("RGB fill label: {other:?}"),
+                    };
+                    let contrast =
+                        (background.max(foreground) + 0.05) / (background.min(foreground) + 0.05);
+                    assert!(contrast >= 4.5, "{base:?}/{role:?}/{fill:?}: {contrast}");
+                }
+            }
+        }
+    }
+}

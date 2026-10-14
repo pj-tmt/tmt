@@ -154,7 +154,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     if let Some(list) = placement.list {
         if app.shell.tab == OpsTab::Overview {
-            crate::board::overview::view::render(frame, app, list);
+            crate::board::overview::composition::render(frame, app, list);
         } else {
             tree(frame, app, list);
         }

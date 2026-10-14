@@ -22,7 +22,7 @@ impl Sources for Data {
         Err("controls use bound values only".into())
     }
 }
-fn node(selection: Selection, summary: Option<&str>) -> Node {
+fn node(selection: Selection, summary: Option<&str>, width: u16) -> Node {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     let template = TEMPLATE.get_or_init(|| {
         let option = Schema::Object(BTreeMap::from([
@@ -44,12 +44,22 @@ fn node(selection: Selection, summary: Option<&str>) -> Node {
         let options: Vec<_> = values.iter().map(|value| json!({"id":format!("{prefix}-{value}"), "text": if *value == selected { format!("[{value:>2}m] ") } else { format!(" {value:>2}m  ") }})).collect();
         json!({"label":label,"options":options})
     }).collect();
+    if summary.is_none() && height(width) == 1 {
+        let mut options = rows[0]["options"].as_array().unwrap().clone();
+        options.push(json!({"id":"range-caption", "text":"Range "}));
+        options.extend(rows[1]["options"].as_array().unwrap().iter().cloned());
+        rows = vec![json!({"label":"Each  ", "options":options})];
+    }
     if let Some(summary) = summary {
         rows = vec![json!({"label":"", "options":[{"id":"open-chart","text":summary}]})];
     }
     template
         .materialize(FILE, &json!({"rows":rows}), &Data)
         .expect("admitted usage controls")
+}
+pub(super) fn height(width: u16) -> u16 {
+    // Two labels (six cells each) plus the seven existing six-cell options.
+    if width >= 54 { 1 } else { 2 }
 }
 pub(super) fn paint(
     buffer: &mut Buffer,
@@ -62,7 +72,7 @@ pub(super) fn paint(
     paint_node(
         buffer,
         area,
-        node(selection, None),
+        node(selection, None, area.width),
         selection,
         focus,
         draft,
@@ -79,7 +89,7 @@ pub(super) fn summary(
     paint_node(
         buffer,
         area,
-        node(selection, Some(text)),
+        node(selection, Some(text), area.width),
         selection,
         None,
         0,

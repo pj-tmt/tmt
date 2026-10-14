@@ -13,7 +13,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
-fn hint_word(action: &crate::action::Action) -> &'static str {
+fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
     use crate::action::Verb;
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     match action.verb {
@@ -30,6 +30,13 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
+        Verb::Talk if app.shell.tab == crate::board::shell::OpsTab::Overview => "chat",
+        Verb::Ui(crate::action::OpsUiAction::Pin)
+            if app.shell.tab == crate::board::shell::OpsTab::Overview =>
+        {
+            "pin agent"
+        }
+        Verb::Ui(crate::action::OpsUiAction::Pin) => "pin squad",
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
@@ -164,7 +171,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
         if !seen.insert(action.text.as_str()) {
             continue;
         }
-        let word = hint_word(action);
+        let word = hint_word(app, action);
         let hint = format!("{} {word}", key_label(key));
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {

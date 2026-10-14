@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{
 };
 use serde_json::Value;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
@@ -172,6 +172,7 @@ pub enum Request {
     WorkspacePreferences {
         expected: crate::config::OpsPreferences,
         next: crate::config::OpsPreferences,
+        saved: Option<String>,
     },
     WorkspaceOperation(super::workspace::manage::Change),
     /// A cron job control, with its actor, job and viewed revision resolved.
@@ -568,12 +569,13 @@ pub enum HitTarget {
     Row(usize),
     Meter(Option<usize>),
     Quota,
+    AllRoomTimers,
 }
 impl Hit {
     pub fn row(&self) -> Option<usize> {
         match self.target {
             HitTarget::Row(row) => Some(row),
-            HitTarget::Meter(_) | HitTarget::Quota => None,
+            HitTarget::Meter(_) | HitTarget::Quota | HitTarget::AllRoomTimers => None,
         }
     }
     fn contains(&self, x: u16, y: u16) -> bool {
@@ -608,6 +610,8 @@ pub struct App {
     pub(super) workspace_startup: Option<String>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
+    pub(in crate::board) workspace_header_hover: Cell<Option<crate::config::OverviewColumn>>,
+    pub(in crate::board) overview_filter: super::overview::monitor::Filter,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) overview_layout: RefCell<super::overview::columns::Layout>,
     pub(in crate::board) overview_sort_hits:
@@ -1237,6 +1241,7 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
+        self.overview_rows.borrow_mut().clear();
         self.clamp();
     }
 
@@ -3140,6 +3145,7 @@ impl App {
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
         self.meter_hover = None;
+        self.workspace_header_hover.set(None);
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
@@ -3299,6 +3305,7 @@ impl App {
         self.tab_hits.borrow_mut().clear();
         self.workspace_action_hits.borrow_mut().clear();
         self.overview_sort_hits.borrow_mut().clear();
+        self.workspace_header_hover.set(None);
         self.cron_scope_hits.borrow_mut().clear();
         if let Some(details) = &self.monitor_details {
             details.invalidate();
@@ -3399,8 +3406,19 @@ impl App {
                     _ => None,
                 })
         };
-        let changed = next != self.meter_hover;
+        let header =
+            if self.loading() || self.modal_open() || self.input.is_some() || self.searching {
+                None
+            } else {
+                self.overview_sort_hits
+                    .borrow()
+                    .iter()
+                    .find(|(area, _)| area.contains((event.column, event.row).into()))
+                    .map(|(_, column)| *column)
+            };
+        let changed = next != self.meter_hover || header != self.workspace_header_hover.get();
         self.meter_hover = next;
+        self.workspace_header_hover.set(header);
         changed
     }
 
@@ -3448,7 +3466,7 @@ impl App {
         }
         // A button/wheel event carries the current position too. Reconcile an
         // existing hover, without inventing hover on terminals lacking motion.
-        if self.meter_hover.is_some() {
+        if self.meter_hover.is_some() || self.workspace_header_hover.get().is_some() {
             self.move_pointer(event);
         }
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
@@ -3575,6 +3593,14 @@ impl App {
                 .any(|hit| hit.contains(event.column, event.row) && hit.target == HitTarget::Quota)
         {
             return self.open_quota_details();
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self.hits.borrow().iter().any(|hit| {
+                hit.contains(event.column, event.row) && hit.target == HitTarget::AllRoomTimers
+            })
+        {
+            return self.workspace_owner_timers(None, None);
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()

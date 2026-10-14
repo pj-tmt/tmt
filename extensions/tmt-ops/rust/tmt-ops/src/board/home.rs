@@ -223,5 +223,5 @@ impl Scenes {
 }
 
 mod bar;
-mod limits;
+pub(in crate::board) mod limits;
 use super::view::scene;

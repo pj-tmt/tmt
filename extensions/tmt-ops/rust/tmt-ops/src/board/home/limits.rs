@@ -27,7 +27,7 @@ const HOUR_MS: u64 = 60 * MINUTE_MS;
 const DAY_MS: u64 = 24 * HOUR_MS;
 
 /// `4d03h`, `3h14m` or `45m`, the form the providers' own footers use.
-fn reset(ms: u64) -> String {
+pub(in crate::board) fn reset(ms: u64) -> String {
     let (days, hours, minutes) = (ms / DAY_MS, ms % DAY_MS / HOUR_MS, ms % HOUR_MS / MINUTE_MS);
     match (days, hours) {
         (0, 0) => format!("{minutes}m"),
@@ -37,7 +37,7 @@ fn reset(ms: u64) -> String {
 }
 
 /// How long ago, in the one largest whole unit: `12m`, `3h` or `2d`.
-fn age(ms: u64) -> String {
+pub(in crate::board) fn age(ms: u64) -> String {
     match ms {
         ms if ms < HOUR_MS => format!("{}m", ms / MINUTE_MS),
         ms if ms < DAY_MS => format!("{}h", ms / HOUR_MS),
@@ -45,7 +45,7 @@ fn age(ms: u64) -> String {
     }
 }
 
-fn percent(value: f64) -> String {
+pub(in crate::board) fn percent(value: f64) -> String {
     if value > 0.0 && value < 1.0 {
         "<1%".into()
     } else {
@@ -57,7 +57,7 @@ fn state(figures: &Figures) -> Role {
     remaining_role(figures.weekly.percent)
 }
 
-fn remaining_role(percent: f64) -> Role {
+pub(in crate::board) fn remaining_role(percent: f64) -> Role {
     if percent < LOW_REMAINING_PERCENT {
         Role::Blocked
     } else if percent <= HEALTHY_REMAINING_PERCENT {
@@ -67,7 +67,7 @@ fn remaining_role(percent: f64) -> Role {
     }
 }
 
-fn warning(figures: &Figures) -> String {
+pub(in crate::board) fn warning(figures: &Figures) -> String {
     if !figures.runs_out_before_reset {
         return String::new();
     }
@@ -103,7 +103,12 @@ fn split_label(label: &str, fill: usize) -> (String, String) {
     (filled, track)
 }
 
-fn balance_parts(label: &str, percent: f64, cells: usize, role: Role) -> Vec<Value> {
+pub(in crate::board) fn balance_parts(
+    label: &str,
+    percent: f64,
+    cells: usize,
+    role: Role,
+) -> Vec<Value> {
     let fill = ((cells as f64 * percent / 100.0).round() as usize)
         .max(usize::from(percent > 0.0))
         .min(cells);
@@ -114,7 +119,7 @@ fn balance_parts(label: &str, percent: f64, cells: usize, role: Role) -> Vec<Val
     ]
 }
 
-fn rate_text(figures: &Figures) -> String {
+pub(in crate::board) fn rate_text(figures: &Figures) -> String {
     figures.burn.map_or_else(
         || "pace not known".into(),
         |rate| {

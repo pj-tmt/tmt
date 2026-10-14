@@ -215,13 +215,18 @@ The effective destination keys work from any non-typing pane or overlay; an
 overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
-Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, Digest,
+Overview is a one-row-per-identity monitor: Agent, Squad, State, TOK/h, MODE (Digest),
 Cron, Runtime and Model fit the available width. `e` opens full observed values,
 link/binding scopes, sources and management instructions. Click a column heading
 to toggle its order; `s` cycles columns and `S` reverses. TOK/h and Cron start
 descending; other columns ascend. Unknown values stay last in either direction,
 UUID breaks ties, and the initial order puts blocked then waiting first. This
-saved monitor order is independent of the Agents tree order.
+saved monitor order is independent of the Agents tree order. `f` switches the
+session-local All/Needs you filter without replacing a hidden selected UUID.
+Summary/Digest counts, provider limits, usage and recent exchanges have separate
+panels; unacquired/failed sources stay unknown. The Summary Timers control opens
+all rooms. With no selected target, Overview `c` does the same; a hidden/missing
+selected scope still refuses to widen.
 
 The Agents tree keeps Common pool first, then pinned squads and its selected sort
 order. Expand a squad to see its members; the lead is marked and included once in
@@ -233,7 +238,10 @@ or failed reads never prove that an identity belongs in the pool.
 With tree focus, ↑/↓ move, Right expands and Left collapses; Enter inspects the
 selected target. Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
-claimed the key. `s` cycles sort and `S` reverses; `p` pins/unpins a squad, `n`
+claimed the key. In Overview, click a header to sort and `p` pins/unpins the
+selected agent; pins are saved, with a divider before unpinned agents. Keyboard
+sort is opt-in: bind `sort` or `reverse-sort` in the usual binding table.
+In Agents, `p` pins/unpins a squad. `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
 selected membership, `D` opens Digest and `c` opens Timers. `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.

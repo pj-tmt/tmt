@@ -3,7 +3,7 @@
 mod model;
 mod render;
 
-pub(super) use model::{labels, rows, summary};
+pub(super) use model::{rows, summary};
 pub(super) use render::render;
 
 #[cfg(test)]

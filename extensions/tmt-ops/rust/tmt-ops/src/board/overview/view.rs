@@ -18,33 +18,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let rows = app.workspace_rows();
     let header = Rect {
-        height: area.height.min(1),
+        height: if area.height >= 3 { 2 } else { 0 },
         ..area
     };
     let slots = app.overview_layout.borrow_mut().slots(header);
+    crate::board::workspace::columns::paint_header(
+        frame.buffer_mut(),
+        header,
+        &slots,
+        app.look(),
+        snapshot.preferences.overview_sort,
+        app.workspace_header_hover.get(),
+        |column| match column {
+            Column::Digest => "MODE".into(),
+            Column::TokensPerHour => "TOK/h".into(),
+            _ => column.title().to_ascii_uppercase(),
+        },
+    );
     for (column, slot) in &slots {
-        let mark = snapshot
-            .preferences
-            .overview_sort
-            .filter(|order| order.column == *column)
-            .map_or("", |order| {
-                if order.direction == crate::config::OverviewDirection::Ascending {
-                    " ↑"
-                } else {
-                    " ↓"
-                }
-            });
-        strip::paint_left(
-            frame.buffer_mut(),
-            *slot,
-            Line::styled(
-                fit(
-                    &format!("{}{mark}", column.title()),
-                    usize::from(slot.width),
-                ),
-                look.role(Role::Muted),
-            ),
-        );
         if !slot.is_empty() {
             app.overview_sort_hits.borrow_mut().push((*slot, *column));
         }
@@ -55,28 +46,56 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         area.width,
         area.height.saturating_sub(header.height),
     );
-    *app.row_starts.borrow_mut() = (0..rows.len()).collect();
+    let pinned_count = rows
+        .iter()
+        .take_while(|row| {
+            matches!(&row.target,
+        crate::board::workspace::OpsTarget::Member { identity_id, .. }
+        if snapshot.preferences.agent_pins.contains(identity_id))
+        })
+        .count();
+    let divider = (pinned_count > 0 && pinned_count < rows.len()).then_some(pinned_count);
+    let starts: Vec<_> = (0..rows.len())
+        .map(|index| index + usize::from(divider.is_some_and(|at| index >= at)))
+        .collect();
+    *app.row_starts.borrow_mut() = starts.clone();
+    let lines = rows.len() + usize::from(divider.is_some());
     if app.follow
         && let Some(index) = rows
             .iter()
             .position(|row| Some(&row.target) == app.workspace.selected.as_ref())
     {
+        let start = starts[index];
         app.scrolls
-            .reveal_range(Pane::Rows, index..index + 1, body, rows.len());
+            .reveal_range(Pane::Rows, start..start + 1, body, lines);
     }
     app.scrolls.show_paint(
         frame,
         Pane::Rows,
         body,
-        rows.len().max(1),
+        lines.max(1),
         look,
         |frame, viewport, offset| {
-            for (line, row) in rows
-                .iter()
-                .skip(offset)
-                .take(usize::from(viewport.height))
-                .enumerate()
+            if let Some(at) = divider
+                && at >= offset
+                && at < offset + usize::from(viewport.height)
             {
+                let y = viewport.y + (at - offset) as u16;
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(viewport.x, y, viewport.width, 1),
+                    Line::styled(
+                        "─".repeat(usize::from(viewport.width)),
+                        look.role(Role::Dim),
+                    ),
+                );
+            }
+            for (index, row) in rows.iter().enumerate() {
+                let start = starts[index];
+                if start < offset || start >= offset + usize::from(viewport.height) {
+                    continue;
+                }
+                let line = start - offset;
                 let values = monitor::values(app, snapshot, row);
                 let y = viewport.y + line as u16;
                 let selected = Some(&row.target) == app.workspace.selected.as_ref();
@@ -102,43 +121,35 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                                 owner: Some(identity_id.clone()),
                             });
                     }
-                    if *column == Column::Digest
-                        && let crate::board::workspace::OpsTarget::Member { identity_id, .. } =
-                            &row.target
-                    {
-                        let labels =
-                            crate::board::digest_dashboard::labels(&app.labels, identity_id);
-                        if !labels.is_empty() {
-                            let mut x = slot.x;
-                            for (label, role, action) in labels {
-                                let width = unicode_width::UnicodeWidthStr::width(label.as_str())
-                                    .min(usize::from(u16::MAX))
-                                    as u16;
-                                if width > slot.right().saturating_sub(x) {
-                                    break;
-                                }
-                                let cell = Rect::new(x, y, width, 1);
-                                let style = if selected {
-                                    look.selection().patch(look.row_span(
-                                        true,
-                                        look.role(role),
-                                        true,
-                                    ))
-                                } else {
-                                    look.role(role)
-                                };
-                                strip::paint_left(
-                                    frame.buffer_mut(),
-                                    cell,
-                                    Line::styled(label, style),
-                                );
-                                if action {
-                                    app.chip_hits.borrow_mut().push((cell, offset + line));
-                                }
-                                x = x.saturating_add(width + 1);
+                    if *column == Column::Digest && !values.digest_labels.is_empty() {
+                        let mut x = slot.x;
+                        for supplied in &values.digest_labels {
+                            let mut label = crate::board::notes::sanitize(&supplied.text);
+                            if supplied.actionable {
+                                label.push_str(" ▾");
                             }
-                            continue;
+                            let role = supplied.role;
+                            let action = supplied.actionable;
+                            let width = unicode_width::UnicodeWidthStr::width(label.as_str())
+                                .min(usize::from(u16::MAX))
+                                as u16;
+                            if width > slot.right().saturating_sub(x) {
+                                break;
+                            }
+                            let cell = Rect::new(x, y, width, 1);
+                            let style = if selected {
+                                look.selection()
+                                    .patch(look.row_span(true, look.role(role), true))
+                            } else {
+                                look.role(role)
+                            };
+                            strip::paint_left(frame.buffer_mut(), cell, Line::styled(label, style));
+                            if action {
+                                app.chip_hits.borrow_mut().push((cell, index));
+                            }
+                            x = x.saturating_add(width + 1);
                         }
+                        continue;
                     }
                     let text = crate::board::notes::sanitize(&if *column == Column::Cron {
                         app.cron_glyphs.label(values.cron)
@@ -180,7 +191,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     x: viewport.x,
                     y,
                     width: viewport.width,
-                    target: HitTarget::Row(offset + line),
+                    target: HitTarget::Row(index),
                 });
             }
             if rows.is_empty() {

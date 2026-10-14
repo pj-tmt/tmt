@@ -106,6 +106,7 @@ impl OverviewSort {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpsPreferences {
     pub pinned: BTreeSet<String>,
+    pub agent_pins: BTreeSet<String>,
     pub sort: OpsSort,
     pub reversed: bool,
     /// None retains the monitor's needs-you ordering until an explicit sort.
@@ -195,8 +196,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("j", "jump"),
             ("o", "open"),
             ("e", "monitor-details"),
-            ("s", "sort"),
-            ("S", "reverse-sort"),
+            ("f", "overview-filter"),
             ("p", "pin"),
             ("m", "manage"),
             ("x", "remove-membership"),
@@ -362,6 +362,26 @@ impl Config {
                         }
                     }
                 }
+                "agent_pins" => {
+                    let pins = item.as_array().ok_or_else(|| {
+                        invalid("`workspace.agent_pins` must be an array of identity UUIDs.")
+                    })?;
+                    if pins.len() > 1024 {
+                        return Err(invalid(
+                            "`workspace.agent_pins` allows at most 1024 identities.",
+                        ));
+                    }
+                    for value in pins {
+                        let id = value.as_str().filter(|id| uuid_like(id)).ok_or_else(|| {
+                            invalid("`workspace.agent_pins` requires canonical identity UUIDs.")
+                        })?;
+                        if !result.agent_pins.insert(id.into()) {
+                            return Err(invalid(
+                                "`workspace.agent_pins` contains a repeated identity UUID.",
+                            ));
+                        }
+                    }
+                }
                 "sort" => {
                     result.sort = match item.as_str() {
                         Some("name") => OpsSort::Name,
@@ -443,6 +463,11 @@ impl Config {
         if next.pinned.iter().any(|id| !uuid_like(id)) {
             return Err(invalid("Workspace pins must be room UUIDs."));
         }
+        if next.agent_pins.len() > 1024 || next.agent_pins.iter().any(|id| !uuid_like(id)) {
+            return Err(invalid(
+                "Agent pins require canonical identity UUIDs, at most 1024.",
+            ));
+        }
         self.write(|document| {
             if document.get("workspace").is_none() {
                 document["workspace"] = Item::Table(Table::new());
@@ -452,6 +477,15 @@ impl Config {
                 pins.push(id.as_str());
             }
             document["workspace"]["pinned"] = value(pins);
+            if !next.agent_pins.is_empty() {
+                let mut pins = toml_edit::Array::new();
+                for id in &next.agent_pins {
+                    pins.push(id.as_str());
+                }
+                document["workspace"]["agent_pins"] = value(pins);
+            } else if let Some(table) = document["workspace"].as_table_like_mut() {
+                table.remove("agent_pins");
+            }
             document["workspace"]["sort"] = value(match next.sort {
                 OpsSort::Name => "name",
                 OpsSort::Attention => "attention",
@@ -572,12 +606,51 @@ mod tests {
             .unwrap()
             .bindings;
         assert_eq!(scoped["j"].verb, Verb::Run);
-        assert!(scoped.contains_key("S")); // Real defaults remain in validation/dispatch.
+        assert!(!scoped.contains_key("S")); // Authored keys still participate in admission.
         for (event, action) in scoped {
             assert!(!event.is_empty());
             assert!(!action.description().is_empty());
         }
     }
+    #[test]
+    fn overview_filter_default_yields_to_all_explicit_binding_scopes() {
+        let config = config("[bind]\nf='search'\n[bind.tmux]\nf='talk'\n");
+        assert_eq!(defaults(OpsKeyScope::Overview)["f"].text, "overview-filter");
+        for scope in [
+            OpsKeyScope::Reader,
+            OpsKeyScope::Member,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Pool,
+        ] {
+            assert!(!defaults(scope).contains_key("f"));
+        }
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Overview, None, None)
+                .unwrap()
+                .bindings["f"]
+                .text,
+            "search"
+        );
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
+                .unwrap()
+                .bindings["f"]
+                .text,
+            "talk"
+        );
+        let section: Bindings = [("f".into(), Action::parse("run /usr/bin/true").unwrap())].into();
+        assert_eq!(
+            config
+                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), Some(&section))
+                .unwrap()
+                .bindings["f"]
+                .verb,
+            Verb::Run
+        );
+    }
+
     #[test]
     fn reader_defaults_and_explicit_overrides_use_the_same_precedence() {
         let plain = config("")
@@ -687,8 +760,8 @@ mod tests {
             .workspace_keys(OpsKeyScope::Overview, None, None)
             .unwrap()
             .bindings;
-        assert_eq!(overview["s"].text, "sort");
-        assert_eq!(overview["S"].text, "reverse-sort");
+        assert!(!overview.contains_key("s"));
+        assert!(!overview.contains_key("S"));
         assert_eq!(overview["j"].text, "jump");
         assert_eq!(overview["x"].text, "remove-membership");
         assert_eq!(overview["n"].text, "create-squad");
@@ -876,6 +949,7 @@ mod tests {
         let expected = config.workspace_preferences().unwrap();
         let next = OpsPreferences {
             pinned: ["11111111-1111-4111-8111-111111111111".into()].into(),
+            agent_pins: BTreeSet::new(),
             sort: OpsSort::Attention,
             reversed: true,
             layout: OpsLayout::Stack,
@@ -998,5 +1072,100 @@ mod tests {
                 .is_err()
         );
         assert_eq!(fs::read(first.path()).unwrap(), before);
+    }
+    #[test]
+    fn agent_pins_round_trip_clear_and_leave_unrelated_content() {
+        let fixture = FileFixture::new();
+        let mut cfg = fixture.config();
+        let original = cfg.workspace_preferences().unwrap();
+        let mut next = original.clone();
+        next.agent_pins
+            .insert("11111111-1111-4111-8111-111111111111".into());
+        cfg.save_workspace_preferences(&original, &next).unwrap();
+        assert_eq!(fixture.config().workspace_preferences().unwrap(), next);
+        let bytes = fs::read_to_string(cfg.path()).unwrap();
+        assert!(bytes.contains("[squad.other]\nlayout='crew'"));
+        let pinned = next.clone();
+        next.agent_pins.clear();
+        cfg.save_workspace_preferences(&pinned, &next).unwrap();
+        assert!(
+            !fs::read_to_string(cfg.path())
+                .unwrap()
+                .contains("agent_pins")
+        );
+        next.reversed = true;
+        let before = cfg.workspace_preferences().unwrap();
+        cfg.save_workspace_preferences(&before, &next).unwrap();
+        assert!(
+            !fs::read_to_string(cfg.path())
+                .unwrap()
+                .contains("agent_pins")
+        );
+    }
+    #[test]
+    fn agent_pin_validation_and_concurrent_edit_are_not_truncated() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        for pins in [
+            "[42]".to_owned(),
+            "['not-an-id']".into(),
+            format!("['{id}', '{id}']"),
+            format!(
+                "[{}]",
+                (0..1025)
+                    .map(|n| format!("'{n:08x}-1111-4111-8111-111111111111'"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        ] {
+            assert!(
+                config(&format!("[workspace]\nagent_pins={pins}"))
+                    .workspace_preferences()
+                    .is_err()
+            );
+        }
+        assert!(
+            config("[workspace]\nfuture='unknown'")
+                .workspace_preferences()
+                .unwrap_err()
+                .message
+                .contains("is not a supported preference")
+        );
+        let fixture = FileFixture::new();
+        let mut first = fixture.config();
+        let original = first.workspace_preferences().unwrap();
+        let mut second = fixture.config();
+        let mut pinned = original.clone();
+        pinned.agent_pins.insert(id.into());
+        second
+            .save_workspace_preferences(&original, &pinned)
+            .unwrap();
+        let after = fs::read(first.path()).unwrap();
+        assert!(
+            first
+                .save_workspace_preferences(&original, &pinned)
+                .is_err()
+        );
+        assert_eq!(fs::read(first.path()).unwrap(), after);
+        let mut too_many = pinned.clone();
+        too_many.agent_pins = (0..1025)
+            .map(|n| format!("{n:08x}-1111-4111-8111-111111111111"))
+            .collect();
+        assert!(
+            second
+                .save_workspace_preferences(&pinned, &too_many)
+                .is_err()
+        );
+        assert_eq!(fs::read(second.path()).unwrap(), after);
+    }
+    #[test]
+    fn overview_sort_keys_are_authored_only() {
+        let cfg = config("[bind]\ns='sort'\nS='reverse-sort'");
+        let keys = cfg
+            .workspace_keys(OpsKeyScope::Overview, None, None)
+            .unwrap();
+        assert_eq!(keys.bindings["s"].text, "sort");
+        assert_eq!(keys.bindings["S"].text, "reverse-sort");
+        assert!(!defaults(OpsKeyScope::Overview).contains_key("s"));
+        assert!(!defaults(OpsKeyScope::Overview).contains_key("S"));
     }
 }

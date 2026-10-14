@@ -85,7 +85,7 @@ fn the_row_holds_its_place_before_the_first_sample_and_moves_nothing_when_it_fil
         let hits_before = format!("{:?}", app.hits.borrow());
         assert!(app.set_limits(standings()));
         let after = rows(&app, width);
-        assert_eq!(index_of(&after, "Codex (7d) 78% left"), pending, "{width}");
+        assert_eq!(index_of(&after, "7d 78%"), pending, "{width}");
         assert_eq!(index_of(&after, "worker"), body_before, "{width}");
         assert_eq!(format!("{:?}", app.hits.borrow()), hits_before);
     }
@@ -96,10 +96,32 @@ fn the_row_sits_directly_under_the_header_and_the_body_follows() {
     let mut app = app(true);
     app.set_limits(standings());
     let rows = rows(&app, 100);
-    let quota = &rows[index_of(&rows, "Codex (7d) 78% left")];
-    assert!(quota.contains("reset 2d10h"), "{quota}");
-    assert!(quota.contains("pace"), "{quota}");
-    assert!(index_of(&rows, "worker") > index_of(&rows, "Codex (7d) 78% left"));
+    let quota = &rows[index_of(&rows, "7d 78%")];
+    assert!(quota.contains("Codex"), "{quota}");
+    assert_eq!(
+        index_of(&rows, "7d 78%"),
+        index_of(&rows, "Subscriptions") + 1
+    );
+    crate::status::with_now_ms(NOW, || {
+        assert_eq!(app.open_quota_details(), crate::board::app::Effect::None);
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let details: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            details.contains("7d: 78% remaining · reset 2d10h"),
+            "{details}"
+        );
+        assert!(details.contains("Weekly pace: ~0.4%/h"), "{details}");
+    });
+    assert!(index_of(&rows, "worker") > index_of(&rows, "7d 78%"));
 }
 
 #[test]
@@ -109,7 +131,7 @@ fn meters_remain_at_narrow_widths_but_sampling_off_hides_them() {
     for width in [160, 100, 80, 60] {
         let shown = rows(&narrow, width);
         assert!(
-            shown.iter().any(|row| row.contains("Codex (7d) 78% left")),
+            shown.iter().any(|row| row.contains("7d 78%")),
             "{width}: {shown:#?}"
         );
     }

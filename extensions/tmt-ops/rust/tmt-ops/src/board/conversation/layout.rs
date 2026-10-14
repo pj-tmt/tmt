@@ -33,7 +33,16 @@ fn side(area: Rect) -> Placement {
 /// never consumes the only visible monitor surface.
 pub fn overview(area: Rect) -> Placement {
     if area.width >= 140 && area.height >= 12 {
-        side(area)
+        let left = (u32::from(area.width) * 3 / 5) as u16;
+        Placement {
+            list: Some(Rect::new(area.x, area.y, left, area.height)),
+            conversation: Some(Rect::new(
+                area.x + left + 1,
+                area.y,
+                area.width - left - 1,
+                area.height,
+            )),
+        }
     } else {
         Placement {
             list: Some(area),
@@ -101,6 +110,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn overview_uses_the_mock_split_without_changing_admission_or_agents() {
+        for width in [139, 140, 141, 160, 200] {
+            for height in [11, 12, 44] {
+                let area = Rect::new(2, 3, width, height);
+                let placed = overview(area);
+                for pane in [placed.list, placed.conversation].into_iter().flatten() {
+                    assert_eq!(pane.intersection(area), pane);
+                }
+                if width >= 140 && height >= 12 {
+                    let list = placed.list.unwrap();
+                    let conversation = placed.conversation.unwrap();
+                    assert_eq!(list.width, (u32::from(width) * 3 / 5) as u16);
+                    assert_eq!(list.right() + 1, conversation.x);
+                    assert!(list.intersection(conversation).is_empty());
+                } else {
+                    assert_eq!(placed.list, Some(area));
+                    assert!(placed.conversation.is_none());
+                }
+            }
+        }
+        let medium = overview(Rect::new(0, 0, 140, 44));
+        assert_eq!(
+            (
+                medium.list.unwrap().width,
+                medium.conversation.unwrap().width
+            ),
+            (84, 55)
+        );
+        let wide = overview(Rect::new(0, 0, 160, 44));
+        assert_eq!(
+            (wide.list.unwrap().width, wide.conversation.unwrap().width),
+            (96, 63)
+        );
+        let columns = crate::board::overview::columns::visible(medium.list.unwrap().width);
+        assert_eq!(columns, crate::config::OverviewColumn::ALL);
+        assert!(columns.contains(&crate::config::OverviewColumn::Squad));
+        assert!(columns.contains(&crate::config::OverviewColumn::Runtime));
+        assert_eq!(
+            agents(Rect::new(0, 0, 160, 44), Preference::Side, false)
+                .list
+                .unwrap()
+                .width,
+            64
+        );
     }
 
     #[test]

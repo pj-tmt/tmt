@@ -1176,9 +1176,30 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
                     let screen = buffer_text(&buffer).join("\n");
                     let context = format!("{tab:?}/{width}/{mode}/{held}:\n{screen}");
                     assert!(!screen.contains("No held messages"), "{context}");
-                    assert_eq!(screen.contains("3 held"), held, "{context}");
+                    if tab == crate::board::shell::OpsTab::Overview {
+                        let rows = app.workspace_rows();
+                        let values = crate::board::overview::monitor::values(
+                            &app,
+                            app.workspace_snapshot().unwrap(),
+                            &rows[0],
+                        );
+                        assert_eq!(
+                            values
+                                .digest_labels
+                                .iter()
+                                .any(|label| label.text == "3 held"),
+                            held,
+                            "{context}"
+                        );
+                        assert!(
+                            !screen.contains("3 hel "),
+                            "trailing labels never partially clip: {context}"
+                        );
+                    } else {
+                        assert_eq!(screen.contains("3 held"), held, "{context}");
+                    }
                     // Complete trailing labels may be omitted at compact widths.
-                    if width == 160 {
+                    if width == 160 && tab != crate::board::shell::OpsTab::Overview {
                         assert_eq!(screen.contains("When idle"), held, "{context}");
                     }
                     for old in ["Auto ▾", "Every 5m ▾", "Off ▾"] {

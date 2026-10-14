@@ -300,6 +300,7 @@ impl App {
         Effect::Act(Request::WorkspacePreferences {
             expected: snapshot.preferences.clone(),
             next,
+            saved: None,
         })
     }
     pub(in crate::board) fn workspace_owner_timers(
@@ -392,6 +393,12 @@ impl App {
             return self.say("Loading the workspace…");
         }
         match action {
+            OverviewFilter if self.shell.tab == OpsTab::Overview => {
+                self.overview_filter = self.overview_filter.next();
+                self.overview_rows.borrow_mut().clear();
+                self.workspace_reconcile();
+            }
+            OverviewFilter => return Effect::None,
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),
@@ -468,6 +475,43 @@ impl App {
                                 .reverse(),
                         )
                     }
+                    Pin if self.shell.tab == OpsTab::Overview => {
+                        if !self.workspace_selection_visible() {
+                            return self.say("Select a visible agent to pin.");
+                        }
+                        let Some(OpsTarget::Member { identity_id, .. }) =
+                            self.workspace.selected.as_ref()
+                        else {
+                            return self.say("Select a visible agent to pin.");
+                        };
+                        let unpinned = next.agent_pins.remove(identity_id);
+                        if !unpinned {
+                            if next.agent_pins.len() >= 1024 {
+                                return self
+                                    .say("Agent pin limit reached (1024); unpin an agent first.");
+                            }
+                            next.agent_pins.insert(identity_id.clone());
+                        }
+                        let row = self
+                            .workspace_rows()
+                            .iter()
+                            .find(|row| Some(&row.target) == self.workspace.selected.as_ref())
+                            .map(|row| row.title.clone())
+                            .expect("visible pin target");
+                        let name: String = crate::board::notes::sanitize(&row)
+                            .chars()
+                            .filter(|c| !c.is_control())
+                            .take(200)
+                            .collect();
+                        return Effect::Act(Request::WorkspacePreferences {
+                            expected: snapshot.preferences.clone(),
+                            next,
+                            saved: Some(format!(
+                                "{} {name}",
+                                if unpinned { "Unpinned" } else { "Pinned" }
+                            )),
+                        });
+                    }
                     Sort => next.sort = next.sort.next(),
                     ReverseSort => next.reversed = !next.reversed,
                     _ if !self.workspace_selection_visible()
@@ -480,6 +524,9 @@ impl App {
                 return self.workspace_save(next);
             }
             Timers => {
+                if self.shell.tab == OpsTab::Overview && self.workspace.selected.is_none() {
+                    return self.workspace_owner_timers(None, None);
+                }
                 if !self.workspace_selection_visible() {
                     return self.say("Select a visible timer scope explicitly.");
                 }
@@ -716,7 +763,11 @@ impl App {
         let expected = snapshot.preferences.clone();
         let mut next = expected.clone();
         next.layout = layout;
-        Effect::Act(Request::WorkspacePreferences { expected, next })
+        Effect::Act(Request::WorkspacePreferences {
+            expected,
+            next,
+            saved: None,
+        })
     }
 
     pub(in crate::board) fn finished_workspace(
