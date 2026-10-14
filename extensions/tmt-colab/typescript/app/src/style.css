@@ -650,11 +650,11 @@ footer {
 .selection-ask {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--tmt-ui-host-action-gap);
   margin: 0;
   border: 0;
   border-radius: 999px;
-  padding: 9px 14px;
+  padding: var(--tmt-ui-host-action-padding);
   background: var(--tmt-ui-surface-annotation-action);
   color: var(--tmt-ui-color-annotation-on-action);
   font-weight: 600;
@@ -763,6 +763,12 @@ footer {
   overflow: hidden;
 }
 /* Chat, existing threads and the first annotation share one presentation shell. */
+.conversation-window,
+.conversation-turn,
+.resolved-summary {
+  --conversation-gap: var(--tmt-ui-command-gap);
+  --conversation-inset: calc(var(--tmt-ui-host-field-padding) * 1.5);
+}
 .conversation-window {
   display: flex;
   flex-direction: column;
@@ -773,13 +779,14 @@ footer {
   width: 100%;
   box-shadow: none;
   border-radius: 0;
+  font: var(--tmt-ui-host-field-size) / var(--tmt-ui-host-field-line-height) var(--f-body);
 }
 .conversation-window-bar {
   display: flex;
   align-items: center;
   flex: none;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: var(--conversation-gap);
+  padding: var(--conversation-gap) var(--conversation-inset);
   border-bottom: 1px solid var(--c-rule);
 }
 .conversation-heading {
@@ -792,11 +799,11 @@ footer {
 .conversation-window .conversation-title {
   margin: 0;
   min-width: 0;
-  font: 600 14px/1.5 var(--f-body);
+  font: 600 var(--tmt-ui-host-field-size) / var(--tmt-ui-host-field-line-height) var(--f-body);
 }
 .conversation-caption {
   color: var(--c-muted);
-  font: 11px/1.5 var(--f-body);
+  font: var(--tmt-ui-caption-size) / var(--tmt-ui-host-field-line-height) var(--f-body);
 }
 .conversation-history {
   position: relative;
@@ -830,7 +837,7 @@ footer {
 .conversation-message-content > .annotation-hint,
 .conversation-message-content > .isolation-note,
 .conversation-window > .annotation-hint {
-  margin: 10px 14px;
+  margin: var(--conversation-gap) var(--conversation-inset);
 }
 .conversation-message-content > .comment-actions {
   margin: 10px 2px;
@@ -840,7 +847,7 @@ footer {
   min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--c-rule);
-  padding: 10px 14px;
+  padding: var(--conversation-gap) var(--conversation-inset);
 }
 /* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
@@ -864,7 +871,7 @@ footer {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 10px 14px;
+  padding: var(--conversation-gap) var(--conversation-inset);
   border: 0;
   border-bottom: 1px solid var(--c-rule);
   border-radius: 0;
@@ -874,13 +881,15 @@ footer {
 }
 .conversation-turn[data-turn-role='agent'] {
   border-left: 3px solid var(--c-text);
-  padding-left: 11px;
+  padding-left: calc(var(--conversation-inset) - 3px);
 }
 .conversation-main {
   min-width: 0;
 }
 .conversation-main .comment-byline {
   margin: 0;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-host-field-line-height);
 }
 .conversation-body {
   margin-top: 0;
@@ -1054,16 +1063,15 @@ footer {
   display: none;
 }
 .comment-thread .conversation-window-bar {
-  padding: 24px 24px 12px;
   border: 0;
-  gap: 12px;
 }
 .comment-thread .thread-state {
   min-height: 22px;
 }
 .comment-thread .conversation-title {
   min-height: 22px;
-  font: 500 12px/1.5 var(--f-mono);
+  font: 500 var(--tmt-ui-host-field-label-size) / var(--tmt-ui-host-field-label-line-height)
+    var(--f-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tmt-ui-color-secondary);
@@ -1078,11 +1086,10 @@ footer {
   border-radius: 50%;
   background: var(--tmt-ui-surface-annotation-action);
   color: var(--tmt-ui-color-annotation-on-action);
-  font: 600 12px/1 var(--f-body);
+  font: 600 var(--tmt-ui-host-field-label-size) / 1 var(--f-body);
   letter-spacing: 0;
 }
 .comment-thread .conversation-composer {
-  padding: 16px 24px 24px;
   border: 0;
 }
 .comment-thread .rich-input-surface[data-accessory],
@@ -1092,7 +1099,6 @@ footer {
 }
 .comment-thread .rich-input-field {
   padding: 0;
-  font: 400 26px/1.45 var(--f-body);
   min-height: 5em;
   max-height: min(12em, 32dvh);
 }
@@ -1111,13 +1117,11 @@ footer {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  min-height: 44px;
-  margin-top: 16px;
+  min-height: var(--tmt-ui-host-icon-action-size);
+  margin-top: var(--conversation-gap);
 }
 .comment-thread .annotation-compose .annotation-status-row > .tmt-ui-icon-action:last-child {
   margin-inline-start: auto;
-  --tmt-ui-host-icon-action-size: 44px;
-  --tmt-ui-header-icon-size: 24px;
 }
 .comment-thread
   .annotation-compose
@@ -1133,17 +1137,17 @@ footer {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
+  font-size: var(--tmt-ui-host-field-label-size);
 }
 .comment-thread .conversation-turn {
-  width: calc(100% - 48px);
-  margin: 12px 24px;
+  width: calc(100% - var(--conversation-inset) * 2);
+  margin: var(--conversation-gap) var(--conversation-inset);
   padding: 0;
   border: 0;
   background: transparent;
 }
 .comment-thread .conversation-turn[data-turn-role='agent'] {
-  padding: 16px;
+  padding: var(--conversation-gap);
   background: var(--tmt-ui-surface-sheet);
 }
 .comment-thread .conversation-avatar {
@@ -1157,36 +1161,21 @@ footer {
   display: none;
 }
 .comment-thread .conversation-main .comment-byline {
-  font: 11px/1.5 var(--f-mono);
+  font: var(--tmt-ui-caption-size) / var(--tmt-ui-host-field-line-height) var(--f-mono);
   color: var(--tmt-ui-color-secondary);
 }
 .comment-thread .conversation-author {
   color: var(--tmt-ui-color-text);
 }
 .comment-thread .conversation-body {
-  margin-top: 8px;
+  margin-top: calc(var(--conversation-gap) / 2);
 }
 .resolved-summary {
-  padding: 0 24px 24px;
+  padding: 0 var(--conversation-inset) var(--conversation-inset);
   color: var(--tmt-ui-color-secondary);
 }
 .resolved-summary p {
   margin: 8px 0;
-}
-@media (max-width: 640px) {
-  .comment-thread .conversation-window-bar {
-    padding: 20px 20px 12px;
-  }
-  .comment-thread .conversation-composer {
-    padding: 12px 20px 20px;
-  }
-  .comment-thread .rich-input-field {
-    font-size: 22px;
-  }
-  .comment-thread .conversation-turn {
-    width: calc(100% - 40px);
-    margin-inline: 20px;
-  }
 }
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
