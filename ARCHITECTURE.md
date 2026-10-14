@@ -546,9 +546,9 @@ the extension object channel (`tmt-extension-objects`), never through Remote sta
 
 The lease-bound `object_service` owns the `objects`/`tmt-extension-objects` carrier and injected
 v3 sync. `firebase_auth` owns credentials; `native_sync` owns COUNT wakes/read budgets;
-Colab owns cursors. Neither provider adds Core state or a carrier.
+Colab owns cursors. Neither adds Core state or a carrier.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends and quotas. Pure declaration, Rules and Hosting feed Firestore deploy.
+backends and quotas. Declaration, index, Rules and Hosting feed Firestore deploy.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module guarantees;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
 status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).

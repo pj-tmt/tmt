@@ -116,7 +116,7 @@ impl<'a> DeployFirestore<'a> {
         let value = self
             .exchange(
                 "index-budget",
-                json!({"project": project, "fields": fields}),
+                json!({"project": project, "fields": fields, "composites": crate::deploy_plan::composite_indexes(plan.view())}),
                 None,
                 Instant::now() + limits::DEPLOY_PROVIDER_CALL,
             )
@@ -231,6 +231,7 @@ impl<'a> DeployFirestore<'a> {
                 direction,
             } => json!({"project":plan.view().project,
                 "collection":path.rsplit('/').next(),"field":field,"direction":direction}),
+            StepKind::CompositeIndex(index) => json!({"project":plan.view().project,"index":index}),
             StepKind::Rules => {
                 json!({"project":plan.view().project,"source":std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?,
                 "deployment":plan.deployment_id(),"replacedDigest":plan.view().rules.replaced_digest})
@@ -242,6 +243,7 @@ impl<'a> DeployFirestore<'a> {
             StepKind::Database => "database",
             StepKind::SignIn(_) => "sign-in",
             StepKind::Index { .. } => "index",
+            StepKind::CompositeIndex(_) => "composite",
             StepKind::Rules => "rules",
             StepKind::Hosting(_) | StepKind::Verify => unreachable!(),
         };

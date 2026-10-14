@@ -1658,8 +1658,13 @@ shadow a built-in. Reads of the extension's own
 documents use the macros `ext.get`, `ext.exists`, `ext.getAfter` and `ext.existsAfter`, which expand to a fixed
 `x/<extension>` prefix. A condition must refer to `request.auth` or document data: `if true`, constants and time-only
 conditions are refused. A recursive wildcard is allowed only inside the wrapper. Indexes come from the plan as
-per-collection field overrides, and a TTL policy is written only when the target provisions it. A plan that needs more
-single-field index configs than the free plan allows is refused as `too-many-index-configs`, with no artifact. The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
+per-collection field overrides and declaration-derived collection composites: sorted equality scope fields,
+then the declared sequence field ascending, cover stream reads with or without a cursor. Equality-only page
+interests and discovery (optional sequence equality, document-name order) use Firestore index merging.
+The canonical composite union is digest-bound and deduplicated across extensions by collection ID and ordered
+fields; no extension-specific field names are built in. TTL is written only when the target provisions it.
+Either more than 200 single-field configurations or more than 200 composites without billing is refused as
+`too-many-index-configs`, with no artifact (limits checked 2026-10-14). The device inbox, permit, chunk, response and checkpoint Rules above wait for the admission service.
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
@@ -2393,7 +2398,12 @@ the layer needs, the declared indexes and the composed Rules to the extension pl
 authorizes the digest of that whole envelope (account, project, deployment ID and every item above); a
 digest prefix of at least 12 hex characters names it. Steps run in a fixed order and the Rules
 release follows additive prerequisites; a declared Hosting release follows it. A final
-read-back step passes only when Rules and indexes match what was applied. Each step is observed
+read-back step passes only when Rules match and every required index is `READY`; `CREATING` stays
+building, lost or invalid evidence stays unknown, and `NEEDS_REPAIR` refuses without deleting the index.
+Composite creation is reconciled by bounded exact-spec inventory; its operation acknowledgement alone is
+not readiness. Live plus missing planned composites are counted before effects and again before allocation,
+including unrelated indexes, separately from single-field configurations. Existing records are not converted;
+a new authorized plan reconciles its required indexes. The index status-layer prerequisite is deferred. Each step is observed
 first and applied only when absent, so an exact-plan retry skips what exists and never repeats an
 effect; a provider answer lost after a possible effect is recorded `unknown` and resolved by the next
 observation, never reported as failed. An existing equivalent object is adopted and kept; nothing is

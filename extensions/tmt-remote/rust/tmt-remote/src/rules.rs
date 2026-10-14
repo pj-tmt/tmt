@@ -66,7 +66,7 @@ pub enum RulesReason {
     BareTrue,
     /// The condition refers to neither `request.auth` nor document data.
     Unconditional,
-    /// More single-field index configs than the free plan allows.
+    /// More single-field configurations or composite indexes than the free plan allows.
     TooManyIndexConfigs,
 }
 impl RulesReason {
@@ -150,7 +150,9 @@ pub fn compose(
         "    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n",
     );
     let (indexes, configs) = indexes(view);
-    if configs > MAX_INDEX_CONFIGS {
+    if configs > MAX_INDEX_CONFIGS
+        || crate::deploy_plan::composite_indexes(view).len() > MAX_INDEX_CONFIGS
+    {
         return Err(fail(None, None, RulesReason::TooManyIndexConfigs));
     }
     Ok(Composed { rules, indexes })
@@ -203,7 +205,7 @@ fn indexes(view: &PlanView) -> (String, usize) {
         })
         .collect();
     let configs = overrides.len();
-    let text = serde_json::to_string(&json!({"indexes": [], "fieldOverrides": overrides}))
+    let text = serde_json::to_string(&json!({"indexes": crate::deploy_plan::composite_indexes(view), "fieldOverrides": overrides}))
         .expect("indexes serialize");
     (text, configs)
 }
