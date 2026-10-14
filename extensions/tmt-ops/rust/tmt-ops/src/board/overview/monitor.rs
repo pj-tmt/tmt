@@ -391,6 +391,7 @@ mod tests {
             .workspace
             .preferences
             .layout = crate::config::OpsLayout::Stack;
+        let mut clipped = [false; 2];
         for width in [60, 80, 100, 140, 160] {
             let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
             terminal
@@ -405,27 +406,56 @@ mod tests {
             assert_eq!(observed.runtime.as_deref(), Some(runtime));
             assert_eq!(observed.model.as_deref(), Some(model));
             assert_eq!(app.row_starts.borrow().len(), 2);
-            if width == 160 {
-                let row_y = app
-                    .hits
+
+            let row_y = app
+                .hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.row() == Some(index))
+                .unwrap()
+                .y;
+            for (at, column) in [OverviewColumn::Runtime, OverviewColumn::Model]
+                .into_iter()
+                .enumerate()
+            {
+                let area = app
+                    .overview_sort_hits
                     .borrow()
                     .iter()
-                    .find(|hit| hit.row() == Some(index))
-                    .unwrap()
-                    .y;
-                for column in [OverviewColumn::Runtime, OverviewColumn::Model] {
-                    let area = app
-                        .overview_sort_hits
-                        .borrow()
-                        .iter()
-                        .find(|(_, c)| *c == column)
-                        .unwrap()
-                        .0;
+                    .find(|(_, c)| *c == column)
+                    .map(|(area, _)| *area);
+                if let Some(area) = area {
                     let text = (area.x..area.right())
                         .map(|x| terminal.backend().buffer()[(x, row_y)].symbol())
                         .collect::<String>();
                     assert!(text.contains('…'), "{column:?}: {text}");
+                    clipped[at] = true;
                 }
+            }
+        }
+        assert_eq!(clipped, [true, true]);
+    }
+    #[test]
+    fn every_repaint_replaces_sort_and_timer_hit_geometry() {
+        let app = board();
+        for width in [100, 160] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let sorts = app.overview_sort_hits.borrow().clone();
+            let counts = app.cron_scope_hits.borrow().len();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            assert_eq!(*app.overview_sort_hits.borrow(), sorts);
+            assert_eq!(app.cron_scope_hits.borrow().len(), counts);
+            assert!(sorts.iter().all(|(area, _)| area.right() <= width));
+            if width == 160 {
+                assert!(sorts.iter().all(|(_, column)| !matches!(
+                    column,
+                    OverviewColumn::Runtime | OverviewColumn::Model
+                )));
             }
         }
     }
