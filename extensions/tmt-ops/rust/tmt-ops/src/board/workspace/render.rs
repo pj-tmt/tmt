@@ -14,8 +14,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
-use tmt_tui::components::{Modal, Placement, strip};
-use unicode_width::UnicodeWidthStr;
+use tmt_tui::components::{KeyHint, Modal, Placement, footer as fit_hints, strip};
 
 pub(in crate::board) fn safe(text: &str) -> String {
     tmt_cli_style::table::escape(&crate::board::notes::sanitize(text))
@@ -917,16 +916,15 @@ fn roster_preview(
         },
     );
 }
-fn whole_hints(hints: &[&str], width: u16) -> String {
-    let mut shown = String::new();
-    for hint in hints {
-        let separator = if shown.is_empty() { "" } else { " · " };
-        if shown.width() + separator.width() + hint.width() <= usize::from(width) {
-            shown.push_str(separator);
-            shown.push_str(hint);
-        }
-    }
-    shown
+fn whole_hints(hints: &[(&str, &str)], width: u16) -> String {
+    let hints: Vec<_> = hints
+        .iter()
+        .map(|(key, description)| KeyHint {
+            key: (*key).into(),
+            description: (*description).into(),
+        })
+        .collect();
+    fit_hints(&hints, width, " · ")
 }
 
 pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
@@ -1099,7 +1097,11 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
                 hint,
                 Line::styled(
                     whole_hints(
-                        &["Esc cancel", "Enter select", "Tab read/actions"],
+                        &[
+                            ("Esc", "cancel"),
+                            ("Enter", "select"),
+                            ("Tab", "read/actions"),
+                        ],
                         hint.width,
                     ),
                     look.role(Role::Muted),
@@ -1122,10 +1124,14 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         )[0];
         let width = area.map_or(0, |area| area.width + 1);
         draft.controls.set([area, None]);
-        let hints: &[&str] = if draft.stage == Stage::Fields {
-            &["Esc cancel", "Enter next"]
+        let hints: &[(&str, &str)] = if draft.stage == Stage::Fields {
+            &[("Esc", "cancel"), ("Enter", "next")]
         } else {
-            &["Esc close", "Read: arrows/PgUp/PgDn", "no automatic retry"]
+            &[
+                ("Esc", "close"),
+                ("Read:", "arrows/PgUp/PgDn"),
+                ("no", "automatic retry"),
+            ]
         };
         let remaining = Rect {
             x: areas

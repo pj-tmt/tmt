@@ -5,7 +5,7 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use std::sync::OnceLock;
 use tmt_cli_style::mark::Mark;
-use tmt_tui::components::{ListRow, surface};
+use tmt_tui::components::{KeyHint, ListRow, Modal, Placement, footer as fit_hints, surface};
 
 pub(super) const PAGE_SIZE: usize = 150;
 const FILE: &str = "ops.recovery.xml";
@@ -347,6 +347,28 @@ impl Controller {
             "↑↓ actions · Enter selects · Tab read · Esc snapshots"
         } else {
             "↑↓ / PgUp/PgDn select · Enter opens/selects · Ctrl-R refresh · Esc back"
+        };
+        let footer = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+            let width = Modal {
+                title: String::new(),
+                placement: Placement::Center,
+            }
+            .areas(body, [120, 38], true, false)
+            .footer
+            .width;
+            let hints = [
+                ("Esc", "cancel"),
+                ("Enter", "select"),
+                ("↑↓", "select"),
+                ("Ctrl-R", "refresh"),
+            ]
+            .map(|(key, description)| KeyHint {
+                key: key.into(),
+                description: description.into(),
+            });
+            fit_hints(&hints, width, " · ")
+        } else {
+            footer.to_owned()
         };
         let value = json!({"rows":rows,"notes":notes.iter().map(|text|json!({"id":note_id(text),"text":text})).collect::<Vec<_>>(),"query":query,"status":status,"footer":footer});
         let body = if matches!(self.screen, Screen::Confirm | Screen::Delete) {

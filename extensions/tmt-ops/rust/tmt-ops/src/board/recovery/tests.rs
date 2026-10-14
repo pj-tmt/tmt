@@ -125,6 +125,35 @@ fn restore_and_delete_fit_their_reviews_without_changing_inventory_height() {
     }
 }
 #[test]
+fn recovery_confirmation_keeps_escape_hint_whole_at_low_height() {
+    for screen in [Screen::Confirm, Screen::Delete] {
+        for width in [60, 100, 160] {
+            for height in [8, 24, 36] {
+                let mut c = controller();
+                c.screen = screen;
+                c.confirmation = c.selection();
+                let mut app = crate::board::app::workspace::tests::board();
+                app.recovery = Some(c);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let c = app.recovery.as_ref().unwrap();
+                let footer = c.panel.borrow().frame.as_ref().unwrap().areas.footer;
+                assert_eq!(
+                    footer.height, 1,
+                    "one whole fitted hint row at {width}x{height}"
+                );
+                let text: String = (footer.x..footer.right())
+                    .map(|x| terminal.backend().buffer()[(x, footer.y)].symbol())
+                    .collect();
+                assert!(text.starts_with("Esc cancel"), "{width}x{height}: {text:?}");
+                assert!(text.contains("Enter select"));
+            }
+        }
+    }
+}
+#[test]
 fn cancel_selection_and_preview_have_no_restore_authority() {
     let mut c = controller();
     let task = c.select("snapshot:saved").unwrap();

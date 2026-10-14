@@ -5,7 +5,7 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use std::sync::OnceLock;
 use tmt_cli_style::mark::Mark;
-use tmt_tui::components::{ListRow, surface};
+use tmt_tui::components::{KeyHint, ListRow, Modal, Placement, footer as fit_hints, surface};
 
 const FILE: &str = "ops.discovery.xml";
 const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="discovery" title="Add an agent already running" placement="center" class="w-120 h-38"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" wrap="true"/></tmt-modal></tmt-view>"#;
@@ -369,6 +369,28 @@ impl Controller {
             "↑↓ / PgUp/PgDn read · Tab actions · Esc candidates"
         } else {
             "↑↓ select · Enter opens/selects · Ctrl-R scan · Esc back"
+        };
+        let footer = if self.screen == Screen::Confirm {
+            let width = Modal {
+                title: String::new(),
+                placement: Placement::Center,
+            }
+            .areas(body, [120, 38], true, false)
+            .footer
+            .width;
+            let hints = [
+                ("Esc", "cancel"),
+                ("Enter", "select"),
+                ("↑↓", "select"),
+                ("Ctrl-R", "scan"),
+            ]
+            .map(|(key, description)| KeyHint {
+                key: key.into(),
+                description: description.into(),
+            });
+            fit_hints(&hints, width, " · ")
+        } else {
+            footer.to_owned()
         };
         let body = if self.screen == Screen::Confirm {
             // Keep the existing 38-row modal cap while allowing intrinsic fit.
