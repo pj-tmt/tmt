@@ -1987,9 +1987,10 @@ fn workspace_frame_cost() {
                         key(&mut app, KeyCode::Down);
                     }
                     "resize" => {
-                        terminal
-                            .resize(Rect::new(0, 0, if index % 2 == 0 { 100 } else { 160 }, 50))
-                            .unwrap();
+                        let width = if index % 2 == 0 { 100 } else { 160 };
+                        terminal.backend_mut().resize(width, 50);
+                        terminal.resize(Rect::new(0, 0, width, 50)).unwrap();
+                        assert_eq!(terminal.size().unwrap().width, width);
                     }
                     _ => {}
                 }
