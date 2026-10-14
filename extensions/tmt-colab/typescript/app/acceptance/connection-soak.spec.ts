@@ -99,6 +99,12 @@ async function readSendReceive(s: OpenOwner, label: string) {
   await expect(s.page.locator('.status.live .status-label')).toHaveText('Live');
   const question = `Reply after ${label}.`;
   const composed = await composeChat(s.page, s.agent, question);
+  // Enter is not an auto-waiting button click: readiness must precede it.
+  await expect(
+    s.page
+      .getByTestId('chat-panel')
+      .getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+  ).toBeEnabled();
   const ask = await sendChat(s.page, composed);
   await expect.poll(() => s.agent.received().length, { timeout: 60_000 }).toBe(receivedBefore + 1);
   const message = composed.delivered();
@@ -128,7 +134,21 @@ const triggers: Array<{ name: string; apply(s: OpenOwner): Promise<void> }> = [
       await expect(s.page.frameLocator('iframe').locator('#source')).toHaveText('Trigger write');
     },
   },
-  { name: 'Colab restart', apply: (s) => restartColab(s.world, s.door) },
+  {
+    name: 'Colab restart',
+    async apply(s) {
+      await restartColab(s.world, s.door, async () => {
+        // Do not mistake the old Live status for the replacement's catch-up.
+        await expect(s.page.locator('.status')).toContainText('Reconnecting…', {
+          timeout: 30_000,
+        });
+      });
+      // Mounted stdout proves process readiness, not the browser's verified fold.
+      await expect(s.page.locator('.status.live .status-label')).toHaveText('Live', {
+        timeout: 60_000,
+      });
+    },
+  },
   {
     name: 'Remote restart',
     async apply(s) {
@@ -172,9 +192,43 @@ for (const trigger of triggers) {
   test(`connection soak: ${trigger.name} preserves reads, one Send and its reply without reload`, async () => {
     test.setTimeout(240_000);
     await withWorld(async (world) => {
-      const s = await owner(world);
+      let holdCatchup = false;
+      const held: Array<() => void> = [];
+      const s = await owner(
+        world,
+        trigger.name === 'Colab restart'
+          ? async (context) => {
+              // Delay real replacement frames, never fabricate readiness or payloads.
+              await context.routeWebSocket(/\/sync(?:\?|$)/, (page) => {
+                const server = page.connectToServer();
+                const replacement = holdCatchup;
+                page.onMessage((message) => server.send(message));
+                server.onMessage((message) => {
+                  if (replacement && holdCatchup) held.push(() => page.send(message));
+                  else page.send(message);
+                });
+              });
+            }
+          : undefined,
+      );
       await readSendReceive(s, 'positive control');
-      await trigger.apply(s);
+      const old = s.door.colab;
+      holdCatchup = trigger.name === 'Colab restart';
+      let finished = false;
+      const applying = trigger.apply(s).finally(() => {
+        finished = true;
+      });
+      // Teardown still owns a failed attempt; this observer does not consume its error.
+      void applying.catch(() => {});
+      if (holdCatchup) {
+        await expect.poll(() => s.door.colab !== old).toBe(true);
+        await expect.poll(() => held.length).toBeGreaterThan(0);
+        expect(finished, 'process mounted must not complete browser recovery').toBe(false);
+        await expect(s.page.locator('.status')).toContainText('Reconnecting…');
+        holdCatchup = false;
+        held.splice(0).forEach((send) => send());
+      }
+      await applying;
       await readSendReceive(s, trigger.name);
     });
   });
@@ -324,7 +378,9 @@ test('connection soak: explicit revoke ends access and cannot dispatch a retaine
       'Your access to this page ended.',
       { timeout: 90_000 },
     );
-    await expect(panel.getByRole('button', { name: /^Send(?:\s|$)/ })).toBeDisabled();
+    await expect(
+      panel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
+    ).toBeDisabled();
     await expect(input).toHaveAttribute('contenteditable', 'false');
     await input.press('Enter');
     expect(s.agent.received()).toHaveLength(1);
