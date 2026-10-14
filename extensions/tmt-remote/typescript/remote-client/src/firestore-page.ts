@@ -111,8 +111,9 @@ export function renderFirestore(
         row.append(node('span', `${firestoreItems[item.item]}: `), mark(item.state));
         if (item.reason) row.append(node('p', firestoreReasons[item.item]![item.reason]![0]));
         if (item.next) {
-          const hint = node('p', 'Next command on the machine that runs Remote: ');
-          hint.append(command(item.next));
+          const nextLine = firestoreReasons[item.item]![item.reason!]![2];
+          const hint = node('p', nextLine ?? 'Next command on the machine that runs Remote: ');
+          if (!nextLine) hint.append(command(item.next));
           row.append(hint);
         }
         list.append(row);

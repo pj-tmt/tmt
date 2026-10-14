@@ -3133,6 +3133,23 @@ var firestoreReasons = {
 		partial: ["Firestore rules are only partly deployed.", true],
 		"not-checked": ["Firestore rules have not been checked.", false]
 	},
+	indexes: {
+		building: [
+			"Firestore indexes are still building.",
+			true,
+			"Wait a few minutes, then run tmt remote deploy firestore."
+		],
+		"not-ready": [
+			"Firestore indexes have not been verified as ready.",
+			true,
+			"Run tmt remote deploy firestore."
+		],
+		"not-checked": [
+			"Firestore index readiness has not been checked.",
+			true,
+			"Run tmt remote deploy firestore."
+		]
+	},
 	"plan-tier": {
 		"paid-plan-required": ["This needs a paid Firebase plan.", false],
 		"not-checked": ["The Firebase plan has not been checked.", false]
@@ -3149,6 +3166,7 @@ var firestoreSpecs = [
 		"project",
 		"sign-in",
 		"rules",
+		"indexes",
 		"plan-tier",
 		"quota"
 	]],

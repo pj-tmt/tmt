@@ -73,9 +73,13 @@ Pacific reset.
 ## Recorded readiness
 
 Running `tmt remote status --layers` reads the private deployment record once without the
-writer lock or a provider call. It reports recorded project/sign-in/Rules outcomes; a partial
+writer lock or a provider call. It reports recorded project/sign-in/Rules/index outcomes; a partial
 Rules attempt withdraws the old usable binding. Missing/draft records have no evidence,
-while damaged records report unknown and are never reset. Tier and quota remain unknown:
+while damaged records report unknown and are never reset. The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
+owns index states, precedence and fixed copy. A pre-#3008 Complete record has unknown index readiness until
+the next authorized deploy records the required composites; no conversion occurs on read. After a building
+observation, wait a few minutes before rerunning deploy to refresh it; status cannot refresh provider evidence.
+Tier and quota remain unknown:
 the machine cannot observe them, and layer-1 traffic goes browser to Firestore. A complete
 recorded deployment therefore does not make sharing read enabled; a later readiness decision
 must supply the tier treatment and quota source. The deployed-artifact emulator fixture

@@ -20,7 +20,7 @@ export const enabledFixture = () => [
   {
     layer: 'sharing',
     state: 'enabled',
-    prerequisites: ['project', 'sign-in', 'rules', 'plan-tier', 'quota'].map((item) => ({
+    prerequisites: ['project', 'sign-in', 'rules', 'indexes', 'plan-tier', 'quota'].map((item) => ({
       item,
       state: 'enabled',
     })),
@@ -42,6 +42,67 @@ export const enabledFixture = () => [
     ],
   },
 ];
+
+const indexCopy = {
+  building: 'Firestore indexes are still building.',
+  'not-ready': 'Firestore indexes have not been verified as ready.',
+  'not-checked': 'Firestore index readiness has not been checked.',
+} as const;
+test('index prerequisite has the native four-fact meaning and strict fixed reasons', () => {
+  for (const [state, reason] of [
+    ['enabled', undefined],
+    ['not-enabled', 'building'],
+    ['not-enabled', 'not-ready'],
+    ['unknown', 'not-checked'],
+  ] as const) {
+    const value = enabledFixture();
+    const entry = value[0]!.prerequisites[3]!;
+    Object.assign(entry, { state });
+    if (reason) Object.assign(entry, { reason, next: 'tmt remote deploy firestore' });
+    value[0]!.state = state;
+    assert.deepEqual(parseFirestoreLayers(value), value);
+    if (reason) {
+      assert.ok(render(value).text().includes(indexCopy[reason]));
+      assert.ok(render(value).text().includes('tmt remote deploy firestore'));
+      assert.ok(
+        render(value)
+          .text()
+          .includes(
+            reason === 'building'
+              ? 'Wait a few minutes, then run tmt remote deploy firestore.'
+              : 'Run tmt remote deploy firestore.',
+          ),
+      );
+    }
+    for (const mutate of [
+      (v: any) => {
+        v[0].prerequisites[3].reason = 'PROVIDER_SECRET';
+      },
+      (v: any) => {
+        v[0].prerequisites[3].next = 'firebase deploy';
+      },
+      (v: any) => {
+        v[0].prerequisites[3].state = 'building';
+      },
+      (v: any) => {
+        v[0].prerequisites[3].extra = true;
+      },
+    ]) {
+      const bad = structuredClone(value);
+      mutate(bad);
+      assert.throws(() => parseFirestoreLayers(bad), /Invalid Firestore/);
+    }
+  }
+  const mismatched = enabledFixture();
+  Object.assign(mismatched[0]!.prerequisites[3]!, {
+    state: 'unknown',
+    reason: 'building',
+    next: 'tmt remote deploy firestore',
+  });
+  mismatched[0]!.state = 'unknown';
+  assert.throws(() => parseFirestoreLayers(mismatched), /Invalid Firestore/);
+});
+
 // Independent expected vocabulary and copy; not derived from the product lookup.
 const cases = [
   ['project', 'not-configured', 'No Firebase project is set up.', true],
@@ -259,11 +320,12 @@ test('SDK readiness vocabulary mechanically equals the Rust-owned table fixture'
     })),
   );
   const reasons = Object.entries(firestoreReasons).flatMap(([item, rows]) =>
-    Object.entries(rows).map(([reason, [sentence, next]]) => ({
+    Object.entries(rows).map(([reason, [sentence, next, nextLine]]) => ({
       item,
       reason,
       sentence,
       next: next ? 'tmt remote deploy firestore' : null,
+      ...(nextLine ? { nextLine } : {}),
     })),
   );
   assert.deepEqual(reasons, fixture.reasons);

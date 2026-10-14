@@ -24,7 +24,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `native_sync`                                    | Injected ordinary-user REST effects, adaptive polling, project stop fence, serving/consumer caps and attempted-read persistence; no document decryption or Core authority                                                                           |
 | `calendar`                                       | Pure Gregorian day conversion shared by Pacific quota resets and UTC sign-in status dates                                                                                                                                                           |
 | `firestore_limits`                               | Dated free-plan Firestore limits table and its `status --budget` projection, validator and human lines; golden in `tests/fixtures/firestore_budget/limits-member.json`                                                                              |
-| `readiness`                                      | Layered Firestore readiness: one table of items, reasons and sentences; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                                                           |
+| `readiness`                                      | Layered Firestore readiness: one table of items, reasons, sentences and human next steps; record projection, validator and human lines over the evidence source shared by status and opt-in signed settings                                         |
 | `deploy_cli`, `deploy_discovery`, `deploy_tools` | CLI argv/composition; fixed public installed declaration replies; installed Firebase launcher/Node discovery (no receipt parser or mutable helper file)                                                                                             |
 | `deploy_firestore`                               | Real provider port; binary-embedded Node helper, version-gated firebase-tools login, bounded no-retry mutations and exact Rules read-back                                                                                                           |
 | `deploy_run`                                     | Authorized Firestore sharing deploy over an injected `DeployPort`: envelope digest, authorization, step order, record and binding rule (CLI composition in `deploy_cli`)                                                                            |
@@ -218,7 +218,9 @@ Installed Colab acceptance and real-project proof still require separate owner a
 running `status --layers` now reads recorded deployment evidence without a provider call.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
 empty, damaged state is unknown and never repaired. The pure `readiness::from_record`
-projection recognizes finished database/sign-in steps and usable verified bindings. A failed
+projection recognizes finished database/sign-in steps, usable verified Rules bindings and digest-derived
+composite step outcomes from the authorized canonical index set. Index states, legacy unknown handling and
+copy are owned by the [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery). A failed
 run before Rules preserves its old binding; an incomplete Rules attempt reports partial
 Rules and withdraws it; an incomplete possible Hosting release does the same. This describes recorded outcomes, not live provider currentness.
 

@@ -48,6 +48,63 @@ fn writer_excludes_a_successor_but_readers_and_existing_layout_never_take_its_lo
     drop(writer);
     drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
 }
+
+#[test]
+fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_bytes() {
+    use tmt_remote::deploy_run::{Run, RunState, StepRecord, StepState};
+    use tmt_remote::readiness::{LAYERS, project};
+    let root = Root::new();
+    let layout = root.layout();
+    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut record = DeployRecord::new(ID);
+    record.run = Some(Run {
+        plan_digest: "a".repeat(64),
+        account: "owner@example.test".into(),
+        authorized_at_ms: 1,
+        state: RunState::Partial,
+        rules_attempted: false,
+        hosting: None,
+        steps: [
+            "database".to_owned(),
+            "sign-in:anonymous".to_owned(),
+            format!("composite-index:log:{}", "b".repeat(64)),
+            "rules".to_owned(),
+            "verify".to_owned(),
+        ]
+        .into_iter()
+        .map(|id| StepRecord {
+            state: if id.starts_with("composite-index:") {
+                StepState::Building
+            } else {
+                StepState::Pending
+            },
+            id,
+        })
+        .collect(),
+    });
+    writer.persist(&record).unwrap();
+    let path = root.remote().join("deployments/demo-remote-1/deploy.json");
+    let before = fs::read(&path).unwrap();
+    let evidence = DeployRecordEvidence::new(&layout).evidence().unwrap();
+    let layers = project(Some(&evidence), &LAYERS);
+    let indexes = layers[0]["prerequisites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["item"] == "indexes")
+        .expect("index evidence is present while writer is held");
+    assert_eq!(indexes["state"], "not-enabled");
+    assert_eq!(indexes["reason"], "building");
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(
+        deploy_record::read_project(&layout, "demo-remote-1").unwrap(),
+        Some(record)
+    );
+    assert!(!root.remote().join("remote.db").exists());
+    assert!(
+        matches!(DeployRecordStore::open(&layout, "demo-remote-1"), Err(e) if e.code == "REMOTE_DEPLOY_BUSY")
+    );
+}
 #[test]
 fn machine_publication_settings_store_and_stopped_lease_preserve_deployment_identity() {
     let root = Root::new();

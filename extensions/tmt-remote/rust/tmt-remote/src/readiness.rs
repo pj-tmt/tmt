@@ -13,6 +13,7 @@ pub enum FirestoreItem {
     Project,
     SignIn,
     Rules,
+    Indexes,
     PlanTier,
     Quota,
     /// Whether this release implements the layer at all.
@@ -24,6 +25,7 @@ impl FirestoreItem {
             Self::Project => "project",
             Self::SignIn => "sign-in",
             Self::Rules => "rules",
+            Self::Indexes => "indexes",
             Self::PlanTier => "plan-tier",
             Self::Quota => "quota",
             Self::Support => "support",
@@ -39,6 +41,8 @@ pub enum FirestoreReason {
     NotDeployed,
     OutOfDate,
     Partial,
+    Building,
+    NotReady,
     PaidPlanRequired,
     HeadroomLow,
     Exhausted,
@@ -56,6 +60,7 @@ struct Row {
     code: &'static str,
     sentence: &'static str,
     next: Option<&'static str>,
+    next_line: Option<&'static str>,
 }
 use FirestoreItem as I;
 use FirestoreReason as R;
@@ -72,10 +77,11 @@ const fn row(
         code,
         sentence,
         next,
+        next_line: None,
     }
 }
 /// Every reason an item can report, with its fixed sentence and next command.
-const ROWS: [Row; 16] = [
+const ROWS: [Row; 19] = [
     row(
         I::Project,
         R::NotConfigured,
@@ -146,6 +152,36 @@ const ROWS: [Row; 16] = [
         "Firestore rules have not been checked.",
         None,
     ),
+    Row {
+        next_line: Some("Wait a few minutes, then run tmt remote deploy firestore."),
+        ..row(
+            I::Indexes,
+            R::Building,
+            "building",
+            "Firestore indexes are still building.",
+            Some(DEPLOY),
+        )
+    },
+    Row {
+        next_line: Some("Run tmt remote deploy firestore."),
+        ..row(
+            I::Indexes,
+            R::NotReady,
+            "not-ready",
+            "Firestore indexes have not been verified as ready.",
+            Some(DEPLOY),
+        )
+    },
+    Row {
+        next_line: Some("Run tmt remote deploy firestore."),
+        ..row(
+            I::Indexes,
+            R::NotChecked,
+            "not-checked",
+            "Firestore index readiness has not been checked.",
+            Some(DEPLOY),
+        )
+    },
     row(
         I::PlanTier,
         R::PaidPlanRequired,
@@ -231,7 +267,14 @@ pub const LAYERS: [LayerSpec; 3] = [
     LayerSpec {
         layer: FirestoreLayer::Sharing,
         requires_paid_plan: false,
-        items: &[I::Project, I::SignIn, I::Rules, I::PlanTier, I::Quota],
+        items: &[
+            I::Project,
+            I::SignIn,
+            I::Rules,
+            I::Indexes,
+            I::PlanTier,
+            I::Quota,
+        ],
     },
     LayerSpec {
         layer: FirestoreLayer::Operations,
@@ -265,6 +308,7 @@ pub struct FirestoreEvidence {
     pub project: Observed,
     pub sign_in: Observed,
     pub rules: Observed,
+    pub indexes: Observed,
     pub quota: Observed,
     pub tier: FirestoreTier,
 }
@@ -275,6 +319,7 @@ impl FirestoreEvidence {
             project: Observed::Unknown,
             sign_in: Observed::Unknown,
             rules: Observed::Unknown,
+            indexes: Observed::Unknown,
             quota: Observed::Unknown,
             tier: FirestoreTier::Unknown,
         }
@@ -322,7 +367,67 @@ pub fn from_record(record: &DeployRecord) -> Option<FirestoreEvidence> {
     } else {
         Observed::Unknown
     };
+    evidence.indexes = recorded_indexes(run);
     Some(evidence)
+}
+
+/// Identities are the digest-derived steps of the authorized plan, not a new index list.
+/// Absence includes legacy Complete records and cannot establish a verified empty set.
+fn recorded_indexes(run: &crate::deploy_run::Run) -> Observed {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut states = Vec::new();
+    for step in run
+        .steps
+        .iter()
+        .filter(|s| s.id.starts_with("composite-index"))
+    {
+        let mut parts = step.id.split(':');
+        let (Some("composite-index"), Some(collection), Some(digest), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return Observed::Unknown;
+        };
+        if !(1..=crate::limits::DECLARATION_IDENTIFIER_BYTES).contains(&collection.len())
+            || !collection
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+            || digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || !ids.insert(&step.id)
+        {
+            return Observed::Unknown;
+        }
+        states.push(match step.state {
+            StepState::Done | StepState::Adopted => Observed::Enabled,
+            StepState::Building => Observed::Off(R::Building),
+            StepState::Pending | StepState::Failed(_) => Observed::Off(R::NotReady),
+            StepState::Unknown | StepState::OwnerAction(_) => Observed::Unknown,
+        });
+    }
+    if states.is_empty() {
+        return Observed::Unknown;
+    }
+    // A definite unfinished prerequisite outranks an unknown, just as layer aggregation does.
+    for reason in [R::NotReady, R::Building] {
+        if states.contains(&Observed::Off(reason)) {
+            return Observed::Off(reason);
+        }
+    }
+    if states.contains(&Observed::Unknown)
+        || run.steps.iter().any(|s| {
+            s.id == "verify"
+                && !matches!(
+                    s.state,
+                    StepState::Done | StepState::Adopted | StepState::Pending
+                )
+        })
+    {
+        Observed::Unknown
+    } else {
+        Observed::Enabled
+    }
 }
 
 /// Where evidence comes from. `None` means no Firestore deployment exists.
@@ -354,6 +459,7 @@ fn verdict(item: FirestoreItem, spec: &LayerSpec, evidence: &FirestoreEvidence) 
         I::Project => observed(evidence.project),
         I::SignIn => observed(evidence.sign_in),
         I::Rules => observed(evidence.rules),
+        I::Indexes => observed(evidence.indexes),
         I::Quota => observed(evidence.quota),
         I::PlanTier => match evidence.tier {
             FirestoreTier::Unknown => Verdict::Unknown,
@@ -536,7 +642,7 @@ pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
             HumanLine {
                 enabled: false,
                 what: format!("{title} is {state}. {}", row.sentence),
-                hint: row.next.map(str::to_owned),
+                hint: row.next_line.or(row.next).map(str::to_owned),
             }
         })
         .collect()
@@ -554,10 +660,12 @@ mod tests {
                 "items": spec.items.iter().map(|item| item.name()).collect::<Vec<_>>(),
                 "requiresPaidPlan": spec.requires_paid_plan,
             })).collect::<Vec<_>>(),
-            "reasons": ROWS.iter().map(|row| json!({
-                "item": row.item.name(), "reason": row.code,
-                "sentence": row.sentence, "next": row.next,
-            })).collect::<Vec<_>>(),
+            "reasons": ROWS.iter().map(|row| {
+                let mut value = json!({"item": row.item.name(), "reason": row.code,
+                    "sentence": row.sentence, "next": row.next});
+                if let Some(line) = row.next_line { value["nextLine"] = json!(line); }
+                value
+            }).collect::<Vec<_>>(),
         });
         let fixture: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/firestore_readiness/table.json"

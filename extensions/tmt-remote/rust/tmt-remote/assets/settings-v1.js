@@ -965,6 +965,7 @@ var firestoreItems = {
 	project: "Project",
 	"sign-in": "Sign-in",
 	rules: "Rules",
+	indexes: "Firestore indexes",
 	"plan-tier": "Firebase plan",
 	quota: "Free-plan quota",
 	support: "Availability in this release"
@@ -985,6 +986,23 @@ var firestoreReasons = {
 		"out-of-date": ["Firestore rules are out of date.", true],
 		partial: ["Firestore rules are only partly deployed.", true],
 		"not-checked": ["Firestore rules have not been checked.", false]
+	},
+	indexes: {
+		building: [
+			"Firestore indexes are still building.",
+			true,
+			"Wait a few minutes, then run tmt remote deploy firestore."
+		],
+		"not-ready": [
+			"Firestore indexes have not been verified as ready.",
+			true,
+			"Run tmt remote deploy firestore."
+		],
+		"not-checked": [
+			"Firestore index readiness has not been checked.",
+			true,
+			"Run tmt remote deploy firestore."
+		]
 	},
 	"plan-tier": {
 		"paid-plan-required": ["This needs a paid Firebase plan.", false],
@@ -1089,8 +1107,9 @@ function renderFirestore(target, access, view) {
 				row.append(node("span", `${firestoreItems[item.item]}: `), mark(item.state));
 				if (item.reason) row.append(node("p", firestoreReasons[item.item][item.reason][0]));
 				if (item.next) {
-					const hint = node("p", "Next command on the machine that runs Remote: ");
-					hint.append(command(item.next));
+					const nextLine = firestoreReasons[item.item][item.reason][2];
+					const hint = node("p", nextLine ?? "Next command on the machine that runs Remote: ");
+					if (!nextLine) hint.append(command(item.next));
 					row.append(hint);
 				}
 				list.append(row);

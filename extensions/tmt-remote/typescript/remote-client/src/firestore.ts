@@ -20,13 +20,14 @@ export const firestoreItems: Record<string, string> = {
   project: 'Project',
   'sign-in': 'Sign-in',
   rules: 'Rules',
+  indexes: 'Firestore indexes',
   'plan-tier': 'Firebase plan',
   quota: 'Free-plan quota',
   support: 'Availability in this release',
 };
 const deploy = 'tmt remote deploy firestore';
 // Reason vocabulary follows readiness::ROWS; copy is fixed, never provider text.
-export const firestoreReasons: Record<string, Record<string, [string, boolean]>> = {
+export const firestoreReasons: Record<string, Record<string, [string, boolean, string?]>> = {
   project: {
     'not-configured': ['No Firebase project is set up.', true],
     'access-lost': ['tmt can no longer reach the Firebase project.', true],
@@ -43,6 +44,23 @@ export const firestoreReasons: Record<string, Record<string, [string, boolean]>>
     partial: ['Firestore rules are only partly deployed.', true],
     'not-checked': ['Firestore rules have not been checked.', false],
   },
+  indexes: {
+    building: [
+      'Firestore indexes are still building.',
+      true,
+      'Wait a few minutes, then run tmt remote deploy firestore.',
+    ],
+    'not-ready': [
+      'Firestore indexes have not been verified as ready.',
+      true,
+      'Run tmt remote deploy firestore.',
+    ],
+    'not-checked': [
+      'Firestore index readiness has not been checked.',
+      true,
+      'Run tmt remote deploy firestore.',
+    ],
+  },
   'plan-tier': {
     'paid-plan-required': ['This needs a paid Firebase plan.', false],
     'not-checked': ['The Firebase plan has not been checked.', false],
@@ -55,7 +73,7 @@ export const firestoreReasons: Record<string, Record<string, [string, boolean]>>
   support: { 'not-implemented': ["This isn't available in this release yet.", false] },
 };
 export const firestoreSpecs = [
-  ['sharing', ['project', 'sign-in', 'rules', 'plan-tier', 'quota']],
+  ['sharing', ['project', 'sign-in', 'rules', 'indexes', 'plan-tier', 'quota']],
   ['operations', ['plan-tier', 'support']],
   ['attachments', ['support', 'project', 'rules', 'quota']],
 ] as const;
