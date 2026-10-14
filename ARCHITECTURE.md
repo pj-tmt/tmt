@@ -1,8 +1,8 @@
 # Architecture
 
-The shipped CLI runtime is the Rust workspace in `rust/`. The nested `typescript` pnpm workspace owns Vitest, fixture
+The CLI runtime is the Rust workspace in `rust/`. The `typescript` pnpm workspace owns Vitest, fixture
 and release-verification tooling; the repository root has no Node package.
-Contributors run Cargo and the nested pnpm scripts directly. The pnpm workspace is not a second CLI runtime, npm product or source-install fallback. A native source checkout selects
+Contributors run Cargo and pnpm scripts directly. The pnpm workspace is not a second CLI runtime, npm product or source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
 native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
