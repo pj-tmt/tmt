@@ -4028,7 +4028,14 @@ pub(crate) mod tests {
 
         app.perform(&Action::parse("annotate").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
-        press(&mut app, KeyCode::Char('1'));
+        let selected = app.workspace.selected.clone();
+        assert_eq!(press(&mut app, KeyCode::Char('1')), Effect::None);
+        assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Overview);
+        assert!(app.menu.is_none() && app.input.is_none());
+        assert_eq!(app.workspace.selected, selected);
+        press(&mut app, KeyCode::Char('2'));
+        app.perform(&Action::parse("annotate").unwrap());
+        press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
@@ -4052,7 +4059,8 @@ pub(crate) mod tests {
         let menu = app.menu.as_ref().expect("picker");
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
-        press(&mut app, KeyCode::Char('2'));
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Enter);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
             "→ auth-fix (product) · answer"
