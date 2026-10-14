@@ -220,11 +220,16 @@ grant-revision changes, offline recovery and detached grace expiry. Each trigger
 same tab reading a new source, delivering one explicit Ask and showing its matching reply,
 without reload or duplicate dispatch/wake. The capacity case evicts only a detached SDK session,
 keeps attached pages usable and verifies a new tab's shipped refusal. Revoke ends access with
-zero new effects; there is no unpair case because no public unpair action ships. Socket closure
-is observed before the grace-duration wait; `idle-tab.spec.ts` separately pins attached keepalive.
+zero new effects; there is no unpair case because no public unpair action ships. For Colab
+restart, the browser observes Reconnecting before replacement startup, then Live
+before the next write; mounted stdout alone is not catch-up readiness. The case holds real
+replacement frames to prove that distinction, and explicit Enter waits for the enabled Send
+control. Socket closure is observed before the grace-duration wait; `idle-tab.spec.ts` separately
+pins attached keepalive.
 Chromium's offline emulation leaves established WebSockets open. Only the two offline cases
 therefore pair it with a routed cut of both socket sides; online frames pass through unchanged
-from the real server. Other triggers use direct sockets.
+from the real server. The Colab restart separately holds replacement catch-up frames; all other
+triggers use direct sockets.
 
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained
